@@ -6,7 +6,7 @@ vendor-neutral model, shows how everything is wired (ports, cables, VLANs), and 
 devices agree with each other: one DHCP server per network, the same Wi-Fi settings on every
 access point, every VLAN carried on every link it needs.
 
-**Status:** design phase. There is no code yet. The plan is in [docs/DESIGN.md](docs/DESIGN.md).
+**Status:** in development, nothing to install yet. The plan is in [docs/DESIGN.md](docs/DESIGN.md), progress in the [issues](https://github.com/PhilippMundhenk/signalbox/issues).
 
 ## Planned device support
 
