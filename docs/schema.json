@@ -1,0 +1,1656 @@
+{
+  "$defs": {
+    "Band": {
+      "enum": [
+        "2.4",
+        "5",
+        "6"
+      ],
+      "title": "Band",
+      "type": "string"
+    },
+    "Client": {
+      "additionalProperties": false,
+      "properties": {
+        "addresses": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Addresses",
+          "type": "array"
+        },
+        "hostname": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hostname"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "last_seen": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Seen"
+        },
+        "mac": {
+          "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+          "title": "Mac",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "seen_on": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seen On"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Id"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "mac"
+      ],
+      "title": "Client",
+      "type": "object"
+    },
+    "Device": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "firmware": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Firmware"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "management_address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Management Address"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "role": {
+          "$ref": "#/$defs/DeviceRole"
+        },
+        "site_id": {
+          "title": "Site Id",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vendor"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "site_id",
+        "name",
+        "role",
+        "adapter"
+      ],
+      "title": "Device",
+      "type": "object"
+    },
+    "DeviceRole": {
+      "enum": [
+        "gateway",
+        "switch",
+        "ap",
+        "other"
+      ],
+      "title": "DeviceRole",
+      "type": "string"
+    },
+    "DeviceStatus": {
+      "enum": [
+        "ok",
+        "partial",
+        "unreachable",
+        "auth-failed",
+        "untrusted-certificate"
+      ],
+      "title": "DeviceStatus",
+      "type": "string"
+    },
+    "DhcpPool": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            }
+          ],
+          "title": "End"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            }
+          ],
+          "title": "Start"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "DhcpPool",
+      "type": "object"
+    },
+    "DhcpServer": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "dns_servers": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Dns Servers",
+          "type": "array"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lease Seconds"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "pools": {
+          "items": {
+            "$ref": "#/$defs/DhcpPool"
+          },
+          "title": "Pools",
+          "type": "array"
+        },
+        "reservations": {
+          "items": {
+            "$ref": "#/$defs/Reservation"
+          },
+          "title": "Reservations",
+          "type": "array"
+        },
+        "router": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Router"
+        },
+        "segment_id": {
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "segment_id",
+        "enabled"
+      ],
+      "title": "DhcpServer",
+      "type": "object"
+    },
+    "DnsService": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "forwarders": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Forwarders",
+          "type": "array"
+        },
+        "host_records": {
+          "items": {
+            "$ref": "#/$defs/HostRecord"
+          },
+          "title": "Host Records",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "listen": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Listen",
+          "type": "array"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id"
+      ],
+      "title": "DnsService",
+      "type": "object"
+    },
+    "Firmware": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Available"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current"
+        },
+        "end_of_life": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Of Life"
+        }
+      },
+      "title": "Firmware",
+      "type": "object"
+    },
+    "HostRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            }
+          ],
+          "title": "Address"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "address"
+      ],
+      "title": "HostRecord",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "Link": {
+      "additionalProperties": false,
+      "properties": {
+        "a": {
+          "title": "A",
+          "type": "string"
+        },
+        "b": {
+          "title": "B",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/LinkKind",
+          "default": "cable"
+        },
+        "origin": {
+          "$ref": "#/$defs/LinkOrigin"
+        }
+      },
+      "required": [
+        "id",
+        "a",
+        "b",
+        "origin"
+      ],
+      "title": "Link",
+      "type": "object"
+    },
+    "LinkKind": {
+      "enum": [
+        "cable",
+        "wireless"
+      ],
+      "title": "LinkKind",
+      "type": "string"
+    },
+    "LinkOrigin": {
+      "enum": [
+        "lldp",
+        "mac",
+        "manual"
+      ],
+      "title": "LinkOrigin",
+      "type": "string"
+    },
+    "Membership": {
+      "enum": [
+        "untagged",
+        "tagged"
+      ],
+      "title": "Membership",
+      "type": "string"
+    },
+    "Neighbour": {
+      "additionalProperties": false,
+      "description": "A device seen on a port by LLDP (or a similar protocol).",
+      "properties": {
+        "chassis_id": {
+          "title": "Chassis Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "local_port_id": {
+          "title": "Local Port Id",
+          "type": "string"
+        },
+        "management_address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Management Address"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "remote_port": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remote Port"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "system_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "System Name"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "local_port_id",
+        "chassis_id"
+      ],
+      "title": "Neighbour",
+      "type": "object"
+    },
+    "Network": {
+      "additionalProperties": false,
+      "description": "The merged view of all sites: what rules, topology and UI work on.",
+      "properties": {
+        "clients": {
+          "items": {
+            "$ref": "#/$defs/Client"
+          },
+          "title": "Clients",
+          "type": "array"
+        },
+        "devices": {
+          "items": {
+            "$ref": "#/$defs/Device"
+          },
+          "title": "Devices",
+          "type": "array"
+        },
+        "dhcp_servers": {
+          "items": {
+            "$ref": "#/$defs/DhcpServer"
+          },
+          "title": "Dhcp Servers",
+          "type": "array"
+        },
+        "dns_services": {
+          "items": {
+            "$ref": "#/$defs/DnsService"
+          },
+          "title": "Dns Services",
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/ReadError"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "links": {
+          "items": {
+            "$ref": "#/$defs/Link"
+          },
+          "title": "Links",
+          "type": "array"
+        },
+        "neighbours": {
+          "items": {
+            "$ref": "#/$defs/Neighbour"
+          },
+          "title": "Neighbours",
+          "type": "array"
+        },
+        "ports": {
+          "items": {
+            "$ref": "#/$defs/Port"
+          },
+          "title": "Ports",
+          "type": "array"
+        },
+        "radios": {
+          "items": {
+            "$ref": "#/$defs/Radio"
+          },
+          "title": "Radios",
+          "type": "array"
+        },
+        "segments": {
+          "items": {
+            "$ref": "#/$defs/Segment"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "sites": {
+          "items": {
+            "$ref": "#/$defs/Site"
+          },
+          "title": "Sites",
+          "type": "array"
+        },
+        "statuses": {
+          "additionalProperties": {
+            "$ref": "#/$defs/DeviceStatus"
+          },
+          "title": "Statuses",
+          "type": "object"
+        },
+        "subnets": {
+          "items": {
+            "$ref": "#/$defs/Subnet"
+          },
+          "title": "Subnets",
+          "type": "array"
+        },
+        "wlans": {
+          "items": {
+            "$ref": "#/$defs/Wlan"
+          },
+          "title": "Wlans",
+          "type": "array"
+        }
+      },
+      "title": "Network",
+      "type": "object"
+    },
+    "Pmf": {
+      "enum": [
+        "disabled",
+        "optional",
+        "required"
+      ],
+      "title": "Pmf",
+      "type": "string"
+    },
+    "Port": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "full_duplex": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Full Duplex"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/PortKind",
+          "default": "ethernet"
+        },
+        "lag": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lag"
+        },
+        "mac": {
+          "anyOf": [
+            {
+              "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mac"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "poe": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Poe"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "speed_mbps": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speed Mbps"
+        },
+        "up": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Up"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "name"
+      ],
+      "title": "Port",
+      "type": "object"
+    },
+    "PortKind": {
+      "enum": [
+        "ethernet",
+        "wireless",
+        "bridge",
+        "lag",
+        "virtual"
+      ],
+      "title": "PortKind",
+      "type": "string"
+    },
+    "PortMembership": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/Membership"
+        },
+        "port_id": {
+          "title": "Port Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "port_id",
+        "mode"
+      ],
+      "title": "PortMembership",
+      "type": "object"
+    },
+    "Radio": {
+      "additionalProperties": false,
+      "properties": {
+        "band": {
+          "$ref": "#/$defs/Band"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel"
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Country"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tx_power_dbm": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tx Power Dbm"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        },
+        "width_mhz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width Mhz"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "name",
+        "band"
+      ],
+      "title": "Radio",
+      "type": "object"
+    },
+    "ReadError": {
+      "additionalProperties": false,
+      "description": "A capability that was declared but could not be read: becomes an \"incomplete\" finding.",
+      "properties": {
+        "capability": {
+          "title": "Capability",
+          "type": "string"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id",
+        "capability",
+        "message"
+      ],
+      "title": "ReadError",
+      "type": "object"
+    },
+    "Reservation": {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            }
+          ],
+          "title": "Address"
+        },
+        "hostname": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hostname"
+        },
+        "mac": {
+          "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+          "title": "Mac",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mac",
+        "address"
+      ],
+      "title": "Reservation",
+      "type": "object"
+    },
+    "Security": {
+      "enum": [
+        "open",
+        "owe",
+        "wpa2-psk",
+        "wpa3-sae",
+        "wpa2-wpa3",
+        "wpa2-enterprise",
+        "wpa3-enterprise",
+        "other"
+      ],
+      "title": "Security",
+      "type": "string"
+    },
+    "Segment": {
+      "additionalProperties": false,
+      "description": "A layer-2 network (VLAN) of a site.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/PortMembership"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "site_id": {
+          "title": "Site Id",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        },
+        "vlan": {
+          "anyOf": [
+            {
+              "maximum": 4094,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vlan"
+        }
+      },
+      "required": [
+        "id",
+        "site_id"
+      ],
+      "title": "Segment",
+      "type": "object"
+    },
+    "Site": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "Site",
+      "type": "object"
+    },
+    "Snapshot": {
+      "additionalProperties": false,
+      "description": "Everything one adapter observed on one device at one time.",
+      "properties": {
+        "clients": {
+          "items": {
+            "$ref": "#/$defs/Client"
+          },
+          "title": "Clients",
+          "type": "array"
+        },
+        "device": {
+          "$ref": "#/$defs/Device"
+        },
+        "dhcp_servers": {
+          "items": {
+            "$ref": "#/$defs/DhcpServer"
+          },
+          "title": "Dhcp Servers",
+          "type": "array"
+        },
+        "dns_services": {
+          "items": {
+            "$ref": "#/$defs/DnsService"
+          },
+          "title": "Dns Services",
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/ReadError"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "neighbours": {
+          "items": {
+            "$ref": "#/$defs/Neighbour"
+          },
+          "title": "Neighbours",
+          "type": "array"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "ports": {
+          "items": {
+            "$ref": "#/$defs/Port"
+          },
+          "title": "Ports",
+          "type": "array"
+        },
+        "radios": {
+          "items": {
+            "$ref": "#/$defs/Radio"
+          },
+          "title": "Radios",
+          "type": "array"
+        },
+        "segments": {
+          "items": {
+            "$ref": "#/$defs/Segment"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/DeviceStatus",
+          "default": "ok"
+        },
+        "subnets": {
+          "items": {
+            "$ref": "#/$defs/Subnet"
+          },
+          "title": "Subnets",
+          "type": "array"
+        },
+        "wlans": {
+          "items": {
+            "$ref": "#/$defs/Wlan"
+          },
+          "title": "Wlans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "device",
+        "observed_at"
+      ],
+      "title": "Snapshot",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "description": "Where an observed object came from.",
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adapter",
+        "device_id"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "Subnet": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "gateway": {
+          "default": false,
+          "title": "Gateway",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "format": "ipv4interface",
+              "type": "string"
+            },
+            {
+              "format": "ipv6interface",
+              "type": "string"
+            }
+          ],
+          "title": "Interface"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "segment_id": {
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "segment_id",
+        "interface",
+        "device_id"
+      ],
+      "title": "Subnet",
+      "type": "object"
+    },
+    "Wlan": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "hidden": {
+          "default": false,
+          "title": "Hidden",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "passphrase_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Passphrase Fingerprint"
+        },
+        "pmf": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Pmf"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "radio_id": {
+          "title": "Radio Id",
+          "type": "string"
+        },
+        "roaming_80211k": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roaming 80211K"
+        },
+        "roaming_80211r": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roaming 80211R"
+        },
+        "roaming_80211v": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roaming 80211V"
+        },
+        "security": {
+          "$ref": "#/$defs/Security"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Id"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ssid": {
+          "title": "Ssid",
+          "type": "string"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "ssid",
+        "radio_id",
+        "security"
+      ],
+      "title": "Wlan",
+      "type": "object"
+    }
+  },
+  "title": "Signalbox network model"
+}
