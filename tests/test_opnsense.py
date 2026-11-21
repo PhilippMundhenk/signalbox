@@ -79,7 +79,7 @@ def adapter(url: str, pin: str | None = None, timeout: float = 5.0, **cfg: Any) 
         url=url,
         api_key=SecretStr(cfg.pop("key", KEY)),
         api_secret=SecretStr(cfg.pop("secret", SECRET)),
-        insecure_http=url.startswith("http://"),
+        allow_insecure_http=url.startswith("http://"),
     )
     return OpnsenseAdapter(
         AdapterContext(
@@ -456,12 +456,12 @@ async def test_odd_data_is_tolerated(http_url: str, sim: OpnsenseSimulator) -> N
 def test_config_validation() -> None:
     def cfg(url: str, insecure: bool = False) -> OpnsenseConfig:
         return OpnsenseConfig(
-            url=url, api_key=SecretStr("k"), api_secret=SecretStr("s"), insecure_http=insecure
+            url=url, api_key=SecretStr("k"), api_secret=SecretStr("s"), allow_insecure_http=insecure
         )
 
     assert cfg("https://192.0.2.1:8443/").url == "https://192.0.2.1:8443"
-    assert cfg("http://192.0.2.1", insecure=True).insecure_http
-    with pytest.raises(ValidationError, match="insecure_http"):
+    assert cfg("http://192.0.2.1", insecure=True).allow_insecure_http
+    with pytest.raises(ValidationError, match="allow_insecure_http"):
         cfg("http://192.0.2.1")
     with pytest.raises(ValidationError, match="https://host"):
         cfg("ftp://192.0.2.1")
