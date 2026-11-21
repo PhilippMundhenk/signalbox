@@ -37,6 +37,7 @@ dev = [
 signalbox = "signalbox.__main__:main"
 
 [project.entry-points."signalbox.adapters"]
+openwrt = "signalbox.adapters.openwrt:OpenWrtAdapter"
 
 [project.entry-points."signalbox.rules"]
 builtin = "signalbox.rules.builtin:RULES"
