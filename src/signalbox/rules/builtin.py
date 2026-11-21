@@ -3,5 +3,6 @@
 from __future__ import annotations
 
 from signalbox.rules import Rule
+from signalbox.rules.vlan import RULES as VLAN_RULES
 
-RULES: list[Rule] = []
+RULES: list[Rule] = [*VLAN_RULES]
