@@ -19,3 +19,20 @@ def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--version"])
     assert exc.value.code == 0
     assert __version__ in capsys.readouterr().out
+
+
+def test_reset_password(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:  # type: ignore[no-untyped-def]
+    assert main(["--data", str(tmp_path), "reset-password"]) == 0
+    out = capsys.readouterr().out
+    assert "New web interface password:" in out
+    assert (tmp_path / "signalbox.sqlite").exists()
+
+
+def test_serve_runs_uvicorn(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+    import uvicorn
+
+    seen = {}
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: seen.update(kw))
+    monkeypatch.setenv("SIGNALBOX_AUTH_PASSWORD", "x" * 12)
+    assert main(["--data", str(tmp_path), "serve"]) == 0
+    assert seen["port"] == 8080 and seen["host"] == "0.0.0.0"
