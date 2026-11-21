@@ -8,3 +8,4 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 - Project setup: Python package, checks, policies, stack decision (#1)
+- CI: lint, mypy --strict, tests with the 95 % coverage gate on Python 3.11-3.13, secret scan, Dependabot (#2)
