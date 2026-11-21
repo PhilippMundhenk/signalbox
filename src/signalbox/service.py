@@ -54,4 +54,6 @@ def build(
 
 
 def _default_link_sources() -> list[LinkSource]:
-    return []
+    from signalbox.topology import discovered_links
+
+    return [discovered_links]

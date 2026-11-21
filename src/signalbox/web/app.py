@@ -400,6 +400,13 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
         runner.trigger()
         return {"started": True}
 
+    @api.get("/topology")
+    def topology() -> dict[str, Any]:
+        """Devices, ports, links with the VLANs at each end, and clients per port."""
+        from signalbox.topology import view
+
+        return view(runner.network())
+
     @api.get("/links")
     def links() -> list[Link]:
         """Manually entered links (cables)."""

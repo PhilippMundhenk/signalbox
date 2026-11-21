@@ -30,6 +30,7 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | GET | `/api/network` | The merged network model (passphrase fingerprints removed). |
 | GET | `/api/findings` | Current findings; `?resolved=true` includes resolved ones. |
 | POST | `/api/observe` | Read all devices now. |
+| GET | `/api/topology` | Devices, ports, links with the VLANs at each end, and clients per port. |
 | GET | `/api/links` | Manually entered links (cables). |
 | POST | `/api/links` | Add a link between two ports. |
 | DELETE | `/api/links/{link_id}` | Delete a link. |

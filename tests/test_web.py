@@ -315,3 +315,11 @@ def test_api_doc_is_current() -> None:
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert (root / "docs" / "API.md").read_text() == mod.render(), "run python tools/gen_api_doc.py"
+
+
+def test_topology_endpoint(logged_in: TestClient) -> None:
+    logged_in.post("/api/devices", json=device_body())
+    logged_in.post("/api/devices/main-gateway/test")
+    topo = logged_in.get("/api/topology").json()
+    assert [n["id"] for n in topo["nodes"]] == ["main-gateway"]
+    assert topo["edges"] == []
