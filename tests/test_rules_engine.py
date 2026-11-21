@@ -139,3 +139,13 @@ def test_builtin_rules_are_registered() -> None:
     from signalbox.rules.builtin import RULES
 
     assert load_rules() == sorted(RULES, key=lambda r: r.id)
+
+
+def test_every_builtin_rule_is_documented() -> None:
+    from pathlib import Path
+
+    from signalbox.rules.builtin import RULES
+
+    text = (Path(__file__).resolve().parent.parent / "docs" / "RULES.md").read_text()
+    missing = [r.id for r in RULES if f"### `{r.id}`" not in text]
+    assert not missing, f"document these rules in docs/RULES.md: {missing}"

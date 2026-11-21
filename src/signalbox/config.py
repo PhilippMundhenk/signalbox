@@ -50,10 +50,10 @@ class ObserveConfig(Section):
 class MqttConfig(Section):
     enabled: bool = Field(False, description="Publish findings and devices to Home Assistant.")
     host: str = Field("", description="MQTT broker host.")
-    port: int = Field(1883, ge=1, le=65535)
-    username: str = ""
-    password: SecretStr | None = None
-    tls: bool = False
+    port: int = Field(1883, ge=1, le=65535, description="MQTT broker port.")
+    username: str = Field("", description="MQTT user name, empty for none.")
+    password: SecretStr | None = Field(None, description="MQTT password.")
+    tls: bool = Field(False, description="Connect with TLS (and verify the certificate).")
     topic_prefix: str = Field("signalbox", description="Prefix of the state topics.")
     discovery_prefix: str = Field("homeassistant", description="Home Assistant discovery prefix.")
 
