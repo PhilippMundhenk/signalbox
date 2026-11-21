@@ -288,3 +288,38 @@ def test_failed_transaction_rolls_back(store: Store) -> None:
         db.execute("INSERT INTO settings (key, value) VALUES ('k', 'v')")
         raise RuntimeError("boom")
     assert store.get_setting("k") is None
+
+
+def test_reads_while_another_thread_writes(store: Store) -> None:
+    """The web threads read while the runner writes, all on one connection."""
+    import threading
+
+    errors: list[BaseException] = []
+    stop = threading.Event()
+
+    def write() -> None:
+        try:
+            for i in range(150):
+                store.put_device(rec(id=f"d{i % 5}"), {"url": "u", "password": "p"}, DevConfig)
+                store.set_pending_fingerprint(f"d{i % 5}", f"{i:064x}")
+        except BaseException as exc:  # pragma: no cover - only on failure
+            errors.append(exc)
+        finally:
+            stop.set()
+
+    def read() -> None:
+        try:
+            while not stop.is_set():
+                for d in store.devices():
+                    assert d.config == {"url": "u", "username": "signalbox"}
+                store.snapshots()
+                store.findings()
+        except BaseException as exc:  # pragma: no cover - only on failure
+            errors.append(exc)
+
+    threads = [threading.Thread(target=write), *(threading.Thread(target=read) for _ in range(3))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert errors == []
