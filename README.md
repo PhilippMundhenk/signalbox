@@ -17,6 +17,19 @@ The adapters are tested against built-in simulators of the device APIs, not yet 
 devices: see [docs/MATURITY.md](docs/MATURITY.md), and please report what you find in
 [#21](https://github.com/PhilippMundhenk/signalbox/issues/21).
 
+## How it works
+
+Signalbox is made of separate parts with narrow jobs (details in [docs/DESIGN.md](docs/DESIGN.md#components)):
+
+- **Network model**: one vendor-neutral description of sites, devices, ports, VLANs, subnets,
+  DHCP, DNS, Wi-Fi and clients.
+- **Integrations**: one adapter per kind of device translates between the device and the model.
+- **Checks**: rules run on the model and report findings with a fix; they never change anything.
+- **Topology**: how devices are wired, from LLDP, MAC tables and cables you enter.
+- **Changes** (planned): a desired state, a planner that turns it into ordered changes, a
+  transactional deployment into the devices with backup, verification and automatic rollback,
+  and a change log from which every change can be reverted.
+
 ## Which devices
 
 | Device | How Signalbox reads it | What it reads |
@@ -25,6 +38,8 @@ devices: see [docs/MATURITY.md](docs/MATURITY.md), and please report what you fi
 | OpenWrt (access points, routers) | ubus JSON-RPC over HTTPS with a read-only rpcd user | ports, DSA bridge VLANs, Wi-Fi radios and SSIDs, DHCP, connected clients, LLDP |
 | NETGEAR ProSAFE Plus switches | planned, building on [Switchyard](https://github.com/PhilippMundhenk/switchyard) | |
 | AVM Fritz!Box | planned (TR-064) | |
+| MikroTik (RouterOS) | planned (REST API) | |
+| TP-Link (Omada controller, Easy Smart switches) | planned | |
 
 Adapters are plugins: other devices can be added as separate packages, see
 [docs/ADAPTERS.md](docs/ADAPTERS.md).

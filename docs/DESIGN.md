@@ -1,6 +1,7 @@
 # Signalbox design
 
-This is the starting design. Nothing here is final; decisions are recorded as they are made.
+This is the design. Decisions are recorded in [adr/](adr/) as they are made; the status of each
+component links to its issue.
 
 ## Goal
 
@@ -13,6 +14,53 @@ A self-hosted controller for small office and home networks that:
 
 Reading and checking come first. "Tell me what is wrong with my network" is useful long before
 "configure my network", and it is safe.
+
+## Components
+
+Signalbox is built from separate components with narrow contracts. Data flows in one direction:
+devices → integrations → model → checks / topology → people, and for changes
+desired state → planner → deployment → devices, with every step tracked.
+
+```
+              read                                                    write (phase 3)
+ devices ──────────────▶ integrations ──▶ network model ◀── desired state ──▶ planner
+ (OPNsense, OpenWrt,     (adapters,       (observed)          (YAML intent)     │ change set,
+  ProSAFE, Fritz!Box,     one per kind)        │                                │ predicted state
+  MikroTik, TP-Link)                           ▼                                ▼
+       ▲                              checks (rules), topology          review & approval
+       │                                       │                                │
+       │                                       ▼                                ▼
+       └────────── transactional deployment ◀──────────────────────────────── plan
+                   (lock, backup, apply, verify, commit or roll back)
+                                │
+                                ▼
+                   change tracking (change log, audit) ──▶ rollback (revert, restore)
+```
+
+| Component | Code | Job | In | Out | Status |
+| --- | --- | --- | --- | --- | --- |
+| **Network model** | `signalbox.model`, `signalbox.merge` | the one vendor-neutral language every other component speaks | – | typed objects, JSON Schema ([schema.json](schema.json)) | done (#3) |
+| **Integrations** (adapters) | `signalbox.adapters.<id>` | map one kind of device to the model and back; nothing vendor-specific leaves an adapter | device API | `Snapshot` (read); vendor calls for a change set (write) | read: OPNsense (#9), OpenWrt (#10); write: #41, #42; more: #22, #24, #43, #44 |
+| **Adapter API** | `signalbox.adapters` | the contract integrations implement: manifest, capabilities, errors, contract tests | – | – | done (#4) |
+| **Inventory** | `signalbox.store`, `signalbox.config`, `signalbox.secrets` | sites, devices, cables, credentials (encrypted), certificate pins | UI/API | records | done (#11) |
+| **Observation** | `signalbox.runner` | read every device on an interval, merge into one network | inventory, integrations | `Network`, findings history | done (#12) |
+| **Checks** (rules) | `signalbox.rules.*` | find inconsistencies, explain them, suggest a fix; never change anything | `Network` | findings | done (#5–#8, #15) |
+| **Topology** | `signalbox.topology` | links from LLDP, MAC tables and entered cables; the wiring and VLAN view | `Network` | links, topology view | done (#15) |
+| **Desired state** | `signalbox.desired` | what the network should look like; drift against the observed state | YAML, UI | desired model, drift findings | phase 2 (#36) |
+| **Planner** | `signalbox.changes` | desired minus observed → typed change set per device, ordered; checks run on the predicted state | desired + observed state | plan | phase 3 (#37) |
+| **Deployment** | `signalbox.deploy` | apply an approved plan as one transaction across devices | plan, approval | per-device result | phase 3 (#38) |
+| **Change tracking** | `signalbox.history` | immutable record of every change: who, why, plan, vendor calls, backups, results | deployments | change log, audit | phase 3 (#39) |
+| **Rollback** | `signalbox.deploy`, `signalbox.history` | automatic inside a deployment; revert of a recorded change; restore of a backup | change log | new tracked deployment | phase 3 (#40) |
+| **Interfaces** | `signalbox.web`, `signalbox.mqtt` | web UI and API, Home Assistant export | everything above | – | API #13, UI #14, MQTT #16 |
+
+Rules for the boundaries:
+
+- Only integrations know vendors. The model, checks, planner, deployment and UI never branch on
+  a vendor; vendor details reach the UI only through `vendor_extra` on a device's advanced tab.
+- Checks are pure functions of the model. They run the same way on the observed state, the
+  desired state and the predicted state of a plan.
+- Nothing writes to a device except the deployment component, and only with an approved plan.
+- Every write is a tracked change that can be rolled back.
 
 ## Three layers
 
@@ -104,23 +152,55 @@ never a silent skip.
 
 Planned adapters: OPNsense (REST API), OpenWrt (ubus/rpcd or SSH and UCI), NETGEAR ProSAFE Plus
 switches (NSDP, building on [Switchyard](https://github.com/PhilippMundhenk/switchyard)),
-AVM Fritz!Box (TR-064). Later: UniFi, Omada, MikroTik, pfSense.
+AVM Fritz!Box (TR-064), MikroTik (RouterOS REST API, #43), TP-Link (Omada controller and Easy
+Smart switches, #44). Later: UniFi, pfSense.
 
 ## Changing configuration
 
-Plan → review → apply → verify → keep or roll back:
+Phase 3. Components: planner (#37), deployment (#38), change tracking (#39), rollback (#40),
+write capabilities of the integrations (#41, #42). Writes are off by default and enabled per site
+and per adapter; every deployment is approved by a person.
 
-1. Edit the desired state (UI or YAML).
-2. **Plan**: diff desired against observed per device, ordered by dependency (gateway VLAN and
-   subnet before trunks before access point SSIDs), and run the rules on the resulting state
-   before anything is touched.
-3. **Review**: a person approves, seeing the exact vendor calls. Read-only by default; writing is
-   enabled per site and per adapter.
-4. **Apply**, with a per-device backup first (for example OPNsense `config.xml`, OpenWrt UCI
-   export).
-5. **Verify** by observing again and re-running the rules; roll back automatically if a device
-   becomes unreachable (confirm-or-revert timer).
-6. An audit log records who changed what and why.
+### Plan
+
+1. Edit the desired state (UI or YAML, #36).
+2. The planner computes a **change set**: typed, vendor-neutral operations (`CreateSegment`,
+   `SetPortMembership`, `SetWlan`, `SetDhcpPool`, ...), each with the old and the new value.
+3. The change set is split per device and **ordered by dependency**: gateway VLAN and subnet
+   before trunks before access ports and SSIDs; deletions in reverse order. No step may cut off
+   the path to a later device or to Signalbox itself.
+4. The checks run on the **predicted state** (observed state with the change set applied). A plan
+   that would create an error finding is refused unless explicitly overridden.
+5. Each integration translates its part into the exact vendor calls, shown in the review.
+
+### Deploy (one transaction)
+
+Per device, in plan order:
+
+1. **Lock** the device and observe it again; if it changed since the plan was made, stop.
+2. **Backup**: full configuration export, stored with the change record.
+3. **Stage and apply** with the device's own transaction mechanism where it has one (OpenWrt: UCI
+   staging and `apply` with a rollback timer; OPNsense: module apply, revert to the saved
+   configuration revision on failure).
+4. **Verify**: observe again, compare every changed field, check reachability, run the checks.
+5. **Commit** (confirm the timer) or **roll back** this device.
+
+Across devices: if a device fails, the devices already changed in this deployment are rolled
+back in reverse order, so the network ends where it started. The result states per device what
+happened; a partial success is never silent.
+
+### Track
+
+Every deployment is an immutable change record: who, when, why, the desired-state version, the
+plan, the vendor calls, the backups, the per-device results, the observed state before and after.
+Findings link to the change after which they first appeared.
+
+### Roll back
+
+- **Automatic**, inside a deployment (above).
+- **Revert a change**: the inverse change set of a recorded change becomes a new plan, is
+  checked on its predicted state and deployed as a new, tracked transaction.
+- **Restore a backup**: last resort per device, with a warning that later changes are lost.
 
 ## User interface
 
@@ -146,18 +226,21 @@ Plan → review → apply → verify → keep or roll back:
 
 ## Phases
 
-1. **Observe and check** (read-only): OPNsense and OpenWrt adapters, the model, the rule engine
-   with DHCP, Wi-Fi and VLAN rules, findings UI, Home Assistant export.
-2. ProSAFE Plus switches, topology view with wiring and VLANs, firmware hygiene, desired state
-   with drift.
-3. **Writes** for Wi-Fi and VLANs on OpenWrt and OPNsense, with plan, review, backup, verify and
-   rollback. Fritz!Box adapter.
-4. More adapters, out-of-process adapter runtime, rule plugins.
+1. **Observe and check** (read-only): model, integrations for OPNsense and OpenWrt, inventory,
+   observation, checks (DHCP, addressing, Wi-Fi, VLANs, topology), topology view, web UI, Home
+   Assistant export. Issues #1–#20.
+2. **Desired state**: ProSAFE Plus switches (#22), desired state and drift (#36), firmware
+   hygiene.
+3. **Changes**: planner (#37), transactional deployment (#38), change tracking (#39), rollback
+   (#40), write capabilities for OpenWrt (#41) and OPNsense (#42), Fritz!Box (#24). Overview #23.
+4. **More integrations**: MikroTik (#43), TP-Link Omada and Easy Smart (#44), UniFi, pfSense;
+   out-of-process adapters, rule plugins. Overview #25.
 
 ## Open questions
 
-- Python (fits the existing libraries, such as `fritzconnection`, and Switchyard) or Go (single
-  static binary)?
+Decided: Python ([ADR 0001](adr/0001-python-fastapi-pydantic.md)); components and the change
+transaction ([ADR 0002](adr/0002-components-and-change-transactions.md)).
+
 - How much of the desired state lives in git files and how much in the database?
 - A separate app with a Home Assistant integration, or a Home Assistant add-on?
 - Can an existing project (OpenWISP, NetBox) serve as a base or a data source?
