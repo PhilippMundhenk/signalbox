@@ -161,9 +161,12 @@ async def test_failed_capability_is_partial_with_error() -> None:
 )
 async def test_system_failures_set_status(exc: BaseException, status: DeviceStatus) -> None:
     Fake.fail = {"system": exc}
-    snap = await Fake(ctx()).observe()
+    adapter = Fake(ctx())
+    snap = await adapter.observe()
     assert snap.status is status
     assert snap.errors[0].capability == "system" and not snap.ports
+    if status is DeviceStatus.UNTRUSTED:
+        assert adapter.presented_fingerprint == "ab" * 32
 
 
 def test_untrusted_certificate_message() -> None:

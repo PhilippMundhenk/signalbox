@@ -202,6 +202,10 @@ def _stamp(obj: Observed, source: Source, when: datetime) -> Observed:
 class Adapter(ABC):
     manifest: ClassVar[Manifest]
 
+    #: Fingerprint of the certificate the device presented when it was refused as untrusted,
+    #: so the user can be asked to trust it.
+    presented_fingerprint: str | None = None
+
     def __init__(self, context: AdapterContext) -> None:
         if not isinstance(context.config, self.manifest.config):
             raise AdapterContractError(
@@ -237,6 +241,7 @@ class Adapter(ABC):
         try:
             info = await self._call(self.read_system)
         except UntrustedCertificate as exc:
+            self.presented_fingerprint = exc.fingerprint
             status, errors = DeviceStatus.UNTRUSTED, [self._error("system", exc)]
         except AuthFailed as exc:
             status, errors = DeviceStatus.AUTH_FAILED, [self._error("system", exc)]

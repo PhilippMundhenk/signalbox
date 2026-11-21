@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 from signalbox.adapters import AdapterConfig
 from signalbox.model import DeviceRole, Link, Site, Snapshot
 from signalbox.rules import Finding
-from signalbox.secrets import Vault
+from signalbox.secrets import SecretError, Vault
 
 SCHEMA = [
     # version 1
@@ -101,6 +101,14 @@ def _secret_fields(cls: type[AdapterConfig]) -> set[str]:
     return out
 
 
+def _validate(cls: type[AdapterConfig], values: dict[str, Any]) -> AdapterConfig:
+    try:
+        return cls.model_validate(values)
+    except ValidationError as exc:
+        msg = "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors())
+        raise StoreError(msg) from exc
+
+
 class Store:
     def __init__(self, path: Path, vault: Vault) -> None:
         self.path = path
@@ -179,7 +187,10 @@ class Store:
     # devices ----------------------------------------------------------------------------
 
     def _record(self, row: sqlite3.Row) -> DeviceRecord:
-        secrets = json.loads(self.vault.decrypt(row["secrets"])) if row["secrets"] else {}
+        try:
+            secrets = json.loads(self.vault.decrypt(row["secrets"])) if row["secrets"] else {}
+        except SecretError:
+            secrets = {}  # shown as "not set"; reading the device reports the reason
         return DeviceRecord(
             id=row["id"],
             site_id=row["site_id"],
@@ -223,11 +234,7 @@ class Store:
         for name in secret_names:
             if name not in merged and name in old_secrets:
                 merged[name] = old_secrets[name]
-        try:
-            cfg = config_cls.model_validate(merged)
-        except ValidationError as exc:
-            msg = "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors())
-            raise StoreError(msg) from exc
+        cfg = _validate(config_cls, merged)
         plain = cfg.model_dump(mode="json", exclude=secret_names)
         secrets = {
             name: value.get_secret_value()
@@ -268,7 +275,7 @@ class Store:
         values = json.loads(row["config"])
         if row["secrets"]:
             values.update(json.loads(self.vault.decrypt(row["secrets"])))
-        return config_cls.model_validate(values)
+        return _validate(config_cls, values)
 
     def delete_device(self, device_id: str) -> None:
         with self._tx() as db:
