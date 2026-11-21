@@ -1,3 +1,5 @@
+<img src="docs/assets/icon.svg" alt="" width="96" align="right">
+
 # Signalbox
 
 One place to see and configure every device in a small office or home network: router,

@@ -59,6 +59,9 @@ extend-exclude = [".claude"]
 target-version = "py311"
 src = ["src", "tests"]
 
+[tool.ruff.lint.per-file-ignores]
+"tools/make_icons.py" = ["E501"]
+
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RUF"]
 ignore = ["RUF012"]
