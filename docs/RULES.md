@@ -126,3 +126,50 @@ incomplete, never as errors.
 - **Fix:** change the reservation or fixed address of one of the devices.
 
 <!-- end of DHCP and addressing rules -->
+
+<!-- Wi-Fi rules (src/signalbox/rules/wireless.py) -->
+
+## Wi-Fi
+
+### `wifi.ssid-consistent`
+
+- **Severity:** error for security mode, passphrase and network (VLAN); warning for protected
+  management frames (PMF), hidden setting and the roaming settings 802.11r, k and v
+- **Checks:** a Wi-Fi network (SSID) broadcast by several access points of one site has the same
+  settings on all of them. One finding per differing setting names the value per access point;
+  passphrases are compared only by a fingerprint and the finding says just "passphrase differs"
+  and which access points belong together. Settings a device did not report are not compared.
+  The same SSID at different sites is checked per site (networks are per site).
+- **Fix:** set the same value for that setting on every access point.
+
+### `wifi.country`
+
+- **Severity:** warning
+- **Checks:** every enabled radio has a country code, and all radios of a site use the same one
+  (compared case-insensitively).
+- **Fix:** set the country code of the country the site is in on every radio.
+
+### `wifi.channel-overlap`
+
+- **Severity:** warning
+- **Checks:** two enabled radios on different access points of the same site and band do not
+  use overlapping channels. Signalbox does not know which access points hear each other, so
+  every pair at a site counts as neighbours.
+  - 2.4 GHz: channels overlap if they are less than 5 apart (1, 6 and 11 do not overlap); the
+    channel width is ignored.
+  - 5 and 6 GHz: a radio occupies the aligned block of 20 MHz channels of its width (20 MHz if
+    not reported) in the standard channel plan (5 GHz blocks start at 36 and at 149, 6 GHz at
+    1); radios overlap if their blocks share a 20 MHz channel. For example 36 at 80 MHz
+    occupies 36-48 and overlaps 44 at 20 MHz but not 52 at 80 MHz.
+- **Fix:** move one access point to a channel that does not overlap, or use a narrower width.
+
+### `wifi.segment-at-gateway`
+
+- **Severity:** error
+- **Checks:** a Wi-Fi network bound to a VLAN uses a network for which a router has a subnet
+  (a subnet marked as the gateway, or any subnet of a device with the gateway role).
+  If no router at the site reported its subnets, the check is incomplete.
+- **Fix:** create the VLAN with an address and DHCP on the router, or bind the SSID to a network
+  that exists there.
+
+<!-- end of Wi-Fi rules -->
