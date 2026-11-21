@@ -1,7 +1,7 @@
 name: CI
 
 # Every push to main and every PR: lint, type check, tests with the coverage gate.
-# Browser tests and the container smoke test join when the UI (#14) and the image (#17) exist.
+# Browser tests drive the web interface in Chromium; the container smoke test runs the image.
 # Publishing: release.yml.
 
 on:
@@ -42,6 +42,25 @@ jobs:
         with:
           name: coverage-${{ matrix.python }}
           path: coverage.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  e2e:
+    name: Browser tests (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -e ".[dev]"
+      - run: python -m playwright install --with-deps chromium
+      - run: pytest -m e2e tests/e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-results
+          path: test-results/
           if-no-files-found: ignore
           retention-days: 7
 

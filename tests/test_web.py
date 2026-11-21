@@ -350,3 +350,23 @@ def test_mqtt_bridge_wired_into_app(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         assert "loop_stop" in fake.calls
     finally:
         svc.close()
+
+
+def test_web_interface_is_served_under_the_csp(client: TestClient) -> None:
+    r = client.get("/")
+    assert r.status_code == 200 and '<script type="module" src="app.js">' in r.text
+    assert "script-src 'self'" in r.headers["content-security-policy"]
+    assert client.get("/views/findings.js").status_code == 200
+
+
+def test_web_interface_has_no_inline_code_or_markup_injection() -> None:
+    """Strict CSP and no untrusted text as HTML: no inline script/style, no innerHTML."""
+    from signalbox.web.app import STATIC
+
+    files = sorted(p for p in STATIC.rglob("*") if p.suffix in {".html", ".js"})
+    assert len(files) > 10
+    bad = ("innerHTML", "outerHTML", "insertAdjacentHTML", "style=", "eval(", "<script>")
+    for path in files:
+        text = path.read_text()
+        for needle in bad:
+            assert needle not in text, f"{path.name} contains {needle}"
