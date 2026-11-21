@@ -193,9 +193,21 @@ def test_router_option() -> None:
 
 
 def test_router_option_without_known_router_is_incomplete() -> None:
-    snap = gateway(subnets=[subnet("gw", LAN, "192.0.2.1/24", gateway=False)])
-    (f,) = run(router_option, snap)
+    sw = snapshot(
+        device("sw", DeviceRole.SWITCH),
+        subnets=[subnet("sw", LAN, "192.0.2.2/24", gateway=False)],
+        dhcp_servers=[server("sw")],
+    )
+    (f,) = run(router_option, sw)
     assert f.incomplete and "cannot be checked" in f.message
+
+
+def test_subnet_of_gateway_device_counts_as_router_without_flag() -> None:
+    snap = gateway(subnets=[subnet("gw", LAN, "192.0.2.1/24", gateway=False)])
+    assert run(router_option, snap) == []
+    assert run(one_server, snap) == []
+    (f,) = run(one_server, gateway(subnets=snap.subnets, dhcp_servers=[]))
+    assert f.message == "No DHCP server on LAN (VLAN 10)"
 
 
 def test_dns_option() -> None:

@@ -64,6 +64,9 @@ incomplete, never as errors.
 
 ## DHCP and addressing
 
+A *router address* below is the address of a subnet marked as the gateway, or of any subnet of
+a device with the gateway role.
+
 ### `dhcp.one-server`
 
 - **Severity:** error (more than one server), warning (none)

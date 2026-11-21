@@ -6,9 +6,9 @@ from collections import defaultdict
 from collections.abc import Iterator
 from itertools import combinations
 
-from signalbox.model import Band, DeviceRole, Network, Radio, Wlan
+from signalbox.model import Band, Network, Radio, Wlan
 from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
-from signalbox.rules._names import device_name, segment_name, site_of_device
+from signalbox.rules._names import device_name, router_subnets, segment_name, site_of_device
 
 #: Attributes that must match for one SSID, with a readable name and the severity of a mismatch.
 #: Security, passphrase and network decide whether a client can connect at all after roaming.
@@ -192,9 +192,7 @@ def channel_overlap(net: Network) -> Iterator[Result]:
     "connect but get no IP address and cannot reach anything.",
 )
 def segment_at_gateway(net: Network) -> Iterator[Result]:
-    # A subnet counts if it is flagged as the gateway or sits on a device with the gateway role.
-    gateway_devices = {d.id for d in net.devices if d.role is DeviceRole.GATEWAY}
-    at_router = [s for s in net.subnets if s.gateway or s.device_id in gateway_devices]
+    at_router = router_subnets(net)
     routed = {s.segment_id for s in at_router}
     gateways = {site for s in at_router if (site := site_of_device(net, s.device_id))}
     unchecked: dict[str, set[str]] = defaultdict(set)

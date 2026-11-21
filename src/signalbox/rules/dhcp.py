@@ -9,7 +9,7 @@ from itertools import combinations
 from signalbox.adapters import Capability
 from signalbox.model import DhcpPool, DhcpServer, IPAddress, Network, Subnet
 from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
-from signalbox.rules._names import device_name, segment_name, site_of_device
+from signalbox.rules._names import device_name, router_subnets, segment_name, site_of_device
 
 
 def _enabled_servers(net: Network) -> list[DhcpServer]:
@@ -17,7 +17,7 @@ def _enabled_servers(net: Network) -> list[DhcpServer]:
 
 
 def _gateway_subnets(net: Network, segment_id: str) -> list[Subnet]:
-    return [s for s in net.subnets if s.segment_id == segment_id and s.gateway]
+    return [s for s in router_subnets(net) if s.segment_id == segment_id]
 
 
 def _span(pool: DhcpPool) -> tuple[IPAddress, IPAddress]:
@@ -58,7 +58,7 @@ def one_server(net: Network) -> Iterator[Result]:
     for srv in _enabled_servers(net):
         servers[srv.segment_id].append(srv)
     # IPv6-only networks often use SLAAC instead of DHCP: only IPv4 routers count here.
-    routed = {s.segment_id for s in net.subnets if s.gateway and s.interface.version == 4}
+    routed = {s.segment_id for s in router_subnets(net) if s.interface.version == 4}
     unknown = _dhcp_unknown_sites(net)
     missing: dict[str, list[str]] = defaultdict(list)
     for seg_id in sorted(routed | set(servers)):
