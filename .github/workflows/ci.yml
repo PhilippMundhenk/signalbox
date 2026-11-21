@@ -44,3 +44,14 @@ jobs:
           path: coverage.xml
           if-no-files-found: ignore
           retention-days: 7
+
+  home-assistant:
+    name: Discovery messages pass Home Assistant's schemas
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install homeassistant -e .
+      - run: python tools/validate_ha_discovery.py

@@ -323,3 +323,30 @@ def test_topology_endpoint(logged_in: TestClient) -> None:
     topo = logged_in.get("/api/topology").json()
     assert [n["id"] for n in topo["nodes"]] == ["main-gateway"]
     assert topo["edges"] == []
+
+
+def test_mqtt_bridge_wired_into_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import signalbox.mqtt as m
+    from test_mqtt import FakeClient
+
+    fake = FakeClient()
+    monkeypatch.setattr(m, "_default_client", lambda: fake)
+    monkeypatch.setattr(m.MqttBridge.__init__, "__defaults__", ("", lambda: fake))
+    svc = build(
+        tmp_path,
+        env={
+            "SIGNALBOX_AUTH_PASSWORD": PW,
+            "SIGNALBOX_MQTT_ENABLED": "1",
+            "SIGNALBOX_MQTT_HOST": "b",
+        },
+        adapters={},
+        rules=[],
+        link_sources=[],
+    )
+    try:
+        with TestClient(create_app(svc, run_background=False)) as c:
+            assert c.get("/health").json()["mqtt"] == "connecting"
+            assert len(svc.runner.listeners) == 1
+        assert "loop_stop" in fake.calls
+    finally:
+        svc.close()

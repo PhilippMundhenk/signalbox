@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, SecretStr
 from signalbox import __version__
 from signalbox.adapters import Adapter
 from signalbox.model import DeviceRole, Link, LinkKind, LinkOrigin, Network, Site
+from signalbox.mqtt import MqttBridge
 from signalbox.rules import READ_ERRORS
 from signalbox.secrets import SecretError
 from signalbox.service import Services
@@ -109,13 +110,19 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
         config.auth.session_hours,
     )
 
+    bridge = MqttBridge(config.mqtt, config.server.base_url)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        bridge.start()
+        if bridge.enabled:
+            runner.listeners.append(bridge.publish)
         task = asyncio.create_task(runner.run_forever()) if run_background else None
         try:
             yield
         finally:
             runner.stop()
+            await asyncio.to_thread(bridge.stop)
             if task is not None:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
@@ -183,6 +190,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
             "version": __version__,
             "devices": len(store.devices()),
             "last_run": runner.last_run.isoformat() if runner.last_run else None,
+            "mqtt": bridge.status["state"],
         }
 
     api.get("/health")(health)

@@ -18,3 +18,4 @@ All notable changes to this project are documented here. The format follows
 - Rules: DHCP (one server per segment, pools, reservations, router and DNS options), addressing (overlapping subnets, duplicate IPs), Wi-Fi (same SSID settings on every access point, country code, channel overlap, SSID VLAN at the gateway) (#6, #7)
 - Web API with password login (generated on first start, scrypt hash, lockout), session cookie, CSRF and content-type checks, strict CSP; `signalbox serve` and `signalbox reset-password`; docs/API.md generated from the code (#13)
 - Topology: links discovered from LLDP and MAC tables next to the cables entered by hand, `/api/topology` with the VLANs at both ends of each link, rules for conflicting and untagged-only links (#15)
+- Home Assistant export over MQTT: findings per site and status, firmware, clients per device, with discovery, availability and removal of stale entities (#16)

@@ -1,0 +1,333 @@
+"""Publish findings and device status to MQTT, with Home Assistant discovery.
+
+Active when ``mqtt.enabled`` is true. Every observation round publishes:
+
+- ``<prefix>/status``: ``online`` / ``offline`` (last will), availability of everything
+- ``<prefix>/site/<site>/state``: findings per severity for one site
+- ``<prefix>/device/<device>/state``: status, firmware, clients and findings of one device
+
+Discovery messages make each site and each device a Home Assistant device with sensors.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import logging
+import re
+import ssl
+import threading
+import time
+from collections import Counter
+from collections.abc import Callable
+from typing import Any
+
+import paho.mqtt.client as paho
+from paho.mqtt.enums import CallbackAPIVersion
+
+from signalbox import __version__
+from signalbox.config import MqttConfig
+from signalbox.model import DeviceStatus, Network
+from signalbox.rules import Finding, Severity
+
+log = logging.getLogger(__name__)
+SUPPORT_URL = "https://github.com/PhilippMundhenk/signalbox"
+STATUSES = [s.value for s in DeviceStatus]
+
+
+def node_id(text: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", text)
+
+
+def site_state(net: Network, findings: list[Finding], site_id: str) -> dict[str, Any]:
+    devices = {d.id for d in net.devices if d.site_id == site_id}
+    mine = [
+        f for f in findings if not f.objects or any(o.split("/")[0] in devices for o in f.objects)
+    ]
+    sev = Counter(f.severity.value for f in mine if not f.incomplete)
+    return {
+        "errors": sev.get(Severity.ERROR.value, 0),
+        "warnings": sev.get(Severity.WARNING.value, 0),
+        "info": sev.get(Severity.INFO.value, 0),
+        "incomplete": sum(1 for f in mine if f.incomplete),
+        "problem": "ON" if sev.get(Severity.ERROR.value, 0) else "OFF",
+        "devices": len(devices),
+        "unreachable": sum(
+            1 for d in devices if net.statuses.get(d) not in (DeviceStatus.OK, DeviceStatus.PARTIAL)
+        ),
+    }
+
+
+def device_state(net: Network, findings: list[Finding], device_id: str) -> dict[str, Any]:
+    dev = net.device(device_id)
+    status = net.statuses.get(device_id, DeviceStatus.UNREACHABLE)
+    prefix = f"{device_id}/"
+    mine = [
+        f
+        for f in findings
+        if not f.incomplete and any(o == device_id or o.startswith(prefix) for o in f.objects)
+    ]
+    clients = [c for c in net.clients if (c.seen_on or "").startswith(prefix)]
+    return {
+        "status": status.value,
+        "reachable": "ON" if status in (DeviceStatus.OK, DeviceStatus.PARTIAL) else "OFF",
+        "firmware": (dev.firmware.current if dev and dev.firmware else None) or "unknown",
+        "clients": len(clients),
+        "findings": len(mine),
+    }
+
+
+class Discovery:
+    def __init__(self, cfg: MqttConfig, base_url: str = "") -> None:
+        self.prefix = cfg.topic_prefix.strip("/") or "signalbox"
+        self.discovery = cfg.discovery_prefix.strip("/") or "homeassistant"
+        self.base_url = base_url
+
+    @property
+    def status_topic(self) -> str:
+        return f"{self.prefix}/status"
+
+    def site_topic(self, site_id: str) -> str:
+        return f"{self.prefix}/site/{node_id(site_id)}/state"
+
+    def device_topic(self, device_id: str) -> str:
+        return f"{self.prefix}/device/{node_id(device_id)}/state"
+
+    def _entity(
+        self,
+        node: str,
+        object_id: str,
+        name: str,
+        state_topic: str,
+        device: dict[str, Any],
+        **kw: Any,
+    ) -> dict[str, Any]:
+        entity: dict[str, Any] = {
+            "name": name,
+            "unique_id": f"signalbox_{node}_{object_id}",
+            "object_id": f"signalbox_{node}_{object_id}",
+            "state_topic": state_topic,
+            "availability_topic": self.status_topic,
+            "device": device,
+            "origin": {"name": "Signalbox", "sw_version": __version__, "support_url": SUPPORT_URL},
+        }
+        entity.update(kw)
+        return entity
+
+    def configs(self, net: Network) -> dict[str, dict[str, Any]]:
+        """Discovery topic -> config, for every site and device of the network."""
+        out: dict[str, dict[str, Any]] = {}
+        for site in net.sites:
+            node = f"site_{node_id(site.id)}"
+            device = {
+                "identifiers": [f"signalbox_{node}"],
+                "name": f"Signalbox {site.name}",
+                "manufacturer": "Signalbox",
+                "model": "Network site",
+                "sw_version": __version__,
+            }
+            if self.base_url:
+                device["configuration_url"] = self.base_url
+            topic = self.site_topic(site.id)
+            for key, name in (
+                ("errors", "Errors"),
+                ("warnings", "Warnings"),
+                ("incomplete", "Not checked"),
+            ):
+                out[f"{self.discovery}/sensor/{node}/{key}/config"] = self._entity(
+                    node,
+                    key,
+                    name,
+                    topic,
+                    device,
+                    value_template=f"{{{{ value_json.{key} }}}}",
+                    state_class="measurement",
+                    icon="mdi:alert-circle-outline",
+                )
+            out[f"{self.discovery}/binary_sensor/{node}/problem/config"] = self._entity(
+                node,
+                "problem",
+                "Network problem",
+                topic,
+                device,
+                value_template="{{ value_json.problem }}",
+                device_class="problem",
+            )
+            out[f"{self.discovery}/sensor/{node}/unreachable/config"] = self._entity(
+                node,
+                "unreachable",
+                "Unreachable devices",
+                topic,
+                device,
+                value_template="{{ value_json.unreachable }}",
+                state_class="measurement",
+                icon="mdi:lan-disconnect",
+            )
+        for dev in net.devices:
+            node = f"device_{node_id(dev.id)}"
+            device = {
+                "identifiers": [f"signalbox_{node}"],
+                "name": dev.name,
+                "manufacturer": dev.vendor or "Unknown",
+                "model": dev.model or dev.role.value,
+                "via_device": f"signalbox_site_{node_id(dev.site_id)}",
+            }
+            if dev.firmware and dev.firmware.current:
+                device["sw_version"] = dev.firmware.current
+            topic = self.device_topic(dev.id)
+            out[f"{self.discovery}/binary_sensor/{node}/reachable/config"] = self._entity(
+                node,
+                "reachable",
+                "Reachable",
+                topic,
+                device,
+                value_template="{{ value_json.reachable }}",
+                device_class="connectivity",
+            )
+            out[f"{self.discovery}/sensor/{node}/status/config"] = self._entity(
+                node,
+                "status",
+                "Status",
+                topic,
+                device,
+                value_template="{{ value_json.status }}",
+                device_class="enum",
+                options=STATUSES,
+            )
+            out[f"{self.discovery}/sensor/{node}/firmware/config"] = self._entity(
+                node,
+                "firmware",
+                "Firmware",
+                topic,
+                device,
+                value_template="{{ value_json.firmware }}",
+                entity_category="diagnostic",
+                icon="mdi:chip",
+            )
+            for key, name, icon in (
+                ("clients", "Clients", "mdi:devices"),
+                ("findings", "Findings", "mdi:alert-outline"),
+            ):
+                out[f"{self.discovery}/sensor/{node}/{key}/config"] = self._entity(
+                    node,
+                    key,
+                    name,
+                    topic,
+                    device,
+                    value_template=f"{{{{ value_json.{key} }}}}",
+                    state_class="measurement",
+                    icon=icon,
+                )
+        return out
+
+    def states(self, net: Network, findings: list[Finding]) -> dict[str, dict[str, Any]]:
+        out = {self.site_topic(s.id): site_state(net, findings, s.id) for s in net.sites}
+        out.update(
+            {self.device_topic(d.id): device_state(net, findings, d.id) for d in net.devices}
+        )
+        return out
+
+
+ClientFactory = Callable[[], Any]
+
+
+def _default_client() -> Any:
+    return paho.Client(CallbackAPIVersion.VERSION2, client_id="signalbox")
+
+
+class MqttBridge:
+    """Runner listener that publishes discovery and state; reconnects in the background."""
+
+    def __init__(
+        self, cfg: MqttConfig, base_url: str = "", client_factory: ClientFactory = _default_client
+    ) -> None:
+        self.cfg = cfg
+        self.discovery = Discovery(cfg, base_url)
+        self.client_factory = client_factory
+        self.client: Any = None
+        self.connected = threading.Event()
+        self.sent_configs: set[str] = set()
+        self.last: tuple[Network, list[Finding]] | None = None
+        self.status: dict[str, Any] = {"state": "off", "error": None, "published": 0}
+
+    @property
+    def enabled(self) -> bool:
+        return self.cfg.enabled and bool(self.cfg.host)
+
+    def start(self) -> None:
+        if not self.enabled:
+            if self.cfg.enabled:
+                log.warning("mqtt.enabled is set but mqtt.host is empty: not publishing")
+            return
+        client = self.client_factory()
+        if self.cfg.username:
+            password = self.cfg.password.get_secret_value() if self.cfg.password else None
+            client.username_pw_set(self.cfg.username, password)
+        if self.cfg.tls:
+            client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
+        client.will_set(self.discovery.status_topic, "offline", qos=1, retain=True)
+        client.on_connect = self._on_connect
+        client.on_disconnect = self._on_disconnect
+        client.reconnect_delay_set(1, 60)
+        self.client = client
+        self.status["state"] = "connecting"
+        client.connect_async(self.cfg.host, self.cfg.port, keepalive=60)
+        client.loop_start()
+
+    def stop(self) -> None:
+        if self.client is None:
+            return
+        try:
+            info = self.client.publish(self.discovery.status_topic, "offline", qos=1, retain=True)
+            if self.connected.is_set():
+                # a clean disconnect does not fire the last will: make sure the broker has it
+                with contextlib.suppress(Exception):
+                    info.wait_for_publish(3)
+                time.sleep(0.3)
+            self.client.disconnect()
+        finally:
+            self.client.loop_stop()
+            self.client = None
+            self.connected.clear()
+            self.status["state"] = "off"
+
+    def _on_connect(
+        self, client: Any, userdata: Any, flags: Any, reason: Any, props: Any = None
+    ) -> None:
+        if getattr(reason, "is_failure", False):
+            self.status.update(state="error", error=f"the broker refused the connection: {reason}")
+            log.warning("MQTT: %s", self.status["error"])
+            return
+        self.status.update(state="connected", error=None)
+        self.connected.set()
+        client.publish(self.discovery.status_topic, "online", qos=1, retain=True)
+        self.sent_configs.clear()  # the broker may have lost retained configs
+        if self.last is not None:
+            self.publish(*self.last)
+
+    def _on_disconnect(
+        self, client: Any, userdata: Any, flags: Any, reason: Any, props: Any = None
+    ) -> None:
+        self.connected.clear()
+        if self.status["state"] != "off":
+            self.status.update(state="connecting", error=f"connection lost: {reason}")
+
+    def _send(self, topic: str, payload: dict[str, Any] | str) -> None:
+        text = payload if isinstance(payload, str) else json.dumps(payload, separators=(",", ":"))
+        self.client.publish(topic, text, qos=1, retain=True)
+        self.status["published"] += 1
+
+    def publish(self, net: Network, findings: list[Finding]) -> None:
+        """Runner listener: publish discovery (new entities, removed ones) and all states."""
+        self.last = (net, findings)
+        if self.client is None or not self.connected.is_set():
+            return
+        configs = self.discovery.configs(net)
+        for topic in sorted(self.sent_configs - set(configs)):
+            self._send(topic, "")  # an empty retained config removes the entity
+        for topic, config in configs.items():
+            if topic not in self.sent_configs:
+                self._send(topic, config)
+        self.sent_configs = set(configs)
+        for topic, state in self.discovery.states(net, findings).items():
+            self._send(topic, state)
