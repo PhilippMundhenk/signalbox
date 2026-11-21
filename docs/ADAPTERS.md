@@ -61,6 +61,54 @@ VLAN 1 (the default VLAN) are both the native, untagged network of the site. Unk
 WPA passphrases are never stored: put `passphrase_fingerprint(ssid, passphrase)` into
 `Wlan.passphrase_fingerprint`, so access points can be compared without revealing the key.
 
+## HTTPS and certificate pinning
+
+Devices nearly always present a self-signed certificate. Do not use `verify=False` and do not
+write your own TLS code: use `signalbox.adapters.https.DeviceHttp`, which every built-in adapter
+uses.
+
+```python
+from signalbox.adapters.https import DeviceHttp
+
+
+class MyAdapter(Adapter):
+    def __init__(self, context: AdapterContext) -> None:
+        super().__init__(context)
+        cfg = context.config
+        self.http = DeviceHttp(
+            cfg.url,  # https://host[:port]; paths are passed per request
+            pinned_fingerprint=context.pinned_fingerprint,
+            timeout=context.timeout,
+            auth=(cfg.user, cfg.password.get_secret_value()),  # or headers=..., or in the body
+            allow_insecure_http=cfg.allow_insecure_http,
+        )
+
+    async def read_system(self) -> SystemInfo:
+        await self.http.reset()  # new observation: check the certificate again
+        data = await self.http.get_json("/api/status")  # or post_json(path, body)
+        ...
+
+    async def close(self) -> None:
+        await self.http.close()
+```
+
+- Before the first request it reads the device certificate with a handshake that sends nothing,
+  and compares the SHA-256 fingerprint with the pinned one. Not pinned yet, or different: it
+  raises `UntrustedCertificate`, the UI shows the fingerprint and the user confirms it. No
+  credential leaves the machine for a certificate that is not pinned.
+- The requests then use a TLS context whose only trust anchor is the pinned certificate (host
+  name and dates are not checked), so a certificate swapped after the check fails the handshake.
+- Errors are already mapped: connection problems and timeouts raise `Unreachable`, HTTP 401/403
+  `AuthFailed`, 404 `signalbox.adapters.https.NotFound`, other statuses and invalid JSON
+  `AdapterError`. Each message names the path.
+- Plain `http://` is refused unless the adapter passes `allow_insecure_http=True`. Expose it as
+  a config field of exactly that name, `allow_insecure_http: bool = False`, and say in its
+  description that credentials then travel in clear text; it is meant for simulators.
+
+For tests, `signalbox.sim.server` serves a simulator app on a free local port:
+`serve(app, tls=self_signed_certificate(tmp_path))` yields the base URL, the returned
+`TlsFiles.fingerprint` is what to pin, and `free_port()` gives a port nothing listens on.
+
 ## Tests
 
 Ship a simulator of the device API with neutral sample data (documentation addresses

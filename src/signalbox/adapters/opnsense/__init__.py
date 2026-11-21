@@ -91,7 +91,7 @@ class OpnsenseConfig(AdapterConfig):
     url: str = Field(description="Address of the web interface, https://host[:port]")
     api_key: SecretStr = Field(description="API key of a dedicated, read-only API user")
     api_secret: SecretStr = Field(description="API secret belonging to the key")
-    insecure_http: bool = Field(
+    allow_insecure_http: bool = Field(
         default=False,
         description="Allow plain http:// (simulators and tests only: sends the key unencrypted)",
     )
@@ -106,8 +106,8 @@ class OpnsenseConfig(AdapterConfig):
 
     @model_validator(mode="after")
     def _http_needs_opt_in(self) -> OpnsenseConfig:
-        if self.url.startswith("http://") and not self.insecure_http:
-            raise ValueError("plain http:// needs insecure_http (simulators only)")
+        if self.url.startswith("http://") and not self.allow_insecure_http:
+            raise ValueError("plain http:// needs allow_insecure_http (simulators only)")
         return self
 
 
@@ -296,7 +296,7 @@ class OpnsenseAdapter(_Adapter):
             pinned_fingerprint=context.pinned_fingerprint,
             timeout=context.timeout,
             auth=(cfg.api_key.get_secret_value(), cfg.api_secret.get_secret_value()),
-            allow_insecure_http=cfg.insecure_http,
+            allow_insecure_http=cfg.allow_insecure_http,
         )
         self._cache: dict[str, Any] = {}
         self._layout_cache: _Layout | None = None

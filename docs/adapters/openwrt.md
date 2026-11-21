@@ -19,19 +19,21 @@ the device is changed.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `url` | | ubus endpoint, for example `https://192.0.2.2/ubus` |
+| `url` | | ubus endpoint, for example `https://192.0.2.2/ubus` (no path: `/ubus`) |
 | `username` | `signalbox` | rpcd login (see below) |
 | `password` | | its password; stored encrypted, never sent back to the UI |
 | `allow_insecure_http` | `false` | accept an `http://` URL; the password then crosses the network in clear text |
 
 ## Certificate pinning
 
-OpenWrt ships a self-signed certificate (`px5g`/`uhttpd`), so there is no CA to check. Before
-every login Signalbox opens one TLS connection, reads the certificate and compares its SHA-256
-fingerprint with the pinned one; if nothing is pinned yet, or the fingerprint differs, the device
-is reported as `untrusted-certificate` with the fingerprint to confirm, and the password is not
-sent. Every answer is checked against the pin again. Colons and case in a pinned fingerprint
-are ignored.
+OpenWrt ships a self-signed certificate (`px5g`/`uhttpd`), so there is no CA to check. At the
+start of every observation Signalbox opens one TLS connection without sending anything, reads the
+certificate and compares its SHA-256 fingerprint with the pinned one; if nothing is pinned yet,
+or the fingerprint differs, the device is reported as `untrusted-certificate` with the
+fingerprint to confirm, and the password is not sent. The ubus requests then go over a TLS
+context whose only trust anchor is the pinned certificate, so a certificate swapped after the
+check fails the handshake. Colons and case in a pinned fingerprint are ignored. This is the
+shared helper `signalbox.adapters.https.DeviceHttp` (see [ADAPTERS.md](../ADAPTERS.md)).
 
 ## Protocol
 

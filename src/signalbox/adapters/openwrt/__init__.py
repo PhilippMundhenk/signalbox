@@ -1,5 +1,7 @@
 """OpenWrt (read): ubus JSON-RPC through rpcd/uhttpd at ``/ubus``, HTTPS pinned by fingerprint.
 
+The HTTPS side (probe, pin, errors) is :class:`signalbox.adapters.https.DeviceHttp`.
+
 Every call and the JSON it expects is documented in ``docs/adapters/openwrt.md``.
 """
 
@@ -10,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 from ipaddress import IPv4Interface, ip_address, ip_interface
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue, SecretStr
 
@@ -22,7 +25,7 @@ from signalbox.adapters import (
     Observation,
     SystemInfo,
 )
-from signalbox.adapters.openwrt.transport import Transport
+from signalbox.adapters.https import DeviceHttp
 from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
 from signalbox.model import (
     Band,
@@ -340,18 +343,20 @@ class OpenWrtAdapter(Adapter):
     def ubus(self) -> Ubus:
         if self._ubus is None:
             cfg = self.config
-            transport = Transport(
-                cfg.url,
-                pinned=self.context.pinned_fingerprint,
+            parts = urlsplit(cfg.url)
+            http = DeviceHttp(
+                f"{parts.scheme}://{parts.netloc}",
+                pinned_fingerprint=self.context.pinned_fingerprint,
                 timeout=self.context.timeout,
-                allow_http=cfg.allow_insecure_http,
+                allow_insecure_http=cfg.allow_insecure_http,
             )
-            self._ubus = Ubus(transport, cfg.username, cfg.password.get_secret_value())
+            path = parts.path or "/ubus"
+            self._ubus = Ubus(http, path, cfg.username, cfg.password.get_secret_value())
         return self._ubus
 
     async def close(self) -> None:
         if self._ubus is not None:
-            await self._ubus.transport.aclose()
+            await self._ubus.http.close()
 
     def _seg(self, vid: int) -> str:
         return segment_id(self.context.site_id, None if vid == _NATIVE else vid)
@@ -364,6 +369,8 @@ class OpenWrtAdapter(Adapter):
     # system ---------------------------------------------------------------------------
 
     async def read_system(self) -> SystemInfo:
+        # A new observation: probe the certificate again (the ubus session stays valid).
+        await self.ubus.http.reset()
         board = await self.ubus.call("system", "board")
         release = board.get("release") if isinstance(board.get("release"), dict) else {}
         version = release.get("version")
@@ -372,7 +379,7 @@ class OpenWrtAdapter(Adapter):
             vendor=None,
             model=model if isinstance(model, str) else None,
             firmware=Firmware(current=str(version)) if version else None,
-            management_address=self.ubus.transport.host,
+            management_address=self.ubus.http.host,
         )
 
     # interfaces -----------------------------------------------------------------------

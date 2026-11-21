@@ -2,22 +2,23 @@
 
 from __future__ import annotations
 
-import socket
+import ssl
 from collections.abc import AsyncIterator, Iterator
 from ipaddress import ip_address, ip_interface
+from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import SecretStr
 
+import signalbox.adapters.https as https_mod
 from signalbox.adapters import (
     AdapterContext,
     AdapterError,
     AuthFailed,
-    Unreachable,
-    UntrustedCertificate,
     load_adapters,
 )
+from signalbox.adapters.https import DeviceHttp
 from signalbox.adapters.openwrt import (
     NetworkView,
     OpenWrtAdapter,
@@ -28,7 +29,6 @@ from signalbox.adapters.openwrt import (
     security,
     width,
 )
-from signalbox.adapters.openwrt.transport import Transport, fingerprint, peer_fingerprint
 from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
 from signalbox.model import (
     Band,
@@ -40,21 +40,21 @@ from signalbox.model import (
     Security,
     passphrase_fingerprint,
 )
-from signalbox.sim.openwrt import NO_SESSION, OpenWrtSim, create_app
+from signalbox.sim.openwrt import OpenWrtSim, create_app
+from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
 from signalbox.testing import assert_contract
-from simserver import Cert, self_signed, serve
 
 SIM = OpenWrtSim()
 
 
 @pytest.fixture(scope="module")
-def cert(tmp_path_factory: pytest.TempPathFactory) -> Cert:
-    return self_signed(tmp_path_factory.mktemp("tls"))
+def cert(tmp_path_factory: pytest.TempPathFactory) -> TlsFiles:
+    return self_signed_certificate(tmp_path_factory.mktemp("tls"), "openwrt")
 
 
 @pytest.fixture(scope="module")
-def https_url(cert: Cert) -> Iterator[str]:
-    with serve(create_app(SIM), cert) as url:
+def https_url(cert: TlsFiles) -> Iterator[str]:
+    with serve(create_app(SIM), tls=cert) as url:
         yield url
 
 
@@ -85,7 +85,7 @@ def context(url: str, **kw: Any) -> AdapterContext:
 
 
 @pytest.fixture
-async def adapter(sim: OpenWrtSim, https_url: str, cert: Cert) -> AsyncIterator[OpenWrtAdapter]:
+async def adapter(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> AsyncIterator[OpenWrtAdapter]:
     a = OpenWrtAdapter(context(https_url, pinned_fingerprint=cert.fingerprint))
     yield a
     await a.close()
@@ -108,7 +108,7 @@ async def test_contract_over_pinned_tls(adapter: OpenWrtAdapter, sim: OpenWrtSim
     assert snap.device.firmware is not None and snap.device.firmware.current == "23.05.5"
     assert snap.device.management_address == "127.0.0.1"
     assert sim.logins == 1  # one session for every call
-    assert not adapter.ubus.transport.insecure
+    assert adapter.ubus.http.secure
 
 
 def test_entry_point() -> None:
@@ -181,7 +181,7 @@ async def test_dhcp_off_on_an_ap(adapter: OpenWrtAdapter) -> None:
     ]
 
 
-async def test_router_mode(sim: OpenWrtSim, https_url: str, cert: Cert) -> None:
+async def test_router_mode(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
     sim.router = True
     a = OpenWrtAdapter(
         context(https_url, pinned_fingerprint=cert.fingerprint, role=DeviceRole.GATEWAY)
@@ -242,11 +242,11 @@ async def test_session_expiry_logs_in_again(sim: OpenWrtSim, adapter: OpenWrtAda
 
 async def test_plain_http_only_when_allowed(sim: OpenWrtSim, http_url: str) -> None:
     snap = await observe(context(http_url))
-    assert snap.status is DeviceStatus.UNREACHABLE and "plain HTTP" in snap.errors[0].message
+    assert snap.status is DeviceStatus.UNREACHABLE and "plain http" in snap.errors[0].message
     a = OpenWrtAdapter(context(http_url, config={"allow_insecure_http": True}))
     try:
         assert (await a.observe()).status is DeviceStatus.OK
-        assert a.ubus.transport.insecure
+        assert not a.ubus.http.secure
     finally:
         await a.close()
 
@@ -254,7 +254,7 @@ async def test_plain_http_only_when_allowed(sim: OpenWrtSim, http_url: str) -> N
 # --- refused paths --------------------------------------------------------------------
 
 
-async def test_wrong_password(sim: OpenWrtSim, https_url: str, cert: Cert) -> None:
+async def test_wrong_password(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
     sim.password = "something-else"
     snap = await observe(context(https_url, pinned_fingerprint=cert.fingerprint))
     assert snap.status is DeviceStatus.AUTH_FAILED
@@ -282,7 +282,7 @@ async def test_missing_acl_is_partial(
 
 @pytest.mark.parametrize("pinned", [None, "ab" * 32])
 async def test_untrusted_certificate_sends_no_password(
-    sim: OpenWrtSim, https_url: str, cert: Cert, pinned: str | None
+    sim: OpenWrtSim, https_url: str, cert: TlsFiles, pinned: str | None
 ) -> None:
     snap = await observe(context(https_url, pinned_fingerprint=pinned))
     assert snap.status is DeviceStatus.UNTRUSTED
@@ -290,42 +290,63 @@ async def test_untrusted_certificate_sends_no_password(
     assert sim.requests == 0
 
 
-async def test_pin_accepts_colon_notation(sim: OpenWrtSim, https_url: str, cert: Cert) -> None:
+async def test_pin_accepts_colon_notation(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
     fp = ":".join(cert.fingerprint[i : i + 2] for i in range(0, 64, 2)).upper()
     assert (await observe(context(https_url, pinned_fingerprint=fp))).status is DeviceStatus.OK
 
 
-async def test_certificate_swapped_after_check(adapter: OpenWrtAdapter) -> None:
-    transport = adapter.ubus.transport
-    await transport.verify()
-    transport.pinned = "cd" * 32  # as if the device now presented another certificate
-    with pytest.raises(UntrustedCertificate):
-        await transport.post({})
+async def test_certificate_swapped_after_probe(
+    sim: OpenWrtSim,
+    https_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The probe sees another certificate than the request connection: the handshake of the
+    # login fails, so the password never reaches the server.
+    other = self_signed_certificate(tmp_path, "other")
+    der = ssl.PEM_cert_to_DER_cert(other.cert.read_text())
+
+    async def fake_probe(host: str, port: int, timeout: float) -> bytes:
+        return der
+
+    monkeypatch.setattr(https_mod, "peer_certificate", fake_probe)
+    snap = await observe(context(https_url, pinned_fingerprint=other.fingerprint))
+    assert snap.status is DeviceStatus.UNREACHABLE and "cannot reach" in snap.errors[0].message
+    assert sim.requests == 0
 
 
-def _closed_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
+async def test_certificate_probed_again_every_observation(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (await adapter.observe()).status is DeviceStatus.OK
+    probes: list[int] = []
+    real = https_mod.peer_certificate
+
+    async def counting(host: str, port: int, timeout: float) -> bytes:
+        probes.append(port)
+        return await real(host, port, timeout)
+
+    monkeypatch.setattr(https_mod, "peer_certificate", counting)
+    assert (await adapter.observe()).status is DeviceStatus.OK
+    assert len(probes) == 1  # one probe per observation, the connection is reused after it
+    assert sim.logins == 1  # the ubus session survives the new connection
 
 
 async def test_unreachable(sim: OpenWrtSim) -> None:
-    snap = await observe(context(f"https://127.0.0.1:{_closed_port()}", pinned_fingerprint="ab"))
-    assert snap.status is DeviceStatus.UNREACHABLE and "cannot connect" in snap.errors[0].message
-    with pytest.raises(Unreachable, match="cannot reach"):
-        await Transport(
-            f"http://127.0.0.1:{_closed_port()}/ubus", pinned=None, timeout=1, allow_http=True
-        ).post({})
+    snap = await observe(context(f"https://127.0.0.1:{free_port()}", pinned_fingerprint="ab"))
+    assert snap.status is DeviceStatus.UNREACHABLE
+    assert "cannot open a TLS connection" in snap.errors[0].message
+    snap = await observe(
+        context(f"http://127.0.0.1:{free_port()}", config={"allow_insecure_http": True})
+    )
+    assert snap.status is DeviceStatus.UNREACHABLE and "cannot reach" in snap.errors[0].message
 
 
-async def test_timeout(sim: OpenWrtSim, https_url: str, cert: Cert) -> None:
+async def test_timeout(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
     sim.delay = 1.0
     snap = await observe(context(https_url, pinned_fingerprint=cert.fingerprint, timeout=0.2))
     assert snap.status is DeviceStatus.UNREACHABLE
-    t = Transport(f"{https_url}/ubus", pinned=cert.fingerprint, timeout=0.2)
-    with pytest.raises(Unreachable, match=r"within 0\.2 s"):
-        await t.post({"id": 1, "params": [NO_SESSION, "system", "board", {}]})
-    await t.aclose()
+    assert any("within 0.2 s" in e.message for e in snap.errors), snap.errors
 
 
 async def test_slow_capability_is_partial(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
@@ -339,9 +360,9 @@ async def test_slow_capability_is_partial(sim: OpenWrtSim, adapter: OpenWrtAdapt
 @pytest.mark.parametrize(
     ("switch", "value", "status", "message"),
     [
-        ("malformed", {"*"}, DeviceStatus.UNREACHABLE, "not JSON"),
+        ("malformed", {"*"}, DeviceStatus.UNREACHABLE, "not valid JSON"),
         ("odd", {"system"}, DeviceStatus.UNREACHABLE, "unexpected answer to system.board"),
-        ("malformed", {"network.wireless"}, DeviceStatus.PARTIAL, "not JSON"),
+        ("malformed", {"network.wireless"}, DeviceStatus.PARTIAL, "not valid JSON"),
         ("odd", {"lldpd"}, DeviceStatus.PARTIAL, "unexpected answer to lldpd"),
     ],
 )
@@ -367,29 +388,37 @@ async def test_lldpd_missing(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
     ]
 
 
-async def test_http_error_status(sim: OpenWrtSim, https_url: str, cert: Cert) -> None:
-    t = Transport(f"{https_url}/elsewhere", pinned=cert.fingerprint, timeout=2)
-    with pytest.raises(AdapterError, match="HTTP 404"):
-        await t.post({})
-    await t.aclose()
+async def test_wrong_path_is_reported(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
+    a = OpenWrtAdapter(
+        context(
+            https_url,
+            pinned_fingerprint=cert.fingerprint,
+            config={"url": f"{https_url}/elsewhere"},
+        )
+    )
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is DeviceStatus.UNREACHABLE
+    assert "/elsewhere" in snap.errors[0].message and "HTTP 404" in snap.errors[0].message
+
+
+async def test_url_without_path_uses_ubus(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
+    ctx = context(https_url, pinned_fingerprint=cert.fingerprint, config={"url": https_url})
+    assert (await observe(ctx)).status is DeviceStatus.OK
 
 
 async def test_simulator_parse_error(sim: OpenWrtSim, http_url: str) -> None:
-    t = Transport(f"{http_url}/ubus", pinned=None, timeout=2, allow_http=True)
-    answer = await t.post({"jsonrpc": "2.0"})
+    http = DeviceHttp(http_url, pinned_fingerprint=None, timeout=2, allow_insecure_http=True)
+    answer = await http.post_json("/ubus", {"jsonrpc": "2.0"})
     assert answer["error"]["code"] == -32700
-    await t.aclose()
+    await http.close()
 
 
-def test_bad_url() -> None:
-    with pytest.raises(AdapterError, match="not an http"):
-        Transport("ftp://192.0.2.2/ubus", pinned=None, timeout=1)
-
-
-async def test_peer_fingerprint(https_url: str, cert: Cert) -> None:
-    port = int(https_url.rsplit(":", 1)[1])
-    assert await peer_fingerprint("127.0.0.1", port, 2) == cert.fingerprint
-    assert fingerprint(b"x") == fingerprint(b"x") != fingerprint(b"y")
+async def test_bad_url(sim: OpenWrtSim) -> None:
+    snap = await observe(context("ftp://192.0.2.2", config={"url": "ftp://192.0.2.2/ubus"}))
+    assert snap.status is DeviceStatus.UNREACHABLE and "not an http" in snap.errors[0].message
 
 
 # --- ubus client against canned answers -----------------------------------------------
@@ -400,11 +429,11 @@ class Canned:
         self.answers = list(answers)
         self.sent: list[Any] = []
 
-    async def verify(self) -> None:
+    async def connect(self) -> None:
         pass
 
-    async def post(self, payload: Any) -> Any:
-        self.sent.append(payload)
+    async def post_json(self, path: str, payload: Any) -> Any:
+        self.sent.append((path, payload))
         return self.answers.pop(0)
 
 
@@ -425,32 +454,32 @@ LOGIN = {"result": [0, {"ubus_rpc_session": "s" * 32}]}
     ],
 )
 async def test_ubus_errors(answer: Any, error: type[Exception], message: str) -> None:
-    ubus = Ubus(Canned(LOGIN, answer), "signalbox", "pw")  # type: ignore[arg-type]
+    ubus = Ubus(Canned(LOGIN, answer), "/ubus", "signalbox", "pw")  # type: ignore[arg-type]
     with pytest.raises(error, match=message):
         await ubus.call("x", "y")
 
 
 async def test_ubus_status_without_data() -> None:
-    ubus = Ubus(Canned(LOGIN, {"result": [0]}), "signalbox", "pw")  # type: ignore[arg-type]
+    ubus = Ubus(Canned(LOGIN, {"result": [0]}), "/ubus", "signalbox", "pw")  # type: ignore[arg-type]
     assert await ubus.call("x", "y") == {}
 
 
 async def test_ubus_login_without_session() -> None:
-    ubus = Ubus(Canned({"result": [0, {}]}), "signalbox", "pw")  # type: ignore[arg-type]
+    ubus = Ubus(Canned({"result": [0, {}]}), "/ubus", "signalbox", "pw")  # type: ignore[arg-type]
     with pytest.raises(AdapterError, match=r"session\.login"):
         await ubus.login()
 
 
 async def test_ubus_login_access_denied_error() -> None:
     answer = {"error": {"code": -32002, "message": "Access denied"}}
-    ubus = Ubus(Canned(answer), "signalbox", "pw")  # type: ignore[arg-type]
+    ubus = Ubus(Canned(answer), "/ubus", "signalbox", "pw")  # type: ignore[arg-type]
     with pytest.raises(AuthFailed):
         await ubus.login()
 
 
 async def test_ubus_denied_twice_names_acl() -> None:
     denied = {"result": [6]}
-    ubus = Ubus(Canned(LOGIN, denied, LOGIN, denied), "ro", "pw")  # type: ignore[arg-type]
+    ubus = Ubus(Canned(LOGIN, denied, LOGIN, denied), "/ubus", "ro", "pw")  # type: ignore[arg-type]
     with pytest.raises(AccessDenied, match=r"x\.y: add it to the rpcd ACL of 'ro'"):
         await ubus.call("x", "y")
 

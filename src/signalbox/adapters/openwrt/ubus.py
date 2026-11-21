@@ -6,6 +6,10 @@ Every request is ``{"jsonrpc": "2.0", "id": n, "method": "call",
 ``{"error": {"code": ..., "message": ...}}`` (``-32002`` access denied, ``-32000`` object not
 found). An expired session also answers "access denied", so a denied call logs in again once
 before it is reported as a missing ACL.
+
+Requests are POSTed through :class:`~signalbox.adapters.https.DeviceHttp`, which probes and pins
+the device certificate before the first request, so the password is only ever sent to the
+pinned certificate.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from signalbox.adapters import AdapterError, AuthFailed
-from signalbox.adapters.openwrt.transport import Transport
+from signalbox.adapters.https import DeviceHttp
 
 NO_SESSION = "0" * 32
 
@@ -54,8 +58,9 @@ class _Denied(Exception):
 
 
 class Ubus:
-    def __init__(self, transport: Transport, username: str, password: str) -> None:
-        self.transport = transport
+    def __init__(self, http: DeviceHttp, path: str, username: str, password: str) -> None:
+        self.http = http
+        self.path = path
         self.username = username
         self._password = password
         self.session: str | None = None
@@ -63,8 +68,8 @@ class Ubus:
 
     async def _rpc(self, params: list[Any]) -> Any:
         self._id += 1
-        answer = await self.transport.post(
-            {"jsonrpc": "2.0", "id": self._id, "method": "call", "params": params}
+        answer = await self.http.post_json(
+            self.path, {"jsonrpc": "2.0", "id": self._id, "method": "call", "params": params}
         )
         what = f"{params[1]}.{params[2]}"
         if not isinstance(answer, dict):
@@ -93,7 +98,7 @@ class Ubus:
         return data
 
     async def login(self) -> None:
-        await self.transport.verify()  # before the password leaves this machine
+        await self.http.connect()  # pin checked before the password leaves this machine
         try:
             data = await self._rpc(
                 [

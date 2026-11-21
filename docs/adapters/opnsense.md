@@ -33,8 +33,8 @@ firewall and confirm it; from then on the certificate is pinned. A changed certi
 reading until it is confirmed again. The key and secret are only sent after the pinned
 certificate was presented (see `signalbox/adapters/https.py`).
 
-`insecure_http: true` allows an `http://` URL. It sends the key in clear text and is only meant
-for the simulator.
+`allow_insecure_http: true` allows an `http://` URL. It sends the key in clear text and is only
+meant for the simulator.
 
 ## A least-privilege API user
 
