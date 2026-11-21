@@ -233,7 +233,7 @@ def native_mismatch(net: Network) -> Iterator[Result]:
 @rule(
     "vlan.tagged-both-ends",
     "VLAN tagged on only one end of a link",
-    Severity.ERROR,
+    Severity.WARNING,
     "A VLAN that one end of a cable sends tagged must also be configured on the other end, "
     "otherwise its traffic is dropped there.",
 )

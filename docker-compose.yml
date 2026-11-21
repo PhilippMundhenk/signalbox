@@ -1,0 +1,27 @@
+# Signalbox reads your devices over the network (HTTPS APIs), so a normal bridged network is
+# enough; publish the web port and open http://<host>:8080.
+services:
+  signalbox:
+    image: ghcr.io/philippmundhenk/signalbox:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    # The container runs as user 10001: before the first start, give it the folder with
+    #   mkdir -p data && sudo chown 10001:10001 data
+    # or run as your own user instead: user: "1000:1000" (see docs/DEPLOYMENT.md).
+    volumes:
+      - ./data:/data
+    environment:
+      # Password of the web interface. Empty: one is generated and printed once in the log.
+      # SIGNALBOX_AUTH_PASSWORD: "change-me"
+      # Key that encrypts the device credentials. Empty: generated into data/secret.key.
+      # SIGNALBOX_SECRET_KEY: ""
+      # How often every device is read, in seconds.
+      # SIGNALBOX_OBSERVE_INTERVAL_SECONDS: "300"
+      # Publish findings to Home Assistant over MQTT:
+      # SIGNALBOX_MQTT_ENABLED: "true"
+      # SIGNALBOX_MQTT_HOST: "mqtt.example.org"
+      # SIGNALBOX_MQTT_USERNAME: "signalbox"
+      # SIGNALBOX_MQTT_PASSWORD: ""
+      # Public URL when behind a reverse proxy (used in Home Assistant links):
+      # SIGNALBOX_SERVER_BASE_URL: "https://signalbox.example.org"

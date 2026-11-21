@@ -127,7 +127,7 @@ async def test_interfaces_ports_and_vlans(adapter: OpenWrtAdapter) -> None:
     assert ports["lan1"].mac == "02:00:00:00:00:01"
     segs = {s.vlan: s for s in obs.segments}
     assert set(segs) == {1, 20}
-    assert segs[1].id == "home/segment/1" and segs[1].name == "lan"
+    assert segs[1].id == "home/segment/native" and segs[1].name == "lan"
     assert {(m.port_id, m.mode) for m in segs[1].members} == {
         (f"ap1/port/lan{n}", Membership.UNTAGGED) for n in (1, 2, 3)
     }
@@ -135,7 +135,7 @@ async def test_interfaces_ports_and_vlans(adapter: OpenWrtAdapter) -> None:
     assert [(m.port_id, m.mode) for m in segs[20].members] == [("ap1/port/lan1", Membership.TAGGED)]
     subnets = {str(s.interface): s for s in obs.subnets}
     assert set(subnets) == {"192.0.2.2/24", "2001:db8::2/64"}  # no loopback
-    assert all(s.segment_id == "home/segment/1" and not s.gateway for s in subnets.values())
+    assert all(s.segment_id == "home/segment/native" and not s.gateway for s in subnets.values())
 
 
 async def test_wireless(adapter: OpenWrtAdapter) -> None:
@@ -161,7 +161,7 @@ async def test_wireless(adapter: OpenWrtAdapter) -> None:
     assert main.ssid == "Example" and main.security is Security.WPA2_WPA3
     assert main.pmf is Pmf.OPTIONAL  # sae-mixed default
     assert main.roaming_80211r and main.roaming_80211k and main.roaming_80211v
-    assert main.segment_id == "home/segment/1" and main.radio_id == "ap1/radio/radio0"
+    assert main.segment_id == "home/segment/native" and main.radio_id == "ap1/radio/radio0"
     assert main.passphrase_fingerprint == passphrase_fingerprint("Example", "example-passphrase")
     assert wlans["ap1/wlan/default_radio1"].pmf is Pmf.OPTIONAL
     iot = wlans["ap1/wlan/iot_radio0"]
@@ -173,7 +173,7 @@ async def test_wireless(adapter: OpenWrtAdapter) -> None:
 async def test_dhcp_off_on_an_ap(adapter: OpenWrtAdapter) -> None:
     obs = await adapter.read_dhcp()
     [server] = obs.dhcp_servers
-    assert server.id == "ap1/dhcp/lan" and server.segment_id == "home/segment/1"
+    assert server.id == "ap1/dhcp/lan" and server.segment_id == "home/segment/native"
     assert server.enabled is False and server.pools == []
     assert server.lease_seconds == 12 * 3600
     assert [(r.mac, str(r.address), r.hostname) for r in server.reservations] == [

@@ -30,9 +30,15 @@ def port_id(device_id: str, name: str) -> str:
     return f"{device_id}/port/{name}"
 
 
+#: The default VLAN of almost every device. A device that reports its plain LAN as VLAN 1
+#: (OpenWrt with DSA, most managed switches) and one that reports it as untagged without an id
+#: (most routers) describe the same network, so both map to the native segment.
+DEFAULT_VLAN = 1
+
+
 def segment_id(site_id: str, vlan: int | None) -> str:
-    """Segment of a site; ``vlan=None`` is the untagged (native) network."""
-    return f"{site_id}/segment/{NATIVE if vlan is None else vlan}"
+    """Segment of a site; ``vlan=None`` and VLAN 1 are the untagged (native) network."""
+    return f"{site_id}/segment/{NATIVE if vlan in (None, DEFAULT_VLAN) else vlan}"
 
 
 def object_id(device_id: str, kind: str, name: str) -> str:

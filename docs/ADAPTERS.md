@@ -55,8 +55,8 @@ class MyAdapter(Adapter):
 
 Use the helpers in `signalbox.model`: `port_id(device, name)`, `object_id(device, kind, name)`
 for everything that belongs to the device, and `segment_id(site, vlan)` for VLANs, so that the
-same VLAN seen on several devices becomes one segment. `vlan=None` is the untagged network of a
-device without VLANs. Unknown vendor fields go into `vendor_extra`; rules never read it.
+same VLAN seen on several devices becomes one segment. `vlan=None` (a device without VLANs) and
+VLAN 1 (the default VLAN) are both the native, untagged network of the site. Unknown vendor fields go into `vendor_extra`; rules never read it.
 
 WPA passphrases are never stored: put `passphrase_fingerprint(ssid, passphrase)` into
 `Wlan.passphrase_fingerprint`, so access points can be compared without revealing the key.

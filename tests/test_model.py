@@ -33,6 +33,7 @@ def test_ids() -> None:
     assert port_id("gw", "lan1") == "gw/port/lan1"
     assert segment_id("home", 10) == "home/segment/10"
     assert segment_id("home", None) == "home/segment/native"
+    assert segment_id("home", 1) == "home/segment/native"  # the default VLAN is the plain LAN
     assert object_id("ap", "wlan", "x") == "ap/wlan/x"
 
 

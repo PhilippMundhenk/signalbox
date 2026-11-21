@@ -37,7 +37,7 @@ incomplete, never as errors.
 
 ### `vlan.tagged-both-ends`
 
-- **Severity:** error
+- **Severity:** warning (a VLAN the far end actually needs is an error of `vlan.path-to-gateway`)
 - **Checks:** a VLAN tagged on one end of a link is configured on the other end as well.
 - **Fix:** add the VLAN as tagged VLAN to the other port, or remove it from the first one.
 

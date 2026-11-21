@@ -55,3 +55,20 @@ jobs:
         with: { python-version: "3.13", cache: pip }
       - run: pip install homeassistant -e .
       - run: python tools/validate_ha_discovery.py
+
+  docker:
+    name: Docker image builds and starts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: signalbox:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test (health, login refused/ok, demo devices, findings, non-root)
+        run: SKIP_BUILD=1 IMAGE=signalbox:smoke bash tools/smoke.sh

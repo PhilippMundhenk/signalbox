@@ -21,3 +21,7 @@ All notable changes to this project are documented here. The format follows
 - Web API with password login (generated on first start, scrypt hash, lockout), session cookie, CSRF and content-type checks, strict CSP; `signalbox serve` and `signalbox reset-password`; docs/API.md generated from the code (#13)
 - Topology: links discovered from LLDP and MAC tables next to the cables entered by hand, `/api/topology` with the VLANs at both ends of each link, rules for conflicting and untagged-only links (#15)
 - Home Assistant export over MQTT: findings per site and status, firmware, clients per device, with discovery, availability and removal of stale entities (#16)
+- Container image (non-root, `/data` volume, healthcheck), docker-compose.yml, release workflow for multi-arch images; `signalbox demo` with a simulated gateway and two access points; container smoke test in CI (#17)
+
+### Changed
+- VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)

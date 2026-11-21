@@ -18,6 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("version", help="print the version")
     sub.add_parser("schema", help="print the JSON Schema of the network model")
     sub.add_parser("serve", help="run the web interface and the observation loop")
+    sub.add_parser("demo", help="like serve, with simulated devices instead of real ones")
     sub.add_parser("reset-password", help="generate a new web interface password")
     return parser
 
@@ -52,15 +53,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
-    app = create_app(services)
-    try:
+
+    def run() -> None:
         uvicorn.run(
-            app,
+            create_app(services),
             host=services.config.server.host,
             port=services.config.server.port,
             log_level="info",
             proxy_headers=True,
         )
+
+    try:
+        if args.command == "demo":
+            from signalbox.demo import demo_devices
+
+            with demo_devices(services):
+                logging.getLogger("signalbox").warning(
+                    "demo mode: three simulated devices, the network is not used"
+                )
+                run()
+        else:
+            run()
     finally:
         services.close()
     return 0
