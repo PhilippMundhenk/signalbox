@@ -26,6 +26,7 @@ from signalbox.model import (
 )
 from signalbox.rules import Finding, evaluate
 from signalbox.rules.builtin import RULES
+from signalbox.rules.vlan import RULES as VLAN_RULES
 from signalbox.rules.vlan import (
     native_mismatch,
     path_to_gateway,
@@ -106,7 +107,7 @@ def net(*snaps: Snapshot, links: tuple[Link, ...] = (GW_SW, SW_AP)) -> Network:
 
 
 def run(n: Network, *rules: Any) -> list[Finding]:
-    return evaluate(n, rules or RULES)
+    return evaluate(n, rules or VLAN_RULES)
 
 
 def test_consistent_topology_has_no_findings() -> None:
