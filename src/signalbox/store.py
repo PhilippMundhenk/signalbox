@@ -1,0 +1,378 @@
+"""SQLite storage: sites, devices (credentials encrypted), links, snapshots, findings history."""
+
+from __future__ import annotations
+
+import json
+import re
+import sqlite3
+import threading
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
+
+from signalbox.adapters import AdapterConfig
+from signalbox.model import DeviceRole, Link, Site, Snapshot
+from signalbox.rules import Finding
+from signalbox.secrets import Vault
+
+SCHEMA = [
+    # version 1
+    """
+    CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+    CREATE TABLE devices (
+        id TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL REFERENCES sites(id),
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        adapter TEXT NOT NULL,
+        config TEXT NOT NULL,
+        secrets TEXT,
+        pinned_fingerprint TEXT,
+        pending_fingerprint TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE links (id TEXT PRIMARY KEY, a TEXT NOT NULL, b TEXT NOT NULL, kind TEXT NOT NULL);
+    CREATE TABLE snapshots (
+        device_id TEXT PRIMARY KEY, observed_at TEXT NOT NULL, data TEXT NOT NULL
+    );
+    CREATE TABLE findings (
+        id TEXT PRIMARY KEY,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        resolved_at TEXT,
+        data TEXT NOT NULL
+    );
+    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    """,
+]
+
+
+class StoreError(Exception):
+    pass
+
+
+class DeviceRecord(BaseModel):
+    """A configured device. ``config`` holds the non-secret adapter settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
+    site_id: str
+    name: str = Field(min_length=1, max_length=100)
+    role: DeviceRole
+    adapter: str
+    config: dict[str, Any] = Field(default_factory=dict)
+    #: Names of secret settings that are stored (values are never returned).
+    secrets_set: list[str] = Field(default_factory=list)
+    pinned_fingerprint: str | None = None
+    pending_fingerprint: str | None = None
+    enabled: bool = True
+
+
+class FindingRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding: Finding
+    first_seen: datetime
+    last_seen: datetime
+    resolved_at: datetime | None = None
+
+
+def slug(text: str, taken: Iterable[str] = ()) -> str:
+    """A device or site id from a name: lower case, dashes, unique among ``taken``."""
+    base = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:50] or "device"
+    used = set(taken)
+    candidate, n = base, 2
+    while candidate in used:
+        candidate, n = f"{base}-{n}", n + 1
+    return candidate
+
+
+def _secret_fields(cls: type[AdapterConfig]) -> set[str]:
+    out = set()
+    for name, info in cls.model_fields.items():
+        ann = info.annotation
+        if ann is SecretStr or (ann is not None and SecretStr in getattr(ann, "__args__", ())):
+            out.add(name)
+    return out
+
+
+class Store:
+    def __init__(self, path: Path, vault: Vault) -> None:
+        self.path = path
+        self.vault = vault
+        self._lock = threading.Lock()
+        self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+        self._db.row_factory = sqlite3.Row
+        self._db.execute("PRAGMA foreign_keys = ON")
+        self._db.execute("PRAGMA journal_mode = WAL")
+        try:
+            self._migrate()
+        except BaseException:
+            self._db.close()
+            raise
+
+    def close(self) -> None:
+        self._db.close()
+
+    @contextmanager
+    def _tx(self) -> Iterator[sqlite3.Connection]:
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                yield self._db
+            except BaseException:
+                self._db.execute("ROLLBACK")
+                raise
+            self._db.execute("COMMIT")
+
+    def _migrate(self) -> None:
+        version = self._db.execute("PRAGMA user_version").fetchone()[0]
+        if version > len(SCHEMA):
+            raise StoreError(
+                f"the database was written by a newer Signalbox (schema {version}); "
+                "update Signalbox or restore a backup"
+            )
+        for number, script in enumerate(SCHEMA[version:], start=version + 1):
+            with self._lock:
+                self._db.executescript(f"BEGIN; {script}; PRAGMA user_version = {number}; COMMIT;")
+
+    # settings ---------------------------------------------------------------------------
+
+    def get_setting(self, key: str) -> str | None:
+        row = self._db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return None if row is None else str(row[0])
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+
+    # sites ------------------------------------------------------------------------------
+
+    def sites(self) -> list[Site]:
+        rows = self._db.execute("SELECT id, name FROM sites ORDER BY id").fetchall()
+        return [Site(id=r["id"], name=r["name"]) for r in rows]
+
+    def put_site(self, site: Site) -> None:
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO sites (id, name) VALUES (?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET name = excluded.name",
+                (site.id, site.name),
+            )
+
+    def delete_site(self, site_id: str) -> None:
+        with self._tx() as db:
+            used = db.execute("SELECT COUNT(*) FROM devices WHERE site_id = ?", (site_id,))
+            if used.fetchone()[0]:
+                raise StoreError("the site still has devices; move or delete them first")
+            db.execute("DELETE FROM sites WHERE id = ?", (site_id,))
+
+    # devices ----------------------------------------------------------------------------
+
+    def _record(self, row: sqlite3.Row) -> DeviceRecord:
+        secrets = json.loads(self.vault.decrypt(row["secrets"])) if row["secrets"] else {}
+        return DeviceRecord(
+            id=row["id"],
+            site_id=row["site_id"],
+            name=row["name"],
+            role=row["role"],
+            adapter=row["adapter"],
+            config=json.loads(row["config"]),
+            secrets_set=sorted(secrets),
+            pinned_fingerprint=row["pinned_fingerprint"],
+            pending_fingerprint=row["pending_fingerprint"],
+            enabled=bool(row["enabled"]),
+        )
+
+    def devices(self) -> list[DeviceRecord]:
+        rows = self._db.execute("SELECT * FROM devices ORDER BY id").fetchall()
+        return [self._record(r) for r in rows]
+
+    def device(self, device_id: str) -> DeviceRecord | None:
+        row = self._db.execute("SELECT * FROM devices WHERE id = ?", (device_id,)).fetchone()
+        return None if row is None else self._record(row)
+
+    def put_device(
+        self,
+        record: DeviceRecord,
+        values: dict[str, Any],
+        config_cls: type[AdapterConfig],
+    ) -> DeviceRecord:
+        """Create or update a device from form values.
+
+        A secret setting that is missing or empty keeps its stored value, so the UI never needs
+        to see a password to change the address. Raises StoreError with readable messages.
+        """
+        secret_names = _secret_fields(config_cls)
+        old_row = self._db.execute("SELECT * FROM devices WHERE id = ?", (record.id,)).fetchone()
+        old_secrets: dict[str, str] = (
+            json.loads(self.vault.decrypt(old_row["secrets"]))
+            if old_row is not None and old_row["secrets"]
+            else {}
+        )
+        merged = {k: v for k, v in values.items() if not (k in secret_names and v in (None, ""))}
+        for name in secret_names:
+            if name not in merged and name in old_secrets:
+                merged[name] = old_secrets[name]
+        try:
+            cfg = config_cls.model_validate(merged)
+        except ValidationError as exc:
+            msg = "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors())
+            raise StoreError(msg) from exc
+        plain = cfg.model_dump(mode="json", exclude=secret_names)
+        secrets = {
+            name: value.get_secret_value()
+            for name in secret_names
+            if isinstance(value := getattr(cfg, name), SecretStr)
+        }
+        with self._tx() as db:
+            if not db.execute("SELECT 1 FROM sites WHERE id = ?", (record.site_id,)).fetchone():
+                raise StoreError(f"unknown site {record.site_id}")
+            db.execute(
+                "INSERT INTO devices (id, site_id, name, role, adapter, config, secrets, "
+                "pinned_fingerprint, pending_fingerprint, enabled) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+                "site_id = excluded.site_id, name = excluded.name, role = excluded.role, "
+                "adapter = excluded.adapter, config = excluded.config, "
+                "secrets = excluded.secrets, enabled = excluded.enabled",
+                (
+                    record.id,
+                    record.site_id,
+                    record.name,
+                    record.role.value,
+                    record.adapter,
+                    json.dumps(plain, sort_keys=True),
+                    self.vault.encrypt(json.dumps(secrets)) if secrets else None,
+                    record.pinned_fingerprint,
+                    record.pending_fingerprint,
+                    int(record.enabled),
+                ),
+            )
+        stored = self.device(record.id)
+        assert stored is not None
+        return stored
+
+    def adapter_config(self, device_id: str, config_cls: type[AdapterConfig]) -> AdapterConfig:
+        row = self._db.execute("SELECT * FROM devices WHERE id = ?", (device_id,)).fetchone()
+        if row is None:
+            raise StoreError(f"unknown device {device_id}")
+        values = json.loads(row["config"])
+        if row["secrets"]:
+            values.update(json.loads(self.vault.decrypt(row["secrets"])))
+        return config_cls.model_validate(values)
+
+    def delete_device(self, device_id: str) -> None:
+        with self._tx() as db:
+            db.execute("DELETE FROM devices WHERE id = ?", (device_id,))
+            db.execute("DELETE FROM snapshots WHERE device_id = ?", (device_id,))
+
+    def set_pending_fingerprint(self, device_id: str, fingerprint: str | None) -> None:
+        with self._tx() as db:
+            db.execute(
+                "UPDATE devices SET pending_fingerprint = ? WHERE id = ?", (fingerprint, device_id)
+            )
+
+    def trust_fingerprint(self, device_id: str, fingerprint: str) -> None:
+        """Pin the certificate the device presented. Only the pending one can be trusted."""
+        record = self.device(device_id)
+        if record is None:
+            raise StoreError(f"unknown device {device_id}")
+        if record.pending_fingerprint != fingerprint:
+            raise StoreError("this is not the certificate the device presented last")
+        with self._tx() as db:
+            db.execute(
+                "UPDATE devices SET pinned_fingerprint = ?, pending_fingerprint = NULL "
+                "WHERE id = ?",
+                (fingerprint, device_id),
+            )
+
+    # links ------------------------------------------------------------------------------
+
+    def links(self) -> list[Link]:
+        rows = self._db.execute("SELECT id, a, b, kind FROM links ORDER BY id").fetchall()
+        return [Link(id=r["id"], a=r["a"], b=r["b"], kind=r["kind"], origin="manual") for r in rows]
+
+    def put_link(self, link: Link) -> None:
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO links (id, a, b, kind) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO "
+                "UPDATE SET a = excluded.a, b = excluded.b, kind = excluded.kind",
+                (link.id, link.a, link.b, link.kind.value),
+            )
+
+    def delete_link(self, link_id: str) -> None:
+        with self._tx() as db:
+            db.execute("DELETE FROM links WHERE id = ?", (link_id,))
+
+    # snapshots --------------------------------------------------------------------------
+
+    def save_snapshot(self, snapshot: Snapshot) -> None:
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO snapshots (device_id, observed_at, data) VALUES (?, ?, ?) "
+                "ON CONFLICT(device_id) DO UPDATE SET observed_at = excluded.observed_at, "
+                "data = excluded.data",
+                (snapshot.device.id, snapshot.observed_at.isoformat(), snapshot.model_dump_json()),
+            )
+
+    def snapshots(self) -> list[Snapshot]:
+        rows = self._db.execute(
+            "SELECT s.data FROM snapshots s JOIN devices d ON d.id = s.device_id "
+            "ORDER BY s.device_id"
+        ).fetchall()
+        return [Snapshot.model_validate_json(r["data"]) for r in rows]
+
+    # findings ---------------------------------------------------------------------------
+
+    def record_findings(self, findings: Iterable[Finding], now: datetime) -> None:
+        """Store the current findings; findings no longer present are marked resolved."""
+        current = {f.id: f for f in findings}
+        stamp = now.isoformat()
+        with self._tx() as db:
+            for f in current.values():
+                db.execute(
+                    "INSERT INTO findings (id, first_seen, last_seen, resolved_at, data) "
+                    "VALUES (?, ?, ?, NULL, ?) ON CONFLICT(id) DO UPDATE SET "
+                    "last_seen = excluded.last_seen, data = excluded.data, "
+                    "first_seen = CASE WHEN findings.resolved_at IS NULL "
+                    "THEN findings.first_seen ELSE excluded.first_seen END, resolved_at = NULL",
+                    (f.id, stamp, stamp, f.model_dump_json()),
+                )
+            open_ids = [
+                r[0] for r in db.execute("SELECT id FROM findings WHERE resolved_at IS NULL")
+            ]
+            for fid in open_ids:
+                if fid not in current:
+                    db.execute("UPDATE findings SET resolved_at = ? WHERE id = ?", (stamp, fid))
+
+    def findings(self, include_resolved: bool = False) -> list[FindingRecord]:
+        sql = "SELECT * FROM findings"
+        if not include_resolved:
+            sql += " WHERE resolved_at IS NULL"
+        rows = self._db.execute(sql + " ORDER BY first_seen, id").fetchall()
+        return [
+            FindingRecord(
+                finding=Finding.model_validate_json(r["data"]),
+                first_seen=r["first_seen"],
+                last_seen=r["last_seen"],
+                resolved_at=r["resolved_at"],
+            )
+            for r in rows
+        ]
+
+    def prune_resolved(self, before: datetime) -> int:
+        with self._tx() as db:
+            cur = db.execute(
+                "DELETE FROM findings WHERE resolved_at IS NOT NULL AND resolved_at < ?",
+                (before.isoformat(),),
+            )
+            return cur.rowcount

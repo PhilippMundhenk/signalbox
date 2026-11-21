@@ -53,6 +53,7 @@ packages = ["src/signalbox"]
 
 [tool.ruff]
 line-length = 100
+extend-exclude = [".claude"]
 target-version = "py311"
 src = ["src", "tests"]
 
@@ -64,6 +65,7 @@ ignore = ["RUF012"]
 strict = true
 python_version = "3.11"
 files = ["src/signalbox"]
+exclude = ["^\\.claude/"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]

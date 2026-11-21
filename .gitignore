@@ -11,3 +11,4 @@ dist/
 build/
 test-results/
 node_modules/
+/.claude/
