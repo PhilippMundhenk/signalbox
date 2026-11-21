@@ -1,0 +1,219 @@
+"""Rules check the merged network and return findings.
+
+A rule is a plain function over a :class:`~signalbox.model.Network` that yields
+:class:`Result` objects (built with :func:`found` or :func:`incomplete`), wrapped by the
+:func:`rule` decorator::
+
+    @rule("dhcp.one-server", "One DHCP server per segment", Severity.ERROR,
+          "Two DHCP servers on one network hand out conflicting addresses.")
+    def one_server(net: Network) -> Iterator[Result]:
+        ...
+        yield found(f"{n} DHCP servers on {seg}", [seg.id, *ids], fix="Disable all but one.")
+
+Rules are discovered through the ``signalbox.rules`` entry point group; a target is a
+:class:`Rule` or a list of them.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass, field
+from enum import StrEnum
+from importlib.metadata import entry_points
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from signalbox.model import DeviceStatus, Network
+
+
+class Severity(StrEnum):
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
+
+
+class Finding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: Stable across runs: the same problem on the same objects keeps its id.
+    id: str
+    rule_id: str
+    severity: Severity
+    title: str
+    message: str
+    objects: list[str] = Field(default_factory=list)
+    fix: str | None = None
+    #: True when the rule could not check something (missing data), not a confirmed problem.
+    incomplete: bool = False
+
+
+@dataclass(frozen=True)
+class Result:
+    message: str
+    objects: tuple[str, ...]
+    fix: str | None = None
+    severity: Severity | None = None
+    incomplete: bool = False
+    key: str = ""
+
+
+def found(
+    message: str,
+    objects: Iterable[str],
+    *,
+    fix: str | None = None,
+    severity: Severity | None = None,
+    key: str = "",
+) -> Result:
+    """A problem. ``key`` distinguishes several findings of one rule on the same objects."""
+    return Result(message, tuple(objects), fix, severity, False, key)
+
+
+def incomplete(message: str, objects: Iterable[str], *, key: str = "") -> Result:
+    """Something the rule could not check, for example because a device did not report it."""
+    return Result(message, tuple(objects), None, Severity.INFO, True, key)
+
+
+Check = Callable[[Network], Iterable[Result]]
+
+
+@dataclass(frozen=True)
+class Rule:
+    id: str
+    title: str
+    severity: Severity
+    explanation: str
+    check: Check = field(compare=False)
+
+
+def rule(id: str, title: str, severity: Severity, explanation: str) -> Callable[[Check], Rule]:
+    def wrap(fn: Check) -> Rule:
+        return Rule(id, title, severity, explanation, fn)
+
+    return wrap
+
+
+class RuleSettings(BaseModel):
+    """Per-rule configuration: ``rules: {dhcp.one-server: {enabled: false}}``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    severity: Severity | None = None
+
+
+def finding_id(rule_id: str, objects: Iterable[str], key: str = "") -> str:
+    text = "\x00".join([rule_id, key, *sorted(objects)])
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def _finding(r: Rule, res: Result, severity: Severity) -> Finding:
+    return Finding(
+        id=finding_id(r.id, res.objects, res.key + ("\x00incomplete" if res.incomplete else "")),
+        rule_id=r.id,
+        severity=Severity.INFO if res.incomplete else (res.severity or severity),
+        title=r.title,
+        message=res.message,
+        objects=list(res.objects),
+        fix=res.fix,
+        incomplete=res.incomplete,
+    )
+
+
+READ_ERRORS = Rule(
+    "signalbox.read",
+    "Device could not be read completely",
+    Severity.WARNING,
+    "A device did not answer, refused the login, presented an untrusted certificate, or one of "
+    "its capabilities failed. Checks that need this data are incomplete until it is fixed.",
+    lambda net: (),
+)
+
+_STATUS_TEXT = {
+    DeviceStatus.UNREACHABLE: "is unreachable",
+    DeviceStatus.AUTH_FAILED: "refused the login",
+    DeviceStatus.UNTRUSTED: "presented a certificate that is not trusted",
+}
+_STATUS_FIX = {
+    DeviceStatus.UNREACHABLE: "Check that the device is on and its address is right.",
+    DeviceStatus.AUTH_FAILED: "Check the user name and password or API key of the device.",
+    DeviceStatus.UNTRUSTED: "Compare the fingerprint with the device and trust it if it matches.",
+}
+
+
+def _read_findings(net: Network, severity: Severity) -> list[Finding]:
+    out = []
+    for err in net.errors:
+        dev = net.device(err.device_id)
+        name = dev.name if dev else err.device_id
+        status = net.statuses.get(err.device_id, DeviceStatus.PARTIAL)
+        if err.capability == "system" and status in _STATUS_TEXT:
+            message = f"{name} {_STATUS_TEXT[status]}: {err.message}"
+            fix = _STATUS_FIX[status]
+        else:
+            message = f"{name}: could not read {err.capability}: {err.message}"
+            fix = None
+        res = Result(message, (err.device_id,), fix, None, False, err.capability)
+        out.append(_finding(READ_ERRORS, res, severity))
+    return out
+
+
+def evaluate(
+    net: Network,
+    rules: Iterable[Rule],
+    settings: Mapping[str, RuleSettings] | None = None,
+) -> list[Finding]:
+    """Run every enabled rule. A rule that crashes becomes an error finding, never a silent gap."""
+    settings = settings or {}
+
+    def severity_of(r: Rule) -> Severity:
+        s = settings.get(r.id)
+        return s.severity if s and s.severity else r.severity
+
+    def enabled(r: Rule) -> bool:
+        s = settings.get(r.id)
+        return s is None or s.enabled
+
+    findings: dict[str, Finding] = {}
+    if enabled(READ_ERRORS):
+        for f in _read_findings(net, severity_of(READ_ERRORS)):
+            findings[f.id] = f
+    for r in rules:
+        if not enabled(r):
+            continue
+        try:
+            results = list(r.check(net))
+        except Exception as exc:  # a broken rule must be visible
+            results = [
+                Result(f"rule failed: {type(exc).__name__}: {exc}", (), None, Severity.ERROR)
+            ]
+        for res in results:
+            f = _finding(r, res, severity_of(r))
+            findings.setdefault(f.id, f)
+    return sorted(
+        findings.values(), key=lambda f: (SEVERITY_ORDER[f.severity], f.rule_id, f.message)
+    )
+
+
+def load_rules(group: str = "signalbox.rules") -> list[Rule]:
+    """All installed rules. Duplicate ids or targets that are not rules raise."""
+    out: dict[str, Rule] = {}
+    for ep in entry_points(group=group):
+        target = ep.load()
+        items = target if isinstance(target, list | tuple) else [target]
+        for item in items:
+            if not isinstance(item, Rule):
+                raise TypeError(f"entry point {ep.name}: {item!r} is not a Rule")
+            if item.id in out or item.id == READ_ERRORS.id:
+                raise ValueError(f"two rules with id {item.id}")
+            out[item.id] = item
+    return sorted(out.values(), key=lambda r: r.id)
+
+
+def all_rule_ids(rules: Iterable[Rule]) -> Iterator[str]:
+    yield READ_ERRORS.id
+    yield from (r.id for r in rules)

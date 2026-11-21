@@ -39,6 +39,7 @@ signalbox = "signalbox.__main__:main"
 [project.entry-points."signalbox.adapters"]
 
 [project.entry-points."signalbox.rules"]
+builtin = "signalbox.rules.builtin:RULES"
 
 [project.urls]
 Homepage = "https://github.com/PhilippMundhenk/signalbox"
