@@ -113,7 +113,7 @@ class Store:
     def __init__(self, path: Path, vault: Vault) -> None:
         self.path = path
         self.vault = vault
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
@@ -126,6 +126,16 @@ class Store:
 
     def close(self) -> None:
         self._db.close()
+
+    # One connection is shared by the web threads and the runner: reads take the lock too, so
+    # they never see a half-written transaction or interleave with one on the same connection.
+    def _all(self, sql: str, args: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
+        with self._lock:
+            return self._db.execute(sql, args).fetchall()
+
+    def _one(self, sql: str, args: tuple[Any, ...] = ()) -> sqlite3.Row | None:
+        rows = self._all(sql, args)
+        return rows[0] if rows else None
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
@@ -152,7 +162,7 @@ class Store:
     # settings ---------------------------------------------------------------------------
 
     def get_setting(self, key: str) -> str | None:
-        row = self._db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        row = self._one("SELECT value FROM settings WHERE key = ?", (key,))
         return None if row is None else str(row[0])
 
     def set_setting(self, key: str, value: str) -> None:
@@ -166,7 +176,7 @@ class Store:
     # sites ------------------------------------------------------------------------------
 
     def sites(self) -> list[Site]:
-        rows = self._db.execute("SELECT id, name FROM sites ORDER BY id").fetchall()
+        rows = self._all("SELECT id, name FROM sites ORDER BY id")
         return [Site(id=r["id"], name=r["name"]) for r in rows]
 
     def put_site(self, site: Site) -> None:
@@ -205,11 +215,11 @@ class Store:
         )
 
     def devices(self) -> list[DeviceRecord]:
-        rows = self._db.execute("SELECT * FROM devices ORDER BY id").fetchall()
+        rows = self._all("SELECT * FROM devices ORDER BY id")
         return [self._record(r) for r in rows]
 
     def device(self, device_id: str) -> DeviceRecord | None:
-        row = self._db.execute("SELECT * FROM devices WHERE id = ?", (device_id,)).fetchone()
+        row = self._one("SELECT * FROM devices WHERE id = ?", (device_id,))
         return None if row is None else self._record(row)
 
     def put_device(
@@ -224,7 +234,7 @@ class Store:
         to see a password to change the address. Raises StoreError with readable messages.
         """
         secret_names = _secret_fields(config_cls)
-        old_row = self._db.execute("SELECT * FROM devices WHERE id = ?", (record.id,)).fetchone()
+        old_row = self._one("SELECT * FROM devices WHERE id = ?", (record.id,))
         old_secrets: dict[str, str] = (
             json.loads(self.vault.decrypt(old_row["secrets"]))
             if old_row is not None and old_row["secrets"]
@@ -269,7 +279,7 @@ class Store:
         return stored
 
     def adapter_config(self, device_id: str, config_cls: type[AdapterConfig]) -> AdapterConfig:
-        row = self._db.execute("SELECT * FROM devices WHERE id = ?", (device_id,)).fetchone()
+        row = self._one("SELECT * FROM devices WHERE id = ?", (device_id,))
         if row is None:
             raise StoreError(f"unknown device {device_id}")
         values = json.loads(row["config"])
@@ -305,7 +315,7 @@ class Store:
     # links ------------------------------------------------------------------------------
 
     def links(self) -> list[Link]:
-        rows = self._db.execute("SELECT id, a, b, kind FROM links ORDER BY id").fetchall()
+        rows = self._all("SELECT id, a, b, kind FROM links ORDER BY id")
         return [Link(id=r["id"], a=r["a"], b=r["b"], kind=r["kind"], origin="manual") for r in rows]
 
     def put_link(self, link: Link) -> None:
@@ -332,10 +342,10 @@ class Store:
             )
 
     def snapshots(self) -> list[Snapshot]:
-        rows = self._db.execute(
+        rows = self._all(
             "SELECT s.data FROM snapshots s JOIN devices d ON d.id = s.device_id "
             "ORDER BY s.device_id"
-        ).fetchall()
+        )
         return [Snapshot.model_validate_json(r["data"]) for r in rows]
 
     # findings ---------------------------------------------------------------------------
@@ -365,7 +375,7 @@ class Store:
         sql = "SELECT * FROM findings"
         if not include_resolved:
             sql += " WHERE resolved_at IS NULL"
-        rows = self._db.execute(sql + " ORDER BY first_seen, id").fetchall()
+        rows = self._all(sql + " ORDER BY first_seen, id")
         return [
             FindingRecord(
                 finding=Finding.model_validate_json(r["data"]),
