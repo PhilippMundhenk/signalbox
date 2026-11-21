@@ -252,3 +252,20 @@ async def test_interval_timeout_starts_next_round(store: Store) -> None:
     object.__setattr__(r.config.observe, "interval_seconds", 0.01)
     await asyncio.wait_for(r.run_forever(), 2)
     assert rounds == 2
+
+
+async def test_trigger_during_a_round_is_not_lost(store: Store) -> None:
+    r = runner(store)  # interval 10 s: a lost trigger would make this test time out
+    rounds = 0
+
+    async def slow_round() -> None:
+        nonlocal rounds
+        rounds += 1
+        if rounds == 1:
+            r.trigger()  # arrives while the first round is still running
+        else:
+            r.stop()
+
+    r.observe_all = slow_round  # type: ignore[method-assign]
+    await asyncio.wait_for(r.run_forever(), 2)
+    assert rounds == 2

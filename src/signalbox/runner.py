@@ -151,12 +151,13 @@ class Runner:
 
     async def run_forever(self) -> None:
         while not self._stop.is_set():
+            # cleared before the round: a trigger that arrives during it starts the next one
+            self._wake.clear()
             try:
                 await self.observe_all()
             except Exception:
                 log.exception("observation round failed")
             if self._stop.is_set():
                 break
-            self._wake.clear()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wake.wait(), self.config.observe.interval_seconds)

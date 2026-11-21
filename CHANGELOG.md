@@ -24,7 +24,12 @@ All notable changes to this project are documented here. The format follows
 - Container image (non-root, `/data` volume, healthcheck), docker-compose.yml, release workflow for multi-arch images; `signalbox demo` with a simulated gateway and two access points; container smoke test in CI (#17)
 - Icon (a railway signal), branding guide, favicon and app icons, social preview (#19)
 - Documentation for users: README with getting started and demo, CONFIGURATION and MATURITY generated from the code, DEPLOYMENT, TROUBLESHOOTING, every rule in RULES.md (#18)
+- Web interface: findings first, devices with a settings form generated from the adapter, certificate trust, topology with VLAN overlay and entered cables, segments, Wi-Fi, DHCP & DNS, clients, settings; light and dark; works on a phone; browser tests in CI (#14, #15)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
+
+### Fixed
+- Reads of the database could see a half-written device while the runner wrote it (#14)
+- "Read all devices now" during a running round started the next round only after the interval (#12)
