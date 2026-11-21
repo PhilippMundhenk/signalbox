@@ -12,6 +12,8 @@ carried on every link that needs it. Each finding says what is wrong, where, and
 > any of the vendors whose devices it works with. Product names are used only to say what it
 > works with.
 
+![Findings](docs/screenshots/findings.png)
+
 **Status:** version 0.1, in development. Signalbox reads devices; it does not change them yet.
 The adapters are tested against built-in simulators of the device APIs, not yet against real
 devices: see [docs/MATURITY.md](docs/MATURITY.md), and please report what you find in
@@ -81,6 +83,14 @@ Just looking? `docker run --rm -p 8080:8080 -e SIGNALBOX_AUTH_PASSWORD=demo-pass
 ghcr.io/philippmundhenk/signalbox:latest demo` starts Signalbox with a simulated gateway and two
 access points; nothing on your network is touched.
 
+## Screenshots
+
+| Topology | Wi-Fi | Phone |
+| --- | --- | --- |
+| ![Topology](docs/screenshots/topology.png) | ![Wireless](docs/screenshots/wireless.png) | ![Findings on a phone](docs/screenshots/phone-findings.png) |
+
+More in [docs/screenshots.md](docs/screenshots.md).
+
 ## Home Assistant
 
 With `SIGNALBOX_MQTT_ENABLED=true` and `SIGNALBOX_MQTT_HOST=<broker>`, Signalbox publishes the
@@ -89,6 +99,7 @@ MQTT discovery, so they appear in Home Assistant without further setup.
 
 ## Documentation
 
+- [docs/screenshots.md](docs/screenshots.md): all screenshots
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): every setting and its environment variable
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): data folder, reverse proxy, backups, updates
 - [docs/RULES.md](docs/RULES.md): what each check looks at and how to fix a finding

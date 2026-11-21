@@ -1,7 +1,7 @@
 PY ?= .venv/bin/python
 BIN = .venv/bin
 
-.PHONY: install lint format typecheck test e2e demo run docker smoke schema
+.PHONY: install lint format typecheck test e2e demo run docker smoke schema screenshots docs
 install:
 	python3 -m venv .venv && $(BIN)/pip install -e ".[dev]"
 lint:
@@ -22,3 +22,7 @@ docker:
 	docker build -t signalbox:dev .
 smoke:
 	bash tools/smoke.sh
+screenshots:
+	NO_PROXY=127.0.0.1,localhost $(PY) tools/screenshots.py
+docs:
+	$(PY) tools/gen_docs.py && $(PY) tools/gen_api_doc.py
