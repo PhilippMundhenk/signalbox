@@ -29,7 +29,7 @@ from signalbox.adapters import (
     StepState,
 )
 from signalbox.adapters.openwrt import OpenWrtAdapter, OpenWrtConfig
-from signalbox.adapters.openwrt.provision import ACL_PATH
+from signalbox.adapters.openwrt.provision import ACL_PATH, RESTART
 from signalbox.adapters.openwrt.setup import READ_ACL, WRITE_ACL
 from signalbox.adapters.ssh import PinnedSsh
 from signalbox.model import DeviceRole, DeviceStatus
@@ -113,7 +113,7 @@ async def restored(ow: Target, host_key: str) -> AsyncIterator[None]:
         await shell(
             ow,
             host_key,
-            f"cat > {ACL_PATH} <<'END'\n{acl}\nEND\n/etc/init.d/rpcd restart\nsleep 2\n",
+            f"cat > {ACL_PATH} <<'END'\n{acl}\nEND\n{RESTART}",
         )
 
 

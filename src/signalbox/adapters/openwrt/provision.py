@@ -43,6 +43,8 @@ ACL_GROUP = "signalbox"
 LOGIN_NAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 #: UCI section names as `uci -X` prints them; anything else is not put into a command
 SECTION = re.compile(r"^[A-Za-z0-9_]+$")
+#: rpcd restarted, and its session object back on ubus before the next login (CI: 25.12)
+RESTART = "/etc/init.d/rpcd restart\nsleep 1\nubus -t 15 wait_for session\n"
 COMPARE = (
     "On the router: dropbearkey -y -f /etc/dropbear/dropbear_ed25519_host_key (or the _rsa_ "
     "key) prints the fingerprint; ssh-keygen -lf on a copy of the public key shows the same."
@@ -283,7 +285,7 @@ class OpenWrtSetup:
         )
         mine = [x for x in state.logins if x.username == self.login]
         what = "with write access" if writes else "read-only"
-        restart = "/etc/init.d/rpcd restart\n" + ("/etc/init.d/uhttpd restart\n" if missing else "")
+        restart = RESTART + ("/etc/init.d/uhttpd restart\n" if missing else "")
         steps = [
             Step(
                 "packages",
@@ -313,7 +315,7 @@ class OpenWrtSetup:
                 "restart",
                 "Restart rpcd so that it loads the permissions and the login",
                 restart,
-                action=self._run(ssh, restart + "sleep 2\n"),
+                action=self._run(ssh, restart),
             ),
         ]
         if state.certificate:
@@ -385,9 +387,9 @@ class OpenWrtSetup:
             Step(
                 "restart",
                 "Restart rpcd",
-                "/etc/init.d/rpcd restart\n",
+                RESTART,
                 needed=changed,
-                action=self._run(ssh, "/etc/init.d/rpcd restart\n"),
+                action=self._run(ssh, RESTART),
                 note="" if changed else "nothing changed",
             ),
             Step(

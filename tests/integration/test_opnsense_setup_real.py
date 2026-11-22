@@ -3,8 +3,8 @@
 The VM has no user ``signalbox`` (its test users are ``signalbox-read`` and
 ``signalbox-write``): the setup creates it with the documented privileges and a key, the firewall
 is read with that key, the setup runs again with changes allowed (privileges updated, the old
-key deleted), and the removal deletes the user. Runs as a CI step of its own after the other
-OPNsense tests; every test leaves no user ``signalbox`` behind.
+key deleted), and the removal deletes the user. Runs as a CI step of its own right after the
+boot, before the other OPNsense tests; every test leaves no user ``signalbox`` behind.
 """
 
 from __future__ import annotations

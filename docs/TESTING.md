@@ -122,7 +122,9 @@ starts it, a test module `tests/integration/test_<target>_real.py` and a job in
 `.github/workflows/integration.yml`, which runs nightly, on demand and on pull requests that
 touch adapters, simulators or the integration setup. The automatic setup with an admin login
 (#231) has a module of its own per target, `tests/integration/test_<target>_setup_real.py`,
-run as a separate step after the other tests of the job: it creates a login the image does not
+run as a separate step (OPNsense, MikroTik: right after the boot, so its failure is among the
+first 50 annotations of the check run; OpenWrt: after the other tests, as it rewrites the ACL
+file): it creates a login the image does not
 have (`signalbox-auto`, or `signalbox` on OPNsense), reads the device with it and removes it.
 
 ### OpenWrt (x86-64 in QEMU)

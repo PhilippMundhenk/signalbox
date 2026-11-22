@@ -87,6 +87,22 @@ jobs:
           key: ${{ steps.cache.outputs.cache-primary-key }}
       - name: Boot the test VM
         run: python3 tools/integration/opnsense/vm.py start "$VM_DIR"
+      - name: Automatic setup tests (root's API key, #231)
+        # first after the boot: a check run keeps only 50 annotations, and the recording
+        # steps fill them; the result is checked at the end of the job
+        id: setup
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_opnsense_setup_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$VM_DIR/pytest-setup.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest-setup.log" | cut -c1-3000 | tail -n 80)
+              body=${summary//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=OPNsense automatic setup tests failed::$body"
+              exit $code
+            }
       - name: Record the API answers (read user)
         run: python3 tools/integration/opnsense/dump.py "$VM_DIR" read
       - name: Record the API answers (write user)
@@ -108,19 +124,6 @@ jobs:
               echo "::error title=OPNsense integration tests failed::$body"
               exit $code
             }
-      - name: Automatic setup tests (root's API key, #231)
-        if: success() || failure()
-        run: |
-          set -o pipefail
-          pytest tests/integration/test_opnsense_setup_real.py -v -p no:cacheprovider 2>&1 \
-            | tee "$VM_DIR/pytest-setup.log" || {
-              code=$?
-              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest-setup.log" | cut -c1-3000 | tail -n 80)
-              body=${summary//'%'/'%25'}
-              body=${body//$'\n'/'%0A'}
-              echo "::error title=OPNsense automatic setup tests failed::$body"
-              exit $code
-            }
       - name: Serial console on failure
         if: failure()
         run: |
@@ -128,6 +131,9 @@ jobs:
           body=${body//'%'/'%25'}
           body=${body//$'\n'/'%0A'}
           echo "::error title=OPNsense serial console::$body"
+      - name: Automatic setup tests passed
+        if: always() && steps.setup.outcome == 'failure'
+        run: echo "::error title=OPNsense automatic setup::see the first annotations"; exit 1
       - name: Power off
         if: always()
         run: python3 tools/integration/opnsense/vm.py stop "$VM_DIR" || true
@@ -289,6 +295,22 @@ jobs:
           key: ${{ steps.cache.outputs.cache-primary-key }}
       - name: Boot the test VM
         run: python3 tools/integration/mikrotik/vm.py start "$VM_DIR"
+      - name: Automatic setup tests (admin over REST, #231)
+        # first after the boot: a check run keeps only 50 annotations, and the recording
+        # steps fill them; the result is checked at the end of the job
+        id: setup
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_mikrotik_setup_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$VM_DIR/pytest-setup.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest-setup.log" | cut -c1-3000 | tail -n 80)
+              body=${summary//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=MikroTik automatic setup tests failed::$body"
+              exit $code
+            }
       - name: Record the REST answers (read user)
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" read
       - name: Record the REST answers (read user, DHCP, DNS, clients)
@@ -316,19 +338,6 @@ jobs:
               echo "::error title=MikroTik integration tests failed::$body"
               exit $code
             }
-      - name: Automatic setup tests (admin over REST, #231)
-        if: success() || failure()
-        run: |
-          set -o pipefail
-          pytest tests/integration/test_mikrotik_setup_real.py -v -p no:cacheprovider 2>&1 \
-            | tee "$VM_DIR/pytest-setup.log" || {
-              code=$?
-              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest-setup.log" | cut -c1-3000 | tail -n 80)
-              body=${summary//'%'/'%25'}
-              body=${body//$'\n'/'%0A'}
-              echo "::error title=MikroTik automatic setup tests failed::$body"
-              exit $code
-            }
       - name: Test results
         if: always()
         run: |
@@ -343,6 +352,9 @@ jobs:
           body=${body//'%'/'%25'}
           body=${body//$'\n'/'%0A'}
           echo "::error title=MikroTik serial console::$body"
+      - name: Automatic setup tests passed
+        if: always() && steps.setup.outcome == 'failure'
+        run: echo "::error title=MikroTik automatic setup::see the first annotations"; exit 1
       - name: Power off
         if: always()
         run: python3 tools/integration/mikrotik/vm.py stop "$VM_DIR" || true

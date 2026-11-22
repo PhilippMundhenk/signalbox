@@ -147,7 +147,7 @@ class OpenWrtSsh:
             env[plain.group(1)] = plain.group(2)
             return 0, ""
         words = shlex.split(line)
-        if words[:2] == ["mkdir", "-p"] or words[0] == "sleep":
+        if words[:2] == ["mkdir", "-p"] or words[0] in ("sleep", "ubus"):
             return 0, ""
         if words[:2] == ["rm", "-f"]:
             self.files.pop(words[2], None)

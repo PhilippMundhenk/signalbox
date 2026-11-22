@@ -4,7 +4,7 @@ The CHR has the groups ``signalbox-read`` and ``signalbox-write`` of the setup g
 other tests, with the users ``signalbox`` and ``signalbox-write``) but no user
 ``signalbox-auto``: the setup creates it, the router is read with it, it moves to the write
 group, and the removal deletes it and keeps the groups the other users are in. Runs as a CI
-step of its own after the other MikroTik tests.
+step of its own right after the boot, before the other MikroTik tests (it leaves no user).
 """
 
 from __future__ import annotations
