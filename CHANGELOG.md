@@ -44,6 +44,7 @@ All notable changes to this project are documented here. The format follows
 - 36 new checks from the check catalogue: addressing and DHCP (#53-#59, #62, #63, #65, #66, #68, #69), IPv6 and DNS (#70, #71, #73-#79, #81), clients and Wi-Fi hygiene (#82, #83, #87, #88, #91-#95, #97, #98, #100, #103); see docs/RULES.md
 - Dependabot: newer versions of the GitHub Actions used in CI (#26-#29)
 - VLAN, topology and inventory checks: trunk scope, link aggregation, slow links, hidden devices, unknown LLDP neighbours, management network (opt-in), duplicate devices, single points of failure (#105, #107-#109, #113, #117-#119); rules can be opt-in
+- Fritz!Box writes over TR-064: LAN DHCP on/off and range; existing SSIDs (name, security, passphrase, on/off, hidden); backup and restore of the touched values (#24)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
