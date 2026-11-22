@@ -362,6 +362,54 @@ def sample_data() -> dict[str, Any]:
             }
         ),
         "/rest/interface/pppoe-client": [],
+        "/rest/ip/service": _ids(
+            *(
+                {
+                    "name": n,
+                    "port": port,
+                    "address": addr,
+                    "certificate": cert,
+                    "disabled": off,
+                    "invalid": "false",
+                    "dynamic": "false",
+                }
+                for n, port, addr, cert, off in (
+                    ("api", "8728", "", "", "false"),
+                    ("api-ssl", "8729", "", "none", "true"),
+                    ("ftp", "21", "", "", "true"),
+                    ("ssh", "22", "192.0.2.0/24,198.51.100.0/24", "", "false"),
+                    ("telnet", "23", "", "", "true"),
+                    ("winbox", "8291", "192.0.2.0/24", "", "false"),
+                    ("www", "80", "", "", "false"),
+                    ("www-ssl", "443", "", "signalbox-www", "false"),
+                )
+            )
+        ),
+        "/rest/tool/mac-server": {".id": "*0", "allowed-interface-list": "LAN"},
+        "/rest/tool/mac-server/mac-winbox": {".id": "*0", "allowed-interface-list": "none"},
+        "/rest/tool/romon": {"enabled": "false", "id": "00:00:00:00:00:00"},
+        "/rest/ip/ssh": {
+            "always-allow-password-login": "false",
+            "strong-crypto": "true",
+            "forwarding-enabled": "no",
+        },
+        "/rest/snmp": {
+            "enabled": "true",
+            "contact": "",
+            "location": "",
+            "trap-version": "1",
+        },
+        "/rest/snmp/community": _ids(
+            {
+                "name": "public",
+                "addresses": "::/0",
+                "security": "none",
+                "read-access": "true",
+                "write-access": "false",
+                "disabled": "false",
+                "default": "true",
+            }
+        ),
         "/rest/ip/cloud": {  # after a cloud update (CHR in CI without one: no public-address)
             "ddns-enabled": "auto",
             "ddns-update-interval": "none",

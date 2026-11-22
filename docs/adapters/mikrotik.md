@@ -609,3 +609,28 @@ download in CI). tools/integration/mikrotik/vm.py boots it in QEMU with KVM:
   interface). After every round trip the menus are compared entry by entry.
 
 The test VM is never run locally: without `IT_MIKROTIK_URL` the tests skip.
+
+
+## Management services (#173)
+
+Read with the `interfaces` capability; every service is reported, disabled ones too. The field
+names are from the RouterOS documentation (*not yet confirmed on the CHR: the integration test
+`test_management_services_of_chr` and the dump group `services` check them*).
+
+- `GET /rest/ip/service`: one service per row (`telnet`, `ftp`, `www` as `http`, `ssh`,
+  `www-ssl` as `https`, `api`, `winbox`, `api-ssl`): `port`, `disabled`, `address`
+  (comma-separated prefixes: `allowed_from`).
+- `GET /rest/tool/mac-server` and `/rest/tool/mac-server/mac-winbox` (`mac-telnet`,
+  `mac-winbox`; layer 2, no port): `allowed-interface-list` `none` is off, `all` is every
+  interface, another list name is resolved with `/rest/interface/list/member` to the ports.
+  `GET /rest/tool/romon`: `enabled`.
+- `GET /rest/ip/ssh`: `always-allow-password-login` true is `password_login`; false is left
+  unknown (RouterOS still allows a password while the user has no key).
+- `GET /rest/snmp` (`enabled`) and `/rest/snmp/community`: only whether a community named
+  `public` exists, whether any community may write (`write-access`) and the versions (a
+  community with `security` other than `none` is SNMPv3, with privacy when it has an
+  `encryption-protocol`). The community string itself is never stored.
+- A menu the read group may not read (or `/ip/service` itself) leaves out its services; when
+  `/ip/service` fails the list stays empty (not read) and the rest of the read is unaffected.
+- `transport_encrypted` is true for the https URL, false for `allow_insecure_http`.
+- `from_wan` stays unknown: the firewall is not read (#135).

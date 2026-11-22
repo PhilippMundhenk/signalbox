@@ -314,6 +314,32 @@ async def test_health_and_time_of_chr(rt: dict[str, str]) -> None:
     assert t.ntp_client is not None and t.ntp_server is not None, t
 
 
+async def test_management_services_of_chr(rt: dict[str, str]) -> None:
+    """``/ip/service``, MAC server, RoMON, SSH and SNMP as the read user sees them (#173).
+    Field names are from the documentation; the dump group ``services`` shows the raw answers."""
+    a = adapter(rt)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    by = {s.name: s for s in snap.services}
+    assert {"telnet", "ftp", "www", "ssh", "www-ssl", "api", "winbox", "api-ssl"} <= set(by), by
+    assert (by["ssh"].kind.value, by["ssh"].port, by["ssh"].enabled) == ("ssh", 22, True)
+    # the REST API runs on www-ssl with the setup's certificate
+    assert (by["www-ssl"].kind.value, by["www-ssl"].enabled) == ("https", True)
+    assert by["www-ssl"].port == int(rt["URL"].rsplit(":", 1)[-1]) or by["www-ssl"].port == 443
+    assert by["telnet"].port == 23 and by["winbox"].port == 8291 and by["api"].port == 8728
+    assert not by["api-ssl"].enabled  # RouterOS default
+    for name in ("mac-telnet", "mac-winbox", "romon"):
+        assert name in by, sorted(by)
+        assert by[name].port is None and by[name].transport.value == "layer2", by[name]
+    assert by["snmp"].snmp is not None, by.keys()  # RouterOS default: off, community "public"
+    assert by["snmp"].snmp.default_community, by["snmp"]
+    assert by["snmp"].port == 161
+    assert snap.device.transport_encrypted is True
+
+
 async def test_refused_password_is_auth_failed(rt: dict[str, str]) -> None:
     a = adapter(rt, password="not-the-password")
     try:

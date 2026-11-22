@@ -343,7 +343,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "file": ["read"],
         "luci.lldpd": ["getStatus"]
       },
-      "uci": ["network", "wireless", "dhcp", "system"],
+      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -442,7 +442,7 @@ only allows the `uci` methods of a transaction on the three configs:
         "file": ["read"],
         "luci.lldpd": ["getStatus"]
       },
-      "uci": ["network", "wireless", "dhcp", "system"],
+      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -504,3 +504,19 @@ and in the simulator:
 - `uci add` with an existing name changes only the section type; `uci order` and
   `uci delete` of options that do not exist answer "not found"; `uci changes` lists rpcd's
   delta entries (`["set", section, option, value]`, ...). The simulator answers like that.
+
+
+## Management services (#173)
+
+`uci get dropbear` and `uci get uhttpd` (both are in the ACL's `uci` list; a router set up
+before #173 answers "access denied for uci.get (dropbear)": its services stay unread and the
+rest of the read is unaffected, add the two names to the ACL to read them).
+
+- Each `dropbear` section is an SSH service (`dropbear`, a second instance `dropbear-<port>`):
+  `enable` (default on), `Port` (22), `Interface` (a network, mapped to its segment),
+  `DirectInterface` (a port), `PasswordAuth`, `RootLogin`, `RootPasswordAuth` (default on).
+- The `main` section of `uhttpd` gives `uhttpd` (HTTP, `listen_http`, off when empty) and
+  `uhttpd-ssl` (HTTPS, `listen_https`); `addr:port` entries, `0.0.0.0` and `[::]` mean all.
+  `redirect_https` is `redirects_to_https` of the HTTP service.
+- No `snmpd` and no telnet are read. `from_wan` stays unknown (firewall: #135).
+- `transport_encrypted` is true for https, false for `allow_insecure_http`.

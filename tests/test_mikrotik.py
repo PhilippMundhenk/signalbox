@@ -904,3 +904,62 @@ def test_health_and_time_helpers() -> None:
     assert ok.offset_seconds() == 0 and ok.uncertainty_seconds == 1
     assert ok.ntp_client == NtpClient(enabled=True, servers=["a"], synchronised=False)
     assert ok.ntp_server == NtpServer(enabled=False)
+
+
+# --- management services (#173) --------------------------------------------------------------
+
+
+async def test_services(snap: Snapshot) -> None:
+    by = {s.id: s for s in snap.services}
+    assert sorted(by) == sorted(
+        f"rt/service/{n}"
+        for n in (
+            *("api", "api-ssl", "ftp", "ssh", "telnet", "winbox", "www", "www-ssl"),
+            *("mac-telnet", "mac-winbox", "romon", "snmp"),
+        )
+    )
+    ssh = by["rt/service/ssh"]
+    assert (ssh.kind.value, ssh.port, ssh.enabled, ssh.encrypted) == ("ssh", 22, True, True)
+    assert [str(n) for n in ssh.allowed_from] == ["192.0.2.0/24", "198.51.100.0/24"]
+    assert ssh.password_login is None  # always-allow-password-login=false
+    assert by["rt/service/www"].kind.value == "http" and by["rt/service/www"].enabled
+    assert by["rt/service/www-ssl"].kind.value == "https"
+    assert not by["rt/service/telnet"].enabled and not by["rt/service/api-ssl"].enabled
+    assert by["rt/service/api"].port == 8728 and by["rt/service/api"].encrypted is False
+    mac = by["rt/service/mac-telnet"]  # list LAN = the bridge
+    assert (mac.port, mac.transport.value, mac.interfaces) == (None, "layer2", ["rt/port/bridge"])
+    assert not by["rt/service/mac-winbox"].enabled and not by["rt/service/romon"].enabled
+    snmp = by["rt/service/snmp"]
+    assert snmp.enabled and snmp.snmp is not None
+    assert snmp.snmp.default_community and not snmp.snmp.write_access
+    assert [v.value for v in snmp.snmp.versions] == ["2c"]
+
+
+async def test_services_not_read_when_refused(http_url: str, sim: MikrotikSimulator) -> None:
+    sim.no_policy.add("/rest/ip/service")
+    snap = await observe(adapter(http_url))
+    assert snap.services == [] and not snap.errors  # not read, the rest still is
+    sim.no_policy.clear()
+    sim.no_policy.update({"/rest/tool/romon", "/rest/snmp"})
+    snap = await observe(adapter(http_url))
+    kinds = {s.kind.value for s in snap.services}
+    assert "ssh" in kinds and not kinds & {"romon", "snmp"}, kinds
+
+
+async def test_snmp_v3_and_ssh_password(http_url: str, sim: MikrotikSimulator) -> None:
+    sim.data["/rest/snmp/community"] = [
+        {"name": "x", "security": "private", "encryption-protocol": "AES", "write-access": "true"}
+    ]
+    sim.data["/rest/ip/ssh"] = {"always-allow-password-login": "true"}
+    snap = await observe(adapter(http_url))
+    by = {s.id: s for s in snap.services}
+    snmp = by["rt/service/snmp"].snmp
+    assert snmp is not None
+    assert [v.value for v in snmp.versions] == ["3"] and snmp.v3_privacy and snmp.write_access
+    assert not snmp.default_community
+    assert by["rt/service/snmp"].encrypted is True
+    assert by["rt/service/ssh"].password_login is True
+
+
+async def test_transport_encrypted(http_url: str) -> None:
+    assert (await observe(adapter(http_url))).device.transport_encrypted is False

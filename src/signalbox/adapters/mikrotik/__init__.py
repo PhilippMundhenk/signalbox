@@ -51,6 +51,7 @@ from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
+    SERVICE_PORTS,
     Band,
     Client,
     DeviceHealth,
@@ -65,6 +66,8 @@ from signalbox.model import (
     HostRecord,
     IPAddress,
     IPInterface,
+    IPNetwork,
+    ManagementService,
     Membership,
     NatClass,
     Neighbour,
@@ -79,6 +82,9 @@ from signalbox.model import (
     Reservation,
     Security,
     Segment,
+    ServiceKind,
+    SnmpSettings,
+    SnmpVersion,
     StorageKind,
     StorageUsage,
     Subnet,
@@ -135,6 +141,25 @@ HEALTH = "/rest/system/health"
 CLOCK = "/rest/system/clock"
 NTP_CLIENT = "/rest/system/ntp/client"
 NTP_SERVER = "/rest/system/ntp/server"
+IP_SERVICE = "/rest/ip/service"
+MAC_SERVER = "/rest/tool/mac-server"
+MAC_WINBOX = "/rest/tool/mac-server/mac-winbox"
+ROMON = "/rest/tool/romon"
+IP_SSH = "/rest/ip/ssh"
+SNMP = "/rest/snmp"
+SNMP_COMMUNITY = "/rest/snmp/community"
+
+#: ``/ip/service`` names -> kind of service.
+_IP_SERVICES = {
+    "telnet": ServiceKind.TELNET,
+    "ftp": ServiceKind.FTP,
+    "www": ServiceKind.HTTP,
+    "ssh": ServiceKind.SSH,
+    "www-ssl": ServiceKind.HTTPS,
+    "api": ServiceKind.API,
+    "winbox": ServiceKind.WINBOX,
+    "api-ssl": ServiceKind.API_SSL,
+}
 
 #: Name of the interface list RouterOS' default configuration puts the uplink into.
 WAN_LIST = "WAN"
@@ -588,6 +613,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             model=model,
             firmware=Firmware(current=current, available=available),
             management_address=self.http.host,
+            transport_encrypted=self.http.secure,
         )
 
     # --- interfaces ---------------------------------------------------------------------------
@@ -781,6 +807,121 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             segments=list(layout.segments.values()),
             subnets=subnets,
             uplinks=await self._uplinks(layout),
+            services=await self._services(layout),
+        )
+
+    async def _services(self, layout: _Layout) -> list[ManagementService]:
+        """Management services (#173): ``/ip/service`` plus MAC server, RoMON, SNMP. Empty
+        when ``/ip/service`` cannot be read (not read); a menu the user may not read only
+        leaves out its own services."""
+        dev = self.context.device_id
+        try:
+            rows = await self._rows(IP_SERVICE)
+        except AdapterError:
+            return []
+        ssh = await self._optional_object(IP_SSH)
+        out: list[ManagementService] = []
+        for row in rows:
+            name = _text(row.get("name"))
+            kind = _IP_SERVICES.get(name)
+            if kind is None:
+                continue
+            allowed: list[IPNetwork] = []
+            for part in _text(row.get("address")).split(","):
+                with contextlib.suppress(ValueError):
+                    allowed.append(ip_network(part.strip(), strict=False))
+            values: dict[str, Any] = {}
+            if kind is ServiceKind.SSH and _flag(ssh.get("always-allow-password-login")):
+                values["password_login"] = True  # "no": still allowed while no key is set
+            out.append(
+                ManagementService(
+                    id=object_id(dev, "service", name),
+                    device_id=dev,
+                    kind=kind,
+                    name=name,
+                    enabled=not _flag(row.get("disabled")),
+                    port=_int(row.get("port")) or SERVICE_PORTS.get(kind),
+                    allowed_from=allowed,
+                    **values,
+                )
+            )
+        members: dict[str, list[str]] = {}
+        for m in await self._optional_rows(LIST_MEMBER):
+            members.setdefault(_text(m.get("list")), []).append(_text(m.get("interface")))
+        for menu, kind, key in (
+            (MAC_SERVER, ServiceKind.MAC_TELNET, "mac-telnet"),
+            (MAC_WINBOX, ServiceKind.MAC_WINBOX, "mac-winbox"),
+        ):
+            conf = await self._optional_object(menu)
+            if not conf:
+                continue
+            wanted = _text(conf.get("allowed-interface-list")) or "all"
+            ports = [] if wanted in ("all", "none") else members.get(wanted, [])
+            out.append(
+                ManagementService(
+                    id=object_id(dev, "service", key),
+                    device_id=dev,
+                    kind=kind,
+                    name=key,
+                    enabled=wanted != "none",
+                    interfaces=[p for n in ports if (p := layout.port(n))],
+                )
+            )
+        romon = await self._optional_object(ROMON)
+        if romon:
+            out.append(
+                ManagementService(
+                    id=object_id(dev, "service", "romon"),
+                    device_id=dev,
+                    kind=ServiceKind.ROMON,
+                    name="romon",
+                    enabled=_flag(romon.get("enabled")),
+                )
+            )
+        snmp = await self._snmp()
+        if snmp is not None:
+            out.append(snmp)
+        return out
+
+    async def _optional_object(self, endpoint: str) -> dict[str, Any]:
+        """A single-value menu that may be missing or refused: empty then."""
+        try:
+            return _object(await self._get(endpoint), endpoint)
+        except AdapterError:
+            return {}
+
+    async def _snmp(self) -> ManagementService | None:
+        """``/snmp`` with its communities. Names are only compared with ``public``, never kept."""
+        conf = await self._optional_object(SNMP)
+        if not conf:
+            return None
+        try:
+            rows = await self._rows(SNMP_COMMUNITY)
+        except AdapterError:
+            rows = []
+        versions: set[SnmpVersion] = set()
+        v3_plain = False
+        for r in rows:
+            if _text(r.get("security")) in ("", "none"):
+                versions.add(SnmpVersion.V2C)
+            else:
+                versions.add(SnmpVersion.V3)
+                v3_plain |= _text(r.get("encryption-protocol")) in ("", "none")
+        settings = SnmpSettings(
+            versions=sorted(versions),
+            default_community=any(_text(r.get("name")).lower() == "public" for r in rows),
+            v3_privacy=(not v3_plain) if SnmpVersion.V3 in versions else None,
+            write_access=any(_flag(r.get("write-access")) for r in rows),
+        )
+        dev = self.context.device_id
+        return ManagementService(
+            id=object_id(dev, "service", "snmp"),
+            device_id=dev,
+            kind=ServiceKind.SNMP,
+            name="snmp",
+            enabled=_flag(conf.get("enabled")),
+            port=SERVICE_PORTS[ServiceKind.SNMP],
+            snmp=settings,
         )
 
     async def _monitor(self, name: str) -> dict[str, Any]:
