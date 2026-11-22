@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Wi-Fi security details in the OpenWrt, MikroTik, Fritz!Box and Omada integrations: modes incl. WEP, WPA1 and mixed, ciphers, SAE settings, WPS, group rekey, supported modes and the passphrase digest, where the device reports them; simulators serve them (#167)
 - OPNsense: Kea is read first, ISC DHCP only for interfaces no enabled Kea server serves; documents that the ISC plugin API offers no ranges or options (#242)
 - A capability can report what it could not read next to its data (`Observation.incomplete`); OpenWrt routers with an older permission file are told to paste the setup commands again (#210)
 - Project setup: Python package, checks, policies, stack decision (#1)
