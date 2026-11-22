@@ -443,6 +443,17 @@ against a device or the vendor's source.
 | Omada | No lease table in the Open API *(guess)*; clients (already read) have `ip`, `ipv6List`, `hostName`, no lease expiry | none: whether a client's address is static is not reported *(guess: `ipSetting` / `staticIp` fields in newer controllers)* | LAN network DHCP settings (already read: `dhcpns`, `priDns`, `leasetime`): options 60, 66, 138 as `option60`, `option66`, `option138` *(guess)* | network `dhcpSettings` in relay mode with the relay server address (`dhcpRelay` *(guess)*) |
 | ProSAFE / Easy Smart | none (switches) | none | none | none |
 
+Filled since (#183; details in each `docs/adapters/<id>.md`): OPNsense (Kea and ISC leases, Kea
+options and HA peer, dhcrelay; needs the privilege *Services: DHCRelay*), OpenWrt (leases from
+luci-rpc or the file, `dhcp_option`, `authoritative`, `relay` sections), MikroTik (leases, options
+with 119/121 decoded, `authoritative`, `/ip/dhcp-relay`), Fritz!Box (leases from the host list,
+`NewDHCPRelay`). Not filled: Omada (no lease table; options and relay mode wait for the
+`/v3/api-docs` dump of CI), OPNsense dnsmasq and ISC options. Still *(guess)* until a real device
+is read (#21): the Kea option key names, route format and peer fields, the dhcrelay field names,
+the OpenWrt relay sections and `false` for an endless lease, MikroTik `busy`/`conflict`, the
+Fritz!Box countdown and its expired entries. CI-confirmed: see the integration notes of
+OPNsense, OpenWrt and MikroTik (the lease table is read, MikroTik's static lease and `authoritative`).
+
 ## Health and time (adapter API 1.2)
 
 Two capabilities fill value objects on the device itself, keyed by device id so that a

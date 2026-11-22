@@ -1051,7 +1051,38 @@
     "domain": "fritz.box",
     "reservations": [],
     "ntp_servers": [],
-    "leases": null,
+    "leases": [
+     {
+      "address": "192.0.2.101",
+      "mac": "00:00:5e:00:53:03",
+      "client_id": null,
+      "hostname": "name-5",
+      "state": "active",
+      "reserved": null,
+      "starts": null,
+      "vendor_class": null
+     },
+     {
+      "address": "192.0.2.50",
+      "mac": "00:00:5e:00:53:05",
+      "client_id": null,
+      "hostname": "name-7",
+      "state": "active",
+      "reserved": null,
+      "starts": null,
+      "vendor_class": null
+     },
+     {
+      "address": "192.0.2.60",
+      "mac": "00:00:5e:00:53:06",
+      "client_id": null,
+      "hostname": "name-8",
+      "state": "expired",
+      "reserved": null,
+      "starts": null,
+      "vendor_class": null
+     }
+    ],
     "search_domains": [],
     "static_routes": [],
     "boot": null,

@@ -80,6 +80,14 @@ def spec() -> dict[str, Any]:
         and p.rsplit("/", 1)[-1] in ("ssh", "snmp")
         and "{" not in p[p.index("{siteId}") + 8 :]
     )
+    # the LAN networks' DHCP settings (#183): do they have options 60/66/138 and a relay mode?
+    wanted += tuple(
+        p
+        for p in paths
+        if p.startswith("/openapi/v")
+        and "/sites/{siteId}/lan-networks" in p
+        and p.rsplit("/", 1)[-1] in ("lan-networks", "{networkId}", "{lanNetworkId}")
+    )
     for path in wanted:
         op = paths.get(path, {}).get("get", {})
         content = op.get("responses", {}).get("200", {}).get("content", {})

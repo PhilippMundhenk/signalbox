@@ -292,6 +292,18 @@ radio, and the guest network last.
   ago. Ethernet hosts are seen on the `lan` port. Host name, address, `InterfaceType` and
   `AddressSource` are kept.
 
+## DHCP leases and relay (#183)
+
+The box has no lease table over TR-064. The host list (`Hosts:1`, read once per observation
+for DHCP and clients) is the nearest: every host with `AddressSource` `DHCP` and an IPv4 address
+is a lease of the one DHCP server. An active host is `active` with `expires` = observation +
+`LeaseTimeRemaining` (no `expires` when that is 0), a remembered inactive host is `expired`
+*(guess: how a box counts down and whether it keeps expired entries)*; `reserved` and the
+client id are not known. When the host list cannot be read the leases are `None`, the server is
+still read. `LANHostConfigManagement:1 GetInfo` `NewDHCPRelay` true is a relay in the native
+segment with no server address (TR-064 does not give it) *(guess: ever true on a box)*. No
+options, boot or authoritative: TR-064 has none. Nothing here is checked against a real box.
+
 ## Writing
 
 What maps cleanly onto TR-064 and is therefore declared in `Manifest.writes`: **`dhcp`** of the

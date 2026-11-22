@@ -319,6 +319,18 @@ seen on that WLAN, in its segment. An interface without hostapd object (not up) 
 ```
 
 Leases add addresses and host names to the stations (and add wired clients of a DHCP server).
+They are also `DhcpServer.leases` (#183): every lease whose address lies in a network of the
+server's interface (IPv4 and the DHCPv6 leases of odhcpd, which have a DUID as `client_id` and
+no MAC). `expires` is now + `expires` seconds from luci-rpc (`false`: never), the epoch of the
+file (0: never); dnsmasq lists active leases only, so every lease is `active`. `reserved` when a
+`uci dhcp host` section has the same MAC and address. `leases` is `None` when neither luci-rpc nor
+the file is readable. Options come from the `dhcp_option` / `dhcp_option_force` lists of the
+`dhcp` section (`119` search domains, `121` pairs of destination and gateway, `66`, `67`, any
+other numeric or known `option:name` entry as `DhcpOption`); `dhcp_boot` of the dnsmasq section
+(`file,server name,server address`) is `boot`; `authoritative` is the dnsmasq section's option
+(default on; unknown without such a section); `config relay` sections (`interface`,
+`server_addr`) are `DhcpRelay` *(guess: the real relay sections were not seen)*. The ACL needs no
+change. The leases and `authoritative` are checked in CI against the QEMU image.
 Both are optional: if neither is installed or allowed, clients have no addresses.
 
 ### `luci.lldpd getStatus` (LLDP)

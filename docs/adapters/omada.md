@@ -320,6 +320,16 @@ The SSID list leaves out the security settings; Signalbox reads every SSID's own
 - `lastSeen` is in milliseconds since 1970. A `name` that is just the MAC is no host name.
 - The controller's own managed devices are not reported as clients.
 
+## DHCP leases, options and relay (#183)
+
+Not read. The Open API has no lease table, and the DHCP settings of a LAN network are mapped
+only as far as they are confirmed: the real controller's answer has `options: []` inside
+`dhcpSettingsVO` (see the example above), but neither the shape of an option nor a relay mode
+is in anything checked yet. The integration dump now records the controller's own
+`/v3/api-docs` description of the LAN network lists and details (`tools/integration/omada/dump.py`),
+so the fields of options 60/66/138 and the relay mode can be confirmed from the next CI run;
+until then `DhcpServer.options` and `DhcpRelay` stay empty for Omada.
+
 ## Changing the site
 
 The gateway, switches and EAPs are devices of their own in Signalbox, so the desired state names
