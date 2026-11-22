@@ -71,6 +71,18 @@ def test_api_requires_login(client: TestClient) -> None:
     assert client.get("/api/session").json()["authenticated"] is False
 
 
+def test_session_endpoint_is_open_cheap_and_has_no_secrets(client: TestClient) -> None:
+    r = client.get("/api/session")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert set(r.json()) == {"authenticated", "password_fixed", "version"}
+    assert r.json()["authenticated"] is False
+    client.post("/api/login", json={"password": PW})
+    assert client.get("/api/session").json()["authenticated"] is True
+    client.post("/api/logout")
+    body = client.get("/api/session")
+    assert body.json()["authenticated"] is False and PW not in body.text
+
+
 def test_login_logout(client: TestClient) -> None:
     assert client.post("/api/login", json={"password": "nope"}).status_code == 401
     r = client.post("/api/login", json={"password": PW})
