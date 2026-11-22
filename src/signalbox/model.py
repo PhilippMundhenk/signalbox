@@ -97,6 +97,42 @@ def passphrase_fingerprint(ssid: str, passphrase: str) -> str:
     return hashlib.sha256(b"signalbox-psk" + pmk).hexdigest()[:16]
 
 
+#: Per-installation key of :func:`passphrase_digest`, set by the service from the vault key
+#: (:meth:`signalbox.secrets.Vault.derive_key`). None: no digests (library use, tests, recordings).
+_digest_key: bytes | None = None
+
+
+def set_passphrase_digest_key(key: bytes | None) -> bytes | None:
+    """Install (or, with None, remove) the per-installation key of :func:`passphrase_digest`;
+    returns the key it replaces.
+
+    The service calls it once at start with a key derived from the vault key, so the digest
+    shares the vault key's storage and rotation: a new vault key changes every digest with the
+    next observation. Tests use :func:`signalbox.testing.passphrase_digest_key`.
+    """
+    global _digest_key
+    if key is not None and len(key) < 32:
+        raise ValueError("the passphrase digest key needs at least 32 bytes")
+    old, _digest_key = _digest_key, key
+    return old
+
+
+def passphrase_digest(passphrase: str) -> str | None:
+    """SSID-independent, keyed digest of a WPA passphrase (#167), None without a key.
+
+    :func:`passphrase_fingerprint` is salted with the SSID, so it only compares the same SSID
+    on several access points. This digest compares passphrases across SSIDs (a guest network
+    with the main network's passphrase, #101). It is PBKDF2 with the installation's secret key
+    as salt: without that key, which never leaves the vault, nobody can test a guessed
+    passphrase against a digest, so a leaked digest does not help an offline dictionary attack
+    the way an unkeyed hash of a short passphrase would. Never shown, never exported.
+    """
+    if _digest_key is None:
+        return None
+    raw = hashlib.pbkdf2_hmac("sha256", passphrase.encode(), _digest_key, 4096, 32)
+    return raw.hex()[:16]
+
+
 Mac = Annotated[str, Field(pattern=r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")]
 
 
@@ -920,6 +956,26 @@ class Band(StrEnum):
     GHZ_6 = "6"
 
 
+class Security(StrEnum):
+    OPEN = "open"
+    OWE = "owe"
+    WEP = "wep"
+    #: WPA (version 1) Personal; TKIP in practice.
+    WPA = "wpa-psk"
+    #: WPA/WPA2 Personal mixed mode: WPA1 stations are allowed, TKIP stays on.
+    WPA_WPA2 = "wpa-wpa2-psk"
+    WPA2 = "wpa2-psk"
+    WPA3 = "wpa3-sae"
+    WPA2_WPA3 = "wpa2-wpa3"
+    #: WPA (version 1) Enterprise, also WPA/WPA2 Enterprise mixed mode.
+    WPA_ENTERPRISE = "wpa-enterprise"
+    WPA2_ENTERPRISE = "wpa2-enterprise"
+    WPA3_ENTERPRISE = "wpa3-enterprise"
+    #: WPA3-Enterprise 192-bit mode (Suite B: GCMP-256, BIP-GMAC-256).
+    WPA3_ENTERPRISE_192 = "wpa3-enterprise-192"
+    OTHER = "other"
+
+
 class Radio(Observed):
     device_id: str
     name: str
@@ -929,17 +985,55 @@ class Radio(Observed):
     tx_power_dbm: int | None = None
     country: str | None = None
     enabled: bool = True
+    #: Security modes this radio's hardware and firmware can offer (#167), for example no
+    #: ``wpa3-sae`` on an OpenWrt build with ``wpad-basic``. None: not reported.
+    supported_security: list[Security] | None = None
 
 
-class Security(StrEnum):
-    OPEN = "open"
-    OWE = "owe"
-    WPA2 = "wpa2-psk"
-    WPA3 = "wpa3-sae"
-    WPA2_WPA3 = "wpa2-wpa3"
-    WPA2_ENTERPRISE = "wpa2-enterprise"
-    WPA3_ENTERPRISE = "wpa3-enterprise"
-    OTHER = "other"
+class Cipher(StrEnum):
+    """Pairwise or group data cipher of a WLAN."""
+
+    CCMP = "ccmp"  # AES-CCMP-128, what "AES" means in most UIs
+    CCMP_256 = "ccmp-256"
+    GCMP = "gcmp"
+    GCMP_256 = "gcmp-256"
+    TKIP = "tkip"
+    WEP = "wep"
+
+
+class SaePwe(StrEnum):
+    """How SAE derives the password element (``sae_pwe`` in hostapd)."""
+
+    HUNTING_AND_PECKING = "hunting-and-pecking"
+    #: Hash-to-element (H2E), required on 6 GHz.
+    HASH_TO_ELEMENT = "hash-to-element"
+    BOTH = "both"
+
+
+class SaeSettings(Model):
+    """WPA3-SAE details of a WLAN (#167); every value None where the device does not say."""
+
+    pwe: SaePwe | None = None
+    #: SAE public key (SAE-PK) in use.
+    sae_pk: bool | None = None
+    #: Open SAE commits before anti-clogging tokens are required.
+    anti_clogging_threshold: int | None = Field(default=None, ge=0)
+
+
+class WpsMethod(StrEnum):
+    PUSH_BUTTON = "push-button"
+    PIN = "pin"
+    NFC = "nfc"
+
+
+class Wps(Model):
+    """Wi-Fi Protected Setup of a WLAN (#167)."""
+
+    enabled: bool
+    #: Methods offered while enabled; empty: enabled, method not known.
+    methods: list[WpsMethod] = Field(default_factory=list)
+    #: The AP PIN is locked after failed attempts (or permanently). None: not known.
+    ap_pin_locked: bool | None = None
 
 
 class Pmf(StrEnum):
@@ -968,6 +1062,19 @@ class Wlan(Observed):
     reported_purpose: SegmentPurpose | None = None
     #: Stations of this SSID cannot talk to each other (OpenWrt ``isolate``). None: not known.
     client_isolation: bool | None = None
+    # security details (#167); None everywhere: not reported -------------------------------
+    #: Pairwise ciphers offered (``ccmp`` alone normally; ``tkip`` as well in mixed modes).
+    ciphers: list[Cipher] | None = None
+    group_cipher: Cipher | None = None
+    sae: SaeSettings | None = None
+    wps: Wps | None = None
+    #: :func:`passphrase_digest`: compares passphrases across SSIDs. Like the fingerprint it
+    #: stays in the observation database and never leaves the server (removed from the API).
+    passphrase_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")
+    #: Group key rotation interval; 0: never rotated.
+    key_rotation_seconds: int | None = Field(default=None, ge=0)
+    #: Beacon protection (802.11 BIGTK) on.
+    beacon_protection: bool | None = None
 
 
 class Client(Observed):

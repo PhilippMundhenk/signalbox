@@ -11,8 +11,12 @@ Use from an adapter's tests::
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 from signalbox.adapters import Adapter, Capability, check_manifest
 from signalbox.model import (
+    Cipher,
     Device,
     DeviceHealth,
     DeviceStatus,
@@ -22,13 +26,44 @@ from signalbox.model import (
     NatClass,
     Port,
     PortKind,
+    Radio,
+    Security,
     ServiceKind,
     ServiceTransport,
     Snapshot,
     Uplink,
     UplinkKind,
+    Wlan,
     address_nat_class,
+    set_passphrase_digest_key,
 )
+
+#: Key of :func:`passphrase_digest_key` unless a test passes its own.
+TEST_DIGEST_KEY = b"signalbox-test-passphrase-digest"
+
+
+@contextmanager
+def passphrase_digest_key(key: bytes = TEST_DIGEST_KEY) -> Iterator[bytes]:
+    """Within the block :func:`signalbox.model.passphrase_digest` uses ``key`` (as the service
+    does with its vault-derived key); outside it the previous key (normally none) is back."""
+    old = set_passphrase_digest_key(key)
+    try:
+        yield key
+    finally:
+        set_passphrase_digest_key(old)
+
+
+#: Modes with a pre-shared passphrase (``other`` may be one the model has no name for).
+PERSONAL_SECURITY = {
+    Security.WPA,
+    Security.WPA_WPA2,
+    Security.WPA2,
+    Security.WPA3,
+    Security.WPA2_WPA3,
+    Security.OTHER,
+}
+#: Modes that can use SAE.
+SAE_SECURITY = {Security.WPA3, Security.WPA2_WPA3, Security.OTHER}
 
 
 def _aware(value: object) -> bool:
@@ -77,6 +112,50 @@ def port_problems(port: Port) -> list[str]:
         out.append(f"port {port.id}: link up on a disabled port")
     if port.kind is PortKind.WIRELESS and port.media is not None:
         out.append(f"port {port.id}: wireless port with a wired medium")
+    return out
+
+
+def radio_problems(radio: Radio) -> list[str]:
+    """Inconsistent radio capabilities (#167)."""
+    out: list[str] = []
+    sup = radio.supported_security
+    if sup is not None and not sup:
+        out.append(f"radio {radio.id}: empty supported_security (None: not reported)")
+    if sup is not None and len(set(sup)) != len(sup):
+        out.append(f"radio {radio.id}: supported_security lists a mode twice")
+    return out
+
+
+def wlan_problems(wlan: Wlan, radio: Radio | None = None) -> list[str]:
+    """Inconsistent Wi-Fi security details (#167): a digest without a passphrase, WEP ciphers
+    on a WPA network, WPS methods while WPS is off, a mode the radio says it cannot offer."""
+    out: list[str] = []
+    sec = wlan.security
+    if wlan.passphrase_digest is not None and sec not in PERSONAL_SECURITY:
+        out.append(f"wlan {wlan.id}: passphrase digest with security {sec.value}")
+    if wlan.passphrase_fingerprint is not None and sec not in PERSONAL_SECURITY:
+        out.append(f"wlan {wlan.id}: passphrase fingerprint with security {sec.value}")
+    ciphers = wlan.ciphers
+    if ciphers is not None:
+        if not ciphers and sec is not Security.OPEN:
+            out.append(f"wlan {wlan.id}: empty ciphers (None: not reported)")
+        if len(set(ciphers)) != len(ciphers):
+            out.append(f"wlan {wlan.id}: ciphers list a cipher twice")
+        if ciphers and sec is Security.OPEN:
+            out.append(f"wlan {wlan.id}: an open network has no ciphers")
+        if sec is Security.WEP and set(ciphers) - {Cipher.WEP}:
+            out.append(f"wlan {wlan.id}: a WEP network with other ciphers than wep")
+        if sec is not Security.WEP and sec is not Security.OTHER and Cipher.WEP in ciphers:
+            out.append(f"wlan {wlan.id}: cipher wep with security {sec.value}")
+    if sec is Security.OPEN and wlan.group_cipher is not None:
+        out.append(f"wlan {wlan.id}: an open network has no group cipher")
+    if wlan.sae is not None and sec not in SAE_SECURITY:
+        out.append(f"wlan {wlan.id}: SAE settings with security {sec.value}")
+    if wlan.wps is not None and not wlan.wps.enabled and wlan.wps.methods:
+        out.append(f"wlan {wlan.id}: WPS methods while WPS is off")
+    sup = radio.supported_security if radio is not None else None
+    if sup and sec is not Security.OTHER and sec not in sup:
+        out.append(f"wlan {wlan.id}: {sec.value} is not in its radio's supported_security")
     return out
 
 
@@ -236,7 +315,11 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         for obj in refs:
             if obj.segment_id not in segment_ids:
                 out.append(f"{obj.id} references unknown segment {obj.segment_id}")
+    radios = {r.id: r for r in snapshot.radios}
+    for radio in snapshot.radios:
+        out += radio_problems(radio)
     for wlan in snapshot.wlans:
+        out += wlan_problems(wlan, radios.get(wlan.radio_id))
         if wlan.radio_id not in radio_ids:
             out.append(f"wlan {wlan.id} references unknown radio {wlan.radio_id}")
         if wlan.segment_id is not None and wlan.segment_id not in segment_ids:

@@ -10,6 +10,8 @@ from signalbox.model import (
     SERVICE_PORTS,
     Acknowledgement,
     Annotation,
+    Band,
+    Cipher,
     Device,
     DeviceHealth,
     DeviceRole,
@@ -22,6 +24,10 @@ from signalbox.model import (
     Port,
     PortMedia,
     PowerSupply,
+    Radio,
+    SaePwe,
+    SaeSettings,
+    Security,
     ServiceKind,
     Site,
     Snapshot,
@@ -34,7 +40,11 @@ from signalbox.model import (
     Uplink,
     UplinkKind,
     UpsStatus,
+    Wlan,
+    Wps,
+    WpsMethod,
     object_id,
+    passphrase_digest,
     port_id,
 )
 
@@ -270,3 +280,58 @@ def annotated(net: Network, *items: Annotation | Acknowledgement) -> Network:
             "acknowledgements": [*net.acknowledgements, *acks],
         }
     )
+
+
+def radio(device_id: str, name: str = "radio0", band: Band = Band.GHZ_5, **kw: Any) -> Radio:
+    """A radio; ``supported_security=[...]`` for what its firmware can offer (#167)."""
+    return Radio(
+        id=object_id(device_id, "radio", name), device_id=device_id, name=name, band=band, **kw
+    )
+
+
+def wlan(device_id: str, ssid: str = "Example", radio_name: str = "radio0", **kw: Any) -> Wlan:
+    """A WPA2/WPA3 WLAN without security details (all None: not reported)."""
+    kw.setdefault("security", Security.WPA2_WPA3)
+    return Wlan(
+        id=object_id(device_id, "wlan", f"{ssid}/{radio_name}"),
+        device_id=device_id,
+        ssid=ssid,
+        radio_id=object_id(device_id, "radio", radio_name),
+        **kw,
+    )
+
+
+def secure_wlan(
+    device_id: str,
+    ssid: str = "Example",
+    radio_name: str = "radio0",
+    passphrase: str | None = "correct horse battery staple",
+    **kw: Any,
+) -> Wlan:
+    """A WPA2/WPA3 WLAN with every security detail reported and nothing to complain about (#167).
+
+    CCMP only, SAE with both PWE methods, WPS off, hourly group rekey, beacon protection. The
+    passphrase digest needs a key: build it inside ``signalbox.testing.passphrase_digest_key()``
+    (else it is None, as without a key in the service). Override any field, for example
+    ``secure_wlan("ap", security=Security.WPA_WPA2, ciphers=[Cipher.CCMP, Cipher.TKIP])``,
+    ``wps=wps(WpsMethod.PIN)`` or ``passphrase="guest-password"`` for another passphrase.
+    """
+    values: dict[str, Any] = {
+        "security": Security.WPA2_WPA3,
+        "ciphers": [Cipher.CCMP],
+        "group_cipher": Cipher.CCMP,
+        "sae": SaeSettings(pwe=SaePwe.BOTH, sae_pk=False),
+        "wps": Wps(enabled=False),
+        "passphrase_digest": passphrase_digest(passphrase) if passphrase else None,
+        "key_rotation_seconds": 3600,
+        "beacon_protection": True,
+    }
+    return wlan(device_id, ssid, radio_name, **(values | kw))
+
+
+def wps(*methods: WpsMethod, **kw: Any) -> Wps:
+    """WPS on with these methods (push button if none), ``wps(enabled=False)`` off."""
+    enabled = kw.pop("enabled", True)
+    if enabled and not methods:
+        methods = (WpsMethod.PUSH_BUTTON,)
+    return Wps(enabled=enabled, methods=list(methods), **kw)

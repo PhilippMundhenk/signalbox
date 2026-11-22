@@ -24,6 +24,7 @@ from signalbox.adapters import (
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     Band,
+    Cipher,
     Client,
     DeviceHealth,
     DeviceRole,
@@ -43,6 +44,8 @@ from signalbox.model import (
     PurposeSource,
     Radio,
     Reservation,
+    SaePwe,
+    SaeSettings,
     Security,
     Segment,
     SegmentPurpose,
@@ -56,6 +59,8 @@ from signalbox.model import (
     Uplink,
     UplinkKind,
     Wlan,
+    Wps,
+    WpsMethod,
     object_id,
     port_id,
     segment_id,
@@ -333,6 +338,7 @@ class Lab(Adapter):
                     channel=36,
                     width_mhz=80,
                     country="DE",
+                    supported_security=[Security.WPA2, Security.WPA3, Security.WPA2_WPA3],
                 ),
             ],
             wlans=[
@@ -359,6 +365,12 @@ class Lab(Adapter):
                     roaming_80211r=True,
                     roaming_80211k=True,
                     roaming_80211v=False,
+                    ciphers=[Cipher.CCMP],
+                    group_cipher=Cipher.CCMP,
+                    sae=SaeSettings(pwe=SaePwe.HASH_TO_ELEMENT),
+                    wps=Wps(enabled=True, methods=[WpsMethod.PUSH_BUTTON]),
+                    beacon_protection=True,
+                    key_rotation_seconds=3600,
                 ),
                 Wlan(
                     id=object_id(d, "wlan", "guest"),
