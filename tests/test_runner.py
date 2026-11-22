@@ -9,6 +9,7 @@ from factories import SITE, iface, port
 from signalbox.adapters import (
     Adapter,
     AdapterConfig,
+    AdapterError,
     Capability,
     Manifest,
     Observation,
@@ -56,12 +57,17 @@ class Dev(Adapter):
         Dev.seen.append(cfg.password.get_secret_value())
         if cfg.url == "untrusted" and self.context.pinned_fingerprint != "fp1":
             raise UntrustedCertificate("fp1", self.context.pinned_fingerprint)
+        if cfg.url == "untrusted64" and self.context.pinned_fingerprint != "a" * 64:
+            raise UntrustedCertificate("a" * 64, self.context.pinned_fingerprint)
         if cfg.url == "crash":
             raise RuntimeError("adapter bug")
         return SystemInfo(vendor="Example")
 
     async def read_interfaces(self) -> Observation:
         d = self.context.device_id
+        cfg = self.context.config
+        if isinstance(cfg, Cfg) and cfg.url == "partial":
+            raise AdapterError("not allowed to read ports", fix="Give the user port rights.")
         seg = segment_id(self.context.site_id, None)
         return Observation(
             ports=[port(d, "lan")],

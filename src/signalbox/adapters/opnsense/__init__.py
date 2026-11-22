@@ -28,7 +28,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from ipaddress import ip_address, ip_interface, ip_network
 from typing import Any
-from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 
@@ -45,7 +44,7 @@ from signalbox.adapters import (
     SystemInfo,
     VendorCall,
 )
-from signalbox.adapters.https import DeviceHttp, NotFound
+from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.opnsense import write as w
 from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
@@ -104,12 +103,17 @@ _KINDS = (
 
 
 class OpnsenseConfig(AdapterConfig):
-    url: str = Field(description="Address of the web interface, https://host[:port]")
+    url: str = Field(
+        description="Address of the web interface, for example 192.0.2.1 or "
+        "https://opnsense.lan:8443 (no scheme: https)",
+        examples=["192.0.2.1"],
+    )
     api_key: SecretStr = Field(
         description="API key of a dedicated API user (read-only unless writes are allowed)"
     )
     api_secret: SecretStr = Field(description="API secret belonging to the key")
     allow_insecure_http: bool = Field(
+        json_schema_extra={"advanced": True},
         default=False,
         description="Allow plain http:// (simulators and tests only: sends the key unencrypted)",
     )
@@ -117,10 +121,7 @@ class OpnsenseConfig(AdapterConfig):
     @field_validator("url")
     @classmethod
     def _url(cls, value: str) -> str:
-        parts = urlsplit(value)
-        if parts.scheme not in ("http", "https") or not parts.hostname:
-            raise ValueError("must be https://host[:port]")
-        return value.rstrip("/")
+        return device_url(value)
 
     @model_validator(mode="after")
     def _http_needs_opt_in(self) -> OpnsenseConfig:
@@ -309,8 +310,27 @@ class _Layout:
         return {p.mac for p in self.ports if p.mac}
 
 
+#: Shown in the device form ("Before you add it").
+OPNSENSE_STEPS = (
+    (
+        "System > Access > Users: add a user 'signalbox' with a scrambled password and no "
+        "groups; give it the privileges listed in the setup guide."
+    ),
+    (
+        "In that user, under API keys, create a key: the browser downloads a file with key and "
+        "secret."
+    ),
+    (
+        "Below: the firewall's address, the key and the secret. Then Test connection and trust "
+        "the certificate (compare it with System > Trust > Certificates)."
+    ),
+)
+
+
 class OpnsenseAdapter(_Adapter):
     manifest = Manifest(
+        setup_steps=OPNSENSE_STEPS,
+        setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/opnsense.md#setup",
         id="opnsense",
         name="OPNsense",
         version="0.2.0",

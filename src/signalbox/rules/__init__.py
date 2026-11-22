@@ -193,6 +193,7 @@ def _read_findings(net: Network, severity: Severity) -> list[Finding]:
         else:
             message = f"{name}: could not read {err.capability}: {err.message}"
             fix = None
+        fix = err.fix or fix
         res = Result(message, (err.device_id,), fix, None, False, err.capability)
         out.append(_finding(READ_ERRORS, res, severity))
     return out

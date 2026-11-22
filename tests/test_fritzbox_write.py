@@ -81,6 +81,7 @@ async def adapter(sim: FritzboxSim, http_url: str) -> AsyncIterator[FritzboxAdap
             role=DeviceRole.GATEWAY,
             config=FritzboxConfig(
                 url=http_url,
+                username="signalbox",
                 password=SecretStr(FritzboxSim().password),
                 allow_insecure_http=True,
             ),
@@ -527,7 +528,9 @@ def svc(tmp_path: Path, sim: FritzboxSim, url: str, cert: TlsFiles) -> Iterator[
         allow_writes=True,
         pinned_fingerprint=cert.fingerprint,
     )
-    s.store.put_device(rec, {"url": url, "password": sim.password}, FritzboxConfig)
+    s.store.put_device(
+        rec, {"url": url, "username": "signalbox", "password": sim.password}, FritzboxConfig
+    )
     s.store.set_secret("psk", NEW_KEY)
     yield s
     s.close()

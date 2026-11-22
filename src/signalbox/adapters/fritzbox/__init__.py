@@ -41,9 +41,10 @@ from signalbox.adapters import (
     Manifest,
     Observation,
     SystemInfo,
+    Unreachable,
     VendorCall,
 )
-from signalbox.adapters.fritzbox.soap import SoapFault, Tr064
+from signalbox.adapters.fritzbox.soap import UPNP_PORT, SoapFault, Tr064, security_port
 from signalbox.adapters.fritzbox.write import (
     BACKUP_FORMAT,
     Call,
@@ -55,7 +56,7 @@ from signalbox.adapters.fritzbox.write import (
     wlan_calls,
     wlan_wanted,
 )
-from signalbox.adapters.https import DeviceHttp, NotFound
+from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.changes import Change, ChangeKind, WlanValue
 from signalbox.model import (
     Band,
@@ -95,13 +96,18 @@ GUEST = "guest"
 
 class FritzboxConfig(AdapterConfig):
     url: str = Field(
-        description="TR-064 over HTTPS, for example https://192.0.2.1:49443 (no port: 49443)"
+        description="The box's address in your home network, for example fritz.box or "
+        "192.0.2.1. Signalbox talks TR-064 over https on port 49443 (https://<box>:49443).",
+        examples=["fritz.box"],
     )
     username: str = Field(
-        default="signalbox", description="Fritz!Box user with the right 'FRITZ!Box settings'"
+        default="",
+        description="Fritz!Box user with the right 'FRITZ!Box settings'. Leave empty if the "
+        "box asks only for its password (no users set up).",
     )
     password: SecretStr = Field(description="Password of that user")
     allow_insecure_http: bool = Field(
+        json_schema_extra={"advanced": True},
         default=False,
         description="Allow plain http:// (simulators and tests only: no encryption at all)",
     )
@@ -109,12 +115,14 @@ class FritzboxConfig(AdapterConfig):
     @field_validator("url")
     @classmethod
     def _url(cls, value: str) -> str:
-        parts = urlsplit(value.rstrip("/"))
-        if parts.scheme not in ("http", "https") or not parts.hostname:
-            raise ValueError("must be https://host[:port]")
-        if parts.port is None and parts.scheme == "https":
-            parts = parts._replace(netloc=f"{parts.netloc}:{DEFAULT_PORT}")
-        return urlunsplit(parts._replace(path="", query="", fragment=""))
+        url = device_url(value, port=DEFAULT_PORT)
+        parts = urlsplit(url)
+        if parts.scheme == "http" and parts.port is None:
+            raise ValueError(
+                "use https://: the Fritz!Box answers TR-064 on https://<box>:49443; "
+                "http:// without a port reaches its web interface"
+            )
+        return urlunsplit(parts._replace(path=""))
 
     @model_validator(mode="after")
     def _http_needs_opt_in(self) -> FritzboxConfig:
@@ -213,8 +221,29 @@ class WlanService:
 # --- the adapter ----------------------------------------------------------------------------
 
 
+#: Shown in the device form ("Before you add it").
+FRITZBOX_STEPS = (
+    (
+        "On the Fritz!Box: Home Network > Network > Network Settings (Heimnetz > Netzwerk > "
+        "Netzwerkeinstellungen), switch on 'Allow access for applications' (Zugriff für "
+        "Anwendungen zulassen) and apply. This is TR-064."
+    ),
+    (
+        "System > FRITZ!Box Users (FRITZ!Box-Benutzer): add a user for Signalbox with a long "
+        "password and only the right 'FRITZ!Box settings' (FRITZ!Box Einstellungen); leave "
+        "access from the internet off."
+    ),
+    (
+        "Below: the box's address (fritz.box or its IP address, no http:// needed), that user "
+        "and password. Then Test connection and trust the box's certificate."
+    ),
+)
+
+
 class FritzboxAdapter(Adapter):
     manifest = Manifest(
+        setup_steps=FRITZBOX_STEPS,
+        setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/fritzbox.md#setting-up-the-fritzbox",
         id="fritzbox",
         name="AVM Fritz!Box",
         version="0.2.0",
@@ -262,13 +291,36 @@ class FritzboxAdapter(Adapter):
 
     async def read_system(self) -> SystemInfo:
         await self.http.reset()  # a new observation: probe the certificate again
-        info = await self.tr064.call("DeviceInfo1", "GetInfo")
+        try:
+            info = await self.tr064.call("DeviceInfo1", "GetInfo")
+        except (NotFound, Unreachable) as exc:
+            raise await self._no_tr064(exc) from exc
         version = info.get("NewSoftwareVersion")
         return SystemInfo(
             vendor=info.get("NewManufacturerName") or "AVM",
             model=info.get("NewModelName") or None,
             firmware=Firmware(current=version) if version else None,
             management_address=self.http.host,
+        )
+
+    async def _no_tr064(self, exc: AdapterError) -> AdapterError:
+        """TR-064 does not answer at the configured address: ask the box for its port."""
+        host, configured = self.http.host, self.http.port
+        reported = await security_port(host, self.context.timeout)
+        netloc = f"[{host}]" if ":" in host else host
+        if reported is not None and reported != configured:
+            return type(exc)(
+                f"{exc}; this Fritz!Box serves TR-064 on port {reported}, not {configured}",
+                fix=f"Change the address in the settings to https://{netloc}:{reported}.",
+            )
+        return type(exc)(
+            str(exc),
+            fix="On the Fritz!Box, Home Network > Network > Network Settings (German: Heimnetz > "
+            "Netzwerk > Netzwerkeinstellungen), switch on 'Allow access for applications' "
+            "('Zugriff für Anwendungen zulassen') and apply. Use the box's own address in the "
+            "home network with the TR-064 port, normally https://<box>:49443; not the web "
+            "interface port 443 and not a MyFRITZ address. The box tells its port at "
+            f"http://<box>:{UPNP_PORT}/tr64desc.xml if that answers.",
         )
 
     # interfaces -----------------------------------------------------------------------

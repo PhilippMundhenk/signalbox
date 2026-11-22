@@ -55,7 +55,11 @@ def sim() -> FritzboxSim:
 
 
 def context(url: str, **kw: Any) -> AdapterContext:
-    cfg = {"url": url, "password": SecretStr(FritzboxSim().password)} | kw.pop("config", {})
+    cfg = {
+        "url": url,
+        "username": "signalbox",
+        "password": SecretStr(FritzboxSim().password),
+    } | kw.pop("config", {})
     return AdapterContext(
         site_id="home",
         device_id="fb",
@@ -203,8 +207,38 @@ def test_config_url() -> None:
     assert FritzboxConfig(url="https://192.0.2.1:8443", password=SecretStr("x")).url.endswith(
         ":8443"
     )
-    with pytest.raises(ValidationError, match="https://host"):
+    with pytest.raises(ValidationError, match="device's address"):
         FritzboxConfig(url="ftp://192.0.2.1", password=SecretStr("x"))
+    # the box's name alone is enough; http:// without a port is the web interface
+    assert FritzboxConfig(url="fritz.box", password=SecretStr("x")).url == "https://fritz.box:49443"
+    with pytest.raises(ValidationError, match="use https://"):
+        FritzboxConfig(url="http://192.0.2.1", password=SecretStr("x"), allow_insecure_http=True)
+
+
+async def test_wrong_port_names_the_right_one(
+    sim: FritzboxSim, http_url: str, cert: TlsFiles, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TR-064 not at the address: the box tells its HTTPS port on its UPnP port, unasked."""
+    from starlette.applications import Starlette
+
+    import signalbox.adapters.fritzbox.soap as soap_mod
+    from signalbox.sim.server import serve as serve_app
+
+    monkeypatch.setattr(soap_mod, "UPNP_PORT", int(http_url.rsplit(":", 1)[1]))
+    sim.security_port = 12345
+    with serve_app(Starlette(), tls=cert) as web_ui:  # answers 404 everywhere
+        snap = await observe(context(web_ui, pinned_fingerprint=cert.fingerprint))
+    assert snap.status is DeviceStatus.UNREACHABLE
+    err = snap.errors[0]
+    assert "serves TR-064 on port 12345" in err.message
+    assert err.fix and "https://127.0.0.1:12345" in err.fix
+    assert sim.authenticated == 0  # the port is asked without credentials
+
+    sim.security_port = int(web_ui.rsplit(":", 1)[1])  # same port: generic help
+    with serve_app(Starlette(), tls=cert) as web_ui2:
+        sim.security_port = int(web_ui2.rsplit(":", 1)[1])
+        snap = await observe(context(web_ui2, pinned_fingerprint=cert.fingerprint))
+    assert snap.errors[0].fix and "Zugriff für Anwendungen zulassen" in snap.errors[0].fix
 
 
 # --- refused paths --------------------------------------------------------------------
@@ -538,3 +572,14 @@ async def test_digest_realm_over_https(https_url: str) -> None:
         challenge = await client.post("/upnp/control/deviceinfo")
     assert challenge.status_code == 401
     assert challenge.headers["www-authenticate"].startswith('Digest realm="HTTPS Access",nonce="')
+
+
+async def test_box_without_users_logs_in_with_password_only(
+    sim: FritzboxSim, https_url: str, cert: TlsFiles
+) -> None:
+    """A box set to log in with its password only: the user name stays empty (#202)."""
+    sim.username = ""
+    snap = await observe(
+        context(https_url, pinned_fingerprint=cert.fingerprint, config={"username": ""})
+    )
+    assert snap.status is DeviceStatus.OK, snap.errors

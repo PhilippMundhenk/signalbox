@@ -472,7 +472,7 @@ def test_config_validation() -> None:
     assert cfg("http://192.0.2.1", insecure=True).allow_insecure_http
     with pytest.raises(ValidationError, match="allow_insecure_http"):
         cfg("http://192.0.2.1")
-    with pytest.raises(ValidationError, match="https://host"):
+    with pytest.raises(ValidationError, match="device's address"):
         cfg("ftp://192.0.2.1")
     schema = OpnsenseConfig.model_json_schema()
     assert schema["properties"]["api_secret"]["format"] == "password"

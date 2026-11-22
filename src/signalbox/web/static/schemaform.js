@@ -44,8 +44,11 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
   const required = new Set(schema.required || []);
   const fields = [];
   const element = h('div', { class: 'schema-form', 'data-testid': 'config-form' });
+  // settings marked "advanced" (simulators, tests) go into a closed section
+  const advanced = h('details', { class: 'advanced', 'data-testid': 'advanced-settings' }, h('summary', {}, 'Advanced'));
   for (const [name, raw] of Object.entries(schema.properties || {})) {
     const s = resolve(raw, schema);
+    const box = s.advanced ? advanced : element;
     const isSecret = secrets.includes(name) || s.format === 'password' || s.writeOnly;
     const label = titleOf(name, s) + (required.has(name) && !s.nullable ? '' : ' (optional)');
     const current = name in values ? values[name] : s.default;
@@ -58,14 +61,14 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
       control = h('input', { type: 'password', id, autocomplete: 'new-password', 'data-testid': testid, placeholder: stored ? 'stored — leave empty to keep' : '' });
       read = () => (control.value === '' ? undefined : control.value);
       const hint = [s.description, stored ? 'A value is stored. Leave the field empty to keep it.' : null].filter(Boolean).join(' ');
-      element.append(field(label, control, hint || null));
+      box.append(field(label, control, hint || null));
       fields.push({ name, s, read, control, secret: true, stored, required: required.has(name) && !s.nullable });
       continue;
     }
     if (s.type === 'boolean') {
       control = h('input', { type: 'checkbox', id, checked: Boolean(current), 'data-testid': testid });
       read = () => control.checked;
-      element.append(checkField(label.replace(' (optional)', ''), control, s.description));
+      box.append(checkField(label.replace(' (optional)', ''), control, s.description));
     } else if (s.enum) {
       control = h('select', { id, 'data-testid': testid });
       if (s.nullable || (!required.has(name) && s.default === undefined)) control.append(h('option', { value: '' }, '–'));
@@ -75,7 +78,7 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
         const opt = s.enum.find((x) => String(x) === control.value);
         return opt;
       };
-      element.append(field(label, control, s.description));
+      box.append(field(label, control, s.description));
     } else if (s.type === 'integer' || s.type === 'number') {
       control = h('input', { type: 'number', id, inputmode: s.type === 'integer' ? 'numeric' : 'decimal', step: s.type === 'integer' ? '1' : 'any', 'data-testid': testid, value: current === undefined || current === null ? '' : String(current) });
       if (s.minimum !== undefined) control.min = String(s.minimum);
@@ -85,18 +88,24 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
         const n = Number(control.value);
         return s.type === 'integer' ? Math.trunc(n) : n;
       };
-      element.append(field(label, control, s.description));
+      box.append(field(label, control, s.description));
     } else {
-      control = h('input', { type: 'text', id, autocomplete: 'off', spellcheck: 'false', 'data-testid': testid, value: current === undefined || current === null ? '' : String(current) });
+      control = h('input', { type: 'text', id, autocomplete: 'off', spellcheck: 'false', 'data-testid': testid, placeholder: s.examples ? String(s.examples[0]) : '', value: current === undefined || current === null ? '' : String(current) });
       if (s.maxLength) control.maxLength = s.maxLength;
       read = () => {
-        if (control.value === '') return s.nullable ? null : undefined;
+        if (control.value === '') {
+          if (s.nullable) return null;
+          // cleared on purpose: keep it empty instead of falling back to the default
+          return typeof s.default === 'string' && s.default !== '' ? '' : undefined;
+        }
         return control.value;
       };
-      element.append(field(label, control, s.description));
+      box.append(field(label, control, s.description));
     }
     fields.push({ name, s, read, control, required: required.has(name) && !s.nullable });
   }
+
+  if (advanced.children.length > 1) element.append(advanced);
 
   function collect() {
     const config = {};

@@ -1,42 +1,10 @@
 // One device: overview with connection test and certificate trust, settings, advanced (raw data).
 import { del, enc, get, post } from '../api.js';
 import { loadNetwork } from '../net.js';
-import { clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, groupHex, h, place, portDetails, portSpeed, yesNo } from '../util.js';
+import { clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, place, portDetails, portSpeed, yesNo } from '../util.js';
 import { card, confirmDialog, empty, kv, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
-
-const COUNT_TEXT = { ports: 'ports', segments: 'segments', subnets: 'subnets', wlans: 'SSIDs', clients: 'clients' };
-
-function trustPanel(device, fingerprint, onTrusted) {
-  const btn = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'trust' }, 'Trust this certificate');
-  btn.addEventListener('click', () =>
-    run(btn, async () => {
-      await post(`/devices/${enc(device.id)}/trust`, { fingerprint });
-      toast('Certificate trusted.');
-      await onTrusted();
-    }),
-  );
-  return h(
-    'div',
-    { class: 'notice', 'data-testid': 'untrusted' },
-    h('h3', {}, 'The device presented a certificate Signalbox does not trust yet'),
-    h('p', {}, 'Before you trust it, compare this SHA-256 fingerprint with the one the device shows in its own web interface or console. If they differ, someone may be in between: do not trust it.'),
-    h('p', { class: 'fingerprint mono', 'data-testid': 'fingerprint' }, groupHex(fingerprint)),
-    btn,
-  );
-}
-
-function testResult(res) {
-  return h(
-    'div',
-    { class: `test-result status-${res.status}`, 'data-testid': 'test-result' },
-    h('p', {}, 'Result: ', statusBadge(res.status)),
-    res.errors.length ? h('ul', { class: 'error', 'data-testid': 'test-errors' }, res.errors.map((e) => h('li', {}, `${e.capability}: ${e.message}`))) : null,
-    res.status === 'ok' || res.status === 'partial'
-      ? h('p', { 'data-testid': 'test-counts' }, 'Found ', Object.entries(res.counts).map(([k, v], i) => `${i ? ', ' : ''}${v} ${COUNT_TEXT[k] || k}`), '.')
-      : null,
-  );
-}
+import { readErrors, testResult, trustPanel } from './devicetest.js';
 
 const given = (v) => v !== null && v !== undefined;
 // kv() skips undefined: a row only for what the device reports.
@@ -145,7 +113,15 @@ async function overview(main, ctx, device, adapters, sites) {
 
   const showTrust = (fingerprint, status) => {
     clear(trustBox);
-    if (fingerprint && status === 'untrusted-certificate') place(trustBox, trustPanel(device, fingerprint, test));
+    if (fingerprint && status === 'untrusted-certificate')
+      place(
+        trustBox,
+        trustPanel(fingerprint, async (fp) => {
+          await post(`/devices/${enc(device.id)}/trust`, { fingerprint: fp });
+          toast('Certificate trusted.');
+          await test();
+        }),
+      );
   };
 
   const testBtn = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'test' }, 'Test connection');
@@ -187,7 +163,7 @@ async function overview(main, ctx, device, adapters, sites) {
         ['Enabled', yesNo(device.enabled)],
         ['Changes allowed', yesNo(device.allow_writes)],
       ]),
-      errors.length ? h('ul', { class: 'error', 'data-testid': 'device-errors' }, errors.map((e) => h('li', {}, `${e.capability}: ${e.message}`))) : null,
+      readErrors(errors, 'device-errors'),
     ),
     internetCard(ix, device.id),
     observed ? healthCard(observed.health) : null,

@@ -370,3 +370,57 @@ def test_web_interface_has_no_inline_code_or_markup_injection() -> None:
         text = path.read_text()
         for needle in bad:
             assert needle not in text, f"{path.name} contains {needle}"
+
+
+def test_form_test_before_saving(logged_in: TestClient, services: Services) -> None:
+    """The device form reads the device with unsaved settings and stores nothing."""
+    r = logged_in.post("/api/devices/test", json=device_body())
+    assert r.status_code == 200
+    res = r.json()
+    assert res["status"] == "ok" and res["counts"]["ports"] == 1
+    assert res["device"] == {"vendor": "Example", "model": None, "firmware": None}
+    assert services.store.devices() == [] and services.store.snapshots() == []
+
+    partial = logged_in.post(
+        "/api/devices/test", json=device_body(config={"url": "partial", "password": "p"})
+    ).json()
+    assert partial["status"] == "partial"
+    assert partial["errors"][0]["fix"] == "Give the user port rights."
+
+    bad = [
+        (device_body(adapter="nope"), 422, "not installed"),
+        (device_body(role="ap"), 422, "Dev devices can be: gateway"),
+        (device_body(config={"url": "ok"}), 422, "password: Field required"),
+        (device_body(device_id="ghost"), 404, "No such device"),
+    ]
+    for body, code, message in bad:
+        r = logged_in.post("/api/devices/test", json=body)
+        assert r.status_code == code and message in r.json()["message"], body
+
+
+def test_form_test_trust_and_save(logged_in: TestClient, services: Services) -> None:
+    """A certificate trusted while testing the form is used for the test and pinned on save."""
+    body = device_body(config={"url": "untrusted64", "password": "p"})
+    res = logged_in.post("/api/devices/test", json=body).json()
+    assert res["status"] == "untrusted-certificate" and res["pending_fingerprint"] == "a" * 64
+    body["trust_fingerprint"] = "a" * 64
+    assert logged_in.post("/api/devices/test", json=body).json()["status"] == "ok"
+    bad = logged_in.post("/api/devices/test", json={**body, "trust_fingerprint": "nope"})
+    assert bad.status_code == 422
+    saved = logged_in.post("/api/devices", json=body).json()
+    assert saved["pinned_fingerprint"] == "a" * 64 and saved["pending_fingerprint"] is None
+    assert logged_in.post("/api/devices/main-gateway/test").json()["status"] == "ok"
+
+
+def test_form_test_while_editing_keeps_stored_secrets(logged_in: TestClient) -> None:
+    """Editing: an empty password field tests with the stored password and the stored pin."""
+    Dev.seen.clear()
+    body = device_body(
+        config={"url": "untrusted64", "password": "stored-pw"}, trust_fingerprint="a" * 64
+    )
+    logged_in.post("/api/devices", json=body)
+    edit = device_body(config={"url": "untrusted64", "password": ""}, device_id="main-gateway")
+    res = logged_in.post("/api/devices/test", json=edit).json()
+    assert res["status"] == "ok" and Dev.seen[-1] == "stored-pw"
+    # the stored device is unchanged by the test
+    assert logged_in.get("/api/devices/main-gateway").json()["name"] == "Main Gateway"

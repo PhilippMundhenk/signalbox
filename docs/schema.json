@@ -1853,6 +1853,18 @@
           "title": "Device Id",
           "type": "string"
         },
+        "fix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix"
+        },
         "message": {
           "title": "Message",
           "type": "string"

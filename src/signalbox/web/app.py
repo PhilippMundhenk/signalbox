@@ -20,7 +20,16 @@ from pydantic import BaseModel, Field, SecretStr
 from signalbox import __version__
 from signalbox.adapters import Adapter
 from signalbox.deploy import Deployer
-from signalbox.model import DeviceRole, Link, LinkKind, LinkOrigin, Network, Site
+from signalbox.model import (
+    DeviceRole,
+    DeviceStatus,
+    Link,
+    LinkKind,
+    LinkOrigin,
+    Network,
+    Site,
+    Snapshot,
+)
 from signalbox.mqtt import MqttBridge
 from signalbox.rules import READ_ERRORS, rule_enabled
 from signalbox.secrets import SecretError
@@ -66,6 +75,15 @@ class DeviceBody(BaseModel):
     enabled: bool = True
     allow_writes: bool = False
     config: dict[str, Any] = Field(default_factory=dict)
+    #: A certificate fingerprint the user trusted while testing the form; pinned on save.
+    trust_fingerprint: str | None = Field(None, pattern=r"^[0-9a-f]{64}$")
+
+
+class DeviceTestBody(DeviceBody):
+    """The device form, tested before it is saved."""
+
+    #: The device being edited: empty secrets take its stored values, its pin is used.
+    device_id: str | None = None
 
 
 class TrustBody(BaseModel):
@@ -109,6 +127,9 @@ def adapter_info(cls: type[Adapter]) -> dict[str, Any]:
         "version": m.version,
         "vendor": m.vendor,
         "description": m.description,
+        "setup_url": m.setup_url,
+        "setup_commands": m.setup_commands,
+        "setup_steps": list(m.setup_steps),
         "roles": sorted(r.value for r in m.roles),
         "capabilities": sorted(c.value for c in m.capabilities),
         "config_schema": schema,
@@ -354,10 +375,60 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
             adapter=body.adapter,
             enabled=body.enabled,
             allow_writes=body.allow_writes,
-            pinned_fingerprint=old.pinned_fingerprint if old else None,
-            pending_fingerprint=old.pending_fingerprint if old else None,
+            pinned_fingerprint=body.trust_fingerprint or (old.pinned_fingerprint if old else None),
+            pending_fingerprint=None
+            if body.trust_fingerprint
+            else (old.pending_fingerprint if old else None),
         )
         return store.put_device(rec, body.config, cls.manifest.config)
+
+    def test_json(snap: Snapshot, presented: str | None) -> dict[str, Any]:
+        dev = snap.device
+        return {
+            "status": snap.status.value,
+            "errors": [e.model_dump() for e in snap.errors],
+            "pending_fingerprint": presented if snap.status is DeviceStatus.UNTRUSTED else None,
+            "counts": {
+                k: len(getattr(snap, k))
+                for k in ("ports", "segments", "subnets", "wlans", "clients")
+            },
+            "device": {
+                "vendor": dev.vendor,
+                "model": dev.model,
+                "firmware": dev.firmware.current if dev.firmware else None,
+            },
+        }
+
+    @api.post("/devices/test", response_model=None)
+    async def test_form(body: DeviceTestBody) -> dict[str, Any] | JSONResponse:
+        """Read a device with the form's settings before saving; nothing is stored.
+
+        With `device_id`, empty secret settings use that device's stored values and its
+        trusted certificate. `trust_fingerprint` trusts a certificate for this test only.
+        """
+        cls = services.adapters.get(body.adapter)
+        if cls is None:
+            return error(422, "invalid", f"adapter {body.adapter!r} is not installed")
+        if body.role not in cls.manifest.roles:
+            roles = ", ".join(sorted(r.value for r in cls.manifest.roles))
+            return error(422, "invalid", f"{cls.manifest.name} devices can be: {roles}")
+        old = store.device(body.device_id) if body.device_id else None
+        if body.device_id and old is None:
+            return error(404, "not_found", "No such device.")
+        try:
+            cfg = store.form_config(old.id if old else None, body.config, cls.manifest.config)
+        except SecretError as exc:  # pragma: no cover - a damaged vault
+            return error(422, "invalid", str(exc))
+        rec = DeviceRecord(
+            id=old.id if old else slug(body.name, [d.id for d in store.devices()]),
+            site_id=body.site_id,
+            name=body.name,
+            role=body.role,
+            adapter=body.adapter,
+            pinned_fingerprint=body.trust_fingerprint or (old.pinned_fingerprint if old else None),
+        )
+        snap, presented = await runner.read_device(rec, cfg)
+        return test_json(snap, presented)
 
     @api.post("/devices", status_code=201, response_model=None)
     def add_device(body: DeviceBody) -> dict[str, Any] | JSONResponse:
@@ -396,15 +467,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
         except SecretError as exc:  # pragma: no cover - observe_device reports it
             return error(422, "invalid", str(exc))
         after = store.device(device_id)
-        return {
-            "status": snap.status.value,
-            "errors": [e.model_dump() for e in snap.errors],
-            "pending_fingerprint": after.pending_fingerprint if after else None,
-            "counts": {
-                k: len(getattr(snap, k))
-                for k in ("ports", "segments", "subnets", "wlans", "clients")
-            },
-        }
+        return test_json(snap, after.pending_fingerprint if after else None)
 
     @api.post("/devices/{device_id}/trust")
     def trust(device_id: str, body: TrustBody) -> dict[str, bool]:

@@ -701,6 +701,8 @@ class ReadError(Model):
     device_id: str
     capability: str
     message: str
+    #: What the user can do about it, in plain words, where the adapter knows.
+    fix: str | None = None
 
 
 class DeviceStatus(StrEnum):
