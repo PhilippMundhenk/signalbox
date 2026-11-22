@@ -465,7 +465,7 @@ revert (`leftovers`).
 
 Signalbox reads only two things, because OPNsense has no narrow API for the rest:
 
-- The **web interface** Signalbox itself uses: `https` (or `http` with `allow_insecure_http`)
+- The **web interface** Signalbox itself uses (*verified on 26.7.9 in CI*): `https` (or `http` with `allow_insecure_http`)
   on the port of the configured address, always enabled (it answers). `transport_encrypted`
   follows the scheme.
 - **SNMP**, when the `os-net-snmp` plugin is installed: `GET /api/netsnmp/general/get`

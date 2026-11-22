@@ -508,6 +508,7 @@ and in the simulator:
 
 ## Management services (#173)
 
+*Verified on OpenWrt 24.10 and 25.12 in CI* (the test image installs this page's ACL):
 `uci get dropbear` and `uci get uhttpd` (both are in the ACL's `uci` list; a router set up
 before #173 answers "access denied for uci.get (dropbear)": its services stay unread and the
 rest of the read is unaffected, add the two names to the ACL to read them).

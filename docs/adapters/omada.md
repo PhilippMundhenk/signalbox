@@ -438,8 +438,10 @@ every device it manages; each managed device (`Observation.devices`) gets the sa
   `snmpV3Enable`, `securityLevel` (2 is authPriv: `v3_privacy`) and `communityString`, which is
   only compared with `public`/`private` and never stored.
 
-The paths and fields are from a third-party SDK of the Open API *(guess until a controller with
-the settings is read: the integration controller's `/v3/api-docs` is dumped in the `spec` and
-`services` groups, see ADAPTERS.md for what it confirmed)*. A site setting the controller
+*Verified against Omada 6.3 in CI*: both paths and all fields are in the controller's own
+`/v3/api-docs` and answer to the viewer application (`securityLevel`: 0 NoAuthNoPriv, 1
+AuthNoPriv, 2 AuthPriv; a site with both versions off answers only `snmpV1V2CEnable`,
+`snmpV3Enable`, `location`, `contact`). The test site has no managed device, so which devices
+apply the settings is a *guess* until a real site is read (#21). A site setting the controller
 refuses or does not have leaves its service out; the controller's own web interface and cloud
 access are not read (no Open API call). `transport_encrypted` is true for https.
