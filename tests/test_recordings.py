@@ -54,7 +54,7 @@ async def test_recording_replays_to_its_snapshot(path: Path) -> None:
     data = load(path)
     snapshot, unmatched = await replay_snapshot(data)
     assert unmatched == []
-    assert snapshot == data["snapshot"]
+    assert snapshot == data["snapshot"], "run python tools/regen_recordings.py and review the diff"
 
 
 @pytest.mark.parametrize("path", RECORDINGS, ids=[p.stem for p in RECORDINGS])

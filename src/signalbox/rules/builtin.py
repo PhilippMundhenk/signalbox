@@ -1,42 +1,36 @@
-"""The rules that ship with Signalbox (registered as the ``builtin`` entry point)."""
+"""The rules that ship with Signalbox (registered as the ``builtin`` entry point).
+
+Every module in :mod:`signalbox.rules` that defines ``RULES`` is picked up here, so a new rule
+module registers itself: no shared list to edit (parallel work does not conflict here). Its
+documentation goes into ``docs/rules/<module>.md``.
+"""
 
 from __future__ import annotations
 
-from signalbox.rules import Rule
-from signalbox.rules.addressing import RULES as ADDRESSING_RULES
-from signalbox.rules.clients import RULES as CLIENT_RULES
-from signalbox.rules.dhcp import RULES as DHCP_RULES
-from signalbox.rules.dns import RULES as DNS_RULES
-from signalbox.rules.firmware import RULES as FIRMWARE_RULES
-from signalbox.rules.health import RULES as HEALTH_RULES
-from signalbox.rules.history_checks import RULES as HISTORY_RULES
-from signalbox.rules.ipv6 import RULES as IPV6_RULES
-from signalbox.rules.networks import RULES as NETWORK_RULES
-from signalbox.rules.ports import RULES as PORT_RULES
-from signalbox.rules.time_checks import RULES as TIME_RULES
-from signalbox.rules.topology_checks import RULES as TOPOLOGY_CHECK_RULES
-from signalbox.rules.vlan import RULES as VLAN_RULES
-from signalbox.rules.wan import RULES as WAN_RULES
-from signalbox.rules.wifi_hygiene import RULES as WIFI_HYGIENE_RULES
-from signalbox.rules.wireless import RULES as WIRELESS_RULES
-from signalbox.topology import RULES as TOPOLOGY_RULES
+import importlib
+import pkgutil
 
-RULES: list[Rule] = [
-    *DHCP_RULES,
-    *WIRELESS_RULES,
-    *VLAN_RULES,
-    *TOPOLOGY_RULES,
-    *FIRMWARE_RULES,
-    *IPV6_RULES,
-    *DNS_RULES,
-    *CLIENT_RULES,
-    *WIFI_HYGIENE_RULES,
-    *ADDRESSING_RULES,
-    *TOPOLOGY_CHECK_RULES,
-    *HISTORY_RULES,
-    *NETWORK_RULES,
-    *HEALTH_RULES,
-    *TIME_RULES,
-    *PORT_RULES,
-    *WAN_RULES,
-]
+import signalbox.rules as _package
+from signalbox.rules import Rule
+
+#: modules that are not rule groups
+_SKIP = {"builtin"}
+#: rule groups that live outside the package
+_EXTRA = ["signalbox.topology"]
+
+
+def _discover() -> list[Rule]:
+    names = sorted(
+        f"{_package.__name__}.{m.name}"
+        for m in pkgutil.iter_modules(_package.__path__)
+        if not m.name.startswith("_") and m.name not in _SKIP
+    )
+    found: list[Rule] = []
+    for name in [*names, *_EXTRA]:
+        rules = getattr(importlib.import_module(name), "RULES", None)
+        if rules is not None:
+            found.extend(rules)
+    return found
+
+
+RULES: list[Rule] = _discover()

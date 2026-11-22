@@ -146,6 +146,7 @@ def test_every_builtin_rule_is_documented() -> None:
 
     from signalbox.rules.builtin import RULES
 
-    text = (Path(__file__).resolve().parent.parent / "docs" / "RULES.md").read_text()
-    missing = [r.id for r in RULES if f"### `{r.id}`" not in text]
-    assert not missing, f"document these rules in docs/RULES.md: {missing}"
+    docs = Path(__file__).resolve().parent.parent / "docs" / "rules"
+    text = "".join(p.read_text() for p in docs.glob("*.md"))
+    missing = [r.id for r in RULES if f"## `{r.id}`" not in text]
+    assert not missing, f"document these rules in docs/rules/<module>.md: {missing}"
