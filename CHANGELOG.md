@@ -49,12 +49,19 @@ All notable changes to this project are documented here. The format follows
 - Integration tests against the real OpenWrt 24.10 and 25.12 in QEMU (official image builder, hwsim radios, VLAN-filtering bridge) and a shared integration framework (`make integration`, docs/TESTING.md) (#136, #137)
 - History for checks: when devices, clients and ports were first and last seen and how their status changed (`history.days`, default 30); checks for devices down for long, stale reservations, clients that changed network, flapping ports and devices; first/last seen in the UI (#185, #64, #85, #128)
 - Network purpose and client isolation: networks and SSIDs have a purpose (main, guest, IoT, management, …) reported by Fritz!Box/Omada, declared in the desired state or guessed from the name, and client isolation (OpenWrt reads and writes it); checks for guest Wi-Fi without isolation, management reachable from guest/IoT networks, networks without a purpose; fixes the false error for the Fritz!Box guest WLAN (#164, #99, #120)
+- Integration tests against the real MikroTik RouterOS 7.25 CHR in QEMU (#139)
+- A Fritz!Box simulator rebuilt from AVM's TR-064 service descriptions (FRITZ!OS 7.57 and 8.02) with a conformance test of every action the Fritz!Box adapter uses; pinned switch captures; `tools/record_device.py` records a real device (private data neutralised) and replays it as a regression test (#141)
+- Device health and time in the model (uptime, CPU, memory, storage, temperatures, fans, power supplies, UPS, clock, NTP, time zone), adapter API 1.2, shown on the device page and exported to Home Assistant (#178, #179, model stage)
+- Wi-Fi passphrase changes can be reverted: the previous passphrase is kept as an encrypted secret version (#188)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
 
 ### Fixed
+- MikroTik, found against the real RouterOS: missing menus answer 400, missing permissions 500, export through /execute, a new DHCP server is briefly invalid, read-only properties not restored, names only into the comment the read side uses (#139)
+- Fritz!Box, found against AVM's service descriptions: hidden-SSID actions without the X_AVM-DE_ prefix, open security spelled as the box lists it, SSID/passphrase limits from the box, faults 600/601 (#141)
+- Simulator requests took about 40 ms (Nagle on the simulator socket); now about 3 ms (#189)
 - OpenWrt, found by testing against the real software: LLDP through luci-app-lldpd, leftover staging after a rollback, confirm after the deadline, a second login taking over a pending change, restore while another change waits, wireless status on 25.12, wpad with 802.11v (#137)
 - OPNsense, found by testing against the real software: snake_case API paths (camelCase was refused for least-privilege users), assigned VLAN names with a description suffix, Kea subnets and reservations from their search endpoints, firmware version with package revision, assignment API detection from 26.7.6, stale VLAN devices after a restore, corrected privilege list (#138)
 - A failing confirm on a device with a rollback timer now restores the device instead of leaving the change in "deploying"; integration errors while planning are shown instead of an internal error (#41)
