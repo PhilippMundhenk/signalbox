@@ -30,6 +30,8 @@ All notable changes to this project are documented here. The format follows
 - Change tracking: every change recorded with reason, desired-state commit, plan, vendor calls, encrypted backups, per-device results and an append-only event log (#39)
 - Transactional deployment: per device lock, re-read, backup, apply (with confirm timer where supported), verify, confirm or roll back; a failure rolls back the devices already changed, last first; off by default (`deploy.enabled` and per-device *Allow changes*) (#38)
 - Rollback: revert an applied change as a new, checked change (refused when the devices changed since); restore a backup as a tracked change; Changes pages in the UI (#40)
+- AVM Fritz!Box adapter (read) over TR-064: LAN, DHCP, Wi-Fi incl. guest network, clients; simulator (#24)
+- TP-Link Omada adapter (read): one controller site through the Open API: networks, switch ports, SSIDs, clients; simulator (#44)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
