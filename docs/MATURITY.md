@@ -12,6 +12,7 @@ Generated from the adapter manifests by `tools/gen_docs.py`.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | TP-Link Easy Smart (`easysmart`) | simulator | - | - | - | - | - | nothing yet |
 | AVM Fritz!Box (`fritzbox`) | simulator | simulator | - | simulator | simulator | - | nothing yet |
+| MikroTik RouterOS (`mikrotik`) | simulator | simulator | simulator | simulator | simulator | simulator | nothing yet |
 | TP-Link Omada (`omada`) | simulator | simulator | - | simulator | simulator | - | nothing yet |
 | OpenWrt (`openwrt`) | simulator | simulator | - | simulator | simulator | simulator | nothing yet |
 | OPNsense (`opnsense`) | simulator | simulator | simulator | - | simulator | - | nothing yet |

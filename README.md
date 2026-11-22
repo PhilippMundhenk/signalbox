@@ -41,7 +41,7 @@ Signalbox is made of separate parts with narrow jobs (details in [docs/DESIGN.md
 | OpenWrt (access points, routers) | ubus JSON-RPC over HTTPS with a read-only rpcd user | ports, DSA bridge VLANs, Wi-Fi radios and SSIDs, DHCP, connected clients, LLDP |
 | NETGEAR ProSAFE Plus switches | NSDP (UDP) through [Switchyard](https://github.com/PhilippMundhenk/switchyard), read, simulator-tested | model, firmware, ports with link and speed, 802.1Q VLANs (tagged/untagged, PVIDs), port-based VLAN groups, link aggregation |
 | AVM Fritz!Box | TR-064 (SOAP over HTTPS) with a dedicated user; read, simulator-tested | LAN, subnet, DHCP, Wi-Fi radios, SSIDs and guest network, connected hosts |
-| MikroTik (RouterOS) | planned (REST API) | |
+| MikroTik (RouterOS 7) | REST API over HTTPS with a read-only user group ([docs](docs/adapters/mikrotik.md)); read, simulator-tested | ports, bridge VLAN filtering, subnets, DHCP, DNS, Wi-Fi (wifi and wireless packages), clients, LLDP/MNDP neighbours |
 | TP-Link Omada (controller with gateway, switches, EAPs) | Open API with a viewer-role client, one site per device ([docs](docs/adapters/omada.md)); read, simulator-tested | LAN networks, subnets, DHCP, switch ports and VLANs, radios and SSIDs, clients |
 | TP-Link Easy Smart switches | Easy Smart protocol (UDP) through [Switchyard](https://github.com/PhilippMundhenk/switchyard), read, simulator-tested | model, firmware, ports with link and speed, 802.1Q VLANs (tagged/untagged, PVIDs), port-based VLAN groups, link aggregation |
 
@@ -76,7 +76,8 @@ Adapters are plugins: other devices can be added as separate packages, see
 3. Create a read-only user on each device: an API key for OPNsense
    ([docs/adapters/opnsense.md](docs/adapters/opnsense.md)), an rpcd login for OpenWrt
    ([docs/adapters/openwrt.md](docs/adapters/openwrt.md)), a dedicated user for a Fritz!Box
-   ([docs/adapters/fritzbox.md](docs/adapters/fritzbox.md)). NETGEAR ProSAFE Plus and TP-Link
+   ([docs/adapters/fritzbox.md](docs/adapters/fritzbox.md)), a read-only user group for MikroTik
+   ([docs/adapters/mikrotik.md](docs/adapters/mikrotik.md)). NETGEAR ProSAFE Plus and TP-Link
    Easy Smart switches use their management password; their protocols are not encrypted, and
    Easy Smart switches need host networking
    ([docs/adapters/plusswitch.md](docs/adapters/plusswitch.md)).
