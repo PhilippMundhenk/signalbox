@@ -27,6 +27,7 @@ from typing import Any, ClassVar, Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from signalbox.changes import Change, ChangeKind
+from signalbox.discovery import BroadcastResult, Candidate, HostProbe, NetworkProbe
 from signalbox.model import (
     Client,
     Device,
@@ -366,6 +367,26 @@ class Adapter(ABC):
     async def close(self) -> None:  # noqa: B027 - optional hook
         """Release connections."""
 
+    # discovery (#203): optional, no adapter API version needed --------------------------
+
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        """Optional: is there a device of this kind at ``probe.host``? (docs/DISCOVERY.md)
+
+        Send only unauthenticated, read-only requests, and only through ``probe``
+        (``probe.get``/``probe.post``: no credentials, TLS not verified, rate-limited, small
+        answers). Return a :class:`~signalbox.discovery.Candidate` with the settings to
+        prefill (the address field), or None. Never raise for what a device answers; an
+        integration without a probe keeps this default.
+        """
+        return None
+
+    @classmethod
+    async def discover_broadcast(cls, probe: NetworkProbe) -> BroadcastResult | None:
+        """Optional: devices that answer a broadcast of this integration's protocol, once per
+        run (the UDP protocols of small switches). None: the integration has none."""
+        return None
+
     async def _call(self, fn: Callable[[], Any]) -> Any:
         return await asyncio.wait_for(fn(), timeout=self.context.timeout)
 
@@ -468,6 +489,17 @@ class Adapter(ABC):
             message=message,
             fix=getattr(exc, "fix", None),
         )
+
+
+def probes_hosts(cls: type[Adapter]) -> bool:
+    """The integration has its own :meth:`Adapter.discover`."""
+    return cls.discover.__func__ is not Adapter.discover.__func__  # type: ignore[attr-defined]
+
+
+def probes_broadcast(cls: type[Adapter]) -> bool:
+    """The integration has its own :meth:`Adapter.discover_broadcast`."""
+    own = cls.discover_broadcast.__func__  # type: ignore[attr-defined]
+    return own is not Adapter.discover_broadcast.__func__  # type: ignore[attr-defined]
 
 
 def _version(text: str) -> tuple[int, ...]:

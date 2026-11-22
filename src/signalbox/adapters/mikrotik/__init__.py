@@ -47,7 +47,9 @@ from signalbox.adapters import (
     SystemInfo,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
+from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     Band,
     Client,
@@ -513,6 +515,11 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         description="Reads and changes a RouterOS 7 router, switch or access point (REST API).",
         writes=WRITES,
     )
+
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        """REST API answering 401 with the RouterOS realm, without credentials."""
+        return await _discovery.discover(probe)
 
     def __init__(self, context: AdapterContext) -> None:
         super().__init__(context)

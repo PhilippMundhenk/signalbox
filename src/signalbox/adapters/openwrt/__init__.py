@@ -34,9 +34,11 @@ from signalbox.adapters import (
     VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, device_url
+from signalbox.adapters.openwrt import discovery as _discovery
 from signalbox.adapters.openwrt import setup, vitals
 from signalbox.adapters.openwrt.ubus import AccessDenied, InvalidArgument, NoData, NotFound, Ubus
 from signalbox.changes import Change, ChangeKind
+from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     Band,
     Client,
@@ -463,6 +465,11 @@ class OpenWrtAdapter(Adapter):
             {ChangeKind.PORT, ChangeKind.WLAN, ChangeKind.DHCP, ChangeKind.RESERVATION}
         ),
     )
+
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        """ubus JSON-RPC (null session) or the LuCI page, without credentials."""
+        return await _discovery.discover(probe)
 
     _ubus: Ubus | None = None
     #: ``uci apply`` with rollback was called and not yet confirmed or rolled back

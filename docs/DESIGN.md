@@ -43,6 +43,7 @@ desired state → planner → deployment → devices, with every step tracked.
 | **Integrations** (adapters) | `signalbox.adapters.<id>` | map one kind of device to the model and back; nothing vendor-specific leaves an adapter | device API | `Snapshot` (read); vendor calls for a change set (write) | read: OPNsense (#9), OpenWrt (#10), Fritz!Box (#24), Omada (#44), ProSAFE Plus and Easy Smart switches through Switchyard (#22, #44, [ADR 0003](adr/0003-switchyard-library.md)); MikroTik (#43); write: OpenWrt (#41), OPNsense (#42) |
 | **Adapter API** | `signalbox.adapters` | the contract integrations implement: manifest, capabilities, errors, contract tests | – | – | done (#4) |
 | **Inventory** | `signalbox.store`, `signalbox.config`, `signalbox.secrets` | sites, devices, cables, credentials (encrypted), certificate pins | UI/API | records | done (#11) |
+| **Discovery** | `signalbox.discovery` | find devices of the installed integrations when the user asks, without credentials; suggestions for the device form | known networks (`Network`), ranges the user enters, probes of the integrations | candidates | done (#203), [DISCOVERY.md](DISCOVERY.md), [ADR 0006](adr/0006-discovery-probes.md) |
 | **Observation** | `signalbox.runner` | read every device on an interval, merge into one network | inventory, integrations | `Network`, findings history | done (#12) |
 | **History** | `signalbox.sightings`, `signalbox.store` | after every round: first/last seen of devices, clients (per network) and ports, device status, link state, client network; changes as events; pruned after `history.days` | `Network` per round | read-only `History` for rules (`history_rule`), first/last seen in API and UI | done (#185) |
 | **Checks** (rules) | `signalbox.rules.*` | find inconsistencies, explain them, suggest a fix; never change anything | `Network` (and `History`) | findings | done (#5–#8, #15) |
@@ -259,6 +260,31 @@ Planned adapters: OPNsense (REST API), OpenWrt (ubus/rpcd or SSH and UCI), NETGE
 switches (NSDP, building on [Switchyard](https://github.com/PhilippMundhenk/switchyard)),
 AVM Fritz!Box (TR-064), MikroTik (RouterOS REST API, #43), TP-Link (Omada controller and Easy
 Smart switches, #44). Later: UniFi, pfSense.
+
+## Discovery
+
+*Find devices* (#203) is the only place where Signalbox talks to addresses nobody configured,
+so it is fenced in ([ADR 0006](adr/0006-discovery-probes.md)):
+
+- **Started by the user only** (`POST /api/discovery`), never in the background;
+  `discovery.enabled: false` turns it off.
+- **Targets** (`signalbox.discovery.targets.plan`, a pure function of the network model and the
+  input): gateway subnets of added routers up to /24 completely, larger ones and IPv6 only the
+  gateway; IPv4 addresses of clients, DHCP reservations and LLDP neighbours; what the user
+  types. Network devices (gateways, neighbours, vendor MAC prefixes, network-ish host names)
+  first; at most `discovery.max_hosts`.
+- **Probes belong to the integrations**: `Adapter.discover(probe)` per address and
+  `Adapter.discover_broadcast(probe)` per run, optional class methods with defaults, so no
+  adapter API version change. Core never imports vendor code: the engine
+  (`signalbox.discovery.engine`) only calls the hooks of the installed adapters.
+- **The probe object enforces the rules**: `HostProbe` sends unauthenticated HTTP(S) only
+  (no credentials, no cookies kept, no proxy, TLS unverified and never pinned, no redirects,
+  answers cut at 256 KiB), through one rate limiter per run and with bounded concurrency; an
+  address silent on two ports is given up. Broadcast probes take the same limiter.
+- **Answers are suggestions**: `Candidate` cleans device text; the engine keeps only
+  non-secret settings of the integration and a role it supports (router for a known gateway
+  address). Candidates live in memory until the next run; only the ignore list is stored.
+  Adding a found device goes through the normal form, test and trust-on-first-use flow.
 
 ## Changing configuration
 

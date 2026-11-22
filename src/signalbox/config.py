@@ -81,6 +81,31 @@ class HistoryConfig(Section):
     )
 
 
+class DiscoveryConfig(Section):
+    enabled: bool = Field(
+        True,
+        description="Allow 'Find devices' on the devices page (started by you only, never in "
+        "the background; see docs/DISCOVERY.md). false: no probe is ever sent.",
+    )
+    timeout_seconds: float = Field(
+        2, gt=0, le=30, description="Timeout of one probe request, in seconds."
+    )
+    concurrency: int = Field(16, ge=1, le=128, description="Addresses probed at the same time.")
+    rate_per_second: float = Field(
+        30, gt=0, le=1000, description="At most this many probe requests per second."
+    )
+    sweep_prefix: int = Field(
+        24,
+        ge=16,
+        le=32,
+        description="Gateway subnets with this prefix length or longer are probed completely; "
+        "of larger ones only the gateway and known clients.",
+    )
+    max_hosts: int = Field(
+        1024, ge=1, le=65536, description="At most this many addresses in one run."
+    )
+
+
 class PluginsConfig(Section):
     remote_adapters: dict[str, list[str]] = Field(
         default_factory=dict,
@@ -95,6 +120,7 @@ class Config(Section):
     mqtt: MqttConfig = MqttConfig()
     deploy: DeployConfig = DeployConfig()
     history: HistoryConfig = HistoryConfig()
+    discovery: DiscoveryConfig = DiscoveryConfig()
     plugins: PluginsConfig = PluginsConfig()
     rules: dict[str, RuleSettings] = Field(
         default_factory=dict,
@@ -157,6 +183,22 @@ history:
   # clients that change networks, long outages). Client sightings show who was at home:
   # they are never exported and are deleted after this many days.
   days: 30
+
+discovery:
+  # "Find devices" on the devices page probes the networks Signalbox knows (and ranges you
+  # enter) for supported devices, without credentials. Only when you start it; false turns
+  # it off completely. What is sent: docs/DISCOVERY.md.
+  enabled: true
+  # Timeout of one probe request, in seconds.
+  timeout_seconds: 2
+  # Addresses probed at the same time, and probe requests per second at most.
+  concurrency: 16
+  rate_per_second: 30
+  # Gateway subnets of /24 or smaller are probed completely; of larger ones only the
+  # gateway and known clients.
+  sweep_prefix: 24
+  # At most this many addresses in one run.
+  max_hosts: 1024
 
 plugins:
   # Adapters that run as separate programs, each with only the settings of its device:

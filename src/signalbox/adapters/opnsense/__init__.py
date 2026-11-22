@@ -45,9 +45,11 @@ from signalbox.adapters import (
     VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.opnsense import discovery as _discovery
 from signalbox.adapters.opnsense import vitals
 from signalbox.adapters.opnsense import write as w
 from signalbox.changes import Change, ChangeKind
+from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     Client,
     DeviceRole,
@@ -451,6 +453,11 @@ class OpnsenseAdapter(_Adapter):
             {ChangeKind.ROUTER, ChangeKind.DHCP, ChangeKind.RESERVATION, ChangeKind.PORT}
         ),
     )
+
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        """The web interface's login page, without credentials."""
+        return await _discovery.discover(probe)
 
     def __init__(self, context: AdapterContext) -> None:
         super().__init__(context)

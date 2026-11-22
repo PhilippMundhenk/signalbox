@@ -39,6 +39,8 @@ run as separate programs.
   ```
 
   Out-of-process integrations read only; writing needs an in-process integration for now.
+  They do not take part in *Find devices* either: discovery probes are class methods of
+  in-process integrations ([ADAPTERS.md](ADAPTERS.md#discovery)).
 
 ## Rules
 

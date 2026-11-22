@@ -535,3 +535,58 @@ def test_optional_secret_can_be_removed(app: Any) -> None:
     app.get_by_test_id("device-save").click()
     expect(app.get_by_test_id("device-title")).to_have_text("Edge")
     assert api(app, "GET", "/devices/edge")["secrets_set"] == ["password"]
+
+
+def test_find_devices_and_add_one_through_the_prefilled_form(app: Any) -> None:
+    """#203: the search covers the router's subnets and an entered address; a found device
+    opens the form prefilled; device-provided text stays text; added ones are marked."""
+    add_site(app)
+    add_lab(app, "Main router")
+    observe(app)  # the router's subnets 192.0.2.0/24 and 198.51.100.0/24 are now known
+    go(app, "#/devices")
+    panel = app.get_by_test_id("discovery")
+    expect(panel).to_be_hidden()
+    app.get_by_test_id("find-devices").first.click()
+    expect(panel).to_be_visible()
+    expect(app.get_by_test_id("discovery-known")).to_be_checked()
+    app.get_by_test_id("discovery-ranges").fill("203.0.113.5, 203.0.113.8-9")
+    app.get_by_test_id("discovery-start").click()
+    rows = app.get_by_test_id("candidate")
+    expect(rows).to_have_count(3)
+    expect(app.get_by_test_id("discovery-done")).to_contain_text("511 checked, 3 found")
+    lab = rows.filter(has_text="192.0.2.7")
+    expect(lab.get_by_test_id("candidate-model")).to_have_text(
+        "LR-2 <img src=x onerror=alert(1)> (2.0)"
+    )
+    expect(app.get_by_test_id("candidates").locator("img")).to_have_count(0)
+    expect(rows.filter(has_text="192.0.2.1").get_by_test_id("candidate-added")).to_have_attribute(
+        "href", "#/device/main-router"
+    )
+    # ignore the switch: hidden, and can be shown again
+    rows.filter(has_text="198.51.100.20").get_by_test_id("candidate-ignore").click()
+    expect(rows).to_have_count(2)
+    app.get_by_test_id("discovery-show-ignored").click()
+    expect(
+        rows.filter(has_text="198.51.100.20").get_by_test_id("candidate-unignore")
+    ).to_be_visible()
+
+    lab.get_by_test_id("candidate-add").click()
+    expect(app.get_by_test_id("prefill-notice")).to_contain_text("Found by Find devices")
+    expect(app.get_by_test_id("prefill-note")).to_have_text("Switch on the API first.")
+    expect(app.get_by_test_id("device-adapter")).to_have_value("lab")
+    expect(app.get_by_test_id("device-role")).to_have_value("ap")
+    expect(app.get_by_test_id("cfg-host")).to_have_value("192.0.2.7")
+    expect(app.get_by_test_id("cfg-port")).to_have_value("8443")
+    expect(app.get_by_test_id("cfg-password")).to_have_value("")
+    app.get_by_test_id("device-name").fill("Office AP")
+    app.get_by_test_id("cfg-password").fill("device-secret")
+    app.get_by_test_id("device-save").click()
+    expect(app.get_by_test_id("device-title")).to_have_text("Office AP")
+    stored = api(app, "GET", "/devices/office-ap")
+    assert stored["config"]["host"] == "192.0.2.7" and stored["config"]["port"] == 8443
+    assert stored["role"] == "ap" and stored["pinned_fingerprint"] is None
+
+    go(app, "#/devices")
+    expect(rows.filter(has_text="192.0.2.7").get_by_test_id("candidate-added")).to_be_visible()
+    status = api(app, "GET", "/discovery")
+    assert status["scope"][0] == "203.0.113.5: 1 address(es) you entered"

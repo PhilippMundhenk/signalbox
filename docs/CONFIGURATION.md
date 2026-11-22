@@ -60,6 +60,17 @@ Generated from the code by `tools/gen_docs.py`.
 | --- | --- | --- | --- |
 | `history.days` | `SIGNALBOX_HISTORY_DAYS` | `30` | Days the observation history (first/last seen, status and link changes) is kept. Client sightings are a presence log: keep this short. |
 
+## `discovery`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `discovery.enabled` | `SIGNALBOX_DISCOVERY_ENABLED` | true | Allow 'Find devices' on the devices page (started by you only, never in the background; see docs/DISCOVERY.md). false: no probe is ever sent. |
+| `discovery.timeout_seconds` | `SIGNALBOX_DISCOVERY_TIMEOUT_SECONDS` | `2` | Timeout of one probe request, in seconds. |
+| `discovery.concurrency` | `SIGNALBOX_DISCOVERY_CONCURRENCY` | `16` | Addresses probed at the same time. |
+| `discovery.rate_per_second` | `SIGNALBOX_DISCOVERY_RATE_PER_SECOND` | `30` | At most this many probe requests per second. |
+| `discovery.sweep_prefix` | `SIGNALBOX_DISCOVERY_SWEEP_PREFIX` | `24` | Gateway subnets with this prefix length or longer are probed completely; of larger ones only the gateway and known clients. |
+| `discovery.max_hosts` | `SIGNALBOX_DISCOVERY_MAX_HOSTS` | `1024` | At most this many addresses in one run. |
+
 ## `plugins`
 
 | Setting | Environment variable | Default | Meaning |

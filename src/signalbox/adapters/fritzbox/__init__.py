@@ -44,6 +44,7 @@ from signalbox.adapters import (
     Unreachable,
     VendorCall,
 )
+from signalbox.adapters.fritzbox import discovery
 from signalbox.adapters.fritzbox.soap import UPNP_PORT, SoapFault, Tr064, security_port
 from signalbox.adapters.fritzbox.write import (
     BACKUP_FORMAT,
@@ -58,6 +59,7 @@ from signalbox.adapters.fritzbox.write import (
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.changes import Change, ChangeKind, WlanValue
+from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     Band,
     Client,
@@ -375,6 +377,11 @@ class FritzboxAdapter(Adapter):
             allow_insecure_http=cfg.allow_insecure_http,
         )
         self.tr064 = Tr064(self.http)
+
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        """TR-064 description and HTTPS port on port 49000, without credentials."""
+        return await discovery.discover(probe)
 
     @property
     def config(self) -> FritzboxConfig:

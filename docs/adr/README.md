@@ -7,5 +7,6 @@
 | [0003](0003-switchyard-library.md) | Switchyard as an optional, pinned library for the switch protocols |
 | [0004](0004-controllers-report-several-devices.md) | Controllers report the devices they manage (adapter API 1.1) |
 | [0005](0005-untagged-networks-of-several-routers.md) | Untagged networks of several routers are separate segments (#205) |
+| [0006](0006-discovery-probes.md) | Device discovery: user-started, unauthenticated probes owned by the integrations |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.
