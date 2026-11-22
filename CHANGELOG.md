@@ -47,6 +47,7 @@ All notable changes to this project are documented here. The format follows
 - Fritz!Box writes over TR-064: LAN DHCP on/off and range; existing SSIDs (name, security, passphrase, on/off, hidden); backup and restore of the touched values (#24)
 - Integration tests against the real OPNsense 26.7 in QEMU, in GitHub CI (nightly and on adapter changes): read contract, pinning, refusals, every write kind through the Deployer with revert, backup/restore via the configuration history (#138)
 - Integration tests against the real OpenWrt 24.10 and 25.12 in QEMU (official image builder, hwsim radios, VLAN-filtering bridge) and a shared integration framework (`make integration`, docs/TESTING.md) (#136, #137)
+- History for checks: when devices, clients and ports were first and last seen and how their status changed (`history.days`, default 30); checks for devices down for long, stale reservations, clients that changed network, flapping ports and devices; first/last seen in the UI (#185, #64, #85, #128)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
