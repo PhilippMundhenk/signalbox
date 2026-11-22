@@ -11,6 +11,7 @@
 #   radio2 (2.4 GHz): a station associated to that SSID (network "wwan", DHCP client), so
 #         hostapd has a client and dnsmasq a lease
 #   rpcd logins "signalbox" (read ACL) and "signalbox-write" (read + write ACL)
+#   root's password for SSH (dropbear on every interface), for the automatic setup
 
 # --- network --------------------------------------------------------------------------------
 uci -q delete network.wan
@@ -124,6 +125,12 @@ uci set rpcd.@login[-1].username='signalbox-write'
 uci set rpcd.@login[-1].password="$(uhttpd -m '@WRITE_PASSWORD@')"
 uci add_list rpcd.@login[-1].read='signalbox'
 uci add_list rpcd.@login[-1].write='signalbox'
+
+# --- SSH as root with a password (the automatic setup, #231), on every interface -----------
+sed -i 's|^root:[^:]*:|root:@ROOT_HASH@:|' /etc/shadow
+uci -q delete dropbear.@dropbear[0].Interface
+uci set dropbear.@dropbear[0].PasswordAuth='on'
+uci set dropbear.@dropbear[0].RootPasswordAuth='on'
 
 uci commit
 exit 0

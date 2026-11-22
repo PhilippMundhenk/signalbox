@@ -117,12 +117,14 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
 
   if (advanced.children.length > 1) element.append(advanced);
 
-  function collect() {
+  // noSecrets: leave the secret settings out (the automatic setup generates them)
+  function collect({ noSecrets = false } = {}) {
     const config = {};
     const errors = [];
     const clear = [];
     for (const f of fields) {
       f.control.removeAttribute('aria-invalid');
+      if (noSecrets && f.secret) continue;
       if (f.remove && f.remove.checked) {
         clear.push(f.name);
         continue;
