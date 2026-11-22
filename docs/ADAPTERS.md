@@ -205,6 +205,10 @@ class MyAdapter(Adapter):
   settings that are not secrets, and a role the integration supports (a router for a known
   gateway address). Parse XML with `signalbox.adapters.fritzbox.soap.parse_xml` (no DTDs, no
   entities) or the like.
+- Set `mac` and `identities` (`["serial:<n>", "udn:<uuid>"]`: what the device says about itself
+  and that is the same on every address) when the answer tells them: candidates of one
+  integration that share one, or the TLS certificate the probe saw, are listed as one device
+  (#224). Never put anything in them that changes with the address.
 - Set `note` when the device needs something before it can be added ("switch on the API").
 - Test the probe against the simulator: `HostProbe("127.0.0.1", timeout=2,
   limiter=RateLimiter(1000), extra={"ports": {"mydevice.https": port}})`, and check that it

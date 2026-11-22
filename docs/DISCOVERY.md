@@ -66,8 +66,25 @@ A found device is a suggestion. What it told (model, name, firmware) is untruste
 and direction characters are removed, it is cut to 80 characters and shown only as text. It is
 kept in memory until the next search; nothing is stored except your *Ignore* list (integration
 and address). The role is the integration's usual one (a router for the gateway address of a
-subnet you already know); check it in the form. Devices already added (same integration and
-the same host in their settings or as their management address) are marked *Added*.
+subnet you already know); check it in the form.
+
+### One device, several addresses
+
+A router with several addresses (a firewall behind an ISP router: its WAN address is in the
+ISP router's network, its LAN address in its own) answers on each of them. Answers of one
+integration that share an identity are listed once, with all addresses; the identity is the TLS
+certificate the probe saw (SHA-256 fingerprint), the MAC address, or what the probe reads:
+the Fritz!Box's UDN and serial number (TR-064 description), the Omada controller id (`omadacId`),
+the MAC of a ProSAFE Plus or Easy Smart switch. OPNsense, MikroTik and OpenWrt tell nothing
+more without a login, so they are told apart by the certificate only. The entry offers the
+address in a network of a router you added, otherwise the first that answered; *Add* prefills
+that one and the others are shown as *also …*.
+
+A device is marked *Added* when one of its addresses belongs to a device of the same
+integration you already added: an address in its settings, its management address, an
+interface address (subnets) or an uplink address (WAN, public address) from its last
+reading, or when its certificate matches the pinned one or its MAC is one of the device's port
+MACs. A device that was never read successfully is known by its settings only.
 
 The form then works as for any device: *Test connection* shows the device's certificate, you
 compare and trust it, and only then is the login sent.

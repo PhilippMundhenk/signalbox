@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import errno
+import hashlib
 import ipaddress
 import json
 import re
@@ -83,6 +84,11 @@ class Candidate(BaseModel):
     model: str | None = None
     firmware: str | None = None
     mac: str | None = None
+    #: What the device told that identifies it and does not change with its address (#224):
+    #: ``"<kind>:<value>"`` such as ``udn:uuid:...``, ``serial:...``, ``omada:<controller id>``.
+    #: Candidates of one integration that share one are the same device; the MAC and the TLS
+    #: certificate fingerprint count too (the engine adds the latter).
+    identities: list[str] = Field(default_factory=list)
     #: What answered, in a few words ("TR-064 description on port 49000").
     evidence: str | None = None
     #: What to do on the device before adding it, if anything.
@@ -92,6 +98,12 @@ class Candidate(BaseModel):
     @classmethod
     def _short(cls, value: object) -> str | None:
         return clean(value)
+
+    @field_validator("identities", mode="before")
+    @classmethod
+    def _identities(cls, value: object) -> list[str]:
+        items = value if isinstance(value, list) else []
+        return [t for t in (clean(i, 120) for i in items) if t]
 
     @field_validator("evidence", "note", mode="before")
     @classmethod
@@ -200,6 +212,8 @@ class HostProbe:
         #: No answer at all from this address: further requests are not sent.
         self.silent = False
         self._answered = False
+        #: SHA-256 fingerprint of the certificate each HTTPS port presented (lower-case hex).
+        self.certs: dict[int, str] = {}
         self._dead_ports: set[int] = set()
         self._cache: dict[tuple[str, int, str], ProbeResponse | None] = {}
         self._client: httpx.AsyncClient | None = None
@@ -283,6 +297,7 @@ class HostProbe:
     ) -> ProbeResponse:
         async with client.stream(method, url, content=content, headers=dict(headers or {})) as r:
             self._answered = True
+            self._read_certificate(r, url)
             body = bytearray()
             truncated = False
             async for chunk in r.aiter_bytes():
@@ -297,6 +312,26 @@ class HostProbe:
                 body=bytes(body),
                 truncated=truncated,
             )
+
+    def _read_certificate(self, response: httpx.Response, url: str) -> None:
+        """Remember the certificate of an HTTPS answer (nothing more is sent for it)."""
+        stream = response.extensions.get("network_stream")
+        tls = stream.get_extra_info("ssl_object") if stream is not None else None
+        der = tls.getpeercert(binary_form=True) if tls is not None else None
+        if der:
+            self.certs[httpx.URL(url).port or 443] = hashlib.sha256(der).hexdigest()
+
+    def certificate_of(self, config: Mapping[str, Any]) -> str | None:
+        """The fingerprint of the certificate behind a candidate's ``url`` setting, if this
+        probe saw it."""
+        url = config.get("url")
+        if not isinstance(url, str):
+            return None
+        try:
+            parsed = httpx.URL(url)
+        except httpx.InvalidURL:
+            return None
+        return self.certs.get(parsed.port or (443 if parsed.scheme == "https" else 80))
 
     def _timed_out(self, port: int) -> None:
         self._dead_ports.add(port)

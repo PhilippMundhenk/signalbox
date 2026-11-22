@@ -585,6 +585,10 @@ def test_find_devices_and_add_one_through_the_prefilled_form(app: Any) -> None:
         "LR-2 <img src=x onerror=alert(1)> (2.0)"
     )
     expect(app.get_by_test_id("candidates").locator("img")).to_have_count(0)
+    # #224: the AP answered on 203.0.113.5 too: one entry, both addresses, the one in a known
+    # network is offered and the other is listed
+    expect(lab.get_by_test_id("candidate-address")).to_have_text("192.0.2.7")
+    expect(lab.get_by_test_id("candidate-other-addresses")).to_contain_text("203.0.113.5")
     expect(rows.filter(has_text="192.0.2.1").get_by_test_id("candidate-added")).to_have_attribute(
         "href", "#/device/main-router"
     )

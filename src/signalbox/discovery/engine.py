@@ -17,6 +17,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from ipaddress import IPv4Network, IPv6Network
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -26,7 +27,7 @@ from signalbox.adapters import Adapter, probes_broadcast, probes_hosts
 from signalbox.config import DiscoveryConfig
 from signalbox.discovery.probe import Candidate, HostProbe, NetworkProbe, RateLimiter
 from signalbox.discovery.targets import RangeError, Target, plan, sort_key
-from signalbox.model import DeviceRole
+from signalbox.model import DeviceRole, normalise_mac
 from signalbox.runner import Runner
 from signalbox.store import Store
 
@@ -44,10 +45,46 @@ class DiscoveryError(Exception):
 
 
 @dataclass
-class Found:
+class Member:
+    """One answer: a candidate at one address, with what identifies the device behind it."""
+
     candidate: Candidate
     why: str
     found_at: datetime
+    identities: frozenset[str]
+
+
+@dataclass
+class Found:
+    """One device, found at one or more addresses (#224): the answers that share an identity
+    (certificate fingerprint, MAC, serial number or what the probe reads) are one entry."""
+
+    key: str
+    members: list[Member]
+
+    @property
+    def identities(self) -> set[str]:
+        return {i for m in self.members for i in m.identities}
+
+    @property
+    def keys(self) -> set[str]:
+        return {key_of(m.candidate.adapter, m.candidate.address) for m in self.members}
+
+    def best(self, networks: list[IPv4Network | IPv6Network]) -> Member:
+        """The answer Signalbox reaches best: an address in a network it is in (a subnet of
+        an added router), else the first that answered."""
+        for member in self.members:
+            if _in(member.candidate.address, networks):
+                return member
+        return self.members[0]
+
+
+def _in(address: str, networks: list[IPv4Network | IPv6Network]) -> bool:
+    try:
+        ip = ipaddress.ip_address(normal_host(address))
+    except ValueError:
+        return False
+    return any(ip.version == n.version and ip in n for n in networks)
 
 
 @dataclass
@@ -60,6 +97,8 @@ class Run:
     done: int = 0
     finished_at: datetime | None = None
     requests: int = 0
+    #: Networks of the routers added (their subnets): addresses in them are preferred.
+    networks: list[IPv4Network | IPv6Network] = field(default_factory=list)
     found: dict[str, Found] = field(default_factory=dict)
 
 
@@ -75,6 +114,17 @@ def normal_host(value: str) -> str:
     with contextlib.suppress(ValueError):
         return str(ipaddress.ip_address(host))
     return host
+
+
+def identities_of(candidate: Candidate, cert: str | None = None) -> frozenset[str]:
+    """What identifies the device behind a candidate, independent of its address."""
+    out = set(candidate.identities)
+    if candidate.mac:
+        with contextlib.suppress(ValueError):
+            out.add(f"mac:{normalise_mac(candidate.mac)}")
+    if cert:
+        out.add(f"cert:{cert}")
+    return frozenset(out)
 
 
 def _secret(annotation: Any) -> bool:
@@ -143,6 +193,7 @@ class Discovery:
             total=len(planned.targets) + len(casts),
             scope=scope,
             notes=list(planned.notes),
+            networks=[s.interface.network for s in self.runner.network().subnets],
         )
         self.run = run
         self._task = asyncio.get_running_loop().create_task(
@@ -162,6 +213,9 @@ class Discovery:
             keys.add(key)
         else:
             keys.discard(key)
+            for found in self.run.found.values() if self.run else []:
+                if key in found.keys:  # an entry with several addresses: show it again as a whole
+                    keys -= found.keys
         self.store.set_setting(IGNORED, json.dumps(sorted(keys)))
         return self.status()
 
@@ -206,7 +260,9 @@ class Discovery:
                             self._failed(run, failed, cls, exc)
                             continue
                         if found is not None:
-                            self._accept(run, cls, found, target)
+                            self._accept(
+                                run, cls, found, target, probe.certificate_of(found.config)
+                            )
                 finally:
                     run.requests += probe.requests
                     await probe.close()
@@ -224,7 +280,7 @@ class Discovery:
             if result is None:
                 return
             for candidate in result.candidates:
-                self._accept(run, cls, candidate, None)
+                self._accept(run, cls, candidate, None, None)
             if result.note:
                 run.notes.append(result.note)
 
@@ -253,7 +309,12 @@ class Discovery:
             )
 
     def _accept(
-        self, run: Run, cls: type[Adapter], candidate: Candidate, target: Target | None
+        self,
+        run: Run,
+        cls: type[Adapter],
+        candidate: Candidate,
+        target: Target | None,
+        cert: str | None,
     ) -> None:
         m = cls.manifest
         fields = m.config.model_fields
@@ -271,26 +332,76 @@ class Discovery:
         final = candidate.model_copy(
             update={"adapter": m.id, "config": config, "role": role, "name": name}
         )
+        why = target.why if target else "answered the broadcast"
+        member = Member(final, why, datetime.now(UTC), identities_of(candidate, cert))
         key = key_of(m.id, final.address)
-        if key not in run.found:
-            why = target.why if target else "answered the broadcast"
-            run.found[key] = Found(final, why, datetime.now(UTC))
+        same = [
+            f
+            for f in run.found.values()
+            if f.members[0].candidate.adapter == m.id
+            and (key in f.keys or f.identities & member.identities)
+        ]
+        if not same:
+            run.found[key] = Found(key, [member])
+            return
+        first = same[0]
+        for other in same[1:]:  # the new answer ties two entries together
+            first.members.extend(other.members)
+            del run.found[other.key]
+        if key not in first.keys:
+            first.members.append(member)
+        else:  # the same address again (host probe and broadcast): keep what is known
+            first.members = [
+                Member(m.candidate, m.why, m.found_at, m.identities | member.identities)
+                if key_of(m.candidate.adapter, m.candidate.address) == key
+                else m
+                for m in first.members
+            ]
 
     # status -------------------------------------------------------------------------------
 
-    def _added(self) -> dict[tuple[str, str], str]:
-        """(integration, host) of every added device → its id."""
-        out: dict[tuple[str, str], str] = {}
-        addresses = {s.device.id: s.device.management_address for s in self.store.snapshots()}
+    def _known(self) -> list[tuple[str, str, set[str], set[str]]]:
+        """(device id, integration, hosts, identities) of every added device (#224).
+
+        Hosts: the settings, the management address, and the interface and uplink addresses
+        of the last snapshot. Identities: the pinned certificate and the port MACs.
+        """
+        snaps = {s.device.id: s for s in self.store.snapshots()}
+        out = []
         for rec in self.store.devices():
-            values = [v for v in rec.config.values() if isinstance(v, str) and v]
-            if addresses.get(rec.id):
-                values.append(str(addresses[rec.id]))
-            for value in values:
-                host = normal_host(value)
-                if host:
-                    out.setdefault((rec.adapter, host), rec.id)
+            hosts = {normal_host(v) for v in rec.config.values() if isinstance(v, str) and v}
+            ids: set[str] = set()
+            for pinned in (rec.pinned_fingerprint, rec.pending_fingerprint):
+                if pinned:
+                    ids.add("cert:" + "".join(c for c in pinned.lower() if c in "0123456789abcdef"))
+            snap = snaps.get(rec.id)
+            if snap is not None:
+                if snap.device.management_address:
+                    hosts.add(normal_host(snap.device.management_address))
+                hosts.update(str(sub.interface.ip) for sub in snap.subnets)
+                for uplink in snap.uplinks:
+                    hosts.update(str(a.ip) for a in uplink.addresses)
+                    if uplink.public_ipv4 is not None:
+                        hosts.add(str(uplink.public_ipv4))
+                ids.update(f"mac:{p.mac}" for p in snap.ports if p.mac)
+            out.append((rec.id, rec.adapter, hosts - {""}, ids))
         return out
+
+    def _added_id(
+        self, known: list[tuple[str, str, set[str], set[str]]], found: Found
+    ) -> str | None:
+        hosts = {normal_host(m.candidate.address) for m in found.members}
+        for m in found.members:
+            url = m.candidate.config.get("url")
+            if isinstance(url, str):
+                hosts.add(normal_host(url))
+        ids = found.identities
+        for device_id, adapter, known_hosts, known_ids in known:
+            if adapter == found.members[0].candidate.adapter and (
+                hosts & known_hosts or ids & known_ids
+            ):
+                return device_id
+        return None
 
     def status(self) -> dict[str, Any]:
         run = self.run
@@ -308,21 +419,26 @@ class Discovery:
         }
         if run is None:
             return base
-        added = self._added()
+        known = self._known()
         ignored = self._ignored()
         names = {k: cls.manifest.name for k, cls in self.adapters.items()}
         rows = []
-        for key, found in run.found.items():
-            c = found.candidate
+        for found in run.found.values():
+            best = found.best(run.networks)
+            c = best.candidate
+            addresses = [best.candidate.address] + [
+                m.candidate.address for m in found.members if m is not best
+            ]
             rows.append(
                 {
-                    **c.model_dump(mode="json"),
-                    "key": key,
+                    **c.model_dump(mode="json", exclude={"identities"}),
+                    "key": found.key,
                     "adapter_name": names.get(c.adapter, c.adapter),
-                    "why": found.why,
-                    "found_at": found.found_at.isoformat(),
-                    "added": added.get((c.adapter, normal_host(c.address))),
-                    "ignored": key in ignored,
+                    "why": best.why,
+                    "found_at": min(m.found_at for m in found.members).isoformat(),
+                    "addresses": addresses,
+                    "added": self._added_id(known, found),
+                    "ignored": bool(found.keys & ignored),
                 }
             )
         rows.sort(

@@ -112,7 +112,7 @@ class Lab(Adapter):
     async def discover(cls, probe: HostProbe) -> Candidate | None:
         """Lab routers answer at 192.0.2.1 (added in the tests) and 192.0.2.7; the model name
         carries markup that must stay text."""
-        if probe.host not in ("192.0.2.1", "192.0.2.7"):
+        if probe.host not in ("192.0.2.1", "192.0.2.7", "203.0.113.5"):
             return None
         return Candidate(
             address=probe.host,
@@ -121,6 +121,7 @@ class Lab(Adapter):
             vendor="Example",
             model="LR-2 <img src=x onerror=alert(1)>",
             firmware="2.0",
+            identities=[f"serial:LR-{'1' if probe.host == '192.0.2.1' else '2'}"],
             evidence="lab answer",
             note="Switch on the API first.",
         )
