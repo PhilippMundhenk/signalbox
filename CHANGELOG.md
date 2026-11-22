@@ -54,6 +54,7 @@ All notable changes to this project are documented here. The format follows
 - Device health and time in the model (uptime, CPU, memory, storage, temperatures, fans, power supplies, UPS, clock, NTP, time zone), adapter API 1.2, shown on the device page and exported to Home Assistant (#178, #179, model stage)
 - Wi-Fi passphrase changes can be reverted: the previous passphrase is kept as an encrypted secret version (#188)
 - Health and time checks: memory, CPU, temperature and storage limits, failed fans and power supplies, UPS on battery/low runtime/untested, unexpected restarts (from the boot time in the history), very long uptime, clock offset, NTP not synchronised or unreachable, DHCP NTP servers, no local NTP, mixed time zones (#129, #130, #131, #178, #179)
+- Port details in the model: description, administrative state, PVID, frame types, ingress filtering, MTU/jumbo frames, maximum and advertised speeds, auto-negotiation, medium, flow control, EEE; shown on the device page and in the topology port panel (#156, model stage)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
