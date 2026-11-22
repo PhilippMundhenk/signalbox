@@ -67,7 +67,7 @@ def without_guest(sim: OpnsenseSimulator) -> None:
     rows[:] = [r for r in rows if r["identifier"] != "opt2"]
     vlans = sim.data[VLANS]["rows"]
     vlans[:] = [v for v in vlans if v["tag"] != "30"]
-    del sim.data["/api/dhcpv4/service/status"], sim.data["/api/dhcpv4/leases/searchLease"]
+    del sim.data["/api/dhcpv4/service/status"], sim.data["/api/dhcpv4/leases/search_lease"]
     del sim.data[KEA]["dhcpv4"]["general"]["interfaces"]["opt2"]
 
 
@@ -167,7 +167,7 @@ async def test_router_update_existing_interface(url: str, sim: OpnsenseSimulator
     net = await network(url)
     c = change(net, ChangeKind.ROUTER, IOT, router(20, "198.51.100.2/24", "IoT_net"))
     await apply(url, c)
-    assert ("/api/interfaces/assignment/setItem/opt1") in [p for p, _ in sim.posts]
+    assert ("/api/interfaces/assignment/set_item/opt1") in [p for p, _ in sim.posts]
     # IPv6 of the LAN survives an IPv4 change
     lan = change(net, ChangeKind.ROUTER, LAN, router(None, "192.0.2.254/24", "LAN"))
     after = await apply(url, lan)
@@ -192,7 +192,7 @@ async def test_router_create_new_vlan_and_remove_it_again(url: str, sim: Opnsens
 async def test_router_create_on_an_unassigned_vlan(url: str, sim: OpnsenseSimulator) -> None:
     net = await network(url)
     await apply(url, change(net, ChangeKind.ROUTER, LAB, router(40, "192.0.2.129/25", "Lab")))
-    assert not any(p.endswith("vlan_settings/addItem") for p, _ in sim.posts)
+    assert not any(p.endswith("vlan_settings/add_item") for p, _ in sim.posts)
 
 
 async def test_router_remove_vlan_network(url: str, sim: OpnsenseSimulator) -> None:

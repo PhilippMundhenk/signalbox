@@ -30,25 +30,25 @@ from signalbox.model import IPInterface, Membership, normalise_mac
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime
     from signalbox.adapters.opnsense import _Iface, _Layout
 
-VLAN_ADD = "/api/interfaces/vlan_settings/addItem"
-VLAN_DEL = "/api/interfaces/vlan_settings/delItem/"
+VLAN_ADD = "/api/interfaces/vlan_settings/add_item"
+VLAN_DEL = "/api/interfaces/vlan_settings/del_item/"
 VLAN_APPLY = "/api/interfaces/vlan_settings/reconfigure"
-ASSIGN_SEARCH = "/api/interfaces/assignment/searchItem"
-ASSIGN_ADD = "/api/interfaces/assignment/addItem"
-ASSIGN_SET = "/api/interfaces/assignment/setItem/"
-ASSIGN_DEL = "/api/interfaces/assignment/delItem/"
+ASSIGN_SEARCH = "/api/interfaces/assignment/search_item"
+ASSIGN_ADD = "/api/interfaces/assignment/add_item"
+ASSIGN_SET = "/api/interfaces/assignment/set_item/"
+ASSIGN_DEL = "/api/interfaces/assignment/del_item/"
 ASSIGN_APPLY = "/api/interfaces/assignment/reconfigure"
 KEA_SET = "/api/kea/dhcpv4/set"
-KEA_ADD_SUBNET = "/api/kea/dhcpv4/addSubnet"
-KEA_SET_SUBNET = "/api/kea/dhcpv4/setSubnet/"
-KEA_DEL_SUBNET = "/api/kea/dhcpv4/delSubnet/"
-KEA_ADD_RES = "/api/kea/dhcpv4/addReservation"
-KEA_SET_RES = "/api/kea/dhcpv4/setReservation/"
-KEA_DEL_RES = "/api/kea/dhcpv4/delReservation/"
+KEA_ADD_SUBNET = "/api/kea/dhcpv4/add_subnet"
+KEA_SET_SUBNET = "/api/kea/dhcpv4/set_subnet/"
+KEA_DEL_SUBNET = "/api/kea/dhcpv4/del_subnet/"
+KEA_ADD_RES = "/api/kea/dhcpv4/add_reservation"
+KEA_SET_RES = "/api/kea/dhcpv4/set_reservation/"
+KEA_DEL_RES = "/api/kea/dhcpv4/del_reservation/"
 KEA_APPLY = "/api/kea/service/reconfigure"
 BACKUPS = "/api/core/backup/backups/this"
 DOWNLOAD = "/api/core/backup/download/this/"
-REVERT = "/api/core/backup/revertBackup/"
+REVERT = "/api/core/backup/revert_backup/"
 
 #: OPNsense's mask for interface descriptions (``IfDescField``).
 DESCR = re.compile(r"^[a-z_0-9]{1,255}$", re.IGNORECASE)
