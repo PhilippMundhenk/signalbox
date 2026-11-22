@@ -55,6 +55,8 @@ cannot change anything:
 - NETGEAR ProSAFE Plus, TP-Link Easy Smart: these switches have one management login only,
   sent obfuscated, not encrypted; keep Signalbox in the switches' management network, see
   [adapters/plusswitch.md](adapters/plusswitch.md)
+- MikroTik: a user in a group with `read,api,rest-api` and no write policies, see
+  [adapters/mikrotik.md](adapters/mikrotik.md)
 
 ## Updates
 
