@@ -70,7 +70,7 @@ def demo_devices(services: Services) -> Iterator[dict[str, str]]:
         )
         for n in (1, 2):
             tls = _certificate(certs, f"ap{n}")
-            sim = openwrt_sim.OpenWrtSim()
+            sim = openwrt_sim.OpenWrtSim(mac_base=n)
             url = stack.enter_context(serve(openwrt_sim.create_app(sim), tls=tls)) + "/ubus"
             urls[f"ap-{n}"] = url
             _put(

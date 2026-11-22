@@ -88,11 +88,15 @@ class Rule:
     severity: Severity
     explanation: str
     check: Check = field(compare=False)
+    #: False for an opt-in rule: it runs only when the configuration sets ``enabled: true``.
+    default_enabled: bool = True
 
 
-def rule(id: str, title: str, severity: Severity, explanation: str) -> Callable[[Check], Rule]:
+def rule(
+    id: str, title: str, severity: Severity, explanation: str, *, enabled: bool = True
+) -> Callable[[Check], Rule]:
     def wrap(fn: Check) -> Rule:
-        return Rule(id, title, severity, explanation, fn)
+        return Rule(id, title, severity, explanation, fn, enabled)
 
     return wrap
 
@@ -162,6 +166,14 @@ def _read_findings(net: Network, severity: Severity) -> list[Finding]:
     return out
 
 
+def rule_enabled(r: Rule, settings: Mapping[str, RuleSettings]) -> bool:
+    """The configured ``enabled`` setting, else the rule's default (opt-in rules are off)."""
+    s = settings.get(r.id)
+    if s is None or "enabled" not in s.model_fields_set:
+        return r.default_enabled
+    return s.enabled
+
+
 def evaluate(
     net: Network,
     rules: Iterable[Rule],
@@ -175,8 +187,7 @@ def evaluate(
         return s.severity if s and s.severity else r.severity
 
     def enabled(r: Rule) -> bool:
-        s = settings.get(r.id)
-        return s is None or s.enabled
+        return rule_enabled(r, settings)
 
     findings: dict[str, Finding] = {}
     if enabled(READ_ERRORS):
