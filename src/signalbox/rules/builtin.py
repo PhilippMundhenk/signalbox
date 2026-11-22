@@ -12,6 +12,7 @@ from signalbox.rules.health import RULES as HEALTH_RULES
 from signalbox.rules.history_checks import RULES as HISTORY_RULES
 from signalbox.rules.ipv6 import RULES as IPV6_RULES
 from signalbox.rules.networks import RULES as NETWORK_RULES
+from signalbox.rules.ports import RULES as PORT_RULES
 from signalbox.rules.time_checks import RULES as TIME_RULES
 from signalbox.rules.topology_checks import RULES as TOPOLOGY_CHECK_RULES
 from signalbox.rules.vlan import RULES as VLAN_RULES
@@ -35,4 +36,5 @@ RULES: list[Rule] = [
     *NETWORK_RULES,
     *HEALTH_RULES,
     *TIME_RULES,
+    *PORT_RULES,
 ]
