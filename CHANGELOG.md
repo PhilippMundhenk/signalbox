@@ -74,6 +74,7 @@ All notable changes to this project are documented here. The format follows
 - Management service rules: `security.insecure-services`, `security.wan-management`, `security.service-exposure` (guest/IoT networks, level 1) and `security.plaintext-read` (#122, #123, #120, #127)
 - Wi-Fi security rules: open, WEP, WPA1 and TKIP networks, WPA3 available, passphrase reuse across networks, WPS, hash-to-element on 6 GHz (#86, #89, #101, #104)
 - DHCP leases in the model: lease table per DHCP server (state, expiry, client id, vendor class), source per client address (DHCP, reservation, static, SLAAC, link-local), search domains, option 121 routes, network boot, further options, authoritative, failover peer, DHCP relays; lease addresses marked as DHCP by OPNsense, OpenWrt, MikroTik and Fritz!Box; shown on the clients and DHCP pages (#183, model stage)
+- DHCP lease checks: static address inside the DHCP pool, declined leases (address conflicts), classless static routes without a default route, relays pointing to no known DHCP server; pool usage counts active leases; `dhcp.one-server` is quiet where a relay serves the network (#67, #183)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
