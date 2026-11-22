@@ -93,8 +93,8 @@ carries its source (adapter and device), the time it was observed and a stable i
 | ManagementService | A way to manage a device (SSH, telnet, HTTP/HTTPS, API, SNMP, FTP/TFTP, Winbox, MAC telnet/Winbox, RoMON, TR-064, UPnP, the vendor's own protocol): enabled, port, transport, encrypted, listen addresses / ports / segments, allowed source networks, reachable from the internet as the device says, SSH password and root login, HTTP-to-HTTPS redirect, SNMP versions and default community; reachable segments and internet exposure derived |
 | DhcpServer | Device, segment, enabled, pool, lease time, options (router, DNS, NTP), static reservations |
 | DnsService | Resolver, host overrides, forwarders, split-DNS domains |
-| Wlan | SSID, security (WPA2/WPA3, PMF), passphrase reference, segment, bands, hidden, roaming (802.11r/k/v), purpose and its source, client isolation |
-| Radio | Band, channel, width, transmit power, country code |
+| Wlan | SSID, security (open, OWE, WEP, WPA/WPA2/WPA3 Personal and Enterprise incl. mixed and 192-bit modes; PMF), passphrase fingerprint and SSID-independent digest, segment, bands, hidden, roaming (802.11r/k/v), purpose and its source, client isolation; security details: pairwise and group ciphers, SAE (PWE, SAE-PK, anti-clogging), WPS (on, methods, AP PIN lock), group rekey interval, beacon protection |
+| Radio | Band, channel, width, transmit power, country code, security modes the hardware and firmware can offer |
 | Firewall | Zones, rules, NAT; read-only at first |
 | Client | MAC, IP, hostname, segment, where it was seen (port or access point), last seen |
 | Firmware | Current, available, end of life |
@@ -114,6 +114,44 @@ interface would be a device of its own. Clock offsets are computed in core
 (`DeviceTime.offset_seconds()`) from the device's clock and Signalbox's time at the read, with
 half the round trip as error bound. The time zone reveals the region: it is shown in the UI but
 not exported to MQTT.
+
+Wi-Fi security details (#167) are optional fields on `Wlan` and `Radio`, filled by the
+`wireless` capability (no new capability, no adapter API change; `None` everywhere means "not
+reported", so an adapter that fills none of them is unchanged). `Security` names the legacy
+modes (`wep`, `wpa-psk`, `wpa-wpa2-psk`, `wpa-enterprise`) and `wpa3-enterprise-192` instead of
+`other`; `Wlan.ciphers` (pairwise, `ccmp`/`ccmp-256`/`gcmp`/`gcmp-256`/`tkip`/`wep`) and
+`group_cipher` say whether TKIP is still on in a mixed mode. `Wlan.sae` (`pwe`, `sae_pk`,
+`anti_clogging_threshold`) matters on 6 GHz, which needs hash-to-element. `Wlan.wps` is `Wps`
+(`enabled`, `methods` push-button/pin/nfc, `ap_pin_locked`), `key_rotation_seconds` the group
+rekey interval (0: never), `beacon_protection` the BIGTK flag. `Radio.supported_security` is
+what the radio could offer (an OpenWrt build with `wpad-basic` has no SAE), so a rule can say
+"WPA3 is possible here" and a plan that asks for a mode the radio cannot do can be refused.
+WLANs and radios belong to one snapshot each, so the merge passes the fields through.
+
+Passphrases are never stored. `passphrase_fingerprint(ssid, passphrase)` (PBKDF2 salted with
+the SSID, the WPA PMK, hashed again) compares one SSID across access points, but never two
+SSIDs. `Wlan.passphrase_digest` (`passphrase_digest(passphrase)`) compares across SSIDs (#101):
+PBKDF2-SHA256 with a per-installation key as salt, 64 bits shown as hex. The key is derived
+from the vault key (`Vault.derive_key("passphrase-digest")`, HMAC-SHA256), installed by the
+service at start (`set_passphrase_digest_key`), so it lives where the vault key lives and
+changes with it; without a key (library use, tests, recordings, remote adapters in their own
+process) the digest is `None`. Why keyed: an SSID-independent unkeyed hash would be one global
+dictionary away from the passphrase (the same table works for every installation and every
+SSID), and home passphrases are short. With the key as salt a guess can only be tested by
+someone who also has the key, who could already decrypt the device credentials and read the
+passphrase from the device. Both values stay in the observation database (snapshots), are
+removed from `/api/network` (`public_network`), are not exported to MQTT and are redacted in
+recordings; the JSON Schema documents the field. After a vault key change old snapshots carry
+digests of the old key: comparisons across them miss a reuse (no false alarm) until the next
+observation.
+
+Desired state for these details (design, not built yet): `wlans[]` would get `wps: false` and
+`ciphers: [ccmp]`, `None` meaning "leave as is", and `WlanValue` the same fields. They are not
+added now because every writer would have to set or refuse them, and a desired value that the
+writers silently ignore would be worse than none; turning WPS off is the first write worth
+building (OpenWrt `wps_pushbutton`/`wps_label`, MikroTik `security.wps`, Fritz!Box
+`X_AVM-DE_SetWPSConfig` *(guess: action name)*). A desired WPA3 mode on a radio whose
+`supported_security` lacks it should be refused by the plan (`wifi.sae-unsupported-declared`).
 
 Port configuration details (#156) are optional fields on `Port`, filled by the `interfaces`
 capability where the device reports them (no new capability, no adapter API change: an adapter

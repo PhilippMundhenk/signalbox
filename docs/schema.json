@@ -237,6 +237,19 @@
       "title": "Band",
       "type": "string"
     },
+    "Cipher": {
+      "description": "Pairwise or group data cipher of a WLAN.",
+      "enum": [
+        "ccmp",
+        "ccmp-256",
+        "gcmp",
+        "gcmp-256",
+        "tkip",
+        "wep"
+      ],
+      "title": "Cipher",
+      "type": "string"
+    },
     "Client": {
       "additionalProperties": false,
       "properties": {
@@ -2408,6 +2421,21 @@
           ],
           "default": null
         },
+        "supported_security": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Security"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Supported Security"
+        },
         "tx_power_dbm": {
           "anyOf": [
             {
@@ -2539,15 +2567,74 @@
       "title": "Reservation",
       "type": "object"
     },
+    "SaePwe": {
+      "description": "How SAE derives the password element (``sae_pwe`` in hostapd).",
+      "enum": [
+        "hunting-and-pecking",
+        "hash-to-element",
+        "both"
+      ],
+      "title": "SaePwe",
+      "type": "string"
+    },
+    "SaeSettings": {
+      "additionalProperties": false,
+      "description": "WPA3-SAE details of a WLAN (#167); every value None where the device does not say.",
+      "properties": {
+        "anti_clogging_threshold": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Anti Clogging Threshold"
+        },
+        "pwe": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SaePwe"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sae_pk": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sae Pk"
+        }
+      },
+      "title": "SaeSettings",
+      "type": "object"
+    },
     "Security": {
       "enum": [
         "open",
         "owe",
+        "wep",
+        "wpa-psk",
+        "wpa-wpa2-psk",
         "wpa2-psk",
         "wpa3-sae",
         "wpa2-wpa3",
+        "wpa-enterprise",
         "wpa2-enterprise",
         "wpa3-enterprise",
+        "wpa3-enterprise-192",
         "other"
       ],
       "title": "Security",
@@ -3425,6 +3512,33 @@
     "Wlan": {
       "additionalProperties": false,
       "properties": {
+        "beacon_protection": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Beacon Protection"
+        },
+        "ciphers": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Cipher"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ciphers"
+        },
         "client_isolation": {
           "anyOf": [
             {
@@ -3446,6 +3560,17 @@
           "title": "Enabled",
           "type": "boolean"
         },
+        "group_cipher": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cipher"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "hidden": {
           "default": false,
           "title": "Hidden",
@@ -3454,6 +3579,19 @@
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "key_rotation_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key Rotation Seconds"
         },
         "observed_at": {
           "anyOf": [
@@ -3467,6 +3605,19 @@
           ],
           "default": null,
           "title": "Observed At"
+        },
+        "passphrase_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{16}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Passphrase Digest"
         },
         "passphrase_fingerprint": {
           "anyOf": [
@@ -3564,6 +3715,17 @@
           "default": null,
           "title": "Roaming 80211V"
         },
+        "sae": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SaeSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "security": {
           "$ref": "#/$defs/Security"
         },
@@ -3600,6 +3762,17 @@
           },
           "title": "Vendor Extra",
           "type": "object"
+        },
+        "wps": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Wps"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -3611,6 +3784,49 @@
       ],
       "title": "Wlan",
       "type": "object"
+    },
+    "Wps": {
+      "additionalProperties": false,
+      "description": "Wi-Fi Protected Setup of a WLAN (#167).",
+      "properties": {
+        "ap_pin_locked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ap Pin Locked"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "methods": {
+          "items": {
+            "$ref": "#/$defs/WpsMethod"
+          },
+          "title": "Methods",
+          "type": "array"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "Wps",
+      "type": "object"
+    },
+    "WpsMethod": {
+      "enum": [
+        "push-button",
+        "pin",
+        "nfc"
+      ],
+      "title": "WpsMethod",
+      "type": "string"
     }
   },
   "title": "Signalbox network model"

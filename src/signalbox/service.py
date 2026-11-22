@@ -12,7 +12,7 @@ from signalbox.adapters import Adapter, load_adapters
 from signalbox.adapters.remote import load_remote
 from signalbox.config import Config, load
 from signalbox.desired import load as desired_load
-from signalbox.model import Network
+from signalbox.model import Network, set_passphrase_digest_key
 from signalbox.rules import Finding, Rule, load_rules
 from signalbox.runner import LinkSource, Runner
 from signalbox.secrets import load_vault
@@ -48,7 +48,9 @@ def build(
     link_sources: list[LinkSource] | None = None,
 ) -> Services:
     config = load(data_dir, env)
-    store = Store(data_dir / "signalbox.sqlite", load_vault(data_dir, env))
+    vault = load_vault(data_dir, env)
+    store = Store(data_dir / "signalbox.sqlite", vault)
+    set_passphrase_digest_key(vault.derive_key("passphrase-digest"))
     if adapters is None:
         adapters = dict(load_adapters())
         for aid, command in config.plugins.remote_adapters.items():

@@ -15,17 +15,27 @@ from signalbox.rules.wireless import _occupied
 SECURITY_TEXT = {
     Security.OPEN: "no password (open)",
     Security.OWE: "Enhanced Open (OWE)",
+    Security.WEP: "WEP",
+    Security.WPA: "WPA (version 1)",
+    Security.WPA_WPA2: "WPA/WPA2 mixed",
     Security.WPA2: "WPA2",
     Security.WPA3: "WPA3",
     Security.WPA2_WPA3: "WPA2/WPA3",
     Security.WPA2_ENTERPRISE: "WPA2-Enterprise",
+    Security.WPA_ENTERPRISE: "WPA-Enterprise (version 1)",
     Security.WPA3_ENTERPRISE: "WPA3-Enterprise",
+    Security.WPA3_ENTERPRISE_192: "WPA3-Enterprise 192-bit",
     Security.OTHER: "another security mode",
 }
 #: Modes without a password a stranger would need.
 UNPROTECTED = {Security.OPEN, Security.OWE}
-PSK = {Security.WPA2, Security.WPA3, Security.WPA2_WPA3}
-ENTERPRISE = {Security.WPA2_ENTERPRISE, Security.WPA3_ENTERPRISE}
+PSK = {Security.WPA, Security.WPA_WPA2, Security.WPA2, Security.WPA3, Security.WPA2_WPA3}
+ENTERPRISE = {
+    Security.WPA_ENTERPRISE,
+    Security.WPA2_ENTERPRISE,
+    Security.WPA3_ENTERPRISE,
+    Security.WPA3_ENTERPRISE_192,
+}
 
 
 def _radios(net: Network) -> dict[str, Radio]:
@@ -57,7 +67,12 @@ def _ids(wlans: Iterable[Wlan]) -> list[str]:
 
 # 6 GHz security (#87) -------------------------------------------------------------------------
 
-SIX_GHZ_ALLOWED = {Security.WPA3, Security.WPA3_ENTERPRISE, Security.OWE}
+SIX_GHZ_ALLOWED = {
+    Security.WPA3,
+    Security.WPA3_ENTERPRISE,
+    Security.WPA3_ENTERPRISE_192,
+    Security.OWE,
+}
 
 
 @rule(
@@ -94,7 +109,12 @@ def six_ghz_security(net: Network) -> Iterator[Result]:
 # PMF (#88) ------------------------------------------------------------------------------------
 
 #: PMF a mode needs: WPA3 and OWE require it, transition mode needs it at least optional.
-PMF_REQUIRED = {Security.WPA3, Security.WPA3_ENTERPRISE, Security.OWE}
+PMF_REQUIRED = {
+    Security.WPA3,
+    Security.WPA3_ENTERPRISE,
+    Security.WPA3_ENTERPRISE_192,
+    Security.OWE,
+}
 
 
 @rule(

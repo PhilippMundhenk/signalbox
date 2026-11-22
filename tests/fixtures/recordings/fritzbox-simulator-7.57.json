@@ -775,7 +775,8 @@
     "width_mhz": null,
     "tx_power_dbm": null,
     "country": null,
-    "enabled": true
+    "enabled": true,
+    "supported_security": null
    },
    {
     "id": "recorded/radio/2",
@@ -794,7 +795,8 @@
     "width_mhz": null,
     "tx_power_dbm": null,
     "country": null,
-    "enabled": true
+    "enabled": true,
+    "supported_security": null
    }
   ],
   "wlans": [
@@ -824,7 +826,14 @@
     "purpose": null,
     "purpose_source": null,
     "reported_purpose": null,
-    "client_isolation": null
+    "client_isolation": null,
+    "ciphers": null,
+    "group_cipher": null,
+    "sae": null,
+    "wps": null,
+    "passphrase_digest": null,
+    "key_rotation_seconds": null,
+    "beacon_protection": null
    },
    {
     "id": "recorded/wlan/2",
@@ -852,7 +861,14 @@
     "purpose": null,
     "purpose_source": null,
     "reported_purpose": null,
-    "client_isolation": null
+    "client_isolation": null,
+    "ciphers": null,
+    "group_cipher": null,
+    "sae": null,
+    "wps": null,
+    "passphrase_digest": null,
+    "key_rotation_seconds": null,
+    "beacon_protection": null
    },
    {
     "id": "recorded/wlan/3",
@@ -881,7 +897,14 @@
     "purpose": "guest",
     "purpose_source": "reported",
     "reported_purpose": null,
-    "client_isolation": null
+    "client_isolation": null,
+    "ciphers": null,
+    "group_cipher": null,
+    "sae": null,
+    "wps": null,
+    "passphrase_digest": null,
+    "key_rotation_seconds": null,
+    "beacon_protection": null
    }
   ],
   "clients": [

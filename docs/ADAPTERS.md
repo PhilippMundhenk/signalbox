@@ -70,7 +70,9 @@ same VLAN seen on several devices becomes one segment. `vlan=None` (a device wit
 VLAN 1 (the default VLAN) are both the native, untagged network of the site. Unknown vendor fields go into `vendor_extra`; rules never read it.
 
 WPA passphrases are never stored: put `passphrase_fingerprint(ssid, passphrase)` into
-`Wlan.passphrase_fingerprint`, so access points can be compared without revealing the key.
+`Wlan.passphrase_fingerprint`, so access points can be compared without revealing the key, and
+`passphrase_digest(passphrase)` into `Wlan.passphrase_digest` (see
+[Wi-Fi security details](#wi-fi-security-details)). Both only for personal (PSK/SAE) networks.
 
 ## HTTPS and certificate pinning
 
@@ -277,6 +279,46 @@ that moved here are no longer in `vendor_extra`):
 | OPNsense | `description`, `admin_up` (assigned interfaces), `mtu`, `max_speed_mbps` (`supported_media`), `media`, `autoneg` (`media_raw`) | `opnsense/__init__.py`, `_parse_layout()` |
 | Omada | `profile`, `admin_up` (`disable`), `pvid` (VLAN of the native network), `max_speed_mbps` (`maxSpeed`), `jumbo` (switch setting) | `omada/__init__.py`, switch ports |
 | Fritz!Box | `admin_up`, `max_speed_mbps` (`NewMaxBitRate`: TR-064's maximum, `Auto` is `autoneg`; no longer `speed_mbps`) | `fritzbox/__init__.py`, LAN port |
+
+## Wi-Fi security details
+
+`Wlan` and `Radio` have optional security details, read with the `wireless` capability (no API
+version needed; leave out what the device does not report, never guess):
+
+| Field | Meaning |
+| --- | --- |
+| `Wlan.security` | also `wep`, `wpa-psk` (WPA1), `wpa-wpa2-psk` (mixed), `wpa-enterprise` (WPA1 or WPA/WPA2 Enterprise), `wpa3-enterprise-192`; `other` only for what has no name |
+| `Wlan.ciphers`, `Wlan.group_cipher` | pairwise ciphers offered and the group cipher: `ccmp` ("AES"), `ccmp-256`, `gcmp`, `gcmp-256`, `tkip`, `wep` |
+| `Wlan.sae` | `SaeSettings`: `pwe` (`hunting-and-pecking`, `hash-to-element`, `both`), `sae_pk`, `anti_clogging_threshold` |
+| `Wlan.wps` | `Wps`: `enabled`, `methods` (`push-button`, `pin`, `nfc`), `ap_pin_locked`; `Wps(enabled=False)` when the device says it is off |
+| `Wlan.passphrase_digest` | `passphrase_digest(passphrase)`: keyed, SSID-independent, for "same passphrase on two SSIDs" |
+| `Wlan.key_rotation_seconds`, `Wlan.beacon_protection` | group rekey interval (0: never); beacon protection on |
+| `Radio.supported_security` | modes the radio's hardware and firmware can offer (not those configured) |
+
+`passphrase_digest()` returns `None` until the service has installed the installation's key
+(`set_passphrase_digest_key`, done at start): store what it returns, never the passphrase, and
+do not compute it yourself. In tests wrap the observation in
+`signalbox.testing.passphrase_digest_key()`; recorded snapshots are made without a key, so
+they keep `None`. A remote adapter (its own process) has no key and leaves it `None`.
+
+The contract checks (`signalbox.testing.wlan_problems`, `radio_problems`) report a digest or
+fingerprint on a network without a passphrase, an empty `ciphers` list (use `None`), a
+duplicate cipher, ciphers or a group cipher on an open network, `wep` with WPA or WPA without
+`wep` on a WEP network, SAE settings without SAE, WPS methods while WPS is off, an empty or
+duplicated `supported_security`, and a WLAN mode its radio says it cannot offer.
+
+What each integration could fill (nothing is filled yet; *guess* marks what the API
+description or vendor documentation does not settle and needs a real device, #21):
+
+| Integration | Security, ciphers | SAE | WPS | Rekey, beacon protection | `supported_security` | Passphrase digest |
+| --- | --- | --- | --- | --- | --- | --- |
+| OpenWrt | `uci get wireless` `encryption`: `wep-open`/`wep-shared` WEP, `psk` WPA1, `psk-mixed` WPA/WPA2, `psk2` WPA2, `wpa` WPA-Enterprise, `wpa3-192` 192-bit; suffix `+ccmp`/`+tkip`/`+tkip+ccmp`/`+gcmp` gives `ciphers` (no suffix: `ccmp`, `tkip+ccmp` for `psk`/`psk-mixed`); the group cipher is not configured *(guess: the weakest pairwise one)* | `sae_pwe` (`0` hunting-and-pecking, `1` hash-to-element, `2` both; unset: hostapd's default *(guess)*); no SAE-PK in UCI | `wps_pushbutton` `1` push-button, `wps_label` `1` PIN (full `wpad-*` builds only); `ap_pin_locked` from hostapd *(guess)* | `wpa_group_rekey`; `beacon_protection` *(guess: option name)* | LuCI's `luci-rpc getFeatures` `hostapd.sae`/`owe`/`eap` *(needs luci-rpc)*, else the `wpad-*` package from `rpc-sys packagelist` (`wpad-basic*`: no SAE, OWE, EAP) *(guess)* | yes, from `key` |
+| MikroTik (`wifi` package) | `/interface/wifi/security` `authentication-types` (`wpa-psk`, `wpa2-psk`, `wpa3-psk`, `owe`, `wpa-eap`, `wpa2-eap`, `wpa3-eap`, `wpa3-eap-192`), `encryption` (`ccmp`, `ccmp-256`, `gcmp`, `gcmp-256`, `tkip`), `group-encryption` | `sae-pwe` (`hunting-and-pecking`, `hash-to-element`, `both`), `sae-anti-clogging-threshold`; no SAE-PK | `wps` (`push-button`, `disable`); no PIN *(guess)* | `group-key-update` (duration); no beacon protection *(guess)* | every mode incl. SAE and OWE (the `wifi` drivers do WPA3) *(guess for wifi-qcom-ac)* | only with the `sensitive` policy (`passphrase`) |
+| MikroTik (`wireless` package) | security profile `mode` (`none`, `static-keys-required` WEP, `dynamic-keys`), `authentication-types` (`wpa-psk`, `wpa2-psk`, `wpa-eap`, `wpa2-eap`), `unicast-ciphers`/`group-ciphers` (`tkip`, `aes-ccm`) | none (no WPA3) | `/interface/wireless` `wps-mode` (`disabled`, `push-button`, `push-button-virtual-only`) | profile `group-key-update` | open, WEP, WPA/WPA2 Personal and Enterprise (no SAE, no OWE) | only with `sensitive` (`wpa2-pre-shared-key`) |
+| Fritz!Box | `WLANConfiguration:<n> GetInfo` `NewBeaconType` (`Basic` WEP, `WPA`, `WPAand11i` mixed, `11iandWPA3`), `NewBasicEncryptionModes` (`None`, `WEPEncryption`), `NewWPAEncryptionModes` (`AESEncryption`, `TKIPEncryption`, `TKIPandAESEncryption`) | not in TR-064 | `X_AVM-DE_GetWPSInfo` `NewX_AVM-DE_WPSMode`, `NewX_AVM-DE_WPSStatus` *(guess: values such as `pbc`, `pin`, `stop`)* | not in TR-064 | `NewX_AVM-DE_PossibleBeaconTypes` (already read; map like `NewBeaconType`) | yes, `GetSecurityKeys` `NewKeyPassphrase` |
+| Omada | SSID `security` with `pskSetting.versionPsk` (1 WPA, 2 WPA2, 3 WPA/WPA2 *(guess: 3)*, 4 WPA2/WPA3) and `entSetting.versionEnt`; `pskSetting.encryptionPsk` (auto = `tkip`+`ccmp`, AES = `ccmp`, TKIP *(guess: codes 1/3/2)*) | none in the Open API | no WPS on Omada EAPs *(guess: leave `None` unless the model is known)* | `gikRekeyPskEnable` with its interval *(guess: interval field)*; no beacon protection | by EAP model and firmware *(guess: not in the API)* | yes, `pskSetting.securityKey` (not with `hidePwd`) |
+| OPNsense | not an access point: nothing | | | | | |
+| ProSAFE / Easy Smart | switches: nothing | | | | | |
 
 ## Uplinks
 

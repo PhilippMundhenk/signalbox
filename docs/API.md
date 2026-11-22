@@ -28,7 +28,7 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | DELETE | `/api/devices/{device_id}` | Remove a device and its last snapshot. |
 | POST | `/api/devices/{device_id}/test` | Read the device now and report status, errors and what was found. |
 | POST | `/api/devices/{device_id}/trust` | Trust the certificate the device presented (pending fingerprint). |
-| GET | `/api/network` | The merged network model (no passphrase fingerprints; derived uplink/service values). |
+| GET | `/api/network` | The merged network model without passphrase data; derived uplink and service values. |
 | GET | `/api/findings` | Current findings; `?resolved=true` includes resolved ones. |
 | GET | `/api/history` | Observation history: first/last seen and changes of devices, clients and ports. |
 | POST | `/api/observe` | Read all devices now. |

@@ -102,7 +102,7 @@ class LinkBody(BaseModel):
 
 
 def public_network(net: Network) -> dict[str, Any]:
-    """The network as JSON for the UI: passphrase fingerprints never leave the server.
+    """The network as JSON for the UI: passphrase fingerprints and digests never leave the server.
 
     Uplinks get the derived ``nat_class`` and ``upstream_device`` (the known router in front,
     #148), management services the segments that can reach them (``reach_segments``) and
@@ -112,6 +112,7 @@ def public_network(net: Network) -> dict[str, Any]:
     data = net.model_dump(mode="json")
     for wlan in data["wlans"]:
         wlan.pop("passphrase_fingerprint", None)
+        wlan.pop("passphrase_digest", None)
     for uplink, raw in zip(net.uplinks, data["uplinks"], strict=True):
         nat = uplink.nat_class()
         front = net.upstream_router(uplink)
@@ -498,7 +499,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
 
     @api.get("/network")
     def network() -> dict[str, Any]:
-        """The merged network model (no passphrase fingerprints; derived uplink/service values)."""
+        """The merged network model without passphrase data; derived uplink and service values."""
         return public_network(runner.network())
 
     @api.get("/findings")

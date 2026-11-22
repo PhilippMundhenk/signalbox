@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -26,6 +28,15 @@ class Vault:
             raise SecretError(
                 "the secret key is not a valid Fernet key (32 url-safe base64 bytes)"
             ) from exc
+        self._key = key
+
+    def derive_key(self, purpose: str) -> bytes:
+        """A 32-byte key for one purpose (``passphrase-digest``), derived from the vault key.
+
+        It is as secret as the vault key and changes with it; knowing a derived key does not
+        reveal the vault key or another purpose's key (HMAC-SHA256 as a PRF).
+        """
+        return hmac.new(self._key, f"signalbox:{purpose}".encode(), hashlib.sha256).digest()
 
     def encrypt(self, plain: str) -> str:
         return self._fernet.encrypt(plain.encode()).decode()
