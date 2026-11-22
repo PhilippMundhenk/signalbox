@@ -2,7 +2,8 @@
 
 1. ``GET http://<host>:49000/tr64desc.xml``: the TR-064 device description every box serves on
    plain HTTP to the home network. AVM as manufacturer (or a model name starting with
-   ``FRITZ!``) makes it a candidate; it tells the model and the FRITZ!OS version.
+   ``FRITZ!``) makes it a candidate; it tells the model, the FRITZ!OS version and the box's UDN
+   and serial number (its identity, the same on every address of the box).
 2. ``POST http://<host>:49000/upnp/control/deviceinfo`` ``DeviceInfo:1 GetSecurityPort``: the
    TR-064 HTTPS port, which AVM answers without authentication (as the adapter's
    ``security_port``). The candidate's address is ``https://<host>:<that port>``.
@@ -55,6 +56,11 @@ async def discover(probe: HostProbe) -> Candidate | None:
     model = _text(root, "modelName") or _text(root, "friendlyName")
     if "AVM" not in manufacturer.upper() and not (model or "").upper().startswith("FRITZ!"):
         return None
+    identities = [
+        f"{kind}:{value}"
+        for kind, tag in (("udn", "UDN"), ("serial", "serialNumber"))
+        if (value := _text(root, tag))
+    ]
     secure = await _security_port(probe, port)
     return Candidate(
         address=probe.host,
@@ -64,6 +70,7 @@ async def discover(probe: HostProbe) -> Candidate | None:
         model=model,
         name=model,
         firmware=_text(root, "Display"),
+        identities=identities,
         evidence=f"TR-064 description on port {port}"
         + (f", TR-064 over HTTPS on port {secure}" if secure else ""),
         note=None

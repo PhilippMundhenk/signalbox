@@ -44,8 +44,9 @@ Signalbox is there.
   and have defaults, so the adapter API version stays 1.2 and every existing adapter, including
   out-of-process ones, keeps working (it simply finds nothing).
 - **One run at a time, in memory.** Progress and candidates of the last run are kept in memory;
-  candidates already added (same integration and host as a device's settings or management
-  address) are marked.
+  candidates already added (same integration and an address of the device's settings,
+  management address, last interfaces or uplinks, or the same certificate or MAC) are marked.
+  Answers that share an identity are one entry with all addresses (#224).
 
 ## Consequences
 

@@ -20,7 +20,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from factories import SITE, device, snapshot
+from factories import SITE, device, iface, port, snapshot, uplink
 from signalbox.adapters import (
     Adapter,
     AdapterConfig,
@@ -34,7 +34,7 @@ from signalbox.adapters.fritzbox import FritzboxAdapter
 from signalbox.adapters.mikrotik import MikrotikAdapter
 from signalbox.adapters.omada import OmadaAdapter
 from signalbox.adapters.openwrt import OpenWrtAdapter, OpenWrtConfig
-from signalbox.adapters.opnsense import OpnsenseAdapter
+from signalbox.adapters.opnsense import OpnsenseAdapter, OpnsenseConfig
 from signalbox.discovery import BroadcastResult, Candidate, HostProbe, NetworkProbe, RateLimiter
 from signalbox.discovery import clean as clean_text
 from signalbox.discovery.engine import normal_host
@@ -153,6 +153,7 @@ async def test_fritzbox_probe_reads_description_and_security_port(sims: dict[str
     assert c.firmware == "154.07.57"
     assert c.config == {"url": "https://127.0.0.1:49443"}  # GetSecurityPort, without login
     assert c.note is None and "49443" in (c.evidence or "")
+    assert any(i.startswith("udn:") for i in c.identities)  # #224: same on every address
 
 
 async def test_openwrt_probe_gets_access_denied_from_ubus(sims: dict[str, int]) -> None:
@@ -390,8 +391,8 @@ async def test_no_route_means_silent_at_once_and_refused_means_alive() -> None:
 
     for handler in (refused, slow):
         probe = mock_probe(handler)
-        for port in (1, 2, 3):
-            assert await probe.get("https", port, "/") is None
+        for number in (1, 2, 3):
+            assert await probe.get("https", number, "/") is None
         assert not probe.silent and probe.requests == 3
     assert _no_route(ValueError()) is False
 
@@ -903,3 +904,235 @@ async def test_switch_broadcast_problems_become_notes(monkeypatch: pytest.Monkey
     for cls in (ProsafeAdapter, EasySmartAdapter):
         result = await cls.discover_broadcast(probe)
         assert result is not None and "needs Switchyard" in (result.note or "")
+
+
+# --- one device on several addresses (#224) ----------------------------------------------------
+
+
+class DualConfig(AdapterConfig):
+    host: str = ""
+
+
+class Dual(Adapter):
+    """A firewall behind an ISP router: answers on its WAN and on its LAN address with the
+    same serial number (what a probe reads), one of them slower."""
+
+    manifest = Manifest(
+        id="dual",
+        name="Dual",
+        version="1",
+        api_version="1.0",
+        vendor="Example",
+        roles=frozenset({DeviceRole.GATEWAY}),
+        capabilities=frozenset(),
+        config=DualConfig,
+    )
+    answers: dict[str, tuple[float, list[str], str | None]] = {
+        "192.0.2.10": (0.0, ["serial:FW-1"], None),  # WAN, in the outer network
+        "198.51.100.10": (0.3, ["serial:FW-1"], None),  # LAN, answers later
+        "198.51.100.20": (0.0, [], "02:00:5e:00:00:01"),  # only the MAC says who it is
+        "192.0.2.20": (0.0, [], "02:00:5E:00:00:01"),
+        "192.0.2.30": (0.0, ["serial:OTHER"], None),
+    }
+
+    async def read_system(self) -> SystemInfo:  # pragma: no cover - never read
+        return SystemInfo()
+
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        if probe.host not in cls.answers:
+            return None
+        delay, identities, mac = cls.answers[probe.host]
+        await asyncio.sleep(delay)
+        return Candidate(
+            address=probe.host,
+            role=DeviceRole.GATEWAY,
+            config={"host": probe.host},
+            identities=identities,
+            mac=mac,
+        )
+
+
+def dual_client(tmp_path: Path) -> tuple[Services, Iterator[TestClient]]:
+    svc = make_services(tmp_path, {"dual": Dual})
+    return svc, client_for(svc, {})
+
+
+def search(c: TestClient, *addresses: str) -> dict[str, Any]:
+    r = c.post("/api/discovery", json={"ranges": list(addresses), "known_networks": False})
+    assert r.status_code == 202
+    return wait_done(c)
+
+
+def test_one_device_on_two_addresses_is_one_entry(tmp_path: Path) -> None:
+    svc, clients = dual_client(tmp_path)
+    for c in clients:
+        status = search(c, "192.0.2.10", "198.51.100.10", "192.0.2.30")
+        by = {x["addresses"][0]: x for x in status["candidates"]}
+        assert len(status["candidates"]) == 2  # a different serial number stays apart
+        fw = by["192.0.2.10"]  # nothing known about the networks: the first that answered
+        assert fw["address"] == "192.0.2.10"
+        assert fw["addresses"] == ["192.0.2.10", "198.51.100.10"]
+        assert fw["config"] == {"host": "192.0.2.10"} and fw["added"] is None
+        assert "identities" not in fw
+        assert status["candidates"][0]["key"] == "dual|192.0.2.10" or fw["key"] == "dual|192.0.2.10"
+    svc.close()
+
+
+def test_the_address_in_a_known_network_is_offered(tmp_path: Path) -> None:
+    svc, clients = dual_client(tmp_path)
+    gw = device("isp", role=DeviceRole.GATEWAY)
+    sub = Subnet(
+        id="isp/subnet/lan",
+        segment_id="home/segment/native",
+        interface=ip_interface("198.51.100.1/24"),
+        device_id="isp",
+        gateway=True,
+    )
+    svc.store.put_device(
+        DeviceRecord(id="isp", site_id="home", name="isp", role=DeviceRole.GATEWAY, adapter="x"),
+        {},
+        AdapterConfig,
+    )
+    svc.store.save_snapshot(snapshot(gw, subnets=[sub]))
+    for c in clients:
+        (fw,) = search(c, "192.0.2.10", "198.51.100.10")["candidates"]
+        assert fw["address"] == "198.51.100.10" and fw["config"] == {"host": "198.51.100.10"}
+        assert fw["addresses"] == ["198.51.100.10", "192.0.2.10"]
+    svc.close()
+
+
+def add_firewall(svc: Services, host: str, **snap: Any) -> None:
+    svc.store.put_device(
+        DeviceRecord(id="fw", site_id="home", name="fw", role=DeviceRole.GATEWAY, adapter="dual"),
+        {"host": host},
+        DualConfig,
+    )
+    if snap:
+        svc.store.save_snapshot(snapshot(device("fw", adapter="dual"), **snap))
+
+
+def test_a_device_added_by_its_lan_address_is_marked_when_found_by_its_wan_address(
+    tmp_path: Path,
+) -> None:
+    """The reported case: added by 198.51.100.10, found only at 192.0.2.10, its uplink."""
+    svc, clients = dual_client(tmp_path)
+    for c in clients:
+        assert search(c, "192.0.2.10")["candidates"][0]["added"] is None
+        add_firewall(svc, "198.51.100.10")  # nothing observed yet, another address
+        assert c.get("/api/discovery").json()["candidates"][0]["added"] is None
+        add_firewall(
+            svc, "198.51.100.10", uplinks=[uplink("fw", addresses=[iface("192.0.2.10/24")])]
+        )
+        (fw,) = c.get("/api/discovery").json()["candidates"]
+        assert fw["added"] == "fw" and fw["addresses"] == ["192.0.2.10"]
+    svc.close()
+
+
+def test_added_by_any_known_address_or_identity(tmp_path: Path) -> None:
+    svc, clients = dual_client(tmp_path)
+    for c in clients:
+        search(c, "192.0.2.10", "192.0.2.20", "192.0.2.30")
+        by = {x["address"]: x for x in c.get("/api/discovery").json()["candidates"]}
+        assert {x["added"] for x in by.values()} == {None}
+
+        def added(c: TestClient = c) -> dict[str, Any]:
+            rows = c.get("/api/discovery").json()["candidates"]
+            return {x["address"]: x["added"] for x in rows}
+
+        # a subnet address of the device (its LAN interface), management address, public address
+        add_firewall(
+            svc,
+            "203.0.113.9",
+            subnets=[
+                Subnet(
+                    id="fw/subnet/lan",
+                    segment_id="home/segment/native",
+                    interface=ip_interface("192.0.2.10/24"),
+                    device_id="fw",
+                )
+            ],
+        )
+        assert added() == {"192.0.2.10": "fw", "192.0.2.20": None, "192.0.2.30": None}
+        snap = snapshot(
+            device("fw", adapter="dual", management_address="192.0.2.30"),
+            uplinks=[uplink("fw", addresses=[], public_ipv4="192.0.2.20")],
+        )
+        svc.store.save_snapshot(snap)
+        assert added() == {"192.0.2.10": None, "192.0.2.20": "fw", "192.0.2.30": "fw"}
+        # the same MAC on a port, whatever the address
+        svc.store.save_snapshot(
+            snapshot(
+                device("fw", adapter="dual"), ports=[port("fw", "wan", mac="02:00:5e:00:00:01")]
+            )
+        )
+        assert added() == {"192.0.2.10": None, "192.0.2.20": "fw", "192.0.2.30": None}
+    svc.close()
+
+
+def test_a_merged_entry_is_ignored_and_shown_again_as_a_whole(tmp_path: Path) -> None:
+    svc, clients = dual_client(tmp_path)
+    for c in clients:
+        (fw,) = search(c, "192.0.2.10", "198.51.100.10")["candidates"]
+        other = "dual|198.51.100.10" if fw["key"] == "dual|192.0.2.10" else "dual|192.0.2.10"
+        assert c.post("/api/discovery/ignore", json={"key": other}).json()["candidates"][0][
+            "ignored"
+        ]
+        shown = c.post("/api/discovery/ignore", json={"key": fw["key"], "ignored": False}).json()
+        assert not shown["candidates"][0]["ignored"]
+        assert c.get("/api/discovery").json()["candidates"][0]["ignored"] is False
+    svc.close()
+
+
+def test_identities_are_normalised() -> None:
+    from signalbox.discovery.engine import identities_of
+
+    mac = Candidate(address="192.0.2.1", role=DeviceRole.AP, mac="02:00:5E:00:00:01")
+    assert identities_of(mac) == {"mac:02:00:5e:00:00:01"}
+    bad = Candidate(address="192.0.2.1", role=DeviceRole.AP, mac="no mac", identities=["a:b"])
+    assert identities_of(bad, "ab12") == {"a:b", "cert:ab12"}
+
+
+async def test_the_certificate_fingerprint_is_read_and_matches_the_pinned_one(
+    sims: dict[str, int],
+) -> None:
+    from signalbox.adapters.https import fingerprint, peer_certificate
+
+    probe = probe_for({})
+    port_ = sims["omada.https"]
+    assert (await probe.get("https", port_, "/api/info")) is not None
+    der = await peer_certificate("127.0.0.1", port_, 3)
+    url = f"https://127.0.0.1:{port_}"
+    assert probe.certificate_of({"url": url}) == fingerprint(der)
+    assert probe.certificate_of({"url": "https://127.0.0.1:1"}) is None
+    assert probe.certificate_of({"url": 5}) is None and probe.certificate_of({}) is None
+    assert probe.certificate_of({"url": "http://[bad"}) is None
+    assert probe.certificate_of({"url": "http://127.0.0.1"}) is None
+    await probe.close()
+
+
+def test_the_same_certificate_is_the_same_device(tmp_path: Path, sims: dict[str, int]) -> None:
+    """OPNsense tells no identity: one simulator reached as 127.0.0.1 and as localhost is one
+    device because both answers carry its certificate."""
+    svc = make_services(tmp_path, {"opnsense": OpnsenseAdapter})
+    for c in client_for(svc, {"ports": {**closed_ports(), **sims}}):
+        (fw,) = search(c, "127.0.0.1", "localhost")["candidates"]
+        assert sorted(fw["addresses"]) == ["127.0.0.1", "localhost"] and fw["added"] is None
+        # a device added at another address, but with this certificate pinned, is the same
+        from signalbox.adapters.https import fingerprint, peer_certificate
+
+        der = asyncio.run(peer_certificate("127.0.0.1", sims["opnsense.https"], 3))
+        svc.store.put_device(
+            DeviceRecord(
+                id="fw",
+                site_id="home",
+                name="fw",
+                role=DeviceRole.GATEWAY,
+                adapter="opnsense",
+                pinned_fingerprint=fingerprint(der).upper(),
+            ),
+            {"url": "https://192.0.2.99", "api_key": "k", "api_secret": "s"},
+            OpnsenseConfig,
+        )
+        assert c.get("/api/discovery").json()["candidates"][0]["added"] == "fw"
+    svc.close()

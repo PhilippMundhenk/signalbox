@@ -88,7 +88,15 @@ export function discoveryPanel(ctx, status, open) {
         table(
           [
             ['Type', (c) => [c.adapter_name, ' ', tag(ROLE_SHORT[c.role] || c.role)]],
-            ['Address', (c) => h('span', { 'data-testid': 'candidate-address' }, c.address)],
+            [
+              'Address',
+              (c) => [
+                h('span', { 'data-testid': 'candidate-address' }, c.address),
+                c.addresses.length > 1
+                  ? h('span', { class: 'muted small', 'data-testid': 'candidate-other-addresses', title: 'The same device answered on these addresses too.' }, ` also ${c.addresses.slice(1).join(', ')}`)
+                  : null,
+              ],
+            ],
             ['Model', (c) => h('span', { 'data-testid': 'candidate-model' }, [c.model || c.name, c.firmware ? ` (${c.firmware})` : ''].join(''))],
             ['Found', (c) => h('span', { class: 'muted small', title: c.evidence || '' }, c.why)],
             ['What to do', (c) => (c.note ? h('span', { class: 'small' }, c.note) : null)],

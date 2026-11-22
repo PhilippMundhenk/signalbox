@@ -30,6 +30,7 @@ async def discover(probe: HostProbe) -> Candidate | None:
             vendor="TP-Link",
             model="Omada Controller",
             name="Omada Controller",
+            identities=[f"omada:{info['omadacId']}"],
             firmware=version if isinstance(version, str) else None,
             evidence=f"Omada controller information on https port {port}",
             note="Create an Open API client (viewer role) in the controller first.",
