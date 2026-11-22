@@ -139,7 +139,8 @@ def public_network(net: Network) -> dict[str, Any]:
     return data
 
 
-def adapter_info(cls: type[Adapter]) -> dict[str, Any]:
+def adapter_info(cls: type[Adapter], setup: bool = True) -> dict[str, Any]:
+    """An integration for the UI; ``setup``: the automatic setup is on (``setup.enabled``)."""
     m = cls.manifest
     schema = m.config.model_json_schema()
     secret = sorted(
@@ -156,7 +157,7 @@ def adapter_info(cls: type[Adapter]) -> dict[str, Any]:
         "setup_url": m.setup_url,
         "setup_commands": m.setup_commands,
         "setup_steps": list(m.setup_steps),
-        "admin_login": m.admin_login.model_dump() if m.admin_login else None,
+        "admin_login": m.admin_login.model_dump() if m.admin_login and setup else None,
         "roles": sorted(r.value for r in m.roles),
         "capabilities": sorted(c.value for c in m.capabilities),
         "config_schema": schema,
@@ -320,7 +321,10 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     @api.get("/adapters")
     def adapters() -> list[dict[str, Any]]:
         """Installed adapters with their settings form (JSON Schema)."""
-        return [adapter_info(services.adapters[k]) for k in sorted(services.adapters)]
+        return [
+            adapter_info(services.adapters[k], config.setup.enabled)
+            for k in sorted(services.adapters)
+        ]
 
     @api.get("/rules")
     def rules() -> list[dict[str, Any]]:

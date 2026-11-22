@@ -62,6 +62,12 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
     api = APIRouter(prefix="/api")
 
     def prepare(body: SetupBody) -> tuple[Any, DeviceTestBody, SetupRequest] | JSONResponse:
+        if not services.config.setup.enabled:
+            return error(
+                403,
+                "disabled",
+                "The automatic setup is turned off in the configuration (setup.enabled).",
+            )
         form = body.device
         cls = services.adapters.get(form.adapter)
         if cls is None:

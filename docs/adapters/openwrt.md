@@ -381,7 +381,12 @@ device; the other capabilities are unaffected.
 ## Automatic setup
 
 *Set up automatically* in the device form (#231, [ADR 0008](../adr/0008-automatic-setup-with-an-admin-login.md))
-does the steps of the next section for you, over SSH as root:
+does the steps of the next section for you, over SSH as root.
+It is optional: the manual setup below is the same result and always works. Nothing is
+changed on the device unless you start it for that device and confirm the plan (never from
+*Find devices*, a read or in the background), and `setup.enabled: false` in the
+configuration turns it off completely (the API refuses it, the form does not show it).
+
 
 1. Enter the router's address, the login to create (`signalbox` by default) and root's password
    (and the SSH port, 22). *Show what it does* connects to dropbear and shows the router's SSH

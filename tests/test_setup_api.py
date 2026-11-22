@@ -273,3 +273,26 @@ async def test_default_hooks_raise() -> None:
         await Dev.plan_setup(req)
     with pytest.raises(NotImplementedError):
         await Dev.apply_setup(req)
+
+
+def test_switched_off(tmp_path: Path, ssh: tuple[int, str], https_url: str) -> None:
+    """setup.enabled false: the API refuses both calls and the form gets no admin login."""
+    port, fingerprint = ssh
+    svc = build(
+        tmp_path / "off",
+        env={"SIGNALBOX_AUTH_PASSWORD": PW, "SIGNALBOX_SETUP_ENABLED": "false"},
+        adapters={"openwrt": OpenWrtAdapter},
+        rules=[],
+        link_sources=[],
+    )
+    svc.store.put_site(SITE)
+    try:
+        with TestClient(web_app(svc, run_background=False)) as c:
+            assert c.post("/api/login", json={"password": PW}).status_code == 200
+            assert c.get("/api/adapters").json()[0]["admin_login"] is None
+            for path in ("/api/devices/setup", "/api/devices/setup/apply"):
+                r = c.post(path, json=body(https_url, port, trust=fingerprint))
+                assert r.status_code == 403 and r.json()["error"] == "disabled"
+                assert "setup.enabled" in r.json()["message"]
+    finally:
+        svc.close()

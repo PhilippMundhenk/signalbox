@@ -222,9 +222,11 @@ class OpnsenseSetup:
             self.redact.add(key, secret)
             self.key = {"key": key, "secret": secret}
             old = [
-                str(r.get("id", ""))
+                str(r.get("id") or r.get("key"))
                 for r in _rows(await http.post_json(KEYS, ALL))
-                if r.get("username") == LOGIN and r.get("key") != key and r.get("id")
+                if LOGIN in (r.get("username"), r.get("user"), r.get("name"))
+                and key not in (r.get("key"), r.get("id"))
+                and (r.get("id") or r.get("key"))
             ]
             for ident in old:
                 gone = f"/api/auth/user/del_api_key/{quote(ident, safe='')}"

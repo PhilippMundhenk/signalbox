@@ -106,6 +106,16 @@ class DiscoveryConfig(Section):
     )
 
 
+class SetupConfig(Section):
+    enabled: bool = Field(
+        True,
+        description="Offer 'Set up automatically' in the device form: with the admin login you "
+        "give once, Signalbox creates its own least-privilege login on that device (only when "
+        "you start it and confirm the plan; docs/adr/0008). false: the API refuses it and the "
+        "form does not show it; the manual setup guides always work.",
+    )
+
+
 class PluginsConfig(Section):
     remote_adapters: dict[str, list[str]] = Field(
         default_factory=dict,
@@ -121,6 +131,7 @@ class Config(Section):
     deploy: DeployConfig = DeployConfig()
     history: HistoryConfig = HistoryConfig()
     discovery: DiscoveryConfig = DiscoveryConfig()
+    setup: SetupConfig = SetupConfig()
     plugins: PluginsConfig = PluginsConfig()
     rules: dict[str, RuleSettings] = Field(
         default_factory=dict,
@@ -199,6 +210,13 @@ discovery:
   sweep_prefix: 24
   # At most this many addresses in one run.
   max_hosts: 1024
+
+setup:
+  # "Set up automatically" in the device form: you give a device's admin login once and
+  # Signalbox creates its own least-privilege login there, after you confirmed the plan.
+  # Never in the background; the admin login is not stored. false turns it off completely
+  # (the manual setup guides always work). Details: docs/adr/0008.
+  enabled: true
 
 plugins:
   # Adapters that run as separate programs, each with only the settings of its device:

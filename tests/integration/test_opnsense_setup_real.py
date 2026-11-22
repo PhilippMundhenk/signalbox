@@ -63,34 +63,30 @@ async def root_answers(fw: Target) -> str:
     out: dict[str, Any] = {}
     try:
         body = {"current": 1, "rowCount": -1, "searchPhrase": ""}
+        # keys first (the annotation keeps the start); values cut, never secrets or hashes
+        keys = await http.post_json("/api/auth/user/search_api_key", body)
+        out["keys"] = [
+            {k: (str(v)[:6] if k in ("key", "id") else v) for k, v in r.items()}
+            for r in keys.get("rows", [])
+        ]
         users = await http.post_json("/api/auth/user/search", body)
-        out["search"] = users
+        out["users"] = [r.get("name") for r in users.get("rows", [])]
         for row in users.get("rows", []):
             if row.get("name") == "signalbox":
                 got = await http.get_json(f"/api/auth/user/get/{row['uuid']}")
                 user = got.get("user", {})
                 out["get"] = {
-                    k: (
-                        sorted(n for n, o in v.items() if o.get("selected"))
-                        if isinstance(v, dict)
-                        else v
-                    )
+                    k: len([n for n, o in v.items() if o.get("selected")])
+                    if isinstance(v, dict)
+                    else v
                     for k, v in user.items()
-                    if k not in ("password", "apikeys", "otp_seed", "authorizedkeys")
+                    if k in ("name", "scope", "scrambled_password", "priv", "group_memberships")
                 }
-        keys = await http.post_json("/api/auth/user/search_api_key", body)
-        out["keys"] = [
-            {
-                k: (v[:4] + "…" if k in ("key", "id") and isinstance(v, str) else v)
-                for k, v in r.items()
-            }
-            for r in keys.get("rows", [])
-        ]
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     finally:
         await http.close()
-    return json.dumps(out, indent=1, default=str)[:6000]
+    return json.dumps(out, default=str)[:2500]
 
 
 async def read_with(fw: Target, result: SetupResult) -> Any:

@@ -41,7 +41,12 @@ meant for the simulator.
 ## Automatic setup
 
 *Set up automatically* in the device form (#231, [ADR 0008](../adr/0008-automatic-setup-with-an-admin-login.md))
-creates the user of the next section through the API, with an API key of root:
+creates the user of the next section through the API, with an API key of root.
+It is optional: the manual setup below is the same result and always works. Nothing is
+changed on the device unless you start it for that device and confirm the plan (never from
+*Find devices*, a read or in the background), and `setup.enabled: false` in the
+configuration turns it off completely (the API refuses it, the form does not show it).
+
 
 1. *System > Access > Users*, root, *API keys*, `+`: the browser downloads key and secret.
 2. In the device form: the address, then that key and secret under *Set up automatically*.

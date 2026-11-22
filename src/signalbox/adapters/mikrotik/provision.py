@@ -127,7 +127,7 @@ class MikrotikSetup:
             )
         else:
             same = granted(group.get("policy")) == wanted
-            gid = quote(str(group.get(".id", "")), safe="")
+            gid = quote(str(group.get(".id", "")), safe="*")
             group_step = Step(
                 "group",
                 f"User group {self.group} ({what})",
@@ -150,7 +150,7 @@ class MikrotikSetup:
                 note="the password is stored encrypted in Signalbox and never shown",
             )
         else:
-            uid = quote(str(user.get(".id", "")), safe="")
+            uid = quote(str(user.get(".id", "")), safe="*")
             user_step = Step(
                 "user",
                 f"Update the user {self.login}: group {self.group}, a new generated password",
@@ -186,7 +186,7 @@ class MikrotikSetup:
                 for u in users
                 if u.get("group") == name and u.get("name") != self.login
             )
-            gid = quote(str((group or {}).get(".id", "")), safe="")
+            gid = quote(str((group or {}).get(".id", "")), safe="*")
             if group is None:
                 note = "there is no such group"
             elif others:

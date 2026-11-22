@@ -15,6 +15,11 @@ device the user confirmed, and that the result is no more than the documented ac
 
 ## Decision
 
+- **Optional, and only on request.** The manual setup guides stay the first-class path and
+  describe the same result. The setup runs only when the user starts it in the form of one
+  device and confirms the plan; never from discovery, an observation or any background job.
+  `setup.enabled: false` turns it off completely: both endpoints answer 403 `disabled` and
+  `/api/adapters` reports no `admin_login`, so the form does not offer it.
 - **Transport per platform, chosen for what is robust and testable on the real software:**
   - *OpenWrt*: SSH as root (dropbear) running the same steps as the commands of the setup guide
     (`setup.commands()`): missing packages with `apk` or `opkg`, the ACL file, an rpcd login.

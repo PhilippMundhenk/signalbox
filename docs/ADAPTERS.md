@@ -259,6 +259,7 @@ the user confirmed. Rules, checked by the tests of the built-in integrations:
   `Redactor` and pass every text you return or raise through it.
 
 `load_adapters` refuses an integration that declares `admin_login` without both methods.
+With `setup.enabled: false` the hooks are never called.
 
 ## Writing to devices
 

@@ -71,6 +71,12 @@ Generated from the code by `tools/gen_docs.py`.
 | `discovery.sweep_prefix` | `SIGNALBOX_DISCOVERY_SWEEP_PREFIX` | `24` | Gateway subnets with this prefix length or longer are probed completely; of larger ones only the gateway and known clients. |
 | `discovery.max_hosts` | `SIGNALBOX_DISCOVERY_MAX_HOSTS` | `1024` | At most this many addresses in one run. |
 
+## `setup`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `setup.enabled` | `SIGNALBOX_SETUP_ENABLED` | true | Offer 'Set up automatically' in the device form: with the admin login you give once, Signalbox creates its own least-privilege login on that device (only when you start it and confirm the plan; docs/adr/0008). false: the API refuses it and the form does not show it; the manual setup guides always work. |
+
 ## `plugins`
 
 | Setting | Environment variable | Default | Meaning |
