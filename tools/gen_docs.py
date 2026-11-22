@@ -86,6 +86,8 @@ def configuration() -> str:
 EMULATED = {
     "openwrt": "OpenWrt: 24.10.8 and 25.12.6, official x86-64 images in QEMU "
     "([details](adapters/openwrt.md#verified-against-the-real-openwrt))",
+    "opnsense": "OPNsense: 26.7.9, official nano image in QEMU "
+    "([details](adapters/opnsense.md#integration-tests))",
 }
 
 

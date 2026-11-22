@@ -73,3 +73,8 @@ the serial console and the pytest errors as annotations on the check run.
 
 What the real OpenWrt showed that the simulator had wrong is listed in
 [adapters/openwrt.md](adapters/openwrt.md#verified-against-the-real-openwrt).
+
+### OPNsense (nano image in QEMU)
+
+`tools/integration/opnsense/`, job `Integration / OPNsense`; see
+[adapters/opnsense.md](adapters/opnsense.md#integration-tests).
