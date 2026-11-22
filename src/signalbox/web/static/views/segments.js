@@ -1,7 +1,7 @@
 // Segments (VLANs) per site: members per device (tagged / untagged) and subnets.
 import { loadNetwork, noData, siteFilter } from '../net.js';
 import { by, clear, h, place } from '../util.js';
-import { pageHead, table, tag } from '../ui.js';
+import { pageHead, purposeTag, table, tag } from '../ui.js';
 
 let siteChoice = '';
 
@@ -22,7 +22,8 @@ function segmentCard(ix, seg) {
   return h(
     'section',
     { class: 'card', 'data-testid': 'segment', 'data-id': seg.id },
-    h('h3', {}, seg.vlan ? h('span', { class: 'vlan-id' }, `VLAN ${seg.vlan}`) : h('span', { class: 'vlan-id' }, 'Untagged'), seg.name ? ` ${seg.name}` : ''),
+    h('h3', {}, seg.vlan ? h('span', { class: 'vlan-id' }, `VLAN ${seg.vlan}`) : h('span', { class: 'vlan-id' }, 'Untagged'), seg.name ? ` ${seg.name}` : '', seg.purpose ? [' ', purposeTag(seg)] : null),
+    seg.isolated ? h('p', { class: 'muted small', 'data-testid': 'segment-isolated' }, 'Isolated by the device (clients cannot reach the other networks).') : null,
     rows.length
       ? table(
           [

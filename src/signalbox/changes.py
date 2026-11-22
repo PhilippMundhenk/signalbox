@@ -96,6 +96,8 @@ class WlanValue(Value):
     roaming_80211r: bool | None = None
     roaming_80211k: bool | None = None
     roaming_80211v: bool | None = None
+    #: None: not specified (left as the device has it).
+    client_isolation: bool | None = None
     #: Name of the secret holding the passphrase; resolved by the deployment, never stored here.
     passphrase_secret: str | None = None
 
@@ -277,6 +279,7 @@ def observed_wlan(net: Network, device_id: str, ssid: str) -> WlanValue | None:
         roaming_80211r=w.roaming_80211r,
         roaming_80211k=w.roaming_80211k,
         roaming_80211v=w.roaming_80211v,
+        client_isolation=w.client_isolation,
     )
 
 
@@ -416,6 +419,9 @@ def changes_for(
                     roaming_80211v=w.roaming.v
                     if w.roaming.v is not None
                     else (old_w.roaming_80211v if old_w else None),
+                    client_isolation=w.client_isolation
+                    if w.client_isolation is not None
+                    else (old_w.client_isolation if old_w else None),
                     passphrase_secret=w.passphrase_secret,
                 )
                 passphrase_changes = _passphrase_differs(
@@ -618,6 +624,7 @@ def _apply(net: Network, c: Change) -> Network:
                     roaming_80211r=w.roaming_80211r,
                     roaming_80211k=w.roaming_80211k,
                     roaming_80211v=w.roaming_80211v,
+                    client_isolation=w.client_isolation,
                 )
             )
     return net.model_copy(update={"wlans": wl})

@@ -148,6 +148,36 @@ class PortMembership(Model):
     mode: Membership
 
 
+class SegmentPurpose(StrEnum):
+    """What a network is for: the vocabulary users think in ("my IoT network")."""
+
+    MAIN = "main"
+    GUEST = "guest"
+    IOT = "iot"
+    MANAGEMENT = "management"
+    SERVERS = "servers"
+    LAB = "lab"
+    VOICE = "voice"
+    CAMERAS = "cameras"
+    TRANSIT = "transit"
+    OTHER = "other"
+
+
+#: Purposes of networks whose devices are not trusted (rules about exposure use these).
+UNTRUSTED_PURPOSES = frozenset({SegmentPurpose.GUEST, SegmentPurpose.IOT, SegmentPurpose.CAMERAS})
+
+
+class PurposeSource(StrEnum):
+    """Where a purpose came from. Declared beats reported beats heuristic."""
+
+    #: The device knows it (Fritz!Box guest network, Omada guest SSID).
+    REPORTED = "reported"
+    #: The user set it in the desired state.
+    DECLARED = "declared"
+    #: Guessed from the name ("guest", "gast", "visitor", "iot"); shown as a guess.
+    HEURISTIC = "heuristic"
+
+
 class Segment(Observed):
     """A layer-2 network (VLAN) of a site."""
 
@@ -155,6 +185,13 @@ class Segment(Observed):
     vlan: int | None = Field(default=None, ge=1, le=4094)
     name: str | None = None
     members: list[PortMembership] = Field(default_factory=list)
+    purpose: SegmentPurpose | None = None
+    purpose_source: PurposeSource | None = None
+    #: What the device reported when a declared purpose overrides a different one.
+    reported_purpose: SegmentPurpose | None = None
+    #: True when the device isolates this network by itself, independent of firewall rules
+    #: (a router's built-in guest network, a private VLAN). None: not known.
+    isolated: bool | None = None
 
 
 class Subnet(Observed):
@@ -249,6 +286,13 @@ class Wlan(Observed):
     roaming_80211r: bool | None = None
     roaming_80211k: bool | None = None
     roaming_80211v: bool | None = None
+    #: Some devices know a guest SSID without a VLAN of its own (Omada guest network).
+    purpose: SegmentPurpose | None = None
+    purpose_source: PurposeSource | None = None
+    #: What the device reported when a declared purpose overrides a different one.
+    reported_purpose: SegmentPurpose | None = None
+    #: Stations of this SSID cannot talk to each other (OpenWrt ``isolate``). None: not known.
+    client_isolation: bool | None = None
 
 
 class Client(Observed):

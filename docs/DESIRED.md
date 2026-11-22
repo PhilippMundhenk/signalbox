@@ -30,7 +30,10 @@ sites:
           - {mac: "00:00:5e:00:53:10", address: 192.0.2.10, hostname: printer}
       - vlan: 20
         name: IoT
+        purpose: iot             # what the network is for, see below
         gateway: {device: gateway, address: 198.51.100.1/24}
+      - vlan: 30
+        purpose: guest
     wlans:
       - ssid: Example
         security: wpa2-wpa3      # open, owe, wpa2-psk, wpa3-sae, wpa2-wpa3, ...
@@ -43,6 +46,12 @@ sites:
         security: wpa2-psk
         passphrase_secret: iot-wifi
         segment: 20
+      - ssid: Example-Guest
+        security: wpa2-psk
+        passphrase_secret: guest-wifi
+        segment: 30
+        purpose: guest           # default: the purpose of its segment
+        client_isolation: true   # guests cannot reach each other
     ports:
       - {device: ap-1, port: lan1, untagged: native, tagged: [20]}
 ```
@@ -50,12 +59,32 @@ sites:
 Every field except the identifying ones (`vlan`, `ssid`, `device` + `port`) is optional; only
 what is written is compared.
 
+## Network purposes
+
+`purpose` says what a segment or SSID is for: `main`, `guest`, `iot`, `management`, `servers`,
+`lab`, `voice`, `cameras`, `transit` or `other`. Most devices do not know it, so it is mainly
+declared here; the guest and IoT checks ([RULES.md](RULES.md#network-purposes)) depend on it.
+
+- A declared purpose is applied to the observed network every time Signalbox builds it (before
+  the checks run and in every view), and beats what a device reports (Fritz!Box guest network,
+  Omada guest network) and the guess from the name ("Guest", "IoT"). The UI marks the source:
+  declared, reported, or a guess with a "?".
+- An SSID's purpose applies to that SSID on its `devices` (default: every device of the site).
+  An SSID without one inherits the purpose of its segment.
+- A purpose is not written to devices. When a device reports a different purpose, `drift.segment`
+  or `drift.wlan` reports it (info).
+- *Import what the devices report* exports reported purposes, never guesses.
+
+`client_isolation` is a device setting and compared like the others (`drift.wlan`). Where a
+device does not report it the finding is incomplete. Deployments write it on OpenWrt
+(`option isolate`); the Omada, MikroTik and Fritz!Box integrations refuse a plan that changes it.
+
 ## Drift findings
 
 | Rule | Compares |
 | --- | --- |
-| `drift.segment` | segment exists, name, router address, DHCP on/off, pool, DNS servers, lease time, reservations |
-| `drift.wlan` | SSID present on each access point, security, PMF, VLAN, hidden, on/off, 802.11r/k/v, passphrase (by fingerprint against the stored secret) |
+| `drift.segment` | segment exists, name, purpose against a reported one, router address, DHCP on/off, pool, DNS servers, lease time, reservations |
+| `drift.wlan` | SSID present on each access point, security, PMF, VLAN, hidden, on/off, 802.11r/k/v, client isolation, purpose against a reported one, passphrase (by fingerprint against the stored secret) |
 | `drift.port` | untagged and tagged VLANs of each declared port |
 
 A device that was not read gives an "incomplete" finding instead. An unreadable desired-state

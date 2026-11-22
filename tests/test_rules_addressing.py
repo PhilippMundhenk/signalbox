@@ -10,15 +10,18 @@ from signalbox.model import (
     DnsService,
     HostRecord,
     Network,
+    PurposeSource,
     Radio,
     Reservation,
     Security,
     Segment,
+    SegmentPurpose,
     Site,
     Subnet,
     Wlan,
     segment_id,
 )
+from signalbox.purpose import with_heuristics
 from signalbox.rules import Finding, Rule, Severity, evaluate
 from signalbox.rules.addressing import (
     client_subnet,
@@ -296,7 +299,7 @@ def test_lease_time_reports_short_and_long() -> None:
 
 def test_lease_time_guest_network_by_name_or_ssid() -> None:
     guest = server(seg=GUEST, lease_seconds=2 * 86400)
-    (f,) = run(lease_time, network(dhcp_servers=[guest]))
+    (f,) = run(lease_time, with_heuristics(network(dhcp_servers=[guest])))
     assert "on the guest network Guest (VLAN 30)" in f.message
     segs = [Segment(id=IOT, site_id=SITE.id, vlan=20)]
     radio = Radio(id="ap/radio0", device_id="ap", name="radio0", band=Band.GHZ_5)
@@ -309,8 +312,18 @@ def test_lease_time_guest_network_by_name_or_ssid() -> None:
         segment_id=IOT,
     )
     srv = server(seg=IOT, lease_seconds=3600 * 48)
-    (f,) = run(lease_time, network(segments=segs, dhcp_servers=[srv], radios=[radio], wlans=[wlan]))
+    net = network(segments=segs, dhcp_servers=[srv], radios=[radio], wlans=[wlan])
+    (f,) = run(lease_time, with_heuristics(net))
     assert "guest network VLAN 20" in f.message
+    # a declared purpose beats the name: an SSID that only looks like a guest network
+    main = wlan.model_copy(
+        update={"purpose": SegmentPurpose.MAIN, "purpose_source": PurposeSource.DECLARED}
+    )
+    net = network(segments=segs, dhcp_servers=[srv], radios=[radio], wlans=[main])
+    assert run(lease_time, with_heuristics(net)) == []
+    declared = segs[0].model_copy(update={"purpose": SegmentPurpose.MAIN})
+    net = network(segments=[declared], dhcp_servers=[srv], radios=[radio], wlans=[wlan])
+    assert run(lease_time, with_heuristics(net)) == []
 
 
 def test_lease_time_escalates_with_full_pool_and_skips_all_reserved() -> None:

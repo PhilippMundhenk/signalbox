@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 from signalbox.adapters import Adapter, AdapterContext
 from signalbox.config import Config
-from signalbox.desired import DesiredError, DesiredState, drift_rules
+from signalbox.desired import DesiredError, DesiredState, apply_declared, drift_rules
 from signalbox.merge import merge
 from signalbox.model import (
     Device,
@@ -105,6 +105,18 @@ class Runner:
     # everything -------------------------------------------------------------------------
 
     def network(self) -> Network:
+        """The merged network with derived links and the purposes the desired state declares."""
+        return apply_declared(self._merged(), self._declared())
+
+    def _declared(self) -> DesiredState | None:
+        if self.desired_source is None:
+            return None
+        try:
+            return self.desired_source()
+        except DesiredError:
+            return None  # reported by active_rules() as desired.invalid
+
+    def _merged(self) -> Network:
         enabled = {d.id for d in self.store.devices() if d.enabled}
         snaps = [s for s in self.store.snapshots() if s.device.id in enabled]
         manual = self.store.links()

@@ -231,6 +231,7 @@ async def test_plan_shows_no_secret_and_names_the_group(url: str, sim: OmadaSimu
     [
         ({"security": Security.WPA2_ENTERPRISE}, SECRETS, "cannot set wpa2-enterprise"),
         ({"roaming_80211r": True}, SECRETS, "fast roaming"),
+        ({"client_isolation": True}, SECRETS, "client isolation is not read or changed"),
         ({"passphrase_secret": "other"}, SECRETS, "secret 'other' was not provided"),
         ({"passphrase_secret": "psk"}, {"psk": "short"}, "8 to 63 characters"),
         ({"passphrase_secret": None}, SECRETS, "needs a passphrase"),

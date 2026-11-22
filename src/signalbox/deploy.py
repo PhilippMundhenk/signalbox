@@ -79,7 +79,13 @@ def current_value(net: Network, c: Change) -> Any:
 
 #: Fields of a planned value that are left to the device when the plan has None for them.
 UNSPECIFIED: dict[ChangeKind, tuple[str, ...]] = {
-    ChangeKind.WLAN: ("pmf", "roaming_80211r", "roaming_80211k", "roaming_80211v"),
+    ChangeKind.WLAN: (
+        "pmf",
+        "roaming_80211r",
+        "roaming_80211k",
+        "roaming_80211v",
+        "client_isolation",
+    ),
     ChangeKind.DHCP: ("lease_seconds",),
 }
 

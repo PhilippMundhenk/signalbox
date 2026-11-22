@@ -215,7 +215,8 @@ role. IPv6 link-local and IPv4 169.254.0.0/16 addresses are ignored unless a rul
 
 - **Severity:** info; warning for a long lease when the pool is more than 80 % in use
 - **Checks:** the lease time of every enabled DHCP server is between 5 minutes and 7 days, and at
-  most one day on a guest network (a network or SSID with "guest" in its name). Networks where
+  most one day on a guest network (a network or SSID with the purpose `guest`: declared,
+  reported or guessed from the name, see [Network purposes](#network-purposes)). Networks where
   every client has a reservation are skipped.
 - **Fix:** use 12-24 hours, a few hours on guest networks.
 
@@ -295,7 +296,8 @@ role. IPv6 link-local and IPv4 169.254.0.0/16 addresses are ignored unless a rul
 ### `wifi.ssid-consistent`
 
 - **Severity:** error for security mode, passphrase and network (VLAN); warning for protected
-  management frames (PMF), hidden setting and the roaming settings 802.11r, k and v
+  management frames (PMF), hidden setting, the roaming settings 802.11r, k and v, and client
+  isolation
 - **Checks:** a Wi-Fi network (SSID) broadcast by several access points of one site has the same
   settings on all of them. One finding per differing setting names the value per access point;
   passphrases are compared only by a fingerprint and the finding says just "passphrase differs"
@@ -329,7 +331,10 @@ role. IPv6 link-local and IPv4 169.254.0.0/16 addresses are ignored unless a rul
 - **Severity:** error
 - **Checks:** a Wi-Fi network bound to a VLAN uses a network for which a router has a subnet
   (a subnet marked as the gateway, or any subnet of a device with the gateway role).
-  If no router at the site reported its subnets, the check is incomplete.
+  If no router at the site reported its subnets, the check is incomplete. A network a router
+  keeps to itself is served by that router and not reported: isolated by the device, no subnet
+  in the model, and every SSID in it on a device with the gateway role (the Fritz!Box guest
+  Wi-Fi, which has its own addresses that TR-064 does not expose).
 - **Fix:** create the VLAN with an address and DHCP on the router, or bind the SSID to a network
   that exists there.
 
@@ -702,9 +707,11 @@ not report (automatic channel, width or power).
 - **Checks:** at a site that uses VLANs, the management addresses of routers, switches and
   access points lie in a network that also has client devices (other than the network devices
   themselves) or an SSID. One finding per network names the devices. Sites without VLANs stay
-  quiet.
+  quiet. A network with the purpose `management` is the management VLAN and is not reported;
+  guest and IoT networks are left to `security.management-exposure`.
 - **Fix:** consider a management VLAN that only admin devices can reach, and move the
-  management addresses there.
+  management addresses there; when the site has a network with the purpose `management`, the
+  fix names it.
 
 ### `inventory.duplicate-device`
 
@@ -786,3 +793,70 @@ is too short, and on the desired or the predicted state of a plan (which have no
   into and that port's VLAN.
 
 <!-- end of history rules -->
+
+<!-- Network purpose rules (src/signalbox/rules/networks.py) -->
+
+## Network purposes
+
+What a network is for (`main`, `guest`, `iot`, `management`, `servers`, `lab`, `voice`,
+`cameras`, `transit`, `other`) is known from three sources, strongest first:
+
+1. **declared** in the desired state (`segments: [{vlan: 30, purpose: guest}]`, or `purpose` on
+   an SSID), see [DESIRED.md](DESIRED.md);
+2. **reported** by the device: the Fritz!Box guest network (segment and SSID), the Omada guest
+   network flag of an SSID;
+3. **guessed** from the name of the segment or SSID: a word starting with `guest`, `gast` or
+   `visitor` means guest, the word `iot` means IoT. A guess is marked as such in findings and
+   in the UI, and makes the guest Wi-Fi finding a warning instead of an error.
+
+`guest`, `iot` and `cameras` count as untrusted networks.
+
+### `wifi.guest-isolation`
+
+- **Severity:** error; warning when the SSID is a guest network only by its name
+- **Checks:** an enabled SSID with the purpose `guest` is not in the same network (VLAN) as
+  other, non-guest SSIDs, in a network with another purpose, or in the untagged main network.
+  Silent when the SSID's network has the purpose `guest` or is isolated by the device, when the
+  SSID's own VLAN has no known purpose (then `segment.purpose-missing` asks), and for guest
+  networks the device reports itself (Fritz!Box, Omada guest network): the device keeps those
+  apart. Declare `purpose: main` on an SSID that only looks like a guest network.
+- **Fix:** bind the SSID to a separate guest VLAN, or use the router's guest network.
+
+### `segment.guest-no-isolation`
+
+- **Severity:** warning
+- **Checks:** an enabled SSID whose purpose (or its network's) is `guest` has client isolation
+  switched off, so guests reach each other's devices. Checked where the access point reports
+  the setting (OpenWrt `option isolate`); unknown values and networks isolated by the device
+  are not reported.
+- **Fix:** turn on client isolation (`client_isolation: true` on the SSID in the desired state;
+  OpenWrt: `option isolate '1'`).
+
+### `security.management-exposure`
+
+- **Severity:** error; incomplete (info) for routers
+- **Checks (level 1, without firewall data):** the management address of a switch or access
+  point lies in a guest, IoT or camera network, or such a device has an address there (a
+  subnet interface that is not the gateway). A router has an address in every network it
+  serves; whether its management interface is reachable from there depends on its firewall,
+  which Signalbox does not read yet, so each such router address is reported as not checked.
+  Level 2 (firewall rules, issue #135) is not implemented.
+- **Fix:** move the management address to the LAN or a management VLAN, or block access from
+  that network to the device.
+
+### `segment.purpose-missing`
+
+- **Severity:** info
+- **Checks:** at a site with at least two networks, every network has a declared or reported
+  purpose. One finding per site lists the networks without one, and those with only a guess.
+- **Fix:** declare the purposes in the desired state, for example
+  `segments: [{vlan: 20, purpose: iot}]`.
+
+### `segment.iot-on-5ghz-only`
+
+- **Severity:** info
+- **Checks:** an enabled SSID whose purpose (or its network's) is `iot` is broadcast on at least
+  one radio of a known band at the site, and on 2.4 GHz. Many IoT devices only have 2.4 GHz.
+- **Fix:** also broadcast the SSID on 2.4 GHz, unless all its devices support 5 GHz.
+
+<!-- end of network purpose rules -->

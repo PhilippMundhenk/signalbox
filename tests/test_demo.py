@@ -20,6 +20,19 @@ async def test_demo_devices_are_readable_and_show_findings(tmp_path: Path) -> No
             assert not any(
                 f.severity == "error" and f.rule_id.startswith("addr.") for f in findings
             )
+            # network purposes (#164): the IoT and guest VLANs are guessed from their names, so
+            # the demo suggests declaring them and cannot check the router's firewall yet
+            purposes = {s.id: (s.purpose, s.purpose_source) for s in net.segments}
+            assert purposes["home/segment/20"] == ("iot", "heuristic")
+            assert purposes["home/segment/30"] == ("guest", "heuristic")
+            assert purposes["home/segment/native"] == (None, None)
+            assert "segment.purpose-missing" in rules
+            exposure = [f for f in findings if f.rule_id == "security.management-exposure"]
+            assert sorted(f.objects[1] for f in exposure) == ["home/segment/20", "home/segment/30"]
+            assert all(f.incomplete and f.objects[0] == "gateway" for f in exposure)
+            assert not rules & {"wifi.guest-isolation", "segment.guest-no-isolation"}
+            iot = [w for w in net.wlans if w.ssid == "Example-IoT"]
+            assert iot and all(w.client_isolation for w in iot)
         # a second start reuses the certificates, so the stored pins stay valid
         with demo_devices(svc):
             net, _ = await svc.runner.observe_all()

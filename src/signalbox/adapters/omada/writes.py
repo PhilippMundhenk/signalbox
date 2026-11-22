@@ -419,6 +419,8 @@ class Writer:
             )
         if any(x is not None for x in (new.roaming_80211r, new.roaming_80211k, new.roaming_80211v)):
             raise AdapterError(f"{c.id}: fast roaming (802.11r/k/v) is not changed on Omada")
+        if new.client_isolation is not None:
+            raise AdapterError(f"{c.id}: client isolation is not read or changed on Omada")
         mode, version = SECURITY[new.security]
         vlan = None if new.segment == "native" else new.segment
         if vlan is not None and vlan != 1:

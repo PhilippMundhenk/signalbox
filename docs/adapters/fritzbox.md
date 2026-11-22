@@ -156,7 +156,11 @@ radio, and the guest network last.
 - **Guest network**: `X_AVM-DE_GetWLANExtInfo` `NewX_AVM-DE_APType` `guest` *(guess)*; when the
   action is missing, the last WLAN of a box with three or more is the guest WLAN. The guest WLAN
   is in its own segment `<site>/segment/guest` (no VLAN, no ports; `vendor_extra` says it is the
-  Fritz!Box guest network) and uses the radio of its band; it is not a radio of its own.
+  Fritz!Box guest network) and uses the radio of its band; it is not a radio of its own. That
+  segment and the guest WLAN have the purpose `guest` (source `reported`), and the segment is
+  `isolated` (the box keeps guests out of the LAN). It has no subnet in the model (TR-064 does
+  not report the guest addresses); `wifi.segment-at-gateway` treats it as served by the box.
+  Whether guests may reach each other is not read.
 - **Security** from `NewBeaconType`:
 
   | `NewBeaconType` | Security |
@@ -222,7 +226,8 @@ arguments alike, comes from AVM's documentation and still needs confirmation on 
   change whose new value carries the other SSID.
 - **Refused before anything is sent** (with a message saying why): creating an SSID (the Wi-Fi
   networks of a Fritz!Box are fixed: one per band and the guest network), removing one (set
-  `enabled: false` instead), a VLAN (`segment` other than `native`), PMF and 802.11r/k/v,
+  `enabled: false` instead), a VLAN (`segment` other than `native`), PMF, 802.11r/k/v, client
+  isolation,
   security other than open, WPA2, WPA3 and WPA2/WPA3 (or a beacon type the box does not list in
   `NewX_AVM-DE_PossibleBeaconTypes`), a passphrase outside 8-63 characters; for DHCP a DHCP
   server other than the LAN's, removing it, a lease time, other DNS servers (TR-064 cannot set

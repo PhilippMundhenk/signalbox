@@ -1,4 +1,9 @@
-"""Join device snapshots into one :class:`~signalbox.model.Network`."""
+"""Join device snapshots into one :class:`~signalbox.model.Network`.
+
+Purposes: a segment's purpose comes from the first device (by id) that reports one; segments and
+SSIDs without a reported purpose get a name guess (``heuristic``, :mod:`signalbox.purpose`).
+Declared purposes from the desired state are applied afterwards by the runner.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +19,7 @@ from signalbox.model import (
     Site,
     Snapshot,
 )
+from signalbox.purpose import with_heuristics
 
 
 def _merge_segments(snaps: list[Snapshot]) -> list[Segment]:
@@ -31,7 +37,15 @@ def _merge_segments(snaps: list[Snapshot]) -> list[Segment]:
             merged[seg.id] = (
                 seg.model_copy(update={"source": None, "vendor_extra": {}})
                 if old is None
-                else old.model_copy(update={"name": old.name or seg.name})
+                else old.model_copy(
+                    update={
+                        "name": old.name or seg.name,
+                        # the first device that reports a purpose (or isolation) wins
+                        "purpose": old.purpose or seg.purpose,
+                        "purpose_source": old.purpose_source if old.purpose else seg.purpose_source,
+                        "isolated": old.isolated if old.isolated is not None else seg.isolated,
+                    }
+                )
             )
             known = members.setdefault(seg.id, {})
             for m in seg.members:
@@ -93,7 +107,7 @@ def merge(
     def every(attr: str) -> list[object]:
         return [item for s in snaps for item in getattr(s, attr)]
 
-    return Network.model_validate(
+    net = Network.model_validate(
         {
             "sites": sorted(sites, key=lambda s: s.id),
             "devices": [d for s in snaps for d in (s.device, *s.extra_devices)],
@@ -115,3 +129,4 @@ def merge(
             "errors": every("errors"),
         }
     )
+    return with_heuristics(net)

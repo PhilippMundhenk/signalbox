@@ -268,6 +268,13 @@ async def test_wlan_update_and_remove(sim: OpenWrtSim, adapter: OpenWrtAdapter, 
         "iot",
     )
     assert "iot_radio0" not in sim.state["wireless"]
+    assert "isolate" not in main  # not declared: left alone
+    isolated = new.model_copy(update={"client_isolation": True})
+    net = await applied(adapter, url, change(ChangeKind.WLAN, "Example", new, isolated))
+    assert sim.state["wireless"]["default_radio0"]["isolate"] == "1"
+    w = observed_wlan(net, DEV, "Example")
+    assert w is not None and w.client_isolation is True
+    new = isolated
     open_net = new.model_copy(
         update={"security": Security.OPEN, "pmf": None, "passphrase_secret": None, "enabled": True}
     )

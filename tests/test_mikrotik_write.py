@@ -590,6 +590,8 @@ async def test_wlan_refusals(url: str, sim: MikrotikSimulator) -> None:
 
     with pytest.raises(AdapterError, match="cannot be set through Signalbox"):
         await apply(url, [wlan("Example", security=Security.WPA2_ENTERPRISE)])
+    with pytest.raises(AdapterError, match="client isolation is not read or changed on RouterOS"):
+        await apply(url, [wlan("Example", client_isolation=True)])
     with pytest.raises(AdapterError, match="needs a passphrase secret"):
         await apply(url, [wlan("New")])
     with pytest.raises(AdapterError, match="secret 'missing' was not given"):

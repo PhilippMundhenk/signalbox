@@ -10,6 +10,7 @@ from signalbox.rules.dns import RULES as DNS_RULES
 from signalbox.rules.firmware import RULES as FIRMWARE_RULES
 from signalbox.rules.history_checks import RULES as HISTORY_RULES
 from signalbox.rules.ipv6 import RULES as IPV6_RULES
+from signalbox.rules.networks import RULES as NETWORK_RULES
 from signalbox.rules.topology_checks import RULES as TOPOLOGY_CHECK_RULES
 from signalbox.rules.vlan import RULES as VLAN_RULES
 from signalbox.rules.wifi_hygiene import RULES as WIFI_HYGIENE_RULES
@@ -29,4 +30,5 @@ RULES: list[Rule] = [
     *ADDRESSING_RULES,
     *TOPOLOGY_CHECK_RULES,
     *HISTORY_RULES,
+    *NETWORK_RULES,
 ]

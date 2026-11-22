@@ -344,6 +344,7 @@ async def test_unsupported_wlan_settings_are_refused(adapter: FritzboxAdapter) -
         ({"segment": 20}, "has no VLANs"),
         ({"pmf": Pmf.REQUIRED}, "pmf cannot be set"),
         ({"roaming_80211r": True, "roaming_80211v": False}, "802.11r, 802.11v cannot be set"),
+        ({"client_isolation": True}, "client isolation cannot be set"),
         ({"security": Security.OWE}, "security owe cannot be set"),
         ({"security": Security.WPA2_ENTERPRISE}, "security wpa2-enterprise cannot be set"),
     ]
@@ -574,6 +575,24 @@ async def test_deployment_that_does_not_verify_is_restored(svc: Services, sim: F
     assert sim.passphrases == fritz_sim.PASSPHRASES  # the backup put the old key back
     events = [e.event for e in svc.store.events(rec.id)]
     assert "verify-failed" in events and "rolled-back" in events
+
+
+async def test_guest_network_is_served_by_the_box(svc: Services, sim: FritzboxSim) -> None:
+    """The guest WLAN's segment has no subnet in the model: it is the box's own network (#164)."""
+    sim.wlans[3]["NewEnable"] = "0"
+    await svc.runner.observe_all()
+    guest = svc.runner.network().segment("home/segment/guest")
+    assert guest is not None and guest.purpose == "guest" and guest.isolated
+    want = "sites: {home: {wlans: [{ssid: Example-Guest, security: wpa2-psk, devices: [fb]}]}}"
+    p = plan(parse(want), svc.runner.network(), RULES, secret=svc.store.get_secret)
+    assert [c.kind.value for c in p.changes] == ["wlan"]
+    d = Deployer(svc.runner)
+    rec = await d.prepare(p, "guest Wi-Fi on", "tester")
+    assert await deploy(d, rec.id) is ChangeStatus.APPLIED
+    assert sim.wlans[3]["NewEnable"] == "1"
+    _, findings = svc.runner.evaluate()
+    assert not [f for f in findings if f.rule_id == "wifi.segment-at-gateway"]
+    assert not [f for f in findings if f.rule_id == "wifi.guest-isolation"]
 
 
 async def test_backup_object_is_plain_data(adapter: FritzboxAdapter) -> None:

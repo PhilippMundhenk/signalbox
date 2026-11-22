@@ -148,6 +148,19 @@ export function tag(text, cls = '') {
   return h('span', { class: `tag ${cls}`.trim() }, text);
 }
 
+const SOURCE = { reported: 'reported by the device', declared: 'declared in the desired state', heuristic: 'guessed from the name' };
+const UNTRUSTED = new Set(['guest', 'iot', 'cameras']);
+
+// Purpose of a segment or SSID ("guest", "iot", ...) with where it comes from; a guess gets a "?".
+export function purposeTag(obj) {
+  if (!obj || !obj.purpose) return null;
+  const guessed = obj.purpose_source === 'heuristic';
+  const cls = ['purpose', UNTRUSTED.has(obj.purpose) ? 'untrusted' : '', guessed ? 'guess' : ''].join(' ');
+  const el = h('span', { class: `tag ${cls}`.trim(), 'data-testid': 'purpose', 'data-source': obj.purpose_source || '', title: SOURCE[obj.purpose_source] || '' }, guessed ? `${obj.purpose}?` : obj.purpose);
+  if (obj.reported_purpose) el.title += ` (device reports ${obj.reported_purpose})`;
+  return el;
+}
+
 export function kv(pairs) {
   const dl = h('dl', { class: 'kv' });
   for (const [k, v] of pairs) {

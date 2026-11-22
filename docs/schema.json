@@ -1035,6 +1035,16 @@
       "title": "PortMembership",
       "type": "object"
     },
+    "PurposeSource": {
+      "description": "Where a purpose came from. Declared beats reported beats heuristic.",
+      "enum": [
+        "reported",
+        "declared",
+        "heuristic"
+      ],
+      "title": "PurposeSource",
+      "type": "string"
+    },
     "Radio": {
       "additionalProperties": false,
       "properties": {
@@ -1235,6 +1245,18 @@
           "title": "Id",
           "type": "string"
         },
+        "isolated": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Isolated"
+        },
         "members": {
           "items": {
             "$ref": "#/$defs/PortMembership"
@@ -1266,6 +1288,39 @@
           ],
           "default": null,
           "title": "Observed At"
+        },
+        "purpose": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SegmentPurpose"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "purpose_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PurposeSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reported_purpose": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SegmentPurpose"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "site_id": {
           "title": "Site Id",
@@ -1310,6 +1365,23 @@
       ],
       "title": "Segment",
       "type": "object"
+    },
+    "SegmentPurpose": {
+      "description": "What a network is for: the vocabulary users think in (\"my IoT network\").",
+      "enum": [
+        "main",
+        "guest",
+        "iot",
+        "management",
+        "servers",
+        "lab",
+        "voice",
+        "cameras",
+        "transit",
+        "other"
+      ],
+      "title": "SegmentPurpose",
+      "type": "string"
     },
     "Site": {
       "additionalProperties": false,
@@ -1535,6 +1607,18 @@
     "Wlan": {
       "additionalProperties": false,
       "properties": {
+        "client_isolation": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Isolation"
+        },
         "device_id": {
           "title": "Device Id",
           "type": "string"
@@ -1589,9 +1673,42 @@
           ],
           "default": null
         },
+        "purpose": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SegmentPurpose"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "purpose_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PurposeSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "radio_id": {
           "title": "Radio Id",
           "type": "string"
+        },
+        "reported_purpose": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SegmentPurpose"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "roaming_80211k": {
           "anyOf": [

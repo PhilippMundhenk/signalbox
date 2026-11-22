@@ -118,7 +118,7 @@ clear text and is only meant for the simulator.
   `channel`, `datapath` and `steering`. Security from `authentication-types`
   (`wpa2-psk,wpa3-psk` → WPA2/WPA3, empty → open), PMF from `management-protection`
   (`allowed` → optional), 802.11r from `ft`, 802.11k/v from `steering.rrm`/`steering.wnm`
-  (not set at all: unknown, RouterOS' default applies), hidden from `hide-ssid`, segment from the bridge port's `pvid`, else `datapath.vlan-id`.
+  (not set at all: unknown, RouterOS' default applies), hidden from `hide-ssid`, segment from the bridge port's `pvid`, else `datapath.vlan-id`. Client isolation and a network purpose are not read (declare the purpose in the desired state); a plan that sets `client_isolation` is refused.
 - **Wireless (`wireless` package)**: radios from `/interface/wireless` entries without
   `master-interface` (`band` like `2ghz-b/g/n`, `frequency`, `channel-width`), WLANs in mode
   `ap-bridge` or `bridge`, security and passphrase from the `security-profile`

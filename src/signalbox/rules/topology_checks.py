@@ -12,6 +12,7 @@ from collections.abc import Iterable, Iterator
 from ipaddress import ip_address
 
 from signalbox.model import (
+    UNTRUSTED_PURPOSES,
     Client,
     Device,
     DeviceRole,
@@ -19,6 +20,7 @@ from signalbox.model import (
     Network,
     Port,
     PortKind,
+    SegmentPurpose,
     normalise_mac,
 )
 from signalbox.rules import Result, Severity, found, incomplete, rule
@@ -305,8 +307,10 @@ def unknown_neighbour(net: Network) -> Iterator[Result]:
     "The management addresses of routers, switches and access points lie in a network that "
     "also has user devices or an SSID, while the site already uses VLANs. Every compromised "
     "laptop or IoT device can then reach the login pages of the network devices. A separate "
-    "management VLAN, reachable only from admin devices, is the usual next step. Off unless "
-    "enabled: this is a recommendation, not a fault.",
+    "management VLAN, reachable only from admin devices, is the usual next step. A network "
+    "with the purpose management is that VLAN and is not reported; guest and IoT networks "
+    "are security.management-exposure's finding. Off unless enabled: this is a "
+    "recommendation, not a fault.",
     enabled=False,
 )
 def management_separate(net: Network) -> Iterator[Result]:
@@ -321,7 +325,15 @@ def management_separate(net: Network) -> Iterator[Result]:
                 seg = address_segment(net, d)
                 if seg is not None:
                     managed.setdefault(seg, []).append(d)
+        mgmt = sorted(
+            s.id
+            for s in net.segments
+            if s.site_id == site and s.purpose is SegmentPurpose.MANAGEMENT
+        )
         for seg, devices in sorted(managed.items()):
+            purpose = next((s.purpose for s in net.segments if s.id == seg), None)
+            if purpose is SegmentPurpose.MANAGEMENT or purpose in UNTRUSTED_PURPOSES:
+                continue
             clients = [
                 c
                 for c in net.clients
@@ -342,7 +354,10 @@ def management_separate(net: Network) -> Iterator[Result]:
                 f"{_names(names)} {'is' if len(names) == 1 else 'are'} managed in "
                 f"{segment_name(net, seg)}, which also has {' and '.join(users)}.",
                 [seg],
-                fix="Consider a management VLAN that only admin devices can reach, and move the "
+                fix="Move the management addresses to "
+                f"{_names(segment_name(net, m) for m in mgmt)}, the management network."
+                if mgmt
+                else "Consider a management VLAN that only admin devices can reach, and move the "
                 "management addresses there.",
             )
 
