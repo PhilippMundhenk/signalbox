@@ -106,8 +106,10 @@ def public_network(net: Network) -> dict[str, Any]:
 
     Uplinks get the derived ``nat_class`` and ``upstream_device`` (the known router in front,
     #148), management services the segments that can reach them (``reach_segments``) and
-    whether the internet can (``internet``, ``null``: the firewall decides, #173), so that the
-    UI does not repeat the derivation.
+    whether the internet can (``internet``, ``null``: the firewall decides, #173), clients the
+    source of each address (``sources``, from leases where the client does not say) and the
+    end of their active leases (``lease_expires``, #183), so that the UI does not repeat the
+    derivation.
     """
     data = net.model_dump(mode="json")
     for wlan in data["wlans"]:
@@ -121,6 +123,16 @@ def public_network(net: Network) -> dict[str, Any]:
     for service, raw in zip(net.services, data["services"], strict=True):
         raw["reach_segments"] = net.service_segments(service)
         raw["internet"] = net.service_from_wan(service)
+    for client, raw in zip(net.clients, data["clients"], strict=True):
+        sources = {str(a): net.address_source(client, a) for a in client.addresses}
+        raw["sources"] = {a: s.value for a, s in sources.items() if s is not None}
+        ends = [
+            lease.expires
+            for srv in net.dhcp_servers
+            for lease in srv.leases_of(client.mac)
+            if lease.active() and lease.expires is not None
+        ]
+        raw["lease_expires"] = max(ends).isoformat() if ends else None
     return data
 
 

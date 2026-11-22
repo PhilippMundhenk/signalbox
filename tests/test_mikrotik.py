@@ -420,6 +420,9 @@ async def test_clients(snap: Snapshot) -> None:
     printer = by_mac["02:00:00:00:00:10"]
     assert [str(a) for a in printer.addresses] == ["192.0.2.10", "2001:db8:1::10"]
     assert printer.hostname == "PRN-0010"  # from the (static, bound) lease
+    assert {str(a): s.value for a, s in printer.address_sources.items()} == {
+        "192.0.2.10": "dhcp-reserved"
+    }  # the IPv6 address comes from the neighbour table: not known
     assert (printer.segment_id, printer.seen_on) == ("home/segment/native", P("rt", "ether3"))
     sensor = by_mac["02:00:00:00:00:20"]
     assert (sensor.segment_id, sensor.seen_on) == ("home/segment/20", P("rt", "ether4"))

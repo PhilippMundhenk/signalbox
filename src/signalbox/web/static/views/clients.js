@@ -7,6 +7,9 @@ import { editNote, noteOf } from '../annotations.js';
 
 let query = '';
 
+// Where an address came from (#183), as shown after it.
+const SOURCE = { dhcp: 'DHCP', 'dhcp-reserved': 'DHCP reservation', static: 'fixed', slaac: 'SLAAC', 'slaac-privacy': 'SLAAC temporary', dhcpv6: 'DHCPv6', 'link-local': 'link-local' };
+
 export async function renderClients(main, ctx) {
   const id = ctx.renderId;
   const [ix, past] = await Promise.all([loadNetwork(), get('/history')]);
@@ -20,8 +23,10 @@ export async function renderClients(main, ctx) {
   // The same client can be reported by several devices: one row per MAC, every place it was seen.
   const rows = new Map();
   for (const c of clients) {
-    const row = rows.get(c.mac) || { mac: c.mac, addresses: new Set(), hostname: null, segment_id: null, seen: [], last_seen: null };
+    const row = rows.get(c.mac) || { mac: c.mac, addresses: new Set(), sources: {}, lease_expires: null, hostname: null, segment_id: null, seen: [], last_seen: null };
     c.addresses.forEach((a) => row.addresses.add(a));
+    Object.assign(row.sources, c.sources || {});
+    if (c.lease_expires && (!row.lease_expires || c.lease_expires > row.lease_expires)) row.lease_expires = c.lease_expires;
     row.hostname = row.hostname || c.hostname;
     row.segment_id = row.segment_id || c.segment_id;
     if (c.seen_on) row.seen.push(c.seen_on);
@@ -61,7 +66,8 @@ export async function renderClients(main, ctx) {
         [
           ['Name', name],
           ['MAC', (r) => h('span', { class: 'mono' }, r.mac)],
-          ['Addresses', (r) => [...r.addresses].join(', ')],
+          ['Addresses', (r) => [...r.addresses].map((a) => (r.sources[a] && r.sources[a] !== 'unknown' ? `${a} (${SOURCE[r.sources[a]] || r.sources[a]})` : a)).join(', ')],
+          ['Lease until', (r) => (r.lease_expires ? h('span', { title: fmtTime(r.lease_expires), 'data-testid': 'client-lease' }, fmtTime(r.lease_expires)) : null)],
           ['Segment', (r) => (r.segment_id ? ix.segmentName(r.segment_id) : null)],
           ['Seen on', (r) => r.seen.map((x) => ix.label(x)).join(', ')],
           ['First seen', (r) => (r.first_seen ? h('span', { title: fmtTime(r.first_seen), 'data-testid': 'client-first-seen' }, fmtAgo(r.first_seen)) : null)],

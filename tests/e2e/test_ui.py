@@ -210,10 +210,16 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(app.get_by_test_id("dhcp-server")).to_have_count(2)
     expect(app.get_by_test_id("reservation")).to_contain_text("printer")
     expect(app.get_by_test_id("host-record")).to_contain_text("printer.lan")
+    expect(app.get_by_test_id("dhcp-leases")).to_have_text("1 active, 1 expired")  # #183
 
     go(app, "#/clients")
     expect(app.get_by_test_id("client-row")).to_have_count(2)
     expect(app.get_by_test_id("client-first-seen")).to_have_count(2)  # observation history
+    # address sources (#183): the printer says, the laptop's comes from its lease
+    rows = app.get_by_test_id("client-row")
+    expect(rows.filter(has_text="printer")).to_contain_text("192.0.2.10 (DHCP reservation)")
+    expect(rows.filter(has_text="laptop")).to_contain_text("192.0.2.123 (DHCP)")
+    expect(app.get_by_test_id("client-lease")).to_have_count(1)
     app.get_by_test_id("client-filter").fill("laptop")
     expect(app.get_by_test_id("client-row")).to_have_count(1)
     expect(app.get_by_test_id("client-row")).to_contain_text("Router · SSID Home")
