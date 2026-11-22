@@ -27,7 +27,8 @@ jobs:
       matrix:
         python: ["3.11", "3.12", "3.13"]
     env:
-      SIGNALBOX_REQUIRE_SWITCHES: "1"  # the switch adapter tests must run, never skip
+      # the switch adapter tests must run, never skip (no SIGNALBOX_ prefix: those are settings)
+      REQUIRE_SWITCH_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -133,5 +133,5 @@ ports: the contract checks for several models (password schemes, unsupported set
 Easy Smart generations), 802.1Q and port-based VLANs, link aggregation, wrong password and
 user, no answer, datagrams that are not switch replies, garbled setting values, two switches
 answering for one address, a busy client port and two switches read at once. Without the extra
-these tests are skipped; CI sets `SIGNALBOX_REQUIRE_SWITCHES=1`, so they can never be skipped
+these tests are skipped; CI sets `REQUIRE_SWITCH_TESTS=1`, so they can never be skipped
 there.

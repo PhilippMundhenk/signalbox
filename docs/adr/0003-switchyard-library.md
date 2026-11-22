@@ -29,7 +29,7 @@ release tags yet. Most Signalbox installations will never see such a switch.
 - Signalbox uses Switchyard's protocol layer only: the transports, the per-switch drivers and
   their read methods, the identity probe, and the simulators in tests. Not its manager, store,
   web UI or MQTT.
-- CI installs `.[dev,switches]` in the test jobs and sets `SIGNALBOX_REQUIRE_SWITCHES=1`, so
+- CI installs `.[dev,switches]` in the test jobs and sets `REQUIRE_SWITCH_TESTS=1`, so
   the simulator tests fail instead of being skipped when Switchyard is missing. Locally they
   are skipped with the reason.
 - The container image includes Switchyard: the build stage builds a wheel from the same pinned

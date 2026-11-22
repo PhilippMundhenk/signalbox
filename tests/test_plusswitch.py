@@ -1,7 +1,7 @@
 """NETGEAR ProSAFE Plus (NSDP) and TP-Link Easy Smart adapters.
 
 The mapping tests run everywhere. The tests against Switchyard's simulators need the extra
-``signalbox-net[switches]``; without it they are skipped, unless ``SIGNALBOX_REQUIRE_SWITCHES``
+``signalbox-net[switches]``; without it they are skipped, unless ``REQUIRE_SWITCH_TESTS``
 is set (CI sets it, so there they fail instead of being skipped).
 """
 
@@ -40,7 +40,7 @@ try:
     import switchyard  # noqa: F401
 except ImportError:  # pragma: no cover - depends on the installation
     HAVE_SWITCHYARD = False
-    if os.environ.get("SIGNALBOX_REQUIRE_SWITCHES"):
+    if os.environ.get("REQUIRE_SWITCH_TESTS"):
         raise
 else:
     HAVE_SWITCHYARD = True
