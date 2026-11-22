@@ -25,6 +25,7 @@ All notable changes to this project are documented here. The format follows
 - Icon (a railway signal), branding guide, favicon and app icons, social preview (#19)
 - Documentation for users: README with getting started and demo, CONFIGURATION and MATURITY generated from the code, DEPLOYMENT, TROUBLESHOOTING, every rule in RULES.md (#18)
 - Web interface: findings first, devices with a settings form generated from the adapter, certificate trust, topology with VLAN overlay and entered cables, segments, Wi-Fi, DHCP & DNS, clients, settings; light and dark; works on a phone; browser tests in CI (#14, #15)
+- Desired state: YAML in the data folder (optionally a git repository), editor with import of the observed state, encrypted secrets for Wi-Fi passphrases, drift findings for segments, DHCP, Wi-Fi and port VLANs (#36)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)

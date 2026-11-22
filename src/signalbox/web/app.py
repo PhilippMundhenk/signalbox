@@ -26,6 +26,7 @@ from signalbox.secrets import SecretError
 from signalbox.service import Services
 from signalbox.store import DeviceRecord, StoreError, slug
 from signalbox.web.auth import COOKIE, Auth, Locked
+from signalbox.web.desired_api import router as desired_router
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -439,6 +440,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
         store.delete_link(link_id)
 
     app.include_router(api)
+    app.include_router(desired_router(services))
     if STATIC.is_dir():
         app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")
     return app

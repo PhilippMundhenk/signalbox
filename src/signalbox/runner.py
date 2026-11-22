@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 from signalbox.adapters import Adapter, AdapterContext
 from signalbox.config import Config
+from signalbox.desired import DesiredError, DesiredState, drift_rules
 from signalbox.merge import merge
 from signalbox.model import (
     Device,
@@ -21,7 +22,7 @@ from signalbox.model import (
     Snapshot,
     Source,
 )
-from signalbox.rules import Finding, Rule, evaluate
+from signalbox.rules import Finding, Rule, Severity, evaluate, found
 from signalbox.secrets import SecretError
 from signalbox.store import DeviceRecord, Store, StoreError
 
@@ -38,6 +39,8 @@ class Runner:
     rules: list[Rule]
     config: Config
     link_sources: list[LinkSource] = field(default_factory=list)
+    #: Loads the desired state (None: nothing declared); its drift rules join the checks.
+    desired_source: Callable[[], DesiredState | None] | None = None
     #: Called after every evaluation (MQTT export, UI push).
     listeners: list[Callable[[Network, list[Finding]], None]] = field(default_factory=list)
     _wake: asyncio.Event = field(default_factory=asyncio.Event)
@@ -115,9 +118,32 @@ class Runner:
             return net
         return merge(self.store.sites(), snaps, [*manual, *derived.values()])
 
+    def active_rules(self) -> list[Rule]:
+        """Built-in and plugin rules, plus drift rules when a desired state is declared."""
+        rules = list(self.rules)
+        if self.desired_source is None:
+            return rules
+        try:
+            state = self.desired_source()
+        except DesiredError as exc:
+            message = str(exc)
+            rules.append(
+                Rule(
+                    "desired.invalid",
+                    "Desired state cannot be read",
+                    Severity.ERROR,
+                    "The desired-state files have an error, so drift cannot be checked.",
+                    lambda net: [found(message, [], fix="Correct the file under Desired state.")],
+                )
+            )
+            return rules
+        if state is not None:
+            rules += drift_rules(state, self.store.get_secret)
+        return rules
+
     def evaluate(self) -> tuple[Network, list[Finding]]:
         net = self.network()
-        findings = evaluate(net, self.rules, self.config.rules)
+        findings = evaluate(net, self.active_rules(), self.config.rules)
         now = datetime.now(UTC)
         self.store.record_findings(findings, now)
         self.store.prune_resolved(now - timedelta(days=30))

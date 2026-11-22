@@ -102,6 +102,7 @@ MQTT discovery, so they appear in Home Assistant without further setup.
 - [docs/screenshots.md](docs/screenshots.md): all screenshots
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): every setting and its environment variable
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): data folder, reverse proxy, backups, updates
+- [docs/DESIRED.md](docs/DESIRED.md): declaring what the network should look like, and drift
 - [docs/RULES.md](docs/RULES.md): what each check looks at and how to fix a finding
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): devices that cannot be read, certificates
 - [docs/MATURITY.md](docs/MATURITY.md): what is tested how, and on which real devices

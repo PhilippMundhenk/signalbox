@@ -11,6 +11,7 @@ import { renderServices } from './views/services.js';
 import { renderClients } from './views/clients.js';
 import { renderTopology } from './views/topology.js';
 import { renderSettings } from './views/settings.js';
+import { renderDesired } from './views/desired.js';
 
 const root = document.getElementById('app');
 const state = { session: null, cleanups: [], renderId: 0 };
@@ -79,6 +80,7 @@ const NAV = [
   ['wireless', '#/wireless', 'Wireless'],
   ['services', '#/dhcp-dns', 'DHCP & DNS'],
   ['clients', '#/clients', 'Clients'],
+  ['desired', '#/desired', 'Desired state'],
   ['settings', '#/settings', 'Settings'],
 ];
 
@@ -89,7 +91,7 @@ export function routeInfo() {
   if (first === 'devices') return { name: 'devices', nav: 'devices' };
   if (first === 'device' && second) return { name: 'device', nav: 'devices', id: second, tab: third || 'overview' };
   if (first === 'dhcp-dns') return { name: 'services', nav: 'services' };
-  const simple = ['segments', 'wireless', 'clients', 'settings', 'topology'];
+  const simple = ['segments', 'wireless', 'clients', 'settings', 'topology', 'desired'];
   if (simple.includes(first)) return { name: first, nav: first };
   return { name: 'findings', nav: 'findings' };
 }
@@ -175,6 +177,7 @@ async function render() {
     else if (route.name === 'services') await renderServices(main, ctx);
     else if (route.name === 'clients') await renderClients(main, ctx);
     else if (route.name === 'topology') await renderTopology(main, ctx);
+    else if (route.name === 'desired') await renderDesired(main, ctx);
     else await renderSettings(main, ctx, session);
   } catch (err) {
     showError(err);

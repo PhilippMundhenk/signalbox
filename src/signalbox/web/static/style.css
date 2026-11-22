@@ -200,3 +200,5 @@ legend { font-weight: 600; padding: 0 4px; }
   .phone-only { display: block; margin: 0; }
 }
 
+
+textarea.code { width: 100%; max-width: none; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9rem; line-height: 1.4; }

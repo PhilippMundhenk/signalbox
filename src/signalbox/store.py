@@ -173,6 +173,23 @@ class Store:
                 (key, value),
             )
 
+    # secrets (Wi-Fi passphrases of the desired state), encrypted ---------------------------
+
+    def set_secret(self, name: str, value: str) -> None:
+        self.set_setting(f"secret:{name}", self.vault.encrypt(value))
+
+    def get_secret(self, name: str) -> str | None:
+        token = self.get_setting(f"secret:{name}")
+        return None if token is None else self.vault.decrypt(token)
+
+    def secret_names(self) -> list[str]:
+        rows = self._all("SELECT key FROM settings WHERE key LIKE 'secret:%' ORDER BY key")
+        return [str(r[0])[len("secret:") :] for r in rows]
+
+    def delete_secret(self, name: str) -> None:
+        with self._tx() as db:
+            db.execute("DELETE FROM settings WHERE key = ?", (f"secret:{name}",))
+
     # sites ------------------------------------------------------------------------------
 
     def sites(self) -> list[Site]:

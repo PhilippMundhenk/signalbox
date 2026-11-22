@@ -293,7 +293,9 @@ def test_keyboard_login_and_navigation(page: Any, server: Any) -> None:
     expect(page.get_by_test_id("nav-devices")).to_have_attribute("aria-current", "page")
 
 
-@pytest.mark.parametrize("hash_", [*VIEWS, "#/settings", "#/devices/new", "#/device/router"])
+@pytest.mark.parametrize(
+    "hash_", [*VIEWS, "#/settings", "#/desired", "#/devices/new", "#/device/router"]
+)
 def test_phone_has_no_horizontal_scroll(page: Any, server: Any, hash_: str) -> None:
     page.set_viewport_size({"width": 375, "height": 740})
     page.set_default_timeout(15000)
@@ -317,3 +319,35 @@ def test_phone_has_no_horizontal_scroll(page: Any, server: Any, hash_: str) -> N
     page.wait_for_load_state("networkidle")
     overflow = page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
     assert overflow <= 0, f"{hash_} scrolls sideways by {overflow}px"
+
+
+def test_desired_state_import_edit_save_and_drift(app: Any) -> None:
+    add_site(app)
+    add_lab(app, "Router")
+    observe(app)
+    go(app, "#/desired")
+    expect(app.get_by_test_id("desired-status")).to_contain_text("Nothing declared")
+    app.get_by_test_id("desired-import").click()
+    editor = app.get_by_test_id("desired-yaml")
+    expect(editor).to_have_value(re.compile("sites:"))
+    # invalid YAML is refused with the reason, nothing saved
+    editor.fill("sites: [")
+    app.get_by_test_id("desired-save").click()
+    expect(app.get_by_test_id("desired-status")).to_contain_text("not valid YAML")
+    # a segment that does not exist becomes a drift finding
+    editor.fill("sites:\n  home:\n    segments:\n      - vlan: 42\n        name: Lab\n")
+    app.get_by_test_id("desired-message").fill("plan the lab VLAN")
+    app.get_by_test_id("desired-save").click()
+    expect(app.get_by_test_id("desired-status")).to_contain_text("Valid. Sites: home")
+    go(app, "#/")
+    expect(app.locator("main")).to_contain_text("Segment 42 (Lab) does not exist")
+    # secrets: stored, listed by name only, deleted
+    go(app, "#/desired")
+    app.get_by_test_id("secret-name").fill("main-wifi")
+    app.get_by_test_id("secret-value").fill("a long passphrase")
+    app.get_by_test_id("secret-add").click()
+    expect(app.get_by_test_id("secret-row")).to_have_count(1)
+    expect(app.locator("main")).not_to_contain_text("a long passphrase")
+    app.get_by_test_id("secret-delete").click()
+    app.get_by_test_id("confirm-ok").click()
+    expect(app.get_by_test_id("secret-row")).to_have_count(0)

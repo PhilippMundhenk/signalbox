@@ -9,6 +9,7 @@ from pathlib import Path
 
 from signalbox.adapters import Adapter, load_adapters
 from signalbox.config import Config, load
+from signalbox.desired import load as desired_load
 from signalbox.rules import Rule, load_rules
 from signalbox.runner import LinkSource, Runner
 from signalbox.secrets import load_vault
@@ -49,7 +50,14 @@ def build(
     rules = load_rules() if rules is None else rules
     if link_sources is None:
         link_sources = _default_link_sources()
-    runner = Runner(store, adapters, rules, config, link_sources=link_sources)
+    runner = Runner(
+        store,
+        adapters,
+        rules,
+        config,
+        link_sources=link_sources,
+        desired_source=lambda: desired_load(data_dir),
+    )
     return Services(data_dir, config, store, adapters, rules, runner)
 
 

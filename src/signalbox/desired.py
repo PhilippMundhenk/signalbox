@@ -1,0 +1,535 @@
+"""Desired state: what the network should look like (component "desired state", issue #36).
+
+The desired state is a partial description in YAML: only what is declared is managed. Files
+live in ``<data>/desired/`` (one or more ``*.yaml``, merged per site); the folder may be a git
+repository, then every save from the UI is a commit. Wi-Fi passphrases are never written into
+the YAML: an SSID names a secret (``passphrase_secret``) kept encrypted by Signalbox.
+
+Drift rules compare the desired state with the observed network field by field.
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+from collections.abc import Callable, Iterator, Mapping
+from ipaddress import IPv4Address
+from pathlib import Path
+from typing import Any, Literal
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+from signalbox.model import (
+    DeviceRole,
+    IPAddress,
+    IPInterface,
+    Membership,
+    Network,
+    Pmf,
+    Security,
+    normalise_mac,
+    passphrase_fingerprint,
+    port_id,
+    segment_id,
+)
+from signalbox.rules import Result, Rule, Severity, found, incomplete
+
+FOLDER = "desired"
+SegmentRef = int | Literal["native"]
+
+
+def seg_key(ref: SegmentRef | None) -> int | None:
+    return None if ref is None or ref == "native" or ref == 1 else int(ref)
+
+
+class Spec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class GatewaySpec(Spec):
+    device: str
+    address: IPInterface = Field(description="Router address with prefix, e.g. 198.51.100.1/24")
+
+
+class DhcpSpec(Spec):
+    enabled: bool = True
+    device: str | None = Field(None, description="DHCP server device; default: the gateway")
+    pool: tuple[IPAddress, IPAddress] | None = None
+    dns: list[IPAddress] | None = None
+    lease_seconds: int | None = Field(None, ge=60)
+
+
+class ReservationSpec(Spec):
+    mac: str
+    address: IPAddress
+    hostname: str | None = None
+
+    @field_validator("mac")
+    @classmethod
+    def _mac(cls, v: str) -> str:
+        return normalise_mac(v)
+
+
+class SegmentSpec(Spec):
+    vlan: SegmentRef = Field(description='VLAN id, or "native" for the untagged LAN')
+    name: str | None = None
+    gateway: GatewaySpec | None = None
+    dhcp: DhcpSpec | None = None
+    reservations: list[ReservationSpec] = Field(default_factory=list)
+
+
+class RoamingSpec(Spec):
+    r: bool | None = None
+    k: bool | None = None
+    v: bool | None = None
+
+
+class WlanSpec(Spec):
+    ssid: str = Field(min_length=1, max_length=32)
+    security: Security
+    passphrase_secret: str | None = Field(None, description="Name of a stored secret")
+    pmf: Pmf | None = None
+    segment: SegmentRef = "native"
+    devices: list[str] | None = Field(None, description="Access points; default: all of the site")
+    hidden: bool = False
+    enabled: bool = True
+    roaming: RoamingSpec = RoamingSpec()
+
+
+class PortSpec(Spec):
+    device: str
+    port: str
+    untagged: SegmentRef | None = Field(None, description='VLAN sent untagged, or "native"')
+    tagged: list[int] = Field(default_factory=list)
+
+
+class SiteSpec(Spec):
+    segments: list[SegmentSpec] = Field(default_factory=list)
+    wlans: list[WlanSpec] = Field(default_factory=list)
+    ports: list[PortSpec] = Field(default_factory=list)
+
+
+class DesiredState(Spec):
+    sites: dict[str, SiteSpec] = Field(default_factory=dict)
+
+    def merged(self, other: DesiredState) -> DesiredState:
+        sites = dict(self.sites)
+        for name, spec in other.sites.items():
+            old = sites.get(name)
+            sites[name] = (
+                spec
+                if old is None
+                else SiteSpec(
+                    segments=[*old.segments, *spec.segments],
+                    wlans=[*old.wlans, *spec.wlans],
+                    ports=[*old.ports, *spec.ports],
+                )
+            )
+        return DesiredState(sites=sites)
+
+
+class DesiredError(Exception):
+    pass
+
+
+def _validation_message(source: str, exc: ValidationError) -> str:
+    parts = [f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()]
+    return f"{source}: " + "; ".join(parts)
+
+
+def parse(text: str, source: str = "desired state") -> DesiredState:
+    try:
+        raw = yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        raise DesiredError(f"{source}: not valid YAML: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise DesiredError(f"{source}: expected a mapping with a 'sites' key")
+    try:
+        state = DesiredState.model_validate(raw)
+    except ValidationError as exc:
+        raise DesiredError(_validation_message(source, exc)) from exc
+    _check_unique(state, source)
+    return state
+
+
+def _check_unique(state: DesiredState, source: str) -> None:
+    for site, spec in state.sites.items():
+        vlans = [seg_key(s.vlan) for s in spec.segments]
+        dup = sorted({str(v or "native") for v in vlans if vlans.count(v) > 1})
+        if dup:
+            raise DesiredError(f"{source}: site {site}: segment declared twice: {', '.join(dup)}")
+        ssids = [w.ssid for w in spec.wlans]
+        dup = sorted({s for s in ssids if ssids.count(s) > 1})
+        if dup:
+            raise DesiredError(f"{source}: site {site}: SSID declared twice: {', '.join(dup)}")
+        ports = [(p.device, p.port) for p in spec.ports]
+        dup = sorted({f"{d}/{p}" for d, p in ports if ports.count((d, p)) > 1})
+        if dup:
+            raise DesiredError(f"{source}: site {site}: port declared twice: {', '.join(dup)}")
+
+
+def load(data_dir: Path) -> DesiredState | None:
+    """All YAML files of ``<data>/desired`` merged, or None when there are none."""
+    folder = data_dir / FOLDER
+    files = sorted(folder.glob("*.yaml")) if folder.is_dir() else []
+    if not files:
+        return None
+    state = DesiredState()
+    for f in files:
+        state = state.merged(parse(f.read_text(), f.name))
+    _check_unique(state, FOLDER)
+    return state
+
+
+def dump(state: DesiredState) -> str:
+    data = state.model_dump(mode="json", exclude_defaults=True)
+    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+
+
+def save(data_dir: Path, text: str, message: str, author: str = "Signalbox") -> str | None:
+    """Validate and write ``desired/network.yaml``; commit when the folder is a git repository.
+
+    Returns the commit id, or None without git.
+    """
+    parse(text, "network.yaml")
+    folder = data_dir / FOLDER
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "network.yaml").write_text(text)
+    git = shutil.which("git")
+    if git is None or not (folder / ".git").exists():
+        return None
+
+    def run(*args: str) -> str:
+        return subprocess.run(
+            [git, "-C", str(folder), *args], check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    run("add", "network.yaml")
+    if not run("status", "--porcelain"):
+        return run("rev-parse", "HEAD")
+    run(
+        "-c",
+        f"user.name={author}",
+        "-c",
+        "user.email=signalbox@localhost",
+        "commit",
+        "-m",
+        message or "Desired state changed in Signalbox",
+    )
+    return run("rev-parse", "HEAD")
+
+
+# import from the observed network ------------------------------------------------------------
+
+
+def from_network(net: Network, site_id: str) -> DesiredState:
+    """The observed state of one site as a desired-state starting point (no passphrases)."""
+    devices = {d.id: d for d in net.devices if d.site_id == site_id}
+    segs: list[SegmentSpec] = []
+    for seg in (s for s in net.segments if s.site_id == site_id):
+        sub = next(
+            (
+                s
+                for s in net.subnets
+                if s.segment_id == seg.id
+                and s.device_id in devices
+                and (s.gateway or devices[s.device_id].role is DeviceRole.GATEWAY)
+                and isinstance(s.interface.ip, IPv4Address)
+            ),
+            None,
+        )
+        dhcp = next(
+            (d for d in net.dhcp_servers if d.segment_id == seg.id and d.device_id in devices),
+            None,
+        )
+        segs.append(
+            SegmentSpec(
+                vlan="native" if seg.vlan in (None, 1) else seg.vlan,
+                name=seg.name,
+                gateway=GatewaySpec(device=sub.device_id, address=sub.interface) if sub else None,
+                dhcp=DhcpSpec(
+                    enabled=dhcp.enabled,
+                    device=dhcp.device_id,
+                    pool=(dhcp.pools[0].start, dhcp.pools[0].end) if dhcp.pools else None,
+                    dns=list(dhcp.dns_servers) or None,
+                    lease_seconds=dhcp.lease_seconds,
+                )
+                if dhcp
+                else None,
+                reservations=[
+                    ReservationSpec(mac=r.mac, address=r.address, hostname=r.hostname)
+                    for r in (dhcp.reservations if dhcp else [])
+                ],
+            )
+        )
+    wlans: dict[str, WlanSpec] = {}
+    for w in (w for w in net.wlans if w.device_id in devices):
+        wseg = net.segment(w.segment_id) if w.segment_id else None
+        if w.ssid in wlans:
+            prev = wlans[w.ssid]
+            wlans[w.ssid] = prev.model_copy(
+                update={"devices": sorted({*(prev.devices or []), w.device_id})}
+            )
+            continue
+        wlans[w.ssid] = WlanSpec(
+            ssid=w.ssid,
+            security=w.security,
+            pmf=w.pmf,
+            segment="native" if wseg is None or wseg.vlan in (None, 1) else wseg.vlan,
+            devices=[w.device_id],
+            hidden=w.hidden,
+            enabled=w.enabled,
+            roaming=RoamingSpec(r=w.roaming_80211r, k=w.roaming_80211k, v=w.roaming_80211v),
+        )
+    ports: list[PortSpec] = []
+    for p in (p for p in net.ports if p.device_id in devices):
+        untagged: SegmentRef | None = None
+        tagged: list[int] = []
+        for seg in net.segments:
+            for m in seg.members:
+                if m.port_id != p.id:
+                    continue
+                vlan = seg.vlan if seg.vlan not in (None, 1) else None
+                if m.mode is Membership.UNTAGGED:
+                    untagged = "native" if vlan is None else vlan
+                elif vlan is not None:
+                    tagged.append(vlan)
+        if untagged is not None or tagged:
+            ports.append(
+                PortSpec(device=p.device_id, port=p.name, untagged=untagged, tagged=sorted(tagged))
+            )
+    return DesiredState(
+        sites={site_id: SiteSpec(segments=segs, wlans=list(wlans.values()), ports=ports)}
+    )
+
+
+# drift ---------------------------------------------------------------------------------------
+
+SecretLookup = Callable[[str], str | None]
+
+
+def _fmt(value: Any) -> str:
+    if value is None:
+        return "not set"
+    if isinstance(value, list | tuple):
+        return ", ".join(str(v) for v in value) or "none"
+    return str(getattr(value, "value", value))
+
+
+def _differ(field: str, want: Any, have: Any) -> str:
+    return f"{field}: should be {_fmt(want)}, is {_fmt(have)}"
+
+
+def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list[Rule]:
+    """Rules comparing the observed network with ``state`` (one finding per difference)."""
+
+    def segments(net: Network) -> Iterator[Result]:
+        for site_id, spec in state.sites.items():
+            for s in spec.segments:
+                sid = segment_id(site_id, seg_key(s.vlan))
+                seg = net.segment(sid)
+                if seg is None:
+                    yield found(
+                        f"Segment {_fmt(s.vlan)} ({s.name or 'unnamed'}) does not exist",
+                        [sid],
+                        key="missing",
+                        fix="Deploy the desired state, or remove the segment from it.",
+                    )
+                    continue
+                if s.name and seg.name and s.name != seg.name:
+                    yield found(
+                        _differ(f"Segment {_fmt(s.vlan)} name", s.name, seg.name),
+                        [sid],
+                        key="name",
+                        severity=Severity.INFO,
+                    )
+                if s.gateway:
+                    yield from _gateway(net, sid, s.gateway)
+                if s.dhcp:
+                    yield from _dhcp(net, sid, s)
+
+    def _gateway(net: Network, sid: str, g: GatewaySpec) -> Iterator[Result]:
+        if net.device(g.device) is None:
+            yield incomplete(f"gateway device {g.device} is not configured or not read", [sid])
+            return
+        subs = [x for x in net.subnets if x.segment_id == sid and x.device_id == g.device]
+        if not any(x.interface == g.address for x in subs):
+            have = [str(x.interface) for x in subs]
+            yield found(
+                _differ(f"{sid} router address on {g.device}", g.address, have),
+                [sid, g.device],
+                key="gateway",
+            )
+
+    def _dhcp(net: Network, sid: str, s: SegmentSpec) -> Iterator[Result]:
+        d = s.dhcp
+        assert d is not None
+        device = d.device or (s.gateway.device if s.gateway else None)
+        servers = [
+            x
+            for x in net.dhcp_servers
+            if x.segment_id == sid and (device is None or x.device_id == device)
+        ]
+        if device is None and not d.enabled:
+            for x in servers:
+                if x.enabled:
+                    yield found(
+                        _differ(f"{sid} DHCP on {x.device_id}", "off", "on"), [x.id], key="enabled"
+                    )
+            return
+        servers.sort(key=lambda x: not x.enabled)  # without a named device: the enabled one
+        if not servers:
+            if d.enabled:
+                yield found(
+                    f"{sid}: no DHCP server{f' on {device}' if device else ''}",
+                    [sid],
+                    key="dhcp",
+                )
+            return
+        srv = servers[0]
+        if srv.enabled != d.enabled:
+            yield found(
+                _differ(f"{sid} DHCP enabled", d.enabled, srv.enabled), [srv.id], key="enabled"
+            )
+        if d.pool is not None:
+            have = (srv.pools[0].start, srv.pools[0].end) if srv.pools else None
+            if have != tuple(d.pool):
+                yield found(
+                    _differ(f"{sid} DHCP pool", list(d.pool), list(have or [])),
+                    [srv.id],
+                    key="pool",
+                )
+        if d.dns is not None and list(srv.dns_servers) != list(d.dns):
+            yield found(
+                _differ(f"{sid} DHCP DNS servers", d.dns, srv.dns_servers), [srv.id], key="dns"
+            )
+        if d.lease_seconds is not None and srv.lease_seconds != d.lease_seconds:
+            yield found(
+                _differ(f"{sid} DHCP lease time", d.lease_seconds, srv.lease_seconds),
+                [srv.id],
+                key="lease",
+                severity=Severity.INFO,
+            )
+        have_res = {r.mac: r.address for r in srv.reservations}
+        for r in s.reservations:
+            if have_res.get(r.mac) != r.address:
+                yield found(
+                    _differ(f"{sid} reservation {r.mac}", r.address, have_res.get(r.mac)),
+                    [srv.id],
+                    key=f"res-{r.mac}",
+                )
+
+    def wlans(net: Network) -> Iterator[Result]:
+        for site_id, spec in state.sites.items():
+            aps = [d.id for d in net.devices if d.site_id == site_id and d.role is DeviceRole.AP]
+            for w in spec.wlans:
+                targets = w.devices if w.devices is not None else aps
+                want_seg = segment_id(site_id, seg_key(w.segment))
+                fp = None
+                if w.passphrase_secret and secret is not None:
+                    value = secret(w.passphrase_secret)
+                    if value is None:
+                        yield found(
+                            f"SSID {w.ssid}: secret {w.passphrase_secret!r} is not stored",
+                            [f"ssid:{w.ssid}"],
+                            key="secret",
+                            fix="Store the passphrase under Settings, Secrets.",
+                        )
+                    else:
+                        fp = passphrase_fingerprint(w.ssid, value)
+                for dev in targets:
+                    if net.device(dev) is None:
+                        yield incomplete(f"SSID {w.ssid}: device {dev} not read", [dev], key=w.ssid)
+                        continue
+                    have = [x for x in net.wlans if x.device_id == dev and x.ssid == w.ssid]
+                    if not have:
+                        yield found(
+                            f"SSID {w.ssid} is missing on {dev}", [dev], key=f"{w.ssid}-missing"
+                        )
+                        continue
+                    x = have[0]
+                    checks: list[tuple[str, Any, Any]] = [
+                        ("security", w.security, x.security),
+                        ("enabled", w.enabled, x.enabled),
+                        ("hidden", w.hidden, x.hidden),
+                        ("segment", want_seg, x.segment_id),
+                    ]
+                    if w.pmf is not None:
+                        checks.append(("PMF", w.pmf, x.pmf))
+                    for flag, want, have_v in (
+                        ("802.11r", w.roaming.r, x.roaming_80211r),
+                        ("802.11k", w.roaming.k, x.roaming_80211k),
+                        ("802.11v", w.roaming.v, x.roaming_80211v),
+                    ):
+                        if want is not None:
+                            checks.append((flag, want, have_v))
+                    for name, want, have_v in checks:
+                        if want != have_v:
+                            yield found(
+                                _differ(f"SSID {w.ssid} on {dev} {name}", want, have_v),
+                                [x.id],
+                                key=name,
+                            )
+                    if fp is not None and x.passphrase_fingerprint not in (None, fp):
+                        yield found(
+                            f"SSID {w.ssid} on {dev}: passphrase differs from the stored secret",
+                            [x.id],
+                            key="passphrase",
+                        )
+
+    def ports(net: Network) -> Iterator[Result]:
+        for site_id, spec in state.sites.items():
+            for p in spec.ports:
+                pid = port_id(p.device, p.port)
+                if net.device(p.device) is None:
+                    yield incomplete(f"port {pid}: device not read", [p.device], key=pid)
+                    continue
+                if net.port(pid) is None:
+                    yield found(f"port {pid} does not exist", [pid], key="missing")
+                    continue
+                modes = {s.id: m.mode for s in net.segments for m in s.members if m.port_id == pid}
+                want_u = (
+                    segment_id(site_id, seg_key(p.untagged)) if p.untagged is not None else None
+                )
+                have_u = [s for s, m in modes.items() if m is Membership.UNTAGGED]
+                if (want_u is None and have_u) or (want_u is not None and have_u != [want_u]):
+                    yield found(
+                        _differ(f"port {pid} untagged", want_u, have_u), [pid], key="untagged"
+                    )
+                want_t = sorted(segment_id(site_id, v) for v in p.tagged)
+                have_t = sorted(s for s, m in modes.items() if m is Membership.TAGGED)
+                if want_t != have_t:
+                    yield found(_differ(f"port {pid} tagged", want_t, have_t), [pid], key="tagged")
+
+    explanation = (
+        "The observed configuration differs from the desired state. Either deploy the desired "
+        "state, or change the desired state to accept what is there."
+    )
+    return [
+        Rule(
+            "drift.segment",
+            "Segment differs from the desired state",
+            Severity.WARNING,
+            explanation,
+            segments,
+        ),
+        Rule(
+            "drift.wlan",
+            "Wi-Fi differs from the desired state",
+            Severity.WARNING,
+            explanation,
+            wlans,
+        ),
+        Rule(
+            "drift.port",
+            "Port VLANs differ from the desired state",
+            Severity.WARNING,
+            explanation,
+            ports,
+        ),
+    ]
+
+
+def secret_lookup(values: Mapping[str, str]) -> SecretLookup:
+    return values.get

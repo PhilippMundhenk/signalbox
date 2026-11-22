@@ -46,7 +46,7 @@ desired state → planner → deployment → devices, with every step tracked.
 | **Observation** | `signalbox.runner` | read every device on an interval, merge into one network | inventory, integrations | `Network`, findings history | done (#12) |
 | **Checks** (rules) | `signalbox.rules.*` | find inconsistencies, explain them, suggest a fix; never change anything | `Network` | findings | done (#5–#8, #15) |
 | **Topology** | `signalbox.topology` | links from LLDP, MAC tables and entered cables; the wiring and VLAN view | `Network` | links, topology view | done (#15) |
-| **Desired state** | `signalbox.desired` | what the network should look like; drift against the observed state | YAML, UI | desired model, drift findings | phase 2 (#36) |
+| **Desired state** | `signalbox.desired` | what the network should look like; drift against the observed state | YAML, UI | desired model, drift findings | done (#36), [DESIRED.md](DESIRED.md) |
 | **Planner** | `signalbox.changes` | desired minus observed → typed change set per device, ordered; checks run on the predicted state | desired + observed state | plan | phase 3 (#37) |
 | **Deployment** | `signalbox.deploy` | apply an approved plan as one transaction across devices | plan, approval | per-device result | phase 3 (#38) |
 | **Change tracking** | `signalbox.history` | immutable record of every change: who, why, plan, vendor calls, backups, results | deployments | change log, audit | phase 3 (#39) |
