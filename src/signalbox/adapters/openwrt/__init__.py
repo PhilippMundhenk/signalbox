@@ -41,6 +41,7 @@ from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     SERVICE_PORTS,
+    AddressSource,
     Band,
     Client,
     DeviceRole,
@@ -1001,7 +1002,10 @@ class OpenWrtAdapter(Adapter):
                 continue
             entry = clients.setdefault(m, {"addresses": []})
             with contextlib.suppress(ValueError):
-                entry["addresses"].append(ip_address(addr))
+                a = ip_address(addr)
+                entry["addresses"].append(a)
+                if a.version == 4:  # dnsmasq leases: IPv4 only
+                    entry.setdefault("address_sources", {})[a] = AddressSource.DHCP
             if hostname:
                 entry["hostname"] = hostname
         return Observation(

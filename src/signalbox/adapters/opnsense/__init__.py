@@ -53,6 +53,7 @@ from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     SERVICE_PORTS,
+    AddressSource,
     Client,
     DeviceRole,
     DhcpPool,
@@ -917,13 +918,23 @@ class OpnsenseAdapter(_Adapter):
         own = layout.own_macs()
         seen: dict[str, dict[str, Any]] = {}
 
-        def add(mac: str | None, address: Any, iface: _Iface | None, hostname: Any) -> None:
+        def add(
+            mac: str | None,
+            address: Any,
+            iface: _Iface | None,
+            hostname: Any,
+            source: AddressSource | None = None,
+        ) -> None:
             if mac is None or mac in own:
                 return
-            entry = seen.setdefault(mac, {"addresses": [], "hostname": None, "iface": None})
+            entry = seen.setdefault(
+                mac, {"addresses": [], "hostname": None, "iface": None, "sources": {}}
+            )
             addr = _addr(address)
             if addr is not None and not addr.is_link_local and addr not in entry["addresses"]:
                 entry["addresses"].append(addr)
+            if addr is not None and addr in entry["addresses"] and source is not None:
+                entry["sources"][addr] = source
             entry["hostname"] = entry["hostname"] or _text(hostname) or None
             entry["iface"] = entry["iface"] or iface
 
@@ -936,11 +947,19 @@ class OpnsenseAdapter(_Adapter):
         isc = await self._optional(ISC_LEASES, grid=True)
         for row in _rows(isc, ISC_LEASES) if isc is not None else []:
             iface = layout.by_identifier(_text(row.get("if")))
-            add(_mac(row.get("mac")), row.get("address"), iface, row.get("hostname"))
+            static = _text(row.get("type")) == "static"
+            src = AddressSource.DHCP_RESERVED if static else AddressSource.DHCP
+            add(_mac(row.get("mac")), row.get("address"), iface, row.get("hostname"), src)
         kea = await self._optional(KEA_LEASES, grid=True)
         for row in _rows(kea, KEA_LEASES) if kea is not None else []:
             iface = layout.by_identifier(_text(row.get("if_name") or row.get("if")))
-            add(_mac(row.get("hwaddr")), row.get("address"), iface, row.get("hostname"))
+            add(
+                _mac(row.get("hwaddr")),
+                row.get("address"),
+                iface,
+                row.get("hostname"),
+                AddressSource.DHCP,
+            )
 
         for entry in seen.values():  # a lease or neighbour without an interface: by address
             if entry["iface"] is None:
@@ -956,6 +975,7 @@ class OpnsenseAdapter(_Adapter):
                 hostname=e["hostname"],
                 segment_id=e["iface"].segment if e["iface"] else None,
                 seen_on=e["iface"].port if e["iface"] else None,
+                address_sources=e["sources"],
             )
             for mac, e in sorted(seen.items())
         ]

@@ -35,6 +35,7 @@ from signalbox.model import (
     DeviceRole,
     DeviceStatus,
     DeviceTime,
+    DhcpRelay,
     DhcpServer,
     DnsService,
     Firmware,
@@ -59,7 +60,7 @@ API_VERSION = "1.2"
 
 class Capability(StrEnum):
     INTERFACES = "interfaces"  # ports, segments (VLANs), subnets, uplinks, management services
-    DHCP = "dhcp"
+    DHCP = "dhcp"  # DHCP servers (pools, options, leases) and relays
     DNS = "dns"
     WIRELESS = "wireless"  # radios and WLANs
     CLIENTS = "clients"
@@ -236,6 +237,8 @@ class Observation(BaseModel):
     #: every service the device has, disabled ones too, or none (not read).
     services: list[ManagementService] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
+    #: DHCP relays (#183), read with ``dhcp``; no API version needed.
+    dhcp_relays: list[DhcpRelay] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)
     wlans: list[Wlan] = Field(default_factory=list)

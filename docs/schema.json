@@ -119,6 +119,21 @@
       "title": "Acknowledgement",
       "type": "object"
     },
+    "AddressSource": {
+      "description": "How a client got one of its addresses (#183).",
+      "enum": [
+        "dhcp",
+        "dhcp-reserved",
+        "static",
+        "slaac",
+        "slaac-privacy",
+        "dhcpv6",
+        "link-local",
+        "unknown"
+      ],
+      "title": "AddressSource",
+      "type": "string"
+    },
     "Annotation": {
       "additionalProperties": false,
       "description": "What the user knows about one object (#186): label, purpose, owner, notes, expectations.\n\n``target`` is a model id (:func:`target_kind`): a device id, ``<device>/port/<name>``,\n``<site>/segment/<key>``, ``<device>/subnet/<name>`` or ``client/<mac>``. A network's\npurpose stays in the desired state's ``segments[].purpose``; ``purpose`` here is free text.",
@@ -253,6 +268,13 @@
     "Client": {
       "additionalProperties": false,
       "properties": {
+        "address_sources": {
+          "additionalProperties": {
+            "$ref": "#/$defs/AddressSource"
+          },
+          "title": "Address Sources",
+          "type": "object"
+        },
         "addresses": {
           "items": {
             "anyOf": [
@@ -821,6 +843,204 @@
       "title": "DeviceTime",
       "type": "object"
     },
+    "DhcpBoot": {
+      "additionalProperties": false,
+      "description": "Network boot (PXE): ``next-server`` / ``siaddr``, option 66 and 67.",
+      "properties": {
+        "filename": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filename"
+        },
+        "next_server": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Server"
+        },
+        "server_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server Name"
+        }
+      },
+      "title": "DhcpBoot",
+      "type": "object"
+    },
+    "DhcpLease": {
+      "additionalProperties": false,
+      "description": "One entry of a DHCP server's lease table (#183).\n\nLease host names, client ids and vendor classes identify devices and people: they are client\ndata like :attr:`Client.hostname` (kept in the store, shown to signed-in users, neutralised\nin recordings).",
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            }
+          ],
+          "title": "Address"
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires"
+        },
+        "hostname": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hostname"
+        },
+        "mac": {
+          "anyOf": [
+            {
+              "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mac"
+        },
+        "reserved": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reserved"
+        },
+        "starts": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Starts"
+        },
+        "state": {
+          "$ref": "#/$defs/LeaseState",
+          "default": "active"
+        },
+        "vendor_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vendor Class"
+        }
+      },
+      "required": [
+        "address"
+      ],
+      "title": "DhcpLease",
+      "type": "object"
+    },
+    "DhcpOption": {
+      "additionalProperties": false,
+      "description": "A DHCP option the server hands out that has no typed field (#183).",
+      "properties": {
+        "code": {
+          "maximum": 254,
+          "minimum": 1,
+          "title": "Code",
+          "type": "integer"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "value"
+      ],
+      "title": "DhcpOption",
+      "type": "object"
+    },
     "DhcpPool": {
       "additionalProperties": false,
       "properties": {
@@ -858,9 +1078,131 @@
       "title": "DhcpPool",
       "type": "object"
     },
+    "DhcpRelay": {
+      "additionalProperties": false,
+      "description": "A DHCP relay on a segment (#183), ``object_id(device, \"dhcp-relay\", <segment key>)``.\n\nRead with the ``dhcp`` capability: a segment with a relay needs no DHCP server of its own.",
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "segment_id": {
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "servers": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Servers",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "segment_id"
+      ],
+      "title": "DhcpRelay",
+      "type": "object"
+    },
+    "DhcpRoute": {
+      "additionalProperties": false,
+      "description": "A classless static route (option 121, RFC 3442).",
+      "properties": {
+        "destination": {
+          "format": "ipv4network",
+          "title": "Destination",
+          "type": "string"
+        },
+        "gateway": {
+          "format": "ipv4",
+          "title": "Gateway",
+          "type": "string"
+        }
+      },
+      "required": [
+        "destination",
+        "gateway"
+      ],
+      "title": "DhcpRoute",
+      "type": "object"
+    },
     "DhcpServer": {
       "additionalProperties": false,
       "properties": {
+        "authoritative": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authoritative"
+        },
+        "boot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DhcpBoot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "device_id": {
           "title": "Device Id",
           "type": "string"
@@ -897,6 +1239,18 @@
           "title": "Enabled",
           "type": "boolean"
         },
+        "failover_peer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failover Peer"
+        },
         "id": {
           "title": "Id",
           "type": "string"
@@ -912,6 +1266,21 @@
           ],
           "default": null,
           "title": "Lease Seconds"
+        },
+        "leases": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DhcpLease"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Leases"
         },
         "ntp_servers": {
           "items": {
@@ -941,6 +1310,13 @@
           ],
           "default": null,
           "title": "Observed At"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/DhcpOption"
+          },
+          "title": "Options",
+          "type": "array"
         },
         "pools": {
           "items": {
@@ -973,6 +1349,13 @@
           "default": null,
           "title": "Router"
         },
+        "search_domains": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Search Domains",
+          "type": "array"
+        },
         "segment_id": {
           "title": "Segment Id",
           "type": "string"
@@ -987,6 +1370,13 @@
             }
           ],
           "default": null
+        },
+        "static_routes": {
+          "items": {
+            "$ref": "#/$defs/DhcpRoute"
+          },
+          "title": "Static Routes",
+          "type": "array"
         },
         "vendor_extra": {
           "additionalProperties": {
@@ -1324,6 +1714,17 @@
       "type": "object"
     },
     "JsonValue": {},
+    "LeaseState": {
+      "enum": [
+        "active",
+        "expired",
+        "declined",
+        "offered",
+        "reserved"
+      ],
+      "title": "LeaseState",
+      "type": "string"
+    },
     "Link": {
       "additionalProperties": false,
       "properties": {
@@ -1729,6 +2130,13 @@
             "$ref": "#/$defs/Device"
           },
           "title": "Devices",
+          "type": "array"
+        },
+        "dhcp_relays": {
+          "items": {
+            "$ref": "#/$defs/DhcpRelay"
+          },
+          "title": "Dhcp Relays",
           "type": "array"
         },
         "dhcp_servers": {
@@ -2851,6 +3259,13 @@
         },
         "device": {
           "$ref": "#/$defs/Device"
+        },
+        "dhcp_relays": {
+          "items": {
+            "$ref": "#/$defs/DhcpRelay"
+          },
+          "title": "Dhcp Relays",
+          "type": "array"
         },
         "dhcp_servers": {
           "items": {
