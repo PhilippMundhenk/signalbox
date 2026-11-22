@@ -53,6 +53,7 @@ All notable changes to this project are documented here. The format follows
 - A Fritz!Box simulator rebuilt from AVM's TR-064 service descriptions (FRITZ!OS 7.57 and 8.02) with a conformance test of every action the Fritz!Box adapter uses; pinned switch captures; `tools/record_device.py` records a real device (private data neutralised) and replays it as a regression test (#141)
 - Device health and time in the model (uptime, CPU, memory, storage, temperatures, fans, power supplies, UPS, clock, NTP, time zone), adapter API 1.2, shown on the device page and exported to Home Assistant (#178, #179, model stage)
 - Wi-Fi passphrase changes can be reverted: the previous passphrase is kept as an encrypted secret version (#188)
+- Health and time checks: memory, CPU, temperature and storage limits, failed fans and power supplies, UPS on battery/low runtime/untested, unexpected restarts (from the boot time in the history), very long uptime, clock offset, NTP not synchronised or unreachable, DHCP NTP servers, no local NTP, mixed time zones (#129, #130, #131, #178, #179)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
