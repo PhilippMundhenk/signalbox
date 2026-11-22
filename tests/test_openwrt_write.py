@@ -49,7 +49,7 @@ from signalbox.deploy import Deployer, current_value, matches
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
 from signalbox.merge import merge
-from signalbox.model import DeviceRole, Network, Pmf, Security
+from signalbox.model import DeviceRole, Network, Pmf, Security, passphrase_fingerprint
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
 from signalbox.sim.openwrt import OpenWrtSim, create_app, uci_delta, uci_op
@@ -924,6 +924,42 @@ async def test_deployment_adds_a_vlan_and_an_ssid_then_reverts(
     undone = await d.deploy(back.id)
     assert undone.status is ChangeStatus.APPLIED, [r.error for r in undone.devices]
     assert committed(sim) == before
+
+
+async def test_revert_restores_the_replaced_passphrase(sim: OpenWrtSim, svc: Services) -> None:
+    # #188: the secret held the AP's passphrase before it was replaced, so a revert knows it
+    svc.store.set_secret("main-psk", "example-passphrase")
+    svc.store.set_secret("main-psk", SECRETS["main-psk"])
+    want = """
+sites:
+  home:
+    wlans:
+      - {ssid: Example, security: wpa2-wpa3, passphrase_secret: main-psk, devices: [ap1]}
+"""
+    before = committed(sim)
+    await svc.runner.observe_all()
+
+    def fingerprints() -> set[str | None]:
+        net = svc.runner.network()
+        return {w.passphrase_fingerprint for w in net.wlans if w.ssid == "Example"}
+
+    original = fingerprints()
+    assert original == {passphrase_fingerprint("Example", "example-passphrase")}
+    p = plan(parse(want), svc.runner.network(), RULES, secret=svc.store.get_secret)
+    assert [c.kind for c in p.changes] == [ChangeKind.WLAN]
+    d = Deployer(svc.runner)
+    rec = await d.prepare(p, "new passphrase", "tester")
+    d.approve(rec.id, "tester", override="lab" if rec.plan.blocking else None)
+    done = await d.deploy(rec.id)
+    assert done.status is ChangeStatus.APPLIED, [r.error for r in done.devices]
+    assert fingerprints() == {passphrase_fingerprint("Example", SECRETS["main-psk"])}
+    back = await d.revert(rec.id, "back to the old passphrase", "tester")
+    d.approve(back.id, "tester", override="lab" if back.plan.blocking else None)
+    undone = await d.deploy(back.id)
+    assert undone.status is ChangeStatus.APPLIED, [r.error for r in undone.devices]
+    assert committed(sim) == before
+    await svc.runner.observe_all()
+    assert fingerprints() == original
 
 
 async def test_deployment_that_fails_verification_is_restored(

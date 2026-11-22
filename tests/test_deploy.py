@@ -1,14 +1,25 @@
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from factories import SITE, ip
-from signalbox.changes import Change, ChangeKind, DhcpValue, WlanValue, plan
+from signalbox.changes import (
+    Change,
+    ChangeKind,
+    DhcpValue,
+    Plan,
+    WlanValue,
+    make_plan,
+    observed_dhcp,
+    observed_wlan,
+    plan,
+)
 from signalbox.deploy import Deployer, DeployError, matches
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
-from signalbox.model import DeviceRole, Link, LinkOrigin, Pmf, Security
+from signalbox.model import DeviceRole, Link, LinkOrigin, Pmf, Security, passphrase_fingerprint
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
 from signalbox.store import DeviceRecord
@@ -351,3 +362,235 @@ async def test_unspecified_values_are_left_to_the_device(svc: Services) -> None:
     )
     assert matches(net, dhcp, off, {})  # a switched-off server reports no pool
     assert not matches(net, dhcp, off.model_copy(update={"enabled": True}), {})
+
+
+# passphrase versions (#188) -------------------------------------------------------------------
+
+OLD = "old passphrase"  # what initial() puts on the AP
+
+
+def ap_fingerprint(ssid: str = "Example") -> str | None:
+    return next(w.passphrase_fingerprint for w in Writable.state["ap"].wlans if w.ssid == ssid)
+
+
+def versions(svc: Services, cid: str) -> dict[str, str]:
+    rec = svc.store.change(cid)
+    assert rec is not None
+    return rec.passphrase_versions
+
+
+async def test_revert_restores_the_replaced_passphrase(svc: Services) -> None:
+    svc.store.set_secret("psk", OLD)
+    svc.store.set_secret("psk", "the new passphrase")  # the old value is kept as the previous one
+    assert svc.store.previous_secret("psk") == OLD
+    d, cid = await planned(svc)
+    assert await deployed(svc, d, cid) is ChangeStatus.APPLIED
+    assert ap_fingerprint() == passphrase_fingerprint("Example", "the new passphrase")
+    assert versions(svc, cid) == {"ap:wlan:Example": f"psk@{cid}"}
+    assert svc.store.get_secret(f"psk@{cid}") == OLD
+    # versions are not secrets of the desired state, and their values are shown nowhere
+    assert svc.store.secret_names() == ["psk"] and svc.store.secret_versions() == [f"psk@{cid}"]
+    rec = svc.store.change(cid)
+    assert rec is not None
+    dump = rec.model_dump_json() + "".join(e.detail for e in svc.store.events(cid))
+    assert OLD not in dump and "the new passphrase" not in dump
+    raw = svc.store._one("SELECT value FROM settings WHERE key = ?", (f"secret-version:psk@{cid}",))
+    assert raw is not None and OLD not in raw["value"]
+    assert ("ap", "passphrase-kept") in [(e.device_id, e.event) for e in svc.store.events(cid)]
+
+    back = await d.revert(cid, "the old passphrase was fine", "tester")
+    wlan = next(c for c in back.plan.changes if c.kind is ChangeKind.WLAN)
+    assert isinstance(wlan.new, WlanValue) and wlan.new.passphrase_secret == f"psk@{cid}"
+    assert await deployed(svc, d, back.id) is ChangeStatus.APPLIED
+    assert ap_fingerprint() == passphrase_fingerprint("Example", OLD)
+    assert Writable.secrets_seen == ["the new passphrase", OLD]
+    # the revert keeps the passphrase it replaced in turn (and the version it set is in use)
+    assert set(svc.store.secret_versions()) == {f"psk@{cid}", f"psk@{back.id}"}
+    assert svc.store.get_secret(f"psk@{back.id}") == "the new passphrase"
+
+    redo = await d.revert(back.id, "the new one after all", "tester")
+    assert await deployed(svc, d, redo.id) is ChangeStatus.APPLIED
+    assert ap_fingerprint() == passphrase_fingerprint("Example", "the new passphrase")
+    # superseded: the first change's version is pruned
+    assert set(svc.store.secret_versions()) == {f"psk@{back.id}", f"psk@{redo.id}"}
+    assert svc.store.get_secret(f"psk@{redo.id}") == OLD
+    # an unrelated later change of the SSID prunes the rest
+    svc.store.set_secret("psk", "the newest passphrase")
+    later = Deployer(svc.runner)
+    p = plan(parse(WANT), svc.runner.network(), RULES, secret=svc.store.get_secret)
+    newest = (await later.prepare(p, "rotate", "tester")).id
+    assert await deployed(svc, later, newest) is ChangeStatus.APPLIED
+    assert svc.store.secret_versions() == [f"psk@{newest}"]
+    assert svc.store.get_secret(f"psk@{newest}") == "the new passphrase"
+
+
+async def test_unknown_passphrase_is_reported_and_kept(svc: Services) -> None:
+    d, cid = await planned(svc)  # only the new passphrase is stored
+    assert await deployed(svc, d, cid) is ChangeStatus.APPLIED
+    assert versions(svc, cid) == {}
+    events = {e.event: e.detail for e in svc.store.events(cid)}
+    assert "not known to Signalbox" in events["passphrase-unknown"]
+    back = await d.revert(cid, "undo", "tester")
+    assert await deployed(svc, d, back.id) is ChangeStatus.APPLIED
+    # nothing to restore it from: the new passphrase stays (the backup has the old one)
+    assert ap_fingerprint() == passphrase_fingerprint("Example", "the new passphrase")
+
+
+async def test_passphrase_found_in_another_secret(svc: Services) -> None:
+    svc.store.set_secret("old-psk", OLD)
+    d, cid = await planned(svc)
+    assert await deployed(svc, d, cid) is ChangeStatus.APPLIED
+    assert svc.store.get_secret(f"psk@{cid}") == OLD
+    back = await d.revert(cid, "undo", "tester")
+    assert await deployed(svc, d, back.id) is ChangeStatus.APPLIED
+    assert ap_fingerprint() == passphrase_fingerprint("Example", OLD)
+
+
+async def test_device_without_fingerprint_trusts_what_signalbox_deployed(svc: Services) -> None:
+    svc.store.set_secret("psk", "first passphrase")
+    d, cid = await planned(svc)
+    assert await deployed(svc, d, cid) is ChangeStatus.APPLIED
+    assert versions(svc, cid) == {}
+    assert svc.store.wlan_passphrase("ap", "Example") == ("first passphrase", [])
+
+    def blind() -> None:  # a device that does not report passphrases
+        ap = Writable.state["ap"]
+        wlans = [w.model_copy(update={"passphrase_fingerprint": None}) for w in ap.wlans]
+        Writable.state["ap"] = ap.model_copy(update={"wlans": wlans})
+
+    blind()
+    svc.store.set_secret("psk", "second passphrase")
+    text = WANT.replace("security: wpa2-wpa3", "security: wpa3-sae")
+    d, cid = await planned(svc, text)
+    assert await deployed(svc, d, cid) is ChangeStatus.APPLIED
+    assert svc.store.get_secret(f"psk@{cid}") == "first passphrase"
+    blind()
+    back = await d.revert(cid, "undo", "tester")
+    assert await deployed(svc, d, back.id) is ChangeStatus.APPLIED
+    assert Writable.secrets_seen[-1] == "first passphrase"
+
+
+async def test_failed_deployment_keeps_no_version(svc: Services) -> None:
+    svc.store.set_secret("psk", OLD)
+    svc.store.set_secret("psk", "the new passphrase")
+    d, cid = await planned(svc)
+    Writable.fail["ap"] = {"noop"}
+    assert await deployed(svc, d, cid) is ChangeStatus.ROLLED_BACK
+    assert versions(svc, cid) == {}
+    assert svc.store.secret_versions() == []
+    assert svc.store.wlan_passphrase("ap", "Example") == (None, [])
+
+
+async def test_rollback_by_inverse_restores_the_passphrase(svc: Services) -> None:
+    svc.store.set_secret("psk", OLD)
+    svc.store.set_secret("psk", "the new passphrase")
+    await svc.runner.observe_all()
+    net = svc.runner.network()
+    old_w = observed_wlan(net, "ap", "Example")
+    assert old_w is not None
+    wlan = Change(
+        kind=ChangeKind.WLAN,
+        device_id="ap",
+        site_id="home",
+        key="Example",
+        old=old_w,
+        new=old_w.model_copy(update={"passphrase_secret": "psk"}),
+    )
+    old_d = observed_dhcp(net, "gw", "home/segment/native")
+    assert old_d is not None
+    dhcp = Change(
+        kind=ChangeKind.DHCP,
+        device_id="gw",
+        site_id="home",
+        key="home/segment/native",
+        old=old_d,
+        new=old_d.model_copy(update={"lease_seconds": 600}),
+    )
+    # the AP first, so that it is undone by its inverse when the gateway fails
+    p = Plan(id="plan-ap-first", created_at=datetime.now(UTC), changes=[wlan, dhcp])
+    d = Deployer(svc.runner)
+    cid = (await d.prepare(p, "new passphrase, shorter leases", "tester")).id
+    Writable.fail["gw"] = {"apply"}
+    assert await deployed(svc, d, cid) is ChangeStatus.ROLLED_BACK
+    rec = svc.store.change(cid)
+    assert rec is not None and rec.devices[0].status is DeviceStatus.ROLLED_BACK
+    assert "restore" not in Writable.log["ap"]  # the inverse set the old passphrase again
+    assert ap_fingerprint() == passphrase_fingerprint("Example", OLD)
+    assert svc.store.secret_versions() == []
+
+
+async def test_removed_ssid_comes_back_with_its_passphrase(svc: Services) -> None:
+    svc.store.set_secret("old-psk", OLD)
+    await svc.runner.observe_all()
+    net = svc.runner.network()
+    gone = Change(
+        kind=ChangeKind.WLAN,
+        device_id="ap",
+        site_id="home",
+        key="Example",
+        old=observed_wlan(net, "ap", "Example"),
+    )
+    d = Deployer(svc.runner)
+    cid = (await d.prepare(make_plan([gone], net, RULES), "retire it", "tester")).id
+    assert await deployed(svc, d, cid) is ChangeStatus.APPLIED
+    assert Writable.state["ap"].wlans == []
+    assert versions(svc, cid) == {"ap:wlan:Example": f"old-psk@{cid}"}
+    assert svc.store.wlan_passphrase("ap", "Example") == (None, [f"old-psk@{cid}"])
+    back = await d.revert(cid, "still needed", "tester")
+    assert await deployed(svc, d, back.id) is ChangeStatus.APPLIED
+    assert ap_fingerprint() == passphrase_fingerprint("Example", OLD)
+
+
+async def test_two_ssids_with_one_secret_get_one_version_each(svc: Services) -> None:
+    ap = Writable.state["ap"]
+    second = ap.wlans[0].model_copy(
+        update={
+            "id": "ap/wlan/1",
+            "ssid": "Example2",
+            "passphrase_fingerprint": passphrase_fingerprint("Example2", "another old one"),
+        }
+    )
+    Writable.state["ap"] = ap.model_copy(update={"wlans": [*ap.wlans, second]})
+    svc.store.set_secret("old-psk", OLD)
+    svc.store.set_secret("old-psk-2", "another old one")
+    text = WANT.replace(
+        "devices: [ap]}",
+        "devices: [ap]}\n      - {ssid: Example2, security: wpa2-wpa3, passphrase_secret: psk,"
+        " devices: [ap]}",
+    )
+    d, cid = await planned(svc, text)
+    assert await deployed(svc, d, cid) is ChangeStatus.APPLIED
+    assert versions(svc, cid) == {
+        "ap:wlan:Example": f"psk@{cid}",
+        "ap:wlan:Example2": f"psk@{cid}.2",
+    }
+    back = await d.revert(cid, "undo", "tester")
+    assert await deployed(svc, d, back.id) is ChangeStatus.APPLIED
+    assert ap_fingerprint() == passphrase_fingerprint("Example", OLD)
+    assert ap_fingerprint("Example2") == passphrase_fingerprint("Example2", "another old one")
+
+
+async def test_restoring_a_backup_forgets_the_deployed_passphrases(svc: Services) -> None:
+    d, cid = await planned(svc)
+    await deployed(svc, d, cid)
+    assert svc.store.wlan_passphrase("ap", "Example") == ("the new passphrase", [])
+    backup_id = next(b.id for b in svc.store.backups("ap") if b.change_id == cid)
+    rec = await d.restore_backup(backup_id, "back", "tester")
+    assert await deployed(svc, d, rec.id) is ChangeStatus.APPLIED
+    assert svc.store.wlan_passphrase("ap", "Example") == (None, [])
+
+
+def test_secret_versions_in_the_store(svc: Services) -> None:
+    with pytest.raises(ValueError, match="not a secret version"):
+        svc.store.put_secret_version("psk", "x")
+    svc.store.put_secret_version("psk@chg-1", "v")
+    svc.store.set_wlan_passphrase("ap", "Example", "v", ["psk@chg-1"])
+    svc.store.set_secret("psk", "the new passphrase")  # the same value: no previous one
+    assert svc.store.previous_secret("psk") is None
+    svc.store.set_secret("psk", "another")
+    svc.store.delete_secret("psk")
+    assert svc.store.previous_secret("psk") is None
+    svc.store.delete_secret_version("psk@chg-1")
+    assert svc.store.get_secret("psk@chg-1") is None
+    svc.store.delete_device("ap")
+    assert svc.store.wlan_passphrase("ap", "Example") == (None, [])

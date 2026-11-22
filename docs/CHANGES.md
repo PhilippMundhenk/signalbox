@@ -42,3 +42,29 @@ deleted.
   overwrites newer changes silently.
 - **Restore a backup**: the last resort for one device; also a tracked change. Later changes on
   that device are lost.
+
+### Wi-Fi passphrases
+
+A change only names the secret with the new passphrase, and devices report at most a
+fingerprint of the one they have. So before it replaces a passphrase (or removes an SSID), the
+deployment looks for the current one among what Signalbox knows:
+
+1. the passphrase Signalbox itself last deployed to that SSID
+2. the value the named secret had before it was last replaced (storing a secret under
+   *Desired state, Secrets* keeps the previous value, encrypted)
+3. every other stored secret
+
+The fingerprint the device reports decides which one it is. A device that reports no
+fingerprint (for example Omada SSIDs whose key the controller does not return) is trusted only
+with the passphrase Signalbox deployed itself.
+
+The passphrase found is kept as an encrypted **secret version** named `<secret>@<change id>`
+(the change log shows the name, never the value; versions are not listed as secrets). The
+inverse of the change sets that version, so a **revert** or a rollback brings the old
+passphrase back. If the old passphrase is not known, the change log says so (event
+*passphrase-unknown*): a revert then leaves the new passphrase, and only restoring the backup
+of that change brings the old one back.
+
+Versions are pruned with the change history of their SSID: one lives as long as the latest
+applied change of that SSID needs it (an older change cannot be reverted any more, see above),
+and a deployment that does not apply keeps none.

@@ -239,11 +239,29 @@ class Store:
 
     # secrets (Wi-Fi passphrases of the desired state), encrypted ---------------------------
 
+    # Besides the named secrets the deployer keeps (#188), never listed and never returned by the
+    # API: the value a secret had before it was last replaced (``secret-previous:<name>``), the
+    # passphrase a change replaced (``secret-version:<name>@<change id>``, for its revert) and the
+    # passphrase Signalbox last put on an SSID (``wlan-passphrase:<device>/<ssid>``). Secret
+    # names cannot contain "@" (the API refuses them), so a version never shadows a secret.
+
     def set_secret(self, name: str, value: str) -> None:
+        old = self.get_setting(f"secret:{name}")
+        if old is not None and self.vault.decrypt(old) != value:
+            self.set_setting(f"secret-previous:{name}", old)
         self.set_setting(f"secret:{name}", self.vault.encrypt(value))
 
     def get_secret(self, name: str) -> str | None:
-        token = self.get_setting(f"secret:{name}")
+        """A secret's value; ``<name>@<change id>`` is a version kept by a deployment."""
+        prefix = "secret-version:" if "@" in name else "secret:"
+        return self._decrypted(prefix + name)
+
+    def previous_secret(self, name: str) -> str | None:
+        """The value ``name`` had before it was last replaced (None: never replaced)."""
+        return self._decrypted(f"secret-previous:{name}")
+
+    def _decrypted(self, key: str) -> str | None:
+        token = self.get_setting(key)
         return None if token is None else self.vault.decrypt(token)
 
     def secret_names(self) -> list[str]:
@@ -252,7 +270,48 @@ class Store:
 
     def delete_secret(self, name: str) -> None:
         with self._tx() as db:
-            db.execute("DELETE FROM settings WHERE key = ?", (f"secret:{name}",))
+            for key in (f"secret:{name}", f"secret-previous:{name}"):
+                db.execute("DELETE FROM settings WHERE key = ?", (key,))
+
+    def put_secret_version(self, version: str, value: str) -> None:
+        """Keep ``value`` (encrypted) as ``<name>@<change id>``; :meth:`get_secret` reads it."""
+        if "@" not in version:
+            raise ValueError(f"not a secret version: {version!r}")
+        self.set_setting(f"secret-version:{version}", self.vault.encrypt(value))
+
+    def delete_secret_version(self, version: str) -> None:
+        with self._tx() as db:
+            db.execute("DELETE FROM settings WHERE key = ?", (f"secret-version:{version}",))
+
+    def secret_versions(self) -> list[str]:
+        rows = self._all("SELECT key FROM settings WHERE key LIKE 'secret-version:%' ORDER BY key")
+        return [str(r[0])[len("secret-version:") :] for r in rows]
+
+    def wlan_passphrase(self, device_id: str, ssid: str) -> tuple[str | None, list[str]]:
+        """What the last applied change left on an SSID: the passphrase Signalbox set (None:
+        unknown) and the secret versions that change still needs (for its revert, and the one
+        it set)."""
+        raw = self._decrypted(f"wlan-passphrase:{device_id}/{ssid}")
+        data = json.loads(raw) if raw is not None else {}
+        return data.get("value"), list(data.get("versions", []))
+
+    def set_wlan_passphrase(
+        self, device_id: str, ssid: str, value: str | None, versions: Iterable[str] = ()
+    ) -> None:
+        key = f"wlan-passphrase:{device_id}/{ssid}"
+        kept = sorted(versions)
+        if value is None and not kept:
+            with self._tx() as db:
+                db.execute("DELETE FROM settings WHERE key = ?", (key,))
+        else:
+            data = json.dumps({"value": value, "versions": kept})
+            self.set_setting(key, self.vault.encrypt(data))
+
+    def forget_wlan_passphrases(self, device_id: str) -> None:
+        """Forget what Signalbox deployed to the SSIDs of a device (restored, or deleted)."""
+        mark = f"wlan-passphrase:{device_id}/"
+        with self._tx() as db:
+            db.execute("DELETE FROM settings WHERE substr(key, 1, ?) = ?", (len(mark), mark))
 
     # sites ------------------------------------------------------------------------------
 
@@ -372,6 +431,7 @@ class Store:
         return _validate(config_cls, values)
 
     def delete_device(self, device_id: str) -> None:
+        self.forget_wlan_passphrases(device_id)
         with self._tx() as db:
             db.execute("DELETE FROM devices WHERE id = ?", (device_id,))
             db.execute("DELETE FROM snapshots WHERE device_id = ?", (device_id,))

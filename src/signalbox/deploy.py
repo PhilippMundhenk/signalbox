@@ -315,6 +315,7 @@ class Deployer:
                 if original is not None:
                     original.reverted_by = rec.id
                     self._save(original)
+        self._record_passphrases(rec, secrets)
         self._save(rec)
         self._event(rec, None, rec.status.value)
         self.runner.evaluate()
@@ -354,6 +355,8 @@ class Deployer:
             result.backup_id = self.store.put_backup(backup, rec.id)
             result.status = DeviceStatus.BACKED_UP
             self._event(rec, dev, "backed-up", result.backup_id)
+            if rec.restore_backup_id is None:
+                self._keep_passphrases(rec, dev, changes, net, secrets)
             before = {
                 f.id for f in evaluate(net, self.runner.active_rules(), self.runner.config.rules)
             }
@@ -466,7 +469,8 @@ class Deployer:
         result = rec.result(dev)
         try:
             if rec.restore_backup_id is None:
-                inverse = [c.inverse() for c in reversed(rec.plan.for_device(dev))]
+                undo = self._with_versions(rec, rec.plan.for_device(dev))
+                inverse = [c.inverse() for c in reversed(undo)]
                 try:
                     applied = await adapter.apply(
                         inverse, secrets, self.runner.config.deploy.confirm_seconds
@@ -485,6 +489,128 @@ class Deployer:
             return await self._restore(rec, dev, adapter)
         finally:
             await adapter.close()
+
+    # passphrase versions (#188) -----------------------------------------------------------
+
+    def _keep_passphrases(
+        self,
+        rec: ChangeRecord,
+        dev: str,
+        changes: list[Change],
+        net: Network,
+        secrets: dict[str, str],
+    ) -> None:
+        """Keep the passphrase each WLAN change replaces as a secret version for its inverse.
+
+        The device reports at most a fingerprint, so the old value has to come from what
+        Signalbox knows: the passphrase it last deployed to the SSID, the value the named secret
+        had before it was replaced, or any stored secret. The fingerprint the device reports
+        decides which; without one only the passphrase Signalbox deployed itself is trusted.
+        """
+        for c in changes:
+            if c.kind is not ChangeKind.WLAN or not isinstance(c.old, WlanValue):
+                continue
+            new = c.new
+            assert new is None or isinstance(new, WlanValue)
+            name = new.passphrase_secret if new is not None else None
+            if new is not None and not name:
+                continue  # the passphrase is not touched
+            w = next((x for x in net.wlans if x.device_id == c.device_id and x.ssid == c.key), None)
+            if w is None:  # pragma: no cover - an update or removal has an observed WLAN
+                continue
+            found = self._previous_passphrase(c.device_id, c.key, w.passphrase_fingerprint, name)
+            if found is None:
+                if w.passphrase_fingerprint is not None:
+                    self._event(
+                        rec,
+                        dev,
+                        "passphrase-unknown",
+                        f"SSID {c.key}: the passphrase it replaces is not known to Signalbox; "
+                        "a revert keeps the new one (the backup has the old one)",
+                    )
+                continue
+            value, source = found
+            if name and value == secrets.get(name):
+                continue  # the same passphrase: nothing is replaced
+            base = (name or source or "passphrase").split("@", 1)[0]
+            version = f"{base}@{rec.id}"
+            n = 1
+            while version in secrets and secrets[version] != value:
+                n += 1
+                version = f"{base}@{rec.id}.{n}"
+            self.store.put_secret_version(version, value)
+            secrets[version] = value
+            rec.passphrase_versions[c.id] = version
+            self._event(
+                rec, dev, "passphrase-kept", f"SSID {c.key}: the replaced passphrase is {version}"
+            )
+
+    def _previous_passphrase(
+        self, device_id: str, ssid: str, fp: str | None, name: str | None
+    ) -> tuple[str, str | None] | None:
+        """The passphrase an SSID has now and the secret it was found in, if Signalbox knows it."""
+        deployed, _ = self.store.wlan_passphrase(device_id, ssid)
+        if fp is None:
+            return (deployed, None) if deployed is not None else None
+        candidates: list[tuple[str | None, str | None]] = [(deployed, None)]
+        names = ([name.split("@", 1)[0]] if name else []) + self.store.secret_names()
+        for n in dict.fromkeys(names):
+            candidates += [(self.store.previous_secret(n), n), (self.store.get_secret(n), n)]
+        for value, source in candidates:
+            if value is not None and passphrase_fingerprint(ssid, value) == fp:
+                return value, source
+        return None
+
+    def _with_versions(self, rec: ChangeRecord, changes: list[Change]) -> list[Change]:
+        """The changes with the kept passphrase versions as their old passphrase."""
+        out = []
+        for c in changes:
+            version = rec.passphrase_versions.get(c.id)
+            if (
+                version
+                and isinstance(c.old, WlanValue)
+                and self.store.get_secret(version) is not None
+            ):
+                c = c.model_copy(
+                    update={"old": c.old.model_copy(update={"passphrase_secret": version})}
+                )
+            out.append(c)
+        return out
+
+    def _record_passphrases(self, rec: ChangeRecord, secrets: Mapping[str, str]) -> None:
+        """After a deployment: remember what is on each SSID now and prune versions.
+
+        Only the latest applied change of an SSID can be reverted (a revert of an older one is
+        refused because the device changed since), so a version lives as long as the latest
+        applied change of its SSID needs it (to revert, or because it set that version), and not
+        at all when its deployment did not apply.
+        """
+        if rec.status is not ChangeStatus.APPLIED:
+            for kept in rec.passphrase_versions.values():
+                self.store.delete_secret_version(kept)
+            rec.passphrase_versions = {}
+            return
+        if rec.restore_backup_id is not None:
+            for r in rec.devices:  # whatever the backup had is on the device now
+                self.store.forget_wlan_passphrases(r.device_id)
+            return
+        for c in rec.plan.changes:
+            if c.kind is not ChangeKind.WLAN:
+                continue
+            new = c.new
+            assert new is None or isinstance(new, WlanValue)
+            owned = {rec.passphrase_versions.get(c.id)}
+            if new is not None and new.passphrase_secret and "@" in new.passphrase_secret:
+                owned.add(new.passphrase_secret)  # a revert set a version: still in use
+            owned.discard(None)
+            value, before = self.store.wlan_passphrase(c.device_id, c.key)
+            for version in set(before) - owned:
+                self.store.delete_secret_version(version)
+            if new is None:
+                value = None
+            elif new.passphrase_secret:
+                value = secrets.get(new.passphrase_secret)
+            self.store.set_wlan_passphrase(c.device_id, c.key, value, {v for v in owned if v})
 
     # revert and restore -------------------------------------------------------------------
 
@@ -507,7 +633,10 @@ class Deployer:
             )
         try:
             back = revert_plan(
-                rec.plan.changes, net, self.runner.active_rules(), self.runner.config.rules
+                self._with_versions(rec, rec.plan.changes),
+                net,
+                self.runner.active_rules(),
+                self.runner.config.rules,
             )
         except PlanError as exc:  # pragma: no cover - inverses of applied changes always plan
             raise DeployError(str(exc)) from exc

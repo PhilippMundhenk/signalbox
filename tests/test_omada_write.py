@@ -25,6 +25,7 @@ from signalbox.changes import (
     PortValue,
     RouterValue,
     WlanValue,
+    make_plan,
     observed_dhcp,
     observed_port,
     observed_router,
@@ -35,7 +36,7 @@ from signalbox.deploy import Deployer, matches
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus
 from signalbox.merge import merge
-from signalbox.model import DeviceRole, Network, Pmf, Security
+from signalbox.model import DeviceRole, Network, Pmf, Security, passphrase_fingerprint
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
 from signalbox.sim.omada import CLIENT_ID, CLIENT_SECRET, SWITCH, OmadaSimulator
@@ -736,6 +737,74 @@ async def test_deployment_through_the_controller_and_revert(
     assert now[NETS] == original[NETS] and now[SSIDS] == original[SSIDS]
     final = svc.runner.network()
     assert all(matches(final, c, c.old, {}) for c in p.changes)
+
+
+async def deploy_passphrase(svc: Services, d: Deployer, ssid: str, secret: str) -> str:
+    """Set an SSID's passphrase on both access points (one controller WLAN); the change id."""
+    await svc.runner.observe_all()
+    net = svc.runner.network()
+    changes = []
+    for ap in (AP1, AP2):
+        old = observed_wlan(net, ap, ssid)
+        assert old is not None
+        changes.append(wlan(net, ap, ssid, old.model_copy(update={"passphrase_secret": secret})))
+    rec = await d.prepare(make_plan(changes, net, RULES), "new passphrase", "tester")
+    d.approve(rec.id, "tester", override="test" if rec.plan.blocking else None)
+    done = await d.deploy(rec.id)
+    assert done.status is ChangeStatus.APPLIED, [
+        (e.device_id, e.event, e.detail) for e in svc.store.events(rec.id)
+    ]
+    return rec.id
+
+
+async def revert(svc: Services, d: Deployer, cid: str) -> None:
+    back = await d.revert(cid, "back to the old passphrase", "tester")
+    d.approve(back.id, "tester", override="test" if back.plan.blocking else None)
+    done = await d.deploy(back.id)
+    assert done.status is ChangeStatus.APPLIED, [
+        (e.device_id, e.event, e.detail) for e in svc.store.events(back.id)
+    ]
+
+
+def fingerprints(net: Network, ssid: str) -> set[str | None]:
+    return {w.passphrase_fingerprint for w in net.wlans if w.ssid == ssid}
+
+
+async def test_revert_restores_the_replaced_passphrase(svc: Services, sim: OmadaSimulator) -> None:
+    # #188: IoT reports its key, and the secret held it before it was replaced
+    original = state(sim)
+    svc.store.set_secret("iot-psk", "example-iot-passphrase")
+    svc.store.set_secret("iot-psk", "the new IoT passphrase")
+    await svc.runner.observe_all()
+    before = fingerprints(svc.runner.network(), "IoT")
+    assert before == {passphrase_fingerprint("IoT", "example-iot-passphrase")}
+    d = Deployer(svc.runner)
+    cid = await deploy_passphrase(svc, d, "IoT", "iot-psk")
+    iot = next(s for s in sim.data[SSIDS] if s["name"] == "IoT")
+    assert iot["pskSetting"]["securityKey"] == "the new IoT passphrase"
+    await revert(svc, d, cid)
+    iot = next(s for s in sim.data[SSIDS] if s["name"] == "IoT")
+    assert iot["pskSetting"] == next(s for s in original[SSIDS] if s["name"] == "IoT")["pskSetting"]
+    await svc.runner.observe_all()
+    assert fingerprints(svc.runner.network(), "IoT") == before
+
+
+async def test_revert_without_a_readable_key_uses_what_signalbox_set(
+    svc: Services, sim: OmadaSimulator
+) -> None:
+    # Home does not report its key: only the passphrase Signalbox deployed itself is trusted
+    await svc.runner.observe_all()
+    assert fingerprints(svc.runner.network(), "Home") == {None}
+    d = Deployer(svc.runner)
+    svc.store.set_secret("home-psk", "the first home passphrase")
+    await deploy_passphrase(svc, d, "Home", "home-psk")
+    svc.store.set_secret("home-psk", "the second home passphrase")
+    cid = await deploy_passphrase(svc, d, "Home", "home-psk")
+    home = next(s for s in sim.data[SSIDS] if s["name"] == "Home")
+    assert home["pskSetting"]["securityKey"] == "the second home passphrase"
+    await revert(svc, d, cid)
+    home = next(s for s in sim.data[SSIDS] if s["name"] == "Home")
+    assert home["pskSetting"]["securityKey"] == "the first home passphrase"
 
 
 async def test_failed_deployment_restores_the_controller(

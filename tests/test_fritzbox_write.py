@@ -564,6 +564,36 @@ async def test_deployment_from_desired_state_and_revert(svc: Services, sim: Frit
     assert sim.passphrases[1] == NEW_KEY
 
 
+def fingerprints(net: Network, ssid: str) -> set[str | None]:
+    return {w.passphrase_fingerprint for w in net.wlans if w.ssid == ssid}
+
+
+async def test_revert_restores_the_replaced_passphrase(svc: Services, sim: FritzboxSim) -> None:
+    # #188: the passphrase the box had is known (the secret held it before it was replaced)
+    svc.store.set_secret("psk", fritz_sim.PASSPHRASES[1])
+    svc.store.set_secret("psk", NEW_KEY)
+    await svc.runner.observe_all()
+    original = fingerprints(svc.runner.network(), "Example")
+    assert original == {passphrase_fingerprint("Example", fritz_sim.PASSPHRASES[1])}
+    p = plan(parse(WANT), svc.runner.network(), RULES, secret=svc.store.get_secret)
+    d = Deployer(svc.runner)
+    rec = await d.prepare(p, "new Wi-Fi passphrase", "tester")
+    assert await deploy(d, rec.id) is ChangeStatus.APPLIED
+    assert sim.passphrases[1] == sim.passphrases[2] == NEW_KEY
+    assert fingerprints(svc.runner.network(), "Example") == {
+        passphrase_fingerprint("Example", NEW_KEY)
+    }
+    back = await d.revert(rec.id, "back to the old passphrase", "tester")
+    status = await deploy(d, back.id)
+    assert status is ChangeStatus.APPLIED, [(e.event, e.detail) for e in svc.store.events(back.id)]
+    assert sim.passphrases == fritz_sim.PASSPHRASES
+    await svc.runner.observe_all()
+    assert fingerprints(svc.runner.network(), "Example") == original
+    assert fritz_sim.PASSPHRASES[1] not in json.dumps(
+        [svc.store.change(i).model_dump(mode="json") for i in (rec.id, back.id)]  # type: ignore[union-attr]
+    )
+
+
 async def test_deployment_that_does_not_verify_is_restored(svc: Services, sim: FritzboxSim) -> None:
     await svc.runner.observe_all()
     p = plan(parse(WANT), svc.runner.network(), RULES, secret=svc.store.get_secret)
