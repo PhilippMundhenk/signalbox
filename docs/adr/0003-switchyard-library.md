@@ -50,3 +50,27 @@ release tags yet. Most Signalbox installations will never see such a switch.
   metadata.
 - Switchyard has no type information; mypy treats it as untyped (`ignore_missing_imports`),
   so the adapter code checks the shapes it gets at run time.
+
+## Simulator fidelity (#141, 2026-11-22)
+
+Switches cannot run their firmware emulated, so Switchyard's simulators are the reference for
+ProSAFE Plus and Easy Smart, and they are only as good as the captures they were built from.
+
+- **Captures are pinned with the commit.** `tests/fixtures/switches/captures.json` holds the
+  published captures of real switches that Switchyard documents, with their source and the
+  Switchyard commit they belong to; `tests/test_switch_captures.py` checks that the pinned
+  Switchyard decodes and re-encodes them byte for byte and that its simulator of that switch
+  answers the captured request with the captured reply. A pin bump updates the commit in the
+  fixture and adds the captures Switchyard has gained.
+- **What exists today.** Switchyard documents one real capture: an Easy Smart TL-SG105E 3.0
+  reply (port count) and the static RC4 keystream (`docs/PROTOCOL-EASYSMART.md` section 3.4,
+  from tplink-ess-lib). Its NSDP notes (`docs/PROTOCOL.md`) say none of the ProSAFE Plus
+  protocol is verified on real hardware yet, so there is no NSDP capture to pin.
+- **One known difference.** A first-generation Easy Smart switch puts its session token into
+  every reply (17956 in the capture); Switchyard's simulator only into the answer to the token
+  request. Signalbox does not read the token from other replies; the test compares it
+  separately.
+- **Pin evaluated, unchanged.** On 2026-11-22 Switchyard's `main` was the pinned commit
+  `4f8e93fd196c408fa45338a45837f61c97cf32a9`; there was nothing newer to bump to. The switch
+  tests (`REQUIRE_SWITCH_TESTS=1`, `tests/test_plusswitch*.py`, `tests/test_switch_captures.py`)
+  pass against it.
