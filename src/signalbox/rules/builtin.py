@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from signalbox.rules import Rule
+from signalbox.rules.addressing import RULES as ADDRESSING_RULES
 from signalbox.rules.clients import RULES as CLIENT_RULES
 from signalbox.rules.dhcp import RULES as DHCP_RULES
 from signalbox.rules.dns import RULES as DNS_RULES
@@ -23,4 +24,5 @@ RULES: list[Rule] = [
     *DNS_RULES,
     *CLIENT_RULES,
     *WIFI_HYGIENE_RULES,
+    *ADDRESSING_RULES,
 ]
