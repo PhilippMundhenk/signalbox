@@ -30,7 +30,7 @@ jobs:
       # the switch adapter tests must run, never skip (no SIGNALBOX_ prefix: those are settings)
       REQUIRE_SWITCH_TESTS: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with: { python-version: "${{ matrix.python }}", cache: pip }
       - run: pip install -e ".[dev,switches]"
@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with: { python-version: "3.13", cache: pip }
       - run: pip install -e ".[dev,switches]"
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with: { python-version: "3.13", cache: pip }
       - run: pip install homeassistant -e .
@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
