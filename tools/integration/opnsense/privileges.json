@@ -1,0 +1,22 @@
+{
+  "signalbox-read": [
+    "page-system-firmware-manualupdate",
+    "page-status-interfaces",
+    "page-interfaces-vlan-edit",
+    "page-dhcp-kea-v4",
+    "page-services-unbound",
+    "page-diagnostics-arptable",
+    "page-diagnostics-ndptable"
+  ],
+  "signalbox-write": [
+    "page-system-firmware-manualupdate",
+    "page-status-interfaces",
+    "page-interfaces-vlan-edit",
+    "page-dhcp-kea-v4",
+    "page-services-unbound",
+    "page-diagnostics-arptable",
+    "page-diagnostics-ndptable",
+    "page-interfaces-assignnetworkports",
+    "page-diagnostics-configurationhistory"
+  ]
+}

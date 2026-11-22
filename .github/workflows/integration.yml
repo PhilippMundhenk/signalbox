@@ -1,0 +1,104 @@
+name: Integration
+
+# The adapters against the real device software (#136): one job per target, each boots the
+# official software (QEMU with KVM, or a container) and runs tests/integration against it.
+# Locally these tests skip; here REQUIRE_INTEGRATION=1 makes a missing target a failure.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/signalbox/adapters/**"
+      - "src/signalbox/sim/**"
+      - "src/signalbox/deploy.py"
+      - "tests/integration/**"
+      - "tools/integration/**"
+      - ".github/workflows/integration.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  opnsense:
+    name: OPNsense 26.7 (official nano image in QEMU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REQUIRE_INTEGRATION: "1"
+      VM_DIR: ${{ github.workspace }}/.vm/opnsense
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -e ".[dev,switches]"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install QEMU and disk tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            qemu-system-x86 qemu-utils mtools dosfstools
+      - id: week
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: Restore the prepared VM
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .vm/opnsense
+          # weekly: the preparation installs the newest 26.7.x packages
+          key: opnsense-26.7-${{ hashFiles('tools/integration/opnsense/**') }}-${{ steps.week.outputs.week }}
+      - name: Download and verify the official image
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: python3 tools/integration/opnsense/vm.py fetch "$VM_DIR"
+      - name: First boot, update, preseed, API setup
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: python3 tools/integration/opnsense/vm.py prepare "$VM_DIR"
+      - name: Save the prepared VM
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .vm/opnsense
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      - name: Boot the test VM
+        run: python3 tools/integration/opnsense/vm.py start "$VM_DIR"
+      - name: Integration tests
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_opnsense_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$VM_DIR/pytest.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR)|Error|assert' "$VM_DIR/pytest.log" | tail -n 60)
+              body=$(printf '%s\n--- last lines ---\n%s' "$summary" "$(tail -n 60 "$VM_DIR/pytest.log")")
+              body=${body//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=OPNsense integration tests failed::$body"
+              exit $code
+            }
+      - name: Serial console on failure
+        if: failure()
+        run: |
+          body=$(tail -n 60 "$VM_DIR/serial.log" 2>/dev/null | tr -d '\r' | sed 's/\x1b\[[0-9;?]*[A-Za-z]//g')
+          body=${body//'%'/'%25'}
+          body=${body//$'\n'/'%0A'}
+          echo "::error title=OPNsense serial console::$body"
+      - name: Power off
+        if: always()
+        run: python3 tools/integration/opnsense/vm.py stop "$VM_DIR" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: opnsense-logs
+          path: |
+            .vm/opnsense/*.log
+          if-no-files-found: ignore
+          retention-days: 7
