@@ -46,8 +46,9 @@ from typing import Any
 VERSION = "7.25.1"  # the stable channel on 2026-11-22
 IMAGE = f"chr-{VERSION}.img"
 ARCHIVE = f"{IMAGE}.zip"
-#: SHA-256 of the .zip as downloaded in CI (empty: not pinned yet, the hash is reported).
-PINNED_SHA256 = ""
+#: SHA-256 of the .zip, as downloaded in CI on 2026-11-22 (MikroTik publishes no checksum file
+#: next to the image; empty: not pinned, the hash is reported as a warning).
+PINNED_SHA256 = "c78e8e24ca78d7f13496140e600702df07fe5c57d1a5d6d025654c8476ed2ed2"
 MIRRORS = [
     f"https://download.mikrotik.com/routeros/{VERSION}/",
     f"https://cdn.mikrotik.com/routeros/{VERSION}/",
@@ -214,6 +215,7 @@ class Console:
         self.buf = ""
         self.pos = 0
         self.lock = threading.Lock()
+        self.last = time.time()
         deadline = time.time() + 30
         while True:
             try:
@@ -238,6 +240,7 @@ class Console:
             text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
             with self.lock:
                 self.buf += text
+                self.last = time.time()
 
     def expect(
         self, patterns: list[str], timeout: float, what: str, soft: bool = False
@@ -265,6 +268,21 @@ class Console:
             self.sock.sendall(text[i : i + 16].encode())
             time.sleep(0.03)
 
+    def idle(self, timeout: float, what: str) -> None:
+        """Wait until the console shows a prompt and has been quiet for two seconds (a
+        command like ``/certificate sign`` shows progress and takes keys meanwhile)."""
+        deadline = time.time() + timeout
+        prompt = re.compile(PROMPT + r"\s*$")
+        time.sleep(1)
+        while time.time() < deadline:
+            with self.lock:
+                quiet = time.time() - self.last > 2
+                ready = bool(prompt.search(self.buf[self.pos :]))
+            if quiet and ready:
+                return
+            time.sleep(0.3)
+        fail(f"serial console: no prompt after {what}", "timeout", self.d)
+
     def run(self, command: str, timeout: float = 120) -> str:
         """Type one RouterOS command, wait until it is done, fail on an error message.
 
@@ -274,7 +292,7 @@ class Console:
         marker = secrets.token_hex(4)
         start = self.pos
         self.send(command + "\r")
-        time.sleep(0.5)
+        self.idle(timeout, command)
         self.send(f':put ("__DONE" . "{marker}")\r')
         self.expect([rf"__DONE{marker}"], timeout, command)
         with self.lock:
