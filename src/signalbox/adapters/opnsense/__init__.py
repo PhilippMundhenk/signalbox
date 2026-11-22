@@ -1,4 +1,5 @@
-"""OPNsense (read): interfaces and VLANs, DHCP (Kea and ISC), Unbound DNS, ARP/NDP clients.
+"""OPNsense: reads interfaces and VLANs, DHCP (Kea and ISC), Unbound DNS, ARP/NDP clients;
+writes router interfaces, VLANs on ports, Kea DHCP subnets and reservations.
 
 Talks to the OPNsense REST API with an API key and secret (HTTP basic auth) over HTTPS with a
 pinned certificate (:mod:`signalbox.adapters.https`). Endpoint paths and the JSON shapes assumed
@@ -7,6 +8,10 @@ documentation and still need confirmation on a real device.
 
 Parsing is defensive: missing fields never crash, unknown fields are ignored, and an answer of
 the wrong shape raises ``AdapterError("unexpected answer from <endpoint>: ...")``.
+
+Writing (:mod:`signalbox.adapters.opnsense.write` plans the calls): the API has no
+confirm-or-revert timer, so ``apply`` returns no deadline; the backup is the newest revision of
+the configuration history (``config.xml``) and ``restore`` reverts to that revision.
 
 Segments: an assigned VLAN interface is segment ``<site>/segment/<tag>`` (its parent port
 tagged), the untagged LAN is the native segment, any other untagged assigned interface (a DMZ
@@ -17,8 +22,10 @@ segment of the site: it appears as a port only.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Iterator
+import xml.etree.ElementTree as ET
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from ipaddress import ip_address, ip_interface, ip_network
 from typing import Any
 from urllib.parse import urlsplit
@@ -30,12 +37,17 @@ from signalbox.adapters import (
     AdapterConfig,
     AdapterContext,
     AdapterError,
+    ApplyResult,
+    Backup,
     Capability,
     Manifest,
     Observation,
     SystemInfo,
+    VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound
+from signalbox.adapters.opnsense import write as w
+from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
     Client,
     DeviceRole,
@@ -89,7 +101,9 @@ _KINDS = (
 
 class OpnsenseConfig(AdapterConfig):
     url: str = Field(description="Address of the web interface, https://host[:port]")
-    api_key: SecretStr = Field(description="API key of a dedicated, read-only API user")
+    api_key: SecretStr = Field(
+        description="API key of a dedicated API user (read-only unless writes are allowed)"
+    )
     api_secret: SecretStr = Field(description="API secret belonging to the key")
     allow_insecure_http: bool = Field(
         default=False,
@@ -275,7 +289,7 @@ class OpnsenseAdapter(_Adapter):
     manifest = Manifest(
         id="opnsense",
         name="OPNsense",
-        version="0.1.0",
+        version="0.2.0",
         api_version="1.0",
         vendor="Deciso",
         roles=frozenset({DeviceRole.GATEWAY}),
@@ -283,7 +297,13 @@ class OpnsenseAdapter(_Adapter):
             {Capability.INTERFACES, Capability.DHCP, Capability.DNS, Capability.CLIENTS}
         ),
         config=OpnsenseConfig,
-        description="Reads an OPNsense firewall through its REST API (read-only).",
+        description=(
+            "Reads an OPNsense firewall through its REST API; writes router interfaces, VLANs "
+            "on ports and Kea DHCP (subnets, reservations)."
+        ),
+        writes=frozenset(
+            {ChangeKind.ROUTER, ChangeKind.DHCP, ChangeKind.RESERVATION, ChangeKind.PORT}
+        ),
     )
 
     def __init__(self, context: AdapterContext) -> None:
@@ -499,6 +519,7 @@ class OpnsenseAdapter(_Adapter):
             name = f"kea-{iface.identifier}"
             if any(x.id.endswith(f"/{name}") for x in servers):  # a second subnet there
                 name = f"{name}-{net.network_address}"
+            lifetime = _int(s.get("valid_lifetime")) or lease
             options = _sub(s, "option_data")
             routers = _addrs(options.get("routers"))
             dns = _addrs(options.get("domain_name_servers"))
@@ -516,7 +537,7 @@ class OpnsenseAdapter(_Adapter):
                     segment_id=iface.segment,
                     enabled=enabled and iface.identifier in listen,
                     pools=pools,
-                    lease_seconds=lease,
+                    lease_seconds=lifetime,
                     router=routers[0] if routers else None,
                     dns_servers=dns,
                     domain=_text(options.get("domain_name")) or None,
@@ -661,6 +682,172 @@ class OpnsenseAdapter(_Adapter):
             for mac, e in sorted(seen.items())
         ]
         return Observation(clients=clients)
+
+    # --- writing ------------------------------------------------------------------------------
+
+    async def _write_state(self) -> w.WriteState:
+        """A fresh read of what the write planner needs."""
+        self._cache.clear()
+        self._layout_cache = None
+        layout = await self._layout()
+        vlans = [
+            {k: _text(v.get(k)) for k in ("uuid", "vlanif", "if", "tag", "descr")}
+            for v in _rows(await self._get(VLANS, grid=True), VLANS)
+        ]
+        kea = await self._optional(KEA)
+        isc = {s.segment_id for s in await self._isc(layout)}
+        st = w.WriteState(site=self.context.site_id, layout=layout, vlans=vlans, kea=None, isc=isc)
+        if kea is not None:
+            root = _dict(_dict(kea, KEA, "the answer").get("dhcpv4"), KEA, "dhcpv4")
+            general = _sub(root, "general")
+            st.kea = root
+            st.kea_enabled = _flag(general.get("enabled"))
+            st.listen = _selected(general.get("interfaces"))
+            st.lifetime = _int(general.get("valid_lifetime"))
+            st.subnets = dict(_items(_sub(root, "subnets").get("subnet4")))
+            st.reservations = dict(_items(_sub(root, "reservations").get("reservation")))
+        return st
+
+    async def _needs_assignments(self, changes: list[Change]) -> None:
+        if not any(c.kind is ChangeKind.ROUTER for c in changes):
+            return
+        try:
+            await self.http.get_json(w.ASSIGN_SEARCH, params=ALL_ROWS)
+        except NotFound as exc:
+            raise AdapterError(
+                "this OPNsense version has no interface assignment API (OPNsense 26.7 or newer "
+                "is needed to change router interfaces)"
+            ) from exc
+
+    async def plan_changes(
+        self, changes: list[Change], secrets: Mapping[str, str]
+    ) -> list[VendorCall]:
+        await self._needs_assignments(changes)
+        st = await self._write_state()
+        calls = [call for c in changes for call in w.calls_for(c, st)]
+        if any(call.kea for call in calls):
+            calls.append(w.Call("apply the Kea DHCP configuration", w.KEA_APPLY))
+        return [call.vendor() for call in calls]
+
+    async def _send(self, call: w.Call) -> dict[str, Any]:
+        try:
+            answer = await self.http.post_json(call.path, call.payload)
+        except NotFound as exc:
+            raise AdapterError(f"{call.path}: not available on this firewall (HTTP 404)") from exc
+        if not isinstance(answer, dict):
+            raise _unexpected(call.path, "not an object")
+        if answer.get("errorMessage"):
+            raise AdapterError(f"{call.path}: {_text(answer.get('errorMessage'))}")
+        validations = answer.get("validations")
+        if answer.get("result") == "failed" or validations:
+            found = validations if isinstance(validations, dict) else {}
+            detail = "; ".join(f"{k}: {_text(v) or v}" for k, v in found.items())
+            raise AdapterError(
+                f"{call.path}: the firewall refused the change" + (f" ({detail})" if detail else "")
+            )
+        result = answer.get("result", answer.get("status"))
+        if _text(result).lower() not in ("saved", "deleted", "ok", "done"):
+            raise _unexpected(call.path, f"result {result!r}")
+        return answer
+
+    async def apply(
+        self, changes: list[Change], secrets: Mapping[str, str], rollback_seconds: int
+    ) -> ApplyResult:
+        """Send the calls change by change, each planned on a fresh read.
+
+        OPNsense has no confirm-or-revert for API changes: no deadline is returned, and the
+        deployment restores the backup when the verification fails.
+        """
+        await self._needs_assignments(changes)
+        sent: list[w.Call] = []
+        for change in changes:
+            st = await self._write_state()
+            for call in w.calls_for(change, st):
+                await self._send(call)
+                sent.append(call)
+        if any(call.kea for call in sent):
+            final = w.Call("apply the Kea DHCP configuration", w.KEA_APPLY)
+            await self._send(final)
+            sent.append(final)
+        self._cache.clear()
+        self._layout_cache = None
+        return ApplyResult(confirm_deadline=None, calls=[c.vendor() for c in sent])
+
+    async def confirm(self) -> None:
+        """Nothing to confirm: OPNsense applies API changes at once."""
+
+    async def _history(self) -> list[dict[str, Any]]:
+        data = _dict(await self.http.get_json(w.BACKUPS), w.BACKUPS, "the answer")
+        items = data.get("items")
+        if not isinstance(items, list):
+            raise _unexpected(w.BACKUPS, "no list of items")
+        rows = [i for i in items if isinstance(i, dict) and _text(i.get("id"))]
+        return sorted(rows, key=lambda i: _text(i.get("time")), reverse=True)
+
+    async def _download(self, revision: str) -> str:
+        path = w.DOWNLOAD + revision
+        text = (await self.http.request("GET", path)).text
+        _revision_time(text, path)
+        return text
+
+    async def backup(self) -> Backup:
+        """The newest revision of the configuration history: the configuration in use."""
+        history = await self._history()
+        if not history:
+            raise AdapterError(
+                "the configuration history is empty; set System > Configuration > History to "
+                "keep backups"
+            )
+        return Backup(
+            device_id=self.context.device_id,
+            taken_at=datetime.now(UTC),
+            format="opnsense-config-xml",
+            content=await self._download(_text(history[0]["id"])),
+        )
+
+    async def restore(self, backup: Backup) -> None:
+        """Revert to the backed-up revision of the configuration history, then apply it.
+
+        Idempotent: reverting twice to the same revision leaves the same configuration.
+        """
+        if backup.format != "opnsense-config-xml":
+            raise AdapterError(f"not an OPNsense backup (format {backup.format})")
+        when = _revision_time(backup.content, "the backup")
+        same_time = [i for i in await self._history() if _text(i.get("time")) == when]
+        revision = None
+        for item in same_time:
+            if await self._download(_text(item["id"])) == backup.content:
+                revision = _text(item["id"])
+                break
+        if revision is None and len(same_time) == 1:
+            revision = _text(same_time[0]["id"])
+        if revision is None:
+            raise AdapterError(
+                "the backed-up revision is no longer in the configuration history; restore "
+                "the stored config.xml in System > Configuration > Backups"
+            )
+        answer = _dict(await self.http.post_json(w.REVERT + revision, {}), w.REVERT, "the answer")
+        if _text(answer.get("status")) != "reverted":
+            raise AdapterError(f"{w.REVERT}{revision}: revert refused ({answer.get('status')!r})")
+        for path in (w.VLAN_APPLY, w.ASSIGN_APPLY, w.KEA_APPLY):
+            try:
+                await self._send(w.Call("apply the restored configuration", path))
+            except AdapterError as exc:
+                if "HTTP 404" not in str(exc):
+                    raise
+        self._cache.clear()
+        self._layout_cache = None
+
+
+def _revision_time(text: str, where: str) -> str:
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise AdapterError(f"{where}: not a config.xml ({exc})") from exc
+    when = root.findtext("revision/time")
+    if root.tag != "opnsense" or not when:
+        raise AdapterError(f"{where}: not an OPNsense config.xml (no revision time)")
+    return when.strip()
 
 
 def _sort_key(address: IPAddress) -> tuple[int, int]:

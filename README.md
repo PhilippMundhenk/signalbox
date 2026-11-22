@@ -37,7 +37,7 @@ Signalbox is made of separate parts with narrow jobs (details in [docs/DESIGN.md
 
 | Device | How Signalbox reads it | What it reads |
 | --- | --- | --- |
-| OPNsense | REST API with a read-only API key | interfaces, VLANs, subnets, DHCP (Kea, ISC), Unbound DNS, ARP/NDP and leases |
+| OPNsense | REST API with a read-only API key ([docs](docs/adapters/opnsense.md)) | interfaces, VLANs, subnets, DHCP (Kea, ISC), Unbound DNS, ARP/NDP and leases; writes: router interfaces (26.7+), VLANs on ports, Kea DHCP subnets and reservations (simulator-tested) |
 | OpenWrt (access points, routers) | ubus JSON-RPC over HTTPS with a read-only rpcd user | ports, DSA bridge VLANs, Wi-Fi radios and SSIDs, DHCP, connected clients, LLDP |
 | NETGEAR ProSAFE Plus switches | NSDP (UDP) through [Switchyard](https://github.com/PhilippMundhenk/switchyard), read, simulator-tested | model, firmware, ports with link and speed, 802.1Q VLANs (tagged/untagged, PVIDs), port-based VLAN groups, link aggregation |
 | AVM Fritz!Box | TR-064 (SOAP over HTTPS) with a dedicated user; read, simulator-tested | LAN, subnet, DHCP, Wi-Fi radios, SSIDs and guest network, connected hosts |

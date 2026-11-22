@@ -47,7 +47,8 @@ expose Signalbox to the internet.
 Give Signalbox its own read-only account on every device, so a leaked Signalbox credential
 cannot change anything:
 
-- OPNsense: an API user with read privileges only, see [adapters/opnsense.md](adapters/opnsense.md)
+- OPNsense: an API user with read privileges only, see [adapters/opnsense.md](adapters/opnsense.md);
+  a second user with write privileges only for deployments
 - OpenWrt: an rpcd login with a read-only ACL, see [adapters/openwrt.md](adapters/openwrt.md)
 - Fritz!Box: a user of its own with only the right "FRITZ!Box settings" (TR-064 has no
   read-only right), see [adapters/fritzbox.md](adapters/fritzbox.md)

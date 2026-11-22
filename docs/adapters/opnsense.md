@@ -1,7 +1,8 @@
 # OPNsense adapter
 
-Adapter id `opnsense`, role `gateway`. Reads an OPNsense firewall through its REST API; it never
-changes anything (every request is a `GET`).
+Adapter id `opnsense`, role `gateway`. Reads an OPNsense firewall through its REST API (every
+read is a `GET`) and, when changes are allowed, writes router interfaces, VLANs on ports, Kea
+DHCP subnets and reservations ([Writing](#writing-changes)).
 
 | Capability | What is read |
 | --- | --- |
@@ -57,10 +58,93 @@ meant for the simulator.
 
 OPNsense privileges are per page and do not distinguish reading from writing: the user can call
 the write endpoints of these pages too (for example start a firmware update). Signalbox only
-sends `GET` requests, but treat the key like an admin password, and restrict who can reach the
+sends `GET` requests with this user, but treat the key like an admin password, and restrict who can reach the
 web interface. The privilege names above are from the documentation; check them against your
 version. A missing privilege shows up as `access denied (HTTP 403); check the user's
 privileges` for the capability that needs it, the rest is still read.
+
+## Writing (changes)
+
+With `deploy.enabled` and *Allow changes* on the device, Signalbox can change:
+
+| Kind | What it does on the firewall | Endpoints (all `POST`) |
+| --- | --- | --- |
+| `router` | **update**: sets the static IPv4 address (and the description, if the name changes) of the interface assigned to the network; IPv6 is left alone. **create** (VLAN networks only): creates the VLAN device on the LAN's port if it does not exist (device name `vlan0.<tag>`), assigns it as a new interface (`optN`, not locked) with a static IPv4 address. **remove** (VLAN networks only): unassigns the interface and deletes its VLAN device when nothing else uses it | `/api/interfaces/vlan_settings/addItem`, `delItem/<uuid>`, `reconfigure`; `/api/interfaces/assignment/addItem`, `setItem/<identifier>`, `delItem/<identifier>`, `reconfigure` |
+| `dhcp` | Kea DHCPv4: creates, updates or deletes the subnet of the network's interface (pool, DNS servers, lease time; on a new subnet the router option is the interface address and option autocollect is off), and adds or removes the interface from the interfaces Kea listens on (turning a network on also turns the Kea service on) | `/api/kea/dhcpv4/addSubnet`, `setSubnet/<uuid>`, `delSubnet/<uuid>`, `/api/kea/dhcpv4/set`, then `/api/kea/service/reconfigure` |
+| `reservation` | adds, changes or deletes a Kea reservation in the network's subnet | `/api/kea/dhcpv4/addReservation`, `setReservation/<uuid>`, `delReservation/<uuid>`, then `/api/kea/service/reconfigure` |
+| `port` | the **tagged** VLANs of a port are the VLAN devices with that port as parent: adds and deletes them. The **untagged** network of a port is its interface assignment, which is never changed (refused) | `/api/interfaces/vlan_settings/addItem`, `delItem/<uuid>`, `reconfigure` |
+
+Not writable: `wlan` (OPNsense is no access point). Unbound host overrides are not a change
+kind of Signalbox yet.
+
+Refused, with a message naming the reason, before anything is sent:
+
+- **ISC DHCP**: the OPNsense API cannot change ISC DHCP (its ranges and options live on legacy
+  pages). A DHCP or reservation change on a network served by ISC is refused; move the network
+  to Kea DHCP to manage it with Signalbox.
+- **Router interfaces on OPNsense before 26.7**: interface assignments and addresses got an API
+  with the MVC rewrite of *Interfaces > Assignments* in 26.7 (`/api/interfaces/assignment/*`).
+  On older versions every `router` change is refused (`no interface assignment API`); `dhcp`,
+  `reservation` and `port` work on 24.7 and newer.
+- removing or creating the LAN or a network on its own port (only VLAN networks are created and
+  removed); a new network without a name; names other than letters, digits and `_` (OPNsense's
+  rule for interface descriptions); IPv6 router addresses; a new DHCP network without
+  `lease_seconds` while Kea has a default lease time (Kea always hands one out, so the read could
+  never show "none"); deleting a VLAN that still carries an assigned interface; a locked
+  interface (unlock it in the web interface).
+
+A validation error of the firewall becomes an error naming the field, for example
+`/api/interfaces/vlan_settings/addItem: the firewall refused the change (vlan.tag: Tag for this
+device must be unique.)`.
+
+`plan_changes` lists every call with its payload for the review. A call that refers to
+something an earlier change of the same deployment creates shows a placeholder, for example
+`{new subnet 203.0.113.0/24}`; during the deployment each change is planned again on a fresh
+read, so the calls sent use the real identifiers. No secret is ever part of a payload.
+
+### No confirm timer: backup and restore
+
+The OPNsense API applies a change at once and has no confirm-or-revert timer, so `apply` never
+returns a deadline. Safety comes from the backup:
+
+- **backup**: `GET /api/core/backup/backups/this` lists the configuration history; Signalbox
+  downloads the newest revision (the configuration in use) with
+  `GET /api/core/backup/download/this/<id>` and stores the `config.xml` encrypted with the
+  change (format `opnsense-config-xml`). An empty history (history switched off) refuses the
+  deployment before anything is changed.
+- **restore** (when applying or verifying fails, or when you restore a backup): finds the stored
+  revision in the history again (same revision time and content), reverts to it with
+  `POST /api/core/backup/revertBackup/<id>` and applies it with the `reconfigure` calls of VLANs,
+  interface assignments and Kea (a component that is not installed is skipped). Restoring twice
+  is harmless. If the revision was pruned from the history in the meantime, the restore fails
+  with a message: upload the `config.xml` stored with the change in *System > Configuration >
+  Backups* by hand (the upload is not part of the API).
+
+> **Needs confirmation on a real device** ([#21](https://github.com/PhilippMundhenk/signalbox/issues/21)):
+> that the newest history revision always equals the running configuration, and whether
+> `revertBackup` followed by the `reconfigure` calls puts interface addresses back without a
+> reboot (the assignment `reconfigure` applies pending assignment changes; after a revert there
+> may be none).
+
+Because there is no timer, a change that cuts Signalbox off from the firewall (a new LAN address,
+for example) cannot be undone automatically: the verification fails, and the restore cannot
+reach the firewall either. Signalbox marks such changes as risky in the review.
+
+### A separate API user for writing
+
+Keep the read-only user for observing and create a second user for deployments; store its key
+in the device settings only while changes are allowed. It needs the read privileges above plus:
+
+| Privilege (as named in the web interface) | Needed for |
+| --- | --- |
+| Interfaces: Other Types: VLAN | `/api/interfaces/vlan_settings/*` (create and delete VLAN devices) |
+| Interfaces: Assignments | `/api/interfaces/assignment/*` (router interfaces, 26.7 and newer) |
+| Services: Kea DHCP: v4 | `/api/kea/dhcpv4/*`, `/api/kea/service/reconfigure` |
+| Diagnostics: Configuration History | `/api/core/backup/*` (backup and restore) |
+
+The privilege names are taken from the documentation and the source; check them against your
+version. As with reading, OPNsense privileges are per page: this user can change everything on
+these pages, so treat its key like an admin password.
 
 ## Mapping to the model
 
@@ -73,7 +157,8 @@ privileges` for the capability that needs it, the rest is still read.
 - **Subnets**: each global address of an assigned, non-WAN interface, with `gateway: true`.
   Link-local and loopback addresses are skipped.
 - **DHCP (Kea)**: one server per Kea subnet, attached to the interface whose network contains it;
-  enabled when Kea is enabled and listens on that interface. Pools from `pools` (ranges or CIDR,
+  enabled when Kea is enabled and listens on that interface. The lease time is the subnet's own
+  `valid_lifetime`, else the general one. Pools from `pools` (ranges or CIDR,
   one per line). With `option_data_autocollect`, empty router/DNS options become the interface
   address, as Kea does. Reservations by subnet.
 - **DHCP (ISC)**: the API does not expose ISC ranges and options (they live on legacy pages).
@@ -189,6 +274,16 @@ A plain list; `{"rows": [...]}` is accepted as well. NDP addresses may carry a `
 data (documentation prefixes, `02:` MACs): LAN untagged with IPv4 and IPv6, VLAN 20 "IoT" and
 VLAN 30 "Guest", an unassigned VLAN 40, Kea on LAN and IoT, ISC on Guest, Unbound overrides,
 ARP and NDP entries. Switches: wrong key or secret (401), `api_enabled=False` (404 everywhere),
-`delay`, `malformed` (broken JSON per endpoint) and `fail` (a status code per endpoint).
+`delay`, `malformed` (broken JSON per endpoint) and `fail` (a status code per endpoint or
+endpoint prefix).
+
+It also implements the write endpoints above. Writes change the answers of the read endpoints:
+configuration endpoints (VLANs, Kea) at once, the interface overview after the assignment
+`reconfigure`, as on a firewall. Every write stores a revision in a simulated configuration
+history; a revision downloads as a `config.xml` that serialises the simulator's configuration,
+and `revertBackup` puts it back. The simulated firewall checks fields like OPNsense does
+(description characters, unique tags and device names, networks, pools inside the subnet, MACs,
+locked interfaces) and answers `{"result": "failed", "validations": {"<field>": "..."}}`;
+`invalid` forces such an answer for any write endpoint.
 `signalbox.sim.server.serve()` runs it on a free local port, over TLS with a certificate from
 `self_signed_certificate()`.
