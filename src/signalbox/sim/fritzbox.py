@@ -136,6 +136,8 @@ WLANS: dict[int, dict[str, str]] = {
     },
 }
 PASSPHRASES = {1: "example-passphrase", 2: "example-passphrase", 3: "example-guest-passphrase"}
+#: ``X_AVM-DE_GetWPSInfo`` of each WLANConfiguration: (mode, status); status ``off``: WPS disabled
+WPS = {1: ("stop", "inactive"), 2: ("pbc", "active"), 3: ("stop", "off")}
 #: Beacon types the sample box offers (spelled as in the description of its FRITZ!OS)
 OFFERED_BEACON_TYPES = ("None", "11i", "WPAand11i", "WPA3", "11iandWPA3")
 #: Limits the sample box reports in WLANConfiguration GetInfo
@@ -312,6 +314,7 @@ class FritzboxSim:
     ethernet: dict[str, str] = field(default_factory=lambda: dict(ETHERNET))
     wlans: dict[int, dict[str, str]] = field(default_factory=lambda: copy.deepcopy(WLANS))
     passphrases: dict[int, str] = field(default_factory=lambda: dict(PASSPHRASES))
+    wps: dict[int, tuple[str, str]] = field(default_factory=lambda: dict(WPS))
     #: offer Get/SetBeaconAdvertisement (else: fault 401)
     beacon_advertisement: bool = True
     #: write actions answered with success but not applied (a box that ignores a setting)
@@ -579,6 +582,9 @@ class FritzboxSim:
                 "NewPreSharedKey": "0" * 64,
                 "NewKeyPassphrase": self.passphrases[index],
             }
+        if action == "X_AVM-DE_GetWPSInfo":
+            mode, status = self.wps[index]
+            return {"NewX_AVM-DE_WPSMode": mode, "NewX_AVM-DE_WPSStatus": status}
         if action == "GetBeaconAdvertisement":
             return {
                 "NewBeaconAdvertisementEnabled": self.wlans[index]["NewBeaconAdvertisementEnabled"]

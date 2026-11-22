@@ -28,15 +28,20 @@ from signalbox.adapters.openwrt import (
     OpenWrtConfig,
     band,
     bridge_vlans,
+    ciphers,
+    group_cipher,
     lease_seconds,
     link_speeds,
     security,
+    supported_from_features,
+    supported_from_packages,
     vitals,
     width,
 )
 from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
 from signalbox.model import (
     Band,
+    Cipher,
     DeviceRole,
     DeviceStatus,
     Membership,
@@ -44,12 +49,15 @@ from signalbox.model import (
     NtpServer,
     Pmf,
     PortKind,
+    SaePwe,
     Security,
+    WpsMethod,
+    passphrase_digest,
     passphrase_fingerprint,
 )
 from signalbox.sim.openwrt import OpenWrtSim, create_app
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
-from signalbox.testing import assert_contract
+from signalbox.testing import assert_contract, passphrase_digest_key
 
 SIM = OpenWrtSim()
 
@@ -187,6 +195,81 @@ async def test_wireless(adapter: OpenWrtAdapter) -> None:
     # client isolation: option isolate (default off); a purpose is not reported by OpenWrt
     assert iot.client_isolation is True and main.client_isolation is False
     assert iot.purpose is None and main.purpose is None
+
+
+async def test_wifi_security_details(adapter: OpenWrtAdapter) -> None:
+    with passphrase_digest_key():
+        obs = await adapter.read_wireless()
+        wlans = {w.id: w for w in obs.wlans}
+        main, iot = wlans["ap1/wlan/default_radio0"], wlans["ap1/wlan/iot_radio0"]
+        assert main.passphrase_digest == passphrase_digest("example-passphrase")
+        assert iot.passphrase_digest == passphrase_digest("example-iot-passphrase")
+        assert main.passphrase_digest != iot.passphrase_digest
+    assert main.ciphers == [Cipher.CCMP] and main.group_cipher is Cipher.CCMP
+    assert main.sae is not None and main.sae.pwe is SaePwe.BOTH
+    assert main.wps is not None and main.wps.enabled is False
+    assert iot.sae is None and iot.ciphers == [Cipher.CCMP]
+    assert iot.wps is not None and iot.wps.methods == [WpsMethod.PUSH_BUTTON]
+    assert iot.key_rotation_seconds == 3600 and main.key_rotation_seconds is None
+    assert main.beacon_protection is None
+    for r in obs.radios:  # luci getFeatures of the full wpad build
+        assert r.supported_security is not None
+        assert Security.WPA3 in r.supported_security
+        assert Security.WPA3_ENTERPRISE_192 in r.supported_security
+    # no key installed (the default): no digest, the rest is unchanged
+    [plain] = [w for w in (await adapter.read_wireless()).wlans if w.id == iot.id]
+    assert plain.passphrase_digest is None and plain.passphrase_fingerprint is not None
+
+
+async def test_supported_security_fallbacks(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    sim.luci_features = False
+    sim.wpad = "wpad-basic-mbedtls"
+    modes = (await adapter.read_wireless()).radios[0].supported_security
+    assert modes == [Security.OPEN, Security.WPA, Security.WPA_WPA2, Security.WPA2]
+    sim.wpad = "wpad-mbedtls"
+    modes = (await adapter.read_wireless()).radios[0].supported_security
+    assert modes is not None and Security.WPA2_WPA3 in modes and Security.OWE in modes
+    sim.denied |= {"luci", "rpc-sys"}  # an ACL from before #167: not reported, not an error
+    snap = await adapter.observe()
+    assert not snap.errors and all(r.supported_security is None for r in snap.radios)
+
+
+def test_ciphers_and_group_cipher() -> None:
+    assert ciphers("none", Security.OPEN) is None
+    assert ciphers("wep-open", Security.WEP) == [Cipher.WEP]
+    assert ciphers("psk2", Security.WPA2) == [Cipher.CCMP]
+    assert ciphers("psk2+aes", Security.WPA2) == [Cipher.CCMP]
+    assert ciphers("psk-mixed", Security.WPA_WPA2) == [Cipher.TKIP, Cipher.CCMP]
+    assert ciphers("psk2+tkip+ccmp", Security.WPA2) == [Cipher.TKIP, Cipher.CCMP]
+    assert ciphers("wpa3-192", Security.WPA3_ENTERPRISE_192) == [Cipher.GCMP_256]
+    assert ciphers("psk2+gcmp", Security.WPA2) == [Cipher.GCMP]
+    assert ciphers("psk2+bogus", Security.WPA2) is None
+    assert ciphers("bogus", Security.OTHER) is None
+    assert group_cipher([Cipher.CCMP, Cipher.TKIP]) is Cipher.TKIP
+    assert group_cipher([Cipher.GCMP_256]) is Cipher.GCMP_256
+    assert group_cipher(None) is None and group_cipher([]) is None
+
+
+def test_supported_security_helpers() -> None:
+    assert supported_from_packages({"base-files": "1"}) is None
+    assert Security.WPA3 not in (supported_from_packages({"wpad-basic-wolfssl": "1"}) or [])
+    assert supported_from_features({"hostapd": {"sae": 1, "eap": 1}}) == [
+        Security.OPEN,
+        Security.WPA,
+        Security.WPA_WPA2,
+        Security.WPA2,
+        Security.WPA3,
+        Security.WPA2_WPA3,
+        Security.WPA_ENTERPRISE,
+        Security.WPA2_ENTERPRISE,
+        Security.WPA3_ENTERPRISE,
+    ]
+    assert supported_from_features({}) == [
+        Security.OPEN,
+        Security.WPA,
+        Security.WPA_WPA2,
+        Security.WPA2,
+    ]
 
 
 async def test_dhcp_off_on_an_ap(adapter: OpenWrtAdapter) -> None:
@@ -561,14 +644,19 @@ def test_lease_seconds_infinite() -> None:
         ("none", Security.OPEN),
         (None, Security.OPEN),
         ("owe", Security.OWE),
-        ("psk", Security.OTHER),
+        ("psk", Security.WPA),
         ("psk2+ccmp", Security.WPA2),
-        ("psk-mixed", Security.WPA2),
+        ("psk-mixed", Security.WPA_WPA2),
         ("sae", Security.WPA3),
         ("sae-mixed", Security.WPA2_WPA3),
         ("wpa2", Security.WPA2_ENTERPRISE),
         ("wpa3", Security.WPA3_ENTERPRISE),
-        ("wep-open", Security.OTHER),
+        ("wep-open", Security.WEP),
+        ("wep-shared", Security.WEP),
+        ("wpa", Security.WPA_ENTERPRISE),
+        ("wpa-mixed", Security.WPA_ENTERPRISE),
+        ("wpa3-192", Security.WPA3_ENTERPRISE_192),
+        ("unknown", Security.OTHER),
     ],
 )
 def test_security(encryption: str | None, expected: Security) -> None:

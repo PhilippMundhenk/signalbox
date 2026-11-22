@@ -245,15 +245,34 @@ through rpcd with "invalid argument". Signalbox then calls `luci-rpc getWireless
   width from the digits of `htmode` (`NOHT` = 20), `txpower` dBm, `country`. Enabled when not
   `disabled` and `up` in `network.wireless status`. 60 GHz radios are skipped.
 - WLAN: only `mode ap`. `encryption` (cipher suffix `+ccmp` ignored): `none` open, `owe`,
-  `psk2`/`psk-mixed` WPA2, `psk` other (WPA1), `sae` WPA3, `sae-mixed` WPA2/WPA3, `wpa`/`wpa2`
-  WPA2-Enterprise, `wpa3*` WPA3-Enterprise. `ieee80211w` `0`/`1`/`2` is PMF disabled/optional/
+  `psk2` WPA2, `psk-mixed` WPA/WPA2 mixed, `psk` WPA (version 1), `wep*` WEP, `sae` WPA3,
+  `sae-mixed` WPA2/WPA3, `wpa`/`wpa-mixed` WPA-Enterprise (WPA1 or WPA/WPA2), `wpa2`
+  WPA2-Enterprise, `wpa3`/`wpa3-mixed` WPA3-Enterprise, `wpa3-192` WPA3-Enterprise 192-bit;
+  anything else is `other`. `ieee80211w` `0`/`1`/`2` is PMF disabled/optional/
   required; unset means hostapd's default (required for `sae`, `owe`, `wpa3`; optional for
   `sae-mixed`; otherwise unknown). `ieee80211r`, `ieee80211k`, `bss_transition` (or `ieee80211v`)
   are the roaming flags, `hidden` the hidden SSID, `isolate` client isolation (unset: off). The
   segment is that of the first `network`. OpenWrt does not know a network purpose; declare it in
   the desired state.
 - The `key` is read (rpcd cannot hide single options) but only
-  `passphrase_fingerprint(ssid, key)` is kept, and only for personal (PSK/SAE) networks.
+  `passphrase_fingerprint(ssid, key)` and `passphrase_digest(key)` are kept, and only for
+  personal (PSK/SAE) networks; the digest is `None` in a process without the installation's key.
+- Security details (#167): `ciphers` from the `encryption` suffix (`+ccmp`, `+aes`, `+tkip`,
+  `+tkip+ccmp`, `+gcmp`, `+gcmp-256`, `+ccmp-256`); without a suffix hostapd.sh's default
+  (`tkip` and `ccmp` for `psk`/`psk-mixed`, `gcmp-256` for `wpa3-192`, else `ccmp`); a suffix
+  with an unknown word: not reported. `group_cipher` is not a UCI option: it is the weakest
+  pairwise cipher *(guess; hostapd's behaviour)*. `sae.pwe` from `sae_pwe` (`0`
+  hunting-and-pecking, `1` hash-to-element, `2` both; unset: not reported); no SAE-PK, no
+  anti-clogging threshold in UCI. `wps` for personal networks: `wps_pushbutton` `1`
+  push-button, `wps_label` `1` PIN, neither set: `Wps(enabled=False)`. `key_rotation_seconds`
+  from `wpa_group_rekey` (unset: not reported). `beacon_protection` from `beacon_prot` when set
+  *(guess: option name)*.
+- `Radio.supported_security`: `luci getFeatures` (rpcd-mod-luci; the `hostapd` flags `sae`,
+  `owe`, `eap`, `suiteb192` as LuCI reads them *(guess: object `luci`, not `luci-rpc`)*), else
+  the `wpad-*` package of `rpc-sys packagelist` (`wpad-basic*`: no SAE, OWE, EAP; every other
+  `wpad-*`: all *(guess)*). Both are in the ACL below; an ACL from before #167 or a missing
+  package leaves it unreported, which is not an error. WEP is never listed (current hostapd
+  builds have no WEP).
 
 ### `uci get {"config": "dhcp"}` (dnsmasq)
 
@@ -340,6 +359,8 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "uci": ["get"],
         "hostapd.*": ["get_clients"],
         "luci-rpc": ["getDHCPLeases", "getWirelessDevices"],
+        "luci": ["getFeatures"],
+        "rpc-sys": ["packagelist"],
         "file": ["read"],
         "luci.lldpd": ["getStatus"]
       },
@@ -439,6 +460,8 @@ only allows the `uci` methods of a transaction on the three configs:
         "uci": ["get"],
         "hostapd.*": ["get_clients"],
         "luci-rpc": ["getDHCPLeases", "getWirelessDevices"],
+        "luci": ["getFeatures"],
+        "rpc-sys": ["packagelist"],
         "file": ["read"],
         "luci.lldpd": ["getStatus"]
       },

@@ -152,14 +152,28 @@ clear text and is only meant for the simulator.
   master's. Properties are read inline (`security.authentication-types`) or from the named
   profile (`security=home` → `/interface/wifi/security`), likewise for `configuration`,
   `channel`, `datapath` and `steering`. Security from `authentication-types`
-  (`wpa2-psk,wpa3-psk` → WPA2/WPA3, empty → open), PMF from `management-protection`
+  (`wpa2-psk,wpa3-psk` → WPA2/WPA3, `wpa-psk,wpa2-psk` → WPA/WPA2, `wpa-psk` → WPA,
+  `wpa-eap` → WPA-Enterprise (also with `wpa2-eap`), `wpa3-eap-192` → 192-bit, empty → open),
+  PMF from `management-protection`
   (`allowed` → optional), 802.11r from `ft`, 802.11k/v from `steering.rrm`/`steering.wnm`
   (not set at all: unknown, RouterOS' default applies), hidden from `hide-ssid`, segment from the bridge port's `pvid`, else `datapath.vlan-id`. Client isolation and a network purpose are not read (declare the purpose in the desired state); a plan that sets `client_isolation` is refused.
 - **Wireless (`wireless` package)**: radios from `/interface/wireless` entries without
   `master-interface` (`band` like `2ghz-b/g/n`, `frequency`, `channel-width`), WLANs in mode
   `ap-bridge` or `bridge`, security and passphrase from the `security-profile`
-  (`/interface/wireless/security-profiles`, `mode=none` is open), segment from the bridge port,
-  else `vlan-id` with `vlan-mode=use-tag`.
+  (`/interface/wireless/security-profiles`, `mode=none` is open, `static-keys-*` WEP), segment
+  from the bridge port, else `vlan-id` with `vlan-mode=use-tag`.
+- **Security details (#167)**, `wifi` package, from the security profile: `ciphers` from
+  `encryption` and `group_cipher` from `group-encryption` (only what is set; REST leaves out
+  defaults), `sae.pwe` from `sae-pwe`, `sae.anti_clogging_threshold` from
+  `sae-anti-clogging-threshold` (SAE modes), `wps` from `wps` (`push-button`, `disable`; no PIN
+  *(guess)*), `key_rotation_seconds` from `group-key-update`; no SAE-PK, no beacon protection
+  *(guess)*. `supported_security`: every mode incl. SAE, OWE, 192-bit *(guess for wifi-qcom-ac)*.
+  `wireless` package: `unicast-ciphers`/`group-ciphers` (`tkip`, `aes-ccm`), profile
+  `group-key-update`, interface `wps-mode` (`disabled`, `push-button`,
+  `push-button-virtual-only`); no SAE; `supported_security`: open, WEP, WPA/WPA2 Personal and
+  Enterprise. `passphrase_digest` is computed next to the fingerprint, from the same passphrase
+  (readable with the `sensitive` policy only). The CI controller's CHR has no radios: nothing of
+  this is confirmed by CI.
 - **No wireless package** (neither `/interface/wifi` nor `/interface/wireless` exists): the
   wireless capability reports `no wireless package: ...` as a "could not read" finding. On
   RouterOS 7.25.1 CHR the `wifi` menu exists without radios (an empty list: no radios, no finding);

@@ -52,6 +52,7 @@ from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     Band,
+    Cipher,
     Client,
     DeviceHealth,
     DeviceRole,
@@ -77,6 +78,8 @@ from signalbox.model import (
     PowerSupply,
     Radio,
     Reservation,
+    SaePwe,
+    SaeSettings,
     Security,
     Segment,
     StorageKind,
@@ -86,9 +89,12 @@ from signalbox.model import (
     Uplink,
     UplinkKind,
     Wlan,
+    Wps,
+    WpsMethod,
     address_nat_class,
     normalise_mac,
     object_id,
+    passphrase_digest,
     passphrase_fingerprint,
     port_id,
     segment_id,
@@ -379,26 +385,119 @@ def width_of(text: Any) -> int | None:
 
 
 def security_of(types: Any, mode: Any = None) -> Security:
-    """``authentication-types`` (``wpa2-psk,wpa3-psk``, ...); legacy ``mode=none`` is open."""
+    """``authentication-types`` (``wpa2-psk,wpa3-psk``, ...); legacy ``mode=none`` is open and
+    ``static-keys-*`` is WEP. ``wpa-psk`` is WPA1 (mixed with ``wpa2-psk``: WPA/WPA2)."""
     kinds = set(_names(types))
-    if _text(mode) == "none" or not kinds:
+    if _text(mode) == "none":
         return Security.OPEN
-    if "wpa3-eap" in kinds or "wpa3-eap-192" in kinds:
+    if _text(mode).startswith("static-keys"):
+        return Security.WEP
+    if not kinds:
+        return Security.OPEN
+    if "wpa3-eap" in kinds:
         return Security.WPA3_ENTERPRISE
-    if kinds & {"wpa2-eap", "wpa-eap"}:
-        return Security.WPA2_ENTERPRISE
+    if "wpa3-eap-192" in kinds:
+        return Security.WPA3_ENTERPRISE_192
+    if "wpa2-eap" in kinds:
+        return Security.WPA_ENTERPRISE if "wpa-eap" in kinds else Security.WPA2_ENTERPRISE
+    if "wpa-eap" in kinds:
+        return Security.WPA_ENTERPRISE
     if {"wpa2-psk", "wpa3-psk"} <= kinds:
         return Security.WPA2_WPA3
     if "wpa3-psk" in kinds:
         return Security.WPA3
+    if {"wpa-psk", "wpa2-psk"} <= kinds:
+        return Security.WPA_WPA2
     if "wpa2-psk" in kinds:
         return Security.WPA2
+    if "wpa-psk" in kinds:
+        return Security.WPA
     if "owe" in kinds:
         return Security.OWE
     return Security.OTHER
 
 
-_PERSONAL = {Security.WPA2, Security.WPA3, Security.WPA2_WPA3, Security.OTHER}
+_PERSONAL = {
+    Security.WPA,
+    Security.WPA_WPA2,
+    Security.WPA2,
+    Security.WPA3,
+    Security.WPA2_WPA3,
+    Security.OTHER,
+}
+_SAE = {Security.WPA3, Security.WPA2_WPA3}
+_CIPHERS = {
+    "ccmp": Cipher.CCMP,
+    "aes-ccm": Cipher.CCMP,
+    "ccmp-256": Cipher.CCMP_256,
+    "gcmp": Cipher.GCMP,
+    "gcmp-256": Cipher.GCMP_256,
+    "tkip": Cipher.TKIP,
+}
+_SAE_PWE = {
+    "hunting-and-pecking": SaePwe.HUNTING_AND_PECKING,
+    "hash-to-element": SaePwe.HASH_TO_ELEMENT,
+    "both": SaePwe.BOTH,
+}
+#: What the ``wifi`` drivers (wifi-qcom, wifi-qcom-ac) offer; the ``wireless`` package has no
+#: WPA3 and no OWE but does WEP.
+_WIFI_MODES = [
+    Security.OPEN,
+    Security.OWE,
+    Security.WPA,
+    Security.WPA_WPA2,
+    Security.WPA2,
+    Security.WPA3,
+    Security.WPA2_WPA3,
+    Security.WPA_ENTERPRISE,
+    Security.WPA2_ENTERPRISE,
+    Security.WPA3_ENTERPRISE,
+    Security.WPA3_ENTERPRISE_192,
+]
+_WIRELESS_MODES = [
+    Security.OPEN,
+    Security.WEP,
+    Security.WPA,
+    Security.WPA_WPA2,
+    Security.WPA2,
+    Security.WPA_ENTERPRISE,
+    Security.WPA2_ENTERPRISE,
+]
+
+
+def ciphers_of(value: Any, sec: Security) -> list[Cipher] | None:
+    """``encryption`` / ``unicast-ciphers`` as model ciphers; None: not set, open, or a word
+    this does not know. WEP networks have the ``wep`` cipher only."""
+    if sec is Security.OPEN:
+        return None
+    if sec is Security.WEP:
+        return [Cipher.WEP]
+    words = _names(value)
+    found = [_CIPHERS[w] for w in words if w in _CIPHERS]
+    return list(dict.fromkeys(found)) if words and len(found) == len(words) else None
+
+
+def cipher_of(value: Any, sec: Security) -> Cipher | None:
+    """``group-encryption`` / ``group-ciphers``: the first (strongest listed) cipher."""
+    if sec is Security.OPEN:
+        return None
+    if sec is Security.WEP:
+        return Cipher.WEP
+    words = [_CIPHERS[w] for w in _names(value) if w in _CIPHERS]
+    return words[0] if words else None
+
+
+def wps_of(value: Any) -> Wps | None:
+    """``wps`` (wifi: ``push-button``, ``disable``) or ``wps-mode`` (wireless: ``disabled``,
+    ``push-button``, ``push-button-virtual-only``); None: not set."""
+    text = _text(value)
+    if not text:
+        return None
+    if text.startswith("disable"):
+        return Wps(enabled=False)
+    if text.startswith("push-button"):
+        return Wps(enabled=True, methods=[WpsMethod.PUSH_BUTTON])
+    return None
 
 
 def _extra(row: dict[str, Any], *keys: str) -> dict[str, JsonValue]:
@@ -1059,6 +1158,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 tx_power_dbm=_int(prop(row, "configuration", "tx-power")),
                 country=_text(prop(row, "configuration", "country")) or None,
                 enabled=_active(row),
+                supported_security=list(_WIFI_MODES),
                 vendor_extra={
                     k: _text(v)
                     for k in ("band", "frequency", "width")
@@ -1076,6 +1176,9 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             sec = security_of(prop(row, "security", "authentication-types"))
             passphrase = _text(prop(row, "security", "passphrase"))
             pmf = _PMF.get(_text(prop(row, "security", "management-protection")))
+            personal = bool(passphrase) and sec in _PERSONAL
+            threshold = _int(prop(row, "security", "sae-anti-clogging-threshold"))
+            rekey = duration(prop(row, "security", "group-key-update"))
             wlans.append(
                 Wlan(
                     id=object_id(dev, "wlan", name),
@@ -1086,10 +1189,19 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     security=sec,
                     pmf=pmf,
                     passphrase_fingerprint=(
-                        passphrase_fingerprint(ssid, passphrase)
-                        if passphrase and sec in _PERSONAL
-                        else None
+                        passphrase_fingerprint(ssid, passphrase) if personal else None
                     ),
+                    passphrase_digest=passphrase_digest(passphrase) if personal else None,
+                    ciphers=ciphers_of(prop(row, "security", "encryption"), sec),
+                    group_cipher=cipher_of(prop(row, "security", "group-encryption"), sec),
+                    sae=SaeSettings(
+                        pwe=_SAE_PWE.get(_text(prop(row, "security", "sae-pwe"))),
+                        anti_clogging_threshold=threshold,
+                    )
+                    if sec in _SAE
+                    else None,
+                    wps=wps_of(prop(row, "security", "wps")) if sec in _PERSONAL else None,
+                    key_rotation_seconds=rekey if sec is not Security.OPEN else None,
                     segment_id=self._wlan_segment(
                         layout, name, _int(prop(row, "datapath", "vlan-id"))
                     ),
@@ -1127,6 +1239,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 tx_power_dbm=_int(row.get("tx-power")),
                 country=_text(row.get("country")) or None,
                 enabled=_active(row),
+                supported_security=list(_WIRELESS_MODES),
                 vendor_extra=_extra(row, "band", "frequency", "channel-width"),
             )
         wlans = []
@@ -1142,6 +1255,8 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 profile.get("wpa-pre-shared-key")
             )
             vid = _int(row.get("vlan-id")) if _text(row.get("vlan-mode")) == "use-tag" else None
+            personal = bool(psk) and sec in _PERSONAL
+            rekey = duration(profile.get("group-key-update"))
             wlans.append(
                 Wlan(
                     id=object_id(dev, "wlan", name),
@@ -1151,9 +1266,12 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     enabled=radio.enabled and _active(row),
                     security=sec,
                     pmf=_PMF.get(_text(profile.get("management-protection"))),
-                    passphrase_fingerprint=(
-                        passphrase_fingerprint(ssid, psk) if psk and sec in _PERSONAL else None
-                    ),
+                    passphrase_fingerprint=passphrase_fingerprint(ssid, psk) if personal else None,
+                    passphrase_digest=passphrase_digest(psk) if personal else None,
+                    ciphers=ciphers_of(profile.get("unicast-ciphers"), sec),
+                    group_cipher=cipher_of(profile.get("group-ciphers"), sec),
+                    wps=wps_of(row.get("wps-mode")) if sec in _PERSONAL else None,
+                    key_rotation_seconds=rekey if sec is not Security.OPEN else None,
                     segment_id=self._wlan_segment(layout, name, vid),
                     hidden=_flag(row.get("hide-ssid")),
                     vendor_extra=_extra(row, "mode", "security-profile"),

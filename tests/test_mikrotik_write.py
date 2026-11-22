@@ -124,8 +124,9 @@ def differences(a: Any, b: Any, path: str = "") -> list[str]:
 
 
 def unkeyed(view: dict[str, Any]) -> dict[str, Any]:
-    """A view without passphrase fingerprints (a revert cannot know the old passphrase)."""
-    wlans = [{k: v for k, v in w.items() if k != "passphrase_fingerprint"} for w in view["wlans"]]
+    """A view without passphrase fingerprints and digests (a revert cannot know the old one)."""
+    secret = {"passphrase_fingerprint", "passphrase_digest"}
+    wlans = [{k: v for k, v in w.items() if k not in secret} for w in view["wlans"]]
     return {**view, "wlans": wlans}
 
 

@@ -54,6 +54,7 @@ from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     Band,
+    Cipher,
     Client,
     Device,
     DeviceHealth,
@@ -78,6 +79,7 @@ from signalbox.model import (
     Wlan,
     normalise_mac,
     object_id,
+    passphrase_digest,
     passphrase_fingerprint,
     segment_id,
 )
@@ -121,11 +123,26 @@ LINK_SPEEDS = {1: 10, 2: 100, 3: 1000, 4: 2500, 5: 10000, 6: 5000, 7: 25000, 8: 
 #: ``pskSetting.versionPsk`` → security: 1 WPA-PSK, 2 WPA2-PSK, 3 WPA/WPA2-PSK,
 #: 4 WPA2-PSK/WPA3-SAE (WPA3-SAE alone on a 6 GHz-only SSID).
 PSK_VERSIONS = {
-    1: Security.OTHER,
+    1: Security.WPA,
     2: Security.WPA2,
-    3: Security.OTHER,
+    3: Security.WPA_WPA2,
     4: Security.WPA2_WPA3,
 }
+#: ``pskSetting.encryptionPsk`` → pairwise ciphers: 1 auto (TKIP and AES), 2 TKIP, 3 AES.
+PSK_CIPHERS = {
+    1: [Cipher.TKIP, Cipher.CCMP],
+    2: [Cipher.TKIP],
+    3: [Cipher.CCMP],
+}
+#: ``entSetting.versionEnt`` → security (guess: 1 WPA, 3 WPA/WPA2 are not in the description).
+ENT_VERSIONS = {
+    1: Security.WPA_ENTERPRISE,
+    2: Security.WPA2_ENTERPRISE,
+    3: Security.WPA_ENTERPRISE,
+    4: Security.WPA3_ENTERPRISE,
+}
+#: Modes with a pre-shared passphrase.
+PERSONAL = {Security.WPA, Security.WPA_WPA2, Security.WPA2, Security.WPA3, Security.WPA2_WPA3}
 #: ``pmfMode`` → PMF: 1 mandatory, 2 capable, 3 disabled.
 PMF_MODES = {1: Pmf.REQUIRED, 2: Pmf.OPTIONAL, 3: Pmf.DISABLED}
 #: ``purpose`` of a LAN network (0 VLAN only, 1 interface: a gateway address); older
@@ -388,10 +405,27 @@ def _security(ssid: dict[str, Any]) -> Security:
         return Security.OWE if ssid.get("oweEnable") is True else Security.OPEN
     if mode == 2:
         version = _int(_sub(ssid, "entSetting").get("versionEnt"))
-        return Security.WPA3_ENTERPRISE if version == 4 else Security.WPA2_ENTERPRISE
+        return ENT_VERSIONS.get(version or 0, Security.WPA2_ENTERPRISE)
     if mode == 3:
         return PSK_VERSIONS.get(_int(psk.get("versionPsk")) or 2, Security.OTHER)
     return Security.OTHER
+
+
+def _psk_details(ssid: dict[str, Any], sec: Security) -> dict[str, Any]:
+    """Ciphers and group rekey of a personal SSID (``pskSetting``): ``encryptionPsk`` and
+    ``gikRekeyPskEnable`` (off: 0, never rotated; on: the interval field, if the controller
+    has one: ``rekeyPskInterval`` is a guess, else None). Nothing for other modes."""
+    if sec not in PERSONAL:
+        return {}
+    psk = _sub(ssid, "pskSetting")
+    out: dict[str, Any] = {"ciphers": PSK_CIPHERS.get(_int(psk.get("encryptionPsk")) or 0)}
+    enabled = psk.get("gikRekeyPskEnable")
+    if enabled is False:
+        out["key_rotation_seconds"] = 0
+    elif enabled is True:
+        interval = _int(psk.get("rekeyPskInterval"))
+        out["key_rotation_seconds"] = interval if interval and interval > 0 else None
+    return out
 
 
 def _width(value: Any) -> int | None:
@@ -946,7 +980,7 @@ class OmadaAdapter(_Adapter):
                 key_text = _text(_sub(s, "pskSetting").get("securityKey"))
                 # "Guest Network": the controller keeps these clients out of the local networks
                 guest = _flag(s.get("guestNetEnable"))
-                psk = sec in (Security.WPA2, Security.WPA3, Security.WPA2_WPA3) and key_text
+                psk = sec in PERSONAL and key_text
                 for bit, keys in BAND_BITS:
                     for key in keys:
                         radio = radios.get(key)
@@ -966,6 +1000,8 @@ class OmadaAdapter(_Adapter):
                                 passphrase_fingerprint=(
                                     passphrase_fingerprint(name, key_text) if psk else None
                                 ),
+                                passphrase_digest=passphrase_digest(key_text) if psk else None,
+                                **_psk_details(s, sec),
                                 segment_id=seg,
                                 hidden=not _flag(s.get("broadcast"), default=True),
                                 purpose=SegmentPurpose.GUEST if guest else None,
