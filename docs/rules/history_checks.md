@@ -16,7 +16,8 @@ is too short, and on the desired or the predicted state of a plan (which have no
 - **Checks:** a device that is unreachable or refuses the login, with how long it has not
   answered and when it was last read (or, if it never answered, when Signalbox first saw it).
   The per-round `signalbox.read` finding stays; this one adds the duration. Disabled devices
-  are not checked.
+  are not checked, nor is an unreachable device annotated `may_be_unreachable` (a login that
+  is refused is still reported).
 - **Fix:** check power, cabling, address and password; remove or disable the device in
   Signalbox if it was replaced or retired.
 
@@ -43,7 +44,8 @@ is too short, and on the desired or the predicted state of a plan (which have no
 - **Checks:** a DHCP reservation whose MAC address was not seen as a client during the whole
   history period (`history.days`). Checked only once Signalbox has observed the network for that
   long, and only at sites where a device that reports clients answered and reported them in this
-  round. To look further back, raise `history.days`.
+  round. To look further back, raise `history.days`. A reservation for a MAC address annotated
+  `may_be_unreachable` is not reported.
 - **Fix:** remove the reservation if the device is gone. A device that is rarely on keeps it;
   turn the rule off if needed.
 
@@ -53,6 +55,7 @@ is too short, and on the desired or the predicted state of a plan (which have no
 - **Checks:** a client that moved to another network (VLAN, or another site) in the last 7
   days, with the time of the move. Ignored: randomised MAC addresses, clients that moved 3 times
   or more in that week (they roam between networks by design), and moves seen while a device
-  did not answer or did not report its clients (another device may know the client less well).
+  did not answer or did not report its clients (another device may know the client less well),
+  and clients with an expected network (`clients.unexpected-network` covers those).
 - **Fix:** if this was not intended, check the SSID it joined, or the switch port it is plugged
   into and that port's VLAN.

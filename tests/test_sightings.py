@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from factories import SITE, T0, device, ip, port, snapshot
+from factories import SITE, T0, annotated, annotation, device, ip, port, snapshot
 from signalbox.adapters import Capability
 from signalbox.config import Config, HistoryConfig
 from signalbox.merge import merge
@@ -412,3 +412,23 @@ def test_network_changed() -> None:
     hist = past(clients={RANDOM: client_hist(RANDOM, moves=[move])})
     assert evaluate(rnd, [network_changed], None, hist) == []
     assert evaluate(net, [network_changed], None, History.empty()) == []
+
+
+def test_expectations_quiet_history_rules() -> None:
+    off = annotation(f"client/{MAC}", expected={"may_be_unreachable": True})
+    out = evaluate(annotated(dhcp_net(), off), [stale_reservation], None, past())
+    assert len(out) == 1 and MAC not in out[0].message
+    dev_off = annotation("gw", expected={"may_be_unreachable": True})
+    h = past(devices={"gw": dev_hist(last_ok=NOW - timedelta(days=3))})
+    down = annotated(net_of(gateway(DeviceStatus.UNREACHABLE)), dev_off)
+    assert evaluate(down, [down_long], None, h) == []
+    # a refused login is a real problem, whatever the user expects
+    denied = annotated(net_of(gateway(DeviceStatus.AUTH_FAILED)), dev_off)
+    assert len(evaluate(denied, [down_long], None, h)) == 1
+    segs = [Segment(id=LAN, site_id="home", name="LAN"), Segment(id=GUEST, site_id="home", vlan=20)]
+    net = net_of(gateway(clients=(client(seg=GUEST),), segments=segs))
+    move = SegmentChange(at=NOW - timedelta(hours=2), old=LAN, new=GUEST)
+    hist = past(clients={MAC: client_hist(moves=[move])})
+    assert len(evaluate(net, [network_changed], None, hist)) == 1
+    want = annotation(f"client/{MAC}", expected={"segment": LAN})
+    assert evaluate(annotated(net, want), [network_changed], None, hist) == []
