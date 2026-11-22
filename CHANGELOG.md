@@ -82,6 +82,7 @@ All notable changes to this project are documented here. The format follows
 - Each device links to its own web interface: an icon on the devices list and an "Open web interface" button on the device page, derived from a reported https/http service or the adapter settings (#214)
 
 ### Fixed
+- DNS: two DNS services on one router (AdGuard Home in front of Unbound on another port) are no longer a forwarding loop: services have a listen port, forwarders an address and port, and a forward to a service Signalbox cannot read is incomplete, not a loop (#241)
 - Web UI: a session that ended (expired, logged out in another tab, server restarted) is noticed automatically: the login appears in place and the same page returns after login; an unreachable server shows a banner instead (#238)
 - NETGEAR ProSAFE Plus: requests go out from the host's interfaces with a real MAC, as Switchyard does on a real network (old firmware answered requests with the broadcast MAC as sender with "incorrect password"); a VLAN or LAG read the switch refuses is reported as a gap and the ports are kept (#210)
 - OpenWrt without Wi-Fi (a switch): no wireless object means no radios, not a read error (#216)
