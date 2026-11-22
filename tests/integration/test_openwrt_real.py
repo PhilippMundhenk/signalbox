@@ -209,6 +209,39 @@ async def test_mapping_of_the_lab_device(ow: Target, pin: str) -> None:
     [pool] = dhcp.pools
     assert (pool.start, pool.end) == (ip_address("192.0.2.100"), ip_address("192.0.2.149"))
     assert dhcp.router == ip_address("192.0.2.1")
+    assert dhcp.ntp_servers == [ip_address("192.0.2.1")]
+
+
+async def test_health_and_time(ow: Target, pin: str) -> None:
+    """``system info``, the thermal zones (none in QEMU: no temperatures, no error) and
+    ``uci get system`` (Europe/Berlin, NTP server on lan) as the read-only login sees them."""
+    adapter = OpenWrtAdapter(context(ow, pin))
+    try:
+        info = await adapter.ubus.call("system", "info")
+        snap = await adapter.observe()
+    finally:
+        await adapter.close()
+    # the shape docs/adapters/openwrt.md describes: KiB for root/tmp, load times 65536
+    assert {"localtime", "uptime", "load", "memory", "root", "tmp"} <= set(info), info
+    assert {"total", "free", "available"} <= set(info["memory"]), info
+    assert {"total", "used"} <= set(info["root"]) and len(info["load"]) == 3, info
+    assert snap.status is DeviceStatus.OK, snap.errors
+    h = snap.device.health
+    assert h is not None and h.uptime_seconds and h.uptime_seconds > 0, h
+    assert h.load_average is not None and h.memory_total_bytes, h
+    assert h.memory_used_bytes and 0 < h.memory_used_bytes < h.memory_total_bytes, h
+    kinds = {s.name: s.kind.value for s in h.storage}
+    assert kinds == {"/": "system", "/tmp": "temporary"}, h.storage
+    root = next(s for s in h.storage if s.name == "/")
+    assert root.total_bytes and root.total_bytes > 1024 * 1024, root  # KiB, not bytes
+    t = snap.device.time
+    assert t is not None and t.clock is not None, t
+    offset = t.offset_seconds()
+    assert offset is not None and abs(offset) < 600, t  # QEMU starts with the host's clock
+    assert t.timezone == "Europe/Berlin" and t.utc_offset_minutes in (60, 120), t
+    assert t.ntp_client is not None and t.ntp_client.enabled and t.ntp_client.servers, t
+    assert t.ntp_server is not None and t.ntp_server.enabled, t
+    assert t.ntp_server.segments == [NATIVE], t
 
 
 async def test_the_station_is_a_client(ow: Target, pin: str) -> None:

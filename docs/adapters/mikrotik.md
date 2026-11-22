@@ -152,6 +152,16 @@ clear text and is only meant for the simulator.
 - **Neighbours**: `/ip/neighbor` entries with a MAC on a known port (`interface` may list the
   port and its bridge, `ether2,bridge`). `identity` is the system name, `interface-name` the
   remote port, `address4` (else `address`) the management address.
+- **Health** (#178): `uptime`, `cpu-load` (%), `cpu-count`, memory (used = `total-memory` -
+  `free-memory`) and the `hdd` (`total-hdd-space`/`free-hdd-space`: the flash of a RouterBOARD,
+  the disk of CHR, storage of kind `system`) from `/system/resource`; temperatures, fans, power
+  supplies and the input voltage from `/system/health`. `/system/ups` is not read (CHR has
+  none to confirm the fields with).
+- **Time** (#179): the clock, `time-zone-name` (`manual`: no zone, only the offset) and
+  `gmt-offset` from `/system/clock`; `/system/ntp/client` (`enabled`, `servers`, `status`,
+  `synced-server`, `synced-stratum`) and `/system/ntp/server` (`enabled`; RouterOS serves time
+  on every interface, so no segments). `ntp-server` of the DHCP network is the NTP server
+  handed out by DHCP (option 42).
 
 ## Endpoints and answers
 
@@ -182,6 +192,56 @@ dropped). `latest-version` is only there after the router checked for updates; a
 missing update menu is ignored. CHR has no routerboard menu (HTTP 400 `no such command or
 directory (routerboard)`): the model is the `board-name`. The routerboard answer is a *Guess*
 from the documentation.
+
+### `/rest/system/resource`, `/rest/system/health` *(optional)* (health)
+
+As RouterOS 7.25.1 CHR answers them in CI:
+
+```json
+{"uptime": "9s", "cpu-count": "2", "cpu-load": "17", "free-memory": "842952704",
+ "total-memory": "1073741824", "free-hdd-space": "72327168", "total-hdd-space": "93564928",
+ "write-sect-since-reboot": "312", "write-sect-total": "312", "version": "7.25.1", ...}
+{"state": "disabled", "state-after-reboot": "enabled"}
+```
+
+`uptime` uses the duration format of the other menus (`9s`, `3d04:05:06`, `1w2d3h4m5s`).
+CHR has no sensors: `/system/health` is one object with the monitoring state, no values, which
+gives no temperatures and is not an error. On RouterBOARD and CRS devices RouterOS 7 answers one
+row per sensor; *Guess* from the documentation (no hardware in CI):
+
+```json
+[{".id": "*D", "name": "cpu-temperature", "value": "52", "type": "C"},
+ {".id": "*E", "name": "fan1-speed", "value": "5400", "type": "RPM"},
+ {".id": "*F", "name": "psu1-state", "value": "ok", "type": ""},
+ {".id": "*10", "name": "voltage", "value": "24.1", "type": "V"}]
+```
+
+A row of type `C` (or with `temperature` in the name) is a temperature, `fanN-speed` (type
+`RPM`) and `fanN-state` a fan, `psuN-state` a power supply (`ok` is fine). `voltage` and
+`power-consumption` (W) without PSU rows describe the one power input (`power`). The single
+object of older versions (`{"temperature": "45", "voltage": "24.1"}`) is read the same way.
+
+### `/rest/system/clock`, `/rest/system/ntp/client`, `/rest/system/ntp/server` (time)
+
+As RouterOS 7.25.1 CHR answers them in CI (defaults: no zone, NTP off):
+
+```json
+{"date": "2026-11-22", "time": "16:06:45", "time-zone-name": "manual", "gmt-offset": "+00:00",
+ "time-zone-autodetect": "true", "dst-active": "false"}
+{"enabled": "false", "mode": "unicast", "servers": "", "status": "stopped", "vrf": "main",
+ "freq-drift": "0"}
+{"enabled": "false", "broadcast": "false", "multicast": "false", "manycast": "false",
+ "use-local-clock": "false", "local-clock-stratum": "5", "vrf": "main", "auth-key": "none"}
+```
+
+`date` is ISO since RouterOS 7.10 (`nov/22/2026` before; both are read), `time` is local time
+with whole seconds, so the clock is the middle of that second and its uncertainty half the
+round trip of the request plus half a second. `status` `synchronized` (with `synced-server`
+and `synced-stratum`) is in sync; `started`, `reached`, `waiting`, ... of an enabled client is
+not (yet) in sync (*Guess*: the values of a client that reached its server come from the
+documentation, CHR in CI has no NTP server to reach). `primary-ntp`/`secondary-ntp` (RouterOS
+6 style) are read when `servers` is empty. `/rest/system/ups` answers `[]` on CHR; it is not
+read.
 
 ### `/rest/interface`, `/rest/interface/ethernet` *(optional)* (interfaces)
 

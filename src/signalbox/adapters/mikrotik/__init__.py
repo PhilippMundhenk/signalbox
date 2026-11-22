@@ -1117,9 +1117,10 @@ def _number(value: Any) -> float | None:
 
 
 def health_rows(data: Any, endpoint: str = HEALTH) -> list[dict[str, Any]]:
-    """``/system/health``: RouterOS 7 answers rows ``{name, value, type}`` (CHR: none). The
-    single object of older versions (``{"temperature": "45", "voltage": "24.1"}``) is turned
-    into such rows."""
+    """``/system/health``: RouterOS 7 answers rows ``{name, value, type}``. The single object
+    of older versions (``{"temperature": "45", "voltage": "24.1"}``) is turned into such rows;
+    CHR 7.25.1 answers ``{"state": "disabled", "state-after-reboot": "enabled"}`` (no sensors),
+    rows without a number, which are skipped."""
     if isinstance(data, dict):
         return [{"name": k, "value": v} for k, v in data.items() if not k.startswith(".")]
     return _rows(data, endpoint)

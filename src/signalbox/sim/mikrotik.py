@@ -122,8 +122,8 @@ def sample_data() -> dict[str, Any]:
             "board-name": "hAP ax^2",
             "platform": "MikroTik",
         },
-        # RouterOS 7: one row per sensor (the CHR answers none). A hAP ax^2 has a CPU
-        # sensor only; a CRS3xx adds fans, PSU states and the board's input voltage.
+        # RouterOS 7: one row per sensor (CHR: only {"state": "disabled", ...}). A hAP ax^2
+        # has a CPU sensor only; a CRS3xx adds fans, PSU states and the input voltage.
         "/rest/system/health": _ids(
             {"name": "cpu-temperature", "value": "52", "type": "C"},
         ),

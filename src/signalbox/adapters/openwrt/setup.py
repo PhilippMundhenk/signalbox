@@ -24,8 +24,12 @@ READ_ACL: dict[str, Any] = {
                 "file": ["read"],
                 "luci.lldpd": ["getStatus"],
             },
-            "uci": ["network", "wireless", "dhcp"],
-            "file": {"/tmp/dhcp.leases": ["read"]},
+            "uci": ["network", "wireless", "dhcp", "system"],
+            "file": {
+                "/tmp/dhcp.leases": ["read"],
+                "/sys/class/thermal/thermal_zone*/temp": ["read"],
+                "/sys/class/thermal/thermal_zone*/type": ["read"],
+            },
         },
     }
 }

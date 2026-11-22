@@ -795,9 +795,10 @@ async def test_health_of_a_switch_with_fans_and_psus(http_url: str, sim: Mikroti
 
 
 async def test_health_of_chr_and_old_shapes(http_url: str, sim: MikrotikSimulator) -> None:
-    """CHR answers no sensor rows (RouterOS 7.25.1 in CI): nothing, not an error. A single
-    object (older versions) and a router with voltage and power consumption only."""
-    sim.data[HEALTH] = []
+    """CHR has no sensors: RouterOS 7.25.1 answers one object with the monitoring state (seen
+    in CI), which is nothing, not an error. A single object of values (older versions) with
+    voltage and power consumption only, an empty list, no menu at all."""
+    sim.data[HEALTH] = {"state": "disabled", "state-after-reboot": "enabled"}
     sim.data[RESOURCE] = {
         **sim.data[RESOURCE],
         "free-memory": "x",
@@ -814,6 +815,9 @@ async def test_health_of_chr_and_old_shapes(http_url: str, sim: MikrotikSimulato
     assert h is not None
     assert [(p.name, p.input_voltage, p.watts) for p in h.power_supplies] == [("power", 12.2, 4.5)]
     assert [t.name for t in h.temperatures] == ["temperature"]
+    sim.data[HEALTH] = []
+    h = (await observe(adapter(http_url))).device.health
+    assert h is not None and h.temperatures == []
     del sim.data[HEALTH]  # a device without the menu
     h = (await observe(adapter(http_url))).device.health
     assert h is not None and h.temperatures == [] and h.uptime_seconds == 273906
