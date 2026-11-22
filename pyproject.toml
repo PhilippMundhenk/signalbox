@@ -96,7 +96,10 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra"
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
-markers = ["e2e: drives the real UI in a browser"]
+markers = [
+  "e2e: drives the real UI in a browser",
+  "integration: runs against the real device software (tests/integration, #136)",
+]
 
 [tool.coverage.run]
 source = ["signalbox"]
