@@ -403,6 +403,45 @@ integration tests against the real software confirmed; **guess** what still need
 | Omada | `GET .../sites/{siteId}/ssh` (`sshEnable`, `sshServerPort`) and `.../setting/service/snmp` (`snmpV1V2CEnable`, `snmpV3Enable`, `securityLevel`, `communityString` compared with `public`, never kept), the same two services for every managed device | `securityLevel` 2 is authPriv | `from_wan` unknown (cloud access is the controller's) **CI** (Omada 6.3): both paths and every field are in the controller's own `/v3/api-docs` and answer to the viewer (`sshEnable`, `sshServerPort`, `layer3Access`, `snmpV1V2CEnable`, `snmpV3Enable`; `securityLevel` 0 NoAuthNoPriv, 1 AuthNoPriv, 2 AuthPriv). The test site has no managed device, so the per-device mapping runs on those answers only. *Guess* until a real site is read (#21): that the devices apply the site settings, `layer3Access` is not mapped |
 | ProSAFE / Easy Smart | Fixed, from the adapter's knowledge: `vendor` service `nsdp` (UDP 63322) or `easy-smart` (UDP 29808) and the web UI `http` on 80, always on | none | `from_wan` unknown (switches have no uplink) | no CI. *Guess:* that the web interface is HTTP only on every model; `transport_encrypted` is false: NSDP and Easy Smart UDP send the password obfuscated, not encrypted |
 
+## DHCP leases, address sources, options and relays
+
+Read with the `dhcp` capability (no API version needed, #183): `DhcpServer.leases`, the
+option fields and `Observation.dhcp_relays`; `Client.address_sources` with `clients`.
+
+| Field | Meaning |
+| --- | --- |
+| `DhcpServer.leases` | `None`: not read (the default); `[]`: read, no leases. Report every entry of the server's table with its `state` (`active`, `expired`, `declined`, `offered`, `reserved` for a reservation not in use). A very long table may be capped; say so with a read error |
+| `DhcpLease` | `address`; `mac` (may be missing for DHCPv6, then `client_id` = DUID); `client_id` (option 61); `hostname`; `reserved` (lease of a reservation); `starts`, `expires` (absolute, UTC; convert "seconds remaining" with the observation time); `vendor_class` (option 60) |
+| `search_domains`, `static_routes`, `boot` | option 119, option 121 (`DhcpRoute`: destination, gateway), next server and options 66/67 |
+| `options` | further options as `DhcpOption(code, name, value)`; never a code in `TYPED_OPTION_CODES` (3, 6, 15, 42, 51, 66, 67, 119, 121) |
+| `authoritative`, `failover_peer` | NAK for unknown addresses; HA/failover partner name or address |
+| `DhcpRelay` | `object_id(device, "dhcp-relay", <segment key>)`, `segment_id`, `servers`, `enabled` |
+| `Client.address_sources` | address → `AddressSource` for addresses in `addresses` only: `dhcp`, `dhcp-reserved`, `static`, `slaac`, `slaac-privacy`, `dhcpv6`, `link-local`, `unknown`. Leave an address out when the device does not know; do not infer `static` from a missing lease (core and checks do that with `Network.leases_read()`) |
+
+The contract checks report a lease with neither MAC nor client id, one that expires before it
+starts, `state` `reserved` with `reserved=False`, one address active for two clients on one
+server, an option that belongs in a typed field or appears twice, a relay id outside
+`<device>/dhcp-relay/`, a relay in an unknown segment or reported twice or without the `dhcp`
+capability, and an address source for an address the client does not list or of the wrong
+family (SLAAC for IPv4, `dhcp` for IPv6).
+
+What each integration fills today (#183) and could fill. Today's sources: the leases the
+integrations already merged into clients now mark those addresses `dhcp` (`dhcp-reserved` for
+static leases where the device says), and the Fritz!Box `AddressSource` moved from
+`vendor_extra` to `address_sources`. *(guess)* marks field names or behaviour not checked
+against a device or the vendor's source.
+
+| Integration | Lease table | Address source today | Options, authoritative, failover | Relays |
+| --- | --- | --- | --- | --- |
+| OPNsense (Kea) | `/api/kea/leases4/search` (already read for clients): `address`, `hwaddr`, `client_id`, `hostname`, `expire` (epoch), `valid_lifetime` (start = expire − lifetime), `state` (0 active, 1 declined, 2 expired-reclaimed), `if`; reserved by matching `search_reservation` (`hw_address`); vendor class not in the lease *(guess)*. `/api/kea/leases6/search` (`duid`, `iaid`) for DHCPv6 *(guess: exists on 24.7+)* | lease addresses `dhcp` | subnet `option_data` in `search_subnet` (`domain_search`, `ntp_servers`, `static_routes`, `tftp_server_name`, `boot_file_name`, `time_servers`) *(guess: key names per release)*; Kea HA in `/api/kea/dhcpv4/get` `ha.enabled`, `ha.this_server_name`, peers `search_peer` → `failover_peer`; authoritative not exposed *(guess)* | `/api/dhcrelay/settings/search_relay` (`enabled`, `interface`, `destination` → `search_dest` `server`) *(guess: names, core since 24.1)* |
+| OPNsense (ISC) | `/api/dhcpv4/leases/search_lease` (already read for DHCP and clients): `address`, `mac`, `hostname`, `starts`, `ends`, `state` (`active`, `expired`, `free`, `abandoned`, `backup`), `type` (`static` → `reserved`), `if`, `man` (vendor from the OUI, not option 60) | lease addresses `dhcp`, `static` type `dhcp-reserved` | the API has no ranges or options (see `vendor_extra.note`); failover peer only in the configuration (`dhcpd/<if>/failover_peerip` from the backup) *(guess)* | ISC relay in the legacy page only *(guess)* |
+| OPNsense (dnsmasq, 25.1+) | `/api/dnsmasq/leases/search` (`address`, `hwaddr`, `client_id`, `hostname`, `expire`, `if`, `is_reserved`) *(guess: not read by Signalbox yet, no dnsmasq DHCP support)* | — | `/api/dnsmasq/settings/search_option` (`option`, `value`, `interface`) *(guess)* | — |
+| OpenWrt | `luci-rpc getDHCPLeases` (already read for clients): `dhcp_leases` `macaddr`, `ipaddr`, `hostname`, `expires` (seconds left, `false` for infinite *(guess)*); `dhcp6_leases` from odhcpd `duid`, `ip6addr`/`ip6addrs`, `hostname`, `expires`; fallback `/tmp/dhcp.leases` `<expiry epoch> <mac> <ip> <name or *> <client id or *>`. `reserved` by matching `uci dhcp host` sections (already read as reservations). dnsmasq keeps no vendor class in the file | IPv4 lease addresses `dhcp` | `uci dhcp` per pool `dhcp_option` / `dhcp_option_force` (`6,192.0.2.1`, `option:ntp-server,...`, `121,...`); `dnsmasq` section `authoritative` (default `1`); no failover | `relayd` (`network` interface with `proto relay`) bridges rather than relays; dnsmasq `dhcp_relay` / odhcpd `dhcpv6 relay` *(guess: list names)* |
+| MikroTik | `/rest/ip/dhcp-server/lease` (already read): `address`, `mac-address`, `client-id`, `host-name`, `class-id` (option 60), `status` (`bound` active, `offered`, `waiting` → `reserved` for static / `expired` for dynamic, `busy`/`conflict` → `declined` *(guess)*), `dynamic` (`false` → `reserved`), `expires-after` (duration from now), `last-seen`, `active-*` fields, `server` → its DHCP server, `blocked`, `disabled`. IPv6: `/rest/ipv6/dhcp-server/binding` (`duid`, `iaid`, `address`) is prefix delegation, not addresses | bound leases `dhcp`, static ones `dhcp-reserved` | `/rest/ip/dhcp-server/network` (`ntp-server` already, `domain`, `next-server`, `boot-file-name`, `dhcp-option` names); `/rest/ip/dhcp-server/option` (`name`, `code`, `value`); `/rest/ip/dhcp-server` `authoritative` (`yes`, `no`, `after-2sec-delay`, `after-10sec-delay`: all but `no` count as authoritative); no failover | `/rest/ip/dhcp-relay` (`name`, `interface`, `dhcp-server` comma list, `local-address`, `disabled`, `invalid`) |
+| Fritz!Box | No lease table of its own: `Hosts:1` host list (`X_AVM-DE_GetHostListPath`, already read) has `AddressSource` and `LeaseTimeRemaining` (seconds) per host, active and remembered ones; hosts with source `DHCP` could become leases (`expires` = observation + remaining, inactive ones `expired` *(guess)*) | `NewAddressSource`: `DHCP` → `dhcp`, `Static` → `static`, `AutoIP` → `link-local` *(guess: AutoIP spelling)* | none over TR-064 beyond `LANHostConfigManagement:1 GetInfo` (router, DNS, domain, range already) | `LANHostConfigManagement:1 GetInfo` `NewDHCPRelay` (boolean, no server address) *(guess: ever true on a box)* |
+| Omada | No lease table in the Open API *(guess)*; clients (already read) have `ip`, `ipv6List`, `hostName`, no lease expiry | none: whether a client's address is static is not reported *(guess: `ipSetting` / `staticIp` fields in newer controllers)* | LAN network DHCP settings (already read: `dhcpns`, `priDns`, `leasetime`): options 60, 66, 138 as `option60`, `option66`, `option138` *(guess)* | network `dhcpSettings` in relay mode with the relay server address (`dhcpRelay` *(guess)*) |
+| ProSAFE / Easy Smart | none (switches) | none | none | none |
+
 ## Health and time (adapter API 1.2)
 
 Two capabilities fill value objects on the device itself, keyed by device id so that a
