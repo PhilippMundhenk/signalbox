@@ -182,6 +182,11 @@ async def test_mapping_of_the_lab_device(ow: Target, pin: str) -> None:
     ports = {p.name: p for p in snap.ports}
     assert {"eth0", "eth1", "eth2", "br-lan"} <= set(ports), sorted(ports)
     assert ports["eth1"].up and ports["eth1"].mac == "02:00:00:00:a0:01"
+    # port details (#156): netifd's MTU, the bridge ports up, primary VLAN 1 (``eth1:u*``)
+    for name in ("eth1", "eth2"):
+        p = ports[name]
+        assert (p.mtu, p.admin_up, p.pvid) == (1500, True, 1), p
+        assert p.max_speed_mbps is None or p.speed_mbps is None or p.speed_mbps <= p.max_speed_mbps
     segments = {s.id: s for s in snap.segments}
     assert set(segments) == {NATIVE, f"{SITE}/segment/20"}, sorted(segments)
     native = {m.port_id: m.mode for m in segments[NATIVE].members}

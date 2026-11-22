@@ -141,7 +141,9 @@ server handed out by DHCP (`DhcpServer.ntp_servers`).
 
 ```json
 {"lan1": {"type": "Network device", "up": true, "carrier": true, "macaddr": "02:…",
-          "speed": "1000F", "mtu": 1500},
+          "speed": "1000F", "mtu": 1500, "autoneg": true,
+          "link-supported": ["10baseT-H", "10baseT-F", "100baseT-H", "100baseT-F", "1000baseT-F"],
+          "link-advertising": ["100baseT-F", "1000baseT-F"]},
  "br-lan": {"type": "bridge", "up": true, "bridge-members": ["lan1", …]},
  "br-lan.1": {"type": "VLAN", …}, "lo": {…}, "phy0-ap0": {…}}
 ```
@@ -149,6 +151,13 @@ server handed out by DHCP (`DhcpServer.ntp_servers`).
 Every device except `lo` and VLAN devices (`name.vid`) becomes a port; `carrier` is the link
 state, `speed` `"<Mbit/s><F|H>"` speed and duplex (`-1F`: no link). `type: bridge` is a bridge
 port, `phy*`/`wlan*` (or `"wireless": true`) a wireless one.
+
+Port details (#156): `mtu`; the fastest mode of `link-supported` is the maximum speed, the
+modes of `link-advertising` the offered speeds, `autoneg` auto-negotiation (netifd adds these
+for Ethernet ports only; virtual NICs may leave them out). A port is enabled when netifd has it
+`up`, disabled when a UCI `device` section for it says `enabled 0` *(guess: the option name,
+from netifd's device options)*; otherwise unknown. The PVID is the VLAN whose `bridge-vlan`
+port list marks the port primary (`lan1:u*`); a port without `*` has no PVID reported.
 
 ### `uci get {"config": "network"}` (bridges, VLANs, interfaces)
 

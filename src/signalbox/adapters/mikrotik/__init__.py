@@ -59,6 +59,7 @@ from signalbox.model import (
     DnsService,
     Fan,
     Firmware,
+    FrameTypes,
     HostRecord,
     IPAddress,
     IPInterface,
@@ -139,6 +140,11 @@ _KINDS = {
 _NOT_PORTS = {"vlan", "loopback", "lo"}
 #: ``frame-types`` of a bridge port that does not accept untagged frames (no pvid membership).
 _TAGGED_ONLY = "admit-only-vlan-tagged"
+_FRAME_TYPES = {
+    "admit-all": FrameTypes.ALL,
+    _TAGGED_ONLY: FrameTypes.TAGGED_ONLY,
+    "admit-only-untagged-and-priority-tagged": FrameTypes.UNTAGGED_ONLY,
+}
 _WIFI_PROFILES = {
     "configuration": WIFI_CONFIGURATION,
     "security": WIFI_SECURITY,
@@ -291,6 +297,38 @@ def speed(value: Any) -> tuple[int | None, bool | None]:
     text = _text(value).lower()
     duplex = True if text.endswith("full") else False if text.endswith("half") else None
     return mbps, duplex
+
+
+def advertised(value: Any) -> list[int]:
+    """``10M-baseT-half,100M-baseT-full,1G-baseT-full`` (7.12+) or ``10M-full,1000M-full``."""
+    return sorted({m for item in _text(value).split(",") if (m := speed(item)[0])})
+
+
+def mtu_of(*values: Any) -> int | None:
+    """The first value that is an MTU (``auto`` on a bridge: the next one, ``actual-mtu``)."""
+    for value in values:
+        number = _int(value)
+        if number is not None and 68 <= number <= 65535:
+            return number
+    return None
+
+
+def flow_control(row: dict[str, Any]) -> bool | None:
+    """``rx-``/``tx-flow-control`` ``on``/``off``/``auto`` (auto: negotiated, unknown here)."""
+    values = {_text(row.get(k)).lower() for k in ("rx-flow-control", "tx-flow-control")}
+    if "on" in values:
+        return True
+    return False if values == {"off"} else None
+
+
+def bridge_port_details(row: dict[str, Any]) -> dict[str, Any]:
+    """PVID, frame types and ingress filtering of a port in a VLAN-filtering bridge."""
+    pvid = _int(row.get("pvid")) or 1
+    return {
+        "pvid": pvid if 1 <= pvid <= 4094 else None,
+        "frame_types": _FRAME_TYPES.get(_text(row.get("frame-types"))),
+        "ingress_filter": _maybe(row.get("ingress-filtering")),
+    }
 
 
 def _pool(text: str) -> DhcpPool | None:
@@ -548,6 +586,13 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             if _text(r.get("list")) == WAN_LIST and _active(r)
         }
 
+        filtering = {b for b, r in bridges.items() if _flag(r.get("vlan-filtering"))}
+        vlan_details = {
+            _text(r.get("interface")): bridge_port_details(r)
+            for r in bridge_ports
+            if _text(r.get("bridge")) in filtering
+        }
+        vlan_details |= {b: bridge_port_details(bridges[b]) for b in filtering}
         ports: dict[str, Port] = {}
         for row in interfaces:
             name, kind = _text(row.get("name")), _text(row.get("type"))
@@ -566,8 +611,15 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 speed_mbps=mbps,
                 full_duplex=duplex,
                 mac=_mac(row.get("mac-address")),
-                vendor_extra=_extra(row, "type", "comment", "mtu")
-                | ({"disabled": True} if disabled else {}),
+                description=_text(row.get("comment") or bridges.get(name, {}).get("comment")),
+                admin_up=not disabled if row.get("disabled") is not None else None,
+                mtu=mtu_of(row.get("mtu"), row.get("actual-mtu")),
+                l2_mtu=mtu_of(row.get("l2mtu"), eth.get("l2mtu")),
+                advertised_speeds_mbps=advertised(eth.get("advertise")),
+                autoneg=_maybe(eth.get("auto-negotiation")),
+                flow_control=flow_control(eth),
+                **vlan_details.get(name, {}),
+                vendor_extra=_extra(row, "type"),
             )
 
         members: dict[str, dict[str, Membership]] = {}
@@ -588,7 +640,6 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
 
         l3: dict[str, str] = {}
         port_segment: dict[str, str] = {}
-        filtering = {b for b, r in bridges.items() if _flag(r.get("vlan-filtering"))}
         native_taken = bool(filtering)
 
         # Filtering bridges: VLAN table plus access ports by pvid.

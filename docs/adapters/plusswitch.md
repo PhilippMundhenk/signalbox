@@ -83,7 +83,8 @@ these kinds is then reported as *could not be read* with the install hint.
 
 One observation is one short session: Signalbox asks the address who it is (NSDP read of the
 identity; Easy Smart discovery request), checks the password, then reads identity, port status,
-VLAN tables and link aggregation, and closes the socket. Every read goes through Switchyard's
+VLAN tables, link aggregation and the port settings (speed and flow control; a switch that
+does not answer them is read without), and closes the socket. Every read goes through Switchyard's
 driver, which copes with the firmware differences (unsupported settings, silent firmware,
 both Easy Smart protocol generations).
 
@@ -92,7 +93,7 @@ both Easy Smart protocol generations).
 | Device vendor, model, firmware | identity |
 | Device management address | the configured address |
 | Device `vendor_extra` | MAC, name, IP, netmask, gateway, DHCP, serial, hardware version, port count, password scheme (NSDP), protocol generation (Easy Smart) |
-| Ports `1`…`n` | link up/down, speed and duplex; LAG membership as `lagN`; `vendor_extra`: link text, VLAN mode, PVID, port groups, administratively enabled (Easy Smart) |
+| Ports `1`…`n` | link up/down, speed and duplex; LAG membership as `lagN`; PVID (802.1Q modes); from the port settings enabled (speed setting not `disabled`; Easy Smart also reports it with the status), auto-negotiation (speed setting `auto`, else a fixed speed), flow control (the setting; ProSAFE without port settings: the link's); `vendor_extra`: link text, VLAN mode, port groups |
 | Segments | VLANs, see below |
 
 Not read: neighbours (these switches do not speak LLDP), clients (they do not expose a MAC
@@ -102,7 +103,7 @@ address table), QoS, mirroring, IGMP, statistics.
 
 | VLAN mode on the switch | Segments |
 | --- | --- |
-| 802.1Q (basic or advanced) | one segment per VLAN; tagged members tagged, the other members untagged. VLAN 1 is the default VLAN and becomes the site's native segment, like the untagged LAN of the router. The PVID (the VLAN for untagged incoming frames) is in the port's `vendor_extra.pvid`; the model has no field for it. |
+| 802.1Q (basic or advanced) | one segment per VLAN; tagged members tagged, the other members untagged. VLAN 1 is the default VLAN and becomes the site's native segment, like the untagged LAN of the router. The PVID (the VLAN for untagged incoming frames) is the port's `pvid`; it can differ from the VLAN the port sends untagged. |
 | none | every port an untagged member of the native segment |
 | port-based (basic or advanced) | every port an untagged member of the native segment, with the groups of each port in `vendor_extra.port_groups` |
 

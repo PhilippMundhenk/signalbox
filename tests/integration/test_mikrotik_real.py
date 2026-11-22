@@ -45,7 +45,7 @@ from signalbox.deploy import Deployer
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
 from signalbox.merge import merge
-from signalbox.model import DeviceRole, Network
+from signalbox.model import DeviceRole, FrameTypes, Network
 from signalbox.model import DeviceStatus as ReadStatus
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
@@ -232,6 +232,11 @@ async def test_mapping_of_the_configured_router(rt: dict[str, str]) -> None:
     assert ports["ether2"].mac == "02:00:00:00:01:02"
     assert ports["ether2"].kind.value == "ethernet"
     assert ports["bridge"].kind.value == "bridge"
+    # port details (#156): RouterOS defaults of the setup (MTU 1500, enabled, pvid 1, admit-all)
+    e2, e3 = ports["ether2"], ports["ether3"]
+    assert (e2.admin_up, e2.mtu, e2.pvid, e2.description) == (True, 1500, 1, None), e2
+    assert (e3.pvid, e3.frame_types) == (1, FrameTypes.ALL), e3
+    assert ports["bridge"].description == "LAN" and ports["ether1"].pvid is None
     lan = net.segment(LAN)
     assert lan is not None and lan.name == "LAN", lan
     assert [(m.port_id, m.mode.value) for m in lan.members] == [

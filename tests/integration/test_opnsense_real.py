@@ -157,6 +157,10 @@ async def test_mapping_of_the_preseeded_firewall(fw: dict[str, str]) -> None:
     ports = {p.name: p for p in net.ports}
     assert {"vtnet0", "vtnet1", "vtnet2"} <= set(ports), sorted(ports)
     assert ports["vtnet0"].mac == "02:00:00:00:01:00"
+    # port details (#156): the assignment's description and enable flag, ifconfig's MTU
+    lan_port = ports["vtnet0"]
+    assert (lan_port.description, lan_port.admin_up, lan_port.mtu) == ("LAN", True, 1500), lan_port
+    assert ports["vtnet2"].description is None  # the trunk is not assigned itself
     lan = net.segment(LAN)
     assert lan is not None and lan.name == "LAN"
     assert [(m.port_id, m.mode.value) for m in lan.members] == [("fw/port/vtnet0", "untagged")]

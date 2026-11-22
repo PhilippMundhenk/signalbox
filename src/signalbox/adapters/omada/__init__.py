@@ -273,6 +273,19 @@ class _Managed:
         return {"omada_device": self.identity(), **{k: v for k, v in more.items() if v}}
 
 
+#: Frame size of a switch without jumbo frames (Omada's default ``jumbo`` setting).
+STANDARD_FRAME = 1518
+
+
+def jumbo_of(switch: dict[str, Any] | None) -> bool | None:
+    """Jumbo frames of a switch: ``jumbo`` is its largest frame (1518 to 9216) *(guess)*."""
+    value = (switch or {}).get("jumbo")
+    if isinstance(value, bool):
+        return value
+    size = _int(value)
+    return None if size is None else size > STANDARD_FRAME
+
+
 @dataclass(frozen=True)
 class _Net:
     id: str
@@ -596,30 +609,12 @@ class OmadaAdapter(_Adapter):
 
         ports: list[Port] = []
         for sw in (d for d in await self._devices() if d.kind == "switch"):
+            jumbo = jumbo_of(await self._switch(sw.raw_mac))
             for row in await self._ports(sw.raw_mac):
                 number = _int(row.get("port"))
                 if number is None:
                     continue
                 pid = f"{self._prefix(sw)}/port/{number}"
-                link = _int(row.get("linkStatus"))
-                duplex, speed = _int(row.get("duplex")), _int(row.get("linkSpeed"))
-                ports.append(
-                    Port(
-                        id=pid,
-                        device_id=self._prefix(sw),
-                        name=f"{sw.name} {_text(row.get('name')) or f'Port{number}'}",
-                        up=None if link is None else link == 1,
-                        speed_mbps=None if link == 0 else LINK_SPEEDS.get(speed or 0),
-                        full_duplex=None if link == 0 else {1: False, 2: True}.get(duplex or 0),
-                        poe=row["poe"] if isinstance(row.get("poe"), bool) else None,
-                        lag=_text(row.get("lagId")) or None,
-                        vendor_extra=sw.extra(
-                            port=number,
-                            profile=_text(row.get("profileName")) or None,
-                            disabled=row.get("disable") is True,
-                        ),
-                    )
-                )
                 profile = profiles.get(_text(row.get("profileId")), {})
                 native = _text(
                     row["nativeNetworkId"]
@@ -628,6 +623,27 @@ class OmadaAdapter(_Adapter):
                 )
                 tagged = (
                     row["tagNetworkIds"] if "tagNetworkIds" in row else profile.get("tagNetworkIds")
+                )
+                link = _int(row.get("linkStatus"))
+                duplex, speed = _int(row.get("duplex")), _int(row.get("linkSpeed"))
+                disable = row.get("disable")
+                ports.append(
+                    Port(
+                        id=pid,
+                        device_id=self._prefix(sw),
+                        name=f"{sw.name} {_text(row.get('name')) or f'Port{number}'}",
+                        up=False if disable is True else None if link is None else link == 1,
+                        speed_mbps=None if link == 0 else LINK_SPEEDS.get(speed or 0),
+                        full_duplex=None if link == 0 else {1: False, 2: True}.get(duplex or 0),
+                        poe=row["poe"] if isinstance(row.get("poe"), bool) else None,
+                        lag=_text(row.get("lagId")) or None,
+                        admin_up=not disable if isinstance(disable, bool) else None,
+                        profile=_text(row.get("profileName")) or None,
+                        pvid=nets[native].vlan if native in nets else None,
+                        max_speed_mbps=LINK_SPEEDS.get(_int(row.get("maxSpeed")) or 0),
+                        jumbo=jumbo,
+                        vendor_extra=sw.extra(port=number),
+                    )
                 )
                 if native in nets:
                     members[nets[native].segment][pid] = Membership.UNTAGGED
@@ -762,16 +778,20 @@ class OmadaAdapter(_Adapter):
         )
         return names, primary
 
+    async def _switch(self, raw_mac: str) -> dict[str, Any]:
+        """``GET …/switches/{mac}``: the switch's settings with its ``portList``; cached."""
+        path = f"{self._site_path}/switches/{raw_mac}"
+        if path not in self._cache:
+            self._cache[path] = _dict(await self._api(path), path, "result")
+        return dict(self._cache[path])
+
     async def _ports(self, raw_mac: str) -> list[dict[str, Any]]:
         """A switch's ports: ``portList`` of ``GET …/switches/{mac}`` (there is no port list
         endpoint of its own)."""
-        path = f"{self._site_path}/switches/{raw_mac}"
-        if path not in self._cache:
-            ports = _dict(await self._api(path), path, "result").get("portList")
-            if not isinstance(ports, list):
-                raise _unexpected(path, "no portList")
-            self._cache[path] = [p for p in ports if isinstance(p, dict)]
-        return list(self._cache[path])
+        ports = (await self._switch(raw_mac)).get("portList")
+        if not isinstance(ports, list):
+            raise _unexpected(f"{self._site_path}/switches/{raw_mac}", "no portList")
+        return [p for p in ports if isinstance(p, dict)]
 
     async def _ssids(self, group: str) -> list[dict[str, Any]]:
         """The SSIDs of a WLAN group with their details: the list leaves out the security

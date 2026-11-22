@@ -122,9 +122,10 @@ async def test_interfaces(adapter: FritzboxAdapter) -> None:
     assert (port.id, port.up, port.speed_mbps, port.full_duplex) == (
         "fb/port/lan",
         True,
-        1000,
+        None,  # TR-064 has no link speed: NewMaxBitRate is the maximum (#156)
         True,
     )
+    assert (port.admin_up, port.max_speed_mbps, port.autoneg) == (True, 1000, None)
     assert port.mac == "02:00:00:00:00:01" and port.vendor_extra["BytesSent"] == "1000"
     segs = {s.id: s for s in obs.segments}
     assert set(segs) == {"home/segment/native", "home/segment/guest"}
@@ -173,6 +174,14 @@ async def test_wireless(adapter: FritzboxAdapter) -> None:
     assert wlans["fb/wlan/1"].purpose is None and guest.client_isolation is None
     assert guest.radio_id == "fb/radio/1"  # rides on the 2.4 GHz radio
     assert "example-guest-passphrase" not in obs.model_dump_json()
+
+
+async def test_lan_with_automatic_bit_rate(sim: FritzboxSim, adapter: FritzboxAdapter) -> None:
+    sim.ethernet |= {"NewMaxBitRate": "Auto", "NewDuplexMode": "Auto", "NewEnable": "0"}
+    sim.ethernet["NewStatus"] = "Disabled"
+    [port] = (await adapter.read_interfaces()).ports
+    assert (port.max_speed_mbps, port.autoneg, port.full_duplex) == (None, True, None)
+    assert (port.admin_up, port.up) == (False, False)
 
 
 async def test_guest_without_ext_info_is_the_last_wlan(

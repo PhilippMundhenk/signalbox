@@ -602,7 +602,13 @@ def _apply(net: Network, c: Change) -> Network:
                 if key in wanted:
                     members.append(PortMembership(port_id=c.key, mode=wanted[key]))
             segs.append(sg.model_copy(update={"members": members}))
-        return net.model_copy(update={"segments": segs})
+        # the writers set the PVID to the untagged VLAN (#156); tagged only: up to the device
+        pvid = None if new.untagged is None else seg_key(new.untagged) or 1
+        ports = [
+            p.model_copy(update={"pvid": pvid}) if p.id == c.key and p.pvid is not None else p
+            for p in net.ports
+        ]
+        return net.model_copy(update={"segments": segs, "ports": ports})
     # WLAN
     wl = [w for w in net.wlans if not (w.device_id == c.device_id and w.ssid == c.key)]
     if isinstance(c.new, WlanValue):

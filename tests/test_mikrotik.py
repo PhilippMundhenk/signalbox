@@ -44,12 +44,16 @@ from signalbox.adapters.mikrotik import (
     MikrotikConfig,
     _int,
     _object,
+    advertised,
     band_of,
+    bridge_port_details,
     clock_date,
     duration,
+    flow_control,
     frequency_channel,
     gmt_offset,
     health_rows,
+    mtu_of,
     security_of,
     speed,
     time_of,
@@ -60,6 +64,7 @@ from signalbox.model import (
     Band,
     DeviceRole,
     DeviceStatus,
+    FrameTypes,
     Membership,
     NtpClient,
     NtpServer,
@@ -210,10 +215,22 @@ async def test_ports(snap: Snapshot) -> None:
     ]  # no VLAN interface, no loopback
     e1 = ports["ether1"]
     assert (e1.up, e1.speed_mbps, e1.full_duplex, e1.mac) == (True, 1000, True, "02:00:00:00:00:01")
-    assert e1.vendor_extra["comment"] == "uplink"
+    assert (e1.description, e1.admin_up, e1.mtu, e1.l2_mtu) == ("uplink", True, 1500, 1568)
+    assert e1.vendor_extra == {"type": "ether"}  # comment, mtu and disabled are fields now
+    assert e1.advertised_speeds_mbps == [10, 100, 1000] and e1.autoneg is True
+    assert e1.flow_control is False and e1.pvid is None  # ether1 is in no bridge
+    e3 = ports["ether3"]
+    assert (e3.autoneg, e3.advertised_speeds_mbps, e3.flow_control) == (False, [], True)
+    assert (e3.pvid, e3.frame_types, e3.ingress_filter) == (1, FrameTypes.UNTAGGED_ONLY, True)
+    assert (ports["ether4"].pvid, ports["wifi3"].pvid) == (20, 20)
+    assert ports["wifi1"].frame_types is FrameTypes.ALL and ports["wifi1"].l2_mtu == 1568
+    assert ports["ether5"].ingress_filter is False
+    bridge = ports["bridge"]
+    assert (bridge.description, bridge.pvid, bridge.frame_types) == ("LAN", 1, FrameTypes.ALL)
+    assert bridge.l2_mtu is None and bridge.advertised_speeds_mbps == []
     assert (ports["ether2"].speed_mbps, ports["ether2"].full_duplex) == (1000, None)
     assert (ports["ether3"].speed_mbps, ports["ether3"].full_duplex) == (100, False)
-    assert ports["ether5"].up is False and ports["ether5"].vendor_extra["disabled"] is True
+    assert ports["ether5"].up is False and ports["ether5"].admin_up is False
     assert ports["wifi1"].kind.value == "wireless" and ports["bridge"].kind.value == "bridge"
 
 
@@ -704,6 +721,16 @@ def test_parsing_helpers() -> None:
     assert duration("") is None and duration("soon") is None and duration(None) is None
     assert speed("2.5G-baseT") == (2500, None) and speed("10Gbps") == (10000, None)
     assert speed("") == (None, None) and speed("auto") == (None, None)
+    assert advertised("10M-full,100M-half,1000M-full") == [10, 100, 1000]
+    assert advertised("2.5G-baseT,10G-baseSR-LR,x") == [2500, 10000] and advertised(None) == []
+    assert mtu_of("auto", "1500") == 1500 and mtu_of("9", None) is None and mtu_of(None) is None
+    assert flow_control({"rx-flow-control": "auto", "tx-flow-control": "off"}) is None
+    assert flow_control({}) is None and flow_control({"tx-flow-control": "on"}) is True
+    assert bridge_port_details({"pvid": "5000", "frame-types": "odd"}) == {
+        "pvid": None,
+        "frame_types": None,
+        "ingress_filter": None,
+    }
     assert frequency_channel(2484) == (Band.GHZ_2_4, 14)
     assert frequency_channel(5180) == (Band.GHZ_5, 36) and frequency_channel(900) is None
     assert band_of("2ghz-onlyn") is Band.GHZ_2_4 and band_of("60ghz") is None

@@ -65,6 +65,21 @@ def _ports(n: int = 4) -> list[dict[str, Any]]:
     return rows
 
 
+def test_port_settings_from_admin_and_status() -> None:
+    rows = _ports()
+    rows[0]["enabled"] = True  # Easy Smart statistics
+    rows[1]["flow_control"] = True  # ProSAFE status: flow control of the link
+    admin = {2: {"speed_code": 5}, 3: {"speed_code": 1, "flow_control": False}, 4: "odd"}
+    ports, _ = _by(interfaces("sw", "home", rows, None, None, admin))
+    assert (ports["1"].admin_up, ports["1"].autoneg, ports["1"].flow_control) == (True, None, None)
+    assert (ports["2"].admin_up, ports["2"].autoneg, ports["2"].flow_control) == (True, False, True)
+    assert (ports["3"].admin_up, ports["3"].autoneg, ports["3"].up) == (False, None, False)
+    assert ports["4"].admin_up is None and ports["4"].pvid is None
+    rows[0]["up"], rows[0]["enabled"] = True, False  # a disabled port has no link
+    ports, _ = _by(interfaces("sw", "home", rows, None, None))
+    assert (ports["1"].up, ports["1"].speed_mbps) == (False, None)
+
+
 def _by(obs: Any) -> tuple[dict[str, Any], dict[int | None, Any]]:
     return {p.name: p for p in obs.ports}, {s.vlan: s for s in obs.segments}
 
@@ -95,8 +110,8 @@ def test_dot1q_vlans_tagged_untagged_and_pvid() -> None:
     assert segs[10].id == "home/segment/10" and segs[10].name is None
     assert _members(segs[10]) == {("1", Membership.TAGGED), ("4", Membership.UNTAGGED)}
     assert _members(segs[20]) == {("1", Membership.TAGGED), ("2", Membership.UNTAGGED)}
-    assert ports["4"].vendor_extra["pvid"] == 10
-    assert ports["1"].vendor_extra == {"pvid": 1, "vlan_mode": "dot1q_advanced"}
+    assert ports["4"].pvid == 10
+    assert ports["1"].pvid == 1 and ports["1"].vendor_extra == {"vlan_mode": "dot1q_advanced"}
     assert ports["2"].vendor_extra["link"] == "100M half"
     assert ports["2"].speed_mbps == 100 and ports["2"].full_duplex is False
     assert ports["3"].up is False and ports["3"].speed_mbps is None
@@ -357,8 +372,51 @@ async def test_prosafe_dot1q_and_lag(nsdp: Start) -> None:
     assert segs[1].id == NATIVE and ("8", Membership.UNTAGGED) not in _members(segs[1])
     assert _members(segs[10]) == {("1", Membership.TAGGED), ("8", Membership.UNTAGGED)}
     assert _members(segs[20]) == {("1", Membership.TAGGED), ("2", Membership.TAGGED)}
-    assert ports["8"].vendor_extra["pvid"] == 10 and ports["1"].vendor_extra["pvid"] == 1
+    assert ports["8"].pvid == 10 and ports["1"].pvid == 1 and "pvid" not in ports["1"].vendor_extra
     assert ports["5"].lag == ports["6"].lag == "lag1" and ports["1"].lag is None
+
+
+@needs_switchyard
+async def test_prosafe_port_settings(nsdp: Start) -> None:
+    switch = netgear()
+    switch.admin[2] = (5, True)  # 100M full, flow control on
+    switch.admin[3] = (1, False)  # disabled
+    _, port = await nsdp(switch)
+    snap = await assert_contract(ProsafeAdapter(_context(ProsafeAdapter, port)))
+    ports, _ = _by(snap)
+    assert (ports["1"].admin_up, ports["1"].autoneg, ports["1"].flow_control) == (True, True, False)
+    assert (ports["2"].admin_up, ports["2"].autoneg, ports["2"].flow_control) == (True, False, True)
+    assert (ports["3"].admin_up, ports["3"].up, ports["3"].speed_mbps) == (False, False, None)
+
+
+@needs_switchyard
+async def test_port_settings_that_fail_leave_the_rest() -> None:
+    import switchyard.drivers.base as errors
+
+    class Client:
+        async def read_port_admin(self) -> Any:
+            raise errors.SwitchError("not supported here")
+
+    adapter = ProsafeAdapter(_context(ProsafeAdapter, 1))
+    adapter._switchyard()
+    reading = plus._Reading(info={})
+    await adapter._read_admin(reading, Client())
+    assert reading.admin is None and reading.error is None
+    reading.error = plus.AdapterError("ports failed")
+    await adapter._read_admin(reading, None)  # not asked at all
+    assert reading.admin is None
+
+
+@needs_switchyard
+async def test_easysmart_disabled_port(easysmart: Start) -> None:
+    switch = tplink()
+    switch.config["port"][4] = {"enabled": False, "speed": 1, "flow": False}
+    switch.config["port"][5] = {"enabled": True, "speed": 6, "flow": True}
+    _, port = await easysmart(switch)
+    snap = await assert_contract(EasySmartAdapter(es_context(port)))
+    ports, _ = _by(snap)
+    assert (ports["4"].admin_up, ports["4"].up) == (False, False)
+    assert (ports["5"].autoneg, ports["5"].flow_control) == (False, True)
 
 
 @needs_switchyard
@@ -390,7 +448,10 @@ async def test_easysmart_contract(easysmart: Start, generation: str) -> None:
     assert len(ports) == 8
     assert ports["1"].up and ports["1"].speed_mbps == 1000 and ports["1"].full_duplex
     assert ports["3"].up is False and ports["3"].speed_mbps is None
-    assert ports["1"].vendor_extra["enabled"] is True
+    # port details (#156): enabled, speed setting auto, flow control off
+    p1 = ports["1"]
+    assert (p1.admin_up, p1.autoneg, p1.flow_control) == (True, True, False), p1
+    assert "enabled" not in p1.vendor_extra
     assert [s.id for s in snap.segments] == [NATIVE]
 
 
@@ -414,7 +475,7 @@ async def test_easysmart_dot1q_and_lag(easysmart: Start) -> None:
         ("7", Membership.UNTAGGED),
         ("8", Membership.UNTAGGED),
     }
-    assert ports["7"].vendor_extra["pvid"] == 30
+    assert ports["7"].pvid == 30 and ports["1"].pvid == 1
     assert ports["5"].lag == "lag1" and ports["7"].lag is None
 
 

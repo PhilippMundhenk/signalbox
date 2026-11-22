@@ -48,9 +48,20 @@ from signalbox.adapters.opnsense import (
     _rows,
     _selected,
     _speed,
+    autoneg_of,
+    max_speed,
+    media_of,
     vitals,
 )
-from signalbox.model import DeviceRole, DeviceStatus, Membership, NtpClient, Snapshot, port_id
+from signalbox.model import (
+    DeviceRole,
+    DeviceStatus,
+    Membership,
+    NtpClient,
+    PortMedia,
+    Snapshot,
+    port_id,
+)
 from signalbox.sim.opnsense import KEY, SECRET, OpnsenseSimulator
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
 from signalbox.testing import assert_contract
@@ -160,6 +171,13 @@ async def test_ports_and_segments(snap: Snapshot) -> None:
     assert igb1.speed_mbps == 2500
     igb2 = next(p for p in snap.ports if p.name == "igb2")
     assert (igb2.up, igb2.speed_mbps, igb2.full_duplex) == (False, None, None)
+    # port details (#156)
+    assert (igb0.description, igb0.admin_up, igb0.mtu, igb0.autoneg) == ("LAN", True, 1500, True)
+    assert (igb0.max_speed_mbps, igb0.media) == (1000, PortMedia.COPPER)
+    assert igb0.vendor_extra == {"identifier": "lan"}
+    assert (igb1.max_speed_mbps, igb1.description) == (2500, "WAN")
+    assert (igb2.description, igb2.admin_up, igb2.mtu) == (None, None, 9000)  # unassigned
+    assert (igb2.max_speed_mbps, igb2.media, igb2.vendor_extra) == (10000, PortMedia.SFP_PLUS, {})
 
     segs = {s.id: s for s in snap.segments}
     assert sorted(segs) == [
@@ -411,6 +429,8 @@ async def test_odd_data_is_tolerated(http_url: str, sim: OpnsenseSimulator) -> N
     ]
     rows[0]["ipv6"].append({"ipaddr": "fe80::2%igb0/64"})
     rows[1]["media"] = "10Gbase-T <half-duplex>"
+    rows[1]["enabled"] = False  # the WAN switched off, but its device is up (VLANs on it)
+    rows[4]["enabled"] = False  # unassigned: no enable setting of its own
     sim.data[VLANS]["rows"] += [
         {"vlanif": "vlan05", "if": "igb9", "tag": "50"},  # parent unknown: segment, no member
         {"vlanif": "vlan06", "if": "igb0", "tag": "abc"},
@@ -443,6 +463,7 @@ async def test_odd_data_is_tolerated(http_url: str, sim: OpnsenseSimulator) -> N
     ports = {p.name: p for p in snap.ports}
     assert "vlan99" not in ports and ports["bridge0"].kind.value == "bridge"
     assert (ports["igb1"].speed_mbps, ports["igb1"].full_duplex) == (10000, False)
+    assert ports["igb1"].admin_up is None and ports["igb2"].admin_up is None
     segs = {s.id: s for s in snap.segments}
     assert [m.port_id for m in segs["home/segment/20"].members] == [
         port_id("fw", "igb0"),
@@ -519,6 +540,13 @@ def test_parsing_helpers() -> None:
     assert one is not None and one.start == one.end == ip_address("192.0.2.7")
     assert _pool("nope") is None
     assert _speed("100baseTX <full-duplex>") == (100, True)
+    assert max_speed("1000baseT") is None and max_speed(["autoselect", 5]) is None
+    phys = {"is_physical": True}
+    assert media_of({**phys, "media": "100baseTX <full-duplex>"}) is PortMedia.COPPER
+    assert media_of({**phys, "supported_media": ["1000baseSX", "1000baseLX"]}) is PortMedia.SFP
+    assert media_of({**phys, "media": "1000baseKX"}) is None  # backplane: no medium of ours
+    assert media_of({"media": "1000baseT"}) is None and media_of(phys) is None
+    assert autoneg_of("Ethernet 100baseTX <full-duplex>") is False and autoneg_of(None) is None
     with pytest.raises(AdapterError, match="no list of rows"):
         _rows({"rows": None}, "/x")
     assert ip_interface("192.0.2.1/24")  # sanity: documentation prefixes only

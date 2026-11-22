@@ -444,17 +444,22 @@ class FritzboxAdapter(Adapter):
             with contextlib.suppress(SoapFault):
                 lan |= await self.tr064.call("LANHostConfigManagement1", "GetSubnetMask")
 
-        speed = _int(eth.get("NewMaxBitRate"))
+        # MaxBitRate is the interface's maximum (TR-064: 10, 100, 1000 or Auto), not the rate
+        # of a link; TR-064 has no link speed for the LAN side.
+        top = eth.get("NewMaxBitRate", "").strip()
         duplex = eth.get("NewDuplexMode", "").strip().lower()
+        enabled = eth.get("NewEnable")
         port = Port(
             id=port_id(d, "lan"),
             device_id=d,
             name="lan",
             kind=PortKind.BRIDGE,
             up=eth.get("NewStatus", "").strip().lower() == "up" if eth.get("NewStatus") else None,
-            speed_mbps=speed,
             full_duplex={"full": True, "half": False}.get(duplex),
             mac=_mac(eth.get("NewMACAddress")),
+            admin_up=_flag(enabled) if enabled is not None else None,
+            max_speed_mbps=mbps if (mbps := _int(top)) and mbps > 0 else None,
+            autoneg=True if top.lower() == "auto" else None,
             vendor_extra=_extra(
                 stats, "NewBytesSent", "NewBytesReceived", "NewPacketsSent", "NewPacketsReceived"
             ),

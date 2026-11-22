@@ -217,6 +217,12 @@ There is no list of ports of its own (`…/switches/{mac}/ports` is HTTP 404); t
   `nativeNetworkId` / `tagNetworkIds` win over the profile's (an override of the profile).
 - `linkStatus` 1 is up. `linkSpeed`: 1 = 10, 2 = 100, 3 = 1000, 4 = 2500, 5 = 10000,
   6 = 5000, 7 = 25000, 8 = 100000 Mbit/s; `duplex`: 1 half, 2 full.
+- Port details (#156): `profileName` is the port profile, `disable` the admin state (a disabled
+  port is down), the PVID the VLAN of the native network. `maxSpeed` *(guess: the field and
+  that it uses the `linkSpeed` codes)* is the maximum speed.
+- `jumbo` of the switch itself *(guess)*, next to `portList`: the largest frame the switch
+  forwards (1518, the default, to 9216); above 1518 every port of the switch has jumbo frames
+  on. Without the field, jumbo frames are unknown.
 
 ### `GET …/sites/{siteId}/aps/{mac}/radio-config` (optional) *(API description)*
 

@@ -29,6 +29,7 @@ from signalbox.adapters.openwrt import (
     band,
     bridge_vlans,
     lease_seconds,
+    link_speeds,
     security,
     vitals,
     width,
@@ -131,6 +132,15 @@ async def test_interfaces_ports_and_vlans(adapter: OpenWrtAdapter) -> None:
     assert ports["br-lan"].kind is PortKind.BRIDGE
     assert ports["phy0-ap0"].kind is PortKind.WIRELESS
     assert ports["lan1"].mac == "02:00:00:00:00:01"
+    # port details (#156)
+    lan1, eth0 = ports["lan1"], ports["eth0"]
+    assert (lan1.admin_up, lan1.mtu, lan1.pvid, lan1.autoneg) == (True, 1500, 1, True)
+    assert (lan1.max_speed_mbps, lan1.advertised_speeds_mbps) == (1000, [10, 100, 1000])
+    assert lan1.vendor_extra == {"type": "Network device"}
+    assert eth0.max_speed_mbps == 2500 and eth0.advertised_speeds_mbps[-1] == 2500
+    assert ports["lan3"].pvid is None  # untagged in VLAN 1, but not marked primary (``*``)
+    assert ports["lan4"].admin_up is False  # ``device`` section with ``enabled 0``
+    assert ports["br-lan"].max_speed_mbps is None and ports["br-lan"].advertised_speeds_mbps == []
     segs = {s.vlan: s for s in obs.segments}
     assert set(segs) == {1, 20}
     assert segs[1].id == "home/segment/native" and segs[1].name == "lan"
@@ -602,6 +612,20 @@ def test_port_without_suffix_in_two_vlans_is_tagged() -> None:
 
 def _uci(*sections: tuple[str, str, dict[str, Any]]) -> dict[str, Any]:
     return {"values": {n: {".type": t, ".name": n, **o} for t, n, o in sections}}
+
+
+def test_link_speeds_and_primary_vlans() -> None:
+    assert link_speeds(["1000baseT-F", "100baseT-H", "2500baseX-F", "odd", 7]) == [100, 1000, 2500]
+    assert link_speeds(None) == [] and link_speeds("1000baseT-F") == []
+    view = NetworkView.build(
+        _uci(
+            ("bridge-vlan", "a", {"device": "br-lan", "vlan": "10", "ports": ["lan1:u*"]}),
+            ("bridge-vlan", "b", {"device": "br-lan", "vlan": "20", "ports": ["lan1:t*"]}),
+            ("bridge-vlan", "c", {"device": "br-lan", "vlan": "9999", "ports": ["lan2:u*"]}),
+            ("device", "d", {"name": "lan3", "enabled": "1"}),
+        )
+    )
+    assert view.pvids == {"lan1": 10} and view.disabled == set()
 
 
 def test_bridge_without_vlan_filtering_is_the_native_segment() -> None:

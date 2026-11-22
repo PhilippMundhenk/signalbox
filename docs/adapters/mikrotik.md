@@ -94,7 +94,14 @@ clear text and is only meant for the simulator.
 - **Ports**: every `/interface` entry except VLAN interfaces and loopback. Kind from `type`
   (`ether`, `bridge`, `bond` as a LAG, `wifi`/`wlan` as wireless, everything else virtual), `up`
   from `running` (a disabled port is down), MAC from `mac-address`, speed and duplex from the
-  `speed` of `/interface/ethernet` (`1Gbps`, `1G-baseT-full`, ...).
+  `speed` of `/interface/ethernet` (`1Gbps`, `1G-baseT-full`, ...). Port details (#156):
+  `comment` (of the interface, or of the bridge) is the description, `disabled` the admin
+  state, `mtu` (`actual-mtu` where it is `auto`) and `l2mtu` the MTUs; from
+  `/interface/ethernet` `advertise` (the offered speeds), `auto-negotiation`, and flow control
+  (`rx-`/`tx-flow-control`: on if either is `on`, off if both are `off`, unknown for `auto`).
+  Ports of a bridge with `vlan-filtering` (and the bridge itself) get `pvid`, `frame-types`
+  (`admit-all`, `admit-only-vlan-tagged`, `admit-only-untagged-and-priority-tagged`) and
+  `ingress-filtering`. Not read: the maximum speed and the medium (only `monitor` has them).
 - **Segments, bridge with `vlan-filtering=yes`**: every VLAN id of `/interface/bridge/vlan`
   (ranges like `100-105` expanded) is `<site>/segment/<vid>`, VLAN 1 the native segment. Members
   are the ports in `tagged`/`current-tagged` (tagged) and `untagged`/`current-untagged`
@@ -248,8 +255,15 @@ read.
 ```json
 [{".id": "*1", "name": "ether1", "type": "ether", "mac-address": "02:00:00:00:00:01",
   "running": "true", "disabled": "false", "mtu": "1500", "comment": "uplink"}]
-[{".id": "*1", "name": "ether1", "speed": "1G-baseT-full", "auto-negotiation": "true"}]
+[{".id": "*1", "name": "ether1", "speed": "1G-baseT-full", "auto-negotiation": "true",
+  "advertise": "10M-baseT-half,10M-baseT-full,100M-baseT-half,100M-baseT-full,1G-baseT-full",
+  "rx-flow-control": "off", "tx-flow-control": "off", "l2mtu": "1568"}]
 ```
+
+*Guess*: `advertise`, the flow-control properties and `l2mtu` of hardware ports, from the
+RouterOS documentation (the integration test checks only what CHR's virtio ports have; a
+missing property leaves the detail unknown). Before RouterOS 7.12 `advertise` listed
+`10M-full,1000M-full`, which is parsed too.
 
 `speed` is the configured (or advertised) speed; the negotiated rate is only available from
 `monitor`, which is not a `GET`. The virtio ports of CHR have no `speed` at all (the port is read
@@ -261,7 +275,8 @@ RouterOS 7.12; both are parsed.
 ```json
 [{".id": "*1", "name": "bridge", "vlan-filtering": "true", "pvid": "1", "comment": "LAN"}]
 [{".id": "*1", "interface": "ether4", "bridge": "bridge", "pvid": "20",
-  "frame-types": "admit-only-untagged-and-priority-tagged", "disabled": "false"}]
+  "frame-types": "admit-only-untagged-and-priority-tagged", "ingress-filtering": "true",
+  "disabled": "false"}]
 [{".id": "*2", "bridge": "bridge", "vlan-ids": "20", "tagged": "bridge,ether2",
   "untagged": "ether4", "current-tagged": "bridge,ether2", "current-untagged": "ether4,wifi3",
   "dynamic": "false", "disabled": "false"}]

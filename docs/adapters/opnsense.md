@@ -223,6 +223,21 @@ revision (`_3`), `product_latest` does not: the same release is no update.
 Each row also has flags, capabilities, routes and the interface's `config`. `identifier` is
 empty for unassigned devices; `pfsync0` is never listed.
 
+Port details (#156) from the same rows: `description` and `enabled` of an assigned interface
+(an unassigned device, such as a VLAN trunk, has neither; a disabled interface whose device is
+still up, because VLANs run on it, is reported as unknown), `mtu`, the fastest entry of
+`supported_media` as the maximum speed, `media_raw` with `autoselect` as auto-negotiation, and
+the medium of a physical port from its media words (`baseT`/`baseTX` copper; `SX`, `LX`, `SR`,
+`LR`, `Twinax`, ... a cage, `sfp+` from 10 Gbit/s). *Guess*: `enabled`, `mtu`,
+`supported_media` and `media_raw` from the OPNsense source (the integration test checks
+`description`, `enabled` and `mtu` on 26.7):
+
+```json
+{"device": "igb0", "identifier": "lan", "description": "LAN", "enabled": true, "mtu": "1500",
+ "media": "1000baseT <full-duplex>", "media_raw": "Ethernet autoselect (1000baseT <full-duplex>)",
+ "supported_media": ["autoselect", "1000baseT <full-duplex>", "100baseTX <full-duplex>"]}
+```
+
 ### `/api/interfaces/vlan_settings/search_item` (interfaces)
 
 ```json
