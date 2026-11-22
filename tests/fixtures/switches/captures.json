@@ -1,0 +1,18 @@
+{
+  "about": "Protocol captures of real switches that Signalbox checks the pinned Switchyard against (docs/adr/0003-switchyard-library.md). Only published captures; Switchyard's NSDP (ProSAFE Plus) notes have none yet.",
+  "switchyard": "4f8e93fd196c408fa45338a45837f61c97cf32a9",
+  "fetched": "2026-11-22",
+  "easysmart": {
+    "keystream_first_16": "5c746a047dbeb0b2fb6b06c314957e95",
+    "replies": [
+      {
+        "name": "port count",
+        "device": "TL-SG105E 3.0, firmware 1.0.0 Build 20160715",
+        "source": "firstof9/tplink-ess-lib tests/common.py ('num_ports'), via Switchyard docs/PROTOCOL-EASYSMART.md section 3.4 and tests/test_easysmart.py at the commit above",
+        "request": {"op": 1, "tlvs": [[10, ""]]},
+        "cipher": "5d761a4b2a37d1d8e7700b2685317e00422ba2f5d786aeed508f0019c202909a5b1981c722d5d43649",
+        "expect": {"op": 2, "seq": 149, "error": 0, "token": 17956, "tlvs": [[10, "05"]]}
+      }
+    ]
+  }
+}
