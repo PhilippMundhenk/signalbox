@@ -66,6 +66,7 @@ All notable changes to this project are documented here. The format follows
 - Device discovery: *Find devices* on the devices page finds supported devices on the known networks and among the routers' clients (no credentials sent) and opens the device form prefilled (#203)
 - Annotations: acknowledge a finding with a reason and an optional end date (shown apart, not counted as a problem, also in Home Assistant), labels, owner, purpose and notes on devices, ports and clients, declared in the desired state or set in the UI; `annotations.stale` and `ack.expired` (#186)
 - Rules use annotations: `clients.unexpected-network` and `clients.category-network`; known neighbours, `may_be_unreachable` devices and clients and expected networks quieten `inventory.unknown-neighbour`, `device.down-long`, `dhcp.stale-reservation` and `clients.network-changed` (#84, #85, #113, #128, #64)
+- Management services in the model (SSH, telnet, HTTP/HTTPS, API, SNMP, FTP, Winbox, MAC access, TR-064, UPnP): port, encryption, where they listen, allowed sources, reachable networks and internet exposure, SSH root password login; whether Signalbox reads a device encrypted; shown on the device page (#173, model stage)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
