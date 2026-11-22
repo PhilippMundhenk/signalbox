@@ -14,7 +14,14 @@ staying silent.
 These rules use the known links (discovered by LLDP or entered by hand) and the VLAN memberships
 of the ports at both ends. A device that reports no VLAN memberships at all (an unmanaged switch,
 or one that could not be read) is treated as unknown: checks through it are reported as
-incomplete, never as errors.
+incomplete, never as errors. The same goes for a device that was not fully read this round
+(unreachable, or reading its interfaces failed), and for a disagreement on a link that is only
+inferred from a MAC table: such a link may run through switches Signalbox does not read.
+
+A router's uplink (WAN) port is in no network of its own router; it carries the network of the
+router in front of it untagged (the router whose subnet holds the uplink address). Where an
+integration does not report uplinks, a router port in no network that is cabled to another
+router is taken for its uplink and not compared.
 
 ### `vlan.path-to-gateway`
 
@@ -25,7 +32,8 @@ incomplete, never as errors.
   router that has a subnet for the network. One finding per missing link, listing the devices
   whose clients need it.
 - **Incomplete:** a device that is not connected to the router in the known topology (once per
-  device), or a link end whose device does not report VLAN memberships.
+  device), a link end whose device does not report VLAN memberships or was not fully read, or a
+  missing VLAN on a link that is only inferred from a MAC table.
 - **Fix:** add the VLAN as tagged VLAN to the ports named in the finding. For an incomplete
   finding, add the missing link by hand or enable LLDP on the devices in between.
 
@@ -33,12 +41,17 @@ incomplete, never as errors.
 
 - **Severity:** error
 - **Checks:** both ends of a link send the same network untagged (or both send nothing untagged).
+  A router's uplink port counts as sending the network of the router in front of it.
+- **Incomplete:** the ends disagree on a link that is only inferred from a MAC table. Silent when
+  an end was not fully read or is an uplink to a router Signalbox does not know.
 - **Fix:** set the same untagged (native) VLAN on both ports, or none on both.
 
 ### `vlan.tagged-both-ends`
 
 - **Severity:** warning (a VLAN the far end actually needs is an error of `vlan.path-to-gateway`)
-- **Checks:** a VLAN tagged on one end of a link is configured on the other end as well.
+- **Checks:** a VLAN tagged on one end of a link is configured on the other end as well. Uplink
+  cables between routers are skipped.
+- **Incomplete:** on a link that is only inferred from a MAC table.
 - **Fix:** add the VLAN as tagged VLAN to the other port, or remove it from the first one.
 
 ### `vlan.unused`
@@ -244,7 +257,24 @@ role. IPv6 link-local and IPv4 169.254.0.0/16 addresses are ignored unless a rul
   share an address (the virtual address of a redundant pair) count as one. A DHCP server that
   hands out another router address is reported by `dhcp.router-option`.
 - **Fix:** keep one router per network; put the others in access-point (bridge) mode or onto
-  their own transit network.
+  their own transit network. A router behind another router (its WAN in the other one's LAN) is
+  not a second router on that network: the two LANs are separate networks (see
+  [DESIGN.md](DESIGN.md#untagged-networks-of-several-routers)), and the double NAT is reported
+  by `addr.double-nat`.
+
+### `addr.double-nat`
+
+- **Severity:** info
+- **Checks:** a router whose uplink (WAN) address lies in the subnet of another known router at
+  the site (names both routers and the cable between them where it is known), or whose WAN
+  address is private (RFC 1918: a router Signalbox does not read is in front) or in the shared
+  carrier-grade NAT space 100.64.0.0/10. Without uplink data: a router port that is in no network
+  and is cabled to another router's LAN port.
+- **Why info:** a firewall behind the provider's router is often intended and works for
+  browsing; Signalbox cannot see whether the outer router has the inner one as exposed host.
+- **Fix:** nothing if everything works. If port forwards, a VPN server, games or IPv6 behind the
+  inner router matter: put the outer router into bridge (modem) mode, or make the inner router
+  its exposed host (DMZ). For CGNAT: ask the provider for a public IPv4 address, or use IPv6.
 
 ### `inventory.management-address`
 

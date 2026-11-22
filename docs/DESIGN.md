@@ -163,6 +163,28 @@ Desired state (design, not built yet): a site could declare `internet: {public_i
 CGNAT or drops IPv6. Writing uplink settings stays out of scope: getting it wrong cuts off the
 site and Signalbox with it.
 
+### Untagged networks of several routers
+
+Integrations report a device's plain LAN as `<site>/segment/native`. Two routers in a row (an
+ISP router and a firewall whose WAN is in the ISP router's LAN, #205) have two separate untagged
+networks, so the merge splits them ([ADR 0005](adr/0005-untagged-networks-of-several-routers.md)):
+routers with overlapping subnets share a network, switches and access points join the one their
+management address is in, clients the one their address is in, and a link between two ports that
+both send the native network untagged joins the networks of its ends. With one network left
+(every single-router site) nothing changes. Otherwise the main one keeps `<site>/segment/native`
+(the one not in front of another router, then the one most switches and access points are
+managed in, then the lowest router id) and every further one is
+`<site>/segment/native-<router id>` (`native_segment_id()`, `is_native_segment()`), named after
+its router (`lan (Fritz!Box)`). `Network.native_segment(device)` is a device's own untagged
+network; `Port.pvid` 1 lands there. In the desired state `native` on a port or SSID means the
+device's own untagged network, a `native` segment entry the main one; the LANs of further routers
+are left out of an import and cannot be declared yet.
+
+A router's uplink port (`Uplink.port_id`) is in no segment of its own router; link rules treat
+it as an untagged member of the upstream router's network (`Network.upstream_router()`), and
+where uplinks are not reported, a router port in no segment cabled to another router as an
+uplink. `addr.double-nat` (#60) reports the two routers in a row as information.
+
 Rules for the model:
 
 - No untyped dictionaries across the adapter boundary. Vendor fields the model does not cover go

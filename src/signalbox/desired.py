@@ -30,6 +30,7 @@ from signalbox.model import (
     PurposeSource,
     Security,
     SegmentPurpose,
+    is_native_segment,
     normalise_mac,
     passphrase_fingerprint,
     port_id,
@@ -291,7 +292,10 @@ def from_network(net: Network, site_id: str) -> DesiredState:
     """The observed state of one site as a desired-state starting point (no passphrases)."""
     devices = {d.id: d for d in net.devices if d.site_id == site_id}
     segs: list[SegmentSpec] = []
+    main = segment_id(site_id, None)
     for seg in (s for s in net.segments if s.site_id == site_id):
+        if is_native_segment(seg.id) and seg.id != main:
+            continue  # the LAN of a further router (#205): "native" names the main one only
         sub = next(
             (
                 s
@@ -386,6 +390,14 @@ def _fmt(value: Any) -> str:
 
 def _differ(field: str, want: Any, have: Any) -> str:
     return f"{field}: should be {_fmt(want)}, is {_fmt(have)}"
+
+
+def _native_of(net: Network, device_id: str, sid: str) -> str:
+    """``native`` on a port or SSID is the device's own untagged network (#205): at a site with
+    several routers, the one of the router the device is behind."""
+    if sid != segment_id(sid.rsplit("/segment/", 1)[0], None):
+        return sid
+    return net.native_segment(device_id) or sid
 
 
 def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list[Rule]:
@@ -529,7 +541,7 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                         ("security", w.security, x.security),
                         ("enabled", w.enabled, x.enabled),
                         ("hidden", w.hidden, x.hidden),
-                        ("segment", want_seg, x.segment_id),
+                        ("segment", _native_of(net, dev, want_seg), x.segment_id),
                     ]
                     if w.pmf is not None:
                         checks.append(("PMF", w.pmf, x.pmf))
@@ -592,7 +604,9 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                     continue
                 modes = {s.id: m.mode for s in net.segments for m in s.members if m.port_id == pid}
                 want_u = (
-                    segment_id(site_id, seg_key(p.untagged)) if p.untagged is not None else None
+                    _native_of(net, p.device, segment_id(site_id, seg_key(p.untagged)))
+                    if p.untagged is not None
+                    else None
                 )
                 have_u = [s for s, m in modes.items() if m is Membership.UNTAGGED]
                 if (want_u is None and have_u) or (want_u is not None and have_u != [want_u]):

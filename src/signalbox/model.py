@@ -6,12 +6,15 @@ of a site into one :class:`Network` that rules, topology and UI work on.
 Identifiers are strings that are unique across the whole installation. Objects of a device are
 prefixed with the device id (``<device>/port/<name>``); segments are per site
 (``<site>/segment/<vlan>``) so that the same VLAN seen on several devices is one segment.
+Adapters report the untagged LAN as ``<site>/segment/native``; the merge gives the separate
+LANs of further routers their own ids (:func:`native_segment_id`, #205).
 Use the helper functions below to build them.
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime
 from enum import StrEnum
 from ipaddress import (
@@ -21,6 +24,7 @@ from ipaddress import (
     IPv6Address,
     IPv6Interface,
     IPv6Network,
+    ip_address,
 )
 from typing import Annotated, Any
 
@@ -46,6 +50,28 @@ DEFAULT_VLAN = 1
 def segment_id(site_id: str, vlan: int | None) -> str:
     """Segment of a site; ``vlan=None`` and VLAN 1 are the untagged (native) network."""
     return f"{site_id}/segment/{NATIVE if vlan in (None, DEFAULT_VLAN) else vlan}"
+
+
+def native_segment_id(site_id: str, gateway_id: str | None = None) -> str:
+    """Id of an untagged (native) network of a site (#205).
+
+    ``<site>/segment/native`` is the site's main untagged network, the only one at a site with
+    one router. A site with several routers whose untagged networks are really separate (an ISP
+    router with a firewall behind it) gets one more native segment per further router:
+    ``<site>/segment/native-<gateway device id>``, where the device id is the lowest id of the
+    router(s) of that network, with characters other than letters, digits, ``.``, ``_`` and
+    ``-`` replaced by ``-``.
+    """
+    if gateway_id is None:
+        return segment_id(site_id, None)
+    slug = re.sub(r"[^A-Za-z0-9._-]", "-", gateway_id)
+    return f"{site_id}/segment/{NATIVE}-{slug}"
+
+
+def is_native_segment(segment_id: str) -> bool:
+    """True for every untagged network of a site (the main one and those of further routers)."""
+    key = segment_id.rsplit("/segment/", 1)[-1]
+    return key == NATIVE or key.startswith(f"{NATIVE}-")
 
 
 def object_id(device_id: str, kind: str, name: str) -> str:
@@ -776,7 +802,45 @@ class Network(Model):
         if port is None or port.pvid is None or port.frame_types is FrameTypes.TAGGED_ONLY:
             return None
         device = self.device(port.device_id)
-        return None if device is None else segment_id(device.site_id, port.pvid)
+        if device is None:
+            return None
+        if port.pvid == DEFAULT_VLAN:
+            return self.native_segment(device.id)
+        return segment_id(device.site_id, port.pvid)
+
+    def native_segment(self, device_id: str) -> str | None:
+        """The untagged network a device belongs to (#205; ``None``: unknown device).
+
+        At a site with one untagged network that is ``<site>/segment/native``. With several (see
+        :func:`native_segment_id`): the one the device's own ports are untagged members of,
+        else the one of its own subnet, else the one whose subnet holds its management
+        address, else the main one.
+        """
+        device = self.device(device_id)
+        if device is None:
+            return None
+        main = segment_id(device.site_id, None)
+        natives = [
+            s for s in self.segments if s.site_id == device.site_id and is_native_segment(s.id)
+        ]
+        if len(natives) < 2:
+            return main
+        own = f"{device_id}/port/"
+        for seg in natives:
+            if any(m.port_id.startswith(own) for m in seg.members):
+                return seg.id
+        ids = {s.id for s in natives}
+        for sub in self.subnets:
+            if sub.device_id == device_id and sub.segment_id in ids:
+                return sub.segment_id
+        try:
+            addr = ip_address((device.management_address or "").strip("[]"))
+        except ValueError:
+            return main
+        for sub in sorted(self.subnets, key=lambda x: x.id):
+            if sub.segment_id in ids and addr in sub.interface.network:
+                return sub.segment_id
+        return main
 
     def uplinks_of(self, device_id: str) -> list[Uplink]:
         return [u for u in self.uplinks if u.device_id == device_id]
@@ -792,6 +856,10 @@ class Network(Model):
             if any(a.ip in sub.interface.network for a in uplink.addresses):
                 return sub
         return None
+
+    def uplink_at(self, port_id: str) -> Uplink | None:
+        """The uplink that uses this port, where the device says (``Uplink.port_id``)."""
+        return next((u for u in self.uplinks if u.port_id == port_id), None)
 
     def untagged_segments(self, port_id: str) -> list[str]:
         """Segments the port sends untagged (egress), sorted."""
