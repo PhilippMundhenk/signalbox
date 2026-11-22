@@ -38,6 +38,7 @@ from signalbox.adapters.mikrotik import (
     MikrotikConfig,
     get_menu,
 )
+from signalbox.adapters.mikrotik.write import _label, _writable
 from signalbox.changes import Change, ChangeKind, ReservationValue, plan
 from signalbox.deploy import Deployer
 from signalbox.desired import parse
@@ -138,8 +139,9 @@ def assert_unchanged(before: Any, after: Any) -> None:
 
 
 def menus(rt: dict[str, str], *paths: str) -> dict[str, Any]:
-    """Raw menus as the read user sees them (to compare the device itself, not the model)."""
-    out = {}
+    """Raw menus as the read user sees them (to compare the device itself, not the model):
+    the static entries by label, with the properties a restore would write (no counters)."""
+    out: dict[str, Any] = {}
     for path in paths:
         r = httpx.get(
             rt["URL"] + path,
@@ -149,19 +151,14 @@ def menus(rt: dict[str, str], *paths: str) -> dict[str, Any]:
             trust_env=False,
         )
         r.raise_for_status()
-        out[path] = sorted(
-            (
-                {
-                    k: v
-                    for k, v in row.items()
-                    if k not in (".id", "running", "current-tagged", "status")
-                }
-                for row in r.json()
-                if row.get("dynamic") != "true"
-            ),
-            key=lambda row: json.dumps(row, sort_keys=True),
-        )
+        rows = [row for row in r.json() if row.get("dynamic") != "true"]
+        out[path] = {_label(row): _writable(path, row) for row in rows}
     return out
+
+
+def assert_same_menus(before: dict[str, Any], after: dict[str, Any]) -> None:
+    found = differences(before, after)
+    assert not found, "the router's menus did not return:\n" + "\n".join(found)
 
 
 #: the menus a deployment changes, compared entry by entry after a revert or restore
@@ -406,7 +403,7 @@ async def test_new_network_with_dhcp_and_reservation_then_revert(
     ]
     await revert(svc, d, cid)
     assert_unchanged(before, configuration(await network(rt)))
-    assert menus(rt, *WRITTEN) == raw
+    assert_same_menus(raw, menus(rt, *WRITTEN))
 
 
 CHANGE_EXISTING = """
@@ -455,7 +452,7 @@ async def test_change_router_dhcp_reservation_and_port_then_revert(
     assert trunk == {20, 70}
     await revert(svc, d, cid)
     assert_unchanged(before, configuration(await network(rt)))
-    assert menus(rt, *WRITTEN) == raw
+    assert_same_menus(raw, menus(rt, *WRITTEN))
 
 
 PORT_ONLY = (
@@ -495,7 +492,7 @@ async def test_backup_and_restore(
     done = await d.deploy(restore.id)
     assert done.status is ChangeStatus.APPLIED, events(svc, restore.id)
     assert_unchanged(before, configuration(await network(rt)))
-    assert menus(rt, *WRITTEN) == raw
+    assert_same_menus(raw, menus(rt, *WRITTEN))
 
 
 def test_vm_still_answers(rt: dict[str, str]) -> None:
