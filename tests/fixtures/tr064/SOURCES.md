@@ -58,3 +58,9 @@ simulator answers with the error codes of the UPnP Device Architecture that TR-0
 601 Argument Value Out of Range, 606 Action Not Authorized, 713 SpecifiedArrayIndexInvalid,
 714 NoSuchEntryInArray, 820 Internal Error). Which code a box gives for which mistake is
 not specified there and still needs confirmation on a real device (#21).
+
+## Licence
+
+The files were taken from nitram509/gofritz, MIT licence, copyright (c) 2023 Martin W. Kirst; the
+licence text is in [LICENSE-gofritz](LICENSE-gofritz). The service descriptions themselves are
+AVM's published TR-064 interface specification.
