@@ -77,6 +77,7 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
+- Each device links to its own web interface: an icon on the devices list and an "Open web interface" button on the device page, derived from a reported https/http service or the adapter settings (#214)
 
 ### Fixed
 - NETGEAR ProSAFE Plus: requests go out from the host's interfaces with a real MAC, as Switchyard does on a real network (old firmware answered requests with the broadcast MAC as sender with "incorrect password"); a VLAN or LAG read the switch refuses is reported as a gap and the ports are kept (#210)
