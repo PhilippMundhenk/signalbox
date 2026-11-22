@@ -270,7 +270,8 @@ async def test_refused_token_is_renewed_once(ctrl: dict[str, str]) -> None:
         await a.close()
     async with httpx.AsyncClient(verify=False, trust_env=False, timeout=TIMEOUT) as client:
         r = await client.get(
-            ctrl["URL"] + path, headers={"Authorization": "AccessToken=AT-0000000000000000"}
+            ctrl["URL"] + path + "?page=1&pageSize=10",
+            headers={"Authorization": "AccessToken=AT-0000000000000000"},
         )
     assert r.json()["errorCode"] == -44112
 
