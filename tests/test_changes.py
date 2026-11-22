@@ -225,3 +225,28 @@ def test_adapter_declaring_writes_must_implement_them() -> None:
 
     with pytest.raises(AdapterContractError, match="WritesConfig"):
         Writer(ctx())
+
+
+def test_a_port_change_moves_a_known_pvid() -> None:
+    """The writers set the PVID to the untagged VLAN; the checks of a plan see that (#156)."""
+    from factories import configured_port, device, port
+    from signalbox.changes import apply_change
+    from signalbox.model import Site
+
+    net = Network(
+        sites=[Site(id="home", name="Home")],
+        devices=[device("sw")],
+        ports=[configured_port("sw", "1"), port("sw", "2")],
+    )
+
+    def change(new: PortValue, key: str = "sw/port/1") -> Change:
+        return Change(kind=ChangeKind.PORT, device_id="sw", site_id="home", key=key, new=new)
+
+    after = apply_change(net, change(PortValue(untagged=20, tagged=[30])))
+    assert after.port("sw/port/1").pvid == 20  # type: ignore[union-attr]
+    back = apply_change(after, change(PortValue(untagged="native")))
+    assert back.port("sw/port/1").pvid == 1  # type: ignore[union-attr]
+    trunk = apply_change(net, change(PortValue(tagged=[20])))
+    assert trunk.port("sw/port/1").pvid is None  # type: ignore[union-attr]
+    unknown = apply_change(net, change(PortValue(untagged=20), "sw/port/2"))
+    assert unknown.port("sw/port/2").pvid is None  # type: ignore[union-attr]

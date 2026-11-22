@@ -54,6 +54,18 @@ def _opt(selected: dict[str, tuple[str, bool]]) -> dict[str, dict[str, Any]]:
     return {k: {"value": v, "selected": int(on)} for k, (v, on) in selected.items()}
 
 
+#: ``supported_media`` of a gigabit copper port (FreeBSD ifmedia words).
+GIGABIT = [
+    "autoselect",
+    "1000baseT",
+    "1000baseT <full-duplex>",
+    "100baseTX <full-duplex>",
+    "100baseTX",
+    "10baseT/UTP <full-duplex>",
+    "10baseT/UTP",
+]
+
+
 def _iface(device: str, ident: str, descr: str, **kw: Any) -> dict[str, Any]:
     return {
         "device": device,
@@ -62,6 +74,7 @@ def _iface(device: str, ident: str, descr: str, **kw: Any) -> dict[str, Any]:
         "enabled": True,
         "status": "up",
         "macaddr": kw.pop("mac", "02:00:00:00:01:00"),
+        "mtu": kw.pop("mtu", "1500"),
         "media": kw.pop("media", ""),
         "is_physical": kw.pop("physical", False),
         "vlan_tag": kw.pop("vlan", None),
@@ -95,6 +108,8 @@ def sample_data() -> dict[str, Any]:
                     "lan",
                     "LAN",
                     media="1000baseT <full-duplex>",
+                    media_raw="Ethernet autoselect (1000baseT <full-duplex>)",
+                    supported_media=GIGABIT,
                     physical=True,
                     v4=["192.0.2.1/24"],
                     v6=["2001:db8:1::1/64", "fe80::1/64"],
@@ -105,6 +120,8 @@ def sample_data() -> dict[str, Any]:
                     "WAN",
                     mac="02:00:00:00:02:00",
                     media="2500Base-T <full-duplex>",
+                    media_raw="Ethernet autoselect (2500Base-T <full-duplex>)",
+                    supported_media=[*GIGABIT, "2500Base-T", "2500Base-T <full-duplex>"],
                     physical=True,
                     v6=["2001:db8:ffff::2/64"],
                 ),
@@ -117,6 +134,9 @@ def sample_data() -> dict[str, Any]:
                     mac="02:00:00:00:03:00",
                     status="no carrier",
                     media="autoselect",
+                    media_raw="Ethernet autoselect",
+                    supported_media=["autoselect", "10Gbase-SR", "10Gbase-Twinax", "1000baseSX"],
+                    mtu="9000",
                     physical=True,
                 ),
                 _iface("lo0", "lo0", "Loopback", mac="", v4=["127.0.0.1/8"], v6=["::1/128"]),

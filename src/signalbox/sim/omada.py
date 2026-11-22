@@ -72,6 +72,8 @@ EAP2 = "02-00-00-00-0C-02"
 SITE = f"/openapi/v1/{OMADAC_ID}/sites/{SITE_ID}"
 #: Where the simulator keeps a switch's ports (the controller answers them in the switch).
 PORTS_KEY = "/ports"
+#: Where the simulator keeps the rest of a switch's answer (``jumbo``, #156).
+SETTINGS_KEY = "/settings"
 
 #: Omada error codes, as the real controller answers them.
 TOKEN_EXPIRED = -44112  # also the answer to a token the controller never issued
@@ -136,6 +138,7 @@ def _port(n: int, profile: str, profile_name: str, **kw: Any) -> dict[str, Any]:
         "linkSpeed": kw.pop("speed", 3),
         "duplex": kw.pop("duplex", 2),
         "poe": kw.pop("poe", False),
+        "maxSpeed": kw.pop("max_speed", 3),
         **kw,
     }
 
@@ -355,8 +358,10 @@ def sample_data() -> dict[str, Any]:
                 "type": 2,
             },
         ],
+        # the switch's own settings: jumbo frames up to 9216 bytes (1518: off)
+        f"{SITE}/switches/{SWITCH}{SETTINGS_KEY}": {"jumbo": 9216},
         f"{SITE}/switches/{SWITCH}{PORTS_KEY}": [
-            _port(1, "prof-all", "All", speed=4),
+            _port(1, "prof-all", "All", speed=4, max_speed=4),
             _port(2, "prof-all", "All", poe=True),
             _port(3, "prof-all", "All", poe=True),
             _port(4, "prof-lan", "LAN", link=0, speed=0, duplex=0),
@@ -596,7 +601,8 @@ class OmadaSimulator:
             ports = self.data.get(f"{path}{PORTS_KEY}")
             if ports is None:
                 return _wrap(None, NO_DEVICE)
-            return _wrap({"mac": item, "portList": ports})
+            settings = self.data.get(f"{path}{SETTINGS_KEY}") or {}
+            return _wrap({"mac": item, **settings, "portList": ports})
         if path.endswith("/radio-config"):
             return _wrap(None, NO_AP)
         return _html(404, "Not Found")

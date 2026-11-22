@@ -124,6 +124,7 @@ def network_config(router: bool = False) -> dict[str, Any]:
             {"device": "br-lan", "vlan": "1", "ports": ["lan1:u*", "lan2:u*", "lan3"]},
         ),
         ("bridge-vlan", "cfg050f15", {"device": "br-lan", "vlan": "20", "ports": ["lan1:t"]}),
+        ("device", "cfg060f15", {"name": "lan4", "enabled": "0"}),
         (
             "interface",
             "lan",
@@ -187,6 +188,10 @@ def running_ifaces(wireless: Sections) -> list[tuple[str, str, str, str]]:
     return out
 
 
+#: What netifd lists for a gigabit copper port (``link-supported``, ``link-advertising``).
+GIGABIT = ["10baseT-H", "10baseT-F", "100baseT-H", "100baseT-F", "1000baseT-F"]
+
+
 def device_status(network: Sections, wireless: Sections) -> dict[str, Any]:
     def eth(carrier: bool) -> dict[str, Any]:
         return {
@@ -198,10 +203,20 @@ def device_status(network: Sections, wireless: Sections) -> dict[str, Any]:
             "mtu": 1500,
             "macaddr": _mac(0, 1),
             "speed": "1000F" if carrier else "-1F",
+            "autoneg": True,
+            "link-supported": GIGABIT,
+            "link-advertising": GIGABIT,
         }
 
     status: dict[str, Any] = {f"lan{n}": eth(n < 4) for n in range(1, 5)}
-    status["eth0"] = eth(True) | {"speed": "2500F"}
+    status["eth0"] = eth(True) | {
+        "speed": "2500F",
+        "link-supported": [*GIGABIT, "2500baseT-F"],
+        "link-advertising": [*GIGABIT, "2500baseT-F"],
+    }
+    for _, s in _of(network, "device"):
+        if s.get("name") in status and str(s.get("enabled", "1")) == "0":
+            status[str(s["name"])] |= {"up": False, "carrier": False, "speed": "-1F"}
     wifi = [ifname for _, _, ifname, _ in running_ifaces(wireless)]
     for _, s in _of(network, "device"):
         if s.get("type") == "bridge" and s.get("name"):

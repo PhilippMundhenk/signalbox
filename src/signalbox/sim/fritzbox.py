@@ -81,6 +81,14 @@ def _md5(text: str) -> str:
     return hashlib.md5(text.encode()).hexdigest()
 
 
+ETHERNET = {
+    "NewEnable": "1",
+    "NewStatus": "Up",
+    "NewMACAddress": _mac(0, 1),
+    "NewMaxBitRate": "1000",
+    "NewDuplexMode": "Full",
+}
+
 LAN = {
     "NewDHCPServerConfigurable": "1",
     "NewDHCPRelay": "0",
@@ -240,6 +248,8 @@ class FritzboxSim:
     sid: str = field(default_factory=lambda: secrets.token_hex(8))
     #: the configuration the write actions change (copies of the sample data)
     lan: dict[str, str] = field(default_factory=lambda: dict(LAN))
+    #: ``LANEthernetInterfaceConfig GetInfo``: NewMaxBitRate is a maximum (or ``Auto``)
+    ethernet: dict[str, str] = field(default_factory=lambda: dict(ETHERNET))
     wlans: dict[int, dict[str, str]] = field(default_factory=lambda: copy.deepcopy(WLANS))
     passphrases: dict[int, str] = field(default_factory=lambda: dict(PASSPHRASES))
     #: offer Get/SetBeaconAdvertisement (else: fault 401)
@@ -360,13 +370,7 @@ class FritzboxSim:
             return self._set_lan(action, args)
         if name == "LANEthernetInterfaceConfig":
             if action == "GetInfo":
-                return {
-                    "NewEnable": "1",
-                    "NewStatus": "Up",
-                    "NewMACAddress": _mac(0, 1),
-                    "NewMaxBitRate": "1000",
-                    "NewDuplexMode": "Full",
-                }
+                return dict(self.ethernet)
             if action == "GetStatistics":
                 return {
                     "NewBytesSent": "1000",

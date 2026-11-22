@@ -106,6 +106,8 @@ class _Reading:
     ports: list[dict[str, Any]] = field(default_factory=list)
     vlan: dict[str, Any] | None = None
     lag: dict[str, Any] | None = None
+    #: speed and flow-control settings per port (``read_port_admin``), None if not answered
+    admin: dict[int, dict[str, Any]] | None = None
     #: why ports/VLANs could not be read (the identity could)
     error: AdapterError | None = None
 
@@ -216,6 +218,7 @@ class _PlusSwitch(Adapter):
                 reading.ports,
                 reading.vlan,
                 reading.lag,
+                reading.admin,
             )
         except (ValueError, TypeError, AttributeError) as exc:
             raise AdapterError(f"{self._host}: unexpected port or VLAN answer: {exc}") from exc
@@ -290,6 +293,7 @@ class _PlusSwitch(Adapter):
             return await self._read_vlan(client)
 
         await self._read_rest(reading, client.read_ports, vlan, client.read_lag)
+        await self._read_admin(reading, client)
         return reading
 
     async def _login(self, login: Callable[[], Awaitable[None]]) -> None:
@@ -325,6 +329,16 @@ class _PlusSwitch(Adapter):
             reading.error = _translate(exc, self._errors, self._host)
             return
         reading.ports, reading.vlan, reading.lag = list(ports), vlan, lag
+
+    async def _read_admin(self, reading: _Reading, client: Any) -> None:
+        """Port settings (enabled, speed, flow control): optional, the rest stands without."""
+        if reading.error is not None:
+            return
+        try:
+            admin = await client.read_port_admin()
+        except (self._errors.SwitchError, self._errors.Unreachable, *_PARSE_ERRORS):
+            return
+        reading.admin = dict(admin) if isinstance(admin, Mapping) else None
 
 
 #: Shown in the device form ("Before you add it").
@@ -479,4 +493,5 @@ class EasySmartAdapter(_PlusSwitch):
                 return await client.read_lag()
 
         await self._read_rest(reading, client.read_ports, vlan, lag)
+        await self._read_admin(reading, client)
         return reading

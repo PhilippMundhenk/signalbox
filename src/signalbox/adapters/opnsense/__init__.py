@@ -61,6 +61,7 @@ from signalbox.model import (
     Membership,
     Port,
     PortKind,
+    PortMedia,
     PortMembership,
     Reservation,
     Segment,
@@ -265,6 +266,40 @@ def _speed(media: str) -> tuple[int | None, bool | None]:
     return speed, duplex
 
 
+def max_speed(supported: Any) -> int | None:
+    """Fastest entry of ``supported_media`` (``["autoselect", "1000baseT <full-duplex>"]``)."""
+    if not isinstance(supported, list):
+        return None
+    speeds = [_speed(m)[0] for m in supported if isinstance(m, str)]
+    return max((s for s in speeds if s), default=None)
+
+
+#: FreeBSD media words of fibre and direct-attach cages (``1000baseSX``, ``10Gbase-SR``, ...).
+_OPTICAL = re.compile(r"base-?(SX|LX|LH|ZX|BX|SR|LR|ER|LRM|CX|Twinax|DAC|AOC)", re.IGNORECASE)
+
+
+def media_of(row: dict[str, Any]) -> PortMedia | None:
+    """Medium of a physical port from its media words: ``baseT`` copper, optics a cage."""
+    words = [_text(row.get("media")), *(m for m in row.get("supported_media") or [] if m)]
+    words = [w for w in words if isinstance(w, str) and "base" in w.lower()]
+    if not words or row.get("is_physical") is not True:
+        return None
+    if any(re.search(r"base-?T(?:X|\b)", w, re.IGNORECASE) for w in words):
+        return PortMedia.COPPER
+    optical = [w for w in words if _OPTICAL.search(w)]
+    if not optical:
+        return None
+    return PortMedia.SFP_PLUS if max(_speed(w)[0] or 0 for w in optical) >= 10000 else PortMedia.SFP
+
+
+def autoneg_of(media_raw: Any) -> bool | None:
+    """``Ethernet autoselect (1000baseT <full-duplex>)``: auto; ``Ethernet 100baseTX``: forced."""
+    text = _text(media_raw)
+    if not text:
+        return None
+    return "autoselect" in text.lower()
+
+
 def _pool(text: str) -> DhcpPool | None:
     try:
         if "-" in text:
@@ -450,18 +485,30 @@ class OpnsenseAdapter(_Adapter):
                 continue
             speed, duplex = _speed(_text(row.get("media")))
             status = _text(row.get("status")).lower()
+            kind = next((k for p, k in _KINDS if device.startswith(p)), PortKind.ETHERNET)
+            assigned = bool(_text(row.get("identifier")))
+            enabled = row.get("enabled")
+            mtu = _int(row.get("mtu"))
             ports[device] = Port(
                 id=port_id(dev, device),
                 device_id=dev,
                 name=device,
-                kind=next((k for p, k in _KINDS if device.startswith(p)), PortKind.ETHERNET),
+                kind=kind,
                 up=(status == "up") if status else None,
                 speed_mbps=speed,
                 full_duplex=duplex,
                 mac=_mac(row.get("macaddr")),
-                vendor_extra={
-                    k: _text(row.get(k)) for k in ("identifier", "description") if row.get(k)
-                },
+                # unassigned devices have no description and no enable setting of their own;
+                # a disabled interface whose device is up still carries VLANs: unknown
+                description=_text(row.get("description")) if assigned else None,
+                admin_up=enabled
+                if assigned and isinstance(enabled, bool) and (enabled or status != "up")
+                else None,
+                mtu=mtu if mtu is not None and 68 <= mtu <= 65535 else None,
+                max_speed_mbps=max_speed(row.get("supported_media")),
+                autoneg=autoneg_of(row.get("media_raw")),
+                media=media_of(row) if kind is PortKind.ETHERNET else None,
+                vendor_extra={"identifier": _text(row["identifier"])} if assigned else {},
             )
         segments: dict[str, Segment] = {}
 

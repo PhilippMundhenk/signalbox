@@ -151,9 +151,15 @@ TR-064, so the NTP server stays unknown.
 
 ### `LANEthernetInterfaceConfig:1 GetInfo`, `GetStatistics` (interfaces)
 
-`NewStatus` (`Up`), `NewMACAddress`, `NewMaxBitRate` (Mbit/s or `Auto`), `NewDuplexMode`
-(`Full`, `Half`, `Auto`); statistics `NewBytesSent`, `NewBytesReceived`, `NewPacketsSent`,
-`NewPacketsReceived` go into `vendor_extra`.
+`NewEnable` (the port's admin state), `NewStatus` (`Up`), `NewMACAddress`, `NewMaxBitRate`
+(Mbit/s or `Auto`), `NewDuplexMode` (`Full`, `Half`, `Auto`); statistics `NewBytesSent`,
+`NewBytesReceived`, `NewPacketsSent`, `NewPacketsReceived` go into `vendor_extra`.
+
+`NewMaxBitRate` is the interface's *maximum* bit rate (TR-064's `MaxBitRate`: 10, 100, 1000 or
+`Auto`; AVM's description only says it is a string), not the speed of a link: it is reported as
+`max_speed_mbps`, `Auto` as auto-negotiation, and the port has no `speed_mbps` (TR-064 has no
+link rate for the LAN side). Before #156 it was reported as the link speed. *To confirm on a
+real box*: what FRITZ!OS answers here (a number or `Auto`).
 
 TR-064 describes the LAN side as one interface: the switch ports LAN 1-4 are not listed
 individually in AVM's documentation *(to confirm: some FRITZ!OS versions may offer an

@@ -215,16 +215,17 @@ version needed; leave out what the device does not report, never guess):
 
 Keep reporting VLAN membership as the device forwards frames (`Segment.members`); the PVID does
 not replace it. The contract checks report a speed above `max_speed_mbps` and link up on a
-disabled port. Values the integrations already read into `vendor_extra` and should move here:
+disabled port. What each integration fills (the adapter pages say from which answer; values
+that moved here are no longer in `vendor_extra`):
 
-| Integration | Already read | Where |
+| Integration | Fields | Where |
 | --- | --- | --- |
-| ProSAFE / Easy Smart | `vendor_extra.pvid` (802.1Q modes), `enabled` (Easy Smart), `link` | `plusswitch/mapping.py`, `interfaces()` |
-| MikroTik | `comment`, `mtu`, `disabled` in `vendor_extra`; bridge port `pvid` and `frame-types` used for membership only; `/interface/ethernet` read for speed (`advertise`, `auto-negotiation` not kept) | `mikrotik/__init__.py`, `_build_layout()` |
-| OpenWrt | `vendor_extra.mtu` from `network.device status` | `openwrt/__init__.py`, `read_interfaces()` |
-| OPNsense | `vendor_extra.description` | `opnsense/__init__.py`, interface overview |
-| Omada | `vendor_extra.profile` (`profileName`), `disabled` (`disable`); `nativeNetworkId` used for membership only | `omada/__init__.py`, switch ports |
-| Fritz!Box | `NewMaxBitRate` is used as `speed_mbps` (may be the maximum rather than the link speed: check before moving it to `max_speed_mbps`) | `fritzbox/__init__.py`, LAN port |
+| ProSAFE / Easy Smart | `pvid` (802.1Q modes), `admin_up`, `autoneg`, `flow_control` (port settings: `read_port_admin`, Easy Smart's enable flag) | `plusswitch/mapping.py`, `interfaces()` |
+| MikroTik | `description` (`comment`), `admin_up`, `mtu`, `l2_mtu`; bridge ports of a VLAN-filtering bridge `pvid`, `frame_types`, `ingress_filter`; `/interface/ethernet` `advertised_speeds_mbps`, `autoneg`, `flow_control` | `mikrotik/__init__.py`, `_build_layout()` |
+| OpenWrt | `mtu`, `max_speed_mbps` (`link-supported`), `advertised_speeds_mbps` (`link-advertising`), `autoneg`, `admin_up` (`device` section `enabled`, or the device up), `pvid` (`*` in `bridge-vlan`) | `openwrt/__init__.py`, `read_interfaces()` |
+| OPNsense | `description`, `admin_up` (assigned interfaces), `mtu`, `max_speed_mbps` (`supported_media`), `media`, `autoneg` (`media_raw`) | `opnsense/__init__.py`, `_parse_layout()` |
+| Omada | `profile`, `admin_up` (`disable`), `pvid` (VLAN of the native network), `max_speed_mbps` (`maxSpeed`), `jumbo` (switch setting) | `omada/__init__.py`, switch ports |
+| Fritz!Box | `admin_up`, `max_speed_mbps` (`NewMaxBitRate`: TR-064's maximum, `Auto` is `autoneg`; no longer `speed_mbps`) | `fritzbox/__init__.py`, LAN port |
 
 ## Uplinks
 

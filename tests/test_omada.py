@@ -24,6 +24,7 @@ from signalbox.adapters.omada import (
     _int,
     _security,
     _width,
+    jumbo_of,
     vitals,
 )
 from signalbox.model import (
@@ -193,14 +194,19 @@ async def test_ports_and_segments(snap: Snapshot) -> None:
             "firmware": "1.0.5",
         },
         "port": 1,
-        "profile": "All",
     }
+    # port details (#156): profile, enabled, PVID from the native network, maximum, jumbo
+    assert (p1.profile, p1.admin_up, p1.pvid, p1.max_speed_mbps) == ("All", True, 1, 2500)
+    assert p1.jumbo is True and p1.jumbo_frames() is True
+    assert ports[f"{SW}/port/7"].pvid == 20 and ports[f"{SW}/port/8"].pvid == 30  # override
+    assert ports[f"{SW}/port/2"].max_speed_mbps == 1000
     assert ports[f"{SW}/port/2"].poe is True
     p4 = ports[f"{SW}/port/4"]
     assert (p4.up, p4.speed_mbps, p4.full_duplex) == (False, None, None)
     p5 = ports[f"{SW}/port/5"]
     assert (p5.speed_mbps, p5.full_duplex) == (100, False)
-    assert ports[f"{SW}/port/6"].vendor_extra["disabled"] is True
+    p6 = ports[f"{SW}/port/6"]
+    assert (p6.admin_up, p6.up, p6.profile) == (False, False, "LAN")
 
     segs = {s.id: s for s in snap.segments}
     assert sorted(segs) == ["home/segment/20", "home/segment/30", "home/segment/native"]
@@ -553,6 +559,8 @@ def test_security_mapping() -> None:
     assert _security({"security": 5}) is Security.OTHER
     assert _width("160") == 160 and _width("5") == 80 and _width("6") is None  # 6: auto
     assert _width("2") == 20 and _width("99") is None
+    assert jumbo_of(None) is None and jumbo_of({"jumbo": "1518"}) is False
+    assert jumbo_of({"jumbo": True}) is True and jumbo_of({"jumbo": "x"}) is None
     assert _int(True) is None and _int("-3") == -3 and _int(None) is None
 
 

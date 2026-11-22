@@ -73,6 +73,7 @@ def _iface(name: str, kind: str, mac: str, running: bool = True, **kw: Any) -> d
         "type": kind,
         "mtu": "1500",
         "actual-mtu": "1500",
+        **({"l2mtu": "1568"} if kind in ("ether", "wifi") else {}),
         "mac-address": mac,
         "running": "true" if running else "false",
         "disabled": "false",
@@ -82,8 +83,22 @@ def _iface(name: str, kind: str, mac: str, running: bool = True, **kw: Any) -> d
     }
 
 
-def _ether(name: str, speed: str) -> dict[str, Any]:
-    return {"name": name, "default-name": name, "speed": speed, "auto-negotiation": "true"}
+#: What a gigabit port of RouterOS 7.12+ offers in auto-negotiation.
+GIGABIT = ",".join(f"{s}-baseT-{d}" for s in ("10M", "100M", "1G") for d in ("half", "full"))
+
+
+def _ether(name: str, speed: str, **kw: Any) -> dict[str, Any]:
+    return {
+        "name": name,
+        "default-name": name,
+        "speed": speed,
+        "auto-negotiation": "true",
+        "advertise": GIGABIT,
+        "rx-flow-control": "off",
+        "tx-flow-control": "off",
+        "l2mtu": "1568",
+        **kw,
+    }
 
 
 def _port(interface: str, pvid: str = "1", frame_types: str = "admit-all") -> dict[str, Any]:
@@ -188,7 +203,11 @@ def sample_data() -> dict[str, Any]:
         "/rest/interface/ethernet": _ids(
             _ether("ether1", "1G-baseT-full"),
             _ether("ether2", "1Gbps"),
-            _ether("ether3", "100M-baseT-half"),
+            _ether(
+                "ether3",
+                "100M-baseT-half",
+                **{"auto-negotiation": "false", "advertise": "", "rx-flow-control": "on"},
+            ),
             _ether("ether4", "1G-baseT-full"),
             _ether("ether5", "1G-baseT-full"),
         ),
@@ -208,7 +227,7 @@ def sample_data() -> dict[str, Any]:
             _port("ether2"),
             _port("ether3", frame_types="admit-only-untagged-and-priority-tagged"),
             _port("ether4", pvid="20", frame_types="admit-only-untagged-and-priority-tagged"),
-            _port("ether5"),
+            {**_port("ether5"), "ingress-filtering": "false"},
             _port("wifi1"),
             _port("wifi2"),
             _port("wifi3", pvid="20"),

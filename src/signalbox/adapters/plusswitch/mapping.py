@@ -9,12 +9,14 @@ Both Switchyard drivers (NSDP and Easy Smart) return the same shapes:
   (port → VLAN) and ``port_vlans`` (``id``, ``members``); ``None`` when the switch has no
   VLAN settings
 - ``read_lag``: ``lags`` (``id``, ``enabled``, ``members``) or ``None``
+- ``read_port_admin``: port → ``speed_code`` (0 auto, 1 disabled, 2-6 a fixed speed) and
+  ``flow_control`` (the setting), or ``None``
 
 How VLANs are mapped (docs/adapters/plusswitch.md):
 
 - 802.1Q mode: one segment per VLAN; tagged members are tagged, the other members untagged.
   VLAN 1 is the default VLAN and becomes the site's native segment. The PVID of a port is
-  kept in its ``vendor_extra`` (the model has no ingress VLAN).
+  ``Port.pvid``; it can differ from the VLAN the port is an untagged member of.
 - No VLANs, or port-based VLANs: every port is an untagged member of the native segment.
   Port-based VLANs never tag a frame; they only restrict forwarding inside the switch, so
   the groups are listed per port in ``vendor_extra["port_groups"]`` instead of being made
@@ -96,12 +98,35 @@ def system_info(info: Mapping[str, Any], vendor: str, address: str) -> SystemInf
     )
 
 
+#: ``speed_code`` of ``read_port_admin``: auto-negotiation, and a disabled port
+AUTO, DISABLED = 0, 1
+
+
+def port_settings(row: Mapping[str, Any], admin: Any) -> dict[str, Any]:
+    """``admin_up``, ``autoneg`` and ``flow_control`` from the port settings and the status row."""
+    out: dict[str, Any] = {}
+    enabled = row.get("enabled")  # Easy Smart's port statistics carry the enable flag
+    if isinstance(enabled, bool):
+        out["admin_up"] = enabled
+    code = _number(admin.get("speed_code")) if isinstance(admin, Mapping) else None
+    if code is not None:
+        out["admin_up"] = code != DISABLED
+        if code != DISABLED:
+            out["autoneg"] = code == AUTO
+    flow = admin.get("flow_control") if isinstance(admin, Mapping) else None
+    flow = flow if isinstance(flow, bool) else row.get("flow_control")
+    if isinstance(flow, bool):
+        out["flow_control"] = flow
+    return out
+
+
 def interfaces(
     device_id: str,
     site_id: str,
     ports: list[dict[str, Any]],
     vlan: Mapping[str, Any] | None,
     lag: Mapping[str, Any] | None,
+    admin: Mapping[int, Any] | None = None,
 ) -> Observation:
     """Ports and segments of one switch."""
     rows = {
@@ -118,6 +143,7 @@ def interfaces(
 
     mode = str(vlan.get("mode", "disabled")) if vlan else None
     extra: dict[int, dict[str, JsonValue]] = {n: {} for n in rows}
+    pvid_of: dict[int, int] = {}
     segments: list[Segment] = []
     native = segment_id(site_id, None)
 
@@ -128,8 +154,8 @@ def interfaces(
         pvids = vlan.get("pvid") or {}
         for n in rows:
             pvid = _number(pvids.get(n)) if isinstance(pvids, Mapping) else None
-            if pvid is not None:
-                extra[n]["pvid"] = pvid
+            if pvid is not None and 1 <= pvid <= 4094:
+                pvid_of[n] = pvid
         seen: set[int] = set()
         for entry in vlan.get("dot1q") or []:
             vid = _number(entry.get("id")) if isinstance(entry, Mapping) else None
@@ -184,10 +210,12 @@ def interfaces(
         port_extra = dict(extra[n])
         if mode is not None:
             port_extra["vlan_mode"] = mode
-        for key in ("link", "enabled"):
-            value = _json(row.get(key))
-            if value is not None:
-                port_extra[key] = value
+        link = _json(row.get("link"))
+        if link is not None:
+            port_extra["link"] = link
+        settings = port_settings(row, (admin or {}).get(n))
+        if settings.get("admin_up") is False:
+            up = False
         out_ports.append(
             Port(
                 id=pid(n),
@@ -198,6 +226,8 @@ def interfaces(
                 speed_mbps=speed if up and speed else None,
                 full_duplex=(duplex == "full") if up and duplex in ("full", "half") else None,
                 lag=lag_of.get(n),
+                pvid=pvid_of.get(n),
+                **settings,
                 vendor_extra=port_extra,
             )
         )

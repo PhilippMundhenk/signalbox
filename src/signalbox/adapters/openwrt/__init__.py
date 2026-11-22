@@ -265,6 +265,10 @@ class NetworkView:
     devices: dict[str, str] = field(default_factory=dict)
     #: running interface (``network.interface dump``) by name
     running: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: bridge port -> its primary VLAN (``*`` in a ``bridge-vlan`` port list)
+    pvids: dict[str, int] = field(default_factory=dict)
+    #: devices a ``device`` section switches off (``enabled 0``)
+    disabled: set[str] = field(default_factory=set)
 
     @classmethod
     def build(cls, uci: dict[str, Any], dump: dict[str, Any] | None = None) -> NetworkView:
@@ -272,7 +276,15 @@ class NetworkView:
         for _, s in _sections(uci, "device"):
             if s.get("type") == "bridge" and s.get("name"):
                 view.bridges[str(s["name"])] = _list(s.get("ports"))
+            if s.get("name") and not _flag(s.get("enabled"), default=True):
+                view.disabled.add(str(s["name"]))
         view.vlans = bridge_vlans(_sections(uci, "bridge-vlan"))
+        for _, s in _sections(uci, "bridge-vlan"):
+            vid = _int(s.get("vlan"))
+            for entry in _list(s.get("ports")):
+                name, _, flags = entry.partition(":")
+                if vid is not None and 1 <= vid <= 4094 and "*" in flags:
+                    view.pvids.setdefault(name, vid)
         for name, s in _sections(uci, "interface"):
             dev = s.get("device") or s.get("ifname")
             if isinstance(dev, str) and dev:
@@ -335,6 +347,18 @@ def _speed(text: Any) -> tuple[int | None, bool | None]:
     if not match or int(match.group(1)) <= 0:
         return None, None
     return int(match.group(1)), match.group(2) == "F"
+
+
+def link_speeds(modes: Any) -> list[int]:
+    """netifd's ``link-supported``/``link-advertising``: ``["100baseT-F", "1000baseT-F"]``."""
+    if not isinstance(modes, list):
+        return []
+    found = (re.match(r"(\d+)base", m) for m in modes if isinstance(m, str))
+    return sorted({int(m.group(1)) for m in found if m and int(m.group(1)) > 0})
+
+
+def _mtu(value: Any) -> int | None:
+    return value if isinstance(value, int) and 68 <= value <= 65535 else None
 
 
 def _port_kind(name: str, status: dict[str, Any]) -> PortKind:
@@ -474,16 +498,25 @@ class OpenWrtAdapter(Adapter):
                 continue
             speed, duplex = _speed(st.get("speed"))
             up = st.get("carrier", st.get("up"))
+            disabled = name in view.disabled
+            supported = link_speeds(st.get("link-supported"))
+            autoneg = st.get("autoneg")
             ports[name] = Port(
                 id=port_id(d, name),
                 device_id=d,
                 name=name,
                 kind=_port_kind(name, st),
-                up=up if isinstance(up, bool) else None,
-                speed_mbps=speed,
-                full_duplex=duplex,
+                up=False if disabled else up if isinstance(up, bool) else None,
+                speed_mbps=None if disabled else speed,
+                full_duplex=None if disabled else duplex,
                 mac=_mac(st.get("macaddr")),
-                vendor_extra=_extra(st, "type", "mtu"),
+                # a device netifd has up is enabled; a down one may just be unused
+                admin_up=False if disabled else (True if st.get("up") is True else None),
+                mtu=_mtu(st.get("mtu")),
+                max_speed_mbps=supported[-1] if supported else None,
+                advertised_speeds_mbps=link_speeds(st.get("link-advertising")),
+                autoneg=autoneg if isinstance(autoneg, bool) else None,
+                vendor_extra=_extra(st, "type"),
             )
 
         def ensure(name: str) -> str:
@@ -501,6 +534,9 @@ class OpenWrtAdapter(Adapter):
             if bridge not in view.vlans:
                 for name in bridge_ports:
                     members.setdefault(_NATIVE, {})[ensure(name)] = Membership.UNTAGGED
+        for name, vid in view.pvids.items():
+            if name in ports:
+                ports[name] = ports[name].model_copy(update={"pvid": vid})
         segments = [
             Segment(
                 id=self._seg(vid),

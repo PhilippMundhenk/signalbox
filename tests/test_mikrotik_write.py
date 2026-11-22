@@ -88,12 +88,17 @@ async def network(url: str) -> Network:
 
 
 def view(net: Network) -> dict[str, Any]:
-    """What the writes may change (clients and neighbours are not configuration)."""
+    """What the writes may change (clients and neighbours are not configuration).
+
+    Without ``frame_types``: a port change has no frame types, so an access port made a trunk
+    and back accepts all frames afterwards (``admit-all``, see ``_port`` in write.py).
+    """
     data = net.model_dump(mode="json", exclude={"observed_at", "source"})
+    skip = ("observed_at", "source", "frame_types")
 
     def clean(value: Any) -> Any:
         if isinstance(value, dict):
-            return {k: clean(v) for k, v in value.items() if k not in ("observed_at", "source")}
+            return {k: clean(v) for k, v in value.items() if k not in skip}
         if isinstance(value, list):
             return [clean(v) for v in value]
         return value
