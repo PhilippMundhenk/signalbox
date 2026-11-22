@@ -1,14 +1,16 @@
 # OpenWrt adapter
 
 Reads an OpenWrt device (21.02 or later; DSA bridge VLANs or plain bridges) over ubus JSON-RPC,
-the API that LuCI uses: `rpcd` behind `uhttpd` at `https://<device>/ubus`. Read only; nothing on
-the device is changed.
+the API that LuCI uses: `rpcd` behind `uhttpd` at `https://<device>/ubus`. With a read-only login
+nothing on the device is changed; with write access to UCI `network`, `wireless` and `dhcp`
+Signalbox can deploy port VLANs, SSIDs, DHCP pools and reservations ([Writing](#writing)).
 
 | | |
 | --- | --- |
 | Adapter id | `openwrt` |
 | Roles | `ap`, `switch`, `gateway` |
 | Capabilities | interfaces, wireless, DHCP, clients, neighbours (LLDP) |
+| Writes | `port`, `wlan`, `dhcp`, `reservation` (not `router`, see [Writing](#writing)) |
 | Simulator | `signalbox.sim.openwrt` (`uvicorn --factory signalbox.sim.openwrt:create_app`) |
 
 > The answer shapes below follow the OpenWrt documentation and source (netifd, rpcd, hostapd,
@@ -20,7 +22,7 @@ the device is changed.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `url` | | ubus endpoint, for example `https://192.0.2.2/ubus` (no path: `/ubus`) |
-| `username` | `signalbox` | rpcd login (see below) |
+| `username` | `signalbox` | rpcd login: read-only, or with write access (see below) |
 | `password` | | its password; stored encrypted, never sent back to the UI |
 | `allow_insecure_http` | `false` | accept an `http://` URL; the password then crosses the network in clear text |
 
@@ -249,3 +251,94 @@ config login
 Then `service rpcd restart`. There is no `write` entry, so the user cannot change anything. A call
 the ACL does not allow is reported by name ("access denied for `hostapd.phy0-ap0.get_clients`"),
 and only that capability is missing from the snapshot.
+
+## Writing
+
+Off unless `deploy.enabled` is on, *Allow changes* is set on the device and the login has the
+write ACL below (see [CHANGES.md](../CHANGES.md)). Every change goes through rpcd's `uci` object
+in the login's session, as LuCI does it:
+
+1. `uci get` of `network`, `wireless`, `dhcp` and `network.interface dump`; the changes are
+   translated one after another on that copy, so a later change sees an earlier one (the WLAN on
+   VLAN 30 finds the VLAN the port change creates). The review shows exactly these calls
+   (`plan_changes`); Wi-Fi keys appear as `***`.
+2. **Backup**: the `uci get` answers of the three configs as one JSON document (format
+   `openwrt-uci-json`, stored encrypted with the change).
+3. **Stage**: `uci set` / `add` / `delete` into the session's staging area. Nothing is live yet;
+   another session does not see it.
+4. **Apply**: `uci apply {"rollback": true, "timeout": <deploy.confirm_seconds>}`. rpcd commits,
+   reloads the services and starts a timer: unless `uci confirm` comes from the same session
+   before it runs out, rpcd puts the previous configuration back by itself. So a change that cuts
+   Signalbox off undoes itself.
+5. **Verify**: Signalbox reads the device again (a new session) and compares every changed value.
+6. **Confirm** (`uci confirm`), or restore the backup.
+
+Failures:
+
+- Any error while staging: `uci revert` of the touched configs, nothing was applied.
+- "Access denied" while staging or applying: the session may have expired, which also drops
+  what it had staged, so the whole transaction starts over once after a new login. Denied again:
+  the ACL forbids it, and the error names the call (`access denied for uci.add (wireless)`). rpcd
+  also refuses `uci apply` while another change waits for its confirmation.
+- Verification fails: `uci rollback` of the pending change (immediately, rather than waiting for
+  the timer), then the backup is compared with the device and put back if anything differs.
+- `uci confirm` fails (session gone): the device rolls back at the deadline; Signalbox restores
+  the backup at once.
+- **Restore** of a backup: sections not in the backup are deleted, the backup's sections are set
+  (options not in the backup removed) or added under their old names, `uci order` restores the
+  section order, then `uci apply {"rollback": false}`.
+
+### What each change does in UCI
+
+| Change | UCI |
+| --- | --- |
+| `port` | The port's entries in the `bridge-vlan` sections of its bridge: `<port>:u*` for the untagged VLAN (untagged and primary VLAN), `<port>:t` for each tagged one. The native network is VLAN 1. A VLAN that has no section yet gets one (`config bridge-vlan` `<bridge>_<vid>`); a section without ports is deleted. Ports of a bridge without `bridge-vlan` sections (no VLAN filtering) are refused. |
+| `wlan` | All `wifi-iface` sections in AP mode with this SSID. New SSID: one section per radio (`<ssid>_<radio>`). Only options that differ are written: `ssid`, `encryption` (open `none`, OWE `owe`, WPA2 `psk2`, WPA3 `sae`, WPA2/WPA3 `sae-mixed`; enterprise is refused, it needs RADIUS settings), `key` from the passphrase secret, `ieee80211w` (PMF 0/1/2), `ieee80211r`, `ieee80211k`, `bss_transition`, `hidden`, `disabled`, `network`. Removed SSID: its sections are deleted. |
+| `wlan` network | The interface on the segment's VLAN (the first by name). If the VLAN is on the bridge but has no interface, Signalbox adds `config interface vlan<vid>` with `device <bridge>.<vid>` and `proto none` (DSA creates the VLAN device itself, no `config device` is needed). If the VLAN is on no port of the access point, the change is refused: tag it on the uplink in the same plan. When a later change removes that VLAN, an unused `proto none` interface on it is deleted too. |
+| `dhcp` | The `dhcp` section of the segment's interface (created if missing): `ignore`, `start` and `limit` from the pool (offsets in the interface's IPv4 subnet), `leasetime`, DNS as `dhcp_option 6,…` (other options kept). The interface must already have an IPv4 address. Enabling without a pool is refused. |
+| `reservation` | The `host` section with that MAC: `ip`, `name`; a new one is `host_<mac>`. A host section shared by several MACs keeps the others. |
+| `router` | Not supported: a routed VLAN on OpenWrt also needs a firewall zone and forwarding rules, which are policy Signalbox does not model, and the write ACL deliberately excludes `firewall`. Create routed interfaces by hand (or in LuCI); DHCP and reservations on them can then be deployed. |
+
+### Login with write access
+
+Same packages as for reading. `/usr/share/rpcd/acl.d/signalbox.json` with a `write` part that
+only allows the `uci` methods of a transaction on the three configs:
+
+```json
+{
+  "signalbox": {
+    "description": "Signalbox: network inventory, changes to network, wireless and dhcp",
+    "read": {
+      "ubus": {
+        "system": ["board", "info"],
+        "network.device": ["status"],
+        "network.interface": ["dump"],
+        "network.wireless": ["status"],
+        "uci": ["get"],
+        "hostapd.*": ["get_clients"],
+        "luci-rpc": ["getDHCPLeases"],
+        "file": ["read"],
+        "lldpd": ["show_neighbours"]
+      },
+      "uci": ["network", "wireless", "dhcp"],
+      "file": {"/tmp/dhcp.leases": ["read"]}
+    },
+    "write": {
+      "ubus": {
+        "uci": ["set", "add", "delete", "order", "revert", "changes", "apply", "confirm", "rollback"]
+      },
+      "uci": ["network", "wireless", "dhcp"]
+    }
+  }
+}
+```
+
+and `list write 'signalbox'` next to `list read 'signalbox'` in the login entry of
+`/etc/config/rpcd`. Without the write part, deploying fails at the first staged call with
+"access denied for uci.… : add it to the rpcd ACL", and nothing is changed.
+
+> *(guesses, to confirm on a device in #21)*: that `uci add` accepts `name` (named sections, so
+> the review shows the exact names), that `uci confirm` and `uci rollback` must come from the
+> session that applied, that a pending apply makes another `uci apply` answer "permission
+> denied", and that `uci apply` with nothing staged answers "no data". The simulator behaves
+> like that.

@@ -176,6 +176,8 @@ class Writable(Adapter):
     async def plan_changes(
         self, changes: list[Change], secrets: Mapping[str, str]
     ) -> list[VendorCall]:
+        if self._switch("plan"):
+            raise AdapterError("cannot translate the change")
         return [
             VendorCall(description=c.describe(), method="SET", target=c.key, payload={"x": "***"})
             for c in changes
@@ -231,6 +233,8 @@ class Writable(Adapter):
         )
 
     async def confirm(self) -> None:
+        if self._switch("confirm"):
+            raise AdapterError("confirm refused")
         self._note("confirm")
 
     async def restore(self, backup: Backup) -> None:

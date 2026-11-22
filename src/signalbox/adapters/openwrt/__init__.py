@@ -1,6 +1,8 @@
-"""OpenWrt (read): ubus JSON-RPC through rpcd/uhttpd at ``/ubus``, HTTPS pinned by fingerprint.
+"""OpenWrt: ubus JSON-RPC through rpcd/uhttpd at ``/ubus``, HTTPS pinned by fingerprint.
 
-The HTTPS side (probe, pin, errors) is :class:`signalbox.adapters.https.DeviceHttp`.
+The HTTPS side (probe, pin, errors) is :class:`signalbox.adapters.https.DeviceHttp`. Writing
+(UCI staging, ``uci apply`` with rollback, ``uci confirm``) translates changes with
+:mod:`signalbox.adapters.openwrt.write`.
 
 Every call and the JSON it expects is documented in ``docs/adapters/openwrt.md``.
 """
@@ -8,8 +10,11 @@ Every call and the JSON it expects is documented in ``docs/adapters/openwrt.md``
 from __future__ import annotations
 
 import contextlib
+import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Interface, ip_address, ip_interface
 from typing import Any
 from urllib.parse import urlsplit
@@ -20,13 +25,17 @@ from signalbox.adapters import (
     Adapter,
     AdapterConfig,
     AdapterError,
+    ApplyResult,
+    Backup,
     Capability,
     Manifest,
     Observation,
     SystemInfo,
+    VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp
 from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
+from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
     Band,
     Client,
@@ -60,7 +69,10 @@ __all__ = ["OpenWrtAdapter", "OpenWrtConfig"]
 
 class OpenWrtConfig(AdapterConfig):
     url: str = Field(description="ubus endpoint, for example https://192.0.2.2/ubus")
-    username: str = Field(default="signalbox", description="rpcd login with a read-only ACL")
+    username: str = Field(
+        default="signalbox",
+        description="rpcd login: read-only ACL, or write access to UCI network/wireless/dhcp",
+    )
     password: SecretStr
     allow_insecure_http: bool = Field(
         default=False, description="accept an http:// URL (password sent in clear text)"
@@ -329,10 +341,18 @@ class OpenWrtAdapter(Adapter):
             }
         ),
         config=OpenWrtConfig,
-        description="Reads OpenWrt 21.02+ over ubus JSON-RPC (rpcd) with a read-only ACL.",
+        description=(
+            "Reads OpenWrt 21.02+ over ubus JSON-RPC (rpcd); writes bridge VLANs, SSIDs and "
+            "dnsmasq DHCP through UCI with rpcd's confirm-or-revert apply."
+        ),
+        writes=frozenset(
+            {ChangeKind.PORT, ChangeKind.WLAN, ChangeKind.DHCP, ChangeKind.RESERVATION}
+        ),
     )
 
     _ubus: Ubus | None = None
+    #: ``uci apply`` with rollback was called and not yet confirmed or rolled back
+    _pending: bool = False
 
     @property
     def config(self) -> OpenWrtConfig:
@@ -623,6 +643,126 @@ class OpenWrtAdapter(Adapter):
             ]
         )
 
+    # writing --------------------------------------------------------------------------
+
+    async def _configs(self) -> dict[str, Any]:
+        return {c: await self.ubus.call("uci", "get", {"config": c}) for c in write.CONFIGS}
+
+    async def _translate(self, changes: list[Change], secrets: Mapping[str, str]) -> write.Configs:
+        data = await self._configs()
+        dump = await self.ubus.call("network.interface", "dump")
+        return write.translate(changes, data, dump, self.context.site_id, secrets)
+
+    async def plan_changes(
+        self, changes: list[Change], secrets: Mapping[str, str]
+    ) -> list[VendorCall]:
+        return [op.call() for op in (await self._translate(changes, secrets)).ops]
+
+    async def backup(self) -> Backup:
+        data = {
+            c: (await self.ubus.call("uci", "get", {"config": c})).get("values")
+            for c in write.CONFIGS
+        }
+        if not all(isinstance(v, dict) for v in data.values()):
+            raise AdapterError("unexpected answer to uci.get")
+        return Backup(
+            device_id=self.context.device_id,
+            taken_at=datetime.now(UTC),
+            format=write.BACKUP_FORMAT,
+            content=json.dumps(data),
+        )
+
+    async def _revert(self, ops: list[write.UciOp]) -> None:
+        """Drop what this session staged (best effort: the session may be gone already)."""
+        for config in sorted({op.config for op in ops}):
+            with contextlib.suppress(AdapterError, OSError):
+                await self.ubus.call("uci", "revert", {"config": config}, keep_session=True)
+
+    async def _transaction(self, ops: list[write.UciOp], apply: dict[str, Any]) -> None:
+        """Stage ``ops`` in this session, then ``uci apply``; revert the staging on any error."""
+        try:
+            for op in ops:
+                await self.ubus.call("uci", op.method, op.args, keep_session=True)
+            await self.ubus.call("uci", "apply", apply, keep_session=True)
+        except BaseException:
+            await self._revert(ops)
+            raise
+
+    async def _twice(self, attempt: Any) -> Any:
+        """Run a transaction; once more in a new session if access was denied.
+
+        An expired session answers "access denied" and takes its staged changes with it, so the
+        whole transaction starts over. Denied twice: the ACL really forbids it.
+        """
+        try:
+            return await attempt()
+        except AccessDenied:
+            self.ubus.session = None
+        try:
+            return await attempt()
+        except AccessDenied as exc:
+            raise AccessDenied(
+                f"{exc} (uci.apply is also refused while another change waits for its confirmation)"
+            ) from None
+
+    async def apply(
+        self, changes: list[Change], secrets: Mapping[str, str], rollback_seconds: int
+    ) -> ApplyResult:
+        async def attempt() -> ApplyResult:
+            ops = (await self._translate(changes, secrets)).ops
+            if not ops:
+                return ApplyResult()
+            self._pending = True  # also if the answer to apply is lost
+            try:
+                await self._transaction(ops, {"rollback": True, "timeout": rollback_seconds})
+            except BaseException:
+                self._pending = False
+                raise
+            return ApplyResult(
+                confirm_deadline=datetime.now(UTC) + timedelta(seconds=rollback_seconds),
+                calls=[op.call() for op in ops],
+            )
+
+        result: ApplyResult = await self._twice(attempt)
+        return result
+
+    async def confirm(self) -> None:
+        try:
+            await self.ubus.call("uci", "confirm", {}, keep_session=True)
+        except AccessDenied:
+            raise AdapterError(
+                "uci confirm refused (session expired, or not allowed by the rpcd ACL); the "
+                "device rolls the change back at the deadline"
+            ) from None
+        self._pending = False
+
+    async def restore(self, backup: Backup) -> None:
+        if backup.format != write.BACKUP_FORMAT:
+            raise AdapterError(f"not an OpenWrt backup (format {backup.format})")
+        try:
+            saved = json.loads(backup.content)
+        except ValueError:
+            raise AdapterError("the backup is not valid JSON") from None
+        if not isinstance(saved, dict) or not all(
+            c in write.CONFIGS and isinstance(v, dict) for c, v in saved.items()
+        ):
+            raise AdapterError("the backup does not hold UCI configs")
+        if self._pending:
+            # our own change still waits for confirmation: let rpcd undo it at once
+            with contextlib.suppress(AdapterError, OSError):
+                await self.ubus.call("uci", "rollback", {}, keep_session=True)
+            self._pending = False
+
+        async def attempt() -> None:
+            current = {
+                c: (await self.ubus.call("uci", "get", {"config": c})).get("values") for c in saved
+            }
+            ops = write.restore_ops(saved, current)
+            if ops:
+                await self._transaction(ops, {"rollback": False})
+
+        await self._twice(attempt)
+
     # neighbours -----------------------------------------------------------------------
 
     async def read_neighbours(self) -> Observation:
@@ -659,3 +799,6 @@ def _first(values: Any) -> str | None:
         value = values[0].get("value")
         return str(value) if value is not None else None
     return None
+
+
+from signalbox.adapters.openwrt import write  # noqa: E402 - uses the helpers above
