@@ -58,6 +58,31 @@ incomplete, never as errors.
 - **Fix:** set both ports to auto-negotiation (or the same fixed speed and duplex); if the
   mismatch stays, replace the cable.
 
+### `vlan.trunk-scope`
+
+- **Severity:** info
+- **Checks:** a cable from a switch or router to an access point carries tagged only the networks
+  the access point uses: those of its enabled SSIDs, of its own access ports, of its own
+  addresses (subnets it reports) and of its management address. One finding per link lists the
+  extra VLANs. Every extra VLAN can be reached by anyone who unplugs the access point.
+- **Stays quiet** for links to switches, for access points with further links (they forward to
+  other devices), for access points whose Wi-Fi could not be read or that have an SSID without a
+  known network, for access points reported by a controller (it may move SSIDs between them), and
+  when the network the access point is managed in is not known.
+- **Fix:** remove the VLANs named in the finding from the switch port.
+
+### `link.slow`
+
+- **Severity:** warning; info for a single port at 10 Mbit/s
+- **Checks:** a cable between two network devices (router, switch, access point) runs below
+  1 Gbit/s or in half duplex. Unlike `link.speed-duplex` this checks the value itself, so it also
+  works when only one end reports it. A port of a network device that is up in half duplex is
+  reported even without a known link; one that is up at 10 Mbit/s is reported as info. Ports that
+  are down, wireless, aggregates or virtual are skipped.
+- **Fix:** replace the cable (a damaged cable often uses only two pairs, which limits it to
+  100 Mbit/s) and check that both ports are set to auto-negotiation. If a device only has
+  100 Mbit/s ports, turn the rule off or accept the finding.
+
 <!-- end of VLAN and link rules -->
 
 <!-- DHCP and addressing rules (src/signalbox/rules/dhcp.py) -->
@@ -629,3 +654,75 @@ not report (automatic channel, width or power).
 - **Fix:** set up the access point (own SSID and password) or turn the radio off.
 
 <!-- end of Wi-Fi hygiene rules -->
+
+<!-- Topology and inventory rules (src/signalbox/rules/topology_checks.py) -->
+
+## Topology and inventory
+
+### `lag.consistent`
+
+- **Severity:** error for members with different VLANs and for a LAG whose far end is not one
+  LAG on one device; warning for members with different speed or duplex; info when only one
+  member of a LAG is up
+- **Checks:** the member ports of a link aggregation (LAG, bond) have the same speed, duplex and
+  VLAN memberships (VLANs only where every member reports them; speed and duplex only for members
+  that are not down). Where at least two members have known links, those links go to one device,
+  and the ports there are members of one LAG too.
+- **Incomplete:** the far-end device does not report its ports.
+- **Fix:** configure a LAG on the other device as well (or remove all but one cable), connect
+  all members to the same device, and configure VLANs on the LAG itself or the same on every
+  member.
+
+### `topology.hidden-device`
+
+- **Severity:** info; warning when the port carries tagged VLANs
+- **Checks:** a cable port of a router, switch or access point with no known link, behind which
+  more than 3 client devices, or client devices of at least two networks, are seen. Usually an
+  unmanaged switch or a travel router is connected there, which Signalbox cannot see through.
+- **Stays quiet** when a device Signalbox knows (by MAC or address) is seen on that port: then
+  the clients are behind that device. Signalbox keeps one place per client, so the count is a
+  lower bound.
+- **Fix:** add the switch or access point under *Devices*, or enter it on the *Topology* page.
+  An unmanaged switch should not be on a port with tagged VLANs. For a server with virtual
+  machines on that port, turn the rule off.
+
+### `inventory.unknown-neighbour`
+
+- **Severity:** info
+- **Checks:** a device announced by LLDP (or a similar protocol) with a management address whose
+  chassis MAC, system name and management address match no device in Signalbox. One finding per
+  announced device, listing the ports that see it. LLDP capabilities are not read yet, so phones
+  or computers that send LLDP with an address are reported as well.
+- **Fix:** add the device under *Devices* if it is a router, switch or access point; otherwise
+  ignore the finding.
+
+### `vlan.management-separate`
+
+- **Severity:** info; **off unless enabled** (`rules: {vlan.management-separate: {enabled: true}}`)
+- **Checks:** at a site that uses VLANs, the management addresses of routers, switches and
+  access points lie in a network that also has client devices (other than the network devices
+  themselves) or an SSID. One finding per network names the devices. Sites without VLANs stay
+  quiet.
+- **Fix:** consider a management VLAN that only admin devices can reach, and move the
+  management addresses there.
+
+### `inventory.duplicate-device`
+
+- **Severity:** warning
+- **Checks:** no two devices in Signalbox (configured ones or ones reported by a controller, at
+  any site) have the same management address or a port with the same MAC address. Loopback
+  addresses and VRRP/CARP virtual MACs (`00:00:5e:00:01:xx`, `00:00:5e:00:02:xx`) are ignored.
+- **Fix:** remove all but one of the devices from Signalbox; keep the one read through its
+  controller if it has one.
+
+### `redundancy.single-point`
+
+- **Severity:** info
+- **Checks:** at a site with a router and at least three network devices, the switches and
+  access points whose failure, and the single links (not LAGs) whose failure, cut off at least
+  two switches or access points from the router. One finding per site lists them all. Checked
+  only when every switch and access point of the site has a known path to the router.
+- **Fix:** add a second uplink (with LAG or spanning tree) for the devices named in the finding,
+  or keep a spare switch.
+
+<!-- end of topology and inventory rules -->

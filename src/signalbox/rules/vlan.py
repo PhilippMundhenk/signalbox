@@ -11,8 +11,18 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass
+from ipaddress import ip_address
 
-from signalbox.model import DeviceRole, Link, LinkKind, Membership, Network
+from signalbox.model import (
+    Device,
+    DeviceRole,
+    Link,
+    LinkKind,
+    Membership,
+    Neighbour,
+    Network,
+    PortKind,
+)
 from signalbox.rules import Result, Severity, found, incomplete, rule
 
 
@@ -323,4 +333,184 @@ def speed_duplex(net: Network) -> Iterator[Result]:
             )
 
 
-RULES = [path_to_gateway, native_mismatch, tagged_both_ends, unused, speed_duplex]
+#: Roles of network equipment (everything but end devices).
+INFRASTRUCTURE = (DeviceRole.GATEWAY, DeviceRole.SWITCH, DeviceRole.AP)
+
+
+def address_segment(net: Network, device: Device) -> str | None:
+    """Segment of a subnet at the device's site that contains its management address."""
+    try:
+        addr = ip_address((device.management_address or "").strip("[]"))
+    except ValueError:
+        return None
+    sites = {s.id: s.site_id for s in net.segments}
+    for sn in sorted(net.subnets, key=lambda sn: sn.id):
+        site = sites.get(sn.segment_id, sn.segment_id.split("/segment/", 1)[0])
+        if site == device.site_id and addr in sn.interface.network:
+            return sn.segment_id
+    return None
+
+
+def _announces(net: Network, nb: Neighbour, devices: set[str]) -> bool:
+    """True when an LLDP neighbour is one of ``devices`` (by port MAC or system name)."""
+    chassis = nb.chassis_id.lower()
+    for d in devices:
+        dev = net.device(d)
+        if dev and nb.system_name and nb.system_name.lower() == dev.name.lower():
+            return True
+        if any(p.mac == chassis for p in net.ports if p.device_id == d):
+            return True
+    return False
+
+
+def _and(items: list[str]) -> str:
+    return ", ".join(items[:-1]) + " and " + items[-1] if len(items) > 1 else "".join(items)
+
+
+def _ap_segments(net: Network, ap: Device, uplink: Link) -> set[str] | None:
+    """Every segment the access point uses itself, or None when that is not fully known."""
+    if ap.managed_by is not None:
+        return None  # a controller may move SSIDs between access points
+    if any(e.device_id == ap.id and e.capability == "wireless" for e in net.errors):
+        return None
+    wlans = [w for w in net.wlans if w.device_id == ap.id and w.enabled]
+    if not wlans or any(w.segment_id is None for w in wlans):
+        return None
+    for link in net.links:
+        if link.id != uplink.id and ap.id in (_device_of(net, link.a), _device_of(net, link.b)):
+            return None  # it forwards to further devices
+    ends = {_device_of(net, uplink.a), _device_of(net, uplink.b)}
+    for nb in net.neighbours:
+        here = _device_of(net, nb.local_port_id)
+        if nb.local_port_id in (uplink.a, uplink.b):
+            if not _announces(net, nb, ends - {here}):
+                return None  # something else (perhaps a switch) sits on the cable
+        elif here == ap.id:
+            return None  # a neighbour behind another port of the access point
+    own = {sn.segment_id for sn in net.subnets if sn.device_id == ap.id}
+    management = address_segment(net, ap)
+    if management is None and not own:
+        return None  # the VLAN it is managed in is unknown
+    used = _used_segments(net).get(ap.id, set()) | own
+    used |= {w.segment_id for w in wlans if w.segment_id}
+    if management is not None:
+        used.add(management)
+    return used
+
+
+@rule(
+    "vlan.trunk-scope",
+    "Link to an access point carries networks it does not use",
+    Severity.INFO,
+    "The cable to an access point should carry only the networks (VLANs) the access point uses "
+    "for its SSIDs, its own access ports and its management address. Every extra VLAN on the "
+    "cable can be reached by anyone who unplugs the access point (in a hallway or outdoors), "
+    "and its broadcasts flood the access point.",
+)
+def trunk_scope(net: Network) -> Iterator[Result]:
+    view = _View.of(net)
+    devices = {d.id: d for d in net.devices}
+    for link in net.links:
+        if link.kind is LinkKind.WIRELESS:
+            continue
+        for ap_end, up_end in ((link.a, link.b), (link.b, link.a)):
+            ap = devices.get(_device_of(net, ap_end))
+            upstream = devices.get(_device_of(net, up_end))
+            if ap is None or ap.role is not DeviceRole.AP or upstream is None:
+                continue
+            if upstream.role is DeviceRole.AP or not view.known(up_end):
+                continue
+            used = _ap_segments(net, ap, link)
+            if used is None:
+                continue
+            extra = sorted(view.tagged(up_end) - used)
+            if not extra:
+                continue
+            names = _and([_segment_name(net, s) for s in extra])
+            uses = _and(sorted(_segment_name(net, s) for s in used))
+            yield found(
+                f"The link to {ap.name} carries {names}, but {ap.name} only uses {uses}.",
+                [link.id, up_end],
+                fix=f"Remove {names} from {_port_name(net, up_end)}.",
+            )
+
+
+_SLOW_MBPS = 1000
+
+
+@rule(
+    "link.slow",
+    "Slow or half-duplex link",
+    Severity.WARNING,
+    "A cable between two network devices (router, switch, access point) runs at 10 or 100 "
+    "Mbit/s, or a port runs in half duplex. A slow uplink caps every client behind it, which "
+    "looks like slow internet or slow Wi-Fi; half duplex causes collisions. Common causes are a "
+    "damaged cable or connector that uses only two pairs, an old patch panel, or a port set to "
+    "a fixed speed.",
+)
+def slow(net: Network) -> Iterator[Result]:
+    devices = {d.id: d for d in net.devices}
+    ends: set[str] = set()
+    for link in net.links:
+        if link.kind is LinkKind.WIRELESS:
+            continue
+        ends |= {link.a, link.b}
+        known = [devices[d] for e in (link.a, link.b) if (d := _device_of(net, e)) in devices]
+        if not known or any(d.role not in INFRASTRUCTURE for d in known):
+            continue
+        ports = [p for e in (link.a, link.b) if (p := net.port(e)) is not None]
+        if any(p.kind is not PortKind.ETHERNET or p.up is False for p in ports):
+            continue  # an end is down, or an aggregate or virtual port
+        speeds = [p.speed_mbps for p in ports if p.speed_mbps is not None]
+        if speeds and min(speeds) < _SLOW_MBPS:
+            yield found(
+                f"The link {_link_name(net, link)} runs at {min(speeds)} Mbit/s.",
+                [link.id],
+                fix="Replace the cable (it may use only two pairs) or check that both ports are "
+                "set to auto-negotiation.",
+                key="speed",
+            )
+        half = [p for p in ports if p.full_duplex is False]
+        if half:
+            yield found(
+                f"The link {_link_name(net, link)} runs in half duplex on "
+                f"{' and '.join(_port_name(net, p.id) for p in half)}.",
+                [link.id],
+                fix="Set both ports to auto-negotiation (or the same fixed speed and full "
+                "duplex); if it stays, replace the cable.",
+                key="duplex",
+            )
+    for p in net.ports:
+        dev = devices.get(p.device_id)
+        if p.id in ends or dev is None or dev.role not in INFRASTRUCTURE:
+            continue
+        if p.kind is not PortKind.ETHERNET or p.up is not True:
+            continue
+        if p.full_duplex is False:
+            yield found(
+                f"{_port_name(net, p.id)} runs in half duplex.",
+                [p.id],
+                fix="Set the port and the connected device to auto-negotiation; if it stays, "
+                "replace the cable.",
+                key="duplex",
+            )
+        elif p.speed_mbps is not None and p.speed_mbps <= 10:
+            yield found(
+                f"{_port_name(net, p.id)} runs at {p.speed_mbps} Mbit/s.",
+                [p.id],
+                fix="Check the cable and the connected device; almost every device today "
+                "reaches at least 100 Mbit/s.",
+                severity=Severity.INFO,
+                key="speed",
+            )
+
+
+RULES = [
+    path_to_gateway,
+    native_mismatch,
+    tagged_both_ends,
+    unused,
+    speed_duplex,
+    trunk_scope,
+    slow,
+]

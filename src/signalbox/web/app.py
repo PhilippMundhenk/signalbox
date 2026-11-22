@@ -22,7 +22,7 @@ from signalbox.adapters import Adapter
 from signalbox.deploy import Deployer
 from signalbox.model import DeviceRole, Link, LinkKind, LinkOrigin, Network, Site
 from signalbox.mqtt import MqttBridge
-from signalbox.rules import READ_ERRORS
+from signalbox.rules import READ_ERRORS, rule_enabled
 from signalbox.secrets import SecretError
 from signalbox.service import Services
 from signalbox.store import DeviceRecord, StoreError, slug
@@ -273,7 +273,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
                     "title": r.title,
                     "explanation": r.explanation,
                     "severity": (s.severity if s and s.severity else r.severity).value,
-                    "enabled": s.enabled if s else True,
+                    "enabled": rule_enabled(r, config.rules),
                 }
             )
         return out

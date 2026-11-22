@@ -480,6 +480,8 @@ class OpenWrtSim:
     luci_rpc: bool = True
     #: DHCP on, no default route on lan: the device acts as the router of 192.0.2.0/24
     router: bool = False
+    #: fourth byte of the port MACs (02:00:00:<base>:..), so several simulators differ
+    mac_base: int = 0
     #: time source of sessions and the rollback timer (replace it to test the timer)
     clock: Callable[[], float] = time.monotonic
     sessions: dict[str, float] = field(default_factory=dict)
@@ -618,7 +620,14 @@ class OpenWrtSim:
         if obj == "system" and method == "info":
             return [0, {"localtime": 1700000000, "uptime": 86400, "load": [0, 0, 0]}]
         if obj == "network.device" and method == "status":
-            return [0, device_status(self.state["network"], self.state["wireless"])]
+            status = device_status(self.state["network"], self.state["wireless"])
+            if self.mac_base:  # a second simulated device needs MACs of its own
+                base, own = "02:00:00:00:", f"02:00:00:{self.mac_base:02x}:"
+                for entry in status.values():
+                    mac = entry.get("macaddr")
+                    if isinstance(mac, str) and mac.startswith(base):  # not reserved MACs
+                        entry["macaddr"] = own + mac[len(base) :]
+            return [0, status]
         if obj == "network.interface" and method == "dump":
             return [0, interface_dump(self.state["network"])]
         if obj == "network.wireless" and method == "status":
