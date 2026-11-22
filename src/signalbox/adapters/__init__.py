@@ -46,6 +46,7 @@ from signalbox.model import (
     Snapshot,
     Source,
     Subnet,
+    Uplink,
     Wlan,
 )
 
@@ -55,7 +56,7 @@ API_VERSION = "1.2"
 
 
 class Capability(StrEnum):
-    INTERFACES = "interfaces"  # ports, segments (VLANs) and subnets
+    INTERFACES = "interfaces"  # ports, segments (VLANs), subnets and uplinks
     DHCP = "dhcp"
     DNS = "dns"
     WIRELESS = "wireless"  # radios and WLANs
@@ -211,6 +212,8 @@ class Observation(BaseModel):
     ports: list[Port] = Field(default_factory=list)
     segments: list[Segment] = Field(default_factory=list)
     subnets: list[Subnet] = Field(default_factory=list)
+    #: WAN connections of a gateway (#148), read with ``interfaces``; no API version needed.
+    uplinks: list[Uplink] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)

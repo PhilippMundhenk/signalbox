@@ -18,9 +18,13 @@ from signalbox.model import (
     DeviceStatus,
     DeviceTime,
     Membership,
+    NatClass,
     Port,
     PortKind,
     Snapshot,
+    Uplink,
+    UplinkKind,
+    address_nat_class,
 )
 
 
@@ -73,6 +77,26 @@ def port_problems(port: Port) -> list[str]:
     return out
 
 
+def uplink_problems(uplink: Uplink, port_ids: set[str]) -> list[str]:
+    """Inconsistent uplink values (#148): ids, naive times, a bridge with addresses."""
+    out: list[str] = []
+    prefix = f"{uplink.device_id}/uplink/"
+    if not uplink.id.startswith(prefix) or uplink.id == prefix:
+        out.append(f"uplink id {uplink.id} is not {prefix}<name>")
+    if uplink.port_id is not None and uplink.port_id not in port_ids:
+        out.append(f"uplink {uplink.id} on unknown port {uplink.port_id}")
+    if uplink.since is not None and not _aware(uplink.since):
+        out.append(f"uplink {uplink.id}: since {uplink.since} has no time zone")
+    if uplink.up is False and uplink.since is not None:
+        out.append(f"uplink {uplink.id}: down but connected since {uplink.since}")
+    if uplink.kind is UplinkKind.BRIDGE and (uplink.addresses or uplink.upstream_gateway):
+        out.append(f"uplink {uplink.id}: a bridge has no addresses or gateway of its own")
+    public = uplink.public_ipv4
+    if public is not None and address_nat_class(public) is not NatClass.PUBLIC:
+        out.append(f"uplink {uplink.id}: public_ipv4 {public} is not a public address")
+    return out
+
+
 def time_problems(device_id: str, value: DeviceTime, segment_prefix: str) -> list[str]:
     """Inconsistent clock and NTP values."""
     out: list[str] = []
@@ -104,6 +128,8 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             out.append(f"declares {cap.value} but no device has {attr}")
         if cap.value not in caps and found:
             out.append(f"{attr} reported without declaring {cap.value}")
+    if snapshot.uplinks and Capability.INTERFACES.value not in caps:
+        out.append(f"uplinks reported without declaring {Capability.INTERFACES.value}")
     for d in devices:
         if d.health is not None:
             out += health_problems(d.id, d.health)
@@ -139,7 +165,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
     radio_ids = {r.id for r in snapshot.radios}
     segment_ids = {s.id for s in snapshot.segments}
 
-    for kind in ("ports", "subnets", "dhcp_servers", "dns_services", "radios", "wlans"):
+    for kind in ("ports", "subnets", "uplinks", "dhcp_servers", "dns_services", "radios", "wlans"):
         for obj in getattr(snapshot, kind):
             if not obj.id.startswith(own):
                 out.append(f"{kind} id {obj.id} does not start with {own}")
@@ -181,6 +207,8 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
             out.append(f"wlan {wlan.id} references unknown segment {wlan.segment_id}")
     for port in snapshot.ports:
         out += port_problems(port)
+    for uplink in snapshot.uplinks:
+        out += uplink_problems(uplink, port_ids)
     for nb in snapshot.neighbours:
         if nb.local_port_id not in port_ids:
             out.append(f"neighbour {nb.id} on unknown port {nb.local_port_id}")

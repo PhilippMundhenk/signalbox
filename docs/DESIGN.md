@@ -87,6 +87,7 @@ carries its source (adapter and device), the time it was observed and a stable i
 | Link | A cable or wireless uplink between two ports; observed (LLDP, MAC tables) or entered by hand |
 | Segment | Layer-2 network: VLAN id, name, purpose and its source, isolated by the device; membership per port `untagged` / `tagged` / `none` |
 | Subnet | Prefix, gateway address, segment, IPv4/IPv6 |
+| Uplink | A gateway's WAN connection: kind (`dhcp`, `static`, `pppoe`, `dslite`, `map-e`, `lte`, `bridge`, `other`), port, connected and since when, own addresses, delegated IPv6 prefixes, upstream gateway, provider DNS, public IPv4 where the device knows it, line rates; NAT class derived |
 | DhcpServer | Device, segment, enabled, pool, lease time, options (router, DNS, NTP), static reservations |
 | DnsService | Resolver, host overrides, forwarders, split-DNS domains |
 | Wlan | SSID, security (WPA2/WPA3, PMF), passphrase reference, segment, bands, hidden, roaming (802.11r/k/v), purpose and its source, client isolation |
@@ -130,6 +131,37 @@ untagged VLAN). Today a declared port always plans its VLANs, so a port entry th
 description would remove its memberships; the VLAN fields first have to become "not
 specified" when left out. Disabling a port must be refused when it is on the path to Signalbox
 or to a device later in the plan.
+
+WAN uplinks (#148) are objects of their own (`Snapshot.uplinks`, `Network.uplinks`, id
+`<device>/uplink/<name>`), not subnets with a flag: the WAN prefix is not a network of the site
+(the OPNsense and MikroTik adapters already leave WAN addresses out of `Subnet`), and an uplink
+has properties a subnet lacks (connection kind, session uptime, provider DNS, delegated
+prefixes, line rate). They are read with the `interfaces` capability, the calls that already
+list the WAN interface, so there is no new capability and no adapter API change: the field is
+additive and empty for every adapter that does not fill it. The cost is that "no uplinks" does
+not tell "the device has none" from "the integration does not read them"; checks therefore only
+act on uplinks that are reported, never on their absence. A separate capability would only be
+worth it if uplinks needed their own read (an extra slow call) and their own "incomplete"
+finding; that can still be added later without breaking adapters that fill the list today.
+
+The NAT class is derived in core, never reported: `Uplink.nat_class()` classifies the device's
+own IPv4 addresses with `address_nat_class()` (RFC 1918 `private`, 100.64.0.0/10 `cgnat`, no
+IPv4 of its own `none` (IPv6 only, DS-Lite, MAP-E), anything else `public`; documentation
+prefixes count as public so simulators can stand in for real lines). `public_ipv4` is only the
+address the internet sees where the device knows it apart from its own (a cloud lookup the
+device does itself); Signalbox never looks it up, which would tell a third party where the
+installation is. `Network.upstream_router()` finds a gateway subnet of another known device
+that holds the uplink's address: this router sits behind that one (double NAT, "Internet via
+192.0.2.1"). Uplinks belong to one device and are not merged. A modem in bridge mode that is a
+device of its own reports a `bridge` uplink without addresses. The public address and the
+delegated prefix identify the household: the device page shows them only behind a click, MQTT
+publishes only connectivity and the NAT class, and recordings replace them with documentation
+addresses like every address (which also hides whether a recorded line was private or CGNAT).
+
+Desired state (design, not built yet): a site could declare `internet: {public_ipv4: true}`
+(or `ipv6: true`), and `wan.expected` would report drift when the provider moves the line to
+CGNAT or drops IPv6. Writing uplink settings stays out of scope: getting it wrong cuts off the
+site and Signalbox with it.
 
 Rules for the model:
 

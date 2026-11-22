@@ -1194,6 +1194,13 @@
           "title": "Subnets",
           "type": "array"
         },
+        "uplinks": {
+          "items": {
+            "$ref": "#/$defs/Uplink"
+          },
+          "title": "Uplinks",
+          "type": "array"
+        },
         "wlans": {
           "items": {
             "$ref": "#/$defs/Wlan"
@@ -2184,6 +2191,13 @@
           "title": "Subnets",
           "type": "array"
         },
+        "uplinks": {
+          "items": {
+            "$ref": "#/$defs/Uplink"
+          },
+          "title": "Uplinks",
+          "type": "array"
+        },
         "wlans": {
           "items": {
             "$ref": "#/$defs/Wlan"
@@ -2391,6 +2405,221 @@
       ],
       "title": "TemperatureSensor",
       "type": "object"
+    },
+    "Uplink": {
+      "additionalProperties": false,
+      "description": "A gateway's connection to its provider (WAN), ``object_id(device, \"uplink\", <name>)``.\n\nRead with the ``interfaces`` capability. WAN addresses are not :class:`Subnet` objects: the\nuplink is not a network of the site. The public address and the delegated IPv6 prefix\nidentify the household: shown in the UI behind a click, never exported (MQTT, reports).",
+      "properties": {
+        "addresses": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4interface",
+                "type": "string"
+              },
+              {
+                "format": "ipv6interface",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Addresses",
+          "type": "array"
+        },
+        "delegated_prefixes": {
+          "items": {
+            "format": "ipv6network",
+            "type": "string"
+          },
+          "title": "Delegated Prefixes",
+          "type": "array"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "dns_servers": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Dns Servers",
+          "type": "array"
+        },
+        "downstream_kbps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Downstream Kbps"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/UplinkKind",
+          "default": "other"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "port_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port Id"
+        },
+        "public_ipv4": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Public Ipv4"
+        },
+        "since": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Since"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "up": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Up"
+        },
+        "upstream_gateway": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Upstream Gateway"
+        },
+        "upstream_kbps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Upstream Kbps"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id"
+      ],
+      "title": "Uplink",
+      "type": "object"
+    },
+    "UplinkKind": {
+      "description": "How a gateway reaches its provider (or the router in front of it).",
+      "enum": [
+        "dhcp",
+        "static",
+        "pppoe",
+        "dslite",
+        "map-e",
+        "lte",
+        "bridge",
+        "other"
+      ],
+      "title": "UplinkKind",
+      "type": "string"
     },
     "UpsStatus": {
       "additionalProperties": false,

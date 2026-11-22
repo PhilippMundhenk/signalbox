@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from ipaddress import ip_address, ip_interface
+from ipaddress import ip_address, ip_interface, ip_network
 from typing import Literal
 
 from pydantic import Field, SecretStr
@@ -47,6 +47,8 @@ from signalbox.model import (
     StorageUsage,
     Subnet,
     TemperatureSensor,
+    Uplink,
+    UplinkKind,
     Wlan,
     object_id,
     port_id,
@@ -176,7 +178,21 @@ class Lab(Adapter):
                 gateway=True,
             ),
         ]
-        return Observation(ports=ports, segments=segments, subnets=subnets)
+        uplink = Uplink(
+            id=f"{d}/uplink/wan",
+            device_id=d,
+            name="wan",
+            kind=UplinkKind.PPPOE,
+            up=True,
+            since=datetime.now(UTC) - timedelta(hours=3),
+            addresses=[ip_interface("203.0.113.23/32"), ip_interface("2001:db8:ff::2/64")],
+            delegated_prefixes=[ip_network("2001:db8:100::/56")],
+            upstream_gateway=ip_address("203.0.113.1"),
+            dns_servers=[ip_address("203.0.113.53")],
+            downstream_kbps=100_000,
+            upstream_kbps=40_000,
+        )
+        return Observation(ports=ports, segments=segments, subnets=subnets, uplinks=[uplink])
 
     async def read_dhcp(self) -> Observation:
         d = self.context.device_id

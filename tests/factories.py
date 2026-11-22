@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from ipaddress import ip_address, ip_interface
+from ipaddress import ip_address, ip_interface, ip_network
 from typing import Any
 
 from signalbox.model import (
@@ -23,7 +23,10 @@ from signalbox.model import (
     StorageKind,
     StorageUsage,
     TemperatureSensor,
+    Uplink,
+    UplinkKind,
     UpsStatus,
+    object_id,
     port_id,
 )
 
@@ -136,6 +139,34 @@ def device_time(offset_seconds: float = 0.0, **kw: Any) -> DeviceTime:
 
 def ntp_server(*segments: str, enabled: bool = True) -> NtpServer:
     return NtpServer(enabled=enabled, segments=list(segments))
+
+
+def uplink(device_id: str, name: str = "wan", **kw: Any) -> Uplink:
+    """A DHCP uplink with a public IPv4, IPv6 and a delegated /56, up since a day (#148).
+
+    Override any field: ``uplink("gw", addresses=[iface("100.64.0.23/10")])`` is behind CGNAT,
+    ``addresses=[iface("192.0.2.20/24")]`` behind the router whose LAN that is (see
+    ``Network.upstream_router``), ``kind=UplinkKind.DSLITE`` without IPv4, ``up=False,
+    since=None`` down. ``port`` names the device's port.
+    """
+    port_name = kw.pop("port", None)
+    values: dict[str, Any] = {
+        "name": name,
+        "kind": UplinkKind.DHCP,
+        "up": True,
+        "since": T0 - timedelta(days=1),
+        "addresses": [iface("198.51.100.23/24"), iface("2001:db8:ffff::2/64")],
+        "delegated_prefixes": [ip_network("2001:db8:100::/56")],
+        "upstream_gateway": ip("198.51.100.1"),
+        "dns_servers": [ip("198.51.100.53"), ip("2001:db8:ffff::53")],
+    }
+    if port_name is not None:
+        values["port_id"] = port_id(device_id, port_name)
+    return Uplink(
+        id=object_id(device_id, "uplink", name),
+        device_id=device_id,
+        **(values | kw),
+    )
 
 
 def ip(text: str) -> Any:

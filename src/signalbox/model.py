@@ -14,7 +14,14 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime
 from enum import StrEnum
-from ipaddress import IPv4Address, IPv4Interface, IPv6Address, IPv6Interface
+from ipaddress import (
+    IPv4Address,
+    IPv4Interface,
+    IPv4Network,
+    IPv6Address,
+    IPv6Interface,
+    IPv6Network,
+)
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
@@ -438,6 +445,123 @@ class Subnet(Observed):
     gateway: bool = False
 
 
+class UplinkKind(StrEnum):
+    """How a gateway reaches its provider (or the router in front of it)."""
+
+    DHCP = "dhcp"
+    STATIC = "static"
+    PPPOE = "pppoe"
+    #: DS-Lite (RFC 6333): native IPv6, IPv4 tunnelled to the provider's carrier-grade NAT.
+    DSLITE = "dslite"
+    MAP_E = "map-e"
+    LTE = "lte"  # mobile (LTE, 5G)
+    #: The device only bridges the line (a modem in front of the real router): no address.
+    BRIDGE = "bridge"
+    OTHER = "other"
+
+
+class NatClass(StrEnum):
+    """Where an uplink's IPv4 address lies; derived by :meth:`Uplink.nat_class`, not reported."""
+
+    #: A routable address: inbound connections and port forwards can work.
+    PUBLIC = "public"
+    #: Provider NAT (100.64.0.0/10, RFC 6598): nothing from the internet reaches the site.
+    CGNAT = "cgnat"
+    #: RFC 1918 space: another router (NAT) is in front of this one.
+    PRIVATE = "private"
+    #: No IPv4 address of its own (IPv6 only, DS-Lite, MAP-E): no inbound IPv4.
+    NONE = "none"
+
+
+_CGNAT = IPv4Network("100.64.0.0/10")
+_RFC1918 = (IPv4Network("10.0.0.0/8"), IPv4Network("172.16.0.0/12"), IPv4Network("192.168.0.0/16"))
+#: Not an internet address of the device: link-local, the DS-Lite B4/AFTR range (RFC 6333),
+#: loopback, unspecified.
+_NO_ADDRESS = (
+    IPv4Network("169.254.0.0/16"),
+    IPv4Network("192.0.0.0/29"),
+    IPv4Network("127.0.0.0/8"),
+    IPv4Network("0.0.0.0/32"),
+)
+
+
+def address_nat_class(address: IPv4Address) -> NatClass:
+    """NAT class of one IPv4 address.
+
+    Deliberately not :attr:`IPv4Address.is_global`: documentation prefixes (192.0.2.0/24 and
+    friends) count as public, so that simulators and tests can stand in for real addresses.
+    """
+    if address in _CGNAT:
+        return NatClass.CGNAT
+    if any(address in net for net in _RFC1918):
+        return NatClass.PRIVATE
+    if any(address in net for net in _NO_ADDRESS):
+        return NatClass.NONE
+    return NatClass.PUBLIC
+
+
+class Uplink(Observed):
+    """A gateway's connection to its provider (WAN), ``object_id(device, "uplink", <name>)``.
+
+    Read with the ``interfaces`` capability. WAN addresses are not :class:`Subnet` objects: the
+    uplink is not a network of the site. The public address and the delegated IPv6 prefix
+    identify the household: shown in the UI behind a click, never exported (MQTT, reports).
+    """
+
+    device_id: str
+    #: The port the uplink uses (``<device>/port/<name>``), where the device says.
+    port_id: str | None = None
+    #: The device's own name of the connection (``wan``, ``pppoe-out1``, ``Internet``).
+    name: str | None = None
+    kind: UplinkKind = UplinkKind.OTHER
+    #: Connected (has its address, PPP session up), not only link on the port.
+    up: bool | None = None
+    #: When the current connection came up.
+    since: datetime | None = None
+    #: The device's own address(es) on the uplink, IPv4 and IPv6, with prefix length.
+    addresses: list[IPInterface] = Field(default_factory=list)
+    #: IPv6 prefixes delegated by the provider (DHCPv6-PD), for the site's networks.
+    delegated_prefixes: list[IPv6Network] = Field(default_factory=list)
+    #: The next hop upstream (default route), IPv4 or IPv6.
+    upstream_gateway: IPAddress | None = None
+    #: Resolvers the provider handed out (not the ones the device forwards to).
+    dns_servers: list[IPAddress] = Field(default_factory=list)
+    #: The address the internet sees, only where the device itself knows it apart from its own
+    #: addresses (MikroTik ``/ip/cloud``); Signalbox never looks it up on the internet. An
+    #: address the device has itself (Fritz!Box ``GetExternalIPAddress``) goes into
+    #: ``addresses``.
+    public_ipv4: IPv4Address | None = None
+    #: Line rate where the modem knows it (DSL sync, LTE), in kbit/s.
+    downstream_kbps: Annotated[int, Field(ge=0)] | None = None
+    upstream_kbps: Annotated[int, Field(ge=0)] | None = None
+
+    def ipv4(self) -> list[IPv4Interface]:
+        return [a for a in self.addresses if isinstance(a, IPv4Interface)]
+
+    def ipv6(self) -> list[IPv6Interface]:
+        """Global IPv6 addresses (link-local ones left out)."""
+        return [a for a in self.addresses if isinstance(a, IPv6Interface) and not a.is_link_local]
+
+    def nat_class(self) -> NatClass | None:
+        """Where the uplink's IPv4 lies (``None``: not known).
+
+        The device's own IPv4 addresses decide (the best one: public before CGNAT before
+        private); ``public_ipv4`` is used only when the device reports no address of its own.
+        DS-Lite and MAP-E have no IPv4 of their own (``none``), nor has an uplink with IPv6
+        addresses only. A bridge or an uplink without any address is not known.
+        """
+        if self.kind in (UplinkKind.DSLITE, UplinkKind.MAP_E):
+            return NatClass.NONE
+        v4 = [a.ip for a in self.ipv4()] or ([self.public_ipv4] if self.public_ipv4 else [])
+        found = {address_nat_class(a) for a in v4}
+        for best in (NatClass.PUBLIC, NatClass.CGNAT, NatClass.PRIVATE):
+            if best in found:
+                return best
+        if found or self.ipv6():
+            return NatClass.NONE
+        return None
+
+
 class DhcpPool(Model):
     start: IPAddress
     end: IPAddress
@@ -596,6 +720,8 @@ class Snapshot(Model):
     ports: list[Port] = Field(default_factory=list)
     segments: list[Segment] = Field(default_factory=list)
     subnets: list[Subnet] = Field(default_factory=list)
+    #: WAN connections of a gateway (#148; part of ``interfaces``).
+    uplinks: list[Uplink] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)
@@ -619,6 +745,8 @@ class Network(Model):
     ports: list[Port] = Field(default_factory=list)
     segments: list[Segment] = Field(default_factory=list)
     subnets: list[Subnet] = Field(default_factory=list)
+    #: WAN connections of a gateway (#148; part of ``interfaces``).
+    uplinks: list[Uplink] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)
@@ -647,6 +775,21 @@ class Network(Model):
             return None
         device = self.device(port.device_id)
         return None if device is None else segment_id(device.site_id, port.pvid)
+
+    def uplinks_of(self, device_id: str) -> list[Uplink]:
+        return [u for u in self.uplinks if u.device_id == device_id]
+
+    def upstream_router(self, uplink: Uplink) -> Subnet | None:
+        """Gateway subnet of *another* known device that holds an IPv4 address of the uplink.
+
+        Found: this gateway sits behind that one (double NAT, "Internet via 192.0.2.1").
+        """
+        for sub in self.subnets:
+            if not sub.gateway or sub.device_id == uplink.device_id:
+                continue
+            if any(a.ip in sub.interface.network for a in uplink.addresses):
+                return sub
+        return None
 
     def untagged_segments(self, port_id: str) -> list[str]:
         """Segments the port sends untagged (egress), sorted."""

@@ -102,8 +102,9 @@ More in [docs/screenshots.md](docs/screenshots.md).
 ## Home Assistant
 
 With `SIGNALBOX_MQTT_ENABLED=true` and `SIGNALBOX_MQTT_HOST=<broker>`, Signalbox publishes the
-number of findings per site and the status, firmware and client count of every device, with
-MQTT discovery, so they appear in Home Assistant without further setup.
+number of findings per site and the status, firmware and client count of every device (for a
+router whose integration reads its uplink also whether it is online and its NAT class, never
+its addresses), with MQTT discovery, so they appear in Home Assistant without further setup.
 
 ## Documentation
 
