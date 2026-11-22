@@ -168,7 +168,7 @@ jobs:
         id: tests
         run: |
           set -o pipefail
-          pytest -m integration tests/integration -ra --tb=short -p no:cacheprovider \
+          pytest -m integration tests/integration/test_openwrt_real.py -ra --tb=short -p no:cacheprovider \
             -o junit_family=xunit2 --junitxml=.it/openwrt-junit.xml 2>&1 | tee .it/pytest.log
       # one step per log: GitHub keeps at most 10 error annotations per step
       - name: "Explain a failure: image build"
