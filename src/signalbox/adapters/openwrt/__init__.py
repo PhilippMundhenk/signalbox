@@ -788,6 +788,8 @@ class OpenWrtAdapter(Adapter):
         """
         try:
             status = await self.ubus.call("network.wireless", "status")
+        except NotFound:  # no Wi-Fi at all (a switch, or wireless packages removed): no radios
+            return {}
         except InvalidArgument:
             try:
                 status = await self.ubus.call("luci-rpc", "getWirelessDevices")

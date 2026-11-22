@@ -946,3 +946,12 @@ async def test_router_without_dropbear_config(adapter: OpenWrtAdapter, sim: Open
     sim.missing = {"dropbear"}  # not installed: only the web UI
     names = {s.name for s in (await adapter.read_interfaces()).services}
     assert names == {"uhttpd", "uhttpd-ssl"}
+
+
+async def test_device_without_wifi_has_no_radios(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    """A switch running OpenWrt: no network.wireless object and no wireless config."""
+    sim.missing = {"wireless"}
+    sim.no_wireless_object = True
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.OK, snap.errors
+    assert snap.radios == [] and snap.wlans == [] and snap.ports

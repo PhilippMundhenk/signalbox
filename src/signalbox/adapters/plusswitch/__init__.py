@@ -517,9 +517,16 @@ class ProsafeAdapter(_PlusSwitch):
         from switchyard.nsdp import SwitchClient, Transport, parse_mac, probe
 
         timeout = self._request_timeout
+        # As Switchyard runs against real switches: no fixed target, so the transport uses the
+        # host's interfaces and puts a real interface MAC into every request (old firmware
+        # answers requests with the broadcast MAC as sender with "incorrect password"); the
+        # switch is still asked by unicast to its address. A fixed target only for the
+        # simulator (tests set ``device_port``).
+        simulated = "device_port" in self.context.extra
         transport = Transport(
             client_port=client_port,
-            targets=[f"{self._host}:{self._device_port()}"],
+            device_port=self._device_port(),
+            targets=[f"{self._host}:{self._device_port()}"] if simulated else None,
             timeout=timeout,
             retries=2,
         )

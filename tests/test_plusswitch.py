@@ -722,3 +722,30 @@ async def test_sessions_on_one_port_take_turns(nsdp: Start) -> None:
         "02:00:00:00:10:01",
         "02:00:00:00:10:02",
     }
+
+
+@needs_switchyard
+async def test_real_switches_use_switchyards_interface_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Against a real switch the transport has no fixed target, like Switchyard: it sends from
+    the host's interfaces with a real MAC (old firmware refuses the broadcast MAC)."""
+    import switchyard.nsdp as nsdp_mod
+
+    seen: dict[str, Any] = {}
+
+    class Stop(OSError):
+        pass
+
+    class Recorder:
+        def __init__(self, **kw: Any) -> None:
+            seen.update(kw)
+
+        async def start(self) -> None:
+            raise Stop
+
+    monkeypatch.setattr(nsdp_mod, "Transport", Recorder)
+    ctx = _context(ProsafeAdapter, 9)
+    real = AdapterContext(**{**ctx.__dict__, "extra": {"client_port": 0}})
+    snap = await ProsafeAdapter(real).observe()
+    assert seen["targets"] is None and snap.status is not DeviceStatus.OK
