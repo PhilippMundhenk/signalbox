@@ -229,7 +229,7 @@ class OpnsenseSetup:
                 and (r.get("id") or r.get("key"))
             ]
             for ident in old:
-                gone = f"/api/auth/user/del_api_key/{quote(ident, safe='')}"
+                gone = f"/api/auth/user/del_api_key/{quote(ident, safe='=+/')}"
                 _saved(gone, await http.post_json(gone, {}))
             return f"older keys deleted: {len(old)}" if old else None
 

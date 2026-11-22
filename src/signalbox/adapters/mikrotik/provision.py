@@ -174,7 +174,7 @@ class MikrotikSetup:
                 f"DELETE /rest/user/{user.get('.id')}" if user else "",
                 needed=user is not None,
                 action=self._call(
-                    http, "DELETE", f"/rest/user/{quote(str((user or {}).get('.id', '')), safe='')}"
+                    http, "DELETE", f"/rest/user/{quote(str((user or {}).get('.id', '')), '*')}"
                 ),
                 note="" if user else f"there is no user {self.login}",
             )
