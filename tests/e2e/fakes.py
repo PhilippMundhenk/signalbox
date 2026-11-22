@@ -21,6 +21,7 @@ from signalbox.adapters import (
     Unreachable,
     UntrustedCertificate,
 )
+from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     Band,
     Client,
@@ -97,6 +98,23 @@ class Lab(Adapter):
         setup_steps=("Switch on the API of the router.", "Paste the commands below."),
         setup_commands="echo prepared\n",
     )
+
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        """Lab routers answer at 192.0.2.1 (added in the tests) and 192.0.2.7; the model name
+        carries markup that must stay text."""
+        if probe.host not in ("192.0.2.1", "192.0.2.7"):
+            return None
+        return Candidate(
+            address=probe.host,
+            role=DeviceRole.AP,
+            config={"host": probe.host, "port": 8443},
+            vendor="Example",
+            model="LR-2 <img src=x onerror=alert(1)>",
+            firmware="2.0",
+            evidence="lab answer",
+            note="Switch on the API first.",
+        )
 
     @property
     def cfg(self) -> LabConfig:
@@ -393,6 +411,14 @@ class Switch(Adapter):
         capabilities=frozenset({Capability.INTERFACES}),
         config=SwitchConfig,
     )
+
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        if probe.host != "198.51.100.20":
+            return None
+        return Candidate(
+            address=probe.host, role=DeviceRole.SWITCH, config={"address": probe.host}, model="LS-8"
+        )
 
     async def read_system(self) -> SystemInfo:
         return SystemInfo(vendor="Example", model="LS-8")

@@ -81,7 +81,10 @@ Adapters are plugins: other devices can be added as separate packages, see
    Easy Smart switches use their management password; their protocols are not encrypted, and
    Easy Smart switches need host networking
    ([docs/adapters/plusswitch.md](docs/adapters/plusswitch.md)).
-4. Add the devices under *Devices*. On the first connection Signalbox shows the fingerprint of
+4. Add the devices under *Devices*, by hand or with *Find devices*: Signalbox looks for the
+   supported devices in the networks of the routers you added (and at addresses you enter),
+   without credentials, and opens the form prefilled; you enter the login
+   ([docs/DISCOVERY.md](docs/DISCOVERY.md)). On the first connection Signalbox shows the fingerprint of
    the device's certificate: compare it with the device and trust it. After that a changed
    certificate is refused until you confirm it again.
 5. The start page lists the findings. Cables that the devices do not report themselves can be
@@ -110,6 +113,7 @@ its addresses), with MQTT discovery, so they appear in Home Assistant without fu
 
 - [docs/screenshots.md](docs/screenshots.md): all screenshots
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): every setting and its environment variable
+- [docs/DISCOVERY.md](docs/DISCOVERY.md): Find devices: what is probed, how to turn it off
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): data folder, reverse proxy, backups, updates
 - [docs/DESIRED.md](docs/DESIRED.md): declaring what the network should look like, and drift
 - [docs/CHANGES.md](docs/CHANGES.md): planning, deploying and undoing changes

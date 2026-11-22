@@ -1034,6 +1034,17 @@ def _prefixed(table: dict[str, Any], path: str) -> Any:
     return next((v for p, v in table.items() if path == p or path.startswith(p + "/")), None)
 
 
+#: What ``GET /`` answers without a session: the login form (trimmed; names as in OPNsense 24).
+LOGIN_PAGE = """<!doctype html>
+<html lang="en-US" class="no-js"><head><title>Login | OPNsense</title></head>
+<body class="page-login"><form method="post" id="iform">
+<input type="text" id="usernamefld" name="usernamefld" autocomplete="username">
+<input type="password" id="passwordfld" name="passwordfld" autocomplete="current-password">
+<button type="submit" name="login" value="1">Login</button></form>
+<p>OPNsense (c) 2014-2026 Deciso B.V.</p></body></html>
+"""
+
+
 @dataclass
 class OpnsenseSimulator(_Writes):
     api_key: str = KEY
@@ -1090,6 +1101,9 @@ class OpnsenseSimulator(_Writes):
             # OPNsense routes camelCase and snake_case actions alike (snake_case is canonical)
             path = "/" + "/".join(_snake(part) for part in path.split("/"))
             self.requests.append(path)
+            if path == "/" and request.method == "GET":
+                # the web interface's login page, served to anyone (found by discovery, #203)
+                return Response(LOGIN_PAGE, media_type="text/html")
             if not self.api_enabled:
                 return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
             if not self.authorised(request.headers.get("authorization")):

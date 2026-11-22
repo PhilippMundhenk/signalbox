@@ -4,6 +4,7 @@ import { schemaForm } from '../schemaform.js';
 import { clear, fmtAgo, fmtTime, h, place } from '../util.js';
 import { checkField, empty, field, pageHead, run, select, statusBadge, table, toast } from '../ui.js';
 import { linked, testResult, trustPanel } from './devicetest.js';
+import { discoveryPanel, findButton, takePrefill } from './discovery.js';
 
 // What to prepare on the device before adding it (steps, commands to paste, setup guide).
 function setupGuide(a, open) {
@@ -36,18 +37,22 @@ export const testOnOpen = new Set();
 
 export async function renderDevices(main, ctx) {
   const id = ctx.renderId;
-  const [devices, sites, adapters] = await Promise.all([get('/devices'), get('/sites'), get('/adapters')]);
+  const [devices, sites, adapters, found] = await Promise.all([get('/devices'), get('/sites'), get('/adapters'), get('/discovery')]);
   if (!ctx.alive(id)) return;
+  // Find devices (#203): the panel stays hidden until asked for, or shows the last search
+  const panel = discoveryPanel(ctx, found, false);
+  const find = () => (found.enabled ? findButton(panel) : null);
   const siteName = (sid) => (sites.find((x) => x.id === sid) || {}).name || sid;
   const adapterName = (aid) => (adapters.find((x) => x.id === aid) || {}).name || aid;
-  place(main, pageHead('Devices', h('a', { class: 'btn primary', href: '#/devices/new', 'data-testid': 'add-device' }, 'Add device')));
+  place(main, pageHead('Devices', find(), h('a', { class: 'btn primary', href: '#/devices/new', 'data-testid': 'add-device' }, 'Add device')));
+  place(main, panel);
   if (!devices.length) {
     place(main, 
       empty(
         'empty',
         'No devices yet',
         h('p', { class: 'muted' }, 'Add your router, switches and access points. Signalbox reads them with an adapter and only reads: it changes nothing on the device.'),
-        h('p', {}, h('a', { class: 'btn primary', href: '#/devices/new' }, 'Add your first device')),
+        h('p', { class: 'row' }, h('a', { class: 'btn primary', href: '#/devices/new' }, 'Add your first device'), find()),
       ),
     );
     return;
@@ -124,14 +129,17 @@ export async function renderDeviceForm(main, ctx, device) {
   let [sites, adapters] = await Promise.all([get('/sites'), get('/adapters')]);
   if (!ctx.alive(id)) return;
   const editing = Boolean(device);
+  // a device found by Find devices: adapter, role, address and name are suggestions
+  const found = editing ? null : takePrefill();
+  const prefill = found && adapters.some((a) => a.id === found.adapter) ? found : null;
   if (!editing) place(main, h('p', { class: 'back' }, h('a', { href: '#/devices' }, '← Devices')), pageHead('Add device'));
   if (!adapters.length) {
     place(main, empty('no-adapters', 'No adapters installed', h('p', { class: 'muted' }, 'Signalbox talks to devices through adapters. Install one (see docs/ADAPTERS.md) and restart Signalbox.')));
     return;
   }
   const form = h('form', { class: 'card device-form', 'data-testid': 'device-form', novalidate: true });
-  const name = h('input', { type: 'text', maxlength: '100', required: true, 'data-testid': 'device-name', value: device ? device.name : '' });
-  const adapter = select(adapters.map((a) => [a.id, `${a.name} (${a.vendor})`]), device ? device.adapter : adapters[0].id, { 'data-testid': 'device-adapter' });
+  const name = h('input', { type: 'text', maxlength: '100', required: true, 'data-testid': 'device-name', value: device ? device.name : prefill ? prefill.name : '' });
+  const adapter = select(adapters.map((a) => [a.id, `${a.name} (${a.vendor})`]), device ? device.adapter : prefill ? prefill.adapter : adapters[0].id, { 'data-testid': 'device-adapter' });
   const adapterHelp = h('p', { class: 'muted small', 'data-testid': 'adapter-description' });
   const setupBox = h('div', {});
   const role = h('select', { 'data-testid': 'device-role' });
@@ -168,15 +176,16 @@ export async function renderDeviceForm(main, ctx, device) {
     adapterHelp.textContent = a.description || '';
     clear(setupBox);
     place(setupBox, setupGuide(a, !editing));
-    const wanted = role.value || (device && device.role);
+    const wanted = role.value || (device && device.role) || (prefill && prefill.role);
     clear(role);
     const roles = [...a.roles].sort((x, y) => ROLE_ORDER.indexOf(x) - ROLE_ORDER.indexOf(y));
     for (const r of roles) place(role, h('option', { value: r, selected: r === wanted }, ROLE_TEXT[r] || r));
     clear(configBox);
     const same = device && device.adapter === a.id;
+    const suggested = prefill && prefill.adapter === a.id ? prefill.config : {};
     cfg = schemaForm(a.config_schema, {
       secrets: a.secret_fields,
-      values: same ? device.config : {},
+      values: same ? device.config : suggested,
       secretsSet: same ? device.secrets_set : null,
     });
     place(configBox, h('h3', {}, `${a.name} connection`), cfg.element);
@@ -251,6 +260,14 @@ export async function renderDeviceForm(main, ctx, device) {
   });
 
   place(form, 
+    prefill
+      ? h(
+          'div',
+          { class: 'notice', 'data-testid': 'prefill-notice' },
+          h('p', {}, h('strong', {}, 'Found by Find devices. '), 'Check the address and enter the login; the device has told Signalbox nothing that is trusted yet.'),
+          prefill.note ? h('p', { 'data-testid': 'prefill-note' }, prefill.note) : null,
+        )
+      : null,
     field('Name', name, 'How Signalbox shows this device, for example “Office switch”.'),
     field('Adapter', adapter),
     adapterHelp,

@@ -52,3 +52,6 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | POST | `/api/changes/{change_id}/revert` | Plan a new change that undoes an applied one. |
 | GET | `/api/backups` | Configuration backups taken before changes (contents stay on the server). |
 | POST | `/api/backups/{backup_id}/restore` | Plan putting a backup back on its device (approve and deploy like any change). |
+| GET | `/api/discovery` | Progress of the last search and the devices it found (marked when already added). |
+| POST | `/api/discovery` | Search for devices now (known networks and the given ranges), without credentials. |
+| POST | `/api/discovery/ignore` | Hide a found device from the list (or show it again with `ignored: false`). |

@@ -48,8 +48,10 @@ from signalbox.adapters import (
     VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.omada import discovery as _discovery
 from signalbox.adapters.omada import vitals
 from signalbox.changes import Change, ChangeKind
+from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     Band,
     Client,
@@ -455,6 +457,11 @@ class OmadaAdapter(_Adapter):
         "its LAN networks, DHCP, switch ports and SSIDs.",
         writes=frozenset({ChangeKind.ROUTER, ChangeKind.DHCP, ChangeKind.PORT, ChangeKind.WLAN}),
     )
+
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        """``/api/info`` on port 8043 or 443, which the controller answers without login."""
+        return await _discovery.discover(probe)
 
     def __init__(self, context: AdapterContext) -> None:
         super().__init__(context)

@@ -48,8 +48,10 @@ from signalbox.adapters import (
     Unreachable,
     VendorCall,
 )
+from signalbox.adapters.plusswitch import discovery as _discovery
 from signalbox.adapters.plusswitch import mapping, writes
 from signalbox.changes import Change, ChangeKind
+from signalbox.discovery import BroadcastResult, NetworkProbe
 from signalbox.model import DeviceRole
 
 _T = TypeVar("_T")
@@ -384,6 +386,11 @@ class ProsafeAdapter(_PlusSwitch):
         "through Switchyard",
     )
 
+    @classmethod
+    async def discover_broadcast(cls, probe: NetworkProbe) -> BroadcastResult | None:
+        """The NSDP identity broadcast (no password)."""
+        return await _discovery.prosafe(probe, _port_lock)
+
     def _client_port(self) -> int:
         from switchyard.nsdp.transport import CLIENT_PORT
 
@@ -445,6 +452,11 @@ class EasySmartAdapter(_PlusSwitch):
         description="TL-SG105E, TL-SG108E, TL-SG108PE, TL-SG116E and other Easy Smart "
         "switches (UDP), through Switchyard",
     )
+
+    @classmethod
+    async def discover_broadcast(cls, probe: NetworkProbe) -> BroadcastResult | None:
+        """The Easy Smart discovery broadcast (no password)."""
+        return await _discovery.easysmart(probe, _port_lock)
 
     @property
     def _username(self) -> str:

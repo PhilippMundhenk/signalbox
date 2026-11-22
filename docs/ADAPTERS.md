@@ -157,6 +157,57 @@ mydevice = "mypackage.adapter:MyAdapter"
 Signalbox refuses to start with an adapter whose API major version differs from its own, or with
 two adapters of the same id.
 
+## Discovery
+
+An integration can let *Find devices* ([DISCOVERY.md](DISCOVERY.md)) find its devices with two
+optional class methods (no adapter API version needed; without them the integration simply
+finds nothing):
+
+```python
+from signalbox.discovery import BroadcastResult, Candidate, HostProbe, NetworkProbe
+
+
+class MyAdapter(Adapter):
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        """Is there a device of this kind at probe.host?"""
+        port = probe.port("mydevice.https", 443)  # tests and simulators can move it
+        answer = await probe.get("https", port, "/api/status")  # None: no answer
+        data = answer.json() if answer is not None and answer.status == 200 else None
+        if not isinstance(data, dict) or data.get("product") != "MyDevice":
+            return None
+        return Candidate(
+            address=probe.host,
+            role=DeviceRole.AP,
+            config={"url": probe.origin("https", port)},  # prefilled, non-secret settings
+            model=data.get("model"),
+            firmware=data.get("version"),
+            evidence=f"status page on https port {port}",
+        )
+
+    @classmethod
+    async def discover_broadcast(cls, probe: NetworkProbe) -> BroadcastResult | None:
+        """Once per run, for protocols that find devices by broadcast."""
+        ...
+```
+
+- Send only requests that need no login, and only through `probe` (`get`, `post`,
+  `request`): it adds no credentials, keeps no cookies, uses no proxy, does not verify TLS or
+  pin anything, follows no redirects, reads at most 256 KiB, waits for the run's rate limiter
+  and gives up an address that does not answer. A broadcast probe calls
+  `await probe.limiter.acquire()` before each packet.
+- Never raise for what a device answers; return None. An exception is caught, reported once as
+  "the X probe failed" and the run goes on.
+- The answer is untrusted: `Candidate` cleans and shortens `name`, `model`, `firmware`,
+  `vendor`, `mac`, `evidence`, `note`; the engine keeps only `config` keys of the integration's
+  settings that are not secrets, and a role the integration supports (a router for a known
+  gateway address). Parse XML with `signalbox.adapters.fritzbox.soap.parse_xml` (no DTDs, no
+  entities) or the like.
+- Set `note` when the device needs something before it can be added ("switch on the API").
+- Test the probe against the simulator: `HostProbe("127.0.0.1", timeout=2,
+  limiter=RateLimiter(1000), extra={"ports": {"mydevice.https": port}})`, and check that it
+  does not mistake the other simulators for its device (`tests/test_discovery.py`).
+
 ## Writing to devices
 
 An integration that can change a device declares the kinds of change it supports in
