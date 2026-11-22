@@ -63,6 +63,7 @@ All notable changes to this project are documented here. The format follows
 - Double NAT is reported as information (`addr.double-nat`), naming both routers (#60)
 - WAN checks: carrier-grade NAT, uplink down, a leftover DNS server on the uplink network, a delegated IPv6 prefix no network uses (#148)
 - Stored optional secrets can be removed in the device settings (#210)
+- Device discovery: *Find devices* on the devices page finds supported devices on the known networks and among the routers' clients (no credentials sent) and opens the device form prefilled (#203)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
