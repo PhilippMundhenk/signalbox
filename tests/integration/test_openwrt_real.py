@@ -194,14 +194,16 @@ async def test_wifi_security_details(ow: Target, pin: str) -> None:
     ``hostapd`` flag names are from LuCI's sources)."""
     with passphrase_digest_key():
         snap = await observe(context(ow, pin))
+        expected = passphrase_digest(PSK)
     assert snap.status is DeviceStatus.OK, snap.errors
+    assert expected is not None
     wlans = [w for w in snap.wlans if w.ssid == SSID]
     assert wlans
     for w in wlans:
         assert w.ciphers == [Cipher.CCMP] and w.group_cipher is Cipher.CCMP
         assert w.sae is None
         assert w.wps is not None and w.wps.enabled is False
-        assert w.passphrase_digest is not None and w.passphrase_digest == passphrase_digest(PSK)
+        assert w.passphrase_digest == expected
     assert len({w.passphrase_digest for w in wlans}) == 1
     for r in snap.radios:
         sup = r.supported_security
