@@ -40,10 +40,14 @@ from signalbox.adapters import (
     AdapterConfig,
     AdapterContext,
     AdapterError,
+    AdminLogin,
     AuthFailed,
     Capability,
     Manifest,
     Observation,
+    SetupPlan,
+    SetupRequest,
+    SetupResult,
     SystemInfo,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
@@ -736,12 +740,32 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         config=MikrotikConfig,
         description="Reads and changes a RouterOS 7 router, switch or access point (REST API).",
         writes=WRITES,
+        admin_login=AdminLogin(
+            transport="the REST API as admin",
+            user_default="admin",
+            secret_label="admin password",
+            note="The REST API (www-ssl with a certificate, setup guide: HTTPS with a "
+            "certificate) must be on already.",
+        ),
     )
 
     @classmethod
     async def discover(cls, probe: HostProbe) -> Candidate | None:
         """REST API answering 401 with the RouterOS realm, without credentials."""
         return await _discovery.discover(probe)
+
+    @classmethod
+    async def plan_setup(cls, request: SetupRequest) -> SetupPlan:
+        """User group and user through the REST API as admin (docs: Automatic setup)."""
+        from signalbox.adapters.mikrotik.provision import MikrotikSetup
+
+        return await MikrotikSetup(request).plan()
+
+    @classmethod
+    async def apply_setup(cls, request: SetupRequest) -> SetupResult:
+        from signalbox.adapters.mikrotik.provision import MikrotikSetup
+
+        return await MikrotikSetup(request).apply()
 
     def __init__(self, context: AdapterContext) -> None:
         super().__init__(context)

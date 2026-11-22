@@ -156,6 +156,7 @@ def adapter_info(cls: type[Adapter]) -> dict[str, Any]:
         "setup_url": m.setup_url,
         "setup_commands": m.setup_commands,
         "setup_steps": list(m.setup_steps),
+        "admin_login": m.admin_login.model_dump() if m.admin_login else None,
         "roles": sorted(r.value for r in m.roles),
         "capabilities": sorted(c.value for c in m.capabilities),
         "config_schema": schema,
@@ -586,6 +587,9 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     app.include_router(annotations_router(services))
     app.include_router(changes_router(services, Deployer(runner)))
     app.include_router(discovery_router(discovery))
+    from signalbox.web.setup_api import router as setup_router  # it imports the form models
+
+    app.include_router(setup_router(services, device_json))
     if STATIC.is_dir():
         app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")
     return app

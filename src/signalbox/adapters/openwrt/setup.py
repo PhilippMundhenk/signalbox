@@ -36,6 +36,30 @@ READ_ACL: dict[str, Any] = {
     }
 }
 
+#: The ACL with write access of docs/adapters/openwrt.md ("Login with write access").
+WRITE_ACL: dict[str, Any] = {
+    "signalbox": {
+        "description": "Signalbox: network inventory, changes to network, wireless and dhcp",
+        "read": READ_ACL["signalbox"]["read"],
+        "write": {
+            "ubus": {
+                "uci": [
+                    "set",
+                    "add",
+                    "delete",
+                    "order",
+                    "revert",
+                    "changes",
+                    "apply",
+                    "confirm",
+                    "rollback",
+                ]
+            },
+            "uci": ["network", "wireless", "dhcp"],
+        },
+    }
+}
+
 PACKAGES = "uhttpd uhttpd-mod-ubus rpcd rpcd-mod-file rpcd-mod-luci"
 
 

@@ -37,17 +37,21 @@ from signalbox.adapters import (
     AdapterConfig,
     AdapterContext,
     AdapterError,
+    AdminLogin,
     ApplyResult,
     Backup,
     Capability,
     Manifest,
     Observation,
+    SetupPlan,
+    SetupRequest,
+    SetupResult,
     SystemInfo,
     VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.opnsense import discovery as _discovery
-from signalbox.adapters.opnsense import vitals
+from signalbox.adapters.opnsense import provision, vitals
 from signalbox.adapters.opnsense import write as w
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
@@ -565,12 +569,30 @@ class OpnsenseAdapter(_Adapter):
         writes=frozenset(
             {ChangeKind.ROUTER, ChangeKind.DHCP, ChangeKind.RESERVATION, ChangeKind.PORT}
         ),
+        admin_login=AdminLogin(
+            transport="the API with an API key of root",
+            user_label="API key of root",
+            user_default="",
+            secret_label="API secret",
+            note="System > Access > Users > root > API keys: + downloads a file with key and "
+            "secret. Signalbox uses them once and keeps neither; delete that key afterwards.",
+        ),
     )
 
     @classmethod
     async def discover(cls, probe: HostProbe) -> Candidate | None:
         """The web interface's login page, without credentials."""
         return await _discovery.discover(probe)
+
+    @classmethod
+    async def plan_setup(cls, request: SetupRequest) -> SetupPlan:
+        """User, privileges and API key through the API with root's key (docs: Automatic
+        setup)."""
+        return await provision.OpnsenseSetup(request).plan()
+
+    @classmethod
+    async def apply_setup(cls, request: SetupRequest) -> SetupResult:
+        return await provision.OpnsenseSetup(request).apply()
 
     def __init__(self, context: AdapterContext) -> None:
         super().__init__(context)
