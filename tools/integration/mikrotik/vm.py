@@ -43,7 +43,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-VERSION = "7.19.4"
+VERSION = "7.25.1"  # the stable channel on 2026-11-22
 IMAGE = f"chr-{VERSION}.img"
 ARCHIVE = f"{IMAGE}.zip"
 #: SHA-256 of the .zip as downloaded in CI (empty: not pinned yet, the hash is reported).
@@ -266,10 +266,17 @@ class Console:
             time.sleep(0.03)
 
     def run(self, command: str, timeout: float = 120) -> str:
-        """Type one RouterOS command, wait for the prompt, fail on an error message."""
+        """Type one RouterOS command, wait until it is done, fail on an error message.
+
+        A second line prints a marker (``:put ("__DONE" . "<m>")`` echoes differently from
+        what it prints), so the output of the command is everything up to the marker.
+        """
+        marker = secrets.token_hex(4)
         start = self.pos
         self.send(command + "\r")
-        self.expect([PROMPT], timeout, command)
+        time.sleep(0.5)
+        self.send(f':put ("__DONE" . "{marker}")\r')
+        self.expect([rf"__DONE{marker}"], timeout, command)
         with self.lock:
             output = self.buf[start : self.pos]
         if CONSOLE_ERROR.search(output):
@@ -467,9 +474,12 @@ def new_keys() -> dict[str, str]:
 CONSOLE_SETUP = [
     ":if ([:len [/ip dhcp-client find interface=ether1]] = 0) do={/ip dhcp-client add"
     " interface=ether1}",
+    "/certificate add name=signalbox-ca common-name=signalbox-ca days-valid=3650"
+    " key-usage=key-cert-sign,crl-sign",
+    "/certificate sign signalbox-ca",
     "/certificate add name=signalbox-www common-name=router days-valid=3650"
     " key-usage=digital-signature,key-encipherment,tls-server",
-    "/certificate sign signalbox-www",
+    "/certificate sign signalbox-www ca=signalbox-ca",
     "/ip service set www-ssl certificate=signalbox-www disabled=no address=10.0.2.0/24",
 ]
 
