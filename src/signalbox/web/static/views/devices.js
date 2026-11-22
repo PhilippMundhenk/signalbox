@@ -2,7 +2,7 @@
 import { enc, get, post, put } from '../api.js';
 import { schemaForm } from '../schemaform.js';
 import { clear, fmtAgo, fmtTime, h, place } from '../util.js';
-import { checkField, empty, field, pageHead, run, select, statusBadge, table, toast } from '../ui.js';
+import { checkField, empty, field, manageLink, pageHead, run, select, statusBadge, table, toast } from '../ui.js';
 import { linked, testResult, trustPanel } from './devicetest.js';
 import { discoveryPanel, findButton, takePrefill } from './discovery.js';
 
@@ -61,7 +61,7 @@ export async function renderDevices(main, ctx) {
   place(main, 
     table(
       [
-        ['Name', (d) => h('a', { href: `#/device/${enc(d.id)}`, 'data-testid': 'device-link' }, d.name)],
+        ['Name', (d) => [h('a', { href: `#/device/${enc(d.id)}`, 'data-testid': 'device-link' }, d.name), ' ', manageLink(d, '↗', 'device-manage-link', 'manage-link')]],
         ['Status', (d) => [statusBadge(d.status), d.enabled ? null : h('span', { class: 'tag' }, 'disabled')]],
         ['Adapter', (d) => adapterName(d.adapter)],
         ['Role', (d) => ROLE_TEXT[d.role] || d.role],
