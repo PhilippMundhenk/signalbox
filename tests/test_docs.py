@@ -25,7 +25,9 @@ def test_maturity_reads_reports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     reports = tmp_path / "r.json"
     reports.write_text('{"openwrt": {"capabilities": ["wireless"], "devices": ["Example AP 1"]}}')
     monkeypatch.setattr(mod, "REPORTS", reports)
-    row = next(line for line in mod.maturity().splitlines() if "`openwrt`" in line)
+    row = next(
+        line for line in mod.maturity().splitlines() if line.startswith("|") and "`openwrt`" in line
+    )
     assert "confirmed" in row and "Example AP 1" in row
 
 
