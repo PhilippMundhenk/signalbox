@@ -73,6 +73,7 @@ class LabConfig(AdapterConfig):
     mode: Literal["full", "basic"] = Field("full", description="How much to read.")
     username: str = Field("admin", description="API user.")
     password: SecretStr = Field(description="API password.")
+    api_token: SecretStr | None = Field(None, description="Optional API token.")
 
 
 class Lab(Adapter):

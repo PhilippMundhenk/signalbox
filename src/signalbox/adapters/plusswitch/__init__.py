@@ -77,8 +77,10 @@ def _address(value: str) -> str:
 
 class ProsafeConfig(AdapterConfig):
     address: str = Field(description="IPv4 address of the switch, for example 192.0.2.10")
-    password: SecretStr = Field(
-        description="the switch's management password; sent obfuscated, not encrypted"
+    password: SecretStr | None = Field(
+        default=None,
+        description="The switch's management password. Only needed to deploy changes: NETGEAR "
+        "switches are read without logging in. Sent obfuscated, not encrypted.",
     )
 
     @field_validator("address")
@@ -133,7 +135,12 @@ def _translate(exc: BaseException, errors: Any, address: str) -> AdapterError:
     if isinstance(exc, AdapterError):
         return exc
     if isinstance(exc, errors.AuthError):
-        return AuthFailed(f"{address}: {exc}")
+        return AuthFailed(
+            f"{address}: {exc}",
+            fix="Check the switch's management password in the device settings (the one of "
+            "its web interface). The switch locks after a few wrong tries; Signalbox does not "
+            "resend a refused password for a while.",
+        )
     if isinstance(exc, errors.Unreachable | TimeoutError):
         return Unreachable(f"{address}: the switch does not answer")
     if isinstance(exc, errors.SwitchError):
@@ -164,7 +171,7 @@ class _PlusSwitch(Adapter):
     def _password(self) -> str:
         cfg = self.context.config
         assert isinstance(cfg, ProsafeConfig | EasySmartConfig)
-        return cfg.password.get_secret_value()
+        return cfg.password.get_secret_value() if cfg.password is not None else ""
 
     @property
     def _host(self) -> str:
@@ -189,20 +196,21 @@ class _PlusSwitch(Adapter):
         self._errors = errors
         return errors
 
-    async def _with_switch(self, work: Callable[[Any], Awaitable[_T]]) -> _T:
-        """One session: find the switch, check the password, run ``work`` with the client."""
+    async def _with_switch(self, work: Callable[[Any], Awaitable[_T]], *, login: bool = True) -> _T:
+        """One session: find the switch, check the password (``login``; switches that can be
+        read without one skip it for reads), run ``work`` with the client."""
         errors = self._switchyard()
         client_port = self._client_port()
         async with _port_lock(self.protocol, client_port):
             try:
-                return await self._session(client_port, work)
+                return await self._session(client_port, work, login)
             except (errors.SwitchError, errors.Unreachable, TimeoutError, *_PARSE_ERRORS) as exc:
                 raise _translate(exc, errors, self._host) from exc
             except OSError as exc:
                 raise AdapterError(f"cannot use UDP port {client_port}: {exc}") from exc
 
     async def read_system(self) -> SystemInfo:
-        self._reading = await self._with_switch(self._read_all)
+        self._reading = await self._with_switch(self._read_all, login=False)
         return mapping.system_info(self._reading.info, self.vendor, self._host)
 
     async def read_interfaces(self) -> Observation:
@@ -240,7 +248,7 @@ class _PlusSwitch(Adapter):
             raise AdapterError(f"{self._host}: VLAN table refused: {exc}") from exc
 
     async def backup(self) -> Backup:
-        table = await self._with_switch(self._table)
+        table = await self._with_switch(self._table)  # part of a change: password checked
         return Backup(
             device_id=self.context.device_id,
             taken_at=datetime.now(UTC),
@@ -280,7 +288,9 @@ class _PlusSwitch(Adapter):
     def _client_port(self) -> int:
         raise NotImplementedError
 
-    async def _session(self, client_port: int, work: Callable[[Any], Awaitable[_T]]) -> _T:
+    async def _session(
+        self, client_port: int, work: Callable[[Any], Awaitable[_T]], login: bool
+    ) -> _T:
         raise NotImplementedError
 
     async def _read_vlan(self, client: Any) -> Any:
@@ -347,7 +357,11 @@ PLUSSWITCH_STEPS = (
         "Signalbox must be in the same network as the switch (it talks UDP broadcast; in Docker"
         " use host networking, see the setup guide)."
     ),
-    ("Below: the switch's IPv4 address and its management password. Then Test connection."),
+    (
+        "Below: the switch's IPv4 address. NETGEAR switches are read without a password; "
+        "enter it only to deploy changes (TP-Link Easy Smart needs user and password). "
+        "Then Test connection."
+    ),
 )
 
 
@@ -380,7 +394,9 @@ class ProsafeAdapter(_PlusSwitch):
 
         return self._option("device_port", DEVICE_PORT)
 
-    async def _session(self, client_port: int, work: Callable[[Any], Awaitable[_T]]) -> _T:
+    async def _session(
+        self, client_port: int, work: Callable[[Any], Awaitable[_T]], login: bool
+    ) -> _T:
         from switchyard.nsdp import SwitchClient, Transport, parse_mac, probe
 
         timeout = self._request_timeout
@@ -399,7 +415,13 @@ class ProsafeAdapter(_PlusSwitch):
             # like Switchyard: read the identity first; it tells the password scheme
             # (old firmware does not answer a lone password-scheme read reliably)
             await client.read_info()
-            await self._login(lambda: client.login(self._password))
+            if login:  # NSDP reads need no password, only changes do
+                if not self._password:
+                    raise AuthFailed(
+                        f"{self._host}: changing the switch needs its password",
+                        fix="Enter the switch's management password in the device settings.",
+                    )
+                await self._login(lambda: client.login(self._password))
             return await work(client)
         finally:
             await transport.stop()
@@ -440,7 +462,9 @@ class EasySmartAdapter(_PlusSwitch):
 
         return self._option("device_port", DEVICE_PORT)
 
-    async def _session(self, client_port: int, work: Callable[[Any], Awaitable[_T]]) -> _T:
+    async def _session(
+        self, client_port: int, work: Callable[[Any], Awaitable[_T]], login: bool
+    ) -> _T:
         from switchyard.easysmart.client import EasySmartClient, parse_identity
         from switchyard.easysmart.packet import RSA_MODULUS, Op
         from switchyard.easysmart.transport import EasySmartTransport

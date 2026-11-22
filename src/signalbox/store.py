@@ -7,6 +7,7 @@ import re
 import sqlite3
 import threading
 from collections.abc import Iterable, Iterator
+from collections.abc import Set as AbstractSet
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -373,6 +374,7 @@ class Store:
         record: DeviceRecord,
         values: dict[str, Any],
         config_cls: type[AdapterConfig],
+        clear: AbstractSet[str] = frozenset(),
     ) -> DeviceRecord:
         """Create or update a device from form values.
 
@@ -380,7 +382,7 @@ class Store:
         to see a password to change the address. Raises StoreError with readable messages.
         """
         secret_names = _secret_fields(config_cls)
-        cfg = self.form_config(record.id, values, config_cls)
+        cfg = self.form_config(record.id, values, config_cls, clear)
         plain = cfg.model_dump(mode="json", exclude=secret_names)
         secrets = {
             name: value.get_secret_value()
@@ -417,9 +419,14 @@ class Store:
         return stored
 
     def form_config(
-        self, device_id: str | None, values: dict[str, Any], config_cls: type[AdapterConfig]
+        self,
+        device_id: str | None,
+        values: dict[str, Any],
+        config_cls: type[AdapterConfig],
+        clear: AbstractSet[str] = frozenset(),
     ) -> AdapterConfig:
-        """Validated settings from form values; empty secrets take the stored device's value.
+        """Validated settings from form values; empty secrets take the stored device's value,
+        except those in ``clear``, which are removed (validation fails for required ones).
 
         Nothing is written. Raises StoreError with readable messages.
         """
@@ -435,7 +442,7 @@ class Store:
             else {}
         )
         merged = {k: v for k, v in values.items() if not (k in secret_names and v in (None, ""))}
-        for name in secret_names:
+        for name in secret_names - clear:
             if name not in merged and name in old_secrets:
                 merged[name] = old_secrets[name]
         return _validate(config_cls, merged)

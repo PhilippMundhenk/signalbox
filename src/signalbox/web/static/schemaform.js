@@ -62,7 +62,17 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
       read = () => (control.value === '' ? undefined : control.value);
       const hint = [s.description, stored ? 'A value is stored. Leave the field empty to keep it.' : null].filter(Boolean).join(' ');
       box.append(field(label, control, hint || null));
-      fields.push({ name, s, read, control, secret: true, stored, required: required.has(name) && !s.nullable });
+      let remove = null;
+      if (stored && s.nullable) {
+        // an optional secret can be removed again (e.g. a switch read without password)
+        remove = h('input', { type: 'checkbox', 'data-testid': `${testid}-clear` });
+        remove.addEventListener('change', () => {
+          control.disabled = remove.checked;
+          if (remove.checked) control.value = '';
+        });
+        box.append(checkField(`Remove the stored ${label.replace(' (optional)', '').toLowerCase()}`, remove, null));
+      }
+      fields.push({ name, s, read, control, secret: true, stored, remove, required: required.has(name) && !s.nullable });
       continue;
     }
     if (s.type === 'boolean') {
@@ -110,8 +120,13 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
   function collect() {
     const config = {};
     const errors = [];
+    const clear = [];
     for (const f of fields) {
       f.control.removeAttribute('aria-invalid');
+      if (f.remove && f.remove.checked) {
+        clear.push(f.name);
+        continue;
+      }
       const value = f.read();
       const label = titleOf(f.name, f.s);
       if (value === undefined) {
@@ -130,7 +145,7 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
       }
       config[f.name] = value;
     }
-    return { config, errors };
+    return { config, errors, clear };
   }
 
   return { element, collect };

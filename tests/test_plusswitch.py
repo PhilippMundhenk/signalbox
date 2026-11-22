@@ -207,7 +207,9 @@ def test_config_wants_a_unicast_ipv4_address() -> None:
             EasySmartConfig(address=bad, password=SecretStr("x"))
     assert EasySmartConfig(address="192.0.2.11", password=SecretStr("x")).username == "admin"
     schema = ProsafeConfig.model_json_schema()
-    assert schema["properties"]["password"]["format"] == "password"
+    secret = next(s for s in schema["properties"]["password"]["anyOf"] if s.get("type") == "string")
+    assert secret["format"] == "password"
+    assert ProsafeConfig(address="192.0.2.10").password is None  # reading needs none
 
 
 def test_entry_points() -> None:
@@ -505,18 +507,33 @@ async def test_prosafe_wrong_password_is_not_resent(
 ) -> None:
     sim, port = await nsdp(netgear())
     ctx = _context(ProsafeAdapter, port, password="wrong")
+    # reading needs no password (like Switchyard): a wrong one is not even sent
     snap = await ProsafeAdapter(ctx).observe()
-    assert snap.status is DeviceStatus.AUTH_FAILED
-    assert "password" in snap.errors[0].message.lower()
+    assert snap.status is DeviceStatus.OK and sim.switches[0].failed_logins == 0
+    # a change (backup first) checks the password
+    with pytest.raises(AuthFailed, match=r"(?i)password") as refused:
+        await ProsafeAdapter(ctx).backup()
+    assert refused.value.fix and "management password" in refused.value.fix
     assert sim.switches[0].failed_logins == 1
-    again = await ProsafeAdapter(ctx).observe()  # next round: refused without sending it
-    assert again.status is DeviceStatus.AUTH_FAILED and "not sent again" in again.errors[0].message
+    with pytest.raises(AuthFailed, match="not sent again"):  # refused without sending it
+        await ProsafeAdapter(ctx).backup()
     assert sim.switches[0].failed_logins == 1
-    ok = await ProsafeAdapter(_context(ProsafeAdapter, port)).observe()  # a new password is tried
-    assert ok.status is DeviceStatus.OK
     monkeypatch.setattr(plus, "REFUSED_FOR", 0.0)  # after the wait it is tried once more
-    await ProsafeAdapter(ctx).observe()
+    with pytest.raises(AuthFailed):
+        await ProsafeAdapter(ctx).backup()
     assert sim.switches[0].failed_logins == 2
+
+
+@needs_switchyard
+async def test_prosafe_without_password_reads_but_does_not_change(nsdp: Start) -> None:
+    sim, port = await nsdp(netgear())
+    base = _context(ProsafeAdapter, port)
+    ctx = AdapterContext(**{**base.__dict__, "config": ProsafeConfig(address="127.0.0.1")})
+    adapter = ProsafeAdapter(ctx)
+    assert (await adapter.observe()).status is DeviceStatus.OK
+    with pytest.raises(AuthFailed, match="needs its password") as exc:
+        await adapter.backup()
+    assert exc.value.fix and sim.switches[0].failed_logins == 0
 
 
 @needs_switchyard
