@@ -72,6 +72,8 @@ def one_server(net: Network) -> Iterator[Result]:
                 fix="Keep the DHCP server on the router of this network and disable the others.",
             )
         elif not found_here:
+            if net.dhcp_relays_on(seg_id):
+                continue  # a relay forwards to a server elsewhere (#183)
             seg = net.segment(seg_id)
             gw = _gateway_subnets(net, seg_id)
             site = seg.site_id if seg else site_of_device(net, gw[0].device_id)
