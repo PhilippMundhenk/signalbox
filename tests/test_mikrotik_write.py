@@ -913,6 +913,56 @@ sites:
 """
 
 
+async def test_revert_restores_the_replaced_passphrase(
+    url: str, sim: MikrotikSimulator, tmp_path: Path
+) -> None:
+    # #188: the secret held the router's passphrase before it was replaced, so a revert knows it
+    env = {"SIGNALBOX_AUTH_PASSWORD": "x" * 12, "SIGNALBOX_DEPLOY_ENABLED": "true"}
+    svc = build(
+        tmp_path, env=env, adapters={"mikrotik": MikrotikAdapter}, rules=RULES, link_sources=[]
+    )
+    try:
+        svc.store.put_site(SITE)
+        rec = DeviceRecord(
+            id=DEV,
+            site_id="home",
+            name="Router",
+            role=DeviceRole.GATEWAY,
+            adapter="mikrotik",
+            allow_writes=True,
+        )
+        svc.store.put_device(
+            rec, {"url": url, "password": PASSWORD, "allow_insecure_http": True}, MikrotikConfig
+        )
+        svc.store.set_secret("iot-psk", "iot-passphrase")
+        svc.store.set_secret("iot-psk", "the IoT passphrase")
+        await svc.runner.observe_all()
+        before = view(svc.runner.network())
+        iot = next(w for w in before["wlans"] if w["ssid"] == "Example-IoT")
+        assert iot["passphrase_fingerprint"] == passphrase_fingerprint(
+            "Example-IoT", "iot-passphrase"
+        )
+        p = plan(parse(WANT), svc.runner.network(), RULES, secret=svc.store.get_secret)
+        d = Deployer(svc.runner)
+        cid = (await d.prepare(p, "new IoT passphrase", "tester")).id
+        d.approve(cid, "tester", override="test")
+        done = await d.deploy(cid)
+        assert done.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in done.devices]
+        assert sim.data[WIFI][2]["security.passphrase"] == "the IoT passphrase"
+        back = await d.revert(cid, "back to the old passphrase", "tester")
+        d.approve(back.id, "tester", override="test")
+        reverted = await d.deploy(back.id)
+        assert reverted.status is ChangeStatus.APPLIED, [
+            (r.status, r.error) for r in reverted.devices
+        ]
+        assert sim.data[WIFI][2]["security.passphrase"] == "iot-passphrase"
+        await svc.runner.observe_all()
+        after = view(svc.runner.network())
+        assert after == before, differences(after, before)  # fingerprints included
+    finally:
+        svc.close()
+
+
 async def test_deployment_and_revert(
     url: str, sim: MikrotikSimulator, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

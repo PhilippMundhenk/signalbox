@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address, ip_interface
 from typing import Literal
 
@@ -23,7 +23,9 @@ from signalbox.adapters import (
 from signalbox.model import (
     Band,
     Client,
+    DeviceHealth,
     DeviceRole,
+    DeviceTime,
     DhcpPool,
     DhcpServer,
     DnsService,
@@ -31,6 +33,7 @@ from signalbox.model import (
     HostRecord,
     Membership,
     Network,
+    NtpClient,
     Pmf,
     Port,
     PortMembership,
@@ -40,7 +43,10 @@ from signalbox.model import (
     Security,
     Segment,
     SegmentPurpose,
+    StorageKind,
+    StorageUsage,
     Subnet,
+    TemperatureSensor,
     Wlan,
     object_id,
     port_id,
@@ -74,12 +80,12 @@ class Lab(Adapter):
         id="lab",
         name="Lab router",
         version="1",
-        api_version="1.0",
+        api_version="1.2",
         vendor="Example",
         roles=frozenset({DeviceRole.GATEWAY, DeviceRole.AP}),
         capabilities=frozenset(
             {Capability.INTERFACES, Capability.DHCP, Capability.DNS, Capability.WIRELESS}
-            | {Capability.CLIENTS}
+            | {Capability.CLIENTS, Capability.HEALTH, Capability.TIME}
         ),
         config=LabConfig,
         description="Simulated router with Wi-Fi for the browser tests.",
@@ -301,6 +307,34 @@ class Lab(Adapter):
                 ),
             ]
         )
+
+    async def read_health(self) -> Observation:
+        mib = 1024 * 1024
+        value = DeviceHealth(
+            uptime_seconds=3 * 86400 + 4 * 3600,
+            cpu_load_pct=12,
+            cpu_count=2,
+            memory_total_bytes=256 * mib,
+            memory_used_bytes=96 * mib,
+            storage=[
+                StorageUsage(
+                    name="/overlay",
+                    kind=StorageKind.SYSTEM,
+                    total_bytes=64 * mib,
+                    used_bytes=8 * mib,
+                )
+            ],
+            temperatures=[TemperatureSensor(name="cpu", value_c=52, limit_c=95)],
+        )
+        return Observation(health={self.context.device_id: value})
+
+    async def read_time(self) -> Observation:
+        value = DeviceTime(
+            clock=datetime.now(UTC) - timedelta(minutes=7),
+            timezone="Etc/UTC",
+            ntp_client=NtpClient(enabled=False),
+        )
+        return Observation(time={self.context.device_id: value})
 
 
 class SwitchConfig(AdapterConfig):

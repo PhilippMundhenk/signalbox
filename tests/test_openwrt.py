@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ssl
+import time
 from collections.abc import AsyncIterator, Iterator
 from ipaddress import ip_address, ip_interface
 from pathlib import Path
@@ -333,6 +334,23 @@ async def test_certificate_probed_again_every_observation(
     assert (await adapter.observe()).status is DeviceStatus.OK
     assert len(probes) == 1  # one probe per observation, the connection is reused after it
     assert sim.logins == 1  # the ubus session survives the new connection
+
+
+async def test_kept_connection_has_no_nagle_delay(
+    sim: OpenWrtSim, https_url: str, cert: TlsFiles
+) -> None:
+    # #189: without TCP_NODELAY on the simulator's sockets every request on a kept connection
+    # waited for the client's delayed ACK (about 40 ms, so 25 requests took over a second).
+    http = DeviceHttp(https_url, pinned_fingerprint=cert.fingerprint, timeout=5)
+    try:
+        await http.request("POST", "/ubus", json={}, accept=range(200, 600))
+        start = time.perf_counter()
+        for _ in range(25):
+            await http.request("POST", "/ubus", json={}, accept=range(200, 600))
+        elapsed = time.perf_counter() - start
+    finally:
+        await http.close()
+    assert elapsed < 0.6, f"25 requests took {elapsed:.2f} s"
 
 
 async def test_unreachable(sim: OpenWrtSim) -> None:

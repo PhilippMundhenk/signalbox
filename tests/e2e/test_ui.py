@@ -80,6 +80,14 @@ def test_first_start_create_site_and_add_device_from_schema(app: Any) -> None:
     expect(app.get_by_test_id("test-counts")).to_contain_text("3 ports")
     app.get_by_test_id("test").click()
     expect(app.get_by_test_id("test-counts")).to_contain_text("3 SSIDs")
+    # health and time of the last reading (#178, #179)
+    app.reload()
+    health = app.get_by_test_id("device-health")
+    expect(health).to_contain_text("3 d 4 h")
+    expect(health).to_contain_text("96 MiB of 256 MiB (38 %)")
+    expect(health).to_contain_text("52 °C (limit 95 °C)")
+    expect(app.get_by_test_id("device-time")).to_contain_text("7 min behind")
+    expect(app.get_by_test_id("device-time")).to_contain_text("off")
 
     stored = api(app, "GET", "/devices/main-router")
     assert stored["config"]["port"] == 8443 and stored["config"]["mode"] == "basic"

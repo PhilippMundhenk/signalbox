@@ -45,8 +45,8 @@ class MyAdapter(Adapter):
   `UntrustedCertificate` when the device cannot be read at all. Device details the model has
   no field for (MAC, serial, protocol version) go into `SystemInfo.vendor_extra`.
 - Every declared capability must be implemented (`ReadsInterfaces`, `ReadsDhcp`, `ReadsDns`,
-  `ReadsWireless`, `ReadsClients`, `ReadsNeighbours`); a missing one is an error when the adapter
-  is constructed, not a silent gap.
+  `ReadsWireless`, `ReadsClients`, `ReadsNeighbours`, `ReadsHealth`, `ReadsTime`); a missing one
+  is an error when the adapter is constructed, not a silent gap.
 - A capability that fails at run time raises `AdapterError` with a message for the user. Signalbox
   turns it into a "could not read" finding and keeps the rest of the snapshot.
 - Do not override `observe()`. It calls the capabilities with a timeout, stamps every object with
@@ -187,3 +187,67 @@ Changes of a managed device are sent to the controller's adapter (`Deployer.owne
 `WritesConfig` gets changes whose `device_id` is the managed device, and *Allow changes* is set
 on the controller. Changing an object that several managed devices share (an SSID of a WLAN
 group) reaches all of them; say so in the vendor call's description.
+
+## Health and time (adapter API 1.2)
+
+Two capabilities fill value objects on the device itself, keyed by device id so that a
+controller can report them for its managed devices too. Declare `api_version="1.2"` (or later)
+to use them; an adapter written for 1.0 or 1.1 keeps working unchanged.
+
+```python
+from signalbox.model import DeviceHealth, DeviceTime, NtpClient, StorageKind, StorageUsage
+
+
+class MyAdapter(Adapter):
+    manifest = Manifest(
+        ..., api_version="1.2", capabilities=frozenset({Capability.HEALTH, Capability.TIME})
+    )
+
+    async def read_health(self) -> Observation:  # Capability.HEALTH, ReadsHealth
+        return Observation(
+            health={
+                self.context.device_id: DeviceHealth(
+                    uptime_seconds=273906,
+                    cpu_load_pct=4,
+                    memory_total_bytes=268435456,
+                    memory_used_bytes=78435456,
+                    storage=[
+                        StorageUsage(
+                            name="flash",
+                            kind=StorageKind.SYSTEM,
+                            total_bytes=16777216,
+                            used_bytes=5242880,
+                        )
+                    ],
+                )
+            }
+        )
+
+    async def read_time(self) -> Observation:  # Capability.TIME, ReadsTime
+        return Observation(
+            time={
+                self.context.device_id: DeviceTime(
+                    clock=device_now,  # timezone-aware: the device's time as it answered
+                    timezone="Europe/Berlin",
+                    ntp_client=NtpClient(enabled=True, servers=["192.0.2.1"], synchronised=True),
+                )
+            }
+        )
+```
+
+- `DeviceHealth`: `uptime_seconds` or `boot_time` (the other is derived at observation time),
+  `last_reboot_reason`, `cpu_load_pct`, `load_average` (1/5/15 min), `cpu_count`,
+  `memory_total_bytes` and `memory_used_bytes` (without page cache and buffers: total minus
+  available), `storage` per mount with `kind` (`system` for root/overlay/flash where settings
+  live, `data`, `temporary` for tmpfs, `other`) and `wear_pct`, `temperatures` (with the device's
+  own `limit_c` where it reports one), `fans`, `power_supplies`, `ups` (a UPS the device
+  monitors). Leave out what the device does not report; do not guess or put zeros.
+- `DeviceTime`: set `clock` to the device's time. Leave `read_at` empty and `observe()` sets it
+  to the middle of the `read_time` call, with half its duration as `uncertainty_seconds`; an
+  adapter that reads the clock inside a longer call sets both itself. `timezone` is the IANA
+  name where the device has one, else its POSIX string. `ntp_server.segments` lists the
+  segments where the device serves time (empty while enabled: all of them).
+- NTP servers handed out by DHCP (option 42) go into `DhcpServer.ntp_servers` (capability `dhcp`).
+- The contract checks (`signalbox.testing`) report a declared capability that returns nothing,
+  values without the capability, used above total, times without a time zone and empty names.
+

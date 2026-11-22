@@ -204,12 +204,16 @@ class Writable(Adapter):
         if not self._switch("noop"):
             net = self._net()
             for c in changes:
+                had = {w.ssid: w.passphrase_fingerprint for w in net.wlans}
                 net = apply_change(net, c)
                 if c.kind is ChangeKind.WLAN and c.new is not None:
                     name = c.new.passphrase_secret  # type: ignore[union-attr]
+                    # like a device: without a passphrase in the change the old one stays
+                    fp = had.get(c.key)
                     if name:
                         self.secrets_seen.append(secrets[name])
                         fp = passphrase_fingerprint(c.key, secrets[name])
+                    if fp:
                         net = net.model_copy(
                             update={
                                 "wlans": [

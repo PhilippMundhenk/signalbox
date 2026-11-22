@@ -150,6 +150,17 @@
           ],
           "default": null
         },
+        "health": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceHealth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "id": {
           "title": "Id",
           "type": "string"
@@ -225,6 +236,17 @@
           ],
           "default": null
         },
+        "time": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "vendor": {
           "anyOf": [
             {
@@ -255,6 +277,164 @@
       "title": "Device",
       "type": "object"
     },
+    "DeviceHealth": {
+      "additionalProperties": false,
+      "description": "Vital signs of a device at observation time (capability ``health``).\n\nEvery value is optional: devices report very different subsets. Values change on every\nobservation; rules compare them with thresholds and the history, never as drift.",
+      "properties": {
+        "boot_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Boot Time"
+        },
+        "cpu_count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpu Count"
+        },
+        "cpu_load_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpu Load Pct"
+        },
+        "fans": {
+          "items": {
+            "$ref": "#/$defs/Fan"
+          },
+          "title": "Fans",
+          "type": "array"
+        },
+        "last_reboot_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RebootReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "load_average": {
+          "anyOf": [
+            {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Load Average"
+        },
+        "memory_total_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory Total Bytes"
+        },
+        "memory_used_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory Used Bytes"
+        },
+        "power_supplies": {
+          "items": {
+            "$ref": "#/$defs/PowerSupply"
+          },
+          "title": "Power Supplies",
+          "type": "array"
+        },
+        "storage": {
+          "items": {
+            "$ref": "#/$defs/StorageUsage"
+          },
+          "title": "Storage",
+          "type": "array"
+        },
+        "temperatures": {
+          "items": {
+            "$ref": "#/$defs/TemperatureSensor"
+          },
+          "title": "Temperatures",
+          "type": "array"
+        },
+        "ups": {
+          "items": {
+            "$ref": "#/$defs/UpsStatus"
+          },
+          "title": "Ups",
+          "type": "array"
+        },
+        "uptime_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uptime Seconds"
+        }
+      },
+      "title": "DeviceHealth",
+      "type": "object"
+    },
     "DeviceRole": {
       "enum": [
         "gateway",
@@ -275,6 +455,101 @@
       ],
       "title": "DeviceStatus",
       "type": "string"
+    },
+    "DeviceTime": {
+      "additionalProperties": false,
+      "description": "Clock, time zone and NTP of a device (capability ``time``).\n\n``clock`` is the device's time when it was read and ``read_at`` Signalbox's own time at that\nmoment, so :meth:`offset_seconds` is the device's clock error, give or take\n``uncertainty_seconds`` (half the request's round trip).",
+      "properties": {
+        "clock": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Clock"
+        },
+        "ntp_client": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NtpClient"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ntp_server": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NtpServer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "read_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Read At"
+        },
+        "timezone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timezone"
+        },
+        "uncertainty_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty Seconds"
+        },
+        "utc_offset_minutes": {
+          "anyOf": [
+            {
+              "maximum": 1080,
+              "minimum": -1080,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Utc Offset Minutes"
+        }
+      },
+      "title": "DeviceTime",
+      "type": "object"
     },
     "DhcpPool": {
       "additionalProperties": false,
@@ -367,6 +642,22 @@
           ],
           "default": null,
           "title": "Lease Seconds"
+        },
+        "ntp_servers": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Ntp Servers",
+          "type": "array"
         },
         "observed_at": {
           "anyOf": [
@@ -536,6 +827,45 @@
         "device_id"
       ],
       "title": "DnsService",
+      "type": "object"
+    },
+    "Fan": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ok"
+        },
+        "rpm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rpm"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Fan",
       "type": "object"
     },
     "Firmware": {
@@ -865,6 +1195,99 @@
       "title": "Network",
       "type": "object"
     },
+    "NtpClient": {
+      "additionalProperties": false,
+      "properties": {
+        "current_server": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Server"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "last_sync": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Sync"
+        },
+        "servers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Servers",
+          "type": "array"
+        },
+        "stratum": {
+          "anyOf": [
+            {
+              "maximum": 16,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stratum"
+        },
+        "synchronised": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Synchronised"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "NtpClient",
+      "type": "object"
+    },
+    "NtpServer": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "segments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Segments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "NtpServer",
+      "type": "object"
+    },
     "Pmf": {
       "enum": [
         "disabled",
@@ -1035,6 +1458,57 @@
       "title": "PortMembership",
       "type": "object"
     },
+    "PowerSupply": {
+      "additionalProperties": false,
+      "properties": {
+        "input_voltage": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Voltage"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ok"
+        },
+        "watts": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Watts"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PowerSupply",
+      "type": "object"
+    },
     "PurposeSource": {
       "description": "Where a purpose came from. Declared beats reported beats heuristic.",
       "enum": [
@@ -1181,6 +1655,18 @@
       ],
       "title": "ReadError",
       "type": "object"
+    },
+    "RebootReason": {
+      "enum": [
+        "power",
+        "watchdog",
+        "user",
+        "upgrade",
+        "crash",
+        "other"
+      ],
+      "title": "RebootReason",
+      "type": "string"
     },
     "Reservation": {
       "additionalProperties": false,
@@ -1530,6 +2016,74 @@
       "title": "Source",
       "type": "object"
     },
+    "StorageKind": {
+      "enum": [
+        "system",
+        "data",
+        "temporary",
+        "other"
+      ],
+      "title": "StorageKind",
+      "type": "string"
+    },
+    "StorageUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/StorageKind",
+          "default": "other"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "total_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Bytes"
+        },
+        "used_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Used Bytes"
+        },
+        "wear_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wear Pct"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "StorageUsage",
+      "type": "object"
+    },
     "Subnet": {
       "additionalProperties": false,
       "properties": {
@@ -1602,6 +2156,118 @@
         "device_id"
       ],
       "title": "Subnet",
+      "type": "object"
+    },
+    "TemperatureSensor": {
+      "additionalProperties": false,
+      "properties": {
+        "limit_c": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit C"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "value_c": {
+          "title": "Value C",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value_c"
+      ],
+      "title": "TemperatureSensor",
+      "type": "object"
+    },
+    "UpsStatus": {
+      "additionalProperties": false,
+      "description": "A UPS monitored by the device (NUT on OPNsense, ``/system/ups`` on MikroTik).",
+      "properties": {
+        "charge_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Charge Pct"
+        },
+        "last_test": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Test"
+        },
+        "load_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Load Pct"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "on_battery": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "On Battery"
+        },
+        "runtime_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime Seconds"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "UpsStatus",
       "type": "object"
     },
     "Wlan": {

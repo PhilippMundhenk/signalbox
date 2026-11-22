@@ -68,6 +68,9 @@ class ChangeRecord(BaseModel):
     reverted_by: str | None = None
     #: Restoring a device backup instead of applying changes.
     restore_backup_id: str | None = None
+    #: Change id -> name of the secret version (``<name>@<change id>``) holding the passphrase
+    #: the change replaced; the inverse sets it again (#188). Names only, never values.
+    passphrase_versions: dict[str, str] = Field(default_factory=dict)
 
     def result(self, device_id: str) -> DeviceResult:
         for r in self.devices:

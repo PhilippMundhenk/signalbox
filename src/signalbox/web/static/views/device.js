@@ -1,7 +1,7 @@
 // One device: overview with connection test and certificate trust, settings, advanced (raw data).
 import { del, enc, get, post } from '../api.js';
 import { loadNetwork } from '../net.js';
-import { clear, fmtAgo, fmtTime, groupHex, h, place, yesNo } from '../util.js';
+import { clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, groupHex, h, place, yesNo } from '../util.js';
 import { card, confirmDialog, empty, kv, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
 
@@ -36,6 +36,54 @@ function testResult(res) {
       ? h('p', { 'data-testid': 'test-counts' }, 'Found ', Object.entries(res.counts).map(([k, v], i) => `${i ? ', ' : ''}${v} ${COUNT_TEXT[k] || k}`), '.')
       : null,
   );
+}
+
+const given = (v) => v !== null && v !== undefined;
+// kv() skips undefined: a row only for what the device reports.
+const opt = (v, fn = (x) => x) => (given(v) ? fn(v) : undefined);
+const pct = (v) => `${Math.round(v * 10) / 10} %`;
+const usage = (used, total) => (given(used) && total ? `${fmtBytes(used)} of ${fmtBytes(total)} (${Math.round((100 * used) / total)} %)` : undefined);
+const okText = (ok) => (ok === true ? 'OK' : ok === false ? 'failed' : 'state unknown');
+
+// Health as reported (#178): only the values the device has.
+function healthCard(health) {
+  if (!health) return null;
+  const ups = (u) => [u.on_battery ? 'on battery' : u.on_battery === false ? 'on mains' : 'state unknown', opt(u.charge_pct, (v) => `charge ${pct(v)}`), opt(u.runtime_seconds, (v) => `runtime ${fmtDuration(v)}`)].filter(Boolean).join(', ');
+  const rows = [
+    ['Uptime', opt(health.uptime_seconds, fmtDuration)],
+    ['Started', opt(health.boot_time, fmtTime)],
+    ['Last restart', opt(health.last_reboot_reason)],
+    ['CPU load', opt(health.cpu_load_pct, (v) => `${pct(v)}${health.cpu_count ? ` (${health.cpu_count} cores)` : ''}`)],
+    ['Load average', opt(health.load_average, (l) => l.map((x) => x.toFixed(2)).join(' / '))],
+    ['Memory used', usage(health.memory_used_bytes, health.memory_total_bytes)],
+    ...health.storage.map((st) => [`Storage ${st.name}`, `${usage(st.used_bytes, st.total_bytes) || '–'}${given(st.wear_pct) ? `, wear ${pct(st.wear_pct)}` : ''}`]),
+    ...health.temperatures.map((t) => [`Temperature ${t.name}`, `${t.value_c} °C${given(t.limit_c) ? ` (limit ${t.limit_c} °C)` : ''}`]),
+    ...health.fans.map((f) => [`Fan ${f.name}`, `${given(f.rpm) ? `${f.rpm} rpm, ` : ''}${okText(f.ok)}`]),
+    ...health.power_supplies.map((p) => [`Power supply ${p.name}`, `${okText(p.ok)}${given(p.watts) ? `, ${p.watts} W` : ''}`]),
+    ...health.ups.map((u) => [`UPS ${u.name}`, ups(u)]),
+  ];
+  return h('section', { class: 'card', 'data-testid': 'device-health' }, h('h2', {}, 'Health'), kv(rows));
+}
+
+// Clock, time zone and NTP (#179).
+function timeCard(time) {
+  if (!time) return null;
+  let offset;
+  if (time.clock && time.read_at) {
+    const sec = (new Date(time.clock).getTime() - new Date(time.read_at).getTime()) / 1000;
+    offset = Math.abs(sec) < 2 ? 'in step with Signalbox' : `${fmtDuration(Math.abs(sec))} ${sec > 0 ? 'ahead' : 'behind'}`;
+  }
+  const c = time.ntp_client;
+  const s = time.ntp_server;
+  const sync = c && c.synchronised === true ? ', synchronised' : c && c.synchronised === false ? ', not synchronised' : '';
+  const rows = [
+    ['Clock', offset],
+    ['Time zone', opt(time.timezone)],
+    ['NTP client', c ? (c.enabled ? `${c.servers.join(', ') || 'no servers'}${sync}` : 'off') : undefined],
+    ['Last synchronised', c ? opt(c.last_sync, fmtTime) : undefined],
+    ['NTP server', s ? (s.enabled ? 'serves time to the network' : 'off') : undefined],
+  ];
+  return h('section', { class: 'card', 'data-testid': 'device-time' }, h('h2', {}, 'Time'), kv(rows));
 }
 
 async function overview(main, ctx, device, adapters, sites) {
@@ -95,6 +143,8 @@ async function overview(main, ctx, device, adapters, sites) {
       ]),
       errors.length ? h('ul', { class: 'error', 'data-testid': 'device-errors' }, errors.map((e) => h('li', {}, `${e.capability}: ${e.message}`))) : null,
     ),
+    observed ? healthCard(observed.health) : null,
+    observed ? timeCard(observed.time) : null,
     trustBox,
     card('Connection', h('p', { class: 'muted' }, 'Reads the device now with the stored settings and shows what was found. Nothing is changed on the device.'), h('div', { class: 'row' }, testBtn), result),
     h('div', { class: 'row end' }, remove),
