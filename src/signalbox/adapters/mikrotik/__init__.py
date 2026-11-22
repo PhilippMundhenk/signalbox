@@ -1,4 +1,7 @@
-"""MikroTik RouterOS 7 (read): interfaces, bridge VLANs, DHCP, DNS, Wi-Fi, clients, neighbours.
+"""MikroTik RouterOS 7: reads interfaces, bridge VLANs, DHCP, DNS, Wi-Fi, clients, neighbours.
+
+The write side (router interfaces, DHCP, static leases, bridge VLANs, Wi-Fi) is in
+:mod:`signalbox.adapters.mikrotik.write`.
 
 Talks to the RouterOS REST API (``GET /rest/<menu path>``, HTTP basic auth) over HTTPS with a
 pinned certificate (:mod:`signalbox.adapters.https`). Every endpoint and the JSON shape assumed
@@ -42,6 +45,7 @@ from signalbox.adapters import (
     SystemInfo,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound
+from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.model import (
     Band,
     Client,
@@ -134,7 +138,8 @@ _AP_MODES = {"ap", "ap-bridge", "bridge"}
 class MikrotikConfig(AdapterConfig):
     url: str = Field(description="Address of the REST API (service www-ssl), https://host[:port]")
     username: str = Field(
-        default="signalbox", description="RouterOS user in a read-only group (read, rest-api)"
+        default="signalbox",
+        description="RouterOS user: a read-only group (read, rest-api), plus write to deploy",
     )
     password: SecretStr = Field(description="Password of that user")
     allow_insecure_http: bool = Field(
@@ -188,6 +193,11 @@ def _flag(value: Any, default: bool = False) -> bool:
     if value is None or value == "":
         return default
     return value is True or _text(value).lower() in ("true", "yes", "on")
+
+
+def _maybe(value: Any) -> bool | None:
+    """A flag that may not be set at all (None: RouterOS' default applies, unknown here)."""
+    return None if value is None or value == "" else _flag(value)
 
 
 def _active(row: dict[str, Any]) -> bool:
@@ -357,11 +367,11 @@ class _Layout:
         return self.ports[name].id if name in self.ports else None
 
 
-class MikrotikAdapter(Adapter):
+class MikrotikAdapter(MikrotikWrites, Adapter):
     manifest = Manifest(
         id="mikrotik",
         name="MikroTik RouterOS",
-        version="0.1.0",
+        version="0.2.0",
         api_version="1.0",
         vendor="MikroTik",
         roles=frozenset({DeviceRole.GATEWAY, DeviceRole.SWITCH, DeviceRole.AP}),
@@ -376,7 +386,8 @@ class MikrotikAdapter(Adapter):
             }
         ),
         config=MikrotikConfig,
-        description="Reads a RouterOS 7 router, switch or access point through its REST API.",
+        description="Reads and changes a RouterOS 7 router, switch or access point (REST API).",
+        writes=WRITES,
     )
 
     def __init__(self, context: AdapterContext) -> None:
@@ -581,7 +592,8 @@ class MikrotikAdapter(Adapter):
             seg = self._seg(tag)
             l3[vname] = seg
             join(seg, tag, None if parent in filtering else parent, Membership.TAGGED)
-            label(seg, _text(row.get("comment")) or vname)
+            # the name RouterOS gives a new VLAN interface is not a name of the network
+            label(seg, _text(row.get("comment")) or ("" if vname == f"vlan{tag}" else vname))
 
         segments = {
             seg: Segment(
@@ -647,10 +659,11 @@ class MikrotikAdapter(Adapter):
             own = [a for n, a in layout.addresses if n == iface and isinstance(a, IPv4Interface)]
             net_row: dict[str, Any] = {}
             net = None
-            for candidate, nrow in networks:
-                if any(a.ip in candidate for a in own):
+            for candidate, nrow in networks:  # the most specific network of the server
+                if any(a.ip in candidate for a in own) and (
+                    net is None or candidate.prefixlen > net.prefixlen
+                ):
                     net, net_row = candidate, nrow
-                    break
             ranges, seen_pools = [], set()
             pool_name = _text(row.get("address-pool"))
             while pool_name and pool_name in pools and pool_name not in seen_pools:
@@ -813,9 +826,9 @@ class MikrotikAdapter(Adapter):
                         layout, name, _int(prop(row, "datapath", "vlan-id"))
                     ),
                     hidden=_flag(prop(row, "configuration", "hide-ssid")),
-                    roaming_80211r=_flag(prop(row, "security", "ft")),
-                    roaming_80211k=_flag(prop(row, "steering", "rrm")),
-                    roaming_80211v=_flag(prop(row, "steering", "wnm")),
+                    roaming_80211r=_maybe(prop(row, "security", "ft")),
+                    roaming_80211k=_maybe(prop(row, "steering", "rrm")),
+                    roaming_80211v=_maybe(prop(row, "steering", "wnm")),
                     vendor_extra={
                         "authentication-types": _text(prop(row, "security", "authentication-types"))
                     },

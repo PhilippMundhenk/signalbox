@@ -1,9 +1,11 @@
 # MikroTik adapter
 
 Adapter id `mikrotik`, roles `gateway`, `switch` and `ap`. Reads a RouterOS 7 router, switch or
-access point through the REST API (`/rest`, served by the `www-ssl` service); it never changes
-anything (every request is a `GET`). Writing follows with the change transactions of
-[#38](https://github.com/PhilippMundhenk/signalbox/issues/38).
+access point through the REST API (`/rest`, served by the `www-ssl` service), and deploys
+changes of every kind (`router`, `dhcp`, `reservation`, `port`, `wlan`) through the change
+transactions of [#38](https://github.com/PhilippMundhenk/signalbox/issues/38) when the device's
+"allow changes" setting is on and the user may write: see [Writing](#writing). Reading only ever
+sends `GET` requests.
 
 | Capability | What is read |
 | --- | --- |
@@ -90,7 +92,8 @@ clear text and is only meant for the simulator.
   `<site>/segment/<name>`.
 - **VLAN interfaces** (`/interface/vlan`): the router's address in VLAN `vlan-id`; on a plain
   port that port is a tagged member. The segment name is the VLAN table entry's `comment`, else
-  the VLAN interface's comment or name; the native segment is named after the bridge's comment.
+  the VLAN interface's comment or name (except the default name `vlan<id>`, which names
+  nothing); the native segment is named after the bridge's comment.
 - **Uplink**: members of the interface list `WAN` (RouterOS' default configuration) are ports
   only: no segment, no subnets, and their ARP neighbours are not clients. Without that list the
   uplink port with its address becomes a network of its own.
@@ -99,8 +102,8 @@ clear text and is only meant for the simulator.
   `gateway`.
 - **DHCP**: one server per `/ip/dhcp-server` entry on a known interface. Pools from the
   `ranges` of its `address-pool` (and `next-pool`), lease time from `lease-time` (`30m`,
-  `1d00:00:00`), router, DNS and domain from the `/ip/dhcp-server/network` entry containing the
-  interface address. Static leases (`dynamic=false`) of that server, or of `all` in its network,
+  `1d00:00:00`), router, DNS and domain from the most specific `/ip/dhcp-server/network` entry
+  containing the interface address. Static leases (`dynamic=false`) of that server, or of `all` in its network,
   are reservations; the hostname is the lease comment, else `host-name`.
 - **DNS**: one service. Enabled when `allow-remote-requests=yes`; it then listens on the
   addresses of every non-uplink interface. `servers` are the forwarders, `dynamic-servers`
@@ -114,8 +117,8 @@ clear text and is only meant for the simulator.
   profile (`security=home` → `/interface/wifi/security`), likewise for `configuration`,
   `channel`, `datapath` and `steering`. Security from `authentication-types`
   (`wpa2-psk,wpa3-psk` → WPA2/WPA3, empty → open), PMF from `management-protection`
-  (`allowed` → optional), 802.11r from `ft`, 802.11k/v from `steering.rrm`/`steering.wnm`,
-  hidden from `hide-ssid`, segment from the bridge port's `pvid`, else `datapath.vlan-id`.
+  (`allowed` → optional), 802.11r from `ft`, 802.11k/v from `steering.rrm`/`steering.wnm`
+  (not set at all: unknown, RouterOS' default applies), hidden from `hide-ssid`, segment from the bridge port's `pvid`, else `datapath.vlan-id`.
 - **Wireless (`wireless` package)**: radios from `/interface/wireless` entries without
   `master-interface` (`band` like `2ghz-b/g/n`, `frequency`, `channel-width`), WLANs in mode
   `ap-bridge` or `bridge`, security and passphrase from the `security-profile`
@@ -273,6 +276,114 @@ Registration tables: `/rest/interface/wifi/registration-table`, or
 
 *Guess*: on a bridged port `interface` lists the port and the bridge.
 
+## Writing
+
+Signalbox changes a RouterOS device only through a reviewed and approved change (see
+[docs/CHANGES.md](../CHANGES.md)), only when "allow changes" is on for the device, and only with
+a user whose group has the `write` policy. Each RouterOS menu entry is changed with one REST
+request:
+
+| Request | Meaning |
+| --- | --- |
+| `PUT /rest/<menu>` with the properties | create an entry; the answer is the new entry with its `.id` |
+| `PATCH /rest/<menu>/<.id>` with the changed properties | change an entry |
+| `DELETE /rest/<menu>/<.id>` | remove an entry |
+| `POST /rest/<menu>/unset` with `{"numbers": "<.id>", "value-name": "<property>"}` | clear a property (it falls back to its profile or default) |
+| `POST /rest/export` | the configuration as text, for the backup (for people only, see below) |
+
+The review shows exactly these requests. The Wi-Fi passphrase is shown as `***`; it is never
+logged or put into an error message.
+
+### A user group that may write
+
+```
+/user group add name=signalbox-write \
+    policy=read,write,api,rest-api,sensitive,!policy,!password,!reboot,!test,!sniff,!romon,!local,!telnet,!ssh,!ftp,!winbox,!web
+/user set signalbox group=signalbox-write
+```
+
+- `write` lets the user change the configuration. Without it every change is refused with
+  `access denied (HTTP 403); check the user's privileges`, and nothing is changed.
+- `sensitive` is needed for a complete backup: without it RouterOS hides the Wi-Fi passphrases
+  in its answers, so the backup cannot put a changed passphrase back. If you keep a read-only
+  group for everyday reading, switch the user's group only for deployments.
+- `policy` and `password` stay off: Signalbox never manages users.
+
+### What each change does
+
+| Kind | Calls |
+| --- | --- |
+| `router` | A VLAN network: creates the VLAN interface `vlan<id>` on the bridge (comment = the segment name), tags the bridge itself in the bridge VLAN table (a new entry, or `bridge` added to `tagged`) and adds the address in `/ip/address`. An existing network: changes its address entry. The name goes to the comment of the bridge (native network), of the single-VLAN bridge VLAN entry and of the VLAN interface. Removing deletes the address, the VLAN interface if no address is left on it, and the bridge from the VLAN's `tagged` list (the entry too if it is then empty). |
+| `dhcp` | Creates or changes the `/ip/dhcp-server` entry on the network's interface (`disabled`, `lease-time`), the first range of its `/ip/pool` (a pool `dhcp-<interface>` if it has none) and the DNS servers of the `/ip/dhcp-server/network` entry (created with gateway = the router's address when missing). Removing deletes the server, and its pool and network entry when nothing else uses them. |
+| `reservation` | A static `/ip/dhcp-server/lease` with `address`, `mac-address` (upper case), `server` and the hostname as `comment`. |
+| `port` | Ports of a bridge with `vlan-filtering`: the untagged VLAN is the bridge port's `pvid` (`frame-types` set to `admit-all`, or to `admit-only-vlan-tagged` for no untagged VLAN); tagged VLANs are the port's place in the `tagged` lists of `/interface/bridge/vlan` (new single-VLAN entries where needed). The port leaves every other `tagged`/`untagged` list; an entry left empty is removed. |
+| `wlan` | Every `/interface/wifi` entry with the SSID gets the values inline: `configuration.hide-ssid`, `security.authentication-types`, `security.passphrase` (from the stored secret), `security.management-protection`, `security.ft` (802.11r), `steering.rrm`/`steering.wnm` (802.11k/v), `disabled`; the VLAN is the `pvid` of its static bridge port and `datapath.vlan-id`. A value the change leaves unset is unset inline. A new SSID is a virtual interface `<radio>-<ssid>` on every radio, with `datapath.bridge` = the filtering bridge. Removing deletes those virtual interfaces. |
+
+Refused with a readable message, before anything is sent:
+
+- a network without an interface that is not a VLAN (Signalbox only creates VLAN interfaces),
+  and an address that is dynamic (a DHCP client on the uplink)
+- a VLAN in a bridge VLAN entry shared with other VLANs (`vlan-ids=20,30`) when the change needs
+  that VLAN on its own: split the entry on the device first
+- ports that are not in a bridge with `vlan-filtering` (VLAN interfaces on plain ports are not
+  written)
+- WPA2/WPA3 Enterprise and other security modes (only open, OWE and WPA2/WPA3 personal), a
+  personal SSID without a passphrase, removing the SSID of a radio interface (it can be
+  disabled, not removed), and the legacy `wireless` package (read only)
+
+Known limits:
+
+- An SSID on several radios is set to the same values on all of them; undoing the change sets
+  them all to the values Signalbox read (those of the first radio). The backup restores each
+  exactly.
+- Making an SSID open clears its `security` profile reference, passphrase included. The inverse
+  change cannot set the passphrase back (it is not known to Signalbox), so such a rollback uses
+  the backup.
+- The hostname of a reservation is its `comment`. Without a comment RouterOS shows the
+  `host-name` the client sent, so "no hostname" cannot be set on such a lease.
+
+### Transaction and rollback
+
+RouterOS has `safe-mode` only for interactive terminal sessions; the REST API has no confirm
+timer. So `apply` returns no deadline (`confirm` does nothing): a change is in effect as soon as
+each request is answered, and Signalbox's own verification decides. It reads the device again
+and rolls back if a value is not as planned, the device does not answer, or the checks report
+new errors.
+
+- **Backup**: before applying, a JSON snapshot (`GET`) of every menu Signalbox may change
+  (`/interface/vlan`, `/interface/bridge`, `/interface/bridge/vlan`, `/interface/bridge/port`,
+  `/ip/address`, `/ip/pool`, `/ip/dhcp-server`, `/ip/dhcp-server/network`,
+  `/ip/dhcp-server/lease`, `/interface/wifi`), plus the text of `/export` for people (backup
+  format `routeros-export`, stored encrypted with the change record). An export cannot be
+  imported through the REST API (`/import` needs a file on the router), so it is not used for
+  restoring.
+- **Rollback**: first the inverse changes; if that fails, the backup. Restoring compares every
+  saved menu with the device and undoes the difference: entries that are not in the backup are
+  removed, missing ones are added again (with a new `.id`), changed ones are set back, and
+  properties that were added are unset. Entries are matched by `.id`, else by equal content, so
+  a second restore changes nothing. Dynamic entries are left to RouterOS.
+
+### Not confirmed on a real device
+
+All of this follows the RouterOS REST documentation and is tested against the simulator only
+([issue #21](https://github.com/PhilippMundhenk/signalbox/issues/21)). To confirm:
+
+- *Guess*: dotted property names (`security.passphrase`, `datapath.vlan-id`) are accepted by
+  `PUT`/`PATCH` on `/interface/wifi` as by the CLI's `set`, and `unset` with
+  `value-name=security` detaches the security profile.
+- *Guess*: `POST /rest/export` answers the export as `{"ret": "..."}` (a JSON string or plain
+  text are accepted too); a refused export leaves the backup without the text.
+- *Guess*: a refused change is answered with HTTP 400 and `{"error", "message", "detail"}`; the
+  `detail` is shown.
+- *Guess*: a Wi-Fi interface with `datapath.bridge` becomes a dynamic bridge port whose `pvid` is
+  `datapath.vlan-id`, and a pvid no VLAN entry lists gets a dynamic entry (as the simulator
+  models it).
+- *Guess*: a static lease can be added for a MAC that has a dynamic lease (RouterOS might want
+  `make-static` instead).
+- The read-only properties left out when restoring (`running`, `dynamic`, `current-*`,
+  `actual-interface`, `network`, `mac-address` of interfaces, ...) are taken from the
+  documentation; a property RouterOS refuses to set stops the restore with its message.
+
 ## Simulator
 
 `signalbox.sim.mikrotik.MikrotikSimulator` answers these endpoints with neutral sample data (a
@@ -280,3 +391,11 @@ hEX-like router with Wi-Fi and bridge VLAN filtering, documentation addresses, `
 switches simulate a wrong password (401), a disabled REST API (404 everywhere), slow answers,
 malformed JSON per path, a status code per path, and the wireless package installed (`wifi`,
 `legacy` or `none`).
+
+It also takes the write requests above and changes its data: it refuses what RouterOS would
+(missing properties, unknown interfaces, pools or servers, duplicate names, bad addresses,
+dynamic entries) with HTTP 400 and a `detail`, and then settles what RouterOS computes itself
+(VLAN and Wi-Fi interfaces in `/interface`, the dynamic bridge port of a Wi-Fi interface with
+`datapath.bridge`, the `current-*` lists and dynamic entries of the bridge VLAN table). Write
+switches: `read_only` (403, a group without `write`), `fail_write` (a status code per menu) and
+`ignore_writes` (answer success, change nothing).

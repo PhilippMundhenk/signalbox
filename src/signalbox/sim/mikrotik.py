@@ -16,6 +16,16 @@ Failure switches on :class:`MikrotikSimulator`: ``rest_enabled=False`` (404 on e
 ``delay`` (seconds before every answer), ``malformed`` (paths answering broken JSON), ``fail``
 (a status code per path), ``wireless`` (``"wifi"``, ``"legacy"`` or ``"none"``: which wireless
 package is installed); a wrong user or password is answered with 401. ``data`` can be edited.
+
+Writes change ``data``: ``PUT /rest/<menu>`` creates, ``PATCH``/``DELETE /rest/<menu>/<.id>``
+change and remove, ``POST /rest/<menu>/unset`` clears a property, ``POST /rest/export`` answers
+an export text. The simulator refuses what RouterOS would (missing properties, unknown
+interfaces, pools or servers, duplicate names, bad addresses, dynamic entries) with HTTP 400 and
+a ``detail``, and afterwards settles what RouterOS computes itself: VLAN and Wi-Fi interfaces in
+``/interface``, the dynamic bridge port of a Wi-Fi interface with ``datapath.bridge``, and the
+``current-*`` lists and dynamic entries of the bridge VLAN table. Write switches: ``read_only``
+(403, a group without ``write``), ``fail_write`` (a status per menu), ``ignore_writes`` (answer
+success, change nothing).
 """
 
 from __future__ import annotations
@@ -24,8 +34,10 @@ import asyncio
 import base64
 import binascii
 import copy
+import json
 import secrets
 from dataclasses import dataclass, field
+from ipaddress import ip_address, ip_interface
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -647,6 +659,15 @@ class MikrotikSimulator:
     data: dict[str, Any] = field(default_factory=sample_data)
     #: Paths requested so far (to check that nothing is sent before the pin check).
     requests: list[str] = field(default_factory=list)
+    #: The user's group lacks ``write``: every write is answered with 403.
+    read_only: bool = False
+    #: Status code to answer per menu for writes (``/rest/ip/address``, ``/rest/export``, ...).
+    fail_write: dict[str, int] = field(default_factory=dict)
+    #: Answer writes with success but change nothing (to test the verification).
+    ignore_writes: bool = False
+    #: Writes received: (method, path, body).
+    writes: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
+    next_id: int = 0x100
 
     def authorised(self, header: str | None) -> bool:
         if not header or not header.startswith("Basic "):
@@ -697,4 +718,316 @@ class MikrotikSimulator:
                 return Response('[{".id": "*1", ', media_type="application/json")
             return JSONResponse(data[path])
 
+        @app.api_route("/{path:path}", methods=["PUT", "PATCH", "DELETE", "POST"])
+        async def write(path: str, request: Request) -> Response:
+            path = "/" + path
+            self.requests.append(path)
+            if not self.rest_enabled:
+                return JSONResponse(not_found, status_code=404)
+            if not self.authorised(request.headers.get("authorization")):
+                return JSONResponse({"error": 401, "message": "Unauthorized"}, status_code=401)
+            raw = await request.body()
+            try:
+                body = json.loads(raw) if raw else {}
+            except ValueError:
+                return _bad("invalid JSON")
+            if not isinstance(body, dict):
+                return _bad("expected an object")
+            self.writes.append((request.method, path, body))
+            return self.write(request.method, path, body)
+
         return app
+
+    # --- writes -------------------------------------------------------------------------------
+
+    def write(self, method: str, path: str, body: dict[str, Any]) -> Response:
+        """One write request (the HTTP layer already checked the credentials)."""
+        if method == "POST" and path == EXPORT:
+            menu, ref = EXPORT, ""
+        elif method == "POST" and path.endswith("/unset"):
+            menu, ref = path.removesuffix("/unset"), str(body.get("numbers", ""))
+        elif method == "PUT":
+            menu, ref = path, ""
+        else:
+            menu, _, ref = path.rpartition("/")
+        if menu != EXPORT and (
+            menu not in WRITABLE or not isinstance(self.answers().get(menu), list)
+        ):
+            return JSONResponse({"error": 404, "message": "Not Found"}, status_code=404)
+        if self.read_only:
+            return JSONResponse(
+                {"error": 403, "message": "Forbidden", "detail": "not enough permissions (9)"},
+                status_code=403,
+            )
+        if menu in self.fail_write:
+            code = self.fail_write[menu]
+            return JSONResponse({"error": code, "message": "simulated failure"}, status_code=code)
+        if menu == EXPORT:
+            return JSONResponse({"ret": self.export()})
+        if self.ignore_writes:
+            return JSONResponse({".id": "*FFFF"} if method == "PUT" else [])
+        rows: list[dict[str, Any]] = self.data[menu]
+        values = {k: str(v) for k, v in body.items() if k not in (".id", "numbers")}
+        if method == "PUT":
+            row = {".id": self._id(), **DEFAULTS.get(menu, {}), **values}
+            problem = self._check(menu, row, rows)
+            if problem:
+                return _bad(problem)
+            if menu == WIFI:
+                row.setdefault("mac-address", _mac(0x0A, len(rows)))
+            rows.append(row)
+            self._settle(menu, row)
+            return JSONResponse(row, status_code=201)
+        found: dict[str, Any] | None = next((r for r in rows if r.get(".id") == ref), None)
+        if found is None:
+            return JSONResponse(
+                {"error": 404, "message": "Not Found", "detail": "no such item"}, status_code=404
+            )
+        row = found
+        if row.get("dynamic") == "true":
+            return _bad("cannot change dynamic entry")
+        if method == "DELETE":
+            rows.remove(row)
+            self._settle(menu, None)
+            return Response(status_code=204)
+        if method == "POST":
+            changed = {k: v for k, v in row.items() if k != values.get("value-name")}
+        else:
+            changed = {**row, **values}
+        problem = self._check(menu, changed, [r for r in rows if r is not row])
+        if problem:
+            return _bad(problem)
+        row.clear()
+        row.update(changed)
+        self._settle(menu, row)
+        return JSONResponse(row if method == "PATCH" else [])
+
+    def _id(self) -> str:
+        self.next_id += 1
+        return f"*{self.next_id:X}"
+
+    def _names(self, menu: str) -> set[str]:
+        return {r.get("name", "") for r in self.data.get(menu, [])}
+
+    def _check(self, menu: str, row: dict[str, Any], others: list[dict[str, Any]]) -> str | None:
+        """What RouterOS would refuse about one entry (None: nothing)."""
+        for key in REQUIRED.get(menu, ()):
+            if not row.get(key):
+                return f"missing value for {key}"
+        if "name" in row and any(o.get("name") == row["name"] for o in others):
+            return f"entry with name {row['name']} already exists"
+        interfaces = self._names(INTERFACE)
+        if menu in (VLAN, WIFI) and row["name"] in interfaces:
+            before: dict[str, Any] = next(
+                (o for o in self.data[menu] if o.get(".id") == row[".id"]), {}
+            )
+            if before.get("name") != row["name"]:
+                return f"interface with name {row['name']} already exists"
+        for key in REFERENCES.get(menu, ()):
+            names = row.get(key, "").split(",") if key in ("tagged", "untagged") else [row[key]]
+            if any(n and n not in interfaces for n in names):
+                return f"input does not match any value of {key}"
+        try:
+            if menu in (IP_ADDRESS, DHCP_NETWORK):
+                ip_interface(row["address"])
+            if menu == DHCP_LEASE:
+                ip_address(row["address"])
+            if menu == POOL:
+                for part in row["ranges"].split(","):
+                    for a in part.split("-"):
+                        ip_address(a)
+        except ValueError:
+            return "invalid value for argument address"
+        if menu == VLAN and not (row["vlan-id"].isdigit() and 1 <= int(row["vlan-id"]) <= 4094):
+            return "invalid value for argument vlan-id"
+        if menu == DHCP_SERVER and row["address-pool"] not in self._names(POOL) | {"static-only"}:
+            return "input does not match any value of address-pool"
+        if menu == DHCP_LEASE and row["server"] not in self._names(DHCP_SERVER) | {"all"}:
+            return "input does not match any value of server"
+        master = row.get("master-interface") if menu == WIFI else None
+        if master and master not in self._names(WIFI):
+            return "input does not match any value of master-interface"
+        return None
+
+    def _settle(self, menu: str, row: dict[str, Any] | None) -> None:
+        """What RouterOS computes itself after a change."""
+        if row is not None and menu == IP_ADDRESS:
+            row["network"] = str(ip_interface(row["address"]).network.network_address)
+            row["actual-interface"] = row["interface"]
+        data = self.data
+        # /interface follows the VLAN and Wi-Fi menus
+        derived = {"vlan": self._names(VLAN), "wifi": self._names(WIFI)}
+        interfaces = [
+            r
+            for r in data[INTERFACE]
+            if r.get("type") not in derived or r.get("name") in derived[r["type"]]
+        ]
+        known = {r.get("name") for r in interfaces}
+        for kind, menu_path in (("vlan", VLAN), ("wifi", WIFI)):
+            for r in data.get(menu_path, []):
+                if r.get("name") not in known:
+                    mac = r.get("mac-address") or _mac(1, 0)
+                    interfaces.append({".id": self._id(), **_iface(r["name"], kind, mac)})
+        for r in interfaces:
+            if r.get("type") == "wifi":
+                w: dict[str, Any] = next(
+                    (x for x in data.get(WIFI, []) if x.get("name") == r.get("name")), {}
+                )
+                r["disabled"] = w.get("disabled", r.get("disabled", "false"))
+        data[INTERFACE] = interfaces
+        # dynamic bridge ports of Wi-Fi interfaces with datapath.bridge
+        ports = [p for p in data[BRIDGE_PORT] if p.get("dynamic") != "true"]
+        static = {p.get("interface") for p in ports}
+        for w in data.get(WIFI, []):
+            if w.get("datapath.bridge") and w.get("name") not in static:
+                port = _port(w["name"], pvid=w.get("datapath.vlan-id") or "1")
+                port.update(bridge=w["datapath.bridge"], dynamic="true")
+                ports.append({".id": self._id(), **port})
+        data[BRIDGE_PORT] = ports
+        # the bridge VLAN table: current lists, and dynamic entries for the pvids
+        off = {r.get("name") for r in interfaces if r.get("disabled") == "true"}
+        bridges = {b.get("name", ""): b for b in data[BRIDGE]}
+
+        def by_pvid(bridge: str, vid: str, tagged: list[str]) -> list[str]:
+            out = [bridge] if bridges[bridge].get("pvid", "1") == vid else []
+            out = [b for b in out if b not in tagged]
+            for p in ports:
+                if (
+                    p.get("bridge") == bridge
+                    and p.get("pvid", "1") == vid
+                    and p.get("frame-types") != "admit-only-vlan-tagged"
+                    and p.get("disabled") != "true"
+                    and p.get("interface") not in off
+                ):
+                    out.append(p["interface"])
+            return out
+
+        entries = [e for e in data[BRIDGE_VLAN] if e.get("dynamic") != "true"]
+        covered: set[tuple[str, str]] = set()
+        for e in entries:
+            tagged = [x for x in e.get("tagged", "").split(",") if x]
+            untagged = [x for x in e.get("untagged", "").split(",") if x]
+            vids = e.get("vlan-ids", "").split(",")
+            bridge = e.get("bridge", "")
+            covered |= {(bridge, v) for v in vids}
+            pvid = by_pvid(bridge, vids[0], tagged) if len(vids) == 1 and bridge in bridges else []
+            e["current-tagged"] = ",".join(tagged)
+            e["current-untagged"] = ",".join(dict.fromkeys(untagged + pvid))
+        dynamic = []
+        for b, row_b in bridges.items():
+            pvids = [row_b.get("pvid", "1")] + [
+                p.get("pvid", "1") for p in ports if p.get("bridge") == b
+            ]
+            for vid in dict.fromkeys(pvids):
+                members = by_pvid(b, vid, [])
+                if (b, vid) not in covered and members:
+                    dynamic.append(
+                        {
+                            ".id": self._id(),
+                            "bridge": b,
+                            "vlan-ids": vid,
+                            "tagged": "",
+                            "untagged": "",
+                            "current-tagged": "",
+                            "current-untagged": ",".join(members),
+                            "dynamic": "true",
+                            "disabled": "false",
+                        }
+                    )
+        data[BRIDGE_VLAN] = dynamic + entries
+
+    def export(self) -> str:
+        """A crude ``/export`` of the writable menus, secrets hidden as RouterOS does."""
+        lines = ["# simulated RouterOS export"]
+        for menu in WRITABLE:
+            rows = [r for r in self.data.get(menu, []) if r.get("dynamic") != "true"]
+            if rows:
+                lines.append(menu.removeprefix("/rest"))
+            for r in rows:
+                props = " ".join(
+                    f"{k}={v}"
+                    for k, v in r.items()
+                    if k not in COMPUTED and "passphrase" not in k and v != ""
+                )
+                lines.append(f"add {props}")
+        return "\n".join(lines) + "\n"
+
+
+def _bad(detail: str) -> JSONResponse:
+    return JSONResponse({"error": 400, "message": "Bad Request", "detail": detail}, status_code=400)
+
+
+EXPORT = "/rest/export"
+INTERFACE = "/rest/interface"
+BRIDGE = "/rest/interface/bridge"
+VLAN = "/rest/interface/vlan"
+BRIDGE_PORT = "/rest/interface/bridge/port"
+BRIDGE_VLAN = "/rest/interface/bridge/vlan"
+IP_ADDRESS = "/rest/ip/address"
+POOL = "/rest/ip/pool"
+DHCP_SERVER = "/rest/ip/dhcp-server"
+DHCP_NETWORK = "/rest/ip/dhcp-server/network"
+DHCP_LEASE = "/rest/ip/dhcp-server/lease"
+WIFI = "/rest/interface/wifi"
+#: Menus the simulator accepts writes for.
+WRITABLE = (
+    VLAN,
+    BRIDGE,
+    BRIDGE_VLAN,
+    BRIDGE_PORT,
+    IP_ADDRESS,
+    POOL,
+    DHCP_NETWORK,
+    DHCP_SERVER,
+    DHCP_LEASE,
+    WIFI,
+)
+REQUIRED = {
+    VLAN: ("name", "vlan-id", "interface"),
+    IP_ADDRESS: ("address", "interface"),
+    BRIDGE_VLAN: ("bridge", "vlan-ids"),
+    BRIDGE_PORT: ("bridge", "interface"),
+    POOL: ("name", "ranges"),
+    DHCP_NETWORK: ("address",),
+    DHCP_SERVER: ("name", "interface"),
+    DHCP_LEASE: ("address", "mac-address"),
+    WIFI: ("name",),
+}
+#: Properties that name interfaces (checked against ``/interface``).
+REFERENCES = {
+    VLAN: ("interface",),
+    IP_ADDRESS: ("interface",),
+    BRIDGE_PORT: ("interface", "bridge"),
+    BRIDGE_VLAN: ("bridge", "tagged", "untagged"),
+    DHCP_SERVER: ("interface",),
+}
+_STATIC = {"disabled": "false", "dynamic": "false"}
+DEFAULTS: dict[str, dict[str, str]] = {
+    VLAN: {"mtu": "1500", "running": "true", **_STATIC},
+    IP_ADDRESS: {"invalid": "false", **_STATIC},
+    BRIDGE_VLAN: {"tagged": "", "untagged": "", **_STATIC},
+    BRIDGE_PORT: {
+        "pvid": "1",
+        "frame-types": "admit-all",
+        "ingress-filtering": "true",
+        "inactive": "false",
+        **_STATIC,
+    },
+    DHCP_SERVER: {
+        "address-pool": "static-only",
+        "lease-time": "30m",
+        "invalid": "false",
+        **_STATIC,
+    },
+    DHCP_LEASE: {"server": "all", "status": "waiting", **_STATIC},
+    WIFI: {"running": "true", **_STATIC},
+}
+COMPUTED = {
+    ".id",
+    "dynamic",
+    "running",
+    "invalid",
+    "inactive",
+    "current-tagged",
+    "current-untagged",
+}
