@@ -1,4 +1,4 @@
-"""AVM Fritz!Box (read): LAN, DHCP, Wi-Fi and hosts over TR-064 (SOAP over HTTPS).
+"""AVM Fritz!Box: LAN, DHCP, Wi-Fi and hosts over TR-064 (SOAP over HTTPS).
 
 The SOAP side is :mod:`signalbox.adapters.fritzbox.soap`, the HTTPS side (probe, pin, errors)
 :class:`signalbox.adapters.https.DeviceHttp`. Authentication is HTTP Digest with a dedicated
@@ -10,12 +10,18 @@ Mapping in short: the LAN is the native segment with one bridge port ``lan`` (TR
 per-port view), its subnet from ``IPRouters``/``SubnetMask``; every ``WLANConfiguration<n>`` is
 a WLAN, the non-guest ones also a radio; the guest WLAN gets its own segment
 ``<site>/segment/guest``. DHCP reservations, DNS and LLDP are not exposed by TR-064.
+
+Writing (:mod:`signalbox.adapters.fritzbox.write`): the LAN DHCP server and the existing Wi-Fi
+networks. There is no confirm timer; the backup is the TR-064 values of every setting the
+adapter may change, and a restore sets them back.
 """
 
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from ipaddress import IPv4Address, IPv4Interface, ip_address
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -28,14 +34,29 @@ from signalbox.adapters import (
     AdapterConfig,
     AdapterContext,
     AdapterError,
+    ApplyResult,
     AuthFailed,
+    Backup,
     Capability,
     Manifest,
     Observation,
     SystemInfo,
+    VendorCall,
 )
 from signalbox.adapters.fritzbox.soap import SoapFault, Tr064
+from signalbox.adapters.fritzbox.write import (
+    BACKUP_FORMAT,
+    Call,
+    backup_content,
+    check_wlan,
+    dhcp_wanted,
+    lan_calls,
+    parse_backup,
+    wlan_calls,
+    wlan_wanted,
+)
 from signalbox.adapters.https import DeviceHttp, NotFound
+from signalbox.changes import Change, ChangeKind, WlanValue
 from signalbox.model import (
     Band,
     Client,
@@ -127,6 +148,12 @@ def _flag(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "up")
 
 
+def _wlan_on(info: Mapping[str, str]) -> bool:
+    """A WLAN is on when enabled and its status is not ``Disabled``."""
+    status = info.get("NewStatus", "Up").strip().lower()
+    return _flag(info.get("NewEnable")) and status != "disabled"
+
+
 def _int(value: str | None) -> int | None:
     try:
         return int(str(value).strip())
@@ -188,7 +215,7 @@ class FritzboxAdapter(Adapter):
     manifest = Manifest(
         id="fritzbox",
         name="AVM Fritz!Box",
-        version="0.1.0",
+        version="0.2.0",
         api_version="1.0",
         vendor="AVM",
         roles=frozenset({DeviceRole.GATEWAY, DeviceRole.AP}),
@@ -196,7 +223,9 @@ class FritzboxAdapter(Adapter):
             {Capability.INTERFACES, Capability.DHCP, Capability.WIRELESS, Capability.CLIENTS}
         ),
         config=FritzboxConfig,
-        description="Reads a Fritz!Box over TR-064 (SOAP over HTTPS) with a dedicated user.",
+        description="Reads a Fritz!Box over TR-064 (SOAP over HTTPS) with a dedicated user; "
+        "changes its DHCP server and existing Wi-Fi networks.",
+        writes=frozenset({ChangeKind.DHCP, ChangeKind.WLAN}),
     )
 
     def __init__(self, context: AdapterContext) -> None:
@@ -349,15 +378,22 @@ class FritzboxAdapter(Adapter):
 
     # dhcp -----------------------------------------------------------------------------
 
-    async def read_dhcp(self) -> Observation:
-        d = self.context.device_id
+    async def _lan_values(self) -> dict[str, str]:
+        """LANHostConfigManagement GetInfo, with GetAddressRange when it leaves the range out."""
         lan = await self._lan()
         if not (lan.get("NewMinAddress") and lan.get("NewMaxAddress")):
             with contextlib.suppress(SoapFault):
                 lan |= await self.tr064.call("LANHostConfigManagement1", "GetAddressRange")
+        return lan
+
+    async def read_dhcp(self) -> Observation:
+        d = self.context.device_id
+        lan = await self._lan_values()
         enabled = _flag(lan.get("NewDHCPServerEnable"))
         first, last = _v4(lan.get("NewMinAddress")), _v4(lan.get("NewMaxAddress"))
-        pools = [DhcpPool(start=first, end=last)] if enabled and first and last else []
+        # The range is kept while the server is off (as on the box), so switching it back on
+        # restores the same pool.
+        pools = [DhcpPool(start=first, end=last)] if first and last else []
         routers = _v4_list(lan.get("NewIPRouters"))
         server = DhcpServer(
             id=object_id(d, "dhcp", "lan"),
@@ -403,6 +439,16 @@ class FritzboxAdapter(Adapter):
             ) from exc
         return keys.get("NewKeyPassphrase") or None
 
+    async def _advertised(self, wlan: WlanService) -> bool | None:
+        """Whether the SSID is broadcast; None when the box has no such action."""
+        try:
+            answer = await self.tr064.call(wlan.service, "X_AVM-DE_GetBeaconAdvertisement")
+        except SoapFault as exc:
+            if exc.code == 401:
+                return None
+            raise
+        return _flag(answer.get("NewBeaconAdvertisementEnabled", "1"))
+
     async def read_wireless(self) -> Observation:
         d = self.context.device_id
         wlans = await self._wlans()
@@ -412,6 +458,7 @@ class FritzboxAdapter(Adapter):
         for w in wlans:
             info = w.info
             on = _flag(info.get("NewEnable"))
+            hidden = await self._advertised(w) is False
             if not w.guest:
                 radios.append(
                     Radio(
@@ -438,7 +485,8 @@ class FritzboxAdapter(Adapter):
                     device_id=d,
                     ssid=ssid,
                     radio_id=radio_ids[w.index],
-                    enabled=on and info.get("NewStatus", "Up").strip().lower() != "disabled",
+                    enabled=_wlan_on(info),
+                    hidden=hidden,
                     security=sec,
                     passphrase_fingerprint=fingerprint,
                     segment_id=self._guest if w.guest else self._native,
@@ -522,3 +570,135 @@ class FritzboxAdapter(Adapter):
                 for m, fields in sorted(clients.items())
             ]
         )
+
+    # writing --------------------------------------------------------------------------
+
+    async def _wlan_current(self, wlan: WlanService) -> dict[str, str]:
+        """GetInfo of one WLAN with ``NewEnable`` as read and the beacon advertisement."""
+        current = dict(wlan.info)
+        current["NewEnable"] = "1" if _wlan_on(wlan.info) else "0"
+        advertised = await self._advertised(wlan)
+        if advertised is not None:
+            current["NewBeaconAdvertisementEnabled"] = "1" if advertised else "0"
+        return current
+
+    async def _current_passphrase(self, service: str) -> str | None:
+        """The passphrase a WLAN has now (to skip an unchanged one); None if not readable."""
+        try:
+            keys = await self.tr064.call(service, "GetSecurityKeys")
+        except SoapFault:
+            return None
+        return keys.get("NewKeyPassphrase") or None
+
+    async def _calls(self, changes: list[Change], secrets: Mapping[str, str]) -> list[Call]:
+        """Read the current values, then the TR-064 calls that make the changes."""
+        for c in changes:
+            if c.kind not in self.manifest.writes:
+                raise AdapterError(
+                    f"{c.key}: the Fritz!Box integration cannot change {c.kind.value} "
+                    "(not offered by TR-064)"
+                )
+            if c.kind is ChangeKind.WLAN:
+                check_wlan(c)
+            elif c.key != self._native:
+                raise AdapterError(
+                    f"{c.key}: the Fritz!Box has one DHCP server, on its LAN ({self._native})"
+                )
+        calls: list[Call] = []
+        lan: dict[str, str] | None = None
+        wlans: dict[int, dict[str, str]] | None = None
+        for c in changes:
+            if c.kind is ChangeKind.DHCP:
+                lan = lan if lan is not None else await self._lan_values()
+                wanted = dhcp_wanted(c, lan)
+                calls += lan_calls(lan, wanted)
+                lan = lan | wanted  # a later change in the same list starts from this
+                continue
+            if wlans is None:
+                wlans = {w.index: await self._wlan_current(w) for w in await self._wlans()}
+            assert isinstance(c.old, WlanValue)
+            targets = [i for i, cur in wlans.items() if cur.get("NewSSID") == c.old.ssid]
+            if not targets:
+                raise AdapterError(f"SSID {c.old.ssid}: no Wi-Fi network of the Fritz!Box has it")
+            for index in targets:
+                service = f"WLANConfiguration{index}"
+                current = wlans[index]
+                wanted = wlan_wanted(c, current, security(current.get("NewBeaconType")), secrets)
+                passphrase = None
+                if "NewKeyPassphrase" in wanted:
+                    passphrase = await self._current_passphrase(service)
+                calls += wlan_calls(service, current, wanted, passphrase)
+                wanted.pop("NewKeyPassphrase", None)
+                wlans[index] = current | wanted
+        return calls
+
+    async def _send(self, calls: list[Call]) -> list[VendorCall]:
+        sent = []
+        for call in calls:
+            try:
+                await self.tr064.call(call.service, call.action, **call.args)
+            except SoapFault as exc:
+                raise AdapterError(f"{call.description}: refused by the Fritz!Box ({exc})") from exc
+            sent.append(call.vendor())
+        return sent
+
+    async def plan_changes(
+        self, changes: list[Change], secrets: Mapping[str, str]
+    ) -> list[VendorCall]:
+        return [call.vendor() for call in await self._calls(changes, secrets)]
+
+    async def backup(self) -> Backup:
+        """The TR-064 values of every setting the adapter may change.
+
+        Passphrases are included (backups are stored encrypted and never leave the server).
+        A full configuration export (``DeviceConfig X_AVM-DE_GetConfigFile``) needs an export
+        password and can only be restored as a whole, with a reboot, so it is not used.
+        """
+        lan = await self._lan_values()
+        wlans: dict[int, dict[str, str]] = {}
+        for w in await self._wlans():
+            values = await self._wlan_current(w)
+            passphrase = await self._current_passphrase(w.service)
+            if passphrase is not None:
+                values["NewKeyPassphrase"] = passphrase
+            wlans[w.index] = values
+        return Backup(
+            device_id=self.context.device_id,
+            taken_at=datetime.now(UTC),
+            format=BACKUP_FORMAT,
+            content=backup_content(lan, wlans),
+        )
+
+    async def apply(
+        self, changes: list[Change], secrets: Mapping[str, str], rollback_seconds: int
+    ) -> ApplyResult:
+        """Send the calls one after another.
+
+        TR-064 has no transaction and no rollback timer, so ``confirm_deadline`` stays None;
+        a failure is undone by the deployer (inverse changes, then :meth:`restore`).
+        """
+        return ApplyResult(calls=await self._send(await self._calls(changes, secrets)))
+
+    async def confirm(self) -> None:
+        """Nothing to confirm: the Fritz!Box applies TR-064 settings at once."""
+
+    async def restore(self, backup: Backup) -> None:
+        if backup.format != BACKUP_FORMAT:
+            raise AdapterError(f"backup format {backup.format!r} is not {BACKUP_FORMAT!r}")
+        lan_wanted, wlans_wanted = parse_backup(backup.content)
+        calls = lan_calls(await self._lan_values(), lan_wanted)
+        have = {w.index: w for w in await self._wlans()}
+        missing = sorted(set(wlans_wanted) - set(have))
+        if missing:
+            raise AdapterError(
+                "the backup holds WLANConfiguration "
+                + ", ".join(str(i) for i in missing)
+                + ", which this Fritz!Box does not have"
+            )
+        for index, wanted in sorted(wlans_wanted.items()):
+            wlan = have[index]
+            passphrase = None
+            if "NewKeyPassphrase" in wanted:
+                passphrase = await self._current_passphrase(wlan.service)
+            calls += wlan_calls(wlan.service, await self._wlan_current(wlan), wanted, passphrase)
+        await self._send(calls)
