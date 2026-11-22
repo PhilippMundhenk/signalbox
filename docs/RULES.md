@@ -96,6 +96,13 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`ipv6.prefix-64`](rules/ipv6.md#ipv6prefix-64)
 - [`ipv6.partial`](rules/ipv6.md#ipv6partial)
 
+## [Management services](rules/management.md)
+
+- [`security.insecure-services`](rules/management.md#securityinsecure-services)
+- [`security.wan-management`](rules/management.md#securitywan-management)
+- [`security.service-exposure`](rules/management.md#securityservice-exposure)
+- [`security.plaintext-read`](rules/management.md#securityplaintext-read)
+
 ## [Network purposes](rules/networks.md)
 
 - [`wifi.guest-isolation`](rules/networks.md#wifiguest-isolation)
