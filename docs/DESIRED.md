@@ -59,6 +59,12 @@ sites:
 Every field except the identifying ones (`vlan`, `ssid`, `device` + `port`) is optional; only
 what is written is compared.
 
+`native` is the untagged network. A site with two routers in a row (a firewall behind the
+internet provider's router) has two of them: on a port or an SSID, `native` is the device's own
+untagged network (the one of the router it is behind); a `vlan: native` segment is the main one
+(see [DESIGN.md](DESIGN.md#untagged-networks-of-several-routers)). The provider router's LAN is
+left out when the state is imported from the network and cannot be declared yet.
+
 ## Network purposes
 
 `purpose` says what a segment or SSID is for: `main`, `guest`, `iot`, `management`, `servers`,

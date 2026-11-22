@@ -39,7 +39,7 @@ export function segmentLabel(seg, id) {
   if (!seg) {
     const m = /\/segment\/(.+)$/.exec(id || '');
     if (!m) return id || '–';
-    return m[1] === 'native' ? 'Untagged network' : `VLAN ${m[1]}`;
+    return /^native(-|$)/.test(m[1]) ? 'Untagged network' : `VLAN ${m[1]}`;
   }
   const base = seg.vlan ? `VLAN ${seg.vlan}` : 'Untagged network';
   return seg.name ? `${base} (${seg.name})` : base;

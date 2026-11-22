@@ -3,23 +3,268 @@
 Purposes: a segment's purpose comes from the first device (by id) that reports one; segments and
 SSIDs without a reported purpose get a name guess (``heuristic``, :mod:`signalbox.purpose`).
 Declared purposes from the desired state are applied afterwards by the runner.
+
+Untagged networks (#205): every device reports its plain LAN as ``<site>/segment/native``. When
+routers of a site have untagged networks that are separate layer-2 networks (an ISP router with
+a firewall behind it, each with its own LAN), :func:`_native_split` gives every further network
+a segment of its own (:func:`~signalbox.model.native_segment_id`) before the segments are
+joined. A site with one router is not touched.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from ipaddress import IPv4Network, IPv6Network, ip_address
 
 from signalbox.model import (
     Client,
+    Device,
     DeviceRole,
     Link,
+    Membership,
     Network,
     PortMembership,
     Segment,
     Site,
     Snapshot,
+    is_native_segment,
+    native_segment_id,
+    segment_id,
 )
 from signalbox.purpose import with_heuristics
+
+IPNetwork = IPv4Network | IPv6Network
+
+
+def _overlap(a: Iterable[IPNetwork], b: Iterable[IPNetwork]) -> bool:
+    nets = list(b)
+    return any(x.version == y.version and x.overlaps(y) for x in a for y in nets)
+
+
+def _inside(address: str | None, nets: Iterable[IPNetwork]) -> bool:
+    try:
+        addr = ip_address((address or "").strip("[]"))
+    except ValueError:
+        return False
+    return any(addr.version == n.version and addr in n for n in nets)
+
+
+def _owner(port: str, devices: dict[str, Device]) -> str | None:
+    """Device id of a port id (``<device>/port/<name>``) when it is one of ``devices``."""
+    device = port.split("/port/", 1)[0]
+    return device if device in devices and device != port else None
+
+
+class _Groups:
+    """Union-find over router ids; the representative is the lowest id."""
+
+    def __init__(self, ids: Iterable[str]) -> None:
+        self.parent = {i: i for i in ids}
+
+    def find(self, x: str) -> str:
+        while self.parent[x] != x:
+            x = self.parent[x]
+        return x
+
+    def union(self, a: str, b: str) -> bool:
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return False
+        self.parent[max(ra, rb)] = min(ra, rb)
+        return True
+
+
+def _native_split(snaps: list[Snapshot], links: list[Link]) -> dict[str, str]:
+    """Device id -> native segment id for the devices of sites with more than one separate
+    untagged network; empty when there is none, so single-router sites stay as they are.
+
+    1. Every router (a subnet on the native segment that is marked as gateway or belongs to a
+       device with the gateway role) has a network; routers with overlapping subnets (the same
+       LAN, a redundant pair, a router in access-point mode) share one.
+    2. Other devices join the network whose subnet holds their management address.
+    3. A link between two ports that both send the native network untagged joins the networks
+       of its ends (a switch or access point that carries both); an end whose device has no
+       network yet takes the other one's.
+    4. With more than one network left at a site, the main one keeps ``<site>/segment/native``:
+       the one that is not in front of another router (no other router's uplink address in
+       it), then the one most switches and access points are managed in, then the one of the
+       lowest router id. The others are named after their lowest router id.
+    """
+    devices = {d.id: d for s in snaps for d in (s.device, *s.extra_devices)}
+    routers: dict[str, list[IPNetwork]] = {}
+    for snap in snaps:
+        for sub in snap.subnets:
+            dev = devices.get(sub.device_id)
+            if dev is None or sub.segment_id != segment_id(dev.site_id, None):
+                continue
+            if not sub.interface.ip.is_link_local and (
+                sub.gateway or dev.role is DeviceRole.GATEWAY
+            ):
+                routers.setdefault(dev.id, []).append(sub.interface.network)
+    per_site: dict[str, list[str]] = {}
+    for r in sorted(routers):
+        per_site.setdefault(devices[r].site_id, []).append(r)
+    if all(len(rs) < 2 for rs in per_site.values()):
+        return {}
+    groups = _Groups(routers)
+    for rs in per_site.values():
+        for i, a in enumerate(rs):
+            for b in rs[i + 1 :]:
+                if _overlap(routers[a], routers[b]):
+                    groups.union(a, b)
+    member: dict[str, str] = {r: r for r in routers}  # device -> a router of its network
+    managed: dict[str, str] = {}
+    for dev in sorted(devices.values(), key=lambda d: d.id):
+        if dev.id in routers:
+            continue
+        first = next(
+            (
+                c
+                for c in per_site.get(dev.site_id, [])
+                if _inside(dev.management_address, routers[c])
+            ),
+            None,
+        )
+        if first is not None:
+            member[dev.id] = managed[dev.id] = first
+    native_ports = {
+        m.port_id
+        for snap in snaps
+        for seg in snap.segments
+        if seg.id == segment_id(seg.site_id, None)
+        for m in seg.members
+        if m.mode is Membership.UNTAGGED
+    }
+    changed = True
+    while changed:
+        changed = False
+        for link in links:
+            if link.a not in native_ports or link.b not in native_ports:
+                continue
+            end_a, end_b = _owner(link.a, devices), _owner(link.b, devices)
+            if end_a is None or end_b is None or devices[end_a].site_id != devices[end_b].site_id:
+                continue
+            ga, gb = member.get(end_a), member.get(end_b)
+            if ga is not None and gb is not None:
+                changed |= groups.union(ga, gb)
+            elif ga is not None:
+                member[end_b] = ga
+                changed = True
+            elif gb is not None:
+                member[end_a] = gb
+                changed = True
+    out: dict[str, str] = {}
+    for site, rs in sorted(per_site.items()):
+        roots = sorted({groups.find(r) for r in rs})
+        if len(roots) < 2:
+            continue
+        nets = {g: [n for r in rs if groups.find(r) == g for n in routers[r]] for g in roots}
+        in_front = {
+            g
+            for snap in snaps
+            for u in snap.uplinks
+            if u.device_id in routers and devices[u.device_id].site_id == site
+            for g in roots
+            if groups.find(u.device_id) != g and _overlap([a.network for a in u.addresses], nets[g])
+        }
+        count = {g: sum(groups.find(r) == g for r in managed.values()) for g in roots}
+        main = min(roots, key=lambda g: (g in in_front, -count[g], g))
+        for dev_id, r in member.items():
+            if devices[dev_id].site_id == site:
+                g = groups.find(r)
+                out[dev_id] = native_segment_id(site, None if g == main else g)
+    return out
+
+
+def _split_snapshot(snap: Snapshot, native: dict[str, str]) -> Snapshot:
+    """The snapshot with its native references moved to the network of the device they
+    belong to: memberships by the port's device, subnets, DHCP servers and SSIDs by their
+    device, clients by their addresses (else where they were seen, else the reporting device).
+    """
+    devices = {d.id: d for d in (snap.device, *snap.extra_devices)}
+    home = snap.device.id
+
+    def main(dev: Device) -> str:
+        return segment_id(dev.site_id, None)
+
+    def of(device_id: str, sid: str | None) -> str | None:
+        dev = devices.get(device_id, snap.device)
+        return native.get(dev.id, sid) if sid == main(dev) else sid
+
+    segments: list[Segment] = []
+    for seg in snap.segments:
+        if seg.id != segment_id(seg.site_id, None):
+            segments.append(seg)
+            continue
+        own = native.get(home, seg.id)
+        parts: dict[str, list[PortMembership]] = {own: []}
+        for m in seg.members:
+            parts.setdefault(native.get(_owner(m.port_id, devices) or home, seg.id), []).append(m)
+        segments += [
+            seg.model_copy(update={"id": sid, "members": members})
+            for sid, members in parts.items()
+            if members or sid == own
+        ]
+    subnets = [
+        s.model_copy(update={"segment_id": of(s.device_id, s.segment_id)}) for s in snap.subnets
+    ]
+    networks: dict[str, list[IPNetwork]] = {}
+    for sub in subnets:
+        if is_native_segment(sub.segment_id):
+            networks.setdefault(sub.segment_id, []).append(sub.interface.network)
+
+    def client(c: Client) -> Client:
+        if c.segment_id is None or c.segment_id != main(snap.device):
+            return c
+        for sid in sorted(networks):
+            if any(_inside(str(a), networks[sid]) for a in c.addresses):
+                return c.model_copy(update={"segment_id": sid})
+        seen = _owner(c.seen_on or "", devices) or home
+        return c.model_copy(update={"segment_id": native.get(seen, c.segment_id)})
+
+    def device(d: Device) -> Device:
+        ntp = d.time.ntp_server if d.time else None
+        if d.time is None or ntp is None or not ntp.segments:
+            return d
+        moved = ntp.model_copy(update={"segments": [of(d.id, s) or s for s in ntp.segments]})
+        return d.model_copy(update={"time": d.time.model_copy(update={"ntp_server": moved})})
+
+    return snap.model_copy(
+        update={
+            "device": device(snap.device),
+            "extra_devices": [device(d) for d in snap.extra_devices],
+            "segments": segments,
+            "subnets": subnets,
+            "dhcp_servers": [
+                s.model_copy(update={"segment_id": of(s.device_id, s.segment_id)})
+                for s in snap.dhcp_servers
+            ],
+            "wlans": [
+                w.model_copy(update={"segment_id": of(w.device_id, w.segment_id)})
+                for w in snap.wlans
+            ],
+            "clients": [client(c) for c in snap.clients],
+        }
+    )
+
+
+def _name_natives(segments: list[Segment], snaps: list[Snapshot]) -> list[Segment]:
+    """Further native segments get their router's name: ``lan (fw)``, ``fw`` without a name."""
+    names = {
+        native_segment_id(d.site_id, d.id): d.name
+        for s in snaps
+        for d in (s.device, *s.extra_devices)
+    }
+    out = []
+    for seg in segments:
+        if is_native_segment(seg.id) and seg.id != segment_id(seg.site_id, None):
+            router = names.get(seg.id)
+            if router:
+                seg = seg.model_copy(
+                    update={"name": f"{seg.name} ({router})" if seg.name else router}
+                )
+        out.append(seg)
+    return out
 
 
 def _merge_segments(snaps: list[Snapshot]) -> list[Segment]:
@@ -103,6 +348,14 @@ def merge(
     duplicates = sorted({i for i in ids if ids.count(i) > 1})
     if duplicates:
         raise ValueError(f"more than one snapshot for device(s) {', '.join(duplicates)}")
+    links = list(links)
+    native = _native_split(snaps, links)
+    segments = []
+    if native:
+        snaps = [_split_snapshot(s, native) for s in snaps]
+        segments = _name_natives(_merge_segments(snaps), snaps)
+    else:
+        segments = _merge_segments(snaps)
 
     def every(attr: str) -> list[object]:
         return [item for s in snaps for item in getattr(s, attr)]
@@ -117,7 +370,7 @@ def merge(
                 for d in (s.device, *s.extra_devices)
             },
             "ports": every("ports"),
-            "segments": _merge_segments(snaps),
+            "segments": segments,
             "subnets": every("subnets"),
             "uplinks": every("uplinks"),
             "dhcp_servers": every("dhcp_servers"),

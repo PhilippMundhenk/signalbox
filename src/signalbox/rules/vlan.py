@@ -4,6 +4,13 @@ These rules work on :attr:`Network.links` (each joins two port ids) and on the s
 memberships of the ports. Devices are the nodes of the link graph; a port belongs to its
 ``device_id``. Ports of a device that reports no VLAN memberships at all are treated as
 unknown, not as "carries nothing", so an unmanaged or unread switch never produces errors.
+
+The same holds for a device that was not fully read (#205: unreachable, or its ``interfaces``
+read failed): its ports are unknown, and checks that need them are incomplete. A link inferred
+from a MAC table may run through devices Signalbox does not read, so a disagreement between its
+ends is incomplete too, not an error. A gateway's uplink (WAN) port carries the network of the
+router in front of it untagged (``Network.upstream_router``); where the integration does not
+report uplinks, a gateway port in no segment that is cabled to another gateway is taken for one.
 """
 
 from __future__ import annotations
@@ -16,8 +23,10 @@ from ipaddress import ip_address
 from signalbox.model import (
     Device,
     DeviceRole,
+    DeviceStatus,
     Link,
     LinkKind,
+    LinkOrigin,
     Membership,
     Neighbour,
     Network,
@@ -35,6 +44,8 @@ class _View:
     members: dict[str, dict[str, Membership]]
     #: devices with at least one reported membership on one of their own ports
     reporting: frozenset[str]
+    #: devices whose ports were not fully read (unreachable, ``interfaces`` failed)
+    unread: frozenset[str]
 
     @classmethod
     def of(cls, net: Network) -> _View:
@@ -43,11 +54,16 @@ class _View:
             for m in seg.members:
                 members.setdefault(m.port_id, {})[seg.id] = m.mode
         reporting = frozenset(_device_of(net, p) for p in members)
-        return cls(net, members, reporting)
+        return cls(net, members, reporting, not_fully_read(net))
 
     def known(self, port: str) -> bool:
-        """True when the VLANs of this port are known (its device reports memberships)."""
-        return _device_of(self.net, port) in self.reporting
+        """True when the VLANs of this port are known: its device reports memberships and was
+        fully read."""
+        device = _device_of(self.net, port)
+        return device in self.reporting and device not in self.unread
+
+    def is_unread(self, port: str) -> bool:
+        return _device_of(self.net, port) in self.unread
 
     def carries(self, port: str, segment: str) -> bool:
         return segment in self.members.get(port, {})
@@ -59,6 +75,47 @@ class _View:
         return frozenset(
             s for s, m in self.members.get(port, {}).items() if m is Membership.UNTAGGED
         )
+
+
+_MAC_LINK = (
+    "{} is only inferred from a MAC table and may run through devices that are not read, so "
+    "this could not be checked. Enable LLDP on both devices or enter the cable by hand."
+)
+_UNREAD = frozenset({DeviceStatus.UNREACHABLE, DeviceStatus.AUTH_FAILED, DeviceStatus.UNTRUSTED})
+
+
+def not_fully_read(net: Network) -> frozenset[str]:
+    """Devices whose ports and VLANs are not known from this round: not reachable, or the
+    ``interfaces`` capability failed (a partly read device keeps what it did read)."""
+    failed = {e.device_id for e in net.errors if e.capability == "interfaces"}
+    return frozenset(
+        d.id for d in net.devices if net.statuses.get(d.id) in _UNREAD or d.id in failed
+    )
+
+
+def uplink_end(net: Network, view: _View, link: Link, port: str) -> tuple[bool, str | None]:
+    """Is ``port`` (an end of ``link``) a gateway's uplink, and which segment does it carry
+    untagged: the upstream router's network (None: not known)?
+
+    An uplink reported on the port counts (#148); without one, a gateway port that is in no
+    segment and is cabled to another gateway's port is taken for an uplink (#205).
+    """
+    if view.members.get(port):
+        return False, None
+    uplink = net.uplink_at(port)
+    if uplink is not None:
+        sub = net.upstream_router(uplink)
+        return True, sub.segment_id if sub else None
+    other = link.b if port == link.a else link.a
+    here, there = net.device(_device_of(net, port)), net.device(_device_of(net, other))
+    gateways = (
+        here is not None
+        and there is not None
+        and here.id != there.id
+        and here.role is DeviceRole.GATEWAY
+        and there.role is DeviceRole.GATEWAY
+    )
+    return gateways, None
 
 
 def _device_of(net: Network, port: str) -> str:
@@ -176,6 +233,8 @@ def path_to_gateway(net: Network) -> Iterator[Result]:
             target = min(reached, key=lambda g: (len(paths[g]), g))
             for link in paths[target]:
                 for end in (link.a, link.b):
+                    if uplink_end(net, view, link, end)[0]:
+                        continue  # a router's uplink: not a path inside this network
                     if not view.known(end):
                         unknown_ends.add((link.id, end))
                     elif not view.carries(end, seg):
@@ -189,8 +248,9 @@ def path_to_gateway(net: Network) -> Iterator[Result]:
                 key="unconnected",
             )
     for link_id, end in sorted(unknown_ends):
+        what = "was not fully read" if view.is_unread(end) else "does not report VLAN memberships"
         yield incomplete(
-            f"{_device_name(net, _device_of(net, end))} does not report VLAN memberships, so "
+            f"{_device_name(net, _device_of(net, end))} {what}, so "
             f"{_link_name(net, links[link_id])} could not be checked.",
             [link_id, end],
             key="unknown-port",
@@ -199,6 +259,14 @@ def path_to_gateway(net: Network) -> Iterator[Result]:
         link = links[link_id]
         lacking = [e for e in (link.a, link.b) if not view.carries(e, seg)]
         ports = " and ".join(_port_name(net, e) for e in lacking)
+        if link.origin is LinkOrigin.MAC:
+            yield incomplete(
+                f"{_segment_name(net, seg)}, used on {', '.join(sorted(users))}, is not "
+                f"configured on {ports}. {_MAC_LINK.format(f'The link {_link_name(net, link)}')}",
+                [seg, link_id, *lacking],
+                key="mac-link",
+            )
+            continue
         yield found(
             f"{_segment_name(net, seg)}, used on {', '.join(sorted(users))}, is not carried on "
             f"the link {_link_name(net, link)} (missing on {ports}).",
@@ -225,16 +293,32 @@ def _comparable(net: Network, view: _View) -> Iterator[Link]:
 def native_mismatch(net: Network) -> Iterator[Result]:
     view = _View.of(net)
     for link in _comparable(net, view):
-        a, b = view.untagged(link.a), view.untagged(link.b)
-        if a == b:
+        ends: list[frozenset[str]] = []
+        for end in (link.a, link.b):
+            is_uplink, carries = uplink_end(net, view, link, end)
+            if is_uplink and carries is None:
+                break  # the uplink to a router whose network is not known
+            ends.append(frozenset({carries}) if carries else view.untagged(end))
+        if len(ends) < 2 or ends[0] == ends[1]:
             continue
+        a, b = ends
 
         def describe(segs: frozenset[str]) -> str:
             return " and ".join(sorted(_segment_name(net, s) for s in segs)) or "nothing"
 
-        yield found(
+        message = (
             f"{_link_name(net, link)}: {_port_name(net, link.a)} sends {describe(a)} untagged, "
-            f"{_port_name(net, link.b)} sends {describe(b)} untagged.",
+            f"{_port_name(net, link.b)} sends {describe(b)} untagged."
+        )
+        if link.origin is LinkOrigin.MAC:
+            yield incomplete(
+                f"{message} {_MAC_LINK.format('It')}",
+                [link.id, link.a, link.b],
+                key="mac-link",
+            )
+            continue
+        yield found(
+            message,
             [link.id, link.a, link.b],
             fix="Set the same untagged (native) VLAN on both ports, or none on both.",
         )
@@ -250,13 +334,25 @@ def native_mismatch(net: Network) -> Iterator[Result]:
 def tagged_both_ends(net: Network) -> Iterator[Result]:
     view = _View.of(net)
     for link in _comparable(net, view):
+        if any(uplink_end(net, view, link, e)[0] for e in (link.a, link.b)):
+            continue
         for here, there in ((link.a, link.b), (link.b, link.a)):
             for seg in sorted(view.tagged(here)):
                 if view.carries(there, seg):
                     continue
-                yield found(
+                message = (
                     f"{_segment_name(net, seg)} is tagged on {_port_name(net, here)} but not "
-                    f"configured on {_port_name(net, there)} ({_link_name(net, link)}).",
+                    f"configured on {_port_name(net, there)} ({_link_name(net, link)})."
+                )
+                if link.origin is LinkOrigin.MAC:
+                    yield incomplete(
+                        f"{message} {_MAC_LINK.format('The link')}",
+                        [seg, link.id, there],
+                        key="mac-link",
+                    )
+                    continue
+                yield found(
+                    message,
                     [seg, link.id, there],
                     fix=f"Add {_segment_name(net, seg)} as tagged VLAN to "
                     f"{_port_name(net, there)}, or remove it from {_port_name(net, here)}.",
@@ -372,6 +468,8 @@ def _ap_segments(net: Network, ap: Device, uplink: Link) -> set[str] | None:
     if ap.managed_by is not None:
         return None  # a controller may move SSIDs between access points
     if any(e.device_id == ap.id and e.capability == "wireless" for e in net.errors):
+        return None
+    if ap.id in not_fully_read(net):
         return None
     wlans = [w for w in net.wlans if w.device_id == ap.id and w.enabled]
     if not wlans or any(w.segment_id is None for w in wlans):

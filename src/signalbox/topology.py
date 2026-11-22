@@ -128,11 +128,21 @@ def view(net: Network) -> dict[str, Any]:
             "max_speed_mbps": port.max_speed_mbps if port else None,
             "mtu": port.mtu if port else None,
             "up": port.up if port else None,
+            "uplink": net.uplink_at(port_id) is not None,
         }
+
+    def carried(port_id: str) -> dict[str, str]:
+        """Memberships of a port; a gateway's uplink port carries the network of the router in
+        front of it untagged (#148, #205), so that cable shows as consistent."""
+        if port_id in modes:
+            return modes[port_id]
+        uplink = net.uplink_at(port_id)
+        upstream = net.upstream_router(uplink) if uplink else None
+        return {upstream.segment_id: Membership.UNTAGGED.value} if upstream else {}
 
     edges = []
     for link in net.links:
-        a, b = modes.get(link.a, {}), modes.get(link.b, {})
+        a, b = carried(link.a), carried(link.b)
         segments = [
             {
                 "segment_id": sid,

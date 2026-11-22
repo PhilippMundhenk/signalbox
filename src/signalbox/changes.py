@@ -41,6 +41,7 @@ from signalbox.model import (
     Segment,
     Subnet,
     Wlan,
+    is_native_segment,
     object_id,
     passphrase_fingerprint,
     port_id,
@@ -592,6 +593,8 @@ def _apply(net: Network, c: Change) -> Network:
             wanted[seg_key(new.untagged)] = Membership.UNTAGGED
         for v in new.tagged:
             wanted[seg_key(v)] = Membership.TAGGED
+        # "native" is the device's own untagged network (one of several at a site, #205)
+        home = net.native_segment(c.device_id) or segment_id(c.site_id, None)
         for vlan in wanted:
             net = _segment(net, c.site_id, vlan, None)
         segs = []
@@ -599,7 +602,8 @@ def _apply(net: Network, c: Change) -> Network:
             members = [m for m in sg.members if m.port_id != c.key]
             if sg.site_id == c.site_id:
                 key = seg_key(sg.vlan) if sg.vlan is not None else None
-                if key in wanted:
+                other_native = key is None and is_native_segment(sg.id) and sg.id != home
+                if key in wanted and not other_native:
                     members.append(PortMembership(port_id=c.key, mode=wanted[key]))
             segs.append(sg.model_copy(update={"members": members}))
         # the writers set the PVID to the untagged VLAN (#156); tagged only: up to the device
@@ -614,6 +618,9 @@ def _apply(net: Network, c: Change) -> Network:
     if isinstance(c.new, WlanValue):
         w = c.new
         net = _segment(net, c.site_id, seg_key(w.segment), None)
+        wseg = segment_id(c.site_id, seg_key(w.segment))
+        if seg_key(w.segment) is None:
+            wseg = net.native_segment(c.device_id) or wseg
         radios: list[Radio | None] = [r for r in net.radios if r.device_id == c.device_id]
         for i, radio in enumerate(radios or [None]):
             wl.append(
@@ -625,7 +632,7 @@ def _apply(net: Network, c: Change) -> Network:
                     enabled=w.enabled,
                     security=w.security,
                     pmf=w.pmf,
-                    segment_id=segment_id(c.site_id, seg_key(w.segment)),
+                    segment_id=wseg,
                     hidden=w.hidden,
                     roaming_80211r=w.roaming_80211r,
                     roaming_80211k=w.roaming_80211k,

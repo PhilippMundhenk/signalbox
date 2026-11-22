@@ -18,6 +18,8 @@ from signalbox.model import (
     DhcpPool,
     DhcpServer,
     IPAddress,
+    Membership,
+    NatClass,
     Network,
     SegmentPurpose,
     Subnet,
@@ -586,6 +588,108 @@ def one_gateway(net: Network) -> Iterator[Result]:
         )
 
 
+# --- addr.double-nat (#60) -----------------------------------------------------------------------
+
+_DOUBLE_NAT_FIX = (
+    "Nothing to do if everything works. If port forwards, a VPN server, games or IPv6 behind "
+    "{inner} matter, put {outer} into bridge (modem) mode, or make {inner} its exposed host "
+    "(DMZ) and forward the ports there."
+)
+
+
+def _port_text(net: Network, port_id: str) -> str:
+    port = net.port(port_id)
+    name = port.label() if port else port_id.rsplit("/port/", 1)[-1]
+    device = port.device_id if port else port_id.split("/port/", 1)[0]
+    return f"{device_name(net, device)} port {name}"
+
+
+def _cable_between(net: Network, port: str | None, device_id: str) -> str:
+    """`` (cable A port x to B port y)`` when a link joins ``port`` to ``device_id``."""
+    for link in net.links:
+        for here, there in ((link.a, link.b), (link.b, link.a)):
+            other = net.port(there)
+            if here == port and other is not None and other.device_id == device_id:
+                return f" (cable {_port_text(net, there)} to {_port_text(net, here)})"
+    return ""
+
+
+@rule(
+    "addr.double-nat",
+    "Router behind another router (double NAT)",
+    Severity.INFO,
+    "A router gets its internet (WAN) address from another router at the site, or a private or "
+    "carrier-grade NAT address from the provider, so traffic is translated twice. Browsing "
+    "works, but port forwards, VPN servers, many games and VoIP calls fail or need settings on "
+    "both routers, IPv6 prefix delegation often stops at the first router, and it is unclear "
+    "which device is the router. Reported as information: it is often intended (a firewall "
+    "behind the provider's router), and Signalbox cannot see an exposed-host (DMZ) setting.",
+)
+def double_nat(net: Network) -> Iterator[Result]:
+    gateways = {d.id for d in net.devices if d.role is DeviceRole.GATEWAY}
+    with_uplinks = {u.device_id for u in net.uplinks}
+    for u in sorted(net.uplinks, key=lambda x: x.id):
+        inner = device_name(net, u.device_id)
+        v4 = ", ".join(str(a.ip) for a in u.ipv4())
+        upstream = net.upstream_router(u)
+        if upstream is not None:
+            outer = device_name(net, upstream.device_id)
+            yield found(
+                f"{inner} gets its WAN address {v4} from {outer} "
+                f"({segment_name(net, upstream.segment_id)}, {upstream.interface}): two routers "
+                f"in a row{_cable_between(net, u.port_id, upstream.device_id)}.",
+                [u.device_id, upstream.device_id, u.id],
+                fix=_DOUBLE_NAT_FIX.format(inner=inner, outer=outer),
+                key=f"{u.id}/router",
+            )
+            continue
+        nat = u.nat_class()
+        if nat is NatClass.PRIVATE:
+            yield found(
+                f"{inner} has the private WAN address {v4}: another router that Signalbox does "
+                "not read is in front of it.",
+                [u.device_id, u.id],
+                fix=_DOUBLE_NAT_FIX.format(inner=inner, outer="that router")
+                + " Add that router to Signalbox to see both.",
+                key=f"{u.id}/private",
+            )
+        elif nat is NatClass.CGNAT:
+            yield found(
+                f"{inner} has the WAN address {v4} from the provider's shared address space "
+                "(carrier-grade NAT): nothing from the internet reaches it over IPv4.",
+                [u.device_id, u.id],
+                fix="Nothing to do if everything works. For port forwards or a VPN server over "
+                "IPv4, ask the provider for a public IPv4 address, or use IPv6.",
+                key=f"{u.id}/cgnat",
+            )
+    # without uplink data: a gateway port in no segment, cabled to another router's LAN port
+    members = {m.port_id for s in net.segments for m in s.members}
+    routed = {(x.device_id, x.segment_id) for x in router_subnets(net)}
+    lan = {
+        m.port_id: s.id for s in net.segments for m in s.members if m.mode is Membership.UNTAGGED
+    }
+    for link in sorted(net.links, key=lambda x: x.id):
+        for wan, other in ((link.a, link.b), (link.b, link.a)):
+            here, there = net.port(wan), net.port(other)
+            if here is None or there is None or here.device_id == there.device_id:
+                continue
+            if here.device_id not in gateways or there.device_id not in gateways:
+                continue
+            if here.device_id in with_uplinks or wan in members or other not in lan:
+                continue
+            if (there.device_id, lan[other]) not in routed:
+                continue  # the other end is not the router of the network it sends
+            inner, outer = device_name(net, here.device_id), device_name(net, there.device_id)
+            yield found(
+                f"{_port_text(net, wan)} is in no network of {inner} and is cabled to "
+                f"{_port_text(net, other)} ({segment_name(net, lan[other])}): {inner} probably "
+                f"has its WAN there and sits behind {outer} (two routers in a row).",
+                [here.device_id, there.device_id, link.id],
+                fix=_DOUBLE_NAT_FIX.format(inner=inner, outer=outer),
+                key=f"{link.id}/cable",
+            )
+
+
 # --- inventory.management-address (#62) ----------------------------------------------------------
 
 
@@ -875,6 +979,7 @@ RULES: list[Rule] = [
     pool_usage,
     in_subnet,
     one_gateway,
+    double_nat,
     management_address,
     duplicate_reservation,
     lease_time,
