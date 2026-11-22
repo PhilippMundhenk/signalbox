@@ -54,7 +54,7 @@ error `{"error": {"code": ..., "message": ...}}`.
 | Answer | Meaning | Signalbox |
 | --- | --- | --- |
 | `result [0, {...}]` | OK | data is used |
-| `result [6]` / error `-32002` "Access denied" | not allowed by the ACL, or session expired | logs in once more, then "access denied for `object.method`: add it to the rpcd ACL" |
+| `result [6]` / error `-32002` "Access denied" | not allowed by the ACL, or session expired | logs in once more, then "access denied for `object.method`", with what to do: install the ACL file |
 | `result [3]`, `[4]` / error `-32000` "Object not found", `-32601` | object or method missing (package not installed) | "not found" |
 | other `result [n]` | ubus status (`2` invalid argument, `7` timeout, ...) | "ubus `object.method` failed: ..." |
 | not JSON, other shape, HTTP status other than 200 | | "unexpected answer" |
@@ -217,11 +217,18 @@ the neighbours, the interfaces and the chassis; Signalbox reads `neighbors`:
  "statistics": {…}, "interfaces": {…}, "chassis": {…}}
 ```
 
-Without the object the neighbours read fails with "luci-app-lldpd not installed"; when `lldpd`
-is not running, `neighbors` is missing ("lldpd is not running"). Either shows as an incomplete
+Without the object the neighbours read fails with "LLDP is not installed on the router"; when
+`lldpd` is not running, `neighbors` is missing ("lldpd is installed but not running"). Both
+errors say what to install or start. Either shows as an incomplete
 device; the other capabilities are unaffected.
 
 ## Read-only user on the device
+
+The device form shows these steps as commands to paste on the router (`ssh root@<router>`):
+packages, the ACL file below and a login `signalbox`. A router without Wi-Fi (no
+`/etc/config/wireless`) or without DHCP server (no `/etc/config/dhcp`) is read as having none.
+Every "access denied" error says to install this ACL; root may call whatever an installed ACL
+file allows (`list read '*'`), so with the file in place root works too.
 
 Packages: `rpcd`, `uhttpd`, `uhttpd-mod-ubus` (all part of a LuCI install); `rpcd-mod-file` for
 the lease file, `rpcd-mod-luci` for `luci-rpc` and `luci-app-lldpd` for LLDP are optional; on
@@ -355,7 +362,7 @@ only allows the `uci` methods of a transaction on the three configs:
 
 and `list write 'signalbox'` next to `list read 'signalbox'` in the login entry of
 `/etc/config/rpcd`. Without the write part, deploying fails at the first staged call with
-"access denied for uci.… : add it to the rpcd ACL", and nothing is changed.
+"access denied for uci.…", and nothing is changed.
 
 802.11v (`bss_transition`) needs the full `wpad` (`wpad-mbedtls`, `wpad-openssl`,
 ...): the hostapd of `wpad-basic-*` rejects `bss_transition` as an unknown option and then does

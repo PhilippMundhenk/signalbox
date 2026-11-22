@@ -102,7 +102,10 @@ async def test_recording_hook_leaves_out_digest_challenges(
             device_name="Fritz!Box",
             role=DeviceRole.GATEWAY,
             config=FritzboxConfig(
-                url=url, password=SecretStr(sim.password), allow_insecure_http=True
+                url=url,
+                username=sim.username,
+                password=SecretStr(sim.password),
+                allow_insecure_http=True,
             ),
         )
     )

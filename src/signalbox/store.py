@@ -380,17 +380,7 @@ class Store:
         to see a password to change the address. Raises StoreError with readable messages.
         """
         secret_names = _secret_fields(config_cls)
-        old_row = self._one("SELECT * FROM devices WHERE id = ?", (record.id,))
-        old_secrets: dict[str, str] = (
-            json.loads(self.vault.decrypt(old_row["secrets"]))
-            if old_row is not None and old_row["secrets"]
-            else {}
-        )
-        merged = {k: v for k, v in values.items() if not (k in secret_names and v in (None, ""))}
-        for name in secret_names:
-            if name not in merged and name in old_secrets:
-                merged[name] = old_secrets[name]
-        cfg = _validate(config_cls, merged)
+        cfg = self.form_config(record.id, values, config_cls)
         plain = cfg.model_dump(mode="json", exclude=secret_names)
         secrets = {
             name: value.get_secret_value()
@@ -425,6 +415,30 @@ class Store:
         stored = self.device(record.id)
         assert stored is not None
         return stored
+
+    def form_config(
+        self, device_id: str | None, values: dict[str, Any], config_cls: type[AdapterConfig]
+    ) -> AdapterConfig:
+        """Validated settings from form values; empty secrets take the stored device's value.
+
+        Nothing is written. Raises StoreError with readable messages.
+        """
+        secret_names = _secret_fields(config_cls)
+        old_row = (
+            None
+            if device_id is None
+            else self._one("SELECT secrets FROM devices WHERE id = ?", (device_id,))
+        )
+        old_secrets: dict[str, str] = (
+            json.loads(self.vault.decrypt(old_row["secrets"]))
+            if old_row is not None and old_row["secrets"]
+            else {}
+        )
+        merged = {k: v for k, v in values.items() if not (k in secret_names and v in (None, ""))}
+        for name in secret_names:
+            if name not in merged and name in old_secrets:
+                merged[name] = old_secrets[name]
+        return _validate(config_cls, merged)
 
     def adapter_config(self, device_id: str, config_cls: type[AdapterConfig]) -> AdapterConfig:
         row = self._one("SELECT * FROM devices WHERE id = ?", (device_id,))

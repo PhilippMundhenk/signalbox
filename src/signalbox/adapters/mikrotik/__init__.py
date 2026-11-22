@@ -30,7 +30,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from ipaddress import IPv4Interface, ip_address, ip_interface, ip_network
 from typing import Any
-from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue, SecretStr, field_validator, model_validator
 
@@ -45,7 +44,7 @@ from signalbox.adapters import (
     Observation,
     SystemInfo,
 )
-from signalbox.adapters.https import DeviceHttp, NotFound
+from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.model import (
     Band,
@@ -137,13 +136,19 @@ _AP_MODES = {"ap", "ap-bridge", "bridge"}
 
 
 class MikrotikConfig(AdapterConfig):
-    url: str = Field(description="Address of the REST API (service www-ssl), https://host[:port]")
+    url: str = Field(
+        description="Address of the router, for example 192.0.2.1; RouterOS answers the REST API "
+        "on https (IP > Services: www-ssl must be enabled)",
+        examples=["192.0.2.1"],
+    )
     username: str = Field(
         default="signalbox",
-        description="RouterOS user: a read-only group (read, rest-api), plus write to deploy",
+        description="RouterOS user, best in a group of its own with the policies read, api and "
+        "rest-api (add write only to deploy changes)",
     )
     password: SecretStr = Field(description="Password of that user")
     allow_insecure_http: bool = Field(
+        json_schema_extra={"advanced": True},
         default=False,
         description="Allow plain http:// (simulators and tests only: password sent unencrypted)",
     )
@@ -151,10 +156,7 @@ class MikrotikConfig(AdapterConfig):
     @field_validator("url")
     @classmethod
     def _url(cls, value: str) -> str:
-        parts = urlsplit(value)
-        if parts.scheme not in ("http", "https") or not parts.hostname:
-            raise ValueError("must be https://host[:port]")
-        return value.rstrip("/")
+        return device_url(value)
 
     @model_validator(mode="after")
     def _http_needs_opt_in(self) -> MikrotikConfig:
@@ -400,8 +402,24 @@ class _Layout:
         return self.ports[name].id if name in self.ports else None
 
 
+#: Shown in the device form ("Before you add it").
+MIKROTIK_STEPS = (
+    (
+        "Enable the REST API: the service www-ssl needs a certificate; the setup guide has the "
+        "five commands (a local CA is enough)."
+    ),
+    ("Add a group with the policies read, api and rest-api and a user 'signalbox' in it."),
+    (
+        "Below: the router's address, that user and password. Then Test connection and trust "
+        "the certificate."
+    ),
+)
+
+
 class MikrotikAdapter(MikrotikWrites, Adapter):
     manifest = Manifest(
+        setup_steps=MIKROTIK_STEPS,
+        setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/mikrotik.md#setup",
         id="mikrotik",
         name="MikroTik RouterOS",
         version="0.2.0",

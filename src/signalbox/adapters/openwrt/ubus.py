@@ -64,6 +64,25 @@ class NoData(AdapterError):
     ``uci rollback`` with no change waiting for its confirmation."""
 
 
+SETUP = "https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/openwrt.md"
+
+
+def acl_fix(username: str) -> str:
+    """What to do when rpcd's permissions (ACL) refuse a call."""
+    who = (
+        "root may call everything a permission file allows"
+        if username == "root"
+        else f"the login {username!r} also needs the line list read 'signalbox' in its "
+        "config login section of /etc/config/rpcd"
+    )
+    return (
+        "Signalbox's permissions are not installed on the router. Log in to the router "
+        "(ssh root@<router>), paste the commands under 'Prepare the router' in the device "
+        f"settings (they create /usr/share/rpcd/acl.d/signalbox.json; {who}) and test again. "
+        f"Details: {SETUP}#read-only-user-on-the-device"
+    )
+
+
 class _Denied(Exception):
     pass
 
@@ -83,6 +102,8 @@ class Ubus:
             self.path, {"jsonrpc": "2.0", "id": self._id, "method": "call", "params": params}
         )
         what = f"{params[1]}.{params[2]}"
+        if params[1] == "uci" and isinstance(params[3], dict) and "config" in params[3]:
+            what += f" ({params[3]['config']})"
         if not isinstance(answer, dict):
             raise AdapterError(f"unexpected answer to {what}")
         error = answer.get("error")
@@ -124,7 +145,12 @@ class Ubus:
                 ]
             )
         except _Denied:
-            raise AuthFailed(f"login as {self.username!r} refused") from None
+            raise AuthFailed(
+                f"login as {self.username!r} refused",
+                fix="Check the user name and password. A login other than root needs a "
+                "config login section in /etc/config/rpcd with a password hashed by uhttpd -m "
+                f"(see {SETUP}#read-only-user-on-the-device), then service rpcd restart.",
+            ) from None
         session = data.get("ubus_rpc_session")
         if not isinstance(session, str):
             raise AdapterError("unexpected answer to session.login")
@@ -156,4 +182,7 @@ class Ubus:
         what = f"{obj}.{method}"
         if obj == "uci" and args and "config" in args:
             what += f" ({args['config']})"
-        raise AccessDenied(f"access denied for {what}: add it to the rpcd ACL of {self.username!r}")
+        raise AccessDenied(
+            f"access denied for {what}: the login {self.username!r} is not allowed to call it",
+            fix=acl_fix(self.username),
+        )

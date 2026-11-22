@@ -13,6 +13,7 @@ from pydantic import Field, SecretStr
 from signalbox.adapters import (
     Adapter,
     AdapterConfig,
+    AdapterError,
     Capability,
     Manifest,
     Observation,
@@ -91,6 +92,9 @@ class Lab(Adapter):
         ),
         config=LabConfig,
         description="Simulated router with Wi-Fi for the browser tests.",
+        setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/ADAPTERS.md",
+        setup_steps=("Switch on the API of the router.", "Paste the commands below."),
+        setup_commands="echo prepared\n",
     )
 
     @property
@@ -236,6 +240,11 @@ class Lab(Adapter):
 
     async def read_dns(self) -> Observation:
         d = self.context.device_id
+        if self.cfg.host.startswith("nodns"):
+            raise AdapterError(
+                "access denied for dns",
+                fix="Allow DNS reading, see https://github.com/PhilippMundhenk/signalbox/blob/main/docs/ADAPTERS.md",
+            )
         return Observation(
             dns_services=[
                 DnsService(

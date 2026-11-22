@@ -30,7 +30,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from ipaddress import ip_address, ip_interface
 from typing import Any
-from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue, SecretStr, field_validator, model_validator
 
@@ -48,7 +47,7 @@ from signalbox.adapters import (
     SystemInfo,
     VendorCall,
 )
-from signalbox.adapters.https import DeviceHttp, NotFound
+from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
     Band,
@@ -130,9 +129,14 @@ TYPES = {"gateway": "gateway", "router": "gateway", "switch": "switch", "ap": "e
 
 
 class OmadaConfig(AdapterConfig):
-    url: str = Field(description="Address of the controller, https://controller:8043")
+    url: str = Field(
+        description="Address of the controller with its port, for example "
+        "https://192.0.2.5:8043 (software controller) or https://192.0.2.5 (OC200/OC300)",
+        examples=["https://192.0.2.5:8043"],
+    )
     omadac_id: str = Field(
         default="",
+        json_schema_extra={"advanced": True},
         description="Controller id (omadacId); empty: read from /api/info",
     )
     site: str = Field(default="Default", description="Name of the Omada site to read")
@@ -142,6 +146,7 @@ class OmadaConfig(AdapterConfig):
     )
     client_secret: SecretStr = Field(description="Client secret of that Open API client")
     allow_insecure_http: bool = Field(
+        json_schema_extra={"advanced": True},
         default=False,
         description="Allow plain http:// (simulators and tests only: sends the secret unencrypted)",
     )
@@ -149,10 +154,7 @@ class OmadaConfig(AdapterConfig):
     @field_validator("url")
     @classmethod
     def _url(cls, value: str) -> str:
-        parts = urlsplit(value)
-        if parts.scheme not in ("http", "https") or not parts.hostname:
-            raise ValueError("must be https://host[:port]")
-        return value.rstrip("/")
+        return device_url(value)
 
     @model_validator(mode="after")
     def _http_needs_opt_in(self) -> OmadaConfig:
@@ -326,8 +328,23 @@ def _ranges(dhcp: dict[str, Any]) -> list[tuple[str, str]]:
     return [(_text(dhcp.get("ipaddrStart")), _text(dhcp.get("ipaddrEnd")))]
 
 
+#: Shown in the device form ("Before you add it").
+OMADA_STEPS = (
+    (
+        "In the controller: Global View > Settings > Platform Integration > Open API, add an "
+        "application in Client mode with the Viewer role and access to the site."
+    ),
+    (
+        "Below: the controller's address with its port, the site name, Client ID and Client "
+        "Secret. Then Test connection and trust the certificate."
+    ),
+)
+
+
 class OmadaAdapter(_Adapter):
     manifest = Manifest(
+        setup_steps=OMADA_STEPS,
+        setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/omada.md#setup",
         id="omada",
         name="TP-Link Omada",
         version="0.2.0",

@@ -23,22 +23,26 @@ HTTPS port `49443`. It can also change the DHCP server and the existing Wi-Fi ne
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `url` | | `https://<box>:49443`, for example `https://192.0.2.1:49443` (no port: `49443`) |
-| `username` | `signalbox` | the Fritz!Box user (see below) |
+| `url` | | the box's address, for example `fritz.box` or `192.0.2.1`; Signalbox uses `https://<box>:49443` (another port only if the box reports one, see below) |
+| `username` | empty | the Fritz!Box user (see below); empty when the box asks only for its password |
 | `password` | | its password; stored encrypted, never sent back to the UI |
 | `allow_insecure_http` | `false` | accept an `http://` URL; meant for simulators, nothing is encrypted then |
 
 ## Setting up the Fritz!Box
 
-1. *Home Network > Network > Network Settings > Home Network Sharing*: switch on
+1. *Home Network > Network > Network Settings > Home Network Sharing* (German: *Heimnetz > Netzwerk > Netzwerkeinstellungen > Heimnetzfreigaben*): switch on
    **Allow access for applications** (this is TR-064). The HTTPS port is shown there; it is
    `49443` unless changed.
 2. *System > FRITZ!Box Users*: add a user only for Signalbox, for example `signalbox`, with a
    long password. Give it the right **FRITZ!Box settings** and nothing else; *Access from the
    internet* stays off. TR-064 has no read-only right: the user can change settings through
    TR-064; Signalbox only does so for a deployed change on a device with *Allow changes*. Keep
-   the password in Signalbox only.
-3. Add the device in Signalbox with `https://<box>:49443`. On the first connection Signalbox
+   the password in Signalbox only. A box set to log in with its password only (no users) is
+   read with an empty user name and that password.
+3. Add the device in Signalbox with the box's address (`fritz.box` or its IP address); the
+   form completes it to `https://<box>:49443`. If nothing answers TR-064 there, Signalbox asks
+   the box for its TR-064 port on `http://<box>:49000` (the one action AVM answers without
+   login, no credentials are sent) and names the address to use. On the first connection Signalbox
    shows the fingerprint of the box's self-signed certificate; compare it (the browser shows it
    for `https://<box>:49443`) and trust it.
 

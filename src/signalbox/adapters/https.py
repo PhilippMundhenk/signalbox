@@ -37,7 +37,7 @@ import hashlib
 import ssl
 from collections.abc import Collection
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -49,6 +49,28 @@ _NO_CHECK_TIME = 0x200000
 
 class NotFound(AdapterError):
     """HTTP 404: the endpoint does not exist (API disabled, component not installed)."""
+
+
+def device_url(value: str, *, port: int | None = None, path: str = "") -> str:
+    """A device address as the user typed it, completed: no scheme means https, then the
+    integration's default port (only for https) and path. Raises ValueError for the form."""
+    text = value.strip().rstrip("/")
+    if "://" not in text:
+        text = f"https://{text}"
+    parts = urlsplit(text)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError("give the device's address, for example https://192.0.2.1")
+    if port is not None and parts.port is None and parts.scheme == "https":
+        parts = parts._replace(netloc=f"{parts.netloc}:{port}")
+    if path and parts.path in ("", "/"):
+        parts = parts._replace(path=path)
+    return urlunsplit(parts._replace(query="", fragment=""))
+
+
+REACH_FIX = (
+    "Check that the device is on, that the address and port in the settings are right, and "
+    "that Signalbox can reach it (same network or routed, no firewall in between)."
+)
 
 
 def fingerprint(der: bytes) -> str:
@@ -76,9 +98,11 @@ async def peer_certificate(host: str, port: int, timeout: float) -> bytes:
             asyncio.open_connection(host, port, ssl=ctx), timeout=timeout
         )
     except TimeoutError as exc:
-        raise Unreachable(f"{where}: no TLS answer within {timeout:g} s") from exc
+        raise Unreachable(f"{where}: no TLS answer within {timeout:g} s", fix=REACH_FIX) from exc
     except (OSError, ssl.SSLError) as exc:
-        raise Unreachable(f"cannot open a TLS connection to {where}: {_reason(exc)}") from exc
+        raise Unreachable(
+            f"cannot open a TLS connection to {where}: {_reason(exc)}", fix=REACH_FIX
+        ) from exc
     try:
         der = writer.get_extra_info("ssl_object").getpeercert(binary_form=True)
     finally:
@@ -198,19 +222,34 @@ class DeviceHttp:
         try:
             response = await self._client.request(method, path, **kw)
         except httpx.TimeoutException as exc:
-            raise Unreachable(f"{path}: no answer within {self.timeout:g} s") from exc
+            raise Unreachable(
+                f"{path}: no answer within {self.timeout:g} s", fix=REACH_FIX
+            ) from exc
         except httpx.HTTPError as exc:
             await self.reset()
-            raise Unreachable(f"{path}: cannot reach {self.base_url}: {_reason(exc)}") from exc
+            raise Unreachable(
+                f"{path}: cannot reach {self.base_url}: {_reason(exc)}", fix=REACH_FIX
+            ) from exc
         code = response.status_code
         if code in accept:
             return response
         if code == 401:
-            raise AuthFailed(f"{path}: the device refused the credentials (HTTP 401)")
+            raise AuthFailed(
+                f"{path}: the device refused the credentials (HTTP 401)",
+                fix="Check the user name and password (or API key and secret) in the settings.",
+            )
         if code == 403:
-            raise AuthFailed(f"{path}: access denied (HTTP 403); check the user's privileges")
+            raise AuthFailed(
+                f"{path}: access denied (HTTP 403); check the user's privileges",
+                fix="The login works but may not read this. Give the user the privileges the "
+                "setup guide of this integration lists (the link is in the device settings).",
+            )
         if code == 404:
-            raise NotFound(f"{path}: not found (HTTP 404); is the API enabled?")
+            raise NotFound(
+                f"{path}: not found (HTTP 404); is the API enabled?",
+                fix="Check that the address points to the device itself (with the right port "
+                "and path) and that its API is enabled; some parts need an extra package.",
+            )
         if not 200 <= code < 300:
             raise AdapterError(f"{path}: HTTP {code} {response.reason_phrase}".rstrip())
         return response

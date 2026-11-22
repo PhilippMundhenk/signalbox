@@ -72,7 +72,14 @@ SINCE: dict[Capability, str] = {Capability.HEALTH: "1.2", Capability.TIME: "1.2"
 
 
 class AdapterError(Exception):
-    """A device could not be read; the message is shown to the user."""
+    """A device could not be read; the message is shown to the user.
+
+    ``fix``: what the user can do about it, in plain words (shown as "What to do").
+    """
+
+    def __init__(self, *args: object, fix: str | None = None) -> None:
+        super().__init__(*args)
+        self.fix = fix
 
 
 class Unreachable(AdapterError):
@@ -175,6 +182,12 @@ class Manifest(BaseModel):
     capabilities: frozenset[Capability]
     config: type[AdapterConfig]
     description: str = ""
+    #: Where the user reads what to prepare on the device (shown in the device form).
+    setup_url: str = ""
+    #: Commands the user runs once on the device to prepare it (shown in the device form).
+    setup_commands: str = ""
+    #: What to prepare on the device, step by step, in plain words (shown in the device form).
+    setup_steps: tuple[str, ...] = ()
     #: Kinds of change the integration can apply (empty: read only).
     writes: frozenset[ChangeKind] = frozenset()
 
@@ -449,7 +462,12 @@ class Adapter(ABC):
         message = str(exc) or type(exc).__name__
         if isinstance(exc, TimeoutError):
             message = f"no answer within {self.context.timeout:g} s"
-        return ReadError(device_id=self.context.device_id, capability=capability, message=message)
+        return ReadError(
+            device_id=self.context.device_id,
+            capability=capability,
+            message=message,
+            fix=getattr(exc, "fix", None),
+        )
 
 
 def _version(text: str) -> tuple[int, ...]:

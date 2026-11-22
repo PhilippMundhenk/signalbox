@@ -280,7 +280,9 @@ async def test_missing_acl_is_partial(
     snap = await adapter.observe()
     assert snap.status is DeviceStatus.PARTIAL
     assert [e.capability for e in snap.errors] == capabilities
-    assert all(named in e.message and "rpcd ACL" in e.message for e in snap.errors)
+    assert all(
+        named in e.message and e.fix and "acl.d/signalbox.json" in e.fix for e in snap.errors
+    )
     assert snap.ports  # the rest is still read
 
 
@@ -422,7 +424,7 @@ async def test_lldpd_missing(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
     sim.lldpd = False
     snap = await adapter.observe()
     assert [(e.capability, e.message) for e in snap.errors] == [
-        ("neighbours", "luci-app-lldpd not installed (no ubus object luci.lldpd)")
+        ("neighbours", "LLDP is not installed on the router (no ubus object luci.lldpd)")
     ]
 
 
@@ -454,9 +456,9 @@ async def test_simulator_parse_error(sim: OpenWrtSim, http_url: str) -> None:
     await http.close()
 
 
-async def test_bad_url(sim: OpenWrtSim) -> None:
-    snap = await observe(context("ftp://192.0.2.2", config={"url": "ftp://192.0.2.2/ubus"}))
-    assert snap.status is DeviceStatus.UNREACHABLE and "not an http" in snap.errors[0].message
+def test_bad_url() -> None:
+    with pytest.raises(ValueError, match="device's address"):
+        OpenWrtConfig(url="ftp://192.0.2.2/ubus", password=SecretStr("x"))
 
 
 # --- ubus client against canned answers -----------------------------------------------
@@ -518,7 +520,7 @@ async def test_ubus_login_access_denied_error() -> None:
 async def test_ubus_denied_twice_names_acl() -> None:
     denied = {"result": [6]}
     ubus = Ubus(Canned(LOGIN, denied, LOGIN, denied), "/ubus", "ro", "pw")  # type: ignore[arg-type]
-    with pytest.raises(AccessDenied, match=r"x\.y: add it to the rpcd ACL of 'ro'"):
+    with pytest.raises(AccessDenied, match=r"x\.y: the login 'ro' is not allowed"):
         await ubus.call("x", "y")
 
 
@@ -643,3 +645,49 @@ def test_unexpected_uci_and_dump_answers() -> None:
         NetworkView.build({"values": []})
     with pytest.raises(AdapterError, match="interface dump"):
         NetworkView.build({"values": {}}, {"interface": {}})
+
+
+def test_setup_commands_install_the_documented_acl() -> None:
+    """The commands in the device form install exactly the read-only ACL of the docs, which the
+    integration test image installs too."""
+    import json
+    import re
+
+    from signalbox.adapters.openwrt import setup
+
+    doc = (Path(__file__).parent.parent / "docs" / "adapters" / "openwrt.md").read_text()
+    block = re.search(
+        r"```json\n(.*?)```", doc.split("## Read-only user on the device", 1)[1], re.S
+    )
+    assert block and json.loads(block.group(1)) == setup.READ_ACL
+    cmds = setup.commands()
+    acl = cmds.split("<<'END'\n", 1)[1].split("\nEND\n", 1)[0]
+    assert json.loads(acl) == setup.READ_ACL
+    assert "service rpcd restart" in cmds and "CHOOSE-A-PASSWORD" in cmds
+    assert OpenWrtAdapter.manifest.setup_commands == cmds
+
+
+@pytest.mark.parametrize("missing", ["wireless", "dhcp"])
+async def test_router_without_wifi_or_dhcp_config(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter, missing: str
+) -> None:
+    """No /etc/config/wireless (no radios) or dhcp (no DHCP server): empty, not an error."""
+    sim.missing = {missing}
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.OK, snap.errors
+    assert not (snap.wlans if missing == "wireless" else snap.dhcp_servers)
+
+
+async def test_router_without_network_config(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    sim.missing = {"network"}
+    snap = await adapter.observe()
+    err = next(e for e in snap.errors if e.capability == "interfaces")
+    assert "no readable network configuration" in err.message and err.fix
+
+
+def test_address_alone_is_enough() -> None:
+    cfg = OpenWrtConfig(url="192.0.2.2", password=SecretStr("x"))
+    assert cfg.url == "https://192.0.2.2/ubus"
+    assert OpenWrtConfig(url="https://192.0.2.2:8443/", password=SecretStr("x")).url == (
+        "https://192.0.2.2:8443/ubus"
+    )

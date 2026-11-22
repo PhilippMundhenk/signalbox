@@ -48,7 +48,17 @@ class MyAdapter(Adapter):
   `ReadsWireless`, `ReadsClients`, `ReadsNeighbours`, `ReadsHealth`, `ReadsTime`); a missing one
   is an error when the adapter is constructed, not a silent gap.
 - A capability that fails at run time raises `AdapterError` with a message for the user. Signalbox
-  turns it into a "could not read" finding and keeps the rest of the snapshot.
+  turns it into a "could not read" finding and keeps the rest of the snapshot. Pass
+  `fix="..."` with what the user can do about it, in plain words (where to click on the
+  device, which package or permission is missing, the right address): the device form and the
+  finding show it as "What to do". An error that names a call but not a remedy leaves the user
+  stuck.
+- Help the user before the first error: `Manifest.setup_steps` (what to prepare on the device,
+  step by step), `Manifest.setup_commands` (commands to paste on the device, if any) and
+  `Manifest.setup_url` (the full guide) are shown in the device form above the settings. Let
+  the address field accept the bare host name (`signalbox.adapters.https.device_url` completes
+  scheme, default port and path), and put options only meant for simulators into the closed
+  "Advanced" part with `json_schema_extra={"advanced": True}`.
 - Do not override `observe()`. It calls the capabilities with a timeout, stamps every object with
   its source and time, and builds the snapshot.
 

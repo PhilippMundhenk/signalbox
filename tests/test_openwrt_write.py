@@ -532,7 +532,7 @@ async def test_nothing_to_do_applies_nothing(
 @pytest.mark.parametrize(
     ("switch", "named"),
     [
-        ({"writable": set()}, r"uci\.add \(network\): add it to the rpcd ACL"),
+        ({"writable": set()}, r"uci\.add \(network\): the login .* is not allowed"),
         ({"writable": {"network"}}, r"uci\.add \(wireless\)"),
         ({"denied": {"uci.apply"}}, r"uci\.apply"),
     ],
@@ -1039,7 +1039,7 @@ async def test_lldpd_status_shapes(
     snap = await adapter.observe()
     if found is None:
         assert [e.message for e in snap.errors] == [
-            "lldpd is not running (luci.lldpd getStatus has no neighbours)"
+            "lldpd is installed but not running (luci.lldpd getStatus has no neighbours)"
         ]
     else:
         assert not snap.errors and len(snap.neighbours) == found

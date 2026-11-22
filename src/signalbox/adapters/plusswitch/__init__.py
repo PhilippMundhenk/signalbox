@@ -327,10 +327,22 @@ class _PlusSwitch(Adapter):
         reading.ports, reading.vlan, reading.lag = list(ports), vlan, lag
 
 
+#: Shown in the device form ("Before you add it").
+PLUSSWITCH_STEPS = (
+    (
+        "Signalbox must be in the same network as the switch (it talks UDP broadcast; in Docker"
+        " use host networking, see the setup guide)."
+    ),
+    ("Below: the switch's IPv4 address and its management password. Then Test connection."),
+)
+
+
 class ProsafeAdapter(_PlusSwitch):
     protocol = "nsdp"
     vendor = "NETGEAR"
     manifest = Manifest(
+        setup_steps=PLUSSWITCH_STEPS,
+        setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/plusswitch.md#settings",
         id="prosafe",
         name="NETGEAR ProSAFE Plus",
         version="0.2.0",
@@ -370,6 +382,9 @@ class ProsafeAdapter(_PlusSwitch):
             if identity is None:
                 raise Unreachable(f"{self._host}: no NETGEAR Plus switch answers (NSDP)")
             client = SwitchClient(transport, parse_mac(identity["mac"]), self._host)
+            # like Switchyard: read the identity first; it tells the password scheme
+            # (old firmware does not answer a lone password-scheme read reliably)
+            await client.read_info()
             await self._login(lambda: client.login(self._password))
             return await work(client)
         finally:
@@ -380,6 +395,8 @@ class EasySmartAdapter(_PlusSwitch):
     protocol = "easysmart"
     vendor = "TP-Link"
     manifest = Manifest(
+        setup_steps=PLUSSWITCH_STEPS,
+        setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/plusswitch.md#settings",
         id="easysmart",
         name="TP-Link Easy Smart",
         version="0.2.0",

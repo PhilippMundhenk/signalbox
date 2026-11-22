@@ -567,7 +567,7 @@ def test_config_validation() -> None:
     assert (c.url, c.site, c.omadac_id) == ("https://192.0.2.5:8043", "Default", "")
     with pytest.raises(ValidationError, match="allow_insecure_http"):
         cfg("http://192.0.2.5")
-    with pytest.raises(ValidationError, match="https://host"):
+    with pytest.raises(ValidationError, match="device's address"):
         cfg("ftp://192.0.2.5")
     schema = OmadaConfig.model_json_schema()
     assert schema["properties"]["client_secret"]["format"] == "password"

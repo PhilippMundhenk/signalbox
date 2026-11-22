@@ -470,3 +470,47 @@ def test_change_plan_approve_deploy_and_revert(app: Any) -> None:
     go(app, "#/changes")
     expect(app.get_by_test_id("change-row")).to_have_count(2)
     expect(app.get_by_test_id("backup-row")).to_have_count(2)
+
+
+def test_device_form_guides_and_tests_before_saving(app: Any) -> None:
+    """Setup steps and commands in the form; Test connection with unsaved settings, a fix for
+    each problem, the certificate trusted in the form and pinned on save."""
+    add_site(app)
+    go(app, "#/devices/new")
+    app.get_by_test_id("device-adapter").select_option("lab")
+    setup = app.get_by_test_id("setup")
+    expect(setup).to_have_attribute("open", "")
+    expect(app.get_by_test_id("setup-steps").locator("li")).to_have_count(2)
+    expect(app.get_by_test_id("setup-commands")).to_have_text("echo prepared\n")
+    expect(app.get_by_test_id("setup-guide")).to_have_attribute("href", re.compile("ADAPTERS.md$"))
+
+    # nothing filled in: the test says what is missing
+    app.get_by_test_id("form-test-button").click()
+    expect(app.get_by_test_id("form-errors")).to_contain_text("Password is required")
+
+    app.get_by_test_id("cfg-password").fill("device-secret")
+    app.get_by_test_id("cfg-host").fill("nodns.example")
+    app.get_by_test_id("form-test-button").click()
+    result = app.get_by_test_id("form-test").get_by_test_id("test-result")
+    expect(result.get_by_test_id("status")).to_have_attribute("data-status", "partial")
+    expect(result).to_contain_text("Example, LR-1, firmware 1.2.3")
+    fix = result.get_by_test_id("error-fix")
+    expect(fix).to_contain_text("What to do: Allow DNS reading")
+    expect(fix.locator("a")).to_have_text("docs/ADAPTERS.md")
+    assert api(app, "GET", "/devices") == []  # nothing stored by a test
+
+    app.get_by_test_id("cfg-host").fill("untrusted.example")
+    app.get_by_test_id("form-test-button").click()
+    expect(result.get_by_test_id("status")).to_have_attribute(
+        "data-status", "untrusted-certificate"
+    )
+    expect(app.get_by_test_id("untrusted")).to_contain_text("Trusted when you add the device")
+    app.get_by_test_id("trust").click()
+    expect(result.get_by_test_id("status")).to_have_attribute("data-status", "ok")
+    app.get_by_test_id("device-name").fill("Edge")
+    app.get_by_test_id("device-save").click()
+    expect(app.get_by_test_id("device-title")).to_have_text("Edge")
+    expect(app.get_by_test_id("test-result").get_by_test_id("status")).to_have_attribute(
+        "data-status", "ok"
+    )
+    assert api(app, "GET", "/devices/edge")["pinned_fingerprint"] == FINGERPRINT

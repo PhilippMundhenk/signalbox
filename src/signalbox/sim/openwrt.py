@@ -505,6 +505,8 @@ class OpenWrtSim:
     session_ttl: float = 300.0
     #: ``object``, ``object.method`` or ``uci:<config>`` entries the ACL does not allow
     denied: set[str] = field(default_factory=set)
+    #: UCI configs that do not exist (a router without Wi-Fi has no ``wireless``)
+    missing: set[str] = field(default_factory=set)
     #: UCI configs the ACL lets the user change (``write`` → ``uci`` in the rpcd ACL)
     writable: set[str] = field(default_factory=lambda: set(CONFIGS))
     #: objects answered with broken JSON (``*``: every request)
@@ -610,7 +612,7 @@ class OpenWrtSim:
         if method == "get":
             if f"uci:{config}" in self.denied:
                 return [DENIED]
-            if config not in CONFIGS:
+            if config not in CONFIGS or config in self.missing:
                 return [NOT_FOUND]
             sections = self.view(sid, config)
             if isinstance(args.get("section"), str):

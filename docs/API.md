@@ -22,6 +22,7 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | DELETE | `/api/sites/{site_id}` | Delete a site without devices. |
 | GET | `/api/devices` | List devices with their last status and when they were first seen and last read. |
 | POST | `/api/devices` | Add a device; secrets in `config` are stored encrypted. |
+| POST | `/api/devices/test` | Read a device with the form's settings before saving; nothing is stored. |
 | GET | `/api/devices/{device_id}` | One device. |
 | PUT | `/api/devices/{device_id}` | Change a device; secret settings left empty keep their value. |
 | DELETE | `/api/devices/{device_id}` | Remove a device and its last snapshot. |

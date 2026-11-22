@@ -19,7 +19,7 @@ from ipaddress import IPv4Interface, ip_address, ip_interface
 from typing import Any
 from urllib.parse import urlsplit
 
-from pydantic import Field, JsonValue, SecretStr
+from pydantic import Field, JsonValue, SecretStr, field_validator
 
 from signalbox.adapters import (
     Adapter,
@@ -33,7 +33,8 @@ from signalbox.adapters import (
     SystemInfo,
     VendorCall,
 )
-from signalbox.adapters.https import DeviceHttp
+from signalbox.adapters.https import DeviceHttp, device_url
+from signalbox.adapters.openwrt import setup
 from signalbox.adapters.openwrt.ubus import AccessDenied, InvalidArgument, NoData, NotFound, Ubus
 from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
@@ -68,14 +69,27 @@ __all__ = ["OpenWrtAdapter", "OpenWrtConfig"]
 
 
 class OpenWrtConfig(AdapterConfig):
-    url: str = Field(description="ubus endpoint, for example https://192.0.2.2/ubus")
+    url: str = Field(
+        description="The router's address, for example 192.0.2.2 or openwrt.lan. Signalbox "
+        "uses https://<router>/ubus (the router's web server with uhttpd-mod-ubus).",
+        examples=["192.0.2.2"],
+    )
+
+    @field_validator("url")
+    @classmethod
+    def _url(cls, value: str) -> str:
+        return device_url(value, path="/ubus")
+
     username: str = Field(
         default="signalbox",
-        description="rpcd login: read-only ACL, or write access to UCI network/wireless/dhcp",
+        description="Login on the router. Best a user of its own with Signalbox's read-only "
+        "permissions (see the setup guide); root works too once the permission file is installed",
     )
     password: SecretStr
     allow_insecure_http: bool = Field(
-        default=False, description="accept an http:// URL (password sent in clear text)"
+        json_schema_extra={"advanced": True},
+        default=False,
+        description="accept an http:// URL (password sent in clear text)",
     )
 
 
@@ -323,8 +337,25 @@ def _port_kind(name: str, status: dict[str, Any]) -> PortKind:
 # --- the adapter --------------------------------------------------------------------------
 
 
+#: Shown in the device form ("Before you add it").
+OPENWRT_STEPS = (
+    ("Log in to the router: ssh root@<router>."),
+    (
+        "Paste the commands below (replace CHOOSE-A-PASSWORD first). They install the packages "
+        "Signalbox reads through, its read-only permissions and a login 'signalbox'."
+    ),
+    (
+        "Below: the router's address, user signalbox and the password you chose. Then Test "
+        "connection and trust the router's certificate."
+    ),
+)
+
+
 class OpenWrtAdapter(Adapter):
     manifest = Manifest(
+        setup_steps=OPENWRT_STEPS,
+        setup_commands=setup.commands(),
+        setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/openwrt.md#read-only-user-on-the-device",
         id="openwrt",
         name="OpenWrt",
         version="0.1.0",
@@ -381,8 +412,24 @@ class OpenWrtAdapter(Adapter):
     def _seg(self, vid: int) -> str:
         return segment_id(self.context.site_id, None if vid == _NATIVE else vid)
 
+    async def _uci(self, config: str) -> dict[str, Any]:
+        """A UCI config for reading. A router without Wi-Fi has no ``wireless`` config, one
+        without DHCP server no ``dhcp``: that is read as empty, not as an error."""
+        try:
+            data: dict[str, Any] = await self.ubus.call("uci", "get", {"config": config})
+        except NotFound:
+            if config != "network":
+                return {"values": {}}
+            raise AdapterError(
+                "the router has no readable network configuration (/etc/config/network)",
+                fix="Signalbox reads standard OpenWrt. Check that the address points to an "
+                "OpenWrt router (not a firmware built on it with its own configuration) and "
+                "that /etc/config/network exists there.",
+            ) from None
+        return data
+
     async def _network(self, running: bool = True) -> NetworkView:
-        uci = await self.ubus.call("uci", "get", {"config": "network"})
+        uci = await self._uci("network")
         dump = await self.ubus.call("network.interface", "dump") if running else None
         return NetworkView.build(uci, dump)
 
@@ -484,13 +531,16 @@ class OpenWrtAdapter(Adapter):
             except (NotFound, AccessDenied):
                 raise AdapterError(
                     "network.wireless status refuses calls over HTTP (OpenWrt 25.12 and later): "
-                    "install rpcd-mod-luci and allow luci-rpc getWirelessDevices in the ACL"
+                    "install rpcd-mod-luci and allow luci-rpc getWirelessDevices in the ACL",
+                    fix="Install the package rpcd-mod-luci on the router (LuCI: System, "
+                    "Software) and use Signalbox's permission file, which allows luci-rpc "
+                    "getWirelessDevices; then run service rpcd restart and test again.",
                 ) from None
         return {k: v for k, v in status.items() if isinstance(v, dict)}
 
     async def read_wireless(self) -> Observation:
         d = self.context.device_id
-        uci = await self.ubus.call("uci", "get", {"config": "wireless"})
+        uci = await self._uci("wireless")
         up = await self._radios_up()
         view = await self._network(running=False)
         radios: dict[str, Radio] = {}
@@ -548,7 +598,7 @@ class OpenWrtAdapter(Adapter):
 
     async def read_dhcp(self) -> Observation:
         d = self.context.device_id
-        uci = await self.ubus.call("uci", "get", {"config": "dhcp"})
+        uci = await self._uci("dhcp")
         view = await self._network()
         hosts: list[tuple[str, IPAddress, str | None]] = []
         for _, s in _sections(uci, "host"):
@@ -621,7 +671,7 @@ class OpenWrtAdapter(Adapter):
 
     async def read_clients(self) -> Observation:
         d = self.context.device_id
-        uci = await self.ubus.call("uci", "get", {"config": "wireless"})
+        uci = await self._uci("wireless")
         up = await self._radios_up()
         view = await self._network(running=False)
         networks = {name: _list(s.get("network")) for name, s in _sections(uci, "wifi-iface")}
@@ -750,7 +800,9 @@ class OpenWrtAdapter(Adapter):
             return await attempt()
         except AccessDenied as exc:
             raise AccessDenied(
-                f"{exc} (uci.apply is also refused while another change waits for its confirmation)"
+                f"{exc} (uci.apply is also refused while another change waits for its "
+                "confirmation)",
+                fix=exc.fix,
             ) from None
 
     async def apply(
@@ -834,10 +886,19 @@ class OpenWrtAdapter(Adapter):
         try:
             status = await self.ubus.call("luci.lldpd", "getStatus")
         except NotFound:
-            raise AdapterError("luci-app-lldpd not installed (no ubus object luci.lldpd)") from None
+            raise AdapterError(
+                "LLDP is not installed on the router (no ubus object luci.lldpd)",
+                fix="Optional: without LLDP Signalbox cannot see which device is plugged into "
+                "which port; everything else works. To add it, install the packages lldpd and "
+                "luci-app-lldpd (LuCI: System, Software), run service rpcd restart and test again.",
+            ) from None
         data = status.get("neighbors")
         if not isinstance(data, dict):
-            raise AdapterError("lldpd is not running (luci.lldpd getStatus has no neighbours)")
+            raise AdapterError(
+                "lldpd is installed but not running (luci.lldpd getStatus has no neighbours)",
+                fix="Start it on the router with service lldpd enable && service lldpd start "
+                "(LuCI: System, Startup), then test again.",
+            )
         neighbours: list[Neighbour] = []
         for lldp in data.get("lldp") or []:
             if not isinstance(lldp, dict):

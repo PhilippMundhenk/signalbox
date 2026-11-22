@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from signalbox.adapters import Adapter, AdapterContext
+from signalbox.adapters import Adapter, AdapterConfig, AdapterContext
 from signalbox.config import Config
 from signalbox.desired import DesiredError, DesiredState, apply_declared, drift_rules
 from signalbox.merge import merge
@@ -77,30 +77,41 @@ class Runner:
             except (StoreError, SecretError, ValueError) as exc:
                 snap = self._failed(rec, DeviceStatus.AUTH_FAILED, f"settings unusable: {exc}")
             else:
-                ctx = AdapterContext(
-                    site_id=rec.site_id,
-                    device_id=rec.id,
-                    device_name=rec.name,
-                    role=rec.role,
-                    config=cfg,
-                    pinned_fingerprint=rec.pinned_fingerprint,
-                    timeout=self.config.observe.timeout_seconds,
-                )
-                adapter = cls(ctx)
-                try:
-                    snap = await adapter.observe()
-                except Exception as exc:  # a broken adapter must be visible, not fatal
-                    log.exception("adapter %s failed on %s", rec.adapter, rec.id)
-                    snap = self._failed(
-                        rec, DeviceStatus.UNREACHABLE, f"adapter error: {type(exc).__name__}: {exc}"
-                    )
-                finally:
-                    await adapter.close()
-                if adapter.presented_fingerprint != rec.pending_fingerprint:
-                    self.store.set_pending_fingerprint(rec.id, adapter.presented_fingerprint)
+                snap, presented = await self.read_device(rec, cfg)
+                if presented != rec.pending_fingerprint:
+                    self.store.set_pending_fingerprint(rec.id, presented)
         self.store.save_snapshot(snap)
         log.info("%s: %s", rec.id, snap.status.value)
         return snap
+
+    async def read_device(
+        self, rec: DeviceRecord, cfg: AdapterConfig
+    ) -> tuple[Snapshot, str | None]:
+        """Read a device with the given settings; stores nothing.
+
+        Returns the snapshot and the certificate fingerprint the device presented (if any).
+        Never raises for device problems. The adapter must be installed.
+        """
+        ctx = AdapterContext(
+            site_id=rec.site_id,
+            device_id=rec.id,
+            device_name=rec.name,
+            role=rec.role,
+            config=cfg,
+            pinned_fingerprint=rec.pinned_fingerprint,
+            timeout=self.config.observe.timeout_seconds,
+        )
+        adapter = self.adapters[rec.adapter](ctx)
+        try:
+            snap = await adapter.observe()
+        except Exception as exc:  # a broken adapter must be visible, not fatal
+            log.exception("adapter %s failed on %s", rec.adapter, rec.id)
+            snap = self._failed(
+                rec, DeviceStatus.UNREACHABLE, f"adapter error: {type(exc).__name__}: {exc}"
+            )
+        finally:
+            await adapter.close()
+        return snap, adapter.presented_fingerprint
 
     # everything -------------------------------------------------------------------------
 

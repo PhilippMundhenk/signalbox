@@ -210,6 +210,8 @@ class FritzboxSim:
     nonces: set[str] = field(default_factory=set)
     #: requests that reached the application (authenticated or not)
     requests: int = 0
+    #: TR-064 HTTPS port the box reports with GetSecurityPort (asked without credentials).
+    security_port: int = 49443
     #: requests that carried a valid digest
     authenticated: int = 0
     sid: str = field(default_factory=lambda: secrets.token_hex(8))
@@ -293,6 +295,8 @@ class FritzboxSim:
     def _data(self, service: str, action: str, args: dict[str, str]) -> dict[str, str] | int:
         """Output arguments, or a UPnP error code; NotSimulated for other described actions."""
         name, _, number = service.partition(":")
+        if name == "DeviceInfo" and action == "GetSecurityPort":
+            return {"NewSecurityPort": str(self.security_port)}
         if name == "DeviceInfo" and action == "GetInfo":
             desc = self.description
             return {
@@ -576,9 +580,14 @@ def create_app(sim: FritzboxSim | None = None) -> FastAPI:
     async def control(control: str, request: Request) -> Response:
         state.requests += 1
         realm = REALM_HTTPS if request.url.scheme == "https" else REALM_HTTP
-        if not state.authorised("POST", request.headers.get("authorization"), realm):
+        soap_action = request.headers.get("soapaction", "")
+        # like the box: the TR-064 HTTPS port is told to anyone on plain HTTP (port 49000)
+        public = request.url.scheme == "http" and soap_action.strip('"').endswith(
+            "DeviceInfo:1#GetSecurityPort"
+        )
+        if not public and not state.authorised("POST", request.headers.get("authorization"), realm):
             return state.challenge(realm)
-        state.authenticated += 1
+        state.authenticated += 0 if public else 1
         return await state.handle(
             f"/upnp/control/{control}",
             await request.body(),

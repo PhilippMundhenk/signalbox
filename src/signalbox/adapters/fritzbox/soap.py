@@ -26,6 +26,8 @@ import re
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
 
+import httpx
+
 from signalbox.adapters import AdapterError
 from signalbox.adapters.https import DeviceHttp
 
@@ -127,6 +129,37 @@ def parse_answer(body: bytes, action: str, what: str) -> dict[str, str]:
 def _text_of(element: ET.Element, name: str) -> str | None:
     found = next((e for e in element.iter() if _local(e.tag) == name), None)
     return (found.text or "").strip() if found is not None else None
+
+
+#: Plain-HTTP UPnP port of the box; it tells its TR-064 HTTPS port there without credentials.
+UPNP_PORT = 49000
+
+
+async def security_port(host: str, timeout: float, port: int | None = None) -> int | None:
+    """The TR-064 HTTPS port the box reports (``DeviceInfo GetSecurityPort`` on port 49000).
+
+    No credentials are sent: AVM answers this one action without authentication. None if the
+    box does not answer it.
+    """
+    service_type, path = SERVICES["DeviceInfo1"]
+    netloc = f"[{host}]" if ":" in host else host
+    url = f"http://{netloc}:{port or UPNP_PORT}{path}"
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout, trust_env=False, follow_redirects=False
+        ) as client:
+            response = await client.post(
+                url,
+                content=envelope(service_type, "GetSecurityPort", {}),
+                headers={
+                    "Content-Type": 'text/xml; charset="utf-8"',
+                    "SOAPAction": f"{service_type}#GetSecurityPort",
+                },
+            )
+        found = parse_answer(response.content, "GetSecurityPort", "DeviceInfo1 GetSecurityPort")
+        return int(found["NewSecurityPort"])
+    except (httpx.HTTPError, AdapterError, KeyError, ValueError, OSError):
+        return None
 
 
 class Tr064:

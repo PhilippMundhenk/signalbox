@@ -206,3 +206,13 @@ legend { font-weight: 600; padding: 0 4px; }
 
 
 textarea.code { width: 100%; max-width: none; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9rem; line-height: 1.4; }
+
+/* device form: setup guide, test, read errors with what to do */
+.setup-guide summary { cursor: pointer; font-weight: 600; }
+.setup-guide ol { margin: 8px 0; padding-left: 1.4em; }
+.setup-guide li { margin: 4px 0; }
+pre.commands { background: var(--surface-2, var(--surface)); border: 1px solid var(--border); border-radius: 6px; padding: 10px; overflow: auto; max-height: 22em; font-size: 0.85em; white-space: pre; }
+.read-errors li { margin-bottom: 6px; }
+.read-errors .fix { color: var(--text); margin: 2px 0 0; }
+details.advanced { margin: 8px 0; }
+details.advanced summary { cursor: pointer; color: var(--muted); }
