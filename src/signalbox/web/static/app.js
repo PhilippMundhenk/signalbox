@@ -1,7 +1,8 @@
 // Entry point: session handling, shell and hash router.
 import { get, onUnauthorized, post } from './api.js';
-import { append, clear, h } from './util.js';
+import { clear, h } from './util.js';
 import { showError } from './ui.js';
+import { buildShell } from './nav.js';
 import { renderFindings } from './views/findings.js';
 import { renderDevices, renderDeviceForm } from './views/devices.js';
 import { renderDevice } from './views/device.js';
@@ -146,14 +147,9 @@ async function render() {
   const route = routeInfo();
   const session = state.session;
   clear(root);
-  const nav = h(
-    'nav',
-    { class: 'nav', 'aria-label': 'Main' },
-    NAV.map(([key, href, text]) => h('a', { href, 'aria-current': route.nav === key ? 'page' : null, 'data-testid': `nav-${key}` }, text)),
-  );
   const actions = h(
     'div',
-    { class: 'topbar-actions' },
+    { class: 'sidebar-actions' },
     themeToggle(),
     h(
       'button',
@@ -169,9 +165,10 @@ async function render() {
       'Log out',
     ),
   );
-  append(root, [h('header', { class: 'topbar' }, h('a', { class: 'brand', href: '#/' }, LOGO(), 'Signalbox'), nav, actions)]);
+  const { shell, content } = buildShell({ items: NAV, current: route.nav, brand: LOGO, actions });
+  root.append(shell);
   const main = h('main', { id: 'main', tabindex: '-1' });
-  root.append(main, footer(session));
+  content.append(main, footer(session));
   try {
     if (route.name === 'findings') await renderFindings(main, ctx);
     else if (route.name === 'devices') await renderDevices(main, ctx);
