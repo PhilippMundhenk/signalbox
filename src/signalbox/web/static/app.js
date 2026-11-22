@@ -12,6 +12,7 @@ import { renderClients } from './views/clients.js';
 import { renderTopology } from './views/topology.js';
 import { renderSettings } from './views/settings.js';
 import { renderDesired } from './views/desired.js';
+import { renderChange, renderChanges, renderNewChange } from './views/changes.js';
 
 const root = document.getElementById('app');
 const state = { session: null, cleanups: [], renderId: 0 };
@@ -81,6 +82,7 @@ const NAV = [
   ['services', '#/dhcp-dns', 'DHCP & DNS'],
   ['clients', '#/clients', 'Clients'],
   ['desired', '#/desired', 'Desired state'],
+  ['changes', '#/changes', 'Changes'],
   ['settings', '#/settings', 'Settings'],
 ];
 
@@ -91,6 +93,9 @@ export function routeInfo() {
   if (first === 'devices') return { name: 'devices', nav: 'devices' };
   if (first === 'device' && second) return { name: 'device', nav: 'devices', id: second, tab: third || 'overview' };
   if (first === 'dhcp-dns') return { name: 'services', nav: 'services' };
+  if (first === 'change' && second === 'new') return { name: 'change-new', nav: 'changes' };
+  if (first === 'change' && second) return { name: 'change', nav: 'changes', id: second };
+  if (first === 'changes') return { name: 'changes', nav: 'changes' };
   const simple = ['segments', 'wireless', 'clients', 'settings', 'topology', 'desired'];
   if (simple.includes(first)) return { name: first, nav: first };
   return { name: 'findings', nav: 'findings' };
@@ -178,6 +183,9 @@ async function render() {
     else if (route.name === 'clients') await renderClients(main, ctx);
     else if (route.name === 'topology') await renderTopology(main, ctx);
     else if (route.name === 'desired') await renderDesired(main, ctx);
+    else if (route.name === 'changes') await renderChanges(main, ctx);
+    else if (route.name === 'change-new') await renderNewChange(main, ctx);
+    else if (route.name === 'change') await renderChange(main, ctx, route);
     else await renderSettings(main, ctx, session);
   } catch (err) {
     showError(err);

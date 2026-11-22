@@ -14,7 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
-from signalbox.adapters import AdapterConfig
+from signalbox.adapters import AdapterConfig, Backup
+from signalbox.history import BackupInfo, ChangeEvent, ChangeRecord
 from signalbox.model import DeviceRole, Link, Site, Snapshot
 from signalbox.rules import Finding
 from signalbox.secrets import SecretError, Vault
@@ -48,6 +49,29 @@ SCHEMA = [
     );
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     """,
+    # version 2: change tracking (#39) and per-device write permission (#38)
+    """
+    ALTER TABLE devices ADD COLUMN allow_writes INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE changes (
+        id TEXT PRIMARY KEY, created_at TEXT NOT NULL, status TEXT NOT NULL, data TEXT NOT NULL
+    );
+    CREATE TABLE change_events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        change_id TEXT NOT NULL,
+        at TEXT NOT NULL,
+        device_id TEXT,
+        event TEXT NOT NULL,
+        detail TEXT NOT NULL
+    );
+    CREATE TABLE backups (
+        id TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL,
+        change_id TEXT,
+        taken_at TEXT NOT NULL,
+        format TEXT NOT NULL,
+        content TEXT NOT NULL
+    );
+    """,
 ]
 
 
@@ -71,6 +95,8 @@ class DeviceRecord(BaseModel):
     pinned_fingerprint: str | None = None
     pending_fingerprint: str | None = None
     enabled: bool = True
+    #: Changes may be deployed to this device (off by default; see docs/CHANGES.md).
+    allow_writes: bool = False
 
 
 class FindingRecord(BaseModel):
@@ -229,6 +255,7 @@ class Store:
             pinned_fingerprint=row["pinned_fingerprint"],
             pending_fingerprint=row["pending_fingerprint"],
             enabled=bool(row["enabled"]),
+            allow_writes=bool(row["allow_writes"]),
         )
 
     def devices(self) -> list[DeviceRecord]:
@@ -273,11 +300,12 @@ class Store:
                 raise StoreError(f"unknown site {record.site_id}")
             db.execute(
                 "INSERT INTO devices (id, site_id, name, role, adapter, config, secrets, "
-                "pinned_fingerprint, pending_fingerprint, enabled) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+                "pinned_fingerprint, pending_fingerprint, enabled, allow_writes) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
                 "site_id = excluded.site_id, name = excluded.name, role = excluded.role, "
                 "adapter = excluded.adapter, config = excluded.config, "
-                "secrets = excluded.secrets, enabled = excluded.enabled",
+                "secrets = excluded.secrets, enabled = excluded.enabled, "
+                "allow_writes = excluded.allow_writes",
                 (
                     record.id,
                     record.site_id,
@@ -289,6 +317,7 @@ class Store:
                     record.pinned_fingerprint,
                     record.pending_fingerprint,
                     int(record.enabled),
+                    int(record.allow_writes),
                 ),
             )
         stored = self.device(record.id)
@@ -401,6 +430,106 @@ class Store:
                 resolved_at=r["resolved_at"],
             )
             for r in rows
+        ]
+
+    # change tracking (append-only) ------------------------------------------------------
+
+    def put_change(self, record: ChangeRecord) -> None:
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO changes (id, created_at, status, data) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET status = excluded.status, data = excluded.data",
+                (
+                    record.id,
+                    record.created_at.isoformat(),
+                    record.status.value,
+                    record.model_dump_json(),
+                ),
+            )
+
+    def change(self, change_id: str) -> ChangeRecord | None:
+        row = self._one("SELECT data FROM changes WHERE id = ?", (change_id,))
+        return None if row is None else ChangeRecord.model_validate_json(row["data"])
+
+    def changes(self, limit: int = 200) -> list[ChangeRecord]:
+        rows = self._all(
+            "SELECT data FROM changes ORDER BY created_at DESC, id DESC LIMIT ?", (limit,)
+        )
+        return [ChangeRecord.model_validate_json(r["data"]) for r in rows]
+
+    def add_event(
+        self, change_id: str, at: datetime, device_id: str | None, event: str, detail: str = ""
+    ) -> None:
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO change_events (change_id, at, device_id, event, detail) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (change_id, at.isoformat(), device_id, event, detail),
+            )
+
+    def events(self, change_id: str | None = None) -> list[ChangeEvent]:
+        sql = "SELECT * FROM change_events"
+        args: tuple[Any, ...] = ()
+        if change_id is not None:
+            sql, args = sql + " WHERE change_id = ?", (change_id,)
+        return [
+            ChangeEvent(
+                seq=r["seq"],
+                change_id=r["change_id"],
+                at=r["at"],
+                device_id=r["device_id"],
+                event=r["event"],
+                detail=r["detail"],
+            )
+            for r in self._all(sql + " ORDER BY seq", args)
+        ]
+
+    def put_backup(self, backup: Backup, change_id: str | None) -> str:
+        backup_id = f"{backup.device_id}-{backup.taken_at.strftime('%Y%m%dT%H%M%S%f')}"
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO backups (id, device_id, change_id, taken_at, format, content) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    backup_id,
+                    backup.device_id,
+                    change_id,
+                    backup.taken_at.isoformat(),
+                    backup.format,
+                    self.vault.encrypt(backup.content),
+                ),
+            )
+        return backup_id
+
+    def backup(self, backup_id: str) -> Backup | None:
+        row = self._one("SELECT * FROM backups WHERE id = ?", (backup_id,))
+        if row is None:
+            return None
+        return Backup(
+            device_id=row["device_id"],
+            taken_at=row["taken_at"],
+            format=row["format"],
+            content=self.vault.decrypt(row["content"]),
+        )
+
+    def backups(self, device_id: str | None = None) -> list[BackupInfo]:
+        sql = (
+            "SELECT id, device_id, change_id, taken_at, format, length(content) AS size "
+            "FROM backups"
+        )
+        args: tuple[Any, ...] = ()
+        if device_id is not None:
+            sql, args = sql + " WHERE device_id = ?", (device_id,)
+        return [
+            BackupInfo(
+                id=r["id"],
+                device_id=r["device_id"],
+                change_id=r["change_id"],
+                taken_at=r["taken_at"],
+                format=r["format"],
+                size=r["size"],
+            )
+            for r in self._all(sql + " ORDER BY taken_at DESC", args)
         ]
 
     def prune_resolved(self, before: datetime) -> int:

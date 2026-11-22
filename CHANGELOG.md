@@ -27,6 +27,9 @@ All notable changes to this project are documented here. The format follows
 - Web interface: findings first, devices with a settings form generated from the adapter, certificate trust, topology with VLAN overlay and entered cables, segments, Wi-Fi, DHCP & DNS, clients, settings; light and dark; works on a phone; browser tests in CI (#14, #15)
 - Desired state: YAML in the data folder (optionally a git repository), editor with import of the observed state, encrypted secrets for Wi-Fi passphrases, drift findings for segments, DHCP, Wi-Fi and port VLANs (#36)
 - Planner: typed changes with the value before and after (router interface, DHCP, reservation, port VLANs, Wi-Fi), ordered by dependency and outwards from the gateway, risky changes flagged, checks on the predicted network, plan view; write interface for integrations (#37)
+- Change tracking: every change recorded with reason, desired-state commit, plan, vendor calls, encrypted backups, per-device results and an append-only event log (#39)
+- Transactional deployment: per device lock, re-read, backup, apply (with confirm timer where supported), verify, confirm or roll back; a failure rolls back the devices already changed, last first; off by default (`deploy.enabled` and per-device *Allow changes*) (#38)
+- Rollback: revert an applied change as a new, checked change (refused when the devices changed since); restore a backup as a tracked change; Changes pages in the UI (#40)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)

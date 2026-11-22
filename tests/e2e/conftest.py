@@ -18,6 +18,7 @@ import uvicorn
 from signalbox.rules import load_rules
 from signalbox.service import Services, build
 from signalbox.web.app import create_app
+from writable import Writable
 
 from .fakes import Lab, Switch, open_wifi
 
@@ -37,8 +38,8 @@ class LiveServer:
     def __init__(self, data: Path) -> None:
         self.services: Services = build(
             data,
-            env={"SIGNALBOX_AUTH_PASSWORD": PASSWORD},
-            adapters={"lab": Lab, "labswitch": Switch},
+            env={"SIGNALBOX_AUTH_PASSWORD": PASSWORD, "SIGNALBOX_DEPLOY_ENABLED": "true"},
+            adapters={"lab": Lab, "labswitch": Switch, "w": Writable},
             rules=[*load_rules(), open_wifi],
         )
         self.port = _free_port()

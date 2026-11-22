@@ -500,8 +500,24 @@ def _segment(net: Network, site_id: str, vlan: int | None, name: str | None) -> 
     return net.model_copy(update={"segments": [*net.segments, seg]})
 
 
+def _prune(net: Network) -> Network:
+    """Drop segments nothing uses any more (a removed VLAN disappears from the device)."""
+    used = {m for s in net.segments if s.members for m in [s.id]}
+    used |= {x.segment_id for x in net.subnets}
+    used |= {x.segment_id for x in net.dhcp_servers}
+    used |= {x.segment_id for x in net.wlans if x.segment_id}
+    used |= {x.segment_id for x in net.clients if x.segment_id}
+    segs = [s for s in net.segments if s.id in used]
+    return net if len(segs) == len(net.segments) else net.model_copy(update={"segments": segs})
+
+
 def apply_change(net: Network, c: Change) -> Network:
     """The network as it would be after one change (pure; used for checks before deploying)."""
+    out = _apply(net, c)
+    return _prune(out) if c.new is None or c.kind in (ChangeKind.PORT, ChangeKind.WLAN) else out
+
+
+def _apply(net: Network, c: Change) -> Network:
     if c.kind is ChangeKind.ROUTER:
         subs = [
             s

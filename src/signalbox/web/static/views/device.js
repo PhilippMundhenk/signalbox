@@ -91,6 +91,7 @@ async function overview(main, ctx, device, adapters, sites) {
         ['Management address', observed ? observed.management_address : null],
         ['Last read', observed && observed.observed_at ? h('span', { title: fmtTime(observed.observed_at) }, fmtAgo(observed.observed_at)) : 'not yet'],
         ['Enabled', yesNo(device.enabled)],
+        ['Changes allowed', yesNo(device.allow_writes)],
       ]),
       errors.length ? h('ul', { class: 'error', 'data-testid': 'device-errors' }, errors.map((e) => h('li', {}, `${e.capability}: ${e.message}`))) : null,
     ),

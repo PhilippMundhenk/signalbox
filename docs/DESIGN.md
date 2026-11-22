@@ -48,9 +48,9 @@ desired state → planner → deployment → devices, with every step tracked.
 | **Topology** | `signalbox.topology` | links from LLDP, MAC tables and entered cables; the wiring and VLAN view | `Network` | links, topology view | done (#15) |
 | **Desired state** | `signalbox.desired` | what the network should look like; drift against the observed state | YAML, UI | desired model, drift findings | done (#36), [DESIRED.md](DESIRED.md) |
 | **Planner** | `signalbox.changes` | desired minus observed → typed change set per device, ordered; checks run on the predicted state | desired + observed state | plan | done (#37) |
-| **Deployment** | `signalbox.deploy` | apply an approved plan as one transaction across devices | plan, approval | per-device result | phase 3 (#38) |
-| **Change tracking** | `signalbox.history` | immutable record of every change: who, why, plan, vendor calls, backups, results | deployments | change log, audit | phase 3 (#39) |
-| **Rollback** | `signalbox.deploy`, `signalbox.history` | automatic inside a deployment; revert of a recorded change; restore of a backup | change log | new tracked deployment | phase 3 (#40) |
+| **Deployment** | `signalbox.deploy` | apply an approved plan as one transaction across devices | plan, approval | per-device result | done (#38), [CHANGES.md](CHANGES.md) |
+| **Change tracking** | `signalbox.history` | immutable record of every change: who, why, plan, vendor calls, backups, results | deployments | change log, audit | done (#39) |
+| **Rollback** | `signalbox.deploy`, `signalbox.history` | automatic inside a deployment; revert of a recorded change; restore of a backup | change log | new tracked deployment | done (#40) |
 | **Interfaces** | `signalbox.web`, `signalbox.mqtt` | web UI and API, Home Assistant export | everything above | – | API #13, UI #14, MQTT #16 |
 
 Rules for the boundaries:

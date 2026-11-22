@@ -28,9 +28,10 @@ Signalbox is made of separate parts with narrow jobs (details in [docs/DESIGN.md
 - **Integrations**: one adapter per kind of device translates between the device and the model.
 - **Checks**: rules run on the model and report findings with a fix; they never change anything.
 - **Topology**: how devices are wired, from LLDP, MAC tables and cables you enter.
-- **Changes** (planned): a desired state, a planner that turns it into ordered changes, a
-  transactional deployment into the devices with backup, verification and automatic rollback,
-  and a change log from which every change can be reverted.
+- **Changes**: a desired state, a planner that turns it into ordered changes, a transactional
+  deployment into the devices with backup, verification and automatic rollback, and a change
+  log from which every change can be reverted. Off by default; integrations gain write support
+  one by one.
 
 ## Which devices
 
@@ -103,6 +104,7 @@ MQTT discovery, so they appear in Home Assistant without further setup.
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): every setting and its environment variable
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): data folder, reverse proxy, backups, updates
 - [docs/DESIRED.md](docs/DESIRED.md): declaring what the network should look like, and drift
+- [docs/CHANGES.md](docs/CHANGES.md): planning, deploying and undoing changes
 - [docs/RULES.md](docs/RULES.md): what each check looks at and how to fix a finding
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): devices that cannot be read, certificates
 - [docs/MATURITY.md](docs/MATURITY.md): what is tested how, and on which real devices

@@ -47,6 +47,13 @@ Generated from the code by `tools/gen_docs.py`.
 | `mqtt.topic_prefix` | `SIGNALBOX_MQTT_TOPIC_PREFIX` | `signalbox` | Prefix of the state topics. |
 | `mqtt.discovery_prefix` | `SIGNALBOX_MQTT_DISCOVERY_PREFIX` | `homeassistant` | Home Assistant discovery prefix. |
 
+## `deploy`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `deploy.enabled` | `SIGNALBOX_DEPLOY_ENABLED` | false | Allow deploying changes at all (devices also need 'allow changes'). |
+| `deploy.confirm_seconds` | `SIGNALBOX_DEPLOY_CONFIRM_SECONDS` | `120` | Devices that support it roll back by themselves unless confirmed in time. |
+
 ## `rules`
 
 Per rule (ids in [RULES.md](RULES.md)): `enabled` (true/false) and `severity`

@@ -81,6 +81,7 @@ export async function renderDeviceForm(main, ctx, device) {
   const siteBox = h('div', {});
   const site = h('select', { 'data-testid': 'device-site' });
   const enabled = h('input', { type: 'checkbox', checked: device ? device.enabled : true, 'data-testid': 'device-enabled' });
+  const allowWrites = h('input', { type: 'checkbox', checked: device ? device.allow_writes : false, 'data-testid': 'device-allow-writes' });
   const configBox = h('div', {});
   const errors = h('div', { class: 'error', role: 'alert', 'data-testid': 'form-errors' });
   let cfg = null;
@@ -132,7 +133,7 @@ export async function renderDeviceForm(main, ctx, device) {
       place(errors, h('ul', {}, problems.map((p) => h('li', {}, p))));
       return;
     }
-    const body = { name: name.value.trim(), site_id: site.value, role: role.value, adapter: adapter.value, enabled: enabled.checked, config };
+    const body = { name: name.value.trim(), site_id: site.value, role: role.value, adapter: adapter.value, enabled: enabled.checked, allow_writes: allowWrites.checked, config };
     run(save, async () => {
       try {
         const saved = editing ? await put(`/devices/${enc(device.id)}`, body) : await post('/devices', body);
@@ -152,6 +153,7 @@ export async function renderDeviceForm(main, ctx, device) {
     field('Role', role, 'Only the roles this adapter supports are offered.'),
     siteBox,
     editing ? checkField('Read this device', enabled, 'Disabled devices are kept but not read and not checked.') : null,
+    checkField('Allow changes', allowWrites, 'Approved changes may be deployed to this device. Off: Signalbox only reads it. Deploying must also be enabled in the configuration.'),
     configBox,
     errors,
     h('div', { class: 'row' }, save, h('a', { class: 'btn', href: editing ? `#/device/${enc(device.id)}` : '#/devices' }, 'Cancel')),

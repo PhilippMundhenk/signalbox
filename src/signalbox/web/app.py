@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, SecretStr
 
 from signalbox import __version__
 from signalbox.adapters import Adapter
+from signalbox.deploy import Deployer
 from signalbox.model import DeviceRole, Link, LinkKind, LinkOrigin, Network, Site
 from signalbox.mqtt import MqttBridge
 from signalbox.rules import READ_ERRORS
@@ -26,6 +27,7 @@ from signalbox.secrets import SecretError
 from signalbox.service import Services
 from signalbox.store import DeviceRecord, StoreError, slug
 from signalbox.web.auth import COOKIE, Auth, Locked
+from signalbox.web.changes_api import router as changes_router
 from signalbox.web.desired_api import router as desired_router
 
 log = logging.getLogger(__name__)
@@ -61,6 +63,7 @@ class DeviceBody(BaseModel):
     role: DeviceRole
     adapter: str
     enabled: bool = True
+    allow_writes: bool = False
     config: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -332,6 +335,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
             role=body.role,
             adapter=body.adapter,
             enabled=body.enabled,
+            allow_writes=body.allow_writes,
             pinned_fingerprint=old.pinned_fingerprint if old else None,
             pending_fingerprint=old.pending_fingerprint if old else None,
         )
@@ -441,6 +445,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
 
     app.include_router(api)
     app.include_router(desired_router(services))
+    app.include_router(changes_router(services, Deployer(runner)))
     if STATIC.is_dir():
         app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")
     return app

@@ -41,3 +41,12 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | GET | `/api/secrets` | Names of stored secrets (values are never returned). |
 | PUT | `/api/secrets/{name}` | Store a secret (encrypted), e.g. a Wi-Fi passphrase named in the desired state. |
 | DELETE | `/api/secrets/{name}` | Delete a secret. |
+| GET | `/api/changes` | The change log, newest first, and whether deploying is enabled. |
+| POST | `/api/changes` | Plan the desired state and record it as a change waiting for approval. |
+| GET | `/api/changes/{change_id}` | One change with its plan, per-device results and event log. |
+| POST | `/api/changes/{change_id}/approve` | Approve a planned change (an override reason is needed when it creates errors). |
+| POST | `/api/changes/{change_id}/reject` | Reject a change that was not deployed. |
+| POST | `/api/changes/{change_id}/deploy` | Deploy an approved change in the background; poll the change for its progress. |
+| POST | `/api/changes/{change_id}/revert` | Plan a new change that undoes an applied one. |
+| GET | `/api/backups` | Configuration backups taken before changes (contents stay on the server). |
+| POST | `/api/backups/{backup_id}/restore` | Plan putting a backup back on its device (approve and deploy like any change). |

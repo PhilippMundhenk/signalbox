@@ -294,7 +294,16 @@ def test_keyboard_login_and_navigation(page: Any, server: Any) -> None:
 
 
 @pytest.mark.parametrize(
-    "hash_", [*VIEWS, "#/settings", "#/desired", "#/devices/new", "#/device/router"]
+    "hash_",
+    [
+        *VIEWS,
+        "#/settings",
+        "#/desired",
+        "#/changes",
+        "#/change/new",
+        "#/devices/new",
+        "#/device/router",
+    ],
 )
 def test_phone_has_no_horizontal_scroll(page: Any, server: Any, hash_: str) -> None:
     page.set_viewport_size({"width": 375, "height": 740})
@@ -366,3 +375,47 @@ def test_plan_shows_the_changes_in_order(app: Any) -> None:
     go(app, "#/desired")
     app.get_by_test_id("plan-make").click()
     expect(app.get_by_test_id("plan")).to_contain_text(re.compile("change|Nothing to change"))
+
+
+def test_change_plan_approve_deploy_and_revert(app: Any) -> None:
+    from test_deploy import WANT
+    from writable import Writable
+
+    Writable.reset()
+    add_site(app)
+    for dev, role in (("gw", "gateway"), ("ap", "ap")):
+        body = {
+            "name": dev,
+            "site_id": "home",
+            "role": role,
+            "adapter": "w",
+            "allow_writes": True,
+            "config": {"host": "192.0.2.9", "password": "pw"},
+        }
+        api(app, "POST", "/devices", body)
+    api(app, "POST", "/links", {"a": "gw/port/lan", "b": "ap/port/lan"})
+    api(app, "PUT", "/secrets/psk", {"value": "the new passphrase"})
+    observe(app)
+    api(app, "PUT", "/desired", {"yaml": WANT})
+    go(app, "#/changes")
+    expect(app.get_by_test_id("no-changes")).to_be_visible()
+    app.get_by_test_id("change-new").click()
+    expect(app.get_by_test_id("plan-changes")).to_contain_text("create router")
+    app.get_by_test_id("change-reason").fill("add the IoT network")
+    app.get_by_test_id("change-create").click()
+    expect(app.get_by_test_id("change-status")).to_contain_text("planned")
+    app.get_by_test_id("change-approve").click()
+    expect(app.get_by_test_id("change-status")).to_contain_text("approved")
+    app.get_by_test_id("change-deploy").click()
+    app.get_by_test_id("confirm-ok").click()
+    expect(app.get_by_test_id("change-status")).to_contain_text("applied", timeout=20000)
+    expect(app.get_by_test_id("change-device")).to_have_count(2)
+    expect(app.get_by_test_id("change-events")).to_contain_text("confirmed")
+    app.get_by_test_id("change-revert").click()
+    app.get_by_test_id("reason").fill("not needed after all")
+    app.get_by_test_id("reason-ok").click()
+    expect(app.get_by_test_id("change-status")).to_contain_text("planned")
+    expect(app.locator("main")).to_contain_text("Reverts")
+    go(app, "#/changes")
+    expect(app.get_by_test_id("change-row")).to_have_count(2)
+    expect(app.get_by_test_id("backup-row")).to_have_count(2)

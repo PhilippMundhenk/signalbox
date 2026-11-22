@@ -58,11 +58,25 @@ class MqttConfig(Section):
     discovery_prefix: str = Field("homeassistant", description="Home Assistant discovery prefix.")
 
 
+class DeployConfig(Section):
+    enabled: bool = Field(
+        False,
+        description="Allow deploying changes at all (devices also need 'allow changes').",
+    )
+    confirm_seconds: int = Field(
+        120,
+        ge=30,
+        le=900,
+        description="Devices that support it roll back by themselves unless confirmed in time.",
+    )
+
+
 class Config(Section):
     server: ServerConfig = ServerConfig()
     auth: AuthConfig = AuthConfig()
     observe: ObserveConfig = ObserveConfig()
     mqtt: MqttConfig = MqttConfig()
+    deploy: DeployConfig = DeployConfig()
     rules: dict[str, RuleSettings] = Field(
         default_factory=dict,
         description="Per rule: enabled (true/false) and severity (info/warning/error).",
@@ -110,6 +124,13 @@ mqtt:
   tls: false
   topic_prefix: signalbox
   discovery_prefix: homeassistant
+
+deploy:
+  # Allow deploying changes to devices at all. Each device must also allow changes
+  # (device settings). Off by default: Signalbox only reads.
+  enabled: false
+  # Devices that can roll back by themselves (OpenWrt) do so unless confirmed in time.
+  confirm_seconds: 120
 
 # Per-rule settings, for example:
 # rules:
