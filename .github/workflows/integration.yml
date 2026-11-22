@@ -262,6 +262,13 @@ jobs:
               echo "::error title=MikroTik integration tests failed::$body"
               exit $code
             }
+      - name: Test results
+        if: always()
+        run: |
+          body=$(grep -E ' (PASSED|FAILED|ERROR|SKIPPED)' "$VM_DIR/pytest.log" 2>/dev/null | sed 's/^tests.integration.test_mikrotik_real.py:://')
+          body=${body//'%'/'%25'}
+          body=${body//$'\n'/'%0A'}
+          echo "::notice title=MikroTik integration test results::$body"
       - name: Serial console on failure
         if: failure()
         run: |

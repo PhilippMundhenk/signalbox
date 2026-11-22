@@ -16,6 +16,7 @@ so the tests can run in any order against one VM.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable, Iterator
 from ipaddress import ip_address
@@ -393,6 +394,21 @@ async def test_adapter_apply_read_back_and_restore(rt: dict[str, str]) -> None:
         backup = await a.backup()
         try:
             await a.apply(changes, {}, 60)
+            timeline = []
+            for _ in range(20):
+                rows = httpx.get(
+                    rt["URL"] + "/rest/ip/dhcp-server",
+                    auth=(rt["USER"], rt["PASSWORD"]),
+                    verify=False,
+                    timeout=TIMEOUT,
+                    trust_env=False,
+                ).json()
+                state = [(r.get("name"), r.get("invalid"), r.get(".about")) for r in rows]
+                timeline.append(state)
+                if all(r.get("invalid") != "true" for r in rows):
+                    break
+                await asyncio.sleep(1)
+            assert len(timeline) == 1, timeline
             after = merge([SITE], [await a.observe()])
             dhcp = [s for s in after.dhcp_servers if s.segment_id == LAB]
             seen = {
