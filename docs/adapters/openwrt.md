@@ -267,7 +267,7 @@ through rpcd with "invalid argument". Signalbox then calls `luci-rpc getWireless
   push-button, `wps_label` `1` PIN, neither set: `Wps(enabled=False)`. `key_rotation_seconds`
   from `wpa_group_rekey` (unset: not reported). `beacon_protection` from `beacon_prot` when set
   *(guess: option name)*.
-- `Radio.supported_security`: `luci getFeatures` (rpcd-mod-luci; the `hostapd` flags `sae`,
+- `Radio.supported_security`: `luci getFeatures` (luci-base, part of a LuCI install, not of rpcd-mod-luci; the `hostapd` flags `sae`,
   `owe`, `eap`, `suiteb192` as LuCI reads them *(guess: object `luci`, not `luci-rpc`)*), else
   the `wpad-*` package of `rpc-sys packagelist` (`wpad-basic*`: no SAE, OWE, EAP; every other
   `wpad-*`: all *(guess)*). Both are in the ACL below; an ACL from before #167 or a missing
@@ -341,7 +341,7 @@ Every "access denied" error says to install this ACL; root may call whatever an 
 file allows (`list read '*'`), so with the file in place root works too.
 
 Packages: `rpcd`, `uhttpd`, `uhttpd-mod-ubus` (all part of a LuCI install); `rpcd-mod-file` for
-the lease file, `rpcd-mod-luci` for `luci-rpc` and `luci-app-lldpd` for LLDP are optional; on
+the lease file, `rpcd-mod-luci` for `luci-rpc`, `luci-base` for `luci getFeatures` (the security modes the radios support) and `luci-app-lldpd` for LLDP are optional; on
 OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
 
 `/usr/share/rpcd/acl.d/signalbox.json`:
