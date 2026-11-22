@@ -36,6 +36,7 @@ All notable changes to this project are documented here. The format follows
 - NETGEAR ProSAFE Plus and TP-Link Easy Smart switches (read) through Switchyard's protocol library (optional extra `switches`, included in the image): ports, 802.1Q VLANs, firmware (#22, #44)
 - MikroTik adapter (read) over the RouterOS 7 REST API: interfaces, bridge VLAN filtering, addresses, DHCP, DNS, wifi (wifiwave2 and legacy), clients, neighbours (#43)
 - Firmware checks: identical devices on different firmware, update available, end of life (#22)
+- Out-of-process adapters: an integration can run as a separate program that only gets the settings of its device (JSON over stdin/stdout, `serve()` for Python adapters); exporter plugins (`signalbox.exporters`); docs/PLUGINS.md (#25)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)

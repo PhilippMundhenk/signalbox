@@ -54,6 +54,12 @@ Generated from the code by `tools/gen_docs.py`.
 | `deploy.enabled` | `SIGNALBOX_DEPLOY_ENABLED` | false | Allow deploying changes at all (devices also need 'allow changes'). |
 | `deploy.confirm_seconds` | `SIGNALBOX_DEPLOY_CONFIRM_SECONDS` | `120` | Devices that support it roll back by themselves unless confirmed in time. |
 
+## `plugins`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `plugins.remote_adapters` | `SIGNALBOX_PLUGINS_REMOTE_ADAPTERS` | - | Adapters that run as separate programs: id -> command (see docs/PLUGINS.md). |
+
 ## `rules`
 
 Per rule (ids in [RULES.md](RULES.md)): `enabled` (true/false) and `severity`

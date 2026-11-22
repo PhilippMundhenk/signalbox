@@ -117,6 +117,7 @@ MQTT discovery, so they appear in Home Assistant without further setup.
 - [docs/MATURITY.md](docs/MATURITY.md): what is tested how, and on which real devices
 - [docs/adapters/](docs/adapters/): setting up each kind of device
 - [docs/ADAPTERS.md](docs/ADAPTERS.md): writing an adapter for another device
+- [docs/PLUGINS.md](docs/PLUGINS.md): adapters as separate programs, rule and exporter plugins
 - [docs/API.md](docs/API.md): the HTTP API
 - [docs/DESIGN.md](docs/DESIGN.md): design and plans; [docs/adr/](docs/adr/): decisions
 - [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md)

@@ -144,8 +144,8 @@ never a silent skip.
 - `observe() -> Snapshot` is the only required method. Writing is an optional capability.
 - Writes are typed change sets (`SetWlan`, `AddSegmentToPort`, …). The adapter first returns the
   vendor calls it would make, so dry runs and review are possible.
-- Optionally out of process (subprocess or container, small JSON-RPC protocol), so a third-party
-  adapter only ever sees its own credentials.
+- Optionally out of process (a separate program, one line of JSON each way), so a third-party
+  adapter only ever sees its own credentials ([PLUGINS.md](PLUGINS.md)).
 - A shared contract test suite every adapter must pass, against a device simulator or recorded,
   sanitised fixtures committed to the adapter's repository.
 - Rules and exporters (Home Assistant via MQTT, Prometheus metrics) use the same packaging.

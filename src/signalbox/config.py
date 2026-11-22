@@ -71,12 +71,20 @@ class DeployConfig(Section):
     )
 
 
+class PluginsConfig(Section):
+    remote_adapters: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Adapters that run as separate programs: id -> command (see docs/PLUGINS.md).",
+    )
+
+
 class Config(Section):
     server: ServerConfig = ServerConfig()
     auth: AuthConfig = AuthConfig()
     observe: ObserveConfig = ObserveConfig()
     mqtt: MqttConfig = MqttConfig()
     deploy: DeployConfig = DeployConfig()
+    plugins: PluginsConfig = PluginsConfig()
     rules: dict[str, RuleSettings] = Field(
         default_factory=dict,
         description="Per rule: enabled (true/false) and severity (info/warning/error).",
@@ -131,6 +139,12 @@ deploy:
   enabled: false
   # Devices that can roll back by themselves (OpenWrt) do so unless confirmed in time.
   confirm_seconds: 120
+
+plugins:
+  # Adapters that run as separate programs, each with only the settings of its device:
+  #   remote_adapters:
+  #     myrouter: ["/opt/signalbox-myrouter/bin/myrouter-adapter"]
+  remote_adapters: {}
 
 # Per-rule settings, for example:
 # rules:
