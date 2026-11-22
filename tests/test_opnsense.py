@@ -183,7 +183,7 @@ async def test_dhcp(snap: Snapshot) -> None:
     assert lan.router == ip_address("192.0.2.1") and lan.dns_servers == [ip_address("192.0.2.1")]
     assert lan.lease_seconds == 4000
     assert [(r.mac, str(r.address), r.hostname) for r in lan.reservations] == [
-        ("02:00:00:00:00:10", "192.0.2.10", "printer")
+        ("00:00:5e:00:53:10", "192.0.2.10", "printer")
     ]
     iot = servers["fw/dhcp/kea-opt1"]
     assert [(str(p.start), str(p.end)) for p in iot.pools] == [
@@ -213,17 +213,17 @@ async def test_dns(snap: Snapshot) -> None:
 async def test_clients(snap: Snapshot) -> None:
     by_mac = {c.mac: c for c in snap.clients}
     assert sorted(by_mac) == [
-        "02:00:00:00:00:10",
-        "02:00:00:00:00:20",
+        "00:00:5e:00:53:10",
+        "00:00:5e:00:53:20",
+        "00:00:5e:00:53:30",
         "02:00:00:00:00:21",
-        "02:00:00:00:00:30",
         "02:00:00:00:00:31",
     ]  # not the firewall's own MAC, not "(incomplete)"
-    printer = by_mac["02:00:00:00:00:10"]
+    printer = by_mac["00:00:5e:00:53:10"]
     assert [str(a) for a in printer.addresses] == ["192.0.2.10", "2001:db8:1::10"]
     assert printer.hostname == "printer.home.example"
     assert printer.segment_id == "home/segment/native" and printer.seen_on == port_id("fw", "igb0")
-    assert by_mac["02:00:00:00:00:20"].segment_id == "home/segment/20"
+    assert by_mac["00:00:5e:00:53:20"].segment_id == "home/segment/20"
     assert by_mac["02:00:00:00:00:21"].hostname == "laptop"  # from the Kea lease
     assert by_mac["02:00:00:00:00:31"].segment_id == "home/segment/30"
 

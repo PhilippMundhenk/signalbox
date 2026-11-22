@@ -27,7 +27,7 @@ sites:
           dns: [192.0.2.1]
           lease_seconds: 43200
         reservations:
-          - {mac: "02:00:00:00:00:10", address: 192.0.2.10, hostname: printer}
+          - {mac: "00:00:5e:00:53:10", address: 192.0.2.10, hostname: printer}
       - vlan: 20
         name: IoT
         gateway: {device: gateway, address: 198.51.100.1/24}

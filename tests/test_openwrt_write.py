@@ -373,7 +373,7 @@ async def test_dhcp_refusals(
 
 async def test_reservations(sim: OpenWrtSim, adapter: OpenWrtAdapter, url: str) -> None:
     printer = ReservationValue(
-        mac="02:00:00:00:10:01", address=ip("192.0.2.50"), hostname="printer"
+        mac="00:00:5e:00:53:01", address=ip("192.0.2.50"), hostname="printer"
     )
     camera = ReservationValue(mac="02:00:00:00:10:03", address=ip("192.0.2.60"), hostname="camera")
     moved = printer.model_copy(update={"address": ip("192.0.2.51"), "hostname": None})
@@ -394,16 +394,16 @@ async def test_reservations(sim: OpenWrtSim, adapter: OpenWrtAdapter, url: str) 
 async def test_reservation_in_a_host_with_several_macs(
     sim: OpenWrtSim, adapter: OpenWrtAdapter, url: str
 ) -> None:
-    sim.state["dhcp"]["cfg06fe63"]["mac"] = "02:00:00:00:10:01 02:00:00:00:10:04"
+    sim.state["dhcp"]["cfg06fe63"]["mac"] = "00:00:5e:00:53:01 02:00:00:00:10:04"
     printer = ReservationValue(
-        mac="02:00:00:00:10:01", address=ip("192.0.2.50"), hostname="printer"
+        mac="00:00:5e:00:53:01", address=ip("192.0.2.50"), hostname="printer"
     )
     moved = printer.model_copy(update={"address": ip("192.0.2.52")})
     await applied(
         adapter, url, change(ChangeKind.RESERVATION, f"{NATIVE}/{printer.mac}", printer, moved)
     )
     assert sim.state["dhcp"]["cfg06fe63"]["mac"] == ["02:00:00:00:10:04"]
-    sim.state["dhcp"]["cfg06fe63"]["mac"] = ["02:00:00:00:10:04", "02:00:00:00:10:01"]
+    sim.state["dhcp"]["cfg06fe63"]["mac"] = ["02:00:00:00:10:04", "00:00:5e:00:53:01"]
     await applied(
         adapter, url, change(ChangeKind.RESERVATION, f"{NATIVE}/{printer.mac}", moved, None)
     )
@@ -633,7 +633,7 @@ async def test_backup_and_restore_round_trip(
     net = await network(url)
     pid = f"{DEV}/port/lan1"
     printer = ReservationValue(
-        mac="02:00:00:00:10:01", address=ip("192.0.2.50"), hostname="printer"
+        mac="00:00:5e:00:53:01", address=ip("192.0.2.50"), hostname="printer"
     )
     await applied(
         adapter,

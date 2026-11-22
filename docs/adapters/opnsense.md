@@ -215,7 +215,7 @@ installed" and is not an error.
       "option_data": {"routers": "", "domain_name_servers": "", "domain_name": ""}}}},
   "reservations": {"reservation": {"<uuid>": {
       "subnet": {"<subnet uuid>": {"value": "192.0.2.0/24", "selected": 1}},
-      "ip_address": "192.0.2.10", "hw_address": "02:00:00:00:00:10", "hostname": "printer"}}}}}
+      "ip_address": "192.0.2.10", "hw_address": "00:00:5e:00:53:10", "hostname": "printer"}}}}}
 ```
 
 ### `/api/kea/leases4/search` (clients)
@@ -236,7 +236,7 @@ installed" and is not an error.
 ### `/api/dhcpv4/leases/searchLease` (dhcp, clients)
 
 ```json
-{"rows": [{"address": "203.0.113.10", "mac": "02:00:00:00:00:30", "hostname": "kiosk",
+{"rows": [{"address": "203.0.113.10", "mac": "00:00:5e:00:53:30", "hostname": "kiosk",
   "if": "opt2", "type": "static", "status": "offline"}]}
 ```
 
@@ -262,7 +262,7 @@ Newer versions may call the address field `address`; both are accepted.
 ### `/api/diagnostics/interface/getArp`, `/api/diagnostics/interface/getNdp` (clients)
 
 ```json
-[{"mac": "02:00:00:00:00:10", "ip": "192.0.2.10", "intf": "igb0", "permanent": false,
+[{"mac": "00:00:5e:00:53:10", "ip": "192.0.2.10", "intf": "igb0", "permanent": false,
   "hostname": "printer.home.example"}]
 ```
 

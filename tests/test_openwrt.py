@@ -177,7 +177,7 @@ async def test_dhcp_off_on_an_ap(adapter: OpenWrtAdapter) -> None:
     assert server.enabled is False and server.pools == []
     assert server.lease_seconds == 12 * 3600
     assert [(r.mac, str(r.address), r.hostname) for r in server.reservations] == [
-        ("02:00:00:00:10:01", "192.0.2.50", "printer")
+        ("00:00:5e:00:53:01", "192.0.2.50", "printer")
     ]
 
 
