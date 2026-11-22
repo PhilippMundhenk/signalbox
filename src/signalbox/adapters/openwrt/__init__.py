@@ -45,6 +45,7 @@ from signalbox.model import (
     SERVICE_PORTS,
     AddressSource,
     Band,
+    Cipher,
     Client,
     DeviceRole,
     DhcpPool,
@@ -64,6 +65,8 @@ from signalbox.model import (
     PortMembership,
     Radio,
     Reservation,
+    SaePwe,
+    SaeSettings,
     Security,
     Segment,
     ServiceKind,
@@ -72,8 +75,11 @@ from signalbox.model import (
     Uplink,
     UplinkKind,
     Wlan,
+    Wps,
+    WpsMethod,
     normalise_mac,
     object_id,
+    passphrase_digest,
     passphrase_fingerprint,
     port_id,
     segment_id,
@@ -190,19 +196,56 @@ def lease_seconds(text: Any) -> int | None:
 ENCRYPTION = {
     "none": Security.OPEN,
     "owe": Security.OWE,
-    "psk": Security.OTHER,  # WPA1
+    "wep": Security.WEP,
+    "wep-open": Security.WEP,
+    "wep-shared": Security.WEP,
+    "psk": Security.WPA,
+    "psk-mixed": Security.WPA_WPA2,
     "psk2": Security.WPA2,
-    "psk-mixed": Security.WPA2,
     "sae": Security.WPA3,
     "sae-mixed": Security.WPA2_WPA3,
-    "wpa": Security.WPA2_ENTERPRISE,
+    "wpa": Security.WPA_ENTERPRISE,
+    "wpa-mixed": Security.WPA_ENTERPRISE,
     "wpa2": Security.WPA2_ENTERPRISE,
-    "wpa-mixed": Security.WPA2_ENTERPRISE,
     "wpa3": Security.WPA3_ENTERPRISE,
     "wpa3-mixed": Security.WPA3_ENTERPRISE,
-    "wpa3-192": Security.WPA3_ENTERPRISE,
+    "wpa3-192": Security.WPA3_ENTERPRISE_192,
 }
-PERSONAL = {Security.WPA2, Security.WPA3, Security.WPA2_WPA3, Security.OTHER}
+PERSONAL = {
+    Security.WPA,
+    Security.WPA_WPA2,
+    Security.WPA2,
+    Security.WPA3,
+    Security.WPA2_WPA3,
+    Security.OTHER,
+}
+SAE_MODES = {Security.WPA3, Security.WPA2_WPA3}
+#: ``encryption`` suffix words (``psk2+tkip+ccmp``); ``aes`` is hostapd.sh's word for CCMP.
+CIPHER_WORDS = {
+    "ccmp": Cipher.CCMP,
+    "aes": Cipher.CCMP,
+    "ccmp256": Cipher.CCMP_256,
+    "ccmp-256": Cipher.CCMP_256,
+    "gcmp": Cipher.GCMP,
+    "gcmp256": Cipher.GCMP_256,
+    "gcmp-256": Cipher.GCMP_256,
+    "tkip": Cipher.TKIP,
+}
+#: Weakest first: a network with several pairwise ciphers uses the weakest as group cipher,
+#: so that every station can decrypt group traffic.
+CIPHER_STRENGTH = [
+    Cipher.WEP,
+    Cipher.TKIP,
+    Cipher.CCMP,
+    Cipher.CCMP_256,
+    Cipher.GCMP,
+    Cipher.GCMP_256,
+]
+SAE_PWE = {
+    "0": SaePwe.HUNTING_AND_PECKING,
+    "1": SaePwe.HASH_TO_ELEMENT,
+    "2": SaePwe.BOTH,
+}
 PMF = {"0": Pmf.DISABLED, "1": Pmf.OPTIONAL, "2": Pmf.REQUIRED}
 #: hostapd.sh default of ieee80211w when the option is not set.
 PMF_DEFAULT = {
@@ -217,6 +260,73 @@ BANDS = {"2g": Band.GHZ_2_4, "5g": Band.GHZ_5, "6g": Band.GHZ_6}
 def security(encryption: Any) -> Security:
     base = str(encryption or "none").split("+", 1)[0]
     return ENCRYPTION.get(base, Security.OTHER)
+
+
+def ciphers(encryption: Any, sec: Security) -> list[Cipher] | None:
+    """Pairwise ciphers of an ``encryption`` value: the ``+ccmp``/``+tkip`` suffix, else
+    hostapd.sh's default (``tkip+ccmp`` for ``psk`` and ``psk-mixed``, ``gcmp-256`` for
+    ``wpa3-192``, otherwise ``ccmp``). None: open, or a word this does not know."""
+    if sec is Security.OPEN:
+        return None
+    if sec is Security.WEP:
+        return [Cipher.WEP]
+    words = str(encryption or "").split("+")[1:]
+    if words:
+        found = [CIPHER_WORDS[w] for w in words if w in CIPHER_WORDS]
+        return list(dict.fromkeys(found)) if len(found) == len(words) else None
+    if sec is Security.OTHER:
+        return None
+    if sec is Security.WPA3_ENTERPRISE_192:
+        return [Cipher.GCMP_256]
+    if sec in (Security.WPA, Security.WPA_WPA2):
+        return [Cipher.TKIP, Cipher.CCMP]
+    return [Cipher.CCMP]
+
+
+def group_cipher(pairwise: list[Cipher] | None) -> Cipher | None:
+    """The group cipher is not a UCI option: hostapd uses the weakest pairwise cipher."""
+    if not pairwise:
+        return None
+    return min(pairwise, key=CIPHER_STRENGTH.index)
+
+
+def wps(s: dict[str, Any]) -> Wps:
+    """``wps_pushbutton`` and ``wps_label`` (PIN); neither set: WPS is off."""
+    methods = []
+    if _flag(s.get("wps_pushbutton")):
+        methods.append(WpsMethod.PUSH_BUTTON)
+    if _flag(s.get("wps_label")):
+        methods.append(WpsMethod.PIN)
+    return Wps(enabled=bool(methods), methods=methods)
+
+
+def supported_from_features(features: dict[str, Any]) -> list[Security]:
+    """Security modes from the ``hostapd`` flags of ``luci getFeatures`` (as LuCI reads them)."""
+    hostapd = features.get("hostapd")
+    flags = hostapd if isinstance(hostapd, dict) else {}
+    modes = [Security.OPEN, Security.WPA, Security.WPA_WPA2, Security.WPA2]
+    if flags.get("owe"):
+        modes.append(Security.OWE)
+    if flags.get("sae"):
+        modes += [Security.WPA3, Security.WPA2_WPA3]
+    if flags.get("eap"):
+        modes += [Security.WPA_ENTERPRISE, Security.WPA2_ENTERPRISE]
+        if flags.get("sae"):
+            modes.append(Security.WPA3_ENTERPRISE)
+    if flags.get("suiteb192"):
+        modes.append(Security.WPA3_ENTERPRISE_192)
+    return modes
+
+
+def supported_from_packages(packages: dict[str, Any]) -> list[Security] | None:
+    """Security modes from the installed ``wpad-*`` package: ``-basic`` builds have no SAE, OWE
+    or EAP, the full ones (mbedtls, openssl, wolfssl, mesh) have all. None: no wpad listed."""
+    wpad = sorted(n for n in packages if str(n).startswith("wpad"))
+    if not wpad:
+        return None
+    if "-basic" in wpad[0]:
+        return supported_from_features({})
+    return supported_from_features({"hostapd": {"owe": 1, "sae": 1, "eap": 1, "suiteb192": 1}})
 
 
 def band(section: dict[str, Any]) -> Band | None:
@@ -809,11 +919,30 @@ class OpenWrtAdapter(Adapter):
                 ) from None
         return {k: v for k, v in status.items() if isinstance(v, dict)}
 
+    async def _supported_security(self) -> list[Security] | None:
+        """Modes the installed hostapd can offer: ``luci getFeatures`` (rpcd-mod-luci), else the
+        ``wpad-*`` package from ``rpc-sys packagelist``; None when neither is readable (an
+        older ACL, packages missing)."""
+        missing = (NotFound, AccessDenied, InvalidArgument, NoData)
+        try:
+            features = await self.ubus.call("luci", "getFeatures")
+        except missing:
+            pass
+        else:
+            return supported_from_features(features)
+        try:
+            listed = await self.ubus.call("rpc-sys", "packagelist")
+        except missing:
+            return None
+        packages = listed.get("packages")
+        return supported_from_packages(packages) if isinstance(packages, dict) else None
+
     async def read_wireless(self) -> Observation:
         d = self.context.device_id
         uci = await self._uci("wireless")
         up = await self._radios_up()
         view = await self._network(running=False)
+        supported = await self._supported_security()
         radios: dict[str, Radio] = {}
         for name, s in _sections(uci, "wifi-device"):
             b = band(s)
@@ -829,6 +958,7 @@ class OpenWrtAdapter(Adapter):
                 tx_power_dbm=_int(s.get("txpower")),
                 country=str(s["country"]) if s.get("country") else None,
                 enabled=not _flag(s.get("disabled")) and bool(up.get(name, {}).get("up")),
+                supported_security=supported,
                 vendor_extra=_extra(s, "htmode", "type", "cell_density"),
             )
         wlans: list[Wlan] = []
@@ -842,6 +972,9 @@ class OpenWrtAdapter(Adapter):
             networks = _list(s.get("network"))
             vid = view.vlan_of_interface(networks[0]) if networks else None
             pmf = PMF.get(str(s["ieee80211w"])) if "ieee80211w" in s else PMF_DEFAULT.get(sec)
+            pairwise = ciphers(s.get("encryption"), sec)
+            personal = bool(key) and sec in PERSONAL
+            rekey = _int(s.get("wpa_group_rekey")) if sec is not Security.OPEN else None
             wlans.append(
                 Wlan(
                     id=object_id(d, "wlan", name),
@@ -851,9 +984,18 @@ class OpenWrtAdapter(Adapter):
                     enabled=radio.enabled and not _flag(s.get("disabled")),
                     security=sec,
                     pmf=pmf,
-                    passphrase_fingerprint=(
-                        passphrase_fingerprint(ssid, str(key)) if key and sec in PERSONAL else None
-                    ),
+                    passphrase_fingerprint=passphrase_fingerprint(ssid, str(key))
+                    if personal
+                    else None,
+                    passphrase_digest=passphrase_digest(str(key)) if personal else None,
+                    ciphers=pairwise,
+                    group_cipher=group_cipher(pairwise),
+                    sae=SaeSettings(pwe=SAE_PWE.get(str(s.get("sae_pwe"))))
+                    if sec in SAE_MODES
+                    else None,
+                    wps=wps(s) if sec in PERSONAL and sec is not Security.OTHER else None,
+                    key_rotation_seconds=rekey,
+                    beacon_protection=_flag(s["beacon_prot"]) if "beacon_prot" in s else None,
                     segment_id=self._seg(vid) if vid is not None else None,
                     hidden=_flag(s.get("hidden")),
                     roaming_80211r=_flag(s.get("ieee80211r")),

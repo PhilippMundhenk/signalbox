@@ -284,8 +284,16 @@ The SSID list leaves out the security settings; Signalbox reads every SSID's own
 - One WLAN per SSID and radio of every EAP that uses the WLAN group; `band` is a bit mask
   (1 = 2.4 GHz, 2 = 5 GHz, 4 = 6 GHz).
 - `security`: 0 none (OWE when `oweEnable` is true), 2 WPA-Enterprise (`entSetting.versionEnt`
-  4 = WPA3), 3 WPA-Personal with `pskSetting.versionPsk` 2 = WPA2, 4 = WPA2/WPA3 (WPA3-SAE alone
-  for a 6 GHz-only SSID), 1 (WPA) and 3 (WPA/WPA2) = other; 4 and 5 (PPSK) are other.
+  4 = WPA3, 1 and 3 = WPA-Enterprise *(guess: codes 1 and 3)*, 2 = WPA2), 3 WPA-Personal with
+  `pskSetting.versionPsk` 1 = WPA, 2 = WPA2, 3 = WPA/WPA2 *(guess: 3)*, 4 = WPA2/WPA3 (WPA3-SAE
+  alone for a 6 GHz-only SSID); 4 and 5 (PPSK) are other.
+- Security details (#167), personal SSIDs: `pskSetting.encryptionPsk` 1 auto (`tkip` and
+  `ccmp`), 2 TKIP, 3 AES (`ccmp`) *(guess: codes 1/2/3; the integration test confirms 3 on the
+  CI controller)*; `pskSetting.gikRekeyPskEnable` `false` is `key_rotation_seconds` 0 (confirmed
+  by CI), `true` with `rekeyPskInterval` is that interval *(guess: field name; without it not
+  reported)*. No SAE settings, no WPS (EAPs have none), no group cipher, no beacon protection
+  and no `supported_security` in the Open API. `passphrase_digest` is computed next to the
+  fingerprint from `pskSetting.securityKey`.
 - `vlanEnable`/`vlanId` gives the segment (only when such a LAN network exists; otherwise the VLAN
   is in `vendor_extra`). `broadcast: false` is hidden. `pmfMode`: 1 mandatory (required),
   2 capable (optional), 3 disabled; an open SSID has none. `ssidEnable` is on or off.

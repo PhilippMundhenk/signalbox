@@ -331,6 +331,7 @@ def wireless_config() -> dict[str, Any]:
                 "ssid": "Example",
                 "encryption": "sae-mixed",
                 "key": "example-passphrase",
+                "sae_pwe": "2",
                 "ieee80211r": "1",
             },
         ),
@@ -344,6 +345,7 @@ def wireless_config() -> dict[str, Any]:
                 "ssid": "Example",
                 "encryption": "sae-mixed",
                 "key": "example-passphrase",
+                "sae_pwe": "2",
                 "ieee80211r": "1",
                 "ieee80211w": "1",
             },
@@ -360,6 +362,8 @@ def wireless_config() -> dict[str, Any]:
                 "key": "example-iot-passphrase",
                 "hidden": "1",
                 "isolate": "1",
+                "wps_pushbutton": "1",
+                "wpa_group_rekey": "3600",
             },
         ),
         (
@@ -707,6 +711,10 @@ class OpenWrtSim:
     #: luci-app-lldpd installed (ubus object ``luci.lldpd``)
     lldpd: bool = True
     luci_rpc: bool = True
+    #: ``luci getFeatures`` answers (rpcd-mod-luci); off: the adapter reads the wpad package
+    luci_features: bool = True
+    #: installed hostapd package (``rpc-sys packagelist``); ``wpad-basic-mbedtls``: no SAE, OWE, EAP
+    wpad: str = "wpad-mbedtls"
     #: OpenWrt 25.12: netifd's ucode wireless object answers "invalid argument" through rpcd
     wireless_ucode: bool = False
     #: DHCP on, no default route on lan: the device acts as the router of 192.0.2.0/24
@@ -905,6 +913,13 @@ class OpenWrtSim:
             if obj[8:] in running:
                 ifname = obj[8:]
                 return [0, clients(ifname, running[ifname])] if method == "get_clients" else [3]
+        if obj == "luci" and self.luci_features and method == "getFeatures":
+            full = "-basic" not in self.wpad
+            flags = {"adhoc": True, "ieee80211r": True, "ieee80211w": True, "wps": full}
+            flags |= {"sae": full, "owe": full, "eap": full, "suiteb192": full}
+            return [0, {"hostapd": flags, "dropbear": True}]
+        if obj == "rpc-sys" and method == "packagelist":
+            return [0, {"packages": {"base-files": "1623-r1", self.wpad: "2024.09.15-1"}}]
         if obj == "luci-rpc" and self.luci_rpc:
             if method == "getWirelessDevices":  # network.wireless status plus iwinfo
                 status = wireless_status(self.state["wireless"])

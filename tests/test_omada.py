@@ -22,12 +22,14 @@ from signalbox.adapters.omada import (
     OmadaConfig,
     _check,
     _int,
+    _psk_details,
     _security,
     _width,
     jumbo_of,
     vitals,
 )
 from signalbox.model import (
+    Cipher,
     DeviceHealth,
     DeviceRole,
     DeviceStatus,
@@ -35,6 +37,7 @@ from signalbox.model import (
     Pmf,
     Security,
     Snapshot,
+    passphrase_digest,
     passphrase_fingerprint,
 )
 from signalbox.sim.omada import (
@@ -49,7 +52,7 @@ from signalbox.sim.omada import (
     create_app,
 )
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
-from signalbox.testing import assert_contract
+from signalbox.testing import assert_contract, passphrase_digest_key
 
 SIM = OmadaSimulator()
 DEV = "omada1"
@@ -290,6 +293,41 @@ async def test_wireless(snap: Snapshot) -> None:
     assert (guest.purpose, guest.purpose_source) == ("guest", "reported")
     assert guest.client_isolation is None and home.purpose is None
     assert not wlans[f"{AP2}/wlan/ssid-home-5g"].enabled  # its radio is off
+
+
+async def test_wifi_security_details(http_url: str) -> None:
+    with passphrase_digest_key():
+        snap = await observe(adapter(http_url))
+        home_digest = passphrase_digest("example-home-passphrase")
+        iot_digest = passphrase_digest("example-iot-passphrase")
+    wlans = {w.id: w for w in snap.wlans}
+    home = wlans[f"{AP1}/wlan/ssid-home-5g"]
+    iot = wlans[f"{AP1}/wlan/ssid-iot-2g"]
+    assert home_digest != iot_digest
+    assert (home.passphrase_digest, iot.passphrase_digest) == (home_digest, iot_digest)
+    assert home.ciphers == [Cipher.CCMP] and home.key_rotation_seconds == 0
+    assert iot.ciphers == [Cipher.TKIP, Cipher.CCMP] and iot.key_rotation_seconds == 3600
+    guest = wlans[f"{AP1}/wlan/ssid-guest-2g"]
+    assert guest.passphrase_digest is None and guest.ciphers is None
+    for w in snap.wlans:  # not in the Open API
+        assert w.wps is None and w.sae is None and w.group_cipher is None
+        assert w.beacon_protection is None
+    assert all(r.supported_security is None for r in snap.radios)
+
+
+def test_psk_details() -> None:
+    def psk(**kw: Any) -> dict[str, Any]:
+        return {"pskSetting": kw}
+
+    assert _psk_details(psk(encryptionPsk=2), Security.WPA)["ciphers"] == [Cipher.TKIP]
+    assert _psk_details(psk(), Security.WPA2) == {"ciphers": None}
+    assert _psk_details(psk(gikRekeyPskEnable=True), Security.WPA2)["key_rotation_seconds"] is None
+    assert _psk_details(psk(gikRekeyPskEnable=True, rekeyPskInterval=0), Security.WPA2) == {
+        "ciphers": None,
+        "key_rotation_seconds": None,
+    }
+    assert _psk_details(psk(encryptionPsk=3), Security.OPEN) == {}
+    assert _psk_details(psk(encryptionPsk=3), Security.WPA2_ENTERPRISE) == {}
 
 
 async def test_clients(snap: Snapshot) -> None:
@@ -552,8 +590,11 @@ def test_security_mapping() -> None:
     assert _security({"security": 2}) is Security.WPA2_ENTERPRISE
     assert _security({"security": 2, "entSetting": {"versionEnt": 4}}) is Security.WPA3_ENTERPRISE
     assert _security({"security": 3, "pskSetting": {"versionPsk": 4}}) is Security.WPA2_WPA3
-    assert _security({"security": 3, "pskSetting": {"versionPsk": 3}}) is Security.OTHER
-    assert _security({"security": 3, "pskSetting": {"versionPsk": 1}}) is Security.OTHER
+    assert _security({"security": 3, "pskSetting": {"versionPsk": 3}}) is Security.WPA_WPA2
+    assert _security({"security": 3, "pskSetting": {"versionPsk": 1}}) is Security.WPA
+    assert _security({"security": 2, "entSetting": {"versionEnt": 1}}) is Security.WPA_ENTERPRISE
+    assert _security({"security": 2, "entSetting": {"versionEnt": 3}}) is Security.WPA_ENTERPRISE
+    assert _security({"security": 2, "entSetting": {"versionEnt": 2}}) is Security.WPA2_ENTERPRISE
     assert _security({"security": 3, "pskSetting": {"versionPsk": 9}}) is Security.OTHER
     assert _security({"security": 3}) is Security.WPA2
     assert _security({"security": 5}) is Security.OTHER

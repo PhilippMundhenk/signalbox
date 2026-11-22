@@ -39,7 +39,7 @@ declare -A PINNED=(
 
 PACKAGES=(
   uhttpd uhttpd-mod-ubus px5g-mbedtls libustream-mbedtls
-  rpcd rpcd-mod-file rpcd-mod-luci rpcd-mod-ucode
+  rpcd rpcd-mod-file rpcd-mod-luci rpcd-mod-ucode luci-base
   lldpd luci-app-lldpd
   kmod-mac80211-hwsim wpad-mbedtls iw
 )

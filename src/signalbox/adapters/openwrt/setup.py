@@ -21,6 +21,8 @@ READ_ACL: dict[str, Any] = {
                 "uci": ["get"],
                 "hostapd.*": ["get_clients"],
                 "luci-rpc": ["getDHCPLeases", "getWirelessDevices"],
+                "luci": ["getFeatures"],
+                "rpc-sys": ["packagelist"],
                 "file": ["read"],
                 "luci.lldpd": ["getStatus"],
             },

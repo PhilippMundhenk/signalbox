@@ -33,14 +33,14 @@ from factories import SITE
 from integration.conftest import Target
 from signalbox.adapters import AdapterContext, AdapterError
 from signalbox.adapters.https import fingerprint, peer_certificate
-from signalbox.adapters.omada import PMF_MODES, OmadaAdapter, OmadaConfig, _security
+from signalbox.adapters.omada import PMF_MODES, OmadaAdapter, OmadaConfig, _psk_details, _security
 from signalbox.adapters.omada.writes import Writer
 from signalbox.changes import Change, ChangeKind, RouterValue, WlanValue, plan
 from signalbox.deploy import Deployer
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
 from signalbox.merge import merge
-from signalbox.model import DeviceRole, Network, Pmf, Security, passphrase_fingerprint
+from signalbox.model import Cipher, DeviceRole, Network, Pmf, Security, passphrase_fingerprint
 from signalbox.model import DeviceStatus as ReadStatus
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
@@ -553,6 +553,11 @@ async def test_ssid_create_change_disable_delete(ctrl: dict[str, str]) -> None:
     assert (lab["vlanEnable"], lab["vlanId"], lab["broadcast"], lab["band"]) == (True, 20, True, 3)
     assert lab["pskSetting"]["securityKey"] == "example-lab-passphrase"
     assert _security(lab) is Security.WPA2_WPA3
+    # #167: the controller keeps what the write sent (encryptionPsk 3, gikRekeyPskEnable False)
+    assert _psk_details(lab, Security.WPA2_WPA3) == {
+        "ciphers": [Cipher.CCMP],
+        "key_rotation_seconds": 0,
+    }
 
     changed = new.model_copy(
         update={

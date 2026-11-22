@@ -47,6 +47,8 @@ from signalbox.adapters.mikrotik import (
     advertised,
     band_of,
     bridge_port_details,
+    cipher_of,
+    ciphers_of,
     clock_date,
     duration,
     flow_control,
@@ -59,9 +61,11 @@ from signalbox.adapters.mikrotik import (
     time_of,
     vlan_ids,
     width_of,
+    wps_of,
 )
 from signalbox.model import (
     Band,
+    Cipher,
     DeviceRole,
     DeviceStatus,
     FrameTypes,
@@ -69,14 +73,17 @@ from signalbox.model import (
     NtpClient,
     NtpServer,
     Pmf,
+    SaePwe,
     Security,
     Snapshot,
+    WpsMethod,
+    passphrase_digest,
     passphrase_fingerprint,
     port_id,
 )
 from signalbox.sim.mikrotik import PASSPHRASE, PASSWORD, USER, MikrotikSimulator
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
-from signalbox.testing import assert_contract
+from signalbox.testing import assert_contract, passphrase_digest_key
 
 SIM = MikrotikSimulator()
 
@@ -334,6 +341,76 @@ async def test_wireless(snap: Snapshot) -> None:
         True,
     )
     assert iot.segment_id == "home/segment/20"
+
+
+async def test_wifi_security_details(http_url: str) -> None:
+    with passphrase_digest_key():
+        snap = await observe(adapter(http_url))
+        expected = passphrase_digest(PASSPHRASE), passphrase_digest("iot-passphrase")
+    wlans = {w.id: w for w in snap.wlans}
+    home, iot = wlans["rt/wlan/wifi1"], wlans["rt/wlan/wifi3"]
+    assert expected[0] and expected[0] != expected[1]
+    assert (home.passphrase_digest, iot.passphrase_digest) == expected
+    assert home.ciphers == [Cipher.CCMP] and home.group_cipher is Cipher.CCMP
+    assert home.sae is not None
+    assert (home.sae.pwe, home.sae.anti_clogging_threshold) == (SaePwe.BOTH, 5)
+    assert home.wps is not None and home.wps.enabled is False
+    assert home.key_rotation_seconds == 3600 and home.beacon_protection is None
+    assert iot.ciphers == [Cipher.CCMP, Cipher.TKIP] and iot.group_cipher is None
+    assert iot.sae is None and iot.wps is not None and iot.wps.methods == [WpsMethod.PUSH_BUTTON]
+    assert iot.key_rotation_seconds is None
+    for r in snap.radios:
+        assert r.supported_security is not None and Security.WPA3 in r.supported_security
+
+
+async def test_legacy_wireless_security_details(http_url: str, sim: MikrotikSimulator) -> None:
+    sim.wireless = "legacy"
+    with passphrase_digest_key():
+        snap = await observe(adapter(http_url))
+        expected = passphrase_digest(PASSPHRASE)
+    wlans = {w.id: w for w in snap.wlans}
+    home, guest = wlans["rt/wlan/wlan1"], wlans["rt/wlan/wlan3"]
+    assert expected and home.passphrase_digest == expected
+    assert home.ciphers == [Cipher.CCMP] and home.group_cipher is Cipher.CCMP
+    assert home.key_rotation_seconds == 300 and home.sae is None
+    assert home.wps is not None and home.wps.methods == [WpsMethod.PUSH_BUTTON]
+    assert guest.passphrase_digest is None and guest.ciphers is None and guest.wps is None
+    assert guest.key_rotation_seconds is None
+    for r in snap.radios:
+        assert r.supported_security is not None and Security.WPA3 not in r.supported_security
+        assert Security.WEP in r.supported_security
+
+
+@pytest.mark.parametrize(
+    ("types", "mode", "expected"),
+    [
+        ("wpa-psk", "dynamic-keys", Security.WPA),
+        ("wpa-psk,wpa2-psk", "dynamic-keys", Security.WPA_WPA2),
+        ("wpa2-psk", None, Security.WPA2),
+        ("", "static-keys-required", Security.WEP),
+        ("wpa-eap", None, Security.WPA_ENTERPRISE),
+        ("wpa-eap,wpa2-eap", None, Security.WPA_ENTERPRISE),
+        ("wpa2-eap", None, Security.WPA2_ENTERPRISE),
+        ("wpa3-eap", None, Security.WPA3_ENTERPRISE),
+        ("wpa3-eap-192", None, Security.WPA3_ENTERPRISE_192),
+        ("ft-psk", None, Security.OTHER),
+    ],
+)
+def test_security_modes(types: str, mode: str | None, expected: Security) -> None:
+    assert security_of(types, mode) is expected
+
+
+def test_cipher_helpers() -> None:
+    assert ciphers_of("aes-ccm,tkip", Security.WPA2) == [Cipher.CCMP, Cipher.TKIP]
+    assert ciphers_of("ccmp,bogus", Security.WPA2) is None and ciphers_of("", Security.WPA2) is None
+    assert ciphers_of("ccmp", Security.OPEN) is None
+    assert (
+        ciphers_of("", Security.WEP) == [Cipher.WEP] and cipher_of("", Security.WEP) is Cipher.WEP
+    )
+    assert cipher_of("gcmp-256", Security.WPA3_ENTERPRISE_192) is Cipher.GCMP_256
+    assert cipher_of("ccmp", Security.OPEN) is None and cipher_of("", Security.WPA2) is None
+    assert wps_of("disabled") is not None and wps_of("push-button-virtual-only") is not None
+    assert wps_of("") is None and wps_of("pin") is None
 
 
 async def test_wifi_odd_entries(http_url: str, sim: MikrotikSimulator) -> None:

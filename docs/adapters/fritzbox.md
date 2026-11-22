@@ -246,15 +246,27 @@ radio, and the guest network last.
   | `NewBeaconType` | Security |
   | --- | --- |
   | `None` (FRITZ!OS 8), `none` (FRITZ!OS 7.57) | open |
-  | `Basic` (WEP), `WPA` | other |
+  | `Basic` | WEP with `NewBasicEncryptionModes` `WEPEncryption`, open with `None`, else other |
+  | `WPA` | WPA (version 1) |
   | `11i` | WPA2 |
-  | `WPAand11i` | WPA2 (mixed WPA/WPA2) |
+  | `WPAand11i` | WPA/WPA2 mixed |
   | `WPA3` | WPA3 |
   | `11iandWPA3` | WPA2/WPA3 |
   | `OWE`, `OWETrans` | OWE |
 
-- `GetSecurityKeys` `NewKeyPassphrase` becomes the passphrase fingerprint (personal security
-  only).
+- `GetSecurityKeys` `NewKeyPassphrase` becomes the passphrase fingerprint and, next to it,
+  `passphrase_digest` (personal security only).
+- Security details (#167): `Radio.supported_security` from `NewX_AVM-DE_PossibleBeaconTypes`
+  (mapped like `NewBeaconType`, unknown words left out). `wps` for personal networks from
+  `X_AVM-DE_GetWPSInfo`: `NewX_AVM-DE_WPSStatus` `off` is WPS disabled, any other status is
+  enabled, and `NewX_AVM-DE_WPSMode` `pbc` is the push button *(guess: that `off` means
+  disabled; the description lists `other`, `stop`, `pbc` and the statuses but not their
+  meaning)*; fault 401 leaves it unreported. WEP networks have the cipher `wep`. **Not
+  available**: `NewWPAEncryptionModes` is not in the `WLANConfiguration` description of
+  FRITZ!OS 7.57, 8.02 or 8.25 (checked against the SCPD files in
+  `tests/fixtures/tr064/`, and the 8.25 file of udondan/fritz), so there are no ciphers for WPA
+  networks (`X_AVM-DE_GetWLANExtInfo` `NewX_AVM-DE_EncryptionMode` has no documented values),
+  no group cipher, no SAE settings, no rekey interval and no beacon protection.
 - **Hidden**: `GetBeaconAdvertisement` `NewBeaconAdvertisementEnabled` `0`; without the
   action (fault 401) the SSID counts as broadcast.
 - PMF and 802.11r/k/v are not read *(not documented for TR-064)*.

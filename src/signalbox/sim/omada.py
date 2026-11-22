@@ -483,8 +483,9 @@ def sample_data() -> dict[str, Any]:
                 pskSetting={
                     "securityKey": "example-iot-passphrase",
                     "versionPsk": 2,
-                    "encryptionPsk": 3,
-                    "gikRekeyPskEnable": False,
+                    "encryptionPsk": 1,
+                    "gikRekeyPskEnable": True,
+                    "rekeyPskInterval": 3600,
                 },
             ),
             _ssid("ssid-guest", "Guest", 3, 0, vlan=30, guestNetEnable=True),

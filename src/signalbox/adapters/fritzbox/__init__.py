@@ -64,6 +64,7 @@ from signalbox.model import (
     SERVICE_PORTS,
     AddressSource,
     Band,
+    Cipher,
     Client,
     DeviceHealth,
     DeviceRole,
@@ -87,8 +88,11 @@ from signalbox.model import (
     Uplink,
     UplinkKind,
     Wlan,
+    Wps,
+    WpsMethod,
     normalise_mac,
     object_id,
+    passphrase_digest,
     passphrase_fingerprint,
     port_id,
     segment_id,
@@ -144,25 +148,62 @@ class FritzboxConfig(AdapterConfig):
 
 # --- mapping helpers ------------------------------------------------------------------------
 
-#: ``NewBeaconType`` -> security. ``11i`` is WPA2, ``WPAand11i`` WPA+WPA2 (counted as WPA2,
-#: like OpenWrt's psk-mixed), ``Basic`` is WEP.
+#: ``NewBeaconType`` -> security. ``11i`` is WPA2, ``WPAand11i`` WPA/WPA2 mixed, ``WPA`` WPA1.
+#: ``Basic`` depends on ``NewBasicEncryptionModes`` (see :func:`security`).
 BEACON_TYPES: dict[str, Security] = {
     "none": Security.OPEN,
-    "basic": Security.OTHER,
-    "wpa": Security.OTHER,
+    "wpa": Security.WPA,
     "11i": Security.WPA2,
-    "wpaand11i": Security.WPA2,
+    "wpaand11i": Security.WPA_WPA2,
     "wpa3": Security.WPA3,
     "11iandwpa3": Security.WPA2_WPA3,
     "owe": Security.OWE,
     "owetrans": Security.OWE,
 }
-PERSONAL = {Security.WPA2, Security.WPA3, Security.WPA2_WPA3, Security.OTHER}
+PERSONAL = {
+    Security.WPA,
+    Security.WPA_WPA2,
+    Security.WPA2,
+    Security.WPA3,
+    Security.WPA2_WPA3,
+    Security.OTHER,
+}
 BANDS = {"2400": Band.GHZ_2_4, "5000": Band.GHZ_5, "6000": Band.GHZ_6}
 
 
-def security(beacon_type: str | None) -> Security:
-    return BEACON_TYPES.get((beacon_type or "none").strip().lower(), Security.OTHER)
+def security(beacon_type: str | None, basic_modes: str | None = None) -> Security:
+    """``Basic`` is the TR-098 beacon of WEP (``NewBasicEncryptionModes`` ``WEPEncryption``) or
+    of an open network (``None``); anything else it names is not known."""
+    beacon = (beacon_type or "none").strip().lower()
+    if beacon == "basic":
+        modes = (basic_modes or "").strip().lower()
+        if "wep" in modes:
+            return Security.WEP
+        return Security.OPEN if modes == "none" else Security.OTHER
+    return BEACON_TYPES.get(beacon, Security.OTHER)
+
+
+def supported_security(possible: str | None) -> list[Security] | None:
+    """``NewX_AVM-DE_PossibleBeaconTypes`` (comma separated, spelled as ``NewBeaconType``)
+    as security modes; None when the box does not list them."""
+    text = (possible or "").strip()
+    if not text:
+        return None
+    modes = [security(t, "WEPEncryption") for t in text.split(",") if t.strip()]
+    return list(dict.fromkeys(m for m in modes if m is not Security.OTHER)) or None
+
+
+def wps_of(mode: str | None, status: str | None) -> Wps | None:
+    """``X_AVM-DE_GetWPSInfo``: status ``off`` is WPS disabled; the other statuses (inactive,
+    active, success, err_*) mean it is enabled, and mode ``pbc`` is the push button. None:
+    neither value."""
+    state = (status or "").strip().lower()
+    if not state and not (mode or "").strip():
+        return None
+    if state == "off":
+        return Wps(enabled=False)
+    pbc = (mode or "").strip().lower() == "pbc"
+    return Wps(enabled=True, methods=[WpsMethod.PUSH_BUTTON] if pbc else [])
 
 
 def _flag(value: str | None) -> bool:
@@ -735,6 +776,16 @@ class FritzboxAdapter(Adapter):
             ) from exc
         return keys.get("NewKeyPassphrase") or None
 
+    async def _wps(self, wlan: WlanService) -> Wps | None:
+        """``X_AVM-DE_GetWPSInfo``; None when the box has no such action."""
+        try:
+            answer = await self.tr064.call(wlan.service, "X_AVM-DE_GetWPSInfo")
+        except SoapFault as exc:
+            if exc.code == 401:
+                return None
+            raise
+        return wps_of(answer.get("NewX_AVM-DE_WPSMode"), answer.get("NewX_AVM-DE_WPSStatus"))
+
     async def _advertised(self, wlan: WlanService) -> bool | None:
         """Whether the SSID is broadcast; None when the box has no such action."""
         try:
@@ -764,17 +815,23 @@ class FritzboxAdapter(Adapter):
                         band=band(info, w.index, len(wlans)),
                         channel=_int(info.get("NewChannel")) or None,
                         enabled=on,
+                        supported_security=supported_security(
+                            info.get("NewX_AVM-DE_PossibleBeaconTypes")
+                        ),
                         vendor_extra=_extra(info, "NewStandard", "NewX_AVM-DE_FrequencyBand"),
                     )
                 )
             if not radio_ids[w.index]:
                 continue  # a guest WLAN on a box without any other radio: nothing to attach to
             ssid = info.get("NewSSID", "")
-            sec = security(info.get("NewBeaconType"))
-            fingerprint = None
+            sec = security(info.get("NewBeaconType"), info.get("NewBasicEncryptionModes"))
+            fingerprint = digest = None
+            wps = None
             if sec in PERSONAL:
                 key = await self._passphrase(w)
                 fingerprint = passphrase_fingerprint(ssid, key) if key else None
+                digest = passphrase_digest(key) if key else None
+                wps = await self._wps(w)
             out.append(
                 Wlan(
                     id=object_id(d, "wlan", str(w.index)),
@@ -785,6 +842,9 @@ class FritzboxAdapter(Adapter):
                     hidden=hidden,
                     security=sec,
                     passphrase_fingerprint=fingerprint,
+                    passphrase_digest=digest,
+                    ciphers=[Cipher.WEP] if sec is Security.WEP else None,
+                    wps=wps,
                     segment_id=self._guest if w.guest else self._native,
                     purpose=SegmentPurpose.GUEST if w.guest else None,
                     purpose_source=PurposeSource.REPORTED if w.guest else None,
@@ -923,7 +983,12 @@ class FritzboxAdapter(Adapter):
             for index in targets:
                 service = f"WLANConfiguration{index}"
                 current = wlans[index]
-                wanted = wlan_wanted(c, current, security(current.get("NewBeaconType")), secrets)
+                wanted = wlan_wanted(
+                    c,
+                    current,
+                    security(current.get("NewBeaconType"), current.get("NewBasicEncryptionModes")),
+                    secrets,
+                )
                 passphrase = None
                 if "NewKeyPassphrase" in wanted:
                     passphrase = await self._current_passphrase(service)

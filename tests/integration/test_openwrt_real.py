@@ -36,6 +36,7 @@ from signalbox.history import ChangeStatus
 from signalbox.history import DeviceStatus as DeployStatus
 from signalbox.model import (
     Band,
+    Cipher,
     DeviceRole,
     DeviceStatus,
     Membership,
@@ -44,9 +45,10 @@ from signalbox.model import (
     Site,
     Snapshot,
     UplinkKind,
+    passphrase_digest,
 )
 from signalbox.store import DeviceRecord
-from signalbox.testing import assert_contract
+from signalbox.testing import assert_contract, passphrase_digest_key
 
 from .conftest import Target, certificate_fingerprint
 from .lab import Lab
@@ -184,6 +186,28 @@ async def test_read_contract(ow: Target, pin: str) -> None:
     if "VERSION" in ow.extra:
         assert snap.device.firmware.current == ow.extra["VERSION"]
     assert snap.device.model
+
+
+async def test_wifi_security_details(ow: Target, pin: str) -> None:
+    """#167: the lab SSID is ``psk2`` without suffix or WPS options; wpad-mbedtls and rpcd-mod-luci
+    are in the image, so ``luci getFeatures`` answers. Confirms the ``getFeatures`` shape (the
+    ``hostapd`` flag names are from LuCI's sources)."""
+    with passphrase_digest_key():
+        snap = await observe(context(ow, pin))
+        expected = passphrase_digest(PSK)
+    assert snap.status is DeviceStatus.OK, snap.errors
+    assert expected is not None
+    wlans = [w for w in snap.wlans if w.ssid == SSID]
+    assert wlans
+    for w in wlans:
+        assert w.ciphers == [Cipher.CCMP] and w.group_cipher is Cipher.CCMP
+        assert w.sae is None
+        assert w.wps is not None and w.wps.enabled is False
+        assert w.passphrase_digest == expected
+    assert len({w.passphrase_digest for w in wlans}) == 1
+    for r in snap.radios:
+        sup = r.supported_security
+        assert sup is not None and Security.WPA2 in sup and Security.WPA3 in sup, sup
 
 
 async def test_mapping_of_the_lab_device(ow: Target, pin: str) -> None:

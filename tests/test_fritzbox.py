@@ -22,24 +22,30 @@ from signalbox.adapters.fritzbox import (
     band,
     local_time,
     security,
+    supported_security,
     time_of,
+    wps_of,
 )
 from signalbox.adapters.fritzbox.soap import SoapFault, Tr064, parse_answer, parse_xml
 from signalbox.adapters.https import DeviceHttp
 from signalbox.model import (
     AddressSource,
     Band,
+    Cipher,
     DeviceHealth,
     DeviceRole,
     DeviceStatus,
     NtpClient,
     Security,
+    Wps,
+    WpsMethod,
+    passphrase_digest,
     passphrase_fingerprint,
 )
 from signalbox.sim import fritzbox as fritz_sim
 from signalbox.sim.fritzbox import FritzboxSim, create_app
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
-from signalbox.testing import assert_contract
+from signalbox.testing import assert_contract, passphrase_digest_key
 
 SIM = FritzboxSim()
 
@@ -175,6 +181,45 @@ async def test_wireless(adapter: FritzboxAdapter) -> None:
     assert wlans["fb/wlan/1"].purpose is None and guest.client_isolation is None
     assert guest.radio_id == "fb/radio/1"  # rides on the 2.4 GHz radio
     assert "example-guest-passphrase" not in obs.model_dump_json()
+
+
+async def test_wifi_security_details(sim: FritzboxSim, adapter: FritzboxAdapter) -> None:
+    with passphrase_digest_key():
+        obs = await adapter.read_wireless()
+        digest = passphrase_digest("example-passphrase")
+        guest_digest = passphrase_digest("example-guest-passphrase")
+    wlans = {w.id: w for w in obs.wlans}
+    assert digest and digest != guest_digest
+    assert (wlans["fb/wlan/1"].passphrase_digest, wlans["fb/wlan/3"].passphrase_digest) == (
+        digest,
+        guest_digest,
+    )
+    assert wlans["fb/wlan/1"].wps == Wps(enabled=True)  # status inactive, mode stop
+    assert wlans["fb/wlan/2"].wps == Wps(enabled=True, methods=[WpsMethod.PUSH_BUTTON])
+    assert wlans["fb/wlan/3"].wps == Wps(enabled=False)
+    for w in obs.wlans:  # not in TR-064
+        assert w.ciphers is None and w.group_cipher is None and w.sae is None
+        assert w.key_rotation_seconds is None and w.beacon_protection is None
+    for r in obs.radios:
+        assert r.supported_security == [
+            Security.OPEN,
+            Security.WPA2,
+            Security.WPA_WPA2,
+            Security.WPA3,
+            Security.WPA2_WPA3,
+        ]
+    sim.faults["X_AVM-DE_GetWPSInfo"] = 401  # a FRITZ!OS without it
+    assert all(w.wps is None for w in (await adapter.read_wireless()).wlans)
+
+
+async def test_wep_and_open_basic_networks(sim: FritzboxSim, adapter: FritzboxAdapter) -> None:
+    sim.wlans[1] |= {"NewBeaconType": "Basic", "NewBasicEncryptionModes": "WEPEncryption"}
+    sim.wlans[2] |= {"NewBeaconType": "Basic"}  # the sample box's modes "None": open
+    wlans = {w.id: w for w in (await adapter.read_wireless()).wlans}
+    wep, plain = wlans["fb/wlan/1"], wlans["fb/wlan/2"]
+    assert wep.security is Security.WEP and wep.ciphers == [Cipher.WEP]
+    assert wep.passphrase_fingerprint is None and wep.wps is None
+    assert plain.security is Security.OPEN and plain.ciphers is None
 
 
 async def test_lan_with_automatic_bit_rate(sim: FritzboxSim, adapter: FritzboxAdapter) -> None:
@@ -485,10 +530,10 @@ async def test_envelope_escapes_arguments(sim: FritzboxSim, http_url: str) -> No
     [
         ("None", Security.OPEN),
         (None, Security.OPEN),
-        ("Basic", Security.OTHER),
-        ("WPA", Security.OTHER),
+        ("Basic", Security.OTHER),  # no word on its encryption
+        ("WPA", Security.WPA),
         ("11i", Security.WPA2),
-        ("WPAand11i", Security.WPA2),
+        ("WPAand11i", Security.WPA_WPA2),
         ("WPA3", Security.WPA3),
         ("11iandWPA3", Security.WPA2_WPA3),
         ("OWE", Security.OWE),
@@ -498,6 +543,27 @@ async def test_envelope_escapes_arguments(sim: FritzboxSim, http_url: str) -> No
 )
 def test_security(beacon: str | None, expected: Security) -> None:
     assert security(beacon) is expected
+
+
+def test_basic_beacon_depends_on_the_encryption_modes() -> None:
+    assert security("Basic", "WEPEncryption") is Security.WEP
+    assert security("Basic", "None") is Security.OPEN
+    assert security("Basic", "") is Security.OTHER
+
+
+def test_supported_security_and_wps() -> None:
+    assert supported_security("None,11i,WPAand11i,OWE,OWETrans,Bogus") == [
+        Security.OPEN,
+        Security.WPA2,
+        Security.WPA_WPA2,
+        Security.OWE,
+    ]
+    assert supported_security("Basic,WPA") == [Security.WEP, Security.WPA]
+    assert supported_security("") is None and supported_security(None) is None
+    assert wps_of("stop", "off") == Wps(enabled=False)
+    assert wps_of("pbc", "active") == Wps(enabled=True, methods=[WpsMethod.PUSH_BUTTON])
+    assert wps_of("other", "inactive") == Wps(enabled=True)
+    assert wps_of("", "") is None and wps_of(None, None) is None
 
 
 @pytest.mark.parametrize(
