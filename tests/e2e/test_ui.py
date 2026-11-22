@@ -380,7 +380,7 @@ def test_phone_has_no_horizontal_scroll(page: Any, server: Any, hash_: str) -> N
     page.goto(server.url)
     page.get_by_test_id("login-password").fill(PASSWORD)
     page.get_by_test_id("login-submit").click()
-    page.get_by_test_id("logout").wait_for()
+    page.get_by_test_id("logout").wait_for(state="attached")
     page.server = server
     add_site(page)
     add_lab(page, "Router")
@@ -690,3 +690,125 @@ def test_acknowledge_a_finding_and_annotate_objects(app: Any) -> None:
     app.get_by_test_id("client-notes").click()
     app.get_by_test_id("note-remove").click()
     expect(app.get_by_test_id("client-label")).to_have_count(0)
+
+
+def _login(page: Any, server: Any, width: int, height: int) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    page.set_default_timeout(15000)
+    page.goto(server.url)
+    page.get_by_test_id("login-password").fill(PASSWORD)
+    page.get_by_test_id("login-submit").click()
+    page.get_by_test_id("nav-findings").wait_for(state="attached")
+    page.server = server
+
+
+def _too_wide(page: Any) -> list[str]:
+    result: list[str] = page.evaluate(
+        """() => [...document.querySelectorAll('body *')]
+          .filter((e) => { const r = e.getBoundingClientRect();
+            return r.width > 0 && getComputedStyle(e).visibility !== 'hidden'
+              && !e.closest('.table-wrap, .topo-wrap, pre, svg')
+              && r.right > window.innerWidth + 1; })
+          .map((e) => e.tagName + '.' + e.className)"""
+    )
+    return result
+
+
+def _no_wrapped_labels(page: Any) -> None:
+    heights = page.evaluate(
+        "[...document.querySelectorAll('.nav a')].map((a) => a.getBoundingClientRect().height)"
+    )
+    assert max(heights) - min(heights) < 2, heights
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("size", [(390, 844), (320, 640), (820, 1180)])
+def test_narrow_screens_use_a_drawer(
+    page: Any, server: Any, size: tuple[int, int], theme: str
+) -> None:
+    _login(page, server, *size)
+    page.evaluate(f"localStorage.setItem('theme', '{theme}')")
+    page.reload()
+    menu = page.get_by_test_id("nav-menu")
+    expect(menu).to_be_visible()
+    expect(menu).to_have_attribute("aria-expanded", "false")
+    expect(page.get_by_test_id("logout")).to_be_hidden()
+    expect(page.get_by_test_id("nav-current")).to_have_text("Findings")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    assert page.locator("header.topbar").bounding_box()["height"] < 70  # one row
+
+    menu.click()
+    expect(menu).to_have_attribute("aria-expanded", "true")
+    expect(page.locator("nav[aria-label=Main]")).to_be_visible()
+    expect(page.get_by_test_id("nav-findings")).to_be_focused()
+    expect(page.get_by_test_id("theme")).to_be_visible()
+    expect(page.get_by_test_id("logout")).to_be_visible()
+    _no_wrapped_labels(page)
+    assert _too_wide(page) == []
+    expect(page.get_by_test_id("theme")).to_have_text(f"Theme: {theme}")
+    page.get_by_test_id("theme").click()
+    expect(page.get_by_test_id("theme")).not_to_have_text(f"Theme: {theme}")
+
+    page.keyboard.press("Escape")  # Esc closes and gives the focus back
+    expect(menu).to_have_attribute("aria-expanded", "false")
+    expect(menu).to_be_focused()
+    expect(page.get_by_test_id("logout")).to_be_hidden()
+
+    menu.click()  # a tap outside closes
+    page.get_by_test_id("nav-scrim").click(position={"x": size[0] - 5, "y": 300})
+    expect(menu).to_have_attribute("aria-expanded", "false")
+
+    menu.click()  # focus stays inside the drawer
+    for _ in range(14):
+        page.keyboard.press("Tab")
+        assert page.evaluate("!!document.activeElement.closest('.sidebar')")
+
+    page.get_by_test_id("nav-services").click()  # closes on navigation
+    expect(page.get_by_test_id("nav-current")).to_have_text("DHCP & DNS")
+    expect(menu).to_have_attribute("aria-expanded", "false")
+    expect(page.get_by_test_id("logout")).to_be_hidden()
+    menu.click()
+    expect(page.get_by_test_id("nav-services")).to_have_attribute("aria-current", "page")
+    page.get_by_test_id("nav-services").click()  # same page: still closes
+    expect(menu).to_have_attribute("aria-expanded", "false")
+    menu.click()
+    page.get_by_test_id("logout").click()
+    expect(page.get_by_test_id("login-submit")).to_be_visible()
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("size", [(1280, 800), (1440, 900), (1100, 700)])
+def test_wide_screens_have_a_side_bar(
+    page: Any, server: Any, size: tuple[int, int], theme: str
+) -> None:
+    _login(page, server, *size)
+    page.evaluate(f"localStorage.setItem('theme', '{theme}')")
+    page.reload()
+    expect(page.get_by_test_id("nav-menu")).to_be_hidden()
+    for key in [
+        "findings", "devices", "topology", "segments", "wireless",
+        "services", "clients", "desired", "changes", "settings",
+    ]:  # fmt: skip
+        expect(page.get_by_test_id(f"nav-{key}")).to_be_visible()
+    expect(page.get_by_test_id("theme")).to_be_visible()
+    expect(page.get_by_test_id("logout")).to_be_visible()
+    _no_wrapped_labels(page)
+    assert _too_wide(page) == []
+    box = page.locator(".sidebar").bounding_box()
+    main = page.locator("main").bounding_box()
+    assert box["x"] == 0 and main["x"] >= box["width"]
+    page.get_by_test_id("nav-services").click()
+    expect(page.get_by_test_id("nav-services")).to_have_attribute("aria-current", "page")
+    expect(page.get_by_test_id("nav-findings")).not_to_have_attribute("aria-current", "page")
+    page.get_by_test_id("logout").click()
+    expect(page.get_by_test_id("login-submit")).to_be_visible()
+
+
+def test_drawer_closes_when_the_screen_gets_wide(page: Any, server: Any) -> None:
+    _login(page, server, 800, 900)
+    page.get_by_test_id("nav-menu").click()
+    page.set_viewport_size({"width": 1280, "height": 900})
+    expect(page.get_by_test_id("nav-menu")).to_be_hidden()
+    expect(page.get_by_test_id("logout")).to_be_visible()
+    page.get_by_test_id("nav-devices").click()
+    expect(page.get_by_test_id("nav-devices")).to_have_attribute("aria-current", "page")
