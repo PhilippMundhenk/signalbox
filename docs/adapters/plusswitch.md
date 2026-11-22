@@ -39,7 +39,7 @@ these kinds is then reported as *could not be read* with the install hint.
 | --- | --- | --- | --- |
 | `address` | both | | IPv4 address of the switch (a unicast address, no host name) |
 | `username` | `easysmart` | `admin` | the switch's user name |
-| `password` | both | | the switch's password; stored encrypted, never sent back to the UI |
+| `password` | both | | the switch's password; stored encrypted, never sent back to the UI. NETGEAR (`prosafe`): optional, only needed to deploy changes; Easy Smart: required (its protocol needs a login to read) |
 
 ## Security: read this first
 
@@ -55,12 +55,14 @@ these kinds is then reported as *could not be read* with the install hint.
 - **Signalbox must sit in the switch's network**, the network the switch is managed from, and
   that network should only reach trusted hosts. Do not read these switches across untrusted
   networks.
-- **Why a password at all?** Reading needs none on these protocols. Signalbox sends it once per
-  observation, in a write that changes nothing (as the vendor tools do), so that a wrong
-  password shows up as *authentication failed* now and not only when a change is deployed.
+- **When the password is sent.** NETGEAR switches are read without logging in, as Switchyard
+  and the vendor utility do; the password is only sent (checked with a write that changes
+  nothing) when a change is deployed, starting with its backup. A wrong password therefore
+  shows up when deploying, not while reading. (Checking it on every read was dropped: an old
+  GS108E v1 refused that check while reading worked; Easy Smart switches still log in to read.)
 - **Lock-out.** NETGEAR switches lock the Plus Utility access for 30 minutes after three wrong
   passwords. When a switch refuses a password, Signalbox does not send that password again for
-  30 minutes, for reads and changes alike; entering a different password in the device settings
+  30 minutes; entering a different password in the device settings
   tries it at once.
 
 ## Network
@@ -82,9 +84,10 @@ these kinds is then reported as *could not be read* with the install hint.
 ## What is read
 
 One observation is one short session: Signalbox asks the address who it is (NSDP read of the
-identity; Easy Smart discovery request), checks the password, then reads identity, port status,
-VLAN tables, link aggregation and the port settings (speed and flow control; a switch that
-does not answer them is read without), and closes the socket. Every read goes through Switchyard's
+identity; Easy Smart discovery request), logs in only where the protocol needs it (Easy
+Smart) or for a change, then reads identity, port status, VLAN tables, link aggregation and the
+port settings (speed and flow control; a switch that does not answer them is read without), and
+closes the socket. Every read goes through Switchyard's
 driver, which copes with the firmware differences (unsupported settings, silent firmware,
 both Easy Smart protocol generations).
 
