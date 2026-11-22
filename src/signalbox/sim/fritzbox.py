@@ -6,7 +6,10 @@ Neutral sample data: a gateway on 192.0.2.1/24 with DHCP 192.0.2.20-192.0.2.200,
 active). Every request needs HTTP Digest authentication (MD5, ``qop=auth``), like the real
 device. The answer shapes follow AVM's TR-064 documentation; see ``docs/adapters/fritzbox.md``.
 
-Failure switches on :class:`FritzboxSim` change the answers for refused-path tests.
+The settings the adapter can change (DHCP on/off and range; SSID, beacon type, passphrase,
+on/off and beacon advertisement of each WLAN) are state of the :class:`FritzboxSim` instance:
+the ``Set...`` actions change it and the getters report it. Failure switches on the instance
+change the answers for refused-path tests.
 
 Serve it with any ASGI server, for example
 ``uvicorn --factory signalbox.sim.fritzbox:create_app``.
@@ -15,11 +18,13 @@ Serve it with any ASGI server, for example
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import re
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from ipaddress import IPv4Address, IPv4Network
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
 
@@ -73,6 +78,8 @@ WLANS: dict[int, dict[str, str]] = {
         "NewBeaconType": "11iandWPA3",
         "NewX_AVM-DE_FrequencyBand": "2400",
         "NewBSSID": _mac(1, 1),
+        "NewEnable": "1",
+        "NewBeaconAdvertisementEnabled": "1",
     },
     2: {
         "NewSSID": "Example",
@@ -81,6 +88,8 @@ WLANS: dict[int, dict[str, str]] = {
         "NewBeaconType": "11iandWPA3",
         "NewX_AVM-DE_FrequencyBand": "5000",
         "NewBSSID": _mac(1, 2),
+        "NewEnable": "1",
+        "NewBeaconAdvertisementEnabled": "1",
     },
     3: {
         "NewSSID": "Example-Guest",
@@ -89,9 +98,12 @@ WLANS: dict[int, dict[str, str]] = {
         "NewBeaconType": "11i",
         "NewX_AVM-DE_FrequencyBand": "2400",
         "NewBSSID": _mac(1, 3),
+        "NewEnable": "1",
+        "NewBeaconAdvertisementEnabled": "1",
     },
 }
 PASSPHRASES = {1: "example-passphrase", 2: "example-passphrase", 3: "example-guest-passphrase"}
+POSSIBLE_BEACON_TYPES = "None,11i,WPAand11i,WPA3,11iandWPA3"
 
 #: WLAN index -> associated stations (MAC, IP)
 STATIONS: dict[int, list[tuple[str, str]]] = {
@@ -165,6 +177,16 @@ class FritzboxSim:
     #: requests that carried a valid digest
     authenticated: int = 0
     sid: str = field(default_factory=lambda: secrets.token_hex(8))
+    #: the configuration the write actions change (copies of the sample data)
+    lan: dict[str, str] = field(default_factory=lambda: dict(LAN))
+    wlans: dict[int, dict[str, str]] = field(default_factory=lambda: copy.deepcopy(WLANS))
+    passphrases: dict[int, str] = field(default_factory=lambda: dict(PASSPHRASES))
+    #: answer X_AVM-DE_GetBeaconAdvertisement (else: fault 401)
+    beacon_advertisement: bool = True
+    #: write actions answered with success but not applied (a box that ignores a setting)
+    ignore: set[str] = field(default_factory=set)
+    #: write actions applied, in order, as ``service#action`` (arguments are not kept)
+    writes: list[str] = field(default_factory=list)
 
     def reset(self) -> None:
         fresh = FritzboxSim()
@@ -218,16 +240,19 @@ class FritzboxSim:
                 "NewUpTime": "86400",
             }
         if name == "LANHostConfigManagement":
+            lan = self.lan
             getters: dict[str, Callable[[], dict[str, str]]] = {
-                "GetInfo": lambda: dict(LAN),
-                "GetIPRoutersList": lambda: {"NewIPRouters": LAN["NewIPRouters"]},
-                "GetSubnetMask": lambda: {"NewSubnetMask": LAN["NewSubnetMask"]},
+                "GetInfo": lambda: dict(lan),
+                "GetIPRoutersList": lambda: {"NewIPRouters": lan["NewIPRouters"]},
+                "GetSubnetMask": lambda: {"NewSubnetMask": lan["NewSubnetMask"]},
                 "GetAddressRange": lambda: {
-                    "NewMinAddress": LAN["NewMinAddress"],
-                    "NewMaxAddress": LAN["NewMaxAddress"],
+                    "NewMinAddress": lan["NewMinAddress"],
+                    "NewMaxAddress": lan["NewMaxAddress"],
                 },
             }
-            return getters[action]() if action in getters else 401
+            if action in getters:
+                return getters[action]()
+            return self._set_lan(action, args)
         if name == "LANEthernetInterfaceConfig":
             if action == "GetInfo":
                 return {
@@ -261,16 +286,82 @@ class FritzboxSim:
     def list_path(self) -> str:
         return f"{HOST_LIST}?sid={self.sid}"
 
+    def _set_lan(self, action: str, args: dict[str, str]) -> dict[str, str] | int:
+        if action == "SetDHCPServerEnable":
+            value = args.get("NewDHCPServerEnable")
+            if value not in ("0", "1"):
+                return 402
+            return self._write("LANHostConfigManagement", action, {"NewDHCPServerEnable": value})
+        if action == "SetAddressRange":
+            try:
+                first = IPv4Address(args.get("NewMinAddress", ""))
+                last = IPv4Address(args.get("NewMaxAddress", ""))
+            except ValueError:
+                return 402
+            lan = IPv4Network(
+                f"{self.lan['NewIPRouters']}/{self.lan['NewSubnetMask']}", strict=False
+            )
+            if first not in lan or last not in lan or first > last:
+                return 402
+            return self._write(
+                "LANHostConfigManagement",
+                action,
+                {"NewMinAddress": str(first), "NewMaxAddress": str(last)},
+            )
+        return 401
+
+    def _write(
+        self, service: str, action: str, values: dict[str, str], index: int | None = None
+    ) -> dict[str, str]:
+        """Apply a write action (unless ignored) and answer with no output arguments."""
+        if action not in self.ignore:
+            target = self.lan if index is None else self.wlans[index]
+            if "NewKeyPassphrase" in values:
+                assert index is not None
+                self.passphrases[index] = values["NewKeyPassphrase"]
+            else:
+                target.update(values)
+            self.writes.append(f"{service}{index or ''}#{action}")
+        return {}
+
+    def _set_wlan(self, index: int, action: str, args: dict[str, str]) -> dict[str, str] | int:
+        service = "WLANConfiguration"
+        if action == "SetSSID":
+            ssid = args.get("NewSSID", "")
+            if not 1 <= len(ssid.encode()) <= 32:
+                return 402
+            return self._write(service, action, {"NewSSID": ssid}, index)
+        if action == "SetBeaconType":
+            beacon = args.get("NewBeaconType", "")
+            if beacon not in POSSIBLE_BEACON_TYPES.split(","):
+                return 402
+            return self._write(service, action, {"NewBeaconType": beacon}, index)
+        if action == "SetSecurityKeys":
+            passphrase = args.get("NewKeyPassphrase", "")
+            if not 8 <= len(passphrase) <= 63:
+                return 402
+            return self._write(service, action, {"NewKeyPassphrase": passphrase}, index)
+        if action == "SetEnable":
+            value = args.get("NewEnable")
+            if value not in ("0", "1"):
+                return 402
+            return self._write(service, action, {"NewEnable": value}, index)
+        if action == "X_AVM-DE_SetBeaconAdvertisement" and self.beacon_advertisement:
+            value = args.get("NewBeaconAdvertisementEnabled")
+            if value not in ("0", "1"):
+                return 402
+            return self._write(service, action, {"NewBeaconAdvertisementEnabled": value}, index)
+        return 401
+
     def _wlan(self, index: int, action: str, args: dict[str, str]) -> dict[str, str] | int:
-        info = WLANS[index]
+        info = {k: v for k, v in self.wlans[index].items() if k != "NewBeaconAdvertisementEnabled"}
         if action == "GetInfo":
             return {
-                "NewEnable": "1",
-                "NewStatus": "Up",
+                "NewStatus": "Up" if info["NewEnable"] == "1" else "Disabled",
                 "NewMaxBitRate": "Auto",
                 "NewBasicEncryptionModes": "None",
                 "NewBasicAuthenticationMode": "None",
-                "NewX_AVM-DE_PossibleBeaconTypes": "None,11i,WPAand11i,WPA3,11iandWPA3",
+                "NewX_AVM-DE_PossibleBeaconTypes": POSSIBLE_BEACON_TYPES,
                 "NewMACAddressControlEnabled": "0",
                 **info,
             }
@@ -278,7 +369,11 @@ class FritzboxSim:
             return {
                 "NewWEPKey0": "",
                 "NewPreSharedKey": "0" * 64,
-                "NewKeyPassphrase": PASSPHRASES[index],
+                "NewKeyPassphrase": self.passphrases[index],
+            }
+        if action == "X_AVM-DE_GetBeaconAdvertisement" and self.beacon_advertisement:
+            return {
+                "NewBeaconAdvertisementEnabled": self.wlans[index]["NewBeaconAdvertisementEnabled"]
             }
         if action == "X_AVM-DE_GetWLANExtInfo" and self.ext_info:
             return {
@@ -299,7 +394,7 @@ class FritzboxSim:
                 "NewX_AVM-DE_Speed": "866",
                 "NewX_AVM-DE_SignalStrength": "70",
             }
-        return 401
+        return self._set_wlan(index, action, args)
 
     async def handle(self, control: str, body: bytes, soap_action: str) -> Response:
         service = CONTROL.get(control)

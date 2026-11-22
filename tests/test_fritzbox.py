@@ -468,7 +468,9 @@ async def test_odd_lan_answers(adapter: FritzboxAdapter, monkeypatch: pytest.Mon
     obs = await adapter.read_interfaces()  # falls back to GetIPRoutersList / GetSubnetMask
     assert obs.subnets[0].interface == ip_interface("192.0.2.1/24")
     [server] = (await adapter.read_dhcp()).dhcp_servers  # and GetAddressRange
-    assert not server.enabled and server.pools == [] and server.router is None
+    assert not server.enabled and server.router is None
+    # the range stays known while the server is off
+    assert [(str(p.start), str(p.end)) for p in server.pools] == [("192.0.2.20", "192.0.2.200")]
 
 
 async def test_host_count_unexpected(sim: FritzboxSim, adapter: FritzboxAdapter) -> None:
