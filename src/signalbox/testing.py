@@ -11,8 +11,81 @@ Use from an adapter's tests::
 
 from __future__ import annotations
 
-from signalbox.adapters import Adapter, check_manifest
-from signalbox.model import DeviceStatus, Membership, Snapshot
+from signalbox.adapters import Adapter, Capability, check_manifest
+from signalbox.model import Device, DeviceHealth, DeviceStatus, DeviceTime, Membership, Snapshot
+
+
+def _aware(value: object) -> bool:
+    return getattr(value, "tzinfo", None) is not None
+
+
+def health_problems(device_id: str, health: DeviceHealth) -> list[str]:
+    """Inconsistent health values (used above total, naive times, empty names)."""
+    out: list[str] = []
+    total, used = health.memory_total_bytes, health.memory_used_bytes
+    if total is not None and used is not None and used > total:
+        out.append(f"{device_id}: memory used {used} > total {total}")
+    for st in health.storage:
+        if (
+            st.total_bytes is not None
+            and st.used_bytes is not None
+            and st.used_bytes > st.total_bytes
+        ):
+            out.append(
+                f"{device_id}: storage {st.name} used {st.used_bytes} > total {st.total_bytes}"
+            )
+    names = [
+        *(x.name for x in health.storage),
+        *(x.name for x in health.temperatures),
+        *(x.name for x in health.fans),
+        *(x.name for x in health.power_supplies),
+        *(x.name for x in health.ups),
+    ]
+    if any(not n.strip() for n in names):
+        out.append(f"{device_id}: a storage, sensor, fan, power supply or UPS has no name")
+    for when in (health.boot_time, *(u.last_test for u in health.ups)):
+        if when is not None and not _aware(when):
+            out.append(f"{device_id}: health time {when} has no time zone")
+    return out
+
+
+def time_problems(device_id: str, value: DeviceTime, segment_prefix: str) -> list[str]:
+    """Inconsistent clock and NTP values."""
+    out: list[str] = []
+    stamps = [value.clock, value.read_at, value.ntp_client.last_sync if value.ntp_client else None]
+    for when in stamps:
+        if when is not None and not _aware(when):
+            out.append(f"{device_id}: time {when} has no time zone")
+    if value.clock is not None and value.read_at is None:
+        out.append(f"{device_id}: clock without read_at")
+    if value.timezone is not None and not value.timezone.strip():
+        out.append(f"{device_id}: empty time zone")
+    if value.ntp_client is not None and any(not s.strip() for s in value.ntp_client.servers):
+        out.append(f"{device_id}: empty NTP server name")
+    for seg in value.ntp_server.segments if value.ntp_server else []:
+        if not seg.startswith(segment_prefix):
+            out.append(
+                f"{device_id}: NTP server segment {seg} does not start with {segment_prefix}"
+            )
+    return out
+
+
+def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
+    caps = set(snapshot.device.capabilities)
+    devices: list[Device] = [snapshot.device, *snapshot.extra_devices]
+    out: list[str] = []
+    for cap, attr in ((Capability.HEALTH, "health"), (Capability.TIME, "time")):
+        found = [d for d in devices if getattr(d, attr) is not None]
+        if cap.value in caps and not found:
+            out.append(f"declares {cap.value} but no device has {attr}")
+        if cap.value not in caps and found:
+            out.append(f"{attr} reported without declaring {cap.value}")
+    for d in devices:
+        if d.health is not None:
+            out += health_problems(d.id, d.health)
+        if d.time is not None:
+            out += time_problems(d.id, d.time, site)
+    return out
 
 
 def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
@@ -85,6 +158,8 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
     for nb in snapshot.neighbours:
         if nb.local_port_id not in port_ids:
             out.append(f"neighbour {nb.id} on unknown port {nb.local_port_id}")
+
+    out += _capability_problems(snapshot, site)
 
     if Snapshot.model_validate_json(snapshot.model_dump_json()) != snapshot:
         out.append("snapshot does not survive a JSON round trip")

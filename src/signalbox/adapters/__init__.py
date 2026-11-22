@@ -19,7 +19,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from importlib.metadata import entry_points
 from typing import Any, ClassVar, Protocol, runtime_checkable
@@ -30,8 +30,10 @@ from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
     Client,
     Device,
+    DeviceHealth,
     DeviceRole,
     DeviceStatus,
+    DeviceTime,
     DhcpServer,
     DnsService,
     Firmware,
@@ -49,7 +51,7 @@ from signalbox.model import (
 
 #: Version of this API. An adapter declares the version it was written for; the major part
 #: must match.
-API_VERSION = "1.1"
+API_VERSION = "1.2"
 
 
 class Capability(StrEnum):
@@ -59,6 +61,13 @@ class Capability(StrEnum):
     WIRELESS = "wireless"  # radios and WLANs
     CLIENTS = "clients"
     NEIGHBOURS = "neighbours"  # LLDP
+    HEALTH = "health"  # uptime, CPU, memory, storage, sensors (API 1.2)
+    TIME = "time"  # clock, time zone, NTP (API 1.2)
+
+
+#: Adapter API version that introduced a capability (absent: 1.0). An adapter declaring a
+#: capability must be written for at least that version.
+SINCE: dict[Capability, str] = {Capability.HEALTH: "1.2", Capability.TIME: "1.2"}
 
 
 class AdapterError(Exception):
@@ -213,6 +222,10 @@ class Observation(BaseModel):
     devices: list[Device] = Field(default_factory=list)
     #: Reachability of those devices as the controller reports it.
     device_status: dict[str, DeviceStatus] = Field(default_factory=dict)
+    #: Health per device id: the observed device or one of ``devices`` (API 1.2).
+    health: dict[str, DeviceHealth] = Field(default_factory=dict)
+    #: Clock and NTP per device id: the observed device or one of ``devices`` (API 1.2).
+    time: dict[str, DeviceTime] = Field(default_factory=dict)
 
 
 @runtime_checkable
@@ -245,6 +258,25 @@ class ReadsNeighbours(Protocol):
     async def read_neighbours(self) -> Observation: ...
 
 
+@runtime_checkable
+class ReadsHealth(Protocol):
+    """Fill ``Observation.health``, keyed by device id (API 1.2)."""
+
+    async def read_health(self) -> Observation: ...
+
+
+@runtime_checkable
+class ReadsTime(Protocol):
+    """Fill ``Observation.time``, keyed by device id (API 1.2).
+
+    Set ``DeviceTime.clock`` to the device's time as it answered; leave ``read_at`` empty and
+    ``observe()`` fills in the middle of the call and half its duration as uncertainty. An
+    adapter that reads the clock among other requests sets both itself.
+    """
+
+    async def read_time(self) -> Observation: ...
+
+
 PROTOCOLS: dict[Capability, tuple[type, str]] = {
     Capability.INTERFACES: (ReadsInterfaces, "read_interfaces"),
     Capability.DHCP: (ReadsDhcp, "read_dhcp"),
@@ -252,6 +284,8 @@ PROTOCOLS: dict[Capability, tuple[type, str]] = {
     Capability.WIRELESS: (ReadsWireless, "read_wireless"),
     Capability.CLIENTS: (ReadsClients, "read_clients"),
     Capability.NEIGHBOURS: (ReadsNeighbours, "read_neighbours"),
+    Capability.HEALTH: (ReadsHealth, "read_health"),
+    Capability.TIME: (ReadsTime, "read_time"),
 }
 
 
@@ -262,6 +296,26 @@ def _stamp(obj: Observed, source: Source, when: datetime) -> Observed:
     if obj.observed_at is None:
         update["observed_at"] = when
     return obj.model_copy(update=update) if update else obj
+
+
+def _complete_health(health: DeviceHealth, when: datetime) -> DeviceHealth:
+    """Derive boot time from uptime (or the other way round) at observation time."""
+    if health.uptime_seconds is not None and health.boot_time is None:
+        boot = when - timedelta(seconds=health.uptime_seconds)
+        return health.model_copy(update={"boot_time": boot.replace(microsecond=0)})
+    if health.boot_time is not None and health.uptime_seconds is None:
+        uptime = int((when - health.boot_time).total_seconds())
+        return health.model_copy(update={"uptime_seconds": max(uptime, 0)})
+    return health
+
+
+def _complete_time(value: DeviceTime, start: datetime, end: datetime) -> DeviceTime:
+    if value.clock is None or value.read_at is not None:
+        return value
+    half = (end - start) / 2
+    return value.model_copy(
+        update={"read_at": start + half, "uncertainty_seconds": half.total_seconds()}
+    )
 
 
 class Adapter(ABC):
@@ -307,6 +361,8 @@ class Adapter(ABC):
         errors: list[ReadError] = []
         info = SystemInfo()
         reads: list[Observation] = []
+        health: dict[str, DeviceHealth] = {}
+        times: dict[str, DeviceTime] = {}
         try:
             info = await self._call(self.read_system)
         except UntrustedCertificate as exc:
@@ -319,6 +375,7 @@ class Adapter(ABC):
         else:
             for cap in sorted(self.manifest.capabilities):
                 method = getattr(self, PROTOCOLS[cap][1])
+                start = datetime.now(UTC)
                 try:
                     result = await self._call(method)
                 except (AdapterError, TimeoutError, OSError) as exc:
@@ -330,6 +387,11 @@ class Adapter(ABC):
                         f"{type(result).__name__}, not Observation"
                     )
                 reads.append(result)
+                end = datetime.now(UTC)
+                for key, value in result.health.items():
+                    health[key] = _complete_health(value, now)
+                for key, tvalue in result.time.items():
+                    times[key] = _complete_time(tvalue, start, end)
             if errors:
                 status = DeviceStatus.PARTIAL
 
@@ -344,8 +406,10 @@ class Adapter(ABC):
             observed_at=now,
             **info.model_dump(exclude_none=True, exclude={"firmware"}),
             firmware=info.firmware,
+            health=health.get(ctx.device_id),
+            time=times.get(ctx.device_id),
         )
-        skip = {"devices", "device_status"}
+        skip = {"devices", "device_status", "health", "time"}
         lists: dict[str, list[Any]] = {n: [] for n in Observation.model_fields if n not in skip}
         extra: dict[str, Device] = {}
         extra_status: dict[str, DeviceStatus] = {}
@@ -362,6 +426,8 @@ class Adapter(ABC):
                             "managed_by": ctx.device_id,
                             "source": source,
                             "observed_at": now,
+                            "health": health.get(d.id, d.health),
+                            "time": times.get(d.id, d.time),
                         }
                     ),
                 )
@@ -383,13 +449,26 @@ class Adapter(ABC):
         return ReadError(device_id=self.context.device_id, capability=capability, message=message)
 
 
+def _version(text: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(part) for part in text.split("."))
+    except ValueError:
+        raise AdapterContractError(f"not an adapter API version: {text!r}") from None
+
+
 def check_manifest(manifest: Manifest) -> None:
-    major = manifest.api_version.split(".")[0]
-    if major != API_VERSION.split(".")[0]:
+    wanted = _version(manifest.api_version)
+    if wanted[0] != _version(API_VERSION)[0]:
         raise AdapterContractError(
             f"{manifest.id} was written for adapter API {manifest.api_version}, "
             f"this Signalbox provides {API_VERSION}"
         )
+    for cap in sorted(manifest.capabilities):
+        if cap in SINCE and wanted < _version(SINCE[cap]):
+            raise AdapterContractError(
+                f"{manifest.id} declares {cap.value}, which needs adapter API {SINCE[cap]}, "
+                f"but was written for {manifest.api_version}"
+            )
 
 
 def load_adapters(group: str = "signalbox.adapters") -> dict[str, type[Adapter]]:
