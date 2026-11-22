@@ -77,6 +77,7 @@ All notable changes to this project are documented here. The format follows
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
 
 ### Fixed
+- Navigation: the top bar no longer wraps on phones and tablets; side bar on wide screens, menu drawer on narrow ones (#230)
 - Finding devices lists a device that answers on several addresses once (same certificate, MAC, serial number or controller id), with all its addresses and the one in a known network offered, and marks it as added when any of its addresses or its identity belongs to a device you already added (#224).
 - NETGEAR ProSAFE Plus: an old switch that refuses the full identity read (answering "incorrect password" even without one) is read from its discovery answer; a refused setting is named in the error (#210)
 - NETGEAR ProSAFE Plus switches are read without logging in, as Switchyard does; the password is optional and only checked for changes (an old GS108E v1 refused the check while reading worked) (#210)
