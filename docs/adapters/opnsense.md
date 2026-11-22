@@ -50,6 +50,7 @@ meant for the simulator.
    | Status: Interfaces | `/api/interfaces/overview/*` |
    | Interfaces: VLAN | `/api/interfaces/vlan_settings/*` |
    | Services: DHCP: Kea(v4) (if Kea is used) | `/api/kea/dhcpv4/*`, `/api/kea/leases4/*` |
+   | Services: DHCRelay | `/api/dhcrelay/*` (DHCP relays; confirmed against the core ACL, `page-services-dhcprelay`) |
    | Services: Unbound | `/api/unbound/*` (the general settings are only readable with this one; *Services: Unbound DNS: General* and *Edit Host and Domain Override* do not cover `/api/unbound/settings/get`) |
    | Diagnostics: ARP Table, Diagnostics: NDP Table | `/api/diagnostics/interface/get_arp`, `get_ndp` |
    | Lobby: Dashboard | `/api/diagnostics/system/system_*`, `/api/diagnostics/cpu_usage/*` (health, and the clock for time) |

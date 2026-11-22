@@ -193,6 +193,8 @@ async def test_mapping_of_the_preseeded_firewall(fw: dict[str, str]) -> None:
     assert [(str(p.start), str(p.end)) for p in kea.pools] == [("192.0.2.100", "192.0.2.199")]
     assert str(kea.router) == "192.0.2.1"  # option autocollect: the interface address
     assert kea.lease_seconds == 4000
+    assert kea.leases is not None  # #183: the lease table was read (nobody leased yet: maybe empty)
+    assert net.dhcp_relays == []  # dhcrelay answers (privilege page-services-dhcprelay), no relay
     assert [(r.mac, str(r.address), r.hostname) for r in kea.reservations] == [
         ("02:00:00:00:00:10", "192.0.2.10", "printer")
     ]
