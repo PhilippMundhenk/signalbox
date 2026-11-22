@@ -114,6 +114,7 @@ Services and control URLs:
 | `LANEthernetInterfaceConfig:1` | `/upnp/control/lanethernetifcfg` |
 | `WLANConfiguration:1`..`4` | `/upnp/control/wlanconfig1`..`4` |
 | `Hosts:1` | `/upnp/control/hosts` |
+| `Time:1` | `/upnp/control/time` |
 
 ## Actions and the arguments they return
 
@@ -121,6 +122,32 @@ Services and control URLs:
 
 `NewManufacturerName`, `NewModelName`, `NewSoftwareVersion` (for example `154.07.57`) become
 vendor, model and firmware. The serial number and the device log in the same answer are not kept.
+`NewUpTime` (seconds) is the uptime (health); it is all TR-064 tells about the box's health:
+CPU, memory and temperatures are only on the web interface's pages, which Signalbox does not
+read.
+
+### `Time:1 GetInfo` (time)
+
+The arguments and their data types are those of AVM's service description `timeSCPD.xml`
+(FRITZ!OS 7.57 and 8.02, identical; in `tests/fixtures/tr064/`, so the simulator serves the
+action and checks the answer's types). *Guess*: the values of the zone fields, which the
+description does not show (no real Fritz!Box in CI):
+
+```
+NewNTPServer1          ntp.example.net
+NewNTPServer2
+NewCurrentLocalTime    2026-11-22T17:12:00+01:00
+NewLocalTimeZone       CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00
+NewLocalTimeZoneName   CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00
+NewDaylightSavingsUsed 1
+```
+
+`NewCurrentLocalTime` is the clock with its UTC offset (whole seconds: the middle of the second,
+half a second more uncertainty; a time without an offset is not used). The zone is
+`NewLocalTimeZoneName`, else `NewLocalTimeZone`, as the box reports it. The NTP servers are the
+NTP client's (the Fritz!Box always synchronises; whether it is in sync is not reported). Whether
+the Fritz!Box serves time to the LAN (*Heimnetz > Netzwerk > Zeitsynchronisation*) is not in
+TR-064, so the NTP server stays unknown.
 
 ### `LANEthernetInterfaceConfig:1 GetInfo`, `GetStatistics` (interfaces)
 

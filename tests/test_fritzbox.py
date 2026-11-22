@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import ssl
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
 from ipaddress import ip_address, ip_interface
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import SecretStr, ValidationError
@@ -18,11 +20,21 @@ from signalbox.adapters.fritzbox import (
     FritzboxConfig,
     WlanService,
     band,
+    local_time,
     security,
+    time_of,
 )
 from signalbox.adapters.fritzbox.soap import SoapFault, Tr064, parse_answer, parse_xml
 from signalbox.adapters.https import DeviceHttp
-from signalbox.model import Band, DeviceRole, DeviceStatus, Security, passphrase_fingerprint
+from signalbox.model import (
+    Band,
+    DeviceHealth,
+    DeviceRole,
+    DeviceStatus,
+    NtpClient,
+    Security,
+    passphrase_fingerprint,
+)
 from signalbox.sim import fritzbox as fritz_sim
 from signalbox.sim.fritzbox import FritzboxSim, create_app
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
@@ -583,3 +595,50 @@ async def test_box_without_users_logs_in_with_password_only(
         context(https_url, pinned_fingerprint=cert.fingerprint, config={"username": ""})
     )
     assert snap.status is DeviceStatus.OK, snap.errors
+
+# --- health and time (#178, #179) ------------------------------------------------------------
+
+
+async def test_health_is_the_uptime(adapter: FritzboxAdapter, sim: FritzboxSim) -> None:
+    [(key, h)] = (await adapter.read_health()).health.items()
+    assert key == "fb" and h == DeviceHealth(uptime_seconds=1209600)
+    sim.uptime = 0  # NewUpTime is a ui4 in the description: never negative
+    [h] = (await adapter.read_health()).health.values()
+    assert h.uptime_seconds == 0
+
+
+async def test_time(adapter: FritzboxAdapter, sim: FritzboxSim) -> None:
+    snap = await assert_contract(adapter)
+    t = snap.device.time
+    assert t is not None and t.clock is not None
+    offset = t.offset_seconds()
+    assert offset is not None and abs(offset) < 2
+    zone = datetime.now(ZoneInfo("Europe/Berlin")).utcoffset()
+    assert zone is not None and t.utc_offset_minutes == zone.total_seconds() // 60
+    assert t.timezone == "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00"
+    assert t.ntp_client == NtpClient(enabled=True, servers=["ntp.example.net"])
+    assert t.ntp_server is None
+    sim.clock_skew = -3600
+    t = (await adapter.observe()).device.time
+    assert t is not None and (offset := t.offset_seconds()) is not None
+    assert -3602 < offset < -3598
+
+
+async def test_time_needs_the_right(adapter: FritzboxAdapter, sim: FritzboxSim) -> None:
+    sim.faults = {"Time#GetInfo": 606}
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.PARTIAL
+    [error] = snap.errors
+    assert error.capability == "time" and "not authorised" in error.message
+
+
+def test_time_mapping() -> None:
+    start = datetime(2026, 11, 22, 16, tzinfo=UTC)
+    bare = time_of({"NewCurrentLocalTime": "2026-11-22T17:00:00"}, start, start)
+    assert bare.clock is None and bare.utc_offset_minutes is None and bare.timezone is None
+    assert bare.ntp_client == NtpClient(enabled=False)
+    odd = time_of({"NewCurrentLocalTime": "soon", "NewLocalTimeZone": "UTC"}, start, start)
+    assert odd.clock is None and odd.timezone == "UTC"
+    ok = time_of({"NewCurrentLocalTime": "2026-11-22T21:30:00+05:30"}, start, start)
+    assert ok.utc_offset_minutes == 330 and ok.offset_seconds() == 0.5
+    assert local_time(None) is None

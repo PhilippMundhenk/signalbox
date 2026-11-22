@@ -48,6 +48,7 @@ SERVICES: dict[str, tuple[str, str]] = {
         "/upnp/control/lanethernetifcfg",
     ),
     "Hosts1": (f"{URN}Hosts:1", "/upnp/control/hosts"),
+    "Time1": (f"{URN}Time:1", "/upnp/control/time"),
     **{
         f"WLANConfiguration{n}": (f"{URN}WLANConfiguration:{n}", f"/upnp/control/wlanconfig{n}")
         for n in range(1, 5)

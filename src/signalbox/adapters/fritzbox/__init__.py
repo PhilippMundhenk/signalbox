@@ -21,7 +21,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Address, IPv4Interface, ip_address
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -61,11 +61,14 @@ from signalbox.changes import Change, ChangeKind, WlanValue
 from signalbox.model import (
     Band,
     Client,
+    DeviceHealth,
     DeviceRole,
+    DeviceTime,
     DhcpPool,
     DhcpServer,
     Firmware,
     Membership,
+    NtpClient,
     Port,
     PortKind,
     PortMembership,
@@ -203,6 +206,41 @@ def band(info: dict[str, str], index: int, count: int) -> Band:
     return Band.GHZ_5 if index == 2 and count > 2 else Band.GHZ_2_4
 
 
+def local_time(value: str | None) -> datetime | None:
+    """``NewCurrentLocalTime``: ``2026-11-22T17:12:00+01:00`` (a time without an offset is
+    of no use: the zone is not known for sure)."""
+    try:
+        when = datetime.fromisoformat((value or "").strip())
+    except ValueError:
+        return None
+    return when if when.tzinfo is not None else None
+
+
+def time_of(info: Mapping[str, str], start: datetime, end: datetime) -> DeviceTime:
+    """``Time:1 GetInfo`` (read between ``start`` and ``end``).
+
+    The clock has whole seconds (its middle is taken, half a second more uncertainty); the
+    UTC offset is the one of ``NewCurrentLocalTime``, the zone ``NewLocalTimeZoneName`` (else
+    ``NewLocalTimeZone``) as the box reports it. The Fritz!Box always synchronises with
+    ``NewNTPServer1``/``2``; whether it is in sync and whether it serves time to the LAN are
+    not in TR-064.
+    """
+    clock = local_time(info.get("NewCurrentLocalTime"))
+    half = (end - start) / 2
+    offset = clock.utcoffset() if clock is not None else None
+    minutes = int(offset.total_seconds() // 60) if offset is not None else None
+    servers = [s for k in ("NewNTPServer1", "NewNTPServer2") if (s := (info.get(k) or "").strip())]
+    zone = (info.get("NewLocalTimeZoneName") or info.get("NewLocalTimeZone") or "").strip()
+    return DeviceTime(
+        clock=clock + timedelta(seconds=0.5) if clock else None,
+        read_at=start + half if clock else None,
+        uncertainty_seconds=half.total_seconds() + 0.5 if clock else None,
+        timezone=zone or None,
+        utc_offset_minutes=minutes if minutes is not None and abs(minutes) <= 1080 else None,
+        ntp_client=NtpClient(enabled=bool(servers), servers=servers),
+    )
+
+
 def _extra(info: dict[str, str], *keys: str) -> dict[str, JsonValue]:
     return {k.removeprefix("New"): info[k] for k in keys if info.get(k)}
 
@@ -247,11 +285,18 @@ class FritzboxAdapter(Adapter):
         id="fritzbox",
         name="AVM Fritz!Box",
         version="0.2.0",
-        api_version="1.0",
+        api_version="1.2",
         vendor="AVM",
         roles=frozenset({DeviceRole.GATEWAY, DeviceRole.AP}),
         capabilities=frozenset(
-            {Capability.INTERFACES, Capability.DHCP, Capability.WIRELESS, Capability.CLIENTS}
+            {
+                Capability.INTERFACES,
+                Capability.DHCP,
+                Capability.WIRELESS,
+                Capability.CLIENTS,
+                Capability.HEALTH,
+                Capability.TIME,
+            }
         ),
         config=FritzboxConfig,
         description="Reads a Fritz!Box over TR-064 (SOAP over HTTPS) with a dedicated user; "
@@ -322,6 +367,22 @@ class FritzboxAdapter(Adapter):
             "interface port 443 and not a MyFRITZ address. The box tells its port at "
             f"http://<box>:{UPNP_PORT}/tr64desc.xml if that answers.",
         )
+
+    # health and time ------------------------------------------------------------------
+
+    async def read_health(self) -> Observation:
+        """``DeviceInfo:1 GetInfo`` ``NewUpTime``: TR-064 has no CPU, memory or sensors."""
+        info = await self.tr064.call("DeviceInfo1", "GetInfo")
+        uptime = _int(info.get("NewUpTime"))
+        value = DeviceHealth(uptime_seconds=uptime if uptime is not None and uptime >= 0 else None)
+        return Observation(health={self.context.device_id: value})
+
+    async def read_time(self) -> Observation:
+        start = datetime.now(UTC)
+        info = await self.tr064.call("Time1", "GetInfo")
+        end = datetime.now(UTC)
+        value = time_of(info, start, end)
+        return Observation(time={self.context.device_id: value})
 
     # interfaces -----------------------------------------------------------------------
 

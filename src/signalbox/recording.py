@@ -55,8 +55,9 @@ PLACEHOLDER_SECRET = "recorded-secret"
 PLACEHOLDER_USER = "recorded-user"
 #: request headers that select an answer (everything else, credentials above all, is dropped)
 KEPT_HEADERS = ("soapaction", "content-type")
-#: snapshot keys that change with every observation
-VOLATILE = {"observed_at", "taken_at"}
+#: snapshot keys that change with every observation (boot time, clock read time and its
+#: uncertainty are derived from the moment of the replay; the recorded clock itself is kept)
+VOLATILE = {"observed_at", "taken_at", "boot_time", "read_at", "uncertainty_seconds"}
 
 #: field (XML element, JSON key, query parameter) names whose values are secrets or identify
 #: the device: replaced by ``redacted-secret-<n>``, consistently
