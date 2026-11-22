@@ -240,7 +240,7 @@ def _boot(dnsmasq: dict[str, Any]) -> tuple[str, str, str] | None:
     first = raw[0] if isinstance(raw, list) and raw else raw
     if not isinstance(first, str) or not first:
         return None
-    file, name, address = (first.split(",") + ["", ""])[:3]
+    file, name, address = [*first.split(","), "", ""][:3]
     return file, name, address
 
 
@@ -1286,8 +1286,9 @@ class OpenWrtAdapter(Adapter):
     # clients --------------------------------------------------------------------------
 
     async def _lease_rows(self) -> list[dict[str, Any]] | None:
-        """Lease entries from luci-rpc, else /tmp/dhcp.leases, else None (neither readable): ``mac``, ``address``,
-        ``hostname``, ``expires`` (UTC, None: never or unknown), ``client_id``."""
+        """Lease entries from luci-rpc, else /tmp/dhcp.leases, else None (neither readable):
+        ``mac``, ``address``, ``hostname``, ``expires`` (UTC, None: never or unknown),
+        ``client_id``."""
         now = datetime.now(UTC)
         out: list[dict[str, Any]] = []
         try:

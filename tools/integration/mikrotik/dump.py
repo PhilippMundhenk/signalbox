@@ -45,6 +45,8 @@ GROUPS: dict[str, list[tuple[str, str, str, object]]] = {
         (R, "GET", "/rest/ip/dhcp-server/network", None),
         (R, "GET", "/rest/ip/pool", None),
         (R, "GET", "/rest/ip/dhcp-server/lease", None),
+        (R, "GET", "/rest/ip/dhcp-server/option", None),
+        (R, "GET", "/rest/ip/dhcp-relay", None),
         (R, "GET", "/rest/ip/dns", None),
         (R, "GET", "/rest/ip/dns/static", None),
         (R, "GET", "/rest/ip/arp", None),

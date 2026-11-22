@@ -92,7 +92,9 @@ def configuration(net: Network) -> Any:
 
     def strip(value: Any) -> Any:
         if isinstance(value, dict):
-            return {k: strip(v) for k, v in value.items() if k not in ("observed_at", "up")}
+            return {
+                k: strip(v) for k, v in value.items() if k not in ("observed_at", "up", "leases")
+            }
         if isinstance(value, list):
             return [strip(v) for v in value]
         return value

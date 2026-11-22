@@ -69,6 +69,7 @@ from signalbox.model import (
     DeviceRole,
     DeviceStatus,
     FrameTypes,
+    LeaseState,
     Membership,
     NtpClient,
     NtpServer,
@@ -292,6 +293,43 @@ async def test_dhcp(snap: Snapshot) -> None:
     assert iot.dns_servers == [ip_address("198.51.100.1"), ip_address("192.0.2.1")]
     assert [r.hostname for r in iot.reservations] == ["sensor"]
     assert iot.vendor_extra["network"] == "198.51.100.0/24"
+
+
+async def test_dhcp_leases_options_and_relay(snap: Snapshot) -> None:
+    servers = {s.id: s for s in snap.dhcp_servers}
+    lan, iot = servers["rt/dhcp/defconf"], servers["rt/dhcp/iot-dhcp"]
+    assert lan.leases is not None and iot.leases is not None
+    printer, laptop = lan.leases
+    assert (printer.state, printer.reserved, printer.hostname) == (
+        LeaseState.ACTIVE,
+        True,
+        "PRN-0010",
+    )
+    assert printer.expires is None  # static lease: no countdown
+    assert (laptop.state, laptop.reserved, laptop.vendor_class) == (
+        LeaseState.ACTIVE,
+        False,
+        "android-dhcp-14",
+    )
+    assert laptop.client_id == "1:02:00:00:00:00:21" and laptop.expires is not None
+    assert 1500 < (laptop.expires - datetime.now(UTC)).total_seconds() <= 1510
+    sensor, phone, offered = iot.leases
+    assert (sensor.state, sensor.reserved) == (LeaseState.RESERVED, True)  # status waiting
+    assert phone.expires is not None and offered.state is LeaseState.OFFERED
+    assert offered.mac == "02:00:00:00:00:23" and offered.hostname is None
+    assert lan.search_domains == ["home.example"]
+    assert [(str(r.destination), str(r.gateway)) for r in lan.static_routes] == [
+        ("203.0.113.0/24", "192.0.2.254")
+    ]
+    assert lan.boot is not None
+    assert (str(lan.boot.next_server), lan.boot.filename) == ("192.0.2.5", "pxelinux.0")
+    assert [(o.code, o.name, o.value) for o in lan.options] == [
+        (252, "wpad", "'http://192.0.2.1/wpad.dat'")
+    ]
+    assert lan.authoritative is True and iot.authoritative is None and iot.options == []
+    (relay,) = snap.dhcp_relays
+    assert (relay.id, relay.segment_id) == ("rt/dhcp-relay/20", "home/segment/20")
+    assert [str(a) for a in relay.servers] == ["192.0.2.53"] and relay.enabled
 
 
 async def test_dns(snap: Snapshot) -> None:

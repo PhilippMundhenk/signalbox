@@ -459,6 +459,7 @@ def sample_data() -> dict[str, Any]:
                 "name": "defconf",
                 "interface": "bridge",
                 "address-pool": "default-dhcp",
+                "authoritative": "yes",
                 "lease-time": "30m",
                 "disabled": "false",
                 "invalid": "false",
@@ -481,6 +482,9 @@ def sample_data() -> dict[str, Any]:
                 "dns-server": "192.0.2.1",
                 "domain": "home.example",
                 "ntp-server": "192.0.2.1",
+                "next-server": "192.0.2.5",
+                "boot-file-name": "pxelinux.0",
+                "dhcp-option": "search,routes,wpad",
                 "comment": "defconf",
             },
             {
@@ -490,6 +494,21 @@ def sample_data() -> dict[str, Any]:
                 "domain": "iot.example",
                 "ntp-server": "",
             },
+        ),
+        "/rest/ip/dhcp-server/option": _ids(
+            {"name": "search", "code": "119", "value": "0x04686f6d65076578616d706c6500"},
+            {"name": "routes", "code": "121", "value": "0x18cb0071c00002fe"},
+            {"name": "wpad", "code": "252", "value": "'http://192.0.2.1/wpad.dat'"},
+        ),
+        "/rest/ip/dhcp-relay": _ids(
+            {
+                "name": "iot-relay",
+                "interface": "iot",
+                "dhcp-server": "192.0.2.53",
+                "local-address": "198.51.100.1",
+                "disabled": "false",
+                "invalid": "false",
+            }
         ),
         "/rest/ip/pool": _ids(
             {"name": "default-dhcp", "ranges": "192.0.2.100-192.0.2.199"},
@@ -530,6 +549,8 @@ def sample_data() -> dict[str, Any]:
                 "disabled": "false",
                 "active-address": "192.0.2.100",
                 "active-mac-address": _mac(0, 0x21),
+                "client-id": "1:" + _mac(0, 0x21),
+                "class-id": "android-dhcp-14",
                 "expires-after": "25m10s",
             },
             {
@@ -538,6 +559,15 @@ def sample_data() -> dict[str, Any]:
                 "server": "iot-dhcp",
                 "host-name": "phone",
                 "status": "bound",
+                "dynamic": "true",
+                "disabled": "false",
+                "expires-after": "23h59m",
+            },
+            {
+                "address": "198.51.100.102",
+                "mac-address": _mac(0, 0x23),
+                "server": "iot-dhcp",
+                "status": "offered",
                 "dynamic": "true",
                 "disabled": "false",
             },

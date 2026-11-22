@@ -52,6 +52,7 @@ from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     SERVICE_PORTS,
+    TYPED_OPTION_CODES,
     AddressSource,
     Band,
     Cipher,
@@ -59,7 +60,12 @@ from signalbox.model import (
     DeviceHealth,
     DeviceRole,
     DeviceTime,
+    DhcpBoot,
+    DhcpLease,
+    DhcpOption,
     DhcpPool,
+    DhcpRelay,
+    DhcpRoute,
     DhcpServer,
     DnsForwarder,
     DnsService,
@@ -70,6 +76,7 @@ from signalbox.model import (
     IPAddress,
     IPInterface,
     IPNetwork,
+    LeaseState,
     ManagementService,
     Membership,
     NatClass,
@@ -129,6 +136,8 @@ IPV6_ADDRESS = "/rest/ipv6/address"
 DHCP_SERVER = "/rest/ip/dhcp-server"
 DHCP_NETWORK = "/rest/ip/dhcp-server/network"
 DHCP_LEASE = "/rest/ip/dhcp-server/lease"
+DHCP_OPTION = "/rest/ip/dhcp-server/option"
+DHCP_RELAY = "/rest/ip/dhcp-relay"
 POOL = "/rest/ip/pool"
 DNS = "/rest/ip/dns"
 DNS_STATIC = "/rest/ip/dns/static"
@@ -321,6 +330,92 @@ def vlan_ids(value: Any) -> list[int]:
 _DURATION = re.compile(
     r"(?:(\d+)w)?(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?(?:(\d+):(\d\d):(\d\d))?"
 )
+
+
+def _wire(value: Any) -> bytes | None:
+    """An option value written as hex (``0x0c68...``), else None."""
+    text = _text(value)
+    if not text.lower().startswith("0x"):
+        return None
+    try:
+        return bytes.fromhex(text[2:])
+    except ValueError:
+        return None
+
+
+def _search_list(raw: bytes) -> list[str]:
+    """Option 119: DNS names as length-prefixed labels, each ended by a zero byte."""
+    names: list[str] = []
+    labels: list[str] = []
+    i = 0
+    while i < len(raw):
+        n = raw[i]
+        if n == 0:
+            names.append(".".join(labels))
+            labels = []
+            i += 1
+        elif n >= 0x40 or i + 1 + n > len(raw):  # compression pointers: not decoded
+            break
+        else:
+            labels.append(raw[i + 1 : i + 1 + n].decode("ascii", "replace"))
+            i += 1 + n
+    return [n for n in names if n]
+
+
+def _classless_routes(raw: bytes) -> list[DhcpRoute]:
+    """Option 121 (RFC 3442): prefix length, the significant destination octets, gateway."""
+    routes, i = [], 0
+    while i < len(raw):
+        bits = raw[i]
+        width = (bits + 7) // 8
+        if bits > 32 or i + 1 + width + 4 > len(raw):
+            break
+        dest = raw[i + 1 : i + 1 + width] + bytes(4 - width)
+        gateway = raw[i + 1 + width : i + 5 + width]
+        routes.append(
+            DhcpRoute(
+                destination=ip_network(f"{IPv4Address(dest)}/{bits}", strict=False),
+                gateway=IPv4Address(gateway),
+            )
+        )
+        i += 5 + width
+    return routes
+
+
+def _lease_state(row: dict[str, Any], static: bool) -> LeaseState:
+    status = _text(row.get("status"))
+    if status == "bound":
+        return LeaseState.ACTIVE
+    if status == "offered":
+        return LeaseState.OFFERED
+    if status in ("busy", "conflict"):  # guess: the address is in use elsewhere
+        return LeaseState.DECLINED
+    return LeaseState.RESERVED if static else LeaseState.EXPIRED  # waiting, testing, ...
+
+
+def _lease(row: dict[str, Any], now: datetime) -> DhcpLease | None:
+    mac = _mac(row.get("active-mac-address") or row.get("mac-address"))
+    client_id = _text(row.get("active-client-id") or row.get("client-id")) or None
+    address = _addr(row.get("active-address") or row.get("address"))
+    if address is None or (mac is None and client_id is None):
+        return None
+    static = not _flag(row.get("dynamic"))
+    left = duration(row.get("expires-after"))
+    return DhcpLease(
+        address=address,
+        mac=mac,
+        client_id=client_id,
+        hostname=_text(row.get("host-name")) or _text(row.get("comment")) or None,
+        state=_lease_state(row, static),
+        reserved=static,
+        expires=now + timedelta(seconds=left) if left is not None else None,
+        vendor_class=_text(row.get("active-class-id") or row.get("class-id")) or None,
+    )
+
+
+def _segment_key(segment: str) -> str:
+    key = segment.rsplit("/", 1)[-1]
+    return "lan" if key == "native" else key
 
 
 def duration(value: Any) -> int | None:
@@ -1181,6 +1276,8 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 continue
         pools = {_text(r.get("name")): r for r in await self._rows(POOL)}
         leases = await self._rows(DHCP_LEASE)
+        options = {_text(r.get("name")): r for r in await self._optional_rows(DHCP_OPTION)}
+        now = datetime.now(UTC)
         servers: list[DhcpServer] = []
         for row in await self._rows(DHCP_SERVER):
             sname, iface = _text(row.get("name")), _text(row.get("interface"))
@@ -1215,6 +1312,37 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                         Reservation(mac=mac, address=address, hostname=hostname or None)
                     )
             router = _addrs(net_row.get("gateway"))
+            table = [
+                x
+                for lease in leases
+                if not _flag(lease.get("disabled"))
+                and (
+                    _text(lease.get("server")) == sname or _text(lease.get("server")) in ("", "all")
+                )
+                and (x := _lease(lease, now)) is not None
+                and (_text(lease.get("server")) == sname or (net is not None and x.address in net))
+            ]
+            search, routes, boot_name, boot_file, extra = [], [], "", "", []
+            named = _names(net_row.get("dhcp-option")) + _names(row.get("dhcp-option"))
+            for oname in named:
+                opt = options.get(oname)
+                code = _int(opt.get("code")) if opt else None
+                if opt is None or code is None:
+                    continue
+                value, raw = _text(opt.get("value")), _wire(opt.get("value"))
+                if code == 119 and raw is not None:
+                    search += _search_list(raw)
+                elif code == 121 and raw is not None:
+                    routes += _classless_routes(raw)
+                elif code == 66:
+                    boot_name = value.strip("'\"")
+                elif code == 67:
+                    boot_file = value.strip("'\"")
+                elif code not in TYPED_OPTION_CODES and 1 <= code <= 254:
+                    extra.append(DhcpOption(code=code, name=oname, value=value))
+            next_server = _addr(net_row.get("next-server"))
+            boot_file = boot_file or _text(net_row.get("boot-file-name"))
+            authoritative = _text(row.get("authoritative"))
             servers.append(
                 DhcpServer(
                     id=object_id(dev, "dhcp", sname),
@@ -1228,11 +1356,43 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     domain=_text(net_row.get("domain")) or None,
                     reservations=reservations,
                     ntp_servers=_addrs(net_row.get("ntp-server")),
+                    leases=table,
+                    search_domains=search,
+                    static_routes=routes,
+                    boot=DhcpBoot(
+                        next_server=next_server,
+                        server_name=boot_name or None,
+                        filename=boot_file or None,
+                    )
+                    if next_server or boot_name or boot_file
+                    else None,
+                    options=extra,
+                    authoritative=authoritative != "no" if authoritative else None,
                     vendor_extra=_extra(row, "interface", "address-pool")
                     | ({"network": str(net)} if net else {}),
                 )
             )
-        return Observation(dhcp_servers=servers)
+        return Observation(dhcp_servers=servers, dhcp_relays=await self._relays(layout))
+
+    async def _relays(self, layout: Any) -> list[DhcpRelay]:
+        """``/ip/dhcp-relay``: ``interface``, ``dhcp-server`` (comma list), ``disabled``."""
+        dev = self.context.device_id
+        relays: list[DhcpRelay] = []
+        for row in await self._optional_rows(DHCP_RELAY):
+            seg = layout.l3.get(_text(row.get("interface")))
+            key = _segment_key(seg) if seg else ""
+            if not seg or any(r.id.endswith(f"/{key}") for r in relays):
+                continue
+            relays.append(
+                DhcpRelay(
+                    id=object_id(dev, "dhcp-relay", key),
+                    device_id=dev,
+                    segment_id=seg,
+                    servers=_addrs(row.get("dhcp-server")),
+                    enabled=_active(row),
+                )
+            )
+        return relays
 
     # --- DNS ----------------------------------------------------------------------------------
 
