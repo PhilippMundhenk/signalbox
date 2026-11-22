@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable, Iterator
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +45,7 @@ from signalbox.deploy import Deployer
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
 from signalbox.merge import merge
-from signalbox.model import DeviceRole, FrameTypes, Network
+from signalbox.model import DeviceRole, FrameTypes, NatClass, Network, UplinkKind
 from signalbox.model import DeviceStatus as ReadStatus
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
@@ -247,6 +247,18 @@ async def test_mapping_of_the_configured_router(rt: dict[str, str]) -> None:
     assert iot is not None and iot.name == "IoT" and iot.vlan == 20, iot
     assert [(m.port_id, m.mode.value) for m in iot.members] == [("rt/port/ether3", "tagged")]
     assert not any(s.id.endswith("/ether1") for s in net.segments)  # the WAN is the uplink
+    [wan] = net.uplinks  # ether1: list WAN, DHCP client on QEMU's user network
+    assert (wan.id, wan.port_id, wan.kind) == (
+        "rt/uplink/ether1",
+        "rt/port/ether1",
+        UplinkKind.DHCP,
+    )
+    if wan.up:
+        assert any(a.ip in ip_network("10.0.2.0/24") for a in wan.ipv4()), wan.addresses
+        assert wan.nat_class() is NatClass.PRIVATE
+        assert wan.upstream_gateway is not None
+        assert wan.upstream_gateway in ip_network("10.0.2.0/24"), wan.upstream_gateway
+    assert wan.public_ipv4 is None or wan.public_ipv4 not in ip_network("10.0.0.0/8")
     subnets = {(s.segment_id, str(s.interface)) for s in net.subnets}
     assert subnets == {
         (LAN, "192.0.2.1/24"),

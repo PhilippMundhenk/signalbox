@@ -8,9 +8,10 @@ compared with docs/adapters/mikrotik.md and the simulator without downloading lo
 answers go to DIR/api-<GROUP>.json (uploaded as an artifact). Only the throw-away VM's data is
 in there (documentation prefixes, the 02: MACs of the test setup). GROUP is ``read`` (the
 read user, every menu the read side uses), ``more`` (the rest of them), ``health`` (resource,
-sensors, clock, NTP and UPS, #178 and #179), ``write`` (the write
-user: the export, refused changes, the menus of the backup) or ``refused`` (a wrong password,
-the read user writing, unknown menus). At most ten notices per call (the limit of one step).
+sensors, clock, NTP and UPS, #178 and #179), ``uplink`` (the WAN client menus and the PPPoE
+monitor, #148), ``write`` (the write user: the export, refused changes, the menus of the
+backup) or ``refused`` (a wrong password, the read user writing, unknown menus). At most ten
+notices per call (the limit of one step).
 """
 
 from __future__ import annotations
@@ -58,6 +59,13 @@ GROUPS: dict[str, list[tuple[str, str, str, object]]] = {
         (R, "GET", "/rest/system/ntp/client", None),
         (R, "GET", "/rest/system/ntp/server", None),
         (R, "GET", "/rest/system/ups", None),
+    ],
+    "uplink": [
+        (R, "GET", "/rest/ip/dhcp-client", None),
+        (R, "GET", "/rest/ipv6/dhcp-client", None),
+        (R, "GET", "/rest/interface/pppoe-client", None),
+        (R, "POST", "/rest/interface/pppoe-client/monitor", {"numbers": "nothere", "once": ""}),
+        (R, "GET", "/rest/ip/cloud", None),
     ],
     "write": [
         (W, "POST", "/rest/export", {}),

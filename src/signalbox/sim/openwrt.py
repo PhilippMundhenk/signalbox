@@ -3,7 +3,9 @@
 Neutral sample data: an access point with DSA ports ``lan1``..``lan4`` on bridge ``br-lan``,
 VLAN 1 ("lan", untagged on lan1-3) and VLAN 20 ("iot", tagged on lan1), two radios, the SSIDs
 "Example" (WPA2/WPA3, 802.11r) and "Example-IoT" (WPA2, VLAN 20, client isolation), three
-stations and DHCP switched off (the gateway serves it). Failure switches on
+stations and DHCP switched off (the gateway serves it). With ``router`` set it serves DHCP and
+has the uplink ``wan`` (DHCP on ``eth0``, 203.0.113.45/24) and ``wan6`` (DHCPv6 with the
+delegated prefix 2001:db8:1::/56). Failure switches on
 :class:`OpenWrtSim` change the answers for refused-path tests. Answer shapes follow the OpenWrt
 documentation and source; see ``docs/adapters/openwrt.md``.
 
@@ -137,7 +139,49 @@ def network_config(router: bool = False) -> dict[str, Any]:
             },
         ),
         ("interface", "iot", {"device": "br-lan.20", "proto": "none"}),
+        *(
+            (
+                ("interface", "wan", {"device": "eth0", "proto": "dhcp"}),
+                ("interface", "wan6", {"device": "@wan", "proto": "dhcpv6", "reqprefix": "auto"}),
+            )
+            if router
+            else ()
+        ),
     )
+
+
+#: What the provider hands out to a DHCP / DHCPv6 interface of the router, as netifd reports
+#: it in ``network.interface dump`` (documentation addresses).
+DHCP_LEASES: dict[str, dict[str, Any]] = {
+    "wan": {
+        "uptime": 5400,
+        "ipv4-address": [{"address": "203.0.113.45", "mask": 24}],
+        "route": [
+            {"target": "0.0.0.0", "mask": 0, "nexthop": "203.0.113.1", "source": "203.0.113.45/32"}
+        ],
+        "dns-server": ["203.0.113.53", "203.0.113.54"],
+    },
+    "wan6": {
+        "uptime": 5390,
+        "ipv6-address": [
+            {"address": "2001:db8:ffff::45", "mask": 64, "preferred": 3500, "valid": 7100}
+        ],
+        "ipv6-prefix": [
+            {
+                "address": "2001:db8:1::",
+                "mask": 56,
+                "preferred": 3500,
+                "valid": 7100,
+                "class": "wan6",
+                "assigned": {"lan": {"address": "2001:db8:1::", "mask": 64}},
+            }
+        ],
+        "route": [
+            {"target": "::", "mask": 0, "nexthop": "fe80::1", "source": "2001:db8:ffff::45/64"}
+        ],
+        "dns-server": ["2001:db8:ffff::53"],
+    },
+}
 
 
 def interface_dump(network: Sections) -> dict[str, Any]:
@@ -167,6 +211,11 @@ def interface_dump(network: Sections) -> dict[str, Any]:
         }
         if s.get("dns"):
             entry["dns-server"] = _words(s["dns"])
+        if isinstance(dev, str) and dev.startswith("@"):  # an alias: its parent's device
+            parent = next((p for n, p in _of(network, "interface") if n == dev[1:]), {})
+            entry["device"] = entry["l3_device"] = parent.get("device")
+        if entry["proto"] in ("dhcp", "dhcpv6") and name in DHCP_LEASES:
+            entry |= copy.deepcopy(DHCP_LEASES[name])
         entries.append(entry)
     return {"interface": entries}
 

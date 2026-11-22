@@ -21,7 +21,7 @@ import asyncio
 import copy
 import time
 from collections.abc import AsyncIterator, Callable, Iterator
-from ipaddress import ip_address, ip_network
+from ipaddress import ip_address, ip_interface, ip_network
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +34,17 @@ from signalbox.adapters.openwrt.ubus import AccessDenied
 from signalbox.changes import Change, ChangeKind, ReservationValue
 from signalbox.history import ChangeStatus
 from signalbox.history import DeviceStatus as DeployStatus
-from signalbox.model import Band, DeviceRole, DeviceStatus, Membership, Security, Site, Snapshot
+from signalbox.model import (
+    Band,
+    DeviceRole,
+    DeviceStatus,
+    Membership,
+    NatClass,
+    Security,
+    Site,
+    Snapshot,
+    UplinkKind,
+)
 from signalbox.store import DeviceRecord
 from signalbox.testing import assert_contract
 
@@ -247,6 +257,25 @@ async def test_health_and_time(ow: Target, pin: str) -> None:
     assert t.ntp_client is not None and t.ntp_client.enabled and t.ntp_client.servers, t
     assert t.ntp_server is not None and t.ntp_server.enabled, t
     assert t.ntp_server.segments == [NATIVE], t
+
+
+async def test_the_management_interface_is_the_uplink(ow: Target, pin: str) -> None:
+    """The lab has no ``wan``: ``mgmt`` (static 10.0.2.15/24 on eth0, default route via QEMU's
+    10.0.2.2) leads upstream and is no network of the site; ``wwan`` has no default route."""
+    snap = await observe(context(ow, pin))
+    uplinks = {u.name: u for u in snap.uplinks}
+    assert "wwan" not in uplinks and "lan" not in uplinks, sorted(uplinks)
+    mgmt = uplinks.get("mgmt")
+    assert mgmt is not None, snap.uplinks
+    assert (mgmt.id, mgmt.port_id, mgmt.kind) == (
+        f"{DEV}/uplink/mgmt",
+        f"{DEV}/port/eth0",
+        UplinkKind.STATIC,
+    )
+    assert mgmt.up is True and mgmt.since is not None
+    assert ip_interface("10.0.2.15/24") in mgmt.addresses, mgmt.addresses
+    assert mgmt.upstream_gateway == ip_address("10.0.2.2")
+    assert mgmt.nat_class() is NatClass.PRIVATE  # QEMU's user network is a NAT in front
 
 
 async def test_the_station_is_a_client(ow: Target, pin: str) -> None:

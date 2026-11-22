@@ -20,13 +20,34 @@ from a public dump of the files real boxes serve: repository
 `a363f90eab4eb7f5ecdcf9058c07216d7384d4e6` (2025-03-15), directories
 `__sdcp__/FRITZBox_7590_154.07.57/` and `__sdcp__/FRITZBox_7530_164.08.02/`.
 
+`wancommonifconfigSCPD.xml` (WANCommonInterfaceConfig:1, added for the uplink, #148) is from
+the same dump and commit, for both versions.
+
+### The WAN connection descriptions
+
+The gofritz dump has only the services of the root device, not those of the embedded
+`WANConnectionDevice`: `wanpppconnSCPD.xml` (WANPPPConnection:1) and `wanipconnSCPD.xml`
+(WANIPConnection:1), which both `tr64desc.xml` files list, are not in it. They were taken from
+[udondan/fritz](https://github.com/udondan/fritz) (Apache-2.0, licence text in
+[LICENSE-udondan-fritz](LICENSE-udondan-fritz)), commit
+`6a972e5a43fc89d9ac33f8b5a1e8ba9201e35311` (2026-11-22), directory
+`crates/fritz-sim/fixtures/fritzbox-7690/8.25/scpd/`: the files a FRITZ!Box 7690 with FRITZ!OS
+8.25 serves, recorded by that project's fixture recorder. The same two files in
+[chikenborgir/avmtools](https://github.com/chikenborgir/avmtools) (MIT), commit
+`5a8140dbb9bd54277ca3a343d415d564a12f9079`, `docs/xml/WANPPPConnection/` and
+`docs/xml/WANIPConnection/` (FRITZ!Box 7530 AX, FRITZ!OS 7.29), have the same actions with the
+same arguments; the 8.25 `wancommonifconfigSCPD.xml` is byte for byte the 7.57/8.02 one of the
+gofritz dump. So the 8.25 files are copied into both version directories unchanged, on the
+assumption that 7.57 and 8.02 describe these two services the same way; a box of those versions
+can confirm it (`https://<box>:49443/wanpppconnSCPD.xml`).
+
 AVM also publishes the same descriptions as PDFs per service ("TR-064 First Steps" and the
 `...SCPD.pdf` files on avm.de / fritz.support). When they can be reached, compare these files
 with them; a difference is a bug in the simulator or the adapter.
 
 ## Changes to the upstream files
 
-The SCPD files are byte for byte as in the source. In `tr64desc.xml` only device specific
+The SCPD files are byte for byte as in their source. In `tr64desc.xml` only device specific
 values were neutralised (the dump had already replaced `UDN` and `serialNumber` with
 placeholders):
 
@@ -50,6 +71,10 @@ c1af0e6a18c67690e130baa5f981ecf117dd60d7a212f00b2553a28594ed6507  8.02/ethifconf
 2c009731674169cb9f15c516912a7bafa8b169b3a0f4762655bcb3515440014d  8.02/timeSCPD.xml (added for #179)
 36ea90acc52f7bccfe67c807cee5e58371f5470bfd9ebbceab93335320bb2841  8.02/tr64desc.xml (before neutralising)
 85c824ee7e52dc0c6ed490af7fd27c8dc612476c1969034b6b1ad65fd7b24457  8.02/wlanconfigSCPD.xml
+1c52829abceadeb81e9edcc91dfbd7977143b562d741a240aaefd5316647e5bd  7.57/wancommonifconfigSCPD.xml
+1c52829abceadeb81e9edcc91dfbd7977143b562d741a240aaefd5316647e5bd  8.02/wancommonifconfigSCPD.xml
+0e6cb75dcffc0fcdd6d5a3a9dbdbe125a7abce3fa08413c2c5e8856379311517  udondan/fritz 8.25/wanipconnSCPD.xml
+c1ece74a5f4cb89c66ad15f608abe1817841a718f29e95115e657ffbc34a0046  udondan/fritz 8.25/wanpppconnSCPD.xml
 ```
 
 ## What the descriptions do not say
@@ -64,5 +89,7 @@ not specified there and still needs confirmation on a real device (#21).
 ## Licence
 
 The files were taken from nitram509/gofritz, MIT licence, copyright (c) 2023 Martin W. Kirst; the
-licence text is in [LICENSE-gofritz](LICENSE-gofritz). The service descriptions themselves are
+licence text is in [LICENSE-gofritz](LICENSE-gofritz). `wanpppconnSCPD.xml` and
+`wanipconnSCPD.xml` were taken unchanged from udondan/fritz, Apache License 2.0; the licence
+text is in [LICENSE-udondan-fritz](LICENSE-udondan-fritz). The service descriptions themselves are
 AVM's published TR-064 interface specification.

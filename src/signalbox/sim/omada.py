@@ -10,7 +10,8 @@ paged (``page``/``pageSize`` → ``totalRows``, ``currentPage``, ``currentSize``
 
 Sample site "Default" (a second site "Branch" is empty), documentation addresses only:
 
-- gateway (ER605), one 8-port switch, two EAPs; MACs ``02-00-00-00-..``
+- gateway (ER605), one 8-port switch, two EAPs; MACs ``02-00-00-00-..``; the gateway's WAN
+  port 1 on DHCP (203.0.113.45/24), port 2 a WAN with PPPoE that is down, port 3 in LAN mode
 - LAN, VLAN 1 (native, the controller's primary network), 192.0.2.1/24 with DHCP; IoT,
   VLAN 20, 198.51.100.1/24 with DHCP; Guest, VLAN 30, VLAN only (no gateway interface)
 - port profiles "All" (LAN native, IoT and Guest tagged), "LAN", "IoT access"
@@ -205,6 +206,54 @@ def _ssid(sid: str, name: str, band: int, security: int, **kw: Any) -> dict[str,
     return row
 
 
+def _wan(
+    port: int, name: str, proto: str, connected: bool, kind: int = 0, mode: int = 0
+) -> dict[str, Any]:
+    """One port of ``…/gateways/{mac}/wan-status`` (fields of the controller's API description)."""
+    up = connected and mode == 0
+    v4 = {
+        "ip": "203.0.113.45" if up else "",
+        "netmask": "255.255.255.0" if up else "",
+        "ip2": "",
+        "gateway": "203.0.113.1" if up else "",
+        "gateway2": "",
+        "priDns": "203.0.113.53" if up else "",
+        "sndDns": "203.0.113.54" if up else "",
+        "priDns2": "",
+        "sndDns2": "",
+        "mac": f"02:00:00:00:0a:1{port}",
+    }
+    v6 = {
+        "enable": 1 if up else 0,
+        "proto": "dhcpv6" if up else "",
+        "addr": "2001:db8:ffff::45" if up else "",
+        "gateway": "fe80::1" if up else "",
+        "priDns": "2001:db8:ffff::53" if up else "",
+        "sndDns": "",
+        "internetState": 1 if up else 0,
+        "mac": f"02:00:00:00:0a:1{port}",
+    }
+    return {
+        "port": port,
+        "name": name,
+        "mac": f"02-00-00-00-0A-1{port}",
+        "portDesc": "",
+        "type": kind,
+        "physicalType": 0,
+        "mode": mode,
+        "status": 1 if connected else 0,
+        "internetState": 1 if up else 0,
+        "ip": v4["ip"],
+        "speed": 3 if connected else 0,
+        "duplex": 2 if connected else 0,
+        "proto": proto,
+        "wanPortIpv4Config": v4,
+        "wanPortIpv6Config": v6,
+        "latency": 9 if up else 0,
+        "loss": 0.0,
+    }
+
+
 def sample_data() -> dict[str, Any]:
     """Results by path (a fresh copy every call); lists are paged by the simulator."""
     radios = {
@@ -248,6 +297,11 @@ def sample_data() -> dict[str, Any]:
                 "primary": False,
             },
             {"siteId": "5f0000000000000000000002", "name": "Branch", "region": "Germany"},
+        ],
+        f"{SITE}/gateways/{GATEWAY}/wan-status": [
+            _wan(1, "SFP WAN", "DHCP", connected=True),
+            _wan(2, "WAN2", "PPPoE", connected=False, kind=1),
+            _wan(3, "LAN3", "", connected=True, kind=1, mode=1),
         ],
         f"{SITE}/devices": [
             {
@@ -568,6 +622,8 @@ class OmadaSimulator:
         """A GET: the data at the path, or what the controller derives from it."""
         if path.endswith(PORTS_KEY):
             return _html(404, "Not Found")
+        if path in self.data and path.endswith("/wan-status"):  # a plain list, not paged
+            return _wrap(self.data[path])
         if path in self.data:
             value = self.data[path]
             if path.endswith("/ssids") and isinstance(value, list):

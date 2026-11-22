@@ -77,6 +77,8 @@ GROUPS = {
 SHORT = (
     "device", "identifier", "description", "descr", "status", "is_physical", "macaddr", "media",
     "vlan_tag", "ipv4", "ipv6", "if", "lock", "enable", "type4", "ipaddr", "type6", "ipaddrv6",
+    # what the uplink is read from (#148)
+    "link_type", "link_typev6", "gateways", "ifctl.nameserver", "ifctl.router", "ifctl.prefix",
 )  # fmt: skip
 
 

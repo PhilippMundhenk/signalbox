@@ -56,13 +56,15 @@ PLACEHOLDER_USER = "recorded-user"
 #: request headers that select an answer (everything else, credentials above all, is dropped)
 KEPT_HEADERS = ("soapaction", "content-type")
 #: snapshot keys that change with every observation (boot time, clock read time and its
-#: uncertainty are derived from the moment of the replay; the recorded clock itself is kept)
-VOLATILE = {"observed_at", "taken_at", "boot_time", "read_at", "uncertainty_seconds"}
+#: uncertainty are derived from the moment of the replay, an uplink's ``since`` from the
+#: recorded uptime; the recorded clock itself is kept)
+VOLATILE = {"observed_at", "taken_at", "boot_time", "read_at", "uncertainty_seconds", "since"}
 
 #: field (XML element, JSON key, query parameter) names whose values are secrets or identify
-#: the device: replaced by ``redacted-secret-<n>``, consistently
+#: the device: replaced by ``redacted-secret-<n>``, consistently (not the rules for one:
+#: ``NewMinCharsPassword`` is a number)
 SECRET_FIELDS = re.compile(
-    r"password|passphrase|passwd|secret|token|session|cookie"
+    r"(?<!chars)password|passphrase|passwd|secret|token|session|cookie"
     r"|^(new)?(x_avm-de_)?(presharedkey|wepkey\d*|key|psk|apikey|api_key|privatekey"
     r"|private_key|serialnumber|serial|sid|client_id|clientid|omadac_id|omadacid)$",
     re.IGNORECASE,

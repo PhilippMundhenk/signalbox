@@ -10,9 +10,10 @@ of the action, with values of their data types (checked, a simulator bug otherwi
 
 Neutral sample data: a gateway on 192.0.2.1/24 with DHCP 192.0.2.20-192.0.2.200, two radios
 (2.4 GHz channel 6, 5 GHz channel 36) with the SSID "Example" (WPA2/WPA3), the guest WLAN
-"Example-Guest" (WPA2) as ``WLANConfiguration3``, and four hosts (one of them no longer
-active). Model and FRITZ!OS version come from the description. Every SOAP request needs HTTP
-Digest authentication (MD5, ``qop=auth``; realm ``HTTPS Access`` over HTTPS, ``F!Box
+"Example-Guest" (WPA2) as ``WLANConfiguration3``, four hosts (one of them no longer active)
+and a DSL connection over PPPoE (203.0.113.45; ``wan`` switches to cable behind carrier-grade
+NAT, LTE or none). Model and FRITZ!OS version come from the description. Every SOAP request
+needs HTTP Digest authentication (MD5, ``qop=auth``; realm ``HTTPS Access`` over HTTPS, ``F!Box
 SOAP-Auth`` over plain HTTP).
 
 The settings the adapter can change (DHCP on/off and range; SSID, beacon type, passphrase,
@@ -209,6 +210,65 @@ def host_list() -> str:
     return f'<?xml version="1.0" encoding="utf-8"?><List>{items}</List>'
 
 
+_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+#: ``wan`` -> (NewWANAccessType, Layer 1 downstream and upstream rate in bit/s)
+WAN_ACCESS = {
+    "dsl": ("DSL", 116_790_000, 46_719_000),
+    "cable": ("X_AVM-DE_Cable", 1_000_000_000, 50_000_000),
+    "lte": ("X_AVM-DE_LTE", 150_000_000, 50_000_000),
+    "client": ("Ethernet", 0, 0),
+}
+#: ``wan`` -> (external address, PPP peer, DNS servers as the box lists them)
+WAN_ADDRESSES = {
+    "dsl": ("203.0.113.45", "203.0.113.1", "203.0.113.53, 203.0.113.54"),
+    "cable": ("100.64.12.34", "", "100.64.0.53, 100.64.0.54"),
+    "lte": ("100.72.3.4", "", "100.64.0.53"),
+}
+
+
+def wan_info(ppp: bool, active: bool, up: bool, wan: str) -> dict[str, str]:
+    """``GetInfo`` of WANPPPConnection:1 (``ppp``) or WANIPConnection:1."""
+    connected = active and up
+    external, remote, dns = WAN_ADDRESSES.get(wan, ("", "", "")) if connected else ("", "", "")
+    info = {
+        "NewEnable": "1" if active else "0",
+        "NewConnectionStatus": "Connected" if connected else "Disconnected",
+        "NewPossibleConnectionTypes": "IP_Routed",
+        "NewConnectionType": "IP_Routed",
+        "NewName": "internet" if ppp else "mstv",
+        "NewUptime": "7200" if connected else "0",
+        "NewLastConnectionError": "ERROR_NONE",
+        "NewRSIPAvailable": "0",
+        "NewNATEnabled": "1",
+        "NewExternalIPAddress": external,
+        "NewDNSServers": dns,
+        "NewMACAddress": _mac(9, 1),
+        "NewConnectionTrigger": "AlwaysOn",
+        "NewRouteProtocolRx": "Off",
+        "NewDNSEnabled": "1",
+        "NewDNSOverrideAllowed": "0",
+    }
+    if ppp:
+        info |= {
+            "NewUpstreamMaxBitRate": "46719000",
+            "NewDownstreamMaxBitRate": "116790000",
+            "NewIdleDisconnectTime": "0",
+            "NewUserName": "example-user@isp.example",
+            "NewLastAuthErrorInfo": "",
+            "NewMaxCharsUsername": "128",
+            "NewMinCharsUsername": "0",
+            "NewAllowedCharsUsername": _CHARS + "@.-_",
+            "NewMaxCharsPassword": "128",
+            "NewMinCharsPassword": "0",
+            "NewAllowedCharsPassword": _CHARS,
+            "NewTransportType": "PPPoE",
+            "NewPPPoEServiceName": "",
+            "NewRemoteIPAddress": remote,
+            "NewPPPoEACName": "isp-bras" if connected else "",
+        }
+    return info
+
+
 class NotSimulated(Exception):
     """An action of the description that the simulator does not implement (fault 501)."""
 
@@ -258,6 +318,12 @@ class FritzboxSim:
     ignore: set[str] = field(default_factory=set)
     #: write actions applied, in order, as ``service#action`` (arguments are not kept)
     writes: list[str] = field(default_factory=list)
+    #: the internet connection: ``"dsl"`` (PPPoE, public 203.0.113.0/24), ``"cable"`` (DHCP
+    #: behind the provider's carrier-grade NAT, 100.64.0.0/10), ``"lte"`` (WANIPConnection on a
+    #: mobile access) or ``"client"`` (neither connection enabled: an IP client on LAN 1)
+    wan: str = "dsl"
+    #: the connection is up (else ``Disconnected``, uptime 0)
+    wan_up: bool = True
     #: every authenticated SOAP call that named an existing service: (service, action, args)
     calls: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
     #: seconds since the last start (``DeviceInfo GetInfo`` ``NewUpTime``)
@@ -380,6 +446,8 @@ class FritzboxSim:
                 }
         if name == "WLANConfiguration":
             return self._wlan(int(number), action, args)
+        if name in ("WANPPPConnection", "WANIPConnection", "WANCommonInterfaceConfig"):
+            return self._wan(name, action)
         if name == "Hosts":
             if action == "GetHostNumberOfEntries":
                 return {"NewHostNumberOfEntries": str(len(HOSTS))}
@@ -389,6 +457,35 @@ class FritzboxSim:
             if action == "X_AVM-DE_GetHostListPath":
                 return {"NewX_AVM-DE_HostListPath": self.host_list_path or self.list_path}
         raise NotSimulated(f"{service} {action}")
+
+    def _wan(self, name: str, action: str) -> dict[str, str]:
+        if name == "WANCommonInterfaceConfig":
+            if action != "GetCommonLinkProperties":
+                raise NotSimulated(f"{name} {action}")
+            access, down, upstream = WAN_ACCESS[self.wan]
+            return {
+                "NewWANAccessType": access,
+                "NewLayer1UpstreamMaxBitRate": str(upstream),
+                "NewLayer1DownstreamMaxBitRate": str(down),
+                "NewPhysicalLinkStatus": "Up" if self.wan_up else "Down",
+                "NewX_AVM-DE_DownstreamCurrentUtilization": "",
+                "NewX_AVM-DE_UpstreamCurrentUtilization": "",
+                "NewX_AVM-DE_DownstreamCurrentMaxSpeed": "0",
+                "NewX_AVM-DE_UpstreamCurrentMaxSpeed": "0",
+            }
+        ppp = name == "WANPPPConnection"
+        active = self.wan != "client" and ppp == (self.wan == "dsl")
+        info = wan_info(ppp, active, self.wan_up, self.wan)
+        if action == "GetInfo":
+            return info
+        if action == "GetStatusInfo":
+            keys = ("NewConnectionStatus", "NewLastConnectionError", "NewUptime")
+            return {k: info[k] for k in keys}
+        if action == "GetExternalIPAddress":
+            return {"NewExternalIPAddress": info["NewExternalIPAddress"]}
+        if action == "X_GetDNSServers":
+            return {"NewDNSServers": info["NewDNSServers"]}
+        raise NotSimulated(f"{name} {action}")
 
     @property
     def list_path(self) -> str:

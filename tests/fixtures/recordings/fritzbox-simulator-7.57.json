@@ -335,6 +335,42 @@
   },
   {
    "method": "POST",
+   "path": "/upnp/control/wanpppconn1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANPPPConnection:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewEnable>1</NewEnable><NewConnectionStatus>Connected</NewConnectionStatus><NewPossibleConnectionTypes>IP_Routed</NewPossibleConnectionTypes><NewConnectionType>IP_Routed</NewConnectionType><NewName>internet</NewName><NewUptime>7200</NewUptime><NewUpstreamMaxBitRate>46719000</NewUpstreamMaxBitRate><NewDownstreamMaxBitRate>116790000</NewDownstreamMaxBitRate><NewLastConnectionError>ERROR_NONE</NewLastConnectionError><NewIdleDisconnectTime>0</NewIdleDisconnectTime><NewRSIPAvailable>0</NewRSIPAvailable><NewUserName>name-9</NewUserName><NewNATEnabled>1</NewNATEnabled><NewExternalIPAddress>203.0.113.45</NewExternalIPAddress><NewDNSServers>203.0.113.53, 203.0.113.54</NewDNSServers><NewMACAddress>00:00:5e:00:53:08</NewMACAddress><NewConnectionTrigger>AlwaysOn</NewConnectionTrigger><NewLastAuthErrorInfo></NewLastAuthErrorInfo><NewMaxCharsUsername>128</NewMaxCharsUsername><NewMinCharsUsername>0</NewMinCharsUsername><NewAllowedCharsUsername>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@.-_</NewAllowedCharsUsername><NewMaxCharsPassword>128</NewMaxCharsPassword><NewMinCharsPassword>0</NewMinCharsPassword><NewAllowedCharsPassword>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz</NewAllowedCharsPassword><NewTransportType>PPPoE</NewTransportType><NewRouteProtocolRx>Off</NewRouteProtocolRx><NewPPPoEServiceName></NewPPPoEServiceName><NewRemoteIPAddress>203.0.113.1</NewRemoteIPAddress><NewPPPoEACName>isp-bras</NewPPPoEACName><NewDNSEnabled>1</NewDNSEnabled><NewDNSOverrideAllowed>0</NewDNSOverrideAllowed></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wanipconnection1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANIPConnection:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WANIPConnection:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WANIPConnection:1\"><NewEnable>0</NewEnable><NewConnectionStatus>Disconnected</NewConnectionStatus><NewPossibleConnectionTypes>IP_Routed</NewPossibleConnectionTypes><NewConnectionType>IP_Routed</NewConnectionType><NewName>mstv</NewName><NewUptime>0</NewUptime><NewLastConnectionError>ERROR_NONE</NewLastConnectionError><NewRSIPAvailable>0</NewRSIPAvailable><NewNATEnabled>1</NewNATEnabled><NewExternalIPAddress></NewExternalIPAddress><NewDNSServers></NewDNSServers><NewMACAddress>00:00:5e:00:53:08</NewMACAddress><NewConnectionTrigger>AlwaysOn</NewConnectionTrigger><NewRouteProtocolRx>Off</NewRouteProtocolRx><NewDNSEnabled>1</NewDNSEnabled><NewDNSOverrideAllowed>0</NewDNSOverrideAllowed></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wancommonifconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANCommonInterfaceConfig:1#GetCommonLinkProperties\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetCommonLinkProperties xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"></u:GetCommonLinkProperties></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetCommonLinkPropertiesResponse xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"><NewWANAccessType>DSL</NewWANAccessType><NewLayer1UpstreamMaxBitRate>46719000</NewLayer1UpstreamMaxBitRate><NewLayer1DownstreamMaxBitRate>116790000</NewLayer1DownstreamMaxBitRate><NewPhysicalLinkStatus>Up</NewPhysicalLinkStatus><NewX_AVM-DE_DownstreamCurrentUtilization></NewX_AVM-DE_DownstreamCurrentUtilization><NewX_AVM-DE_UpstreamCurrentUtilization></NewX_AVM-DE_UpstreamCurrentUtilization><NewX_AVM-DE_DownstreamCurrentMaxSpeed>0</NewX_AVM-DE_DownstreamCurrentMaxSpeed><NewX_AVM-DE_UpstreamCurrentMaxSpeed>0</NewX_AVM-DE_UpstreamCurrentMaxSpeed></u:GetCommonLinkPropertiesResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
    "path": "/upnp/control/time",
    "headers": {
     "soapaction": "\"urn:dslforum-org:service:Time:1#GetInfo\"",
@@ -343,7 +379,7 @@
    "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:Time:1\"></u:GetInfo></s:Body></s:Envelope>",
    "status": 200,
    "content_type": "text/xml; charset=\"utf-8\"",
-   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:Time:1\"><NewNTPServer1>ntp.example.net</NewNTPServer1><NewNTPServer2></NewNTPServer2><NewCurrentLocalTime>2026-11-22T17:46:45+01:00</NewCurrentLocalTime><NewLocalTimeZone>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZone><NewLocalTimeZoneName>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZoneName><NewDaylightSavingsUsed>1</NewDaylightSavingsUsed><NewDaylightSavingsStart>0001-01-01T00:00:00</NewDaylightSavingsStart><NewDaylightSavingsEnd>0001-01-01T00:00:00</NewDaylightSavingsEnd></u:GetInfoResponse></s:Body></s:Envelope>"
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:Time:1\"><NewNTPServer1>ntp.example.net</NewNTPServer1><NewNTPServer2></NewNTPServer2><NewCurrentLocalTime>2026-11-22T19:05:35+01:00</NewCurrentLocalTime><NewLocalTimeZone>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZone><NewLocalTimeZoneName>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZoneName><NewDaylightSavingsUsed>1</NewDaylightSavingsUsed><NewDaylightSavingsStart>0001-01-01T00:00:00</NewDaylightSavingsStart><NewDaylightSavingsEnd>0001-01-01T00:00:00</NewDaylightSavingsEnd></u:GetInfoResponse></s:Body></s:Envelope>"
   },
   {
    "method": "POST",
@@ -546,7 +582,7 @@
     "ups": []
    },
    "time": {
-    "clock": "2026-11-22T17:46:45.500000+01:00",
+    "clock": "2026-11-22T19:05:35.500000+01:00",
     "timezone": "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00",
     "utc_offset_minutes": 60,
     "ntp_client": {
@@ -657,7 +693,38 @@
     "gateway": true
    }
   ],
-  "uplinks": [],
+  "uplinks": [
+   {
+    "id": "recorded/uplink/internet",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "ConnectionType": "IP_Routed",
+     "WANAccessType": "DSL",
+     "PhysicalLinkStatus": "Up",
+     "service": "WANPPPConnection:1"
+    },
+    "device_id": "recorded",
+    "port_id": null,
+    "name": "internet",
+    "kind": "pppoe",
+    "up": true,
+    "addresses": [
+     "203.0.113.45/32"
+    ],
+    "delegated_prefixes": [],
+    "upstream_gateway": "203.0.113.1",
+    "dns_servers": [
+     "203.0.113.53",
+     "203.0.113.54"
+    ],
+    "public_ipv4": null,
+    "downstream_kbps": 116790,
+    "upstream_kbps": 46719
+   }
+  ],
   "dhcp_servers": [
    {
     "id": "recorded/dhcp/lan",

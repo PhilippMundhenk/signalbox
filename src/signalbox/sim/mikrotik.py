@@ -4,9 +4,11 @@ The answers follow the JSON shapes in ``docs/adapters/mikrotik.md`` (from the Ro
 documentation, not yet confirmed on a real device, issue #21): lists of objects with ``.id``,
 every value a string. Sample network, documentation addresses only:
 
-- a hEX-like router with Wi-Fi: ``ether1`` is the uplink (interface list ``WAN``,
-  203.0.113.2/24), ``ether2``-``ether5``, ``wifi1`` (2.4 GHz), ``wifi2`` (5 GHz) and the virtual
-  ``wifi3`` in ``bridge`` with VLAN filtering
+- a hEX-like router with Wi-Fi: ``ether1`` is the uplink (interface list ``WAN``, DHCP client
+  bound to 203.0.113.2/24, DHCPv6 prefix 2001:db8:1::/56, ``/ip/cloud`` public address),
+  ``ether2``-``ether5``, ``wifi1`` (2.4 GHz), ``wifi2`` (5 GHz) and the virtual ``wifi3`` in
+  ``bridge`` with VLAN filtering; ``pppoe_session`` answers the PPPoE monitor of a client
+  added to ``/interface/pppoe-client``
 - VLAN 1 (native LAN, 192.0.2.1/24, 2001:db8:1::1/64) untagged on ether2, ether3, wifi1/2;
   VLAN 20 "iot" (198.51.100.1/24) tagged on ether2, untagged on ether4 and wifi3; ether5 disabled
 - health (uptime, CPU, memory, flash, one CPU temperature), the clock (Europe/Berlin), an NTP
@@ -329,6 +331,44 @@ def sample_data() -> dict[str, Any]:
                 "invalid": "false",
             },
         ),
+        "/rest/ip/dhcp-client": _ids(
+            {
+                "interface": "ether1",
+                "status": "bound",
+                "address": "203.0.113.2/24",
+                "gateway": "203.0.113.1",
+                "dhcp-server": "203.0.113.1",
+                "primary-dns": "203.0.113.53",
+                "secondary-dns": "203.0.113.54",
+                "expires-after": "23h12m5s",
+                "add-default-route": "yes",
+                "use-peer-dns": "yes",
+                "disabled": "false",
+                "dynamic": "false",
+                "invalid": "false",
+            }
+        ),
+        "/rest/ipv6/dhcp-client": _ids(
+            {
+                "interface": "ether1",
+                "status": "bound",
+                "request": "address,prefix",
+                "pool-name": "isp",
+                "prefix": "2001:db8:1::/56, 2d23h50m10s",
+                "dhcp-server": "fe80::1%ether1",
+                "disabled": "false",
+                "dynamic": "false",
+                "invalid": "false",
+            }
+        ),
+        "/rest/interface/pppoe-client": [],
+        "/rest/ip/cloud": {  # after a cloud update (CHR in CI without one: no public-address)
+            "ddns-enabled": "auto",
+            "ddns-update-interval": "none",
+            "update-time": "false",
+            "public-address": "203.0.113.2",
+            "status": "updated",
+        },
         "/rest/ip/dhcp-server": _ids(
             {
                 "name": "defconf",
@@ -750,6 +790,24 @@ class MikrotikSimulator:
     ignore_writes: bool = False
     #: Writes received: (method, path, body).
     writes: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
+    #: what ``/interface/pppoe-client/monitor`` reports for a running client
+    pppoe_session: dict[str, str] = field(
+        default_factory=lambda: {
+            "status": "connected",
+            "uptime": "1d2h3m4s",
+            "active-links": "1",
+            "encoding": "",
+            "service-name": "",
+            "ac-name": "isp-bras",
+            "ac-mac": _mac(9, 2),
+            "mtu": "1492",
+            "mru": "1492",
+            "local-address": "203.0.113.77",
+            "remote-address": "203.0.113.1",
+        }
+    )
+    #: monitor refused (HTTP 500 ``not enough permissions``), as for a group without the policy
+    read_only_monitor: bool = False
     next_id: int = 0x100
 
     def authorised(self, header: str | None) -> bool:
@@ -833,10 +891,25 @@ class MikrotikSimulator:
                 return _bad("invalid JSON")
             if not isinstance(body, dict):
                 return _bad("expected an object")
+            if request.method == "POST" and path == PPPOE_MONITOR:
+                return self.monitor(body)
             self.writes.append((request.method, path, body))
             return self.write(request.method, path, body)
 
         return app
+
+    def monitor(self, body: dict[str, Any]) -> Response:
+        """``/interface/pppoe-client/monitor <numbers> once``: the session of one client."""
+        if self.read_only_monitor:
+            return JSONResponse(NO_POLICY, status_code=500)
+        name = str(body.get("numbers", ""))
+        rows = self.answers().get(PPPOE_CLIENT, [])
+        row = next((r for r in rows if name in (r.get("name"), r.get(".id"))), None)
+        if row is None:  # as RouterOS 7.25.1 CHR answers an unknown client
+            return JSONResponse({"error": 404, "message": "Not Found"}, status_code=404)
+        if row.get("running") != "true":
+            return JSONResponse([{"status": "disconnected"}])
+        return JSONResponse([dict(self.pppoe_session)])
 
     # --- writes -------------------------------------------------------------------------------
 
@@ -1076,6 +1149,10 @@ def _bad(detail: str) -> JSONResponse:
 
 
 EXPORT = "/rest/export"
+PPPOE_CLIENT = "/rest/interface/pppoe-client"
+PPPOE_MONITOR = "/rest/interface/pppoe-client/monitor"
+DHCP_CLIENT = "/rest/ip/dhcp-client"
+LIST_MEMBER = "/rest/interface/list/member"
 EXECUTE = "/rest/execute"
 #: The answer of RouterOS 7.25.1 to a request the user's group has no policy for.
 NO_POLICY = {

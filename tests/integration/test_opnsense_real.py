@@ -13,7 +13,7 @@ Deployer), so the tests can run in any order against one VM.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +31,7 @@ from signalbox.deploy import Deployer
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
 from signalbox.merge import merge
-from signalbox.model import DeviceRole, Network
+from signalbox.model import DeviceRole, NatClass, Network, UplinkKind
 from signalbox.model import DeviceStatus as ReadStatus
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
@@ -168,6 +168,14 @@ async def test_mapping_of_the_preseeded_firewall(fw: dict[str, str]) -> None:
     assert iot is not None and iot.name == "IoT" and iot.vlan == 20
     assert [(m.port_id, m.mode.value) for m in iot.members] == [("fw/port/vtnet2", "tagged")]
     assert not any(s.id.endswith("/wan") for s in net.segments)  # the WAN is the uplink
+    [wan] = net.uplinks
+    assert (wan.id, wan.port_id, wan.kind) == ("fw/uplink/wan", "fw/port/vtnet1", UplinkKind.DHCP)
+    v4 = wan.ipv4()
+    if v4:  # QEMU's user network answers DHCP with 10.0.2.15, behind its own NAT
+        assert wan.up is True, wan
+        assert all(a.ip in ip_network("10.0.2.0/24") for a in v4), v4
+        assert wan.nat_class() is NatClass.PRIVATE
+        assert wan.upstream_gateway is None or wan.upstream_gateway in ip_network("10.0.2.0/24")
     subnets = {(s.segment_id, str(s.interface)) for s in net.subnets}
     assert {
         (LAN, "192.0.2.1/24"),

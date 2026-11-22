@@ -224,6 +224,31 @@ There is no list of ports of its own (`…/switches/{mac}/ports` is HTTP 404); t
   forwards (1518, the default, to 9216); above 1518 every port of the switch has jumbo frames
   on. Without the field, jumbo frames are unknown.
 
+### `GET …/sites/{siteId}/gateways/{mac}/wan-status` (optional) *(API description)*
+
+The gateway's ports with their WAN state, a plain list (not paged), with the fields of the
+controller's API description (6.3, recorded by tools/integration/omada/dump.py `spec`):
+
+```json
+[{"port": 1, "name": "SFP WAN", "type": 0, "mode": 0, "status": 1, "internetState": 1,
+  "proto": "DHCP", "ip": "203.0.113.45", "speed": 3,
+  "wanPortIpv4Config": {"ip": "203.0.113.45", "netmask": "255.255.255.0",
+   "gateway": "203.0.113.1", "priDns": "203.0.113.53", "sndDns": "203.0.113.54"},
+  "wanPortIpv6Config": {"enable": 1, "addr": "2001:db8:ffff::45", "gateway": "fe80::1",
+   "priDns": "2001:db8:ffff::53", "sndDns": ""}}]
+```
+
+Each port in WAN mode (`mode` 0; `type` 0 WAN, 1 WAN/LAN, 2 LAN) is an uplink of the gateway,
+`<device>/gateway-<mac>/uplink/port<n>` (#148). Kind from `proto` ("Static IP, DHCP, PPPoE,
+L2TP, PPTP, DS-Lite, and MAP-E" in the description; L2TP and PPTP are `other`), down when
+`status` is 0, else up from `internetState`; the addresses from `wanPortIpv4Config`
+(`ip`/`netmask`) and `wanPortIpv6Config` (`addr`, while `enable` is not 0), the gateway and
+`priDns`/`sndDns` of both. No uptime, no delegated prefix and no public address in the answer;
+`speed` is the port's Ethernet rate, and the DSL fields (`maxRxRate`, `maxTxRate`) have no unit in
+the description, so neither is read as the line rate. A refused answer leaves the uplinks out.
+*To confirm with a gateway (#21): the spelling of `proto` and of `addr` (with or without a prefix
+length).*
+
 ### `GET …/sites/{siteId}/aps/{mac}/radio-config` (optional) *(API description)*
 
 ```json
@@ -392,7 +417,7 @@ HTTP 404) with `channelWidth` as a code, a switch's ports are the `portList` of
 ## Simulator
 
 `signalbox.sim.omada` answers these endpoints like the controller above, with a neutral site: a
-gateway, one 8-port switch with three port profiles and a port override, two EAPs, LAN
+gateway (WAN port 1 on DHCP, port 2 a PPPoE WAN that is down, port 3 in LAN mode), one 8-port switch with three port profiles and a port override, two EAPs, LAN
 192.0.2.0/24 (native), IoT VLAN 20 198.51.100.0/24, Guest VLAN 30 (VLAN only), three SSIDs and
 five clients. Failure switches: bad client secret, a token that expires once, an error code on
 one endpoint, slow answers, broken JSON, small pages. It also takes the writes above and
