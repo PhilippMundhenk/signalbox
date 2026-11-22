@@ -201,3 +201,27 @@ another device's port address on one of its ports), and from cables entered by h
 - **Fix:** if VLANs should pass the link, tag them on both ports; otherwise ignore or turn off.
 
 <!-- end of topology rules -->
+
+<!-- Firmware rules (src/signalbox/rules/firmware.py) -->
+
+## Firmware
+
+### `firmware.drift`
+
+- **Severity:** warning
+- **Checks:** devices of the same vendor and model at one site run the same firmware version.
+- **Fix:** update all of them to the same (newest) version.
+
+### `firmware.update-available`
+
+- **Severity:** info
+- **Checks:** a device that reports an available update (OPNsense, MikroTik, ...) runs it.
+- **Fix:** read the release notes and update in a maintenance window.
+
+### `firmware.end-of-life`
+
+- **Severity:** warning
+- **Checks:** a device whose firmware the integration reports as end of life.
+- **Fix:** update to a supported release, or plan to replace the device.
+
+<!-- end of firmware rules -->
