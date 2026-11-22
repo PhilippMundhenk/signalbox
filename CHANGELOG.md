@@ -33,6 +33,8 @@ All notable changes to this project are documented here. The format follows
 - AVM Fritz!Box adapter (read) over TR-064: LAN, DHCP, Wi-Fi incl. guest network, clients; simulator (#24)
 - TP-Link Omada adapter (read): one controller site through the Open API: networks, switch ports, SSIDs, clients; simulator (#44)
 - Controllers report the devices they manage (adapter API 1.1): Omada's gateway, switches and access points are devices of their own in rules, topology and plans; changes to them go through the controller (#46)
+- NETGEAR ProSAFE Plus and TP-Link Easy Smart switches (read) through Switchyard's protocol library (optional extra `switches`, included in the image): ports, 802.1Q VLANs, firmware (#22, #44)
+- MikroTik adapter (read) over the RouterOS 7 REST API: interfaces, bridge VLAN filtering, addresses, DHCP, DNS, wifi (wifiwave2 and legacy), clients, neighbours (#43)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
