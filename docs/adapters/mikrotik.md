@@ -17,9 +17,14 @@ sends `GET` requests.
 | clients | ARP and IPv6 neighbours, DHCP leases, the bridge host table (port) and the Wi-Fi registration table (SSID) |
 | neighbours | `/ip/neighbor` (LLDP, MNDP, CDP): identity, chassis MAC, remote port, address |
 
-> **Not yet confirmed on a real device.** The endpoints and JSON shapes below come from the
-> RouterOS documentation (REST API, and the property lists of each menu), not from a recorded
-> answer. Real-device validation is [issue #21](https://github.com/PhilippMundhenk/signalbox/issues/21).
+> **Verified against RouterOS 7.25.1 CHR in CI.** The setup commands, user groups, the answers of
+> every menu the read side uses and the write calls for router interfaces, DHCP, static leases,
+> bridge VLANs on ports, the backup and the restore are checked against the official CHR image
+> running in QEMU: tests/integration/test_mikrotik_real.py, set up by tools/integration/mikrotik/
+> ([Integration tests](#integration-tests)). Not covered there, because CHR has no radios, no
+> LLDP neighbours and no clients: Wi-Fi (both packages), the neighbour table and client
+> tables with real hosts; their shapes still come from the RouterOS documentation (marked
+> *Guess* below; real devices: [issue #21](https://github.com/PhilippMundhenk/signalbox/issues/21)).
 > Parsing is deliberately tolerant: a missing field is left empty, unknown fields are ignored,
 > and an answer of the wrong shape becomes a readable "could not read" finding
 > (`unexpected answer from <endpoint>: ...`), never a crash.
@@ -35,17 +40,23 @@ password: "..."                 # stored encrypted
 
 ### HTTPS with a certificate
 
-The REST API is served by the `www-ssl` service, which needs a certificate. A self-signed one is
-enough, because Signalbox pins it:
+The REST API is served by the `www-ssl` service, which needs a certificate. One signed by a
+local CA on the router is enough, because Signalbox pins it:
 
 ```
+/certificate add name=signalbox-ca common-name=signalbox-ca days-valid=3650 \
+    key-usage=key-cert-sign,crl-sign
+/certificate sign signalbox-ca
 /certificate add name=signalbox-www common-name=router days-valid=3650 \
     key-usage=digital-signature,key-encipherment,tls-server
-/certificate sign signalbox-www
+/certificate sign signalbox-www ca=signalbox-ca
 /ip service set www-ssl certificate=signalbox-www disabled=no address=192.0.2.0/24
 ```
 
-`address=` limits who can reach the service; use the network Signalbox runs in. On the first
+Verified on RouterOS 7.25.1 CHR: `/certificate sign` of the server certificate alone fails with
+`failure: CA not found`, so the CA comes first. `address=` limits who can reach the service
+(use the network Signalbox runs in); 7.25 accepts it and shows it as `available-from` in the
+export. On the first
 connection Signalbox shows the SHA-256 fingerprint of the certificate (the device is "untrusted
 certificate"). Compare it with `/certificate print detail where name=signalbox-www`
 (`fingerprint`) and confirm it; from then on the certificate is pinned and a changed certificate
@@ -64,15 +75,19 @@ clear text and is only meant for the simulator.
 ```
 
 - `read` and `rest-api` are what the REST API needs to answer `GET` requests; without `write`
-  every changing request is refused by the router itself. `api` is listed for RouterOS
+  every changing request is refused by the router itself (verified on RouterOS 7.25.1 CHR: the group is
+  accepted with the `!` entries as written, every menu of the read side answers, a `PUT` is
+  refused with HTTP 500 `not enough permissions (9)`). `api` is listed for RouterOS
   versions before the separate `rest-api` policy existed.
 - Without `sensitive` RouterOS hides secrets in its answers, Wi-Fi passphrases included. Then
   SSIDs are read without a passphrase fingerprint, and the "same SSID, different passphrase"
   check has nothing to compare. Adding `sensitive` lets the user read every secret of the
   device (Wi-Fi keys, VPN keys, RADIUS secrets): decide whether the check is worth that.
   Signalbox never stores or shows the passphrase itself, only a fingerprint derived from it.
-- A missing permission shows up as `access denied (HTTP 403); check the user's privileges` (or
-  401) for the capability that needs it; the rest is still read.
+- A missing permission shows up as `access denied (not enough permissions (9)); check the
+  user's group policies` (RouterOS answers HTTP 500 with that detail; a 403 is shown as
+  `access denied (HTTP 403)`) for the capability that needs it; the rest is still read. A
+  wrong password is HTTP 401.
 
 ## Mapping to the model
 
@@ -124,8 +139,10 @@ clear text and is only meant for the simulator.
   `ap-bridge` or `bridge`, security and passphrase from the `security-profile`
   (`/interface/wireless/security-profiles`, `mode=none` is open), segment from the bridge port,
   else `vlan-id` with `vlan-mode=use-tag`.
-- **No wireless package** (both menus answer 404, as on a router without radios): the
-  wireless capability reports `no wireless package: ...` as a "could not read" finding.
+- **No wireless package** (neither `/interface/wifi` nor `/interface/wireless` exists): the
+  wireless capability reports `no wireless package: ...` as a "could not read" finding. On
+  RouterOS 7.25.1 CHR the `wifi` menu exists without radios (an empty list: no radios, no finding);
+  `/interface/wireless` is missing there.
 - **Clients**: merged by MAC from ARP, IPv6 neighbours, bound DHCP leases (dynamic and static),
   the bridge host table and the Wi-Fi registration table; the device's own MACs (port MACs and
   `local` bridge hosts), failed or incomplete entries and the uplink's neighbours are skipped.
@@ -136,24 +153,35 @@ clear text and is only meant for the simulator.
   port and its bridge, `ether2,bridge`). `identity` is the system name, `interface-name` the
   remote port, `address4` (else `address`) the management address.
 
-## Endpoints and assumed answers
+## Endpoints and answers
 
 All `GET /rest/<menu>` with HTTP basic auth. RouterOS answers a menu with a list of objects, each
 with an `.id`, and a single-value menu with one object (a list holding one object is accepted
 too). Every value is a string: booleans are `"true"`/`"false"`, numbers are digits, lists are
-comma separated. A 404 on an endpoint marked *optional* means "not on this device" and is not an
-error. A 404 on `/rest/system/resource` means the REST API is not reachable as configured.
+comma separated. The examples are shortened; unless marked *Guess* they are the shapes RouterOS 7.25.1 CHR
+answers in CI (the full answers are posted by tools/integration/mikrotik/dump.py).
+
+A menu the device does not have (a package that is not installed, `/system/routerboard` on CHR)
+is answered with HTTP 400 `{"error": 400, "message": "Bad Request", "detail": "no such command
+or directory (routerboard)"}` (`no such command prefix` for an unknown path), not 404: on an
+endpoint marked *optional* that means "not on this device" and is not an error. A 404 on
+`/rest/system/resource` means the REST API is not reachable as configured; a `PATCH` or
+`DELETE` of an `.id` that does not exist is 404 too.
 
 ### `/rest/system/resource`, `/rest/system/routerboard` *(optional)*, `/rest/system/package/update` *(optional)* (system)
 
 ```json
-{"version": "7.15.3 (stable)", "board-name": "hAP ax^2", "architecture-name": "arm64"}
+{"version": "7.25.1", "board-name": "CHR QEMU Standard PC (i440FX + PIIX, 1996)",
+ "architecture-name": "x86_64", "platform": "MikroTik", "free-memory": "843321344"}
 {"routerboard": "true", "model": "C52iG-5HaxD2HaxD", "current-firmware": "7.15.3"}
-{"channel": "stable", "installed-version": "7.15.3", "latest-version": "7.16"}
+{"channel": "stable", "check-certificate": "yes", "installed-version": "7.25.1", "mode": "https"}
 ```
 
-`version` is required. `latest-version` is only filled after the router checked for updates;
-a refused or missing update menu is ignored. CHR and x86 answer `{"routerboard": "false"}`.
+`version` is required (older versions answered `7.15.3 (stable)`; the part after the space is
+dropped). `latest-version` is only there after the router checked for updates; a refused or
+missing update menu is ignored. CHR has no routerboard menu (HTTP 400 `no such command or
+directory (routerboard)`): the model is the `board-name`. The routerboard answer is a *Guess*
+from the documentation.
 
 ### `/rest/interface`, `/rest/interface/ethernet` *(optional)* (interfaces)
 
@@ -164,7 +192,8 @@ a refused or missing update menu is ignored. CHR and x86 answer `{"routerboard":
 ```
 
 `speed` is the configured (or advertised) speed; the negotiated rate is only available from
-`monitor`, which is not a `GET`. *Guess*: the format changed from `1Gbps` to `1G-baseT-full` in
+`monitor`, which is not a `GET`. The virtio ports of CHR have no `speed` at all (the port is read
+without one), so the format is a *Guess*: it changed from `1Gbps` to `1G-baseT-full` in
 RouterOS 7.12; both are parsed.
 
 ### `/rest/interface/bridge`, `/rest/interface/bridge/port`, `/rest/interface/bridge/vlan` (interfaces)
@@ -178,7 +207,11 @@ RouterOS 7.12; both are parsed.
   "dynamic": "false", "disabled": "false"}]
 ```
 
-Dynamic entries (VLAN 1 from the pvids) are listed too and read the same way.
+Dynamic entries (VLAN 1 from the pvids) are listed too and read the same way, with the
+bridge and its pvid ports in `untagged` and `current-untagged` and the comment
+`added by pvid`, which is not taken as the name of the network. The bridge port answer also
+carries the spanning tree state and counters (`rx-bpdu`, `forward-transitions`, `debug-info`,
+...): read only, never written back by a restore.
 
 ### `/rest/interface/vlan`, `/rest/interface/list/member` *(optional)* (interfaces)
 
@@ -195,7 +228,8 @@ Dynamic entries (VLAN 1 from the pvids) are listed too and read the same way.
 [{".id": "*1", "address": "2001:db8:1::1/64", "interface": "bridge", "link-local": "false"}]
 ```
 
-`/ipv6/address` answers 404 when IPv6 is disabled.
+IPv6 link-local addresses (`fe80::/64`, dynamic) are skipped by their address; only some of
+them carry `link-local: true`. Without IPv6 `/ipv6/address` is a missing menu (optional).
 
 ### `/rest/ip/dhcp-server`, `/rest/ip/dhcp-server/network`, `/rest/ip/pool`, `/rest/ip/dhcp-server/lease` (dhcp, clients)
 
@@ -220,7 +254,8 @@ Dynamic entries (VLAN 1 from the pvids) are listed too and read the same way.
  {".id": "*2", "name": "nas.home.example", "type": "AAAA", "address": "2001:db8:1::10"}]
 ```
 
-*Guess*: `type` is left out for `A` records.
+RouterOS 7.25.1 CHR answers `type: "A"` for `A` records too (an entry without `type` is still read
+as `A`), and `cache-size` as KiB without a unit (`"2048"`).
 
 ### `/rest/interface/wifi` and profiles (wireless, `wifi` package)
 
@@ -289,7 +324,7 @@ request:
 | `PATCH /rest/<menu>/<.id>` with the changed properties | change an entry |
 | `DELETE /rest/<menu>/<.id>` | remove an entry |
 | `POST /rest/<menu>/unset` with `{"numbers": "<.id>", "value-name": "<property>"}` | clear a property (it falls back to its profile or default) |
-| `POST /rest/export` | the configuration as text, for the backup (for people only, see below) |
+| `POST /rest/execute` with `{"script": "/export", "as-string": ""}` | the configuration as text, for the backup (for people only, see below) |
 
 The review shows exactly these requests. The Wi-Fi passphrase is shown as `***`; it is never
 logged or put into an error message.
@@ -303,7 +338,8 @@ logged or put into an error message.
 ```
 
 - `write` lets the user change the configuration. Without it every change is refused with
-  `access denied (HTTP 403); check the user's privileges`, and nothing is changed.
+  `access denied (not enough permissions (9)); the user's group needs write` (RouterOS:
+  HTTP 500), and nothing is changed.
 - `sensitive` is needed for a complete backup: without it RouterOS hides the Wi-Fi passphrases
   in its answers, so the backup cannot put a changed passphrase back. If you keep a read-only
   group for everyday reading, switch the user's group only for deployments.
@@ -313,7 +349,7 @@ logged or put into an error message.
 
 | Kind | Calls |
 | --- | --- |
-| `router` | A VLAN network: creates the VLAN interface `vlan<id>` on the bridge (comment = the segment name), tags the bridge itself in the bridge VLAN table (a new entry, or `bridge` added to `tagged`) and adds the address in `/ip/address`. An existing network: changes its address entry. The name goes to the comment of the bridge (native network), of the single-VLAN bridge VLAN entry and of the VLAN interface. Removing deletes the address, the VLAN interface if no address is left on it, and the bridge from the VLAN's `tagged` list (the entry too if it is then empty). |
+| `router` | A VLAN network: creates the VLAN interface `vlan<id>` on the bridge (comment = the segment name), tags the bridge itself in the bridge VLAN table (a new entry, or `bridge` added to `tagged`) and adds the address in `/ip/address`. An existing network: changes its address entry. A new name goes to the first of: the comment of the bridge (native network), of the single-VLAN bridge VLAN entry, of the VLAN interface (the one the read side takes it from); no name clears them all. Removing deletes the address, the VLAN interface if no address is left on it, and the bridge from the VLAN's `tagged` list (the entry too if it is then empty). |
 | `dhcp` | Creates or changes the `/ip/dhcp-server` entry on the network's interface (`disabled`, `lease-time`), the first range of its `/ip/pool` (a pool `dhcp-<interface>` if it has none) and the DNS servers of the `/ip/dhcp-server/network` entry (created with gateway = the router's address when missing). Removing deletes the server, and its pool and network entry when nothing else uses them. |
 | `reservation` | A static `/ip/dhcp-server/lease` with `address`, `mac-address` (upper case), `server` and the hostname as `comment`. |
 | `port` | Ports of a bridge with `vlan-filtering`: the untagged VLAN is the bridge port's `pvid` (`frame-types` set to `admit-all`, or to `admit-only-vlan-tagged` for no untagged VLAN); tagged VLANs are the port's place in the `tagged` lists of `/interface/bridge/vlan` (new single-VLAN entries where needed). The port leaves every other `tagged`/`untagged` list; an entry left empty is removed. |
@@ -354,7 +390,10 @@ new errors.
   (`/interface/vlan`, `/interface/bridge`, `/interface/bridge/vlan`, `/interface/bridge/port`,
   `/ip/address`, `/ip/pool`, `/ip/dhcp-server`, `/ip/dhcp-server/network`,
   `/ip/dhcp-server/lease`, `/interface/wifi`), plus the text of `/export` for people (backup
-  format `routeros-export`, stored encrypted with the change record). An export cannot be
+  format `routeros-export`, stored encrypted with the change record). `POST /rest/export`
+  answers `[]` (the export goes to a terminal, which a REST request does not have), so the text
+  comes from `POST /rest/execute` with `{"script": "/export", "as-string": ""}`, answered as
+  `{"ret": "# ... by RouterOS 7.25.1 ..."}`; without `sensitive` secrets are left out of it. An export cannot be
   imported through the REST API (`/import` needs a file on the router), so it is not used for
   restoring.
 - **Rollback**: first the inverse changes; if that fails, the backup. Restoring compares every
@@ -363,39 +402,89 @@ new errors.
   properties that were added are unset. Entries are matched by `.id`, else by equal content, so
   a second restore changes nothing. Dynamic entries are left to RouterOS.
 
+### Verified against RouterOS 7.25.1 CHR
+
+- `PUT` answers the new entry with its `.id`; `PATCH`, `DELETE` and `unset` as above.
+- A refused change is HTTP 400 `{"error": 400, "message": "Bad Request", "detail": "input does
+  not match any value of interface"}` (or `invalid value for argument address`, ...); the
+  error shows `<what>: the router refused the change: <detail>`.
+- A new DHCP server on the interface of a new address is `invalid` (`.about`: `No IP address on
+  interface`) for about a second. After writing a DHCP server Signalbox waits (up to 15 s)
+  until it is valid, so the verification does not read it as disabled.
+- The name of a network goes to the comment the read side takes it from first (the bridge, else
+  the single-VLAN bridge VLAN entry, else the VLAN interface), and only there: setting the
+  comment on all of them made undoing a rename leave a comment that was not there before.
+- The read-only properties a restore leaves out: besides the documented ones (`running`,
+  `dynamic`, `current-*`, `actual-interface`, `network`, `mac-address` of interfaces, ...) the
+  spanning tree state and counters of bridge ports, `l2mtu`, `available`/`total`/`used` of
+  pools, the `agent-*` fields of leases and `.about`. Every round trip in the tests (deploy,
+  revert, restore) leaves these menus exactly as they were, entry by entry.
+
 ### Not confirmed on a real device
 
-All of this follows the RouterOS REST documentation and is tested against the simulator only
+CHR has no radios, so the Wi-Fi writes are tested against the simulator only
 ([issue #21](https://github.com/PhilippMundhenk/signalbox/issues/21)). To confirm:
 
 - *Guess*: dotted property names (`security.passphrase`, `datapath.vlan-id`) are accepted by
   `PUT`/`PATCH` on `/interface/wifi` as by the CLI's `set`, and `unset` with
   `value-name=security` detaches the security profile.
-- *Guess*: `POST /rest/export` answers the export as `{"ret": "..."}` (a JSON string or plain
-  text are accepted too); a refused export leaves the backup without the text.
-- *Guess*: a refused change is answered with HTTP 400 and `{"error", "message", "detail"}`; the
-  `detail` is shown.
 - *Guess*: a Wi-Fi interface with `datapath.bridge` becomes a dynamic bridge port whose `pvid` is
   `datapath.vlan-id`, and a pvid no VLAN entry lists gets a dynamic entry (as the simulator
   models it).
 - *Guess*: a static lease can be added for a MAC that has a dynamic lease (RouterOS might want
   `make-static` instead).
-- The read-only properties left out when restoring (`running`, `dynamic`, `current-*`,
-  `actual-interface`, `network`, `mac-address` of interfaces, ...) are taken from the
-  documentation; a property RouterOS refuses to set stops the restore with its message.
+- The read-only properties of `/interface/wifi`; a property RouterOS refuses to set stops the
+  restore with its message.
 
 ## Simulator
 
 `signalbox.sim.mikrotik.MikrotikSimulator` answers these endpoints with neutral sample data (a
 hEX-like router with Wi-Fi and bridge VLAN filtering, documentation addresses, `02:` MACs). Its
 switches simulate a wrong password (401), a disabled REST API (404 everywhere), slow answers,
-malformed JSON per path, a status code per path, and the wireless package installed (`wifi`,
-`legacy` or `none`).
+malformed JSON per path, a status code per path, a menu the group has no policy for
+(`no_policy`: HTTP 500 `not enough permissions (9)`), and the wireless package installed
+(`wifi`, `legacy` or `none`; a missing menu is HTTP 400 `no such command or directory`, as on
+RouterOS 7.25.1 CHR).
 
 It also takes the write requests above and changes its data: it refuses what RouterOS would
 (missing properties, unknown interfaces, pools or servers, duplicate names, bad addresses,
 dynamic entries) with HTTP 400 and a `detail`, and then settles what RouterOS computes itself
 (VLAN and Wi-Fi interfaces in `/interface`, the dynamic bridge port of a Wi-Fi interface with
-`datapath.bridge`, the `current-*` lists and dynamic entries of the bridge VLAN table). Write
-switches: `read_only` (403, a group without `write`), `fail_write` (a status code per menu) and
-`ignore_writes` (answer success, change nothing).
+`datapath.bridge`, the `current-*` lists and dynamic entries of the bridge VLAN table, a new
+DHCP server that answers `invalid` once). `POST /rest/export` answers `[]` and
+`POST /rest/execute` the export, as the real one. Write switches: `read_only` (HTTP 500
+`not enough permissions (9)`, a group without `write`), `fail_write` (a status code per menu)
+and `ignore_writes` (answer success, change nothing).
+
+## Integration tests
+
+`.github/workflows/integration.yml` (job `mikrotik`, nightly, on demand and on pull requests
+that touch adapters or simulators) downloads the official `chr-7.25.1.img.zip` (the stable
+channel on 2026-11-22) from download.mikrotik.com and checks it against a pinned SHA-256
+(MikroTik publishes no checksum file next to the image; the hash was taken from the first
+download in CI). tools/integration/mikrotik/vm.py boots it in QEMU with KVM:
+
+- first boot over the serial console: log in as `admin` (no password), set a random one, add
+  the CA, the `www-ssl` certificate and the service exactly as in
+  [HTTPS with a certificate](#https-with-a-certificate); then through the REST API as admin:
+  ether1 (QEMU user network, DHCP client) in the interface list `WAN`, the bridge `bridge`
+  (comment `LAN`) with ether2 and ether3, VLAN 20 (`IoT`) tagged on ether3 and the bridge, the
+  VLAN interface `iot`, 192.0.2.1/24 and 2001:db8:1::1/64 on the bridge, 198.51.100.1/24 on
+  `iot`, a DHCP server with pool, network and a static lease, DNS with remote requests, a
+  forwarder and static `A`/`AAAA` entries, `vlan-filtering=yes`, and the groups and users of
+  [A read-only user group](#a-read-only-user-group) and
+  [A user group that may write](#a-user-group-that-may-write) with their policies verbatim. The
+  prepared disk is cached.
+- every run boots a throw-away overlay of that disk; the runner reaches `www-ssl` at
+  `https://127.0.0.1:8443` (a port forward to ether1). tools/integration/mikrotik/dump.py posts
+  the answers of every menu (read user, write user, refused requests) as notices.
+- tests/integration/test_mikrotik_real.py: the read contract, the mapping of the configured
+  router, certificate pinning with the real certificate, a wrong password (auth failed), the
+  missing menus of CHR, the read user refused on a change, a refused change with RouterOS'
+  detail, the backup with the export, the adapter's apply, read back and restore, deployments
+  through the Deployer (a new VLAN network with DHCP and a static lease; changed router
+  address and name, DHCP pool, DNS and lease time, a static lease and the tagged VLANs of a
+  trunk port), each reverted, and the restore of a backup (a VLAN on a port, a new router
+  interface). After every round trip the menus are compared entry by entry.
+
+The test VM is never run locally: without `IT_MIKROTIK_URL` the tests skip.
