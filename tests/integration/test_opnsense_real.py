@@ -27,7 +27,7 @@ from signalbox.adapters import AdapterContext, AdapterError
 from signalbox.adapters.https import fingerprint, peer_certificate
 from signalbox.adapters.opnsense import OpnsenseAdapter, OpnsenseConfig
 from signalbox.changes import Change, ChangeKind, ReservationValue, plan
-from signalbox.deploy import Deployer, current_value
+from signalbox.deploy import Deployer
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
 from signalbox.merge import merge
@@ -326,16 +326,12 @@ async def test_backup_and_restore_through_the_configuration_history(
 
 async def test_validation_error_of_the_firewall_names_the_field(target: dict[str, str]) -> None:
     """A reservation outside its subnet: the planner sends it, Kea's model refuses it."""
-    net = await network(target)
-    key = f"{LAN}/02:00:00:00:00:99"
-    probe = Change.model_construct(kind=ChangeKind.RESERVATION, device_id="fw", site_id="home")
-    probe.key = key
     c = Change(
         kind=ChangeKind.RESERVATION,
         device_id="fw",
         site_id="home",
-        key=key,
-        old=current_value(net, probe),
+        key=f"{LAN}/02:00:00:00:00:99",
+        old=None,
         new=ReservationValue(mac="02:00:00:00:00:99", address=ip_address("198.51.100.99")),
     )
     a = adapter(target, write=True)
