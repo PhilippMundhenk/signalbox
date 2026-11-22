@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- A capability can report what it could not read next to its data (`Observation.incomplete`); OpenWrt routers with an older permission file are told to paste the setup commands again (#210)
 - Project setup: Python package, checks, policies, stack decision (#1)
 - CI: lint, mypy --strict, tests with the 95 % coverage gate on Python 3.11-3.13, secret scan, Dependabot (#2)
 - Network model: typed, vendor-neutral objects, snapshot merging, JSON Schema export (`signalbox schema`, docs/schema.json) (#3)
@@ -78,6 +79,8 @@ All notable changes to this project are documented here. The format follows
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
 
 ### Fixed
+- NETGEAR ProSAFE Plus: requests go out from the host's interfaces with a real MAC, as Switchyard does on a real network (old firmware answered requests with the broadcast MAC as sender with "incorrect password"); a VLAN or LAG read the switch refuses is reported as a gap and the ports are kept (#210)
+- OpenWrt without Wi-Fi (a switch): no wireless object means no radios, not a read error (#216)
 - Navigation: the top bar no longer wraps on phones and tablets; side bar on wide screens, menu drawer on narrow ones (#230)
 - Finding devices lists a device that answers on several addresses once (same certificate, MAC, serial number or controller id), with all its addresses and the one in a known network offered, and marks it as added when any of its addresses or its identity belongs to a device you already added (#224).
 - NETGEAR ProSAFE Plus: an old switch that refuses the full identity read (answering "incorrect password" even without one) is read from its discovery answer; a refused setting is named in the error (#210)
