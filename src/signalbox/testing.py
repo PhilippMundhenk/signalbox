@@ -17,10 +17,13 @@ from signalbox.model import (
     DeviceHealth,
     DeviceStatus,
     DeviceTime,
+    ManagementService,
     Membership,
     NatClass,
     Port,
     PortKind,
+    ServiceKind,
+    ServiceTransport,
     Snapshot,
     Uplink,
     UplinkKind,
@@ -97,6 +100,37 @@ def uplink_problems(uplink: Uplink, port_ids: set[str]) -> list[str]:
     return out
 
 
+def service_problems(
+    service: ManagementService, port_ids: set[str], segment_ids: set[str]
+) -> list[str]:
+    """Inconsistent management services (#173): ids, unknown ports and segments, options of
+    another kind of service, a disabled service reachable from the internet."""
+    out: list[str] = []
+    sid = service.id
+    prefix = f"{service.device_id}/service/"
+    if not sid.startswith(prefix) or sid == prefix:
+        out.append(f"service id {sid} is not {prefix}<name>")
+    for p in service.interfaces:
+        if p not in port_ids:
+            out.append(f"service {sid} bound to unknown port {p}")
+    for seg in service.segments:
+        if seg not in segment_ids:
+            out.append(f"service {sid} references unknown segment {seg}")
+    if service.transport is ServiceTransport.LAYER2 and (service.port or service.listen):
+        out.append(f"service {sid}: a layer-2 service has no port or listen address")
+    if service.enabled is False and service.from_wan:
+        out.append(f"service {sid}: disabled but reachable from the internet")
+    if service.kind is not ServiceKind.SSH and (
+        service.root_login is not None or service.root_password_login is not None
+    ):
+        out.append(f"service {sid}: root login options on a {service.kind.value} service")
+    if service.kind is not ServiceKind.HTTP and service.redirects_to_https is not None:
+        out.append(f"service {sid}: redirects_to_https on a {service.kind.value} service")
+    if service.kind is not ServiceKind.SNMP and service.snmp is not None:
+        out.append(f"service {sid}: SNMP settings on a {service.kind.value} service")
+    return out
+
+
 def time_problems(device_id: str, value: DeviceTime, segment_prefix: str) -> list[str]:
     """Inconsistent clock and NTP values."""
     out: list[str] = []
@@ -128,8 +162,9 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             out.append(f"declares {cap.value} but no device has {attr}")
         if cap.value not in caps and found:
             out.append(f"{attr} reported without declaring {cap.value}")
-    if snapshot.uplinks and Capability.INTERFACES.value not in caps:
-        out.append(f"uplinks reported without declaring {Capability.INTERFACES.value}")
+    for kind in ("uplinks", "services"):
+        if getattr(snapshot, kind) and Capability.INTERFACES.value not in caps:
+            out.append(f"{kind} reported without declaring {Capability.INTERFACES.value}")
     for d in devices:
         if d.health is not None:
             out += health_problems(d.id, d.health)
@@ -165,7 +200,8 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
     radio_ids = {r.id for r in snapshot.radios}
     segment_ids = {s.id for s in snapshot.segments}
 
-    for kind in ("ports", "subnets", "uplinks", "dhcp_servers", "dns_services", "radios", "wlans"):
+    owned = ("ports", "subnets", "uplinks", "services", "dhcp_servers", "dns_services")
+    for kind in (*owned, "radios", "wlans"):
         for obj in getattr(snapshot, kind):
             if not obj.id.startswith(own):
                 out.append(f"{kind} id {obj.id} does not start with {own}")
@@ -209,6 +245,12 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         out += port_problems(port)
     for uplink in snapshot.uplinks:
         out += uplink_problems(uplink, port_ids)
+    seen: set[str] = set()
+    for service in snapshot.services:
+        if service.id in seen:
+            out.append(f"service {service.id} reported twice")
+        seen.add(service.id)
+        out += service_problems(service, port_ids, segment_ids)
     for nb in snapshot.neighbours:
         if nb.local_port_id not in port_ids:
             out.append(f"neighbour {nb.id} on unknown port {nb.local_port_id}")

@@ -596,7 +596,8 @@
      "current_server": null
     },
     "ntp_server": null
-   }
+   },
+   "transport_encrypted": null
   },
   "status": "ok",
   "ports": [
@@ -725,6 +726,7 @@
     "upstream_kbps": 46719
    }
   ],
+  "services": [],
   "dhcp_servers": [
    {
     "id": "recorded/dhcp/lan",

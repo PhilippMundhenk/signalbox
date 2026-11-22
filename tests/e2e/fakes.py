@@ -33,6 +33,7 @@ from signalbox.model import (
     DnsService,
     Firmware,
     HostRecord,
+    ManagementService,
     Membership,
     Network,
     NtpClient,
@@ -45,6 +46,9 @@ from signalbox.model import (
     Security,
     Segment,
     SegmentPurpose,
+    ServiceKind,
+    SnmpSettings,
+    SnmpVersion,
     StorageKind,
     StorageUsage,
     Subnet,
@@ -132,6 +136,7 @@ class Lab(Adapter):
             model="LR-1",
             firmware=Firmware(current="1.2.3", available="1.3.0"),
             management_address=host,
+            transport_encrypted=True,
         )
 
     def _seg(self, vlan: int) -> str:
@@ -215,7 +220,36 @@ class Lab(Adapter):
             downstream_kbps=100_000,
             upstream_kbps=40_000,
         )
-        return Observation(ports=ports, segments=segments, subnets=subnets, uplinks=[uplink])
+
+        def svc(kind: ServiceKind, **kw: object) -> ManagementService:
+            name = str(kw.get("name") or kind.value)
+            return ManagementService.model_validate(
+                {"id": f"{d}/service/{name}", "device_id": d, "kind": kind, **kw}
+            )
+
+        services = [
+            svc(ServiceKind.HTTPS, enabled=True, port=443, segments=[self._seg(10)]),
+            svc(ServiceKind.HTTP, enabled=True, port=80, redirects_to_https=True),
+            svc(
+                ServiceKind.SSH,
+                enabled=True,
+                port=22,
+                allowed_from=[ip_network("192.0.2.0/24")],
+                password_login=True,
+                root_login=True,
+            ),
+            svc(ServiceKind.TELNET, enabled=False, port=23),
+            svc(
+                ServiceKind.SNMP,
+                enabled=True,
+                port=161,
+                snmp=SnmpSettings(versions=[SnmpVersion.V2C], default_community=True),
+            ),
+            svc(ServiceKind.HTTPS, name="remote", enabled=True, port=8443, from_wan=True),
+        ]
+        return Observation(
+            ports=ports, segments=segments, subnets=subnets, uplinks=[uplink], services=services
+        )
 
     async def read_dhcp(self) -> Observation:
         d = self.context.device_id
@@ -421,7 +455,7 @@ class Switch(Adapter):
         )
 
     async def read_system(self) -> SystemInfo:
-        return SystemInfo(vendor="Example", model="LS-8")
+        return SystemInfo(vendor="Example", model="LS-8", transport_encrypted=False)
 
     async def read_interfaces(self) -> Observation:
         d = self.context.device_id

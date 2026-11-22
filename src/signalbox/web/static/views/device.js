@@ -101,6 +101,72 @@ function internetCard(ix, deviceId) {
   return h('section', { class: 'card', 'data-testid': 'device-internet' }, h('h2', {}, 'Internet'), kv(rows));
 }
 
+const SERVICE_LABEL = {
+  ssh: 'SSH', telnet: 'Telnet', http: 'HTTP', https: 'HTTPS', api: 'API', 'api-ssl': 'API (TLS)', snmp: 'SNMP', ftp: 'FTP', tftp: 'TFTP',
+  winbox: 'Winbox', 'mac-telnet': 'MAC telnet', 'mac-winbox': 'MAC Winbox', romon: 'RoMON', 'tr-064': 'TR-064', upnp: 'UPnP', vendor: 'configuration protocol', other: 'service',
+};
+
+function serviceLabel(s) {
+  const text = SERVICE_LABEL[s.kind] || s.kind;
+  return s.name && ![s.kind, text.toLowerCase()].includes(s.name.toLowerCase()) ? `${text} (${s.name})` : text;
+}
+
+// Root may log in with a password: the same rule as ManagementService.allows_root_password().
+function rootPassword(s) {
+  if (s.root_login === false || s.password_login === false) return false;
+  if (s.root_password_login !== null) return s.root_password_login;
+  return s.root_login && s.password_login ? true : null;
+}
+
+// One management service (#173): where it listens and who can reach it, as the device says.
+function serviceValue(ix, s, hasUplink) {
+  if (!s.enabled) return h('span', { class: 'muted', 'data-testid': 'service-summary' }, 'off');
+  const redirect = s.kind === 'http' && s.redirects_to_https;
+  const plain = s.encrypted === false && !redirect;
+  const where = [
+    ...s.listen.filter((a) => a !== '0.0.0.0' && a !== '::'),
+    ...s.interfaces.map((p) => ix.portName(p)),
+    ...s.segments.map((x) => ix.segmentName(x)),
+  ];
+  const root = s.kind === 'ssh' ? rootPassword(s) : null;
+  const summary = [
+    s.transport === 'layer2' ? 'layer 2 (MAC address)' : s.port ? `port ${s.port}` : null,
+    redirect ? 'redirects to HTTPS' : s.encrypted === true ? 'encrypted' : null,
+    where.length ? `on ${where.join(', ')}` : 'on every address',
+    s.allowed_from.length ? `only from ${s.allowed_from.join(', ')}` : null,
+    s.reach_segments.length ? `reachable from ${s.reach_segments.map((x) => ix.segmentName(x)).join(', ')}` : null,
+    s.internet === null && hasUplink ? 'internet: the firewall decides' : null,
+    s.kind === 'ssh' && s.password_login === false ? 'keys only' : null,
+    s.snmp && s.snmp.versions.length ? `v${s.snmp.versions.join('/v')}` : null,
+  ].filter(Boolean);
+  return h(
+    'div',
+    { class: 'service', 'data-testid': 'service' },
+    h('span', { 'data-testid': 'service-summary' }, summary.join(' · ')),
+    plain ? h('span', { class: 'tag danger', 'data-testid': 'service-plaintext' }, 'unencrypted') : null,
+    s.internet === true ? h('span', { class: 'tag danger', 'data-testid': 'service-internet' }, 'reachable from the internet') : null,
+    root ? h('span', { class: 'tag danger', 'data-testid': 'service-root-password' }, 'root with password') : null,
+    s.snmp && s.snmp.default_community ? h('span', { class: 'tag danger' }, 'default community') : null,
+  );
+}
+
+function managementCard(ix, observed) {
+  const services = ix.net.services.filter((s) => s.device_id === observed.id);
+  const rows = [];
+  if (observed.transport_encrypted !== null)
+    rows.push([
+      'Signalbox reads it',
+      observed.transport_encrypted
+        ? 'encrypted'
+        : h('span', { 'data-testid': 'transport-plaintext' }, 'unencrypted: the password travels in clear text in this network'),
+    ]);
+  const hasUplink = ix.net.uplinks.some((u) => u.device_id === observed.id);
+  const order = [...services].sort((a, b) => Number(b.enabled) - Number(a.enabled) || serviceLabel(a).localeCompare(serviceLabel(b)));
+  rows.push(...order.map((s) => [serviceLabel(s), serviceValue(ix, s, hasUplink)]));
+  if (!rows.length) return null;
+  return h('section', { class: 'card', 'data-testid': 'device-management' }, h('h2', {}, 'Management'), kv(rows));
+}
+
 async function overview(main, ctx, device, adapters, sites) {
   const id = ctx.renderId;
   const ix = await loadNetwork();
@@ -168,6 +234,7 @@ async function overview(main, ctx, device, adapters, sites) {
     ),
     notesCard(ix, device.id, 'device', `Notes on ${device.name}`, () => ctx.refresh()),
     internetCard(ix, device.id),
+    observed ? managementCard(ix, observed) : null,
     observed ? healthCard(observed.health) : null,
     observed ? timeCard(observed.time) : null,
     trustBox,
@@ -185,6 +252,7 @@ function rawObjects(net, deviceId) {
     segments: net.segments.filter((x) => x.source && x.source.device_id === deviceId),
     subnets: net.subnets.filter(mine),
     uplinks: net.uplinks.filter(mine),
+    services: net.services.filter(mine),
     dhcp_servers: net.dhcp_servers.filter(mine),
     dns_services: net.dns_services.filter(mine),
     radios: net.radios.filter(mine),

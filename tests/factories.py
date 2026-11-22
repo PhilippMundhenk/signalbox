@@ -7,6 +7,7 @@ from ipaddress import ip_address, ip_interface, ip_network
 from typing import Any
 
 from signalbox.model import (
+    SERVICE_PORTS,
     Acknowledgement,
     Annotation,
     Device,
@@ -14,14 +15,18 @@ from signalbox.model import (
     DeviceRole,
     DeviceTime,
     Fan,
+    ManagementService,
     Network,
     NtpClient,
     NtpServer,
     Port,
     PortMedia,
     PowerSupply,
+    ServiceKind,
     Site,
     Snapshot,
+    SnmpSettings,
+    SnmpVersion,
     Source,
     StorageKind,
     StorageUsage,
@@ -170,6 +175,66 @@ def uplink(device_id: str, name: str = "wan", **kw: Any) -> Uplink:
         device_id=device_id,
         **(values | kw),
     )
+
+
+def service(
+    device_id: str, kind: ServiceKind | str, name: str | None = None, **kw: Any
+) -> ManagementService:
+    """An enabled management service on its usual port, listening everywhere (#173).
+
+    Id ``<device>/service/<name or kind>``. Override any field:
+    ``service("gw", "ssh", password_login=True, root_login=True)`` (root with a password),
+    ``service("gw", "http", redirects_to_https=False)``,
+    ``service("gw", "https", "remote-access", from_wan=True, port=8443)`` (Fritz!Box internet
+    access), ``service("gw", "winbox", allowed_from=[net("192.0.2.0/24")])``,
+    ``service("gw", "ssh", segments=[segment_id("home", 99)])`` (only in the management
+    VLAN), ``service("gw", "mac-telnet", interfaces=[port_id("gw", "ether1")])``,
+    ``service("gw", "snmp", snmp=snmp(default_community=True))``, ``enabled=False``.
+    ``ports`` names the device's ports to bind to.
+    """
+    kind = ServiceKind(kind)
+    ports = kw.pop("ports", None)
+    values: dict[str, Any] = {"enabled": True, "port": SERVICE_PORTS.get(kind)}
+    if ports is not None:
+        values["interfaces"] = [port_id(device_id, p) for p in ports]
+    if kind is ServiceKind.SNMP:
+        values["snmp"] = snmp()
+    return ManagementService(
+        id=object_id(device_id, "service", name or kind.value),
+        device_id=device_id,
+        kind=kind,
+        name=name,
+        **(values | kw),
+    )
+
+
+def snmp(*versions: str, **kw: Any) -> SnmpSettings:
+    """SNMP settings: v2c with a community of its own unless given (``snmp("3",
+    v3_privacy=True)`` is encrypted)."""
+    values: dict[str, Any] = {"versions": [SnmpVersion(v) for v in versions or ("2c",)]}
+    values.setdefault("default_community", False)
+    return SnmpSettings(**(values | kw))
+
+
+def mikrotik_default_services(device_id: str) -> list[ManagementService]:
+    """RouterOS's factory services: telnet, ftp, www, ssh, api and winbox on, www-ssl and
+    api-ssl off, MAC telnet/Winbox on every interface (as ``/ip/service`` and
+    ``/tool/mac-server`` report them on a fresh device; RoMON off)."""
+    on = [("telnet", None), ("ftp", None), ("http", "www"), ("ssh", None), ("api", None)]
+    out = [service(device_id, k, n) for k, n in on]
+    out += [
+        service(device_id, "https", "www-ssl", enabled=False),
+        service(device_id, "winbox"),
+        service(device_id, "api-ssl", enabled=False),
+        service(device_id, "mac-telnet", port=None),
+        service(device_id, "mac-winbox", port=None),
+        service(device_id, "romon", port=None, enabled=False),
+    ]
+    return out
+
+
+def net(text: str) -> Any:
+    return ip_network(text)
 
 
 def ip(text: str) -> Any:

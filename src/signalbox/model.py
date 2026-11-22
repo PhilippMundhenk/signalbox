@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, m
 
 IPAddress = IPv4Address | IPv6Address
 IPInterface = IPv4Interface | IPv6Interface
+IPNetwork = IPv4Network | IPv6Network
 
 #: Segment key of the untagged network of a device without VLANs.
 NATIVE = "native"
@@ -299,6 +300,11 @@ class Device(Observed):
     health: DeviceHealth | None = None
     #: Clock, time zone, NTP (API 1.2, capability ``time``).
     time: DeviceTime | None = None
+    #: How Signalbox itself reads the device (#173): ``False`` for a protocol without
+    #: encryption (NETGEAR NSDP, TP-Link Easy Smart UDP) or plain HTTP (``allow_insecure_http``),
+    #: so the password it sends can be captured in that network. Set by the adapter
+    #: (``SystemInfo.transport_encrypted``); ``None``: the adapter does not say.
+    transport_encrypted: bool | None = None
 
 
 class PortKind(StrEnum):
@@ -585,6 +591,288 @@ class Uplink(Observed):
                 return best
         if found or self.ipv6():
             return NatClass.NONE
+        return None
+
+
+class ServiceKind(StrEnum):
+    """A way to manage (log in to, configure, query) a device (#173)."""
+
+    SSH = "ssh"
+    TELNET = "telnet"
+    HTTP = "http"  # web UI without TLS
+    HTTPS = "https"  # web UI with TLS (also a vendor's internet remote access)
+    #: A plain-text configuration API (RouterOS API on 8728).
+    API = "api"
+    #: The same API over TLS (RouterOS ``api-ssl`` on 8729).
+    API_SSL = "api-ssl"
+    SNMP = "snmp"
+    FTP = "ftp"
+    TFTP = "tftp"
+    WINBOX = "winbox"  # MikroTik Winbox over IP (TCP 8291)
+    #: MikroTik MAC server: telnet and Winbox over layer 2, reachable without an IP address.
+    MAC_TELNET = "mac-telnet"
+    MAC_WINBOX = "mac-winbox"
+    ROMON = "romon"  # MikroTik RoMON: layer-2 relay to other routers
+    TR064 = "tr-064"  # Fritz!Box configuration API (SOAP)
+    UPNP = "upnp"  # UPnP IGD control (port forwards opened by any client)
+    #: The vendor's own configuration protocol (NETGEAR NSDP, TP-Link Easy Smart UDP).
+    VENDOR = "vendor"
+    OTHER = "other"
+
+
+class ServiceTransport(StrEnum):
+    TCP = "tcp"
+    UDP = "udp"
+    #: Ethernet frames, not routed: reachable only in a layer-2 network of the device.
+    LAYER2 = "layer2"
+
+
+#: Whether a kind of service encrypts by itself (``None``: depends on the device or version).
+SERVICE_ENCRYPTED: dict[ServiceKind, bool | None] = {
+    ServiceKind.SSH: True,
+    ServiceKind.TELNET: False,
+    ServiceKind.HTTP: False,
+    ServiceKind.HTTPS: True,
+    ServiceKind.API: False,
+    ServiceKind.API_SSL: True,
+    ServiceKind.SNMP: False,  # v1/v2c; v3 with privacy: see ManagementService
+    ServiceKind.FTP: False,
+    ServiceKind.TFTP: False,
+    ServiceKind.WINBOX: True,  # encrypted since RouterOS 6.43
+    ServiceKind.MAC_TELNET: False,
+    ServiceKind.MAC_WINBOX: True,
+    ServiceKind.ROMON: None,  # a relay: as encrypted as what runs through it
+    ServiceKind.TR064: None,  # HTTP on 49000 and HTTPS on 49443
+    ServiceKind.UPNP: False,
+    ServiceKind.VENDOR: False,
+    ServiceKind.OTHER: None,
+}
+
+#: Transport of a kind of service (absent: not fixed by the kind).
+SERVICE_TRANSPORT: dict[ServiceKind, ServiceTransport] = {
+    ServiceKind.SNMP: ServiceTransport.UDP,
+    ServiceKind.TFTP: ServiceTransport.UDP,
+    ServiceKind.VENDOR: ServiceTransport.UDP,
+    ServiceKind.MAC_TELNET: ServiceTransport.LAYER2,
+    ServiceKind.MAC_WINBOX: ServiceTransport.LAYER2,
+    ServiceKind.ROMON: ServiceTransport.LAYER2,
+    **dict.fromkeys(
+        (
+            ServiceKind.SSH,
+            ServiceKind.TELNET,
+            ServiceKind.HTTP,
+            ServiceKind.HTTPS,
+            ServiceKind.API,
+            ServiceKind.API_SSL,
+            ServiceKind.FTP,
+            ServiceKind.WINBOX,
+            ServiceKind.TR064,
+        ),
+        ServiceTransport.TCP,
+    ),
+}
+
+#: Usual port of a kind of service, for adapters that know a service is on but not its port.
+SERVICE_PORTS: dict[ServiceKind, int] = {
+    ServiceKind.SSH: 22,
+    ServiceKind.TELNET: 23,
+    ServiceKind.HTTP: 80,
+    ServiceKind.HTTPS: 443,
+    ServiceKind.API: 8728,
+    ServiceKind.API_SSL: 8729,
+    ServiceKind.SNMP: 161,
+    ServiceKind.FTP: 21,
+    ServiceKind.TFTP: 69,
+    ServiceKind.WINBOX: 8291,
+    ServiceKind.TR064: 49000,
+}
+
+
+#: Names for findings and the UI.
+SERVICE_LABELS: dict[ServiceKind, str] = {
+    ServiceKind.SSH: "SSH",
+    ServiceKind.TELNET: "Telnet",
+    ServiceKind.HTTP: "HTTP",
+    ServiceKind.HTTPS: "HTTPS",
+    ServiceKind.API: "API",
+    ServiceKind.API_SSL: "API (TLS)",
+    ServiceKind.SNMP: "SNMP",
+    ServiceKind.FTP: "FTP",
+    ServiceKind.TFTP: "TFTP",
+    ServiceKind.WINBOX: "Winbox",
+    ServiceKind.MAC_TELNET: "MAC telnet",
+    ServiceKind.MAC_WINBOX: "MAC Winbox",
+    ServiceKind.ROMON: "RoMON",
+    ServiceKind.TR064: "TR-064",
+    ServiceKind.UPNP: "UPnP",
+    ServiceKind.VENDOR: "configuration protocol",
+    ServiceKind.OTHER: "service",
+}
+
+
+class SnmpVersion(StrEnum):
+    V1 = "1"
+    V2C = "2c"
+    V3 = "3"
+
+
+class SnmpSettings(Model):
+    """SNMP details of a :class:`ManagementService` of kind ``snmp``.
+
+    Community strings and SNMPv3 passwords are secrets and never enter the model; only whether
+    a factory default is in use.
+    """
+
+    #: Versions the agent answers (empty: not reported).
+    versions: list[SnmpVersion] = Field(default_factory=list)
+    #: A community named ``public`` or ``private`` (the factory defaults) is configured.
+    default_community: bool | None = None
+    #: SNMPv3 requires privacy (``authPriv``): the traffic is encrypted.
+    v3_privacy: bool | None = None
+    #: Some community or user may write (``set``), not only read.
+    write_access: bool | None = None
+
+    @field_validator("versions")
+    @classmethod
+    def _sorted_versions(cls, value: list[SnmpVersion]) -> list[SnmpVersion]:
+        order = list(SnmpVersion)
+        return sorted(set(value), key=order.index)
+
+
+_UNSPECIFIED = (IPv4Address("0.0.0.0"), IPv6Address("::"))
+#: Address space that is never reached from the internet: RFC 1918, CGNAT, link-local,
+#: loopback, IPv6 unique local and link-local. Documentation prefixes count as public, as in
+#: :func:`address_nat_class`.
+_NOT_FROM_INTERNET: tuple[IPNetwork, ...] = (
+    *_RFC1918,
+    _CGNAT,
+    IPv4Network("169.254.0.0/16"),
+    IPv4Network("127.0.0.0/8"),
+    IPv6Network("fc00::/7"),
+    IPv6Network("fe80::/10"),
+    IPv6Network("::1/128"),
+)
+
+
+def internet_reachable_network(net: IPNetwork) -> bool:
+    """True when *net* holds addresses the internet can come from (not private space only)."""
+    return not any(net.version == p.version and net.subnet_of(p) for p in _NOT_FROM_INTERNET)  # type: ignore[arg-type]
+
+
+class ManagementService(Observed):
+    """A management service a device offers (#173), ``object_id(device, "service", <key>)``.
+
+    One object per service the device has, enabled or not: an integration that reads services
+    reports every one it knows, so an empty list means "not read", never "none". Read with the
+    ``interfaces`` capability (no API version needed).
+
+    Where it listens: ``listen`` (addresses), ``interfaces`` (ports) and ``segments``
+    (networks) are restrictions the device itself applies; all empty means every address on
+    every interface. ``allowed_from`` is the service's own address filter (MikroTik
+    ``address``), not the firewall: Signalbox cannot see firewall rules yet (#135), so
+    :meth:`Network.service_segments` and :meth:`Network.service_from_wan` answer from these
+    fields only.
+    """
+
+    device_id: str
+    kind: ServiceKind
+    #: The device's own name of the service (``www-ssl``, ``dropbear``, ``remote-access``).
+    name: str | None = None
+    enabled: bool
+    port: Annotated[int, Field(ge=1, le=65535)] | None = None
+    #: Filled from ``kind`` when not reported (:data:`SERVICE_TRANSPORT`).
+    transport: ServiceTransport | None = None
+    #: Traffic is encrypted. Filled from ``kind`` when not reported (:data:`SERVICE_ENCRYPTED`;
+    #: SNMP that answers only v3 with privacy counts as encrypted).
+    encrypted: bool | None = None
+    #: Addresses it listens on (empty: all; ``0.0.0.0`` or ``::``: all of that family).
+    listen: list[IPAddress] = Field(default_factory=list)
+    #: Ports it is bound to (``<device>/port/<name>``; empty: all). MikroTik MAC server
+    #: interface lists, OpenWrt ``DirectInterface``.
+    interfaces: list[str] = Field(default_factory=list)
+    #: Networks the device offers it in (``<site>/segment/<vlan>``; empty: all). OpenWrt
+    #: ``Interface``, OPNsense listen interfaces, mapped to their segments by the adapter.
+    segments: list[str] = Field(default_factory=list)
+    #: Source networks the service itself accepts (empty: any).
+    allowed_from: list[IPNetwork] = Field(default_factory=list)
+    #: The device itself says the service is reachable from the internet (Fritz!Box remote
+    #: access, FTP from the internet) or is not. ``None``: it does not say; see
+    #: :meth:`Network.service_from_wan`.
+    from_wan: bool | None = None
+    #: Password logins accepted (SSH ``PasswordAuth``; ``False``: keys only).
+    password_login: bool | None = None
+    #: Root (or ``admin``) may log in at all.
+    root_login: bool | None = None
+    #: Root may log in with a password (OpenWrt ``RootPasswordAuth``, OPNsense
+    #: ``permitrootlogin`` with ``passwordauth``).
+    root_password_login: bool | None = None
+    #: Plain HTTP only redirects to HTTPS (OpenWrt ``redirect_https``, OPNsense without
+    #: ``disablehttpredirect``).
+    redirects_to_https: bool | None = None
+    snmp: SnmpSettings | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _defaults_from_kind(cls, data: Any) -> Any:
+        if not isinstance(data, dict) or "kind" not in data:
+            return data
+        try:
+            kind = ServiceKind(data["kind"])
+        except ValueError:
+            return data  # field validation reports it
+        out = dict(data)
+        if out.get("transport") is None and kind in SERVICE_TRANSPORT:
+            out["transport"] = SERVICE_TRANSPORT[kind]
+        if out.get("encrypted") is None:
+            encrypted = SERVICE_ENCRYPTED[kind]
+            snmp = out.get("snmp")
+            if isinstance(snmp, dict):
+                snmp = SnmpSettings.model_validate(snmp)
+            if (
+                kind is ServiceKind.SNMP
+                and isinstance(snmp, SnmpSettings)
+                and snmp.versions == [SnmpVersion.V3]
+                and snmp.v3_privacy
+            ):
+                encrypted = True
+            out["encrypted"] = encrypted
+        return out
+
+    def label(self) -> str:
+        """``SSH``, ``HTTPS (remote-access)``: for findings and the UI."""
+        text = SERVICE_LABELS[self.kind]
+        if self.name and self.name.lower() not in (self.kind.value, text.lower()):
+            return f"{text} ({self.name})"
+        return text
+
+    def unrestricted(self) -> bool:
+        """Listens everywhere and accepts any source (as far as the device itself says)."""
+        return not (self.listen_restricted() or self.allowed_from)
+
+    def listen_restricted(self) -> bool:
+        specific = [a for a in self.listen if a not in _UNSPECIFIED]
+        return bool(specific or self.interfaces or self.segments)
+
+    def accepts_from(self, address: IPAddress) -> bool:
+        """The service's own filter lets *address* in (no ``allowed_from``: everyone)."""
+        return not self.allowed_from or any(
+            address.version == n.version and address in n for n in self.allowed_from
+        )
+
+    def plaintext(self) -> bool:
+        """Enabled and unencrypted; plain HTTP that only redirects to HTTPS does not count."""
+        if not self.enabled or self.encrypted is not False:
+            return False
+        return not (self.kind is ServiceKind.HTTP and self.redirects_to_https)
+
+    def allows_root_password(self) -> bool | None:
+        """Root may log in with a password (``None``: not known)."""
+        if self.root_login is False or self.password_login is False:
+            return False
+        if self.root_password_login is not None:
+            return self.root_password_login
+        if self.root_login and self.password_login:
+            return True
         return None
 
 
@@ -1000,6 +1288,8 @@ class Snapshot(Model):
     subnets: list[Subnet] = Field(default_factory=list)
     #: WAN connections of a gateway (#148; part of ``interfaces``).
     uplinks: list[Uplink] = Field(default_factory=list)
+    #: Management services of the devices (#173; part of ``interfaces``).
+    services: list[ManagementService] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)
@@ -1025,6 +1315,8 @@ class Network(Model):
     subnets: list[Subnet] = Field(default_factory=list)
     #: WAN connections of a gateway (#148; part of ``interfaces``).
     uplinks: list[Uplink] = Field(default_factory=list)
+    #: Management services of the devices (#173; part of ``interfaces``).
+    services: list[ManagementService] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)
@@ -1147,6 +1439,104 @@ class Network(Model):
                 continue
             if any(a.ip in sub.interface.network for a in uplink.addresses):
                 return sub
+        return None
+
+    def services_of(self, device_id: str) -> list[ManagementService]:
+        return [s for s in self.services if s.device_id == device_id]
+
+    def service_segments(self, service: ManagementService) -> list[str]:
+        """Segments whose devices can reach the service, as far as the device itself says (#173).
+
+        Without firewall data (#135) this is an upper bound: a firewall rule may still block a
+        segment listed here, but a segment left out cannot reach the service through any of
+        the device's addresses. Candidates are the segments of the device's own subnets and
+        the one holding its management address (for a layer-2 service: the segments its ports
+        are members of). The device's restrictions narrow them: ``segments`` as reported,
+        ``listen`` to the segments whose subnet holds a listen address, ``interfaces`` to the
+        segments of those ports; then ``allowed_from`` drops segments none of whose known
+        subnets overlaps an allowed network (a segment without a known subnet is kept).
+        A disabled service has none.
+        """
+        if not service.enabled:
+            return []
+        dev = service.device_id
+        member_of = {
+            s.id: {m.port_id for m in s.members}
+            for s in self.segments
+            if any(m.port_id.startswith(f"{dev}/port/") for m in s.members)
+        }
+        nets: dict[str, list[IPNetwork]] = {}
+        for sub in self.subnets:
+            nets.setdefault(sub.segment_id, []).append(sub.interface.network)
+        if service.transport is ServiceTransport.LAYER2:
+            found = set(member_of)
+        else:
+            found = {s.segment_id for s in self.subnets if s.device_id == dev}
+            device = self.device(dev)
+            try:
+                mgmt = ip_address((device.management_address or "").strip("[]")) if device else None
+            except ValueError:
+                mgmt = None
+            if mgmt is not None:
+                found |= {sid for sid, ns in nets.items() if any(mgmt in n for n in ns)}
+        if service.segments:
+            found = set(service.segments)
+        specific = [a for a in service.listen if a not in _UNSPECIFIED]
+        if specific:
+            found &= {
+                sid
+                for sid, ns in nets.items()
+                if any(a.version == n.version and a in n for a in specific for n in ns)
+            }
+        if service.interfaces:
+            wanted = set(service.interfaces)
+            found &= {sid for sid, ports in member_of.items() if ports & wanted}
+        if service.allowed_from and service.transport is not ServiceTransport.LAYER2:
+            found = {
+                sid
+                for sid in found
+                if sid not in nets
+                or any(
+                    n.version == a.version and n.overlaps(a)
+                    for n in nets[sid]
+                    for a in service.allowed_from
+                )
+            }
+        return sorted(found)
+
+    def service_from_wan(self, service: ManagementService) -> bool | None:
+        """Whether the service can be reached from the internet (#173, #123).
+
+        The device's own answer (``from_wan``) wins. Otherwise: ``False`` when it is disabled,
+        when the device has no uplink (port forwards to it are #135), when it is bound to
+        addresses, ports or segments that are not the uplink's, when it is a layer-2 service
+        bound to other ports (where the uplink's port is known), or when ``allowed_from``
+        holds private address space only.
+        ``None`` in every other case: it listens on the uplink and only the firewall, which
+        Signalbox does not read yet (#135), decides.
+        """
+        if not service.enabled:
+            return False
+        if service.from_wan is not None:
+            return service.from_wan
+        uplinks = self.uplinks_of(service.device_id)
+        if not uplinks:
+            return False
+        if service.allowed_from and not any(
+            internet_reachable_network(n) for n in service.allowed_from
+        ):
+            return False
+        uplink_ports = {u.port_id for u in uplinks if u.port_id}
+        if service.interfaces and uplink_ports and not (set(service.interfaces) & uplink_ports):
+            return False
+        if service.transport is ServiceTransport.LAYER2:
+            return None if service.interfaces or not service.segments else False
+        if service.segments:
+            return False
+        specific = [a for a in service.listen if a not in _UNSPECIFIED]
+        own = {a.ip for u in uplinks for a in u.addresses}
+        if specific and not (set(specific) & own):
+            return False
         return None
 
     def uplink_at(self, port_id: str) -> Uplink | None:

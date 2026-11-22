@@ -221,7 +221,25 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(app.get_by_test_id("uplink-addresses")).to_contain_text("2001:db8:100::/56 (delegated)")
     expect(app.get_by_text("203.0.113.23/32")).to_be_visible()
 
+    # management services (#173): where they listen, who reaches them, what is insecure
+    card = app.get_by_test_id("device-management")
+    expect(card).to_contain_text("Signalbox reads it")
+    expect(card.get_by_test_id("service")).to_have_count(5)  # telnet is off
+    rows = card.get_by_test_id("service-summary")
+    ssh = rows.filter(has_text="port 22")
+    expect(ssh).to_contain_text("only from 192.0.2.0/24 · reachable from VLAN 10 (Office)")
+    expect(ssh).not_to_contain_text("Guests")
+    expect(ssh).to_contain_text("internet: the firewall decides")
+    expect(rows.filter(has_text="port 80")).to_contain_text("redirects to HTTPS")
+    expect(rows.filter(has_text="port 443")).to_contain_text("on VLAN 10 (Office)")
+    expect(card.get_by_test_id("service-plaintext")).to_have_count(1)  # SNMP v2c
+    expect(card.get_by_test_id("service-internet")).to_have_count(1)  # remote HTTPS
+    expect(card.get_by_test_id("service-root-password")).to_have_count(1)
+    expect(card).to_contain_text("default community")
+    expect(card).to_contain_text("off")
+
     go(app, "#/device/router/advanced")
+    expect(app.get_by_test_id("raw-services")).to_contain_text("services (6)")
     expect(app.get_by_test_id("raw-uplinks")).to_contain_text("uplinks (1)")
     expect(app.get_by_test_id("raw-port")).to_have_count(3)
     expect(app.get_by_test_id("raw-port-table")).to_contain_text('"led":"green"')

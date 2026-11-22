@@ -38,6 +38,7 @@ from signalbox.model import (
     DhcpServer,
     DnsService,
     Firmware,
+    ManagementService,
     Neighbour,
     Observed,
     Port,
@@ -57,7 +58,7 @@ API_VERSION = "1.2"
 
 
 class Capability(StrEnum):
-    INTERFACES = "interfaces"  # ports, segments (VLANs), subnets and uplinks
+    INTERFACES = "interfaces"  # ports, segments (VLANs), subnets, uplinks, management services
     DHCP = "dhcp"
     DNS = "dns"
     WIRELESS = "wireless"  # radios and WLANs
@@ -213,6 +214,9 @@ class SystemInfo(BaseModel):
     model: str | None = None
     firmware: Firmware | None = None
     management_address: str | None = None
+    #: Whether the adapter reads the device encrypted (#173): ``False`` for NSDP, Easy Smart
+    #: UDP or plain HTTP (``allow_insecure_http``). Copied to ``Device.transport_encrypted``.
+    transport_encrypted: bool | None = None
     #: Vendor fields of the device itself (MAC, serial, protocol details); shown on the
     #: device's advanced tab only, never read by rules.
     vendor_extra: dict[str, JsonValue] = Field(default_factory=dict)
@@ -228,6 +232,9 @@ class Observation(BaseModel):
     subnets: list[Subnet] = Field(default_factory=list)
     #: WAN connections of a gateway (#148), read with ``interfaces``; no API version needed.
     uplinks: list[Uplink] = Field(default_factory=list)
+    #: Management services (#173), read with ``interfaces``; no API version needed. Report
+    #: every service the device has, disabled ones too, or none (not read).
+    services: list[ManagementService] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)

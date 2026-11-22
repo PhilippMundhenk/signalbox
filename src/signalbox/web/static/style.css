@@ -117,6 +117,7 @@ pre.json { overflow: auto; max-height: 420px; background: var(--surface-2); padd
 code.extra { white-space: pre-wrap; word-break: break-all; }
 details.raw summary, details.rule summary, details.addresses summary { cursor: pointer; }
 details.addresses ul { margin: 4px 0 0; padding-left: 18px; }
+.service .tag { margin-left: 6px; }
 details.raw { padding: 12px 18px; }
 .fingerprint { word-break: break-all; font-size: 1rem; letter-spacing: .02em; background: var(--surface); padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); }
 

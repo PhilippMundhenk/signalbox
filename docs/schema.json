@@ -492,6 +492,18 @@
           ],
           "default": null
         },
+        "transport_encrypted": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transport Encrypted"
+        },
         "vendor": {
           "anyOf": [
             {
@@ -1348,6 +1360,232 @@
       "title": "LinkOrigin",
       "type": "string"
     },
+    "ManagementService": {
+      "additionalProperties": false,
+      "description": "A management service a device offers (#173), ``object_id(device, \"service\", <key>)``.\n\nOne object per service the device has, enabled or not: an integration that reads services\nreports every one it knows, so an empty list means \"not read\", never \"none\". Read with the\n``interfaces`` capability (no API version needed).\n\nWhere it listens: ``listen`` (addresses), ``interfaces`` (ports) and ``segments``\n(networks) are restrictions the device itself applies; all empty means every address on\nevery interface. ``allowed_from`` is the service's own address filter (MikroTik\n``address``), not the firewall: Signalbox cannot see firewall rules yet (#135), so\n:meth:`Network.service_segments` and :meth:`Network.service_from_wan` answer from these\nfields only.",
+      "properties": {
+        "allowed_from": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Allowed From",
+          "type": "array"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "encrypted": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Encrypted"
+        },
+        "from_wan": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Wan"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "interfaces": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Interfaces",
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ServiceKind"
+        },
+        "listen": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Listen",
+          "type": "array"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "password_login": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password Login"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port"
+        },
+        "redirects_to_https": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redirects To Https"
+        },
+        "root_login": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Root Login"
+        },
+        "root_password_login": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Root Password Login"
+        },
+        "segments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "snmp": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SnmpSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "transport": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServiceTransport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "kind",
+        "enabled"
+      ],
+      "title": "ManagementService",
+      "type": "object"
+    },
     "Membership": {
       "enum": [
         "untagged",
@@ -1534,6 +1772,13 @@
             "$ref": "#/$defs/Segment"
           },
           "title": "Segments",
+          "type": "array"
+        },
+        "services": {
+          "items": {
+            "$ref": "#/$defs/ManagementService"
+          },
+          "title": "Services",
           "type": "array"
         },
         "sites": {
@@ -2454,6 +2699,39 @@
       "title": "SegmentPurpose",
       "type": "string"
     },
+    "ServiceKind": {
+      "description": "A way to manage (log in to, configure, query) a device (#173).",
+      "enum": [
+        "ssh",
+        "telnet",
+        "http",
+        "https",
+        "api",
+        "api-ssl",
+        "snmp",
+        "ftp",
+        "tftp",
+        "winbox",
+        "mac-telnet",
+        "mac-winbox",
+        "romon",
+        "tr-064",
+        "upnp",
+        "vendor",
+        "other"
+      ],
+      "title": "ServiceKind",
+      "type": "string"
+    },
+    "ServiceTransport": {
+      "enum": [
+        "tcp",
+        "udp",
+        "layer2"
+      ],
+      "title": "ServiceTransport",
+      "type": "string"
+    },
     "Site": {
       "additionalProperties": false,
       "properties": {
@@ -2555,6 +2833,13 @@
           "title": "Segments",
           "type": "array"
         },
+        "services": {
+          "items": {
+            "$ref": "#/$defs/ManagementService"
+          },
+          "title": "Services",
+          "type": "array"
+        },
         "status": {
           "$ref": "#/$defs/DeviceStatus",
           "default": "ok"
@@ -2587,6 +2872,66 @@
       ],
       "title": "Snapshot",
       "type": "object"
+    },
+    "SnmpSettings": {
+      "additionalProperties": false,
+      "description": "SNMP details of a :class:`ManagementService` of kind ``snmp``.\n\nCommunity strings and SNMPv3 passwords are secrets and never enter the model; only whether\na factory default is in use.",
+      "properties": {
+        "default_community": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Community"
+        },
+        "v3_privacy": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "V3 Privacy"
+        },
+        "versions": {
+          "items": {
+            "$ref": "#/$defs/SnmpVersion"
+          },
+          "title": "Versions",
+          "type": "array"
+        },
+        "write_access": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Write Access"
+        }
+      },
+      "title": "SnmpSettings",
+      "type": "object"
+    },
+    "SnmpVersion": {
+      "enum": [
+        "1",
+        "2c",
+        "3"
+      ],
+      "title": "SnmpVersion",
+      "type": "string"
     },
     "Source": {
       "additionalProperties": false,
