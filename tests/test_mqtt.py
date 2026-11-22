@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from pydantic import SecretStr
 
-from factories import SITE, device, port, snapshot
+from factories import SITE, MiB, device, health, port, snapshot
 from signalbox.config import MqttConfig
 from signalbox.merge import merge
 from signalbox.model import Client, DeviceRole, DeviceStatus, Firmware, Network, Site
@@ -92,6 +92,25 @@ def test_discovery_configs() -> None:
     )
     states = d.states(net(), FINDINGS)
     assert states["sb/device/ap/state"]["clients"] == 1
+
+
+def test_health_sensors_only_where_reported() -> None:
+    gw = snapshot(
+        device("gw", health=health(memory_used_bytes=64 * MiB, cpu_load_pct=None)),
+    )
+    bare = snapshot(device("ap", DeviceRole.AP))
+    n = merge([SITE], [gw, bare])
+    state = device_state(n, [], "gw")
+    assert state["uptime"] == 3 * 86400 and state["memory_used"] == 25.0
+    assert state["temperature"] == 52.0 and "cpu_load" not in state
+    assert "uptime" not in device_state(n, [], "ap")
+    configs = Discovery(MqttConfig()).configs(n)
+    temp = configs["homeassistant/sensor/device_gw/temperature/config"]
+    assert temp["unit_of_measurement"] == "°C" and temp["device_class"] == "temperature"
+    assert temp["value_template"] == "{{ value_json.temperature }}"
+    assert "device_class" not in configs["homeassistant/sensor/device_gw/memory_used/config"]
+    assert "homeassistant/sensor/device_gw/cpu_load/config" not in configs
+    assert not [t for t in configs if "device_ap/uptime" in t]
 
 
 class FakeInfo:

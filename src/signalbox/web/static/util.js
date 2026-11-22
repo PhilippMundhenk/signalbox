@@ -83,3 +83,27 @@ export function sleep(ms) {
 export function by(key) {
   return (a, b) => String(key(a)).localeCompare(String(key(b)), undefined, { numeric: true });
 }
+
+export function fmtBytes(n) {
+  if (n === null || n === undefined) return '–';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let v = Number(n);
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${i ? v.toFixed(v < 10 ? 1 : 0) : v} ${units[i]}`;
+}
+
+export function fmtDuration(seconds) {
+  if (seconds === null || seconds === undefined) return '–';
+  const s = Math.max(0, Math.round(Number(seconds)));
+  const d = Math.floor(s / 86400);
+  const hrs = Math.floor((s % 86400) / 3600);
+  const min = Math.floor((s % 3600) / 60);
+  if (d) return `${d} d ${hrs} h`;
+  if (hrs) return `${hrs} h ${min} min`;
+  if (min) return `${min} min`;
+  return `${s} s`;
+}

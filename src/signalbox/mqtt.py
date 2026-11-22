@@ -4,7 +4,8 @@ Active when ``mqtt.enabled`` is true. Every observation round publishes:
 
 - ``<prefix>/status``: ``online`` / ``offline`` (last will), availability of everything
 - ``<prefix>/site/<site>/state``: findings per severity for one site
-- ``<prefix>/device/<device>/state``: status, firmware, clients and findings of one device
+- ``<prefix>/device/<device>/state``: status, firmware, clients and findings of one device, and
+  its health (uptime, CPU, memory, temperature) where the device reports it
 
 Discovery messages make each site and each device a Home Assistant device with sensors.
 """
@@ -27,7 +28,7 @@ from paho.mqtt.enums import CallbackAPIVersion
 
 from signalbox import __version__
 from signalbox.config import MqttConfig
-from signalbox.model import DeviceStatus, Network
+from signalbox.model import Device, DeviceStatus, Network
 from signalbox.rules import Finding, Severity
 
 log = logging.getLogger(__name__)
@@ -58,6 +59,28 @@ def site_state(net: Network, findings: list[Finding], site_id: str) -> dict[str,
     }
 
 
+#: Health values published per device: key, name, unit, device class, icon.
+HEALTH_SENSORS: list[tuple[str, str, str, str | None, str]] = [
+    ("uptime", "Uptime", "s", "duration", "mdi:timer-outline"),
+    ("cpu_load", "CPU load", "%", None, "mdi:cpu-64-bit"),
+    ("memory_used", "Memory used", "%", None, "mdi:memory"),
+    ("temperature", "Temperature", "°C", "temperature", "mdi:thermometer"),
+]
+
+
+def health_values(dev: Device | None) -> dict[str, float | int | None]:
+    h = dev.health if dev else None
+    if h is None:
+        return {}
+    mem = h.memory_used_pct()
+    return {
+        "uptime": h.uptime_seconds,
+        "cpu_load": h.cpu_load_pct,
+        "memory_used": round(mem, 1) if mem is not None else None,
+        "temperature": h.max_temperature_c(),
+    }
+
+
 def device_state(net: Network, findings: list[Finding], device_id: str) -> dict[str, Any]:
     dev = net.device(device_id)
     status = net.statuses.get(device_id, DeviceStatus.UNREACHABLE)
@@ -74,6 +97,7 @@ def device_state(net: Network, findings: list[Finding], device_id: str) -> dict[
         "firmware": (dev.firmware.current if dev and dev.firmware else None) or "unknown",
         "clients": len(clients),
         "findings": len(mine),
+        **{k: v for k, v in health_values(dev).items() if v is not None},
     }
 
 
@@ -217,6 +241,23 @@ class Discovery:
                     value_template=f"{{{{ value_json.{key} }}}}",
                     state_class="measurement",
                     icon=icon,
+                )
+            for key, name, unit, device_class, icon in HEALTH_SENSORS:
+                if health_values(dev).get(key) is None:
+                    continue
+                extra: dict[str, Any] = {"device_class": device_class} if device_class else {}
+                out[f"{self.discovery}/sensor/{node}/{key}/config"] = self._entity(
+                    node,
+                    key,
+                    name,
+                    topic,
+                    device,
+                    value_template=f"{{{{ value_json.{key} }}}}",
+                    unit_of_measurement=unit,
+                    state_class="measurement",
+                    entity_category="diagnostic",
+                    icon=icon,
+                    **extra,
                 )
         return out
 

@@ -104,6 +104,152 @@ class Firmware(Model):
     end_of_life: bool | None = None
 
 
+Percent = Annotated[float, Field(ge=0, le=100)]
+Bytes = Annotated[int, Field(ge=0)]
+
+
+class RebootReason(StrEnum):
+    POWER = "power"
+    WATCHDOG = "watchdog"
+    USER = "user"
+    UPGRADE = "upgrade"
+    CRASH = "crash"
+    OTHER = "other"
+
+
+class StorageKind(StrEnum):
+    #: Where the configuration and firmware live (root, overlay, flash): full means settings
+    #: and updates fail.
+    SYSTEM = "system"
+    DATA = "data"  # disks for logs, packages, user data
+    #: RAM-backed (tmpfs): counted as memory, not as storage that fills up permanently.
+    TEMPORARY = "temporary"
+    OTHER = "other"
+
+
+class StorageUsage(Model):
+    #: Mount point or the device's own name for the store (``/overlay``, ``flash``).
+    name: str
+    kind: StorageKind = StorageKind.OTHER
+    total_bytes: Bytes | None = None
+    used_bytes: Bytes | None = None
+    #: Wear of SSD/eMMC/flash as reported by the device (100: end of its rated life).
+    wear_pct: Percent | None = None
+
+    def used_pct(self) -> float | None:
+        if not self.total_bytes or self.used_bytes is None:
+            return None
+        return 100 * self.used_bytes / self.total_bytes
+
+
+class TemperatureSensor(Model):
+    name: str
+    value_c: float
+    #: The device's own warning limit, where it reports one.
+    limit_c: float | None = None
+
+
+class Fan(Model):
+    name: str
+    rpm: Annotated[int, Field(ge=0)] | None = None
+    #: The device's verdict (``None``: it reports no state).
+    ok: bool | None = None
+
+
+class PowerSupply(Model):
+    name: str
+    ok: bool | None = None
+    watts: Annotated[float, Field(ge=0)] | None = None
+    input_voltage: float | None = None
+
+
+class UpsStatus(Model):
+    """A UPS monitored by the device (NUT on OPNsense, ``/system/ups`` on MikroTik)."""
+
+    name: str
+    on_battery: bool | None = None
+    charge_pct: Percent | None = None
+    runtime_seconds: Annotated[int, Field(ge=0)] | None = None
+    load_pct: Percent | None = None
+    #: When the UPS last ran a self-test.
+    last_test: datetime | None = None
+
+
+class DeviceHealth(Model):
+    """Vital signs of a device at observation time (capability ``health``).
+
+    Every value is optional: devices report very different subsets. Values change on every
+    observation; rules compare them with thresholds and the history, never as drift.
+    """
+
+    uptime_seconds: Annotated[int, Field(ge=0)] | None = None
+    #: Derived from the uptime by ``Adapter.observe()`` when the device reports only one of them.
+    boot_time: datetime | None = None
+    last_reboot_reason: RebootReason | None = None
+    #: CPU use over all cores, as the device reports it (usually the last few seconds).
+    cpu_load_pct: Percent | None = None
+    #: 1, 5 and 15 minute load averages (Unix-like devices).
+    load_average: tuple[float, float, float] | None = None
+    cpu_count: Annotated[int, Field(ge=1)] | None = None
+    memory_total_bytes: Bytes | None = None
+    #: Memory in use by programs: page cache and buffers do not count (total minus available).
+    memory_used_bytes: Bytes | None = None
+    storage: list[StorageUsage] = Field(default_factory=list)
+    temperatures: list[TemperatureSensor] = Field(default_factory=list)
+    fans: list[Fan] = Field(default_factory=list)
+    power_supplies: list[PowerSupply] = Field(default_factory=list)
+    ups: list[UpsStatus] = Field(default_factory=list)
+
+    def memory_used_pct(self) -> float | None:
+        if not self.memory_total_bytes or self.memory_used_bytes is None:
+            return None
+        return 100 * self.memory_used_bytes / self.memory_total_bytes
+
+    def max_temperature_c(self) -> float | None:
+        return max((t.value_c for t in self.temperatures), default=None)
+
+
+class NtpClient(Model):
+    enabled: bool
+    #: Configured servers, names or addresses, in the device's order.
+    servers: list[str] = Field(default_factory=list)
+    synchronised: bool | None = None
+    last_sync: datetime | None = None
+    stratum: Annotated[int, Field(ge=0, le=16)] | None = None
+    #: The server the device currently synchronises with, where it says.
+    current_server: str | None = None
+
+
+class NtpServer(Model):
+    enabled: bool
+    #: Segments where the device serves time (empty while enabled: all of its networks).
+    segments: list[str] = Field(default_factory=list)
+
+
+class DeviceTime(Model):
+    """Clock, time zone and NTP of a device (capability ``time``).
+
+    ``clock`` is the device's time when it was read and ``read_at`` Signalbox's own time at that
+    moment, so :meth:`offset_seconds` is the device's clock error, give or take
+    ``uncertainty_seconds`` (half the request's round trip).
+    """
+
+    clock: datetime | None = None
+    read_at: datetime | None = None
+    uncertainty_seconds: Annotated[float, Field(ge=0)] | None = None
+    #: IANA name (``Europe/Berlin``) where the device has one, else its POSIX TZ string.
+    timezone: str | None = None
+    utc_offset_minutes: Annotated[int, Field(ge=-1080, le=1080)] | None = None
+    ntp_client: NtpClient | None = None
+    ntp_server: NtpServer | None = None
+
+    def offset_seconds(self) -> float | None:
+        """Device clock minus Signalbox's clock (positive: the device is ahead)."""
+        if self.clock is None or self.read_at is None:
+            return None
+        return (self.clock - self.read_at).total_seconds()
+
+
 class Device(Observed):
     site_id: str
     name: str
@@ -116,6 +262,10 @@ class Device(Observed):
     capabilities: list[str] = Field(default_factory=list)
     #: Set for a device reported through a controller (the configured device that observed it).
     managed_by: str | None = None
+    #: Uptime, CPU, memory, storage, sensors (API 1.2, capability ``health``).
+    health: DeviceHealth | None = None
+    #: Clock, time zone, NTP (API 1.2, capability ``time``).
+    time: DeviceTime | None = None
 
 
 class PortKind(StrEnum):
@@ -224,6 +374,8 @@ class DhcpServer(Observed):
     dns_servers: list[IPAddress] = Field(default_factory=list)
     domain: str | None = None
     reservations: list[Reservation] = Field(default_factory=list)
+    #: NTP servers handed out (DHCP option 42; API 1.2).
+    ntp_servers: list[IPAddress] = Field(default_factory=list)
 
 
 class HostRecord(Model):

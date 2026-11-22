@@ -82,18 +82,32 @@ carries its source (adapter and device), the time it was observed and a stable i
 | Object | Contents |
 | --- | --- |
 | Site | One network domain; a second location over a VPN is a second site |
-| Device | Vendor, model, firmware, role (`gateway`, `switch`, `ap`, `other`), management address, adapter, capabilities |
+| Device | Vendor, model, firmware, role (`gateway`, `switch`, `ap`, `other`), management address, adapter, capabilities, health, time |
 | Port | Physical or logical port, link state, speed, PoE, LAG membership, neighbour (LLDP where available) |
 | Link | A cable or wireless uplink between two ports; observed (LLDP, MAC tables) or entered by hand |
 | Segment | Layer-2 network: VLAN id, name, purpose and its source, isolated by the device; membership per port `untagged` / `tagged` / `none` |
 | Subnet | Prefix, gateway address, segment, IPv4/IPv6 |
-| DhcpServer | Device, segment, enabled, pool, lease time, options, static reservations |
+| DhcpServer | Device, segment, enabled, pool, lease time, options (router, DNS, NTP), static reservations |
 | DnsService | Resolver, host overrides, forwarders, split-DNS domains |
 | Wlan | SSID, security (WPA2/WPA3, PMF), passphrase reference, segment, bands, hidden, roaming (802.11r/k/v), purpose and its source, client isolation |
 | Radio | Band, channel, width, transmit power, country code |
 | Firewall | Zones, rules, NAT; read-only at first |
 | Client | MAC, IP, hostname, segment, where it was seen (port or access point), last seen |
 | Firmware | Current, available, end of life |
+| DeviceHealth | Uptime and boot time, last restart reason, CPU load and load average, memory, storage per mount (kind, wear), temperatures with limits, fans, power supplies, monitored UPS |
+| DeviceTime | Device clock and Signalbox's time when it was read (offset, uncertainty), time zone, NTP client (servers, synchronised, stratum), NTP server (segments it serves) |
+
+`Device.health` and `Device.time` (adapter API 1.2, capabilities `health` and `time`) are value
+objects on the device rather than objects with their own ids: there is one per device, it has no
+identity of its own and is read with the device, like `Firmware`. They are `None` when the
+device's integration has no such capability, and every value inside is optional because devices
+report very different subsets. Health values change on every observation: rules compare them
+with thresholds and the observation history, never as drift from a desired state. A UPS is
+reported by the device that monitors it (`DeviceHealth.ups`); a UPS with its own management
+interface would be a device of its own. Clock offsets are computed in core
+(`DeviceTime.offset_seconds()`) from the device's clock and Signalbox's time at the read, with
+half the round trip as error bound. The time zone reveals the region: it is shown in the UI but
+not exported to MQTT.
 
 Rules for the model:
 
