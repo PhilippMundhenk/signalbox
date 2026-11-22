@@ -537,6 +537,36 @@ async def test_prosafe_without_password_reads_but_does_not_change(nsdp: Start) -
 
 
 @needs_switchyard
+async def test_prosafe_old_firmware_refuses_the_identity_read(
+    nsdp: Start, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An old switch answers the full identity read with "incorrect password": the discovery
+    answer stands in, the ports are still read (#210)."""
+    from switchyard.nsdp import client as nsdp_client
+    from switchyard.nsdp import tags
+
+    async def refused(self: Any) -> dict[str, Any]:
+        raise nsdp_client.NsdpError(7, tags.SERIAL)
+
+    monkeypatch.setattr(nsdp_client.SwitchClient, "read_info", refused)
+    sim, port = await nsdp(netgear())
+    snap = await ProsafeAdapter(_context(ProsafeAdapter, port)).observe()
+    assert snap.status is DeviceStatus.OK, snap.errors
+    assert snap.device.model and snap.ports
+    assert sim.switches[0].failed_logins == 0
+
+
+def test_refused_setting_is_named() -> None:
+    from switchyard.drivers import base as errors
+    from switchyard.nsdp import client as nsdp_client
+    from switchyard.nsdp import tags
+
+    err = plus._translate(nsdp_client.NsdpError(7, tags.SERIAL), errors, "192.0.2.10")
+    assert "without a password" in str(err) and err.fix
+    assert repr(tags.NAMES[tags.SERIAL]) in str(err)
+
+
+@needs_switchyard
 async def test_easysmart_wrong_password_or_user(easysmart: Start) -> None:
     sim, port = await easysmart(tplink())
     snap = await EasySmartAdapter(es_context(port, password="wrong")).observe()

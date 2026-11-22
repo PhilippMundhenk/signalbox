@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import struct
 import time
 import weakref
@@ -65,6 +66,8 @@ INSTALL_HINT = (
 #: how long a password the switch refused is not sent again (NSDP locks after 3 failures
 #: for 30 minutes)
 REFUSED_FOR = 30 * 60.0
+
+log = logging.getLogger(__name__)
 
 
 def _address(value: str) -> str:
@@ -146,6 +149,18 @@ def _translate(exc: BaseException, errors: Any, address: str) -> AdapterError:
     if isinstance(exc, errors.Unreachable | TimeoutError):
         return Unreachable(f"{address}: the switch does not answer")
     if isinstance(exc, errors.SwitchError):
+        tag = getattr(exc, "tag", 0)
+        if tag and getattr(exc, "status", None) in (7, 9, 13, 14):  # NSDP "password" answers
+            from switchyard.nsdp import tags
+
+            name = tags.NAMES.get(tag, f"0x{tag:04x}")
+            return AdapterError(
+                f"{address}: the switch refuses to read the setting {name!r} without a "
+                f"password ({exc})",
+                fix="Older NETGEAR firmware protects some settings even for reading. Enter "
+                "the switch's management password in the device settings, or report the "
+                "model and firmware so the setting can be skipped.",
+            )
         return AdapterError(f"{address}: {exc}")
     return AdapterError(f"{address}: unexpected answer from the switch ({type(exc).__name__})")
 
@@ -163,6 +178,7 @@ class _PlusSwitch(Adapter):
     def __init__(self, context: AdapterContext) -> None:
         super().__init__(context)
         self._reading: _Reading | None = None
+        self._info: dict[str, Any] = {}  # the identity read of the current session
         self._errors: Any = None  # switchyard.drivers.base, once imported
 
     @property
@@ -401,6 +417,31 @@ class ProsafeAdapter(_PlusSwitch):
 
         return self._option("device_port", DEVICE_PORT)
 
+    async def _identify(self, client: Any, identity: Mapping[str, Any]) -> dict[str, Any]:
+        """The full identity read; if the switch refuses it (old firmware answers some
+        settings with "incorrect password" when read without one), the discovery answer."""
+        try:
+            info: dict[str, Any] = await client.read_info()
+            return info
+        except self._errors.SwitchError as exc:
+            from switchyard.nsdp.client import _ports_from_model
+
+            log.info("%s: identity read refused (%s); using the discovery answer", self._host, exc)
+            model = str(identity.get("model") or "")
+            client.model = model
+            client.ports = client.ports or _ports_from_model(model)
+            return {**identity, "ports": client.ports}
+
+    async def _read_all(self, client: Any) -> _Reading:
+        reading = _Reading(info=self._info)
+
+        async def vlan() -> Any:
+            return await self._read_vlan(client)
+
+        await self._read_rest(reading, client.read_ports, vlan, client.read_lag)
+        await self._read_admin(reading, client)
+        return reading
+
     async def _session(
         self, client_port: int, work: Callable[[Any], Awaitable[_T]], login: bool
     ) -> _T:
@@ -421,7 +462,7 @@ class ProsafeAdapter(_PlusSwitch):
             client = SwitchClient(transport, parse_mac(identity["mac"]), self._host)
             # like Switchyard: read the identity first; it tells the password scheme
             # (old firmware does not answer a lone password-scheme read reliably)
-            await client.read_info()
+            self._info = await self._identify(client, identity)
             if login:  # NSDP reads need no password, only changes do
                 if not self._password:
                     raise AuthFailed(
