@@ -1,4 +1,4 @@
-"""Simulator of the OPNsense REST API endpoints the ``opnsense`` adapter reads.
+"""Simulator of the OPNsense REST API endpoints the ``opnsense`` adapter reads and writes.
 
 The answers follow the JSON shapes in ``docs/adapters/opnsense.md`` (from the public API docs,
 not yet confirmed on a real device, issue #21). Sample network, documentation addresses only:
@@ -13,6 +13,16 @@ Failure switches on :class:`OpnsenseSimulator`: ``api_enabled=False`` (404 on ev
 ``delay`` (seconds before every answer), ``malformed`` (endpoints answering broken JSON),
 ``fail`` (a status code per endpoint);
 a wrong key or secret is answered with 401. ``data`` can be edited by tests.
+
+Writes (VLAN devices, interface assignments, Kea subnets and reservations, configuration
+history) change ``data``, so the read endpoints show the result: configuration endpoints at
+once, the interface overview after ``/api/interfaces/assignment/reconfigure`` (it shows the
+running interfaces). Every write stores a revision of the configuration history; a revision
+downloads as a ``config.xml`` serialising the configuration part of ``data``, and
+``revertBackup`` puts it back. Write failure switches: ``invalid`` (path or path prefix ->
+validation messages, answered as ``{"result": "failed", "validations": {...}}``) and ``fail``
+(also by prefix); the simulated firewall validates fields itself, too (descriptions, tags,
+networks, pools, MACs).
 """
 
 from __future__ import annotations
@@ -21,7 +31,10 @@ import asyncio
 import base64
 import binascii
 import copy
+import ipaddress
+import re
 import secrets
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -307,8 +320,448 @@ def sample_data() -> dict[str, Any]:
     return copy.deepcopy(data)
 
 
+# --- writing ---------------------------------------------------------------------------------
+
+BACKUPS = "/api/core/backup/backups/this"
+DOWNLOAD = "/api/core/backup/download/this"
+ASSIGN = "/api/interfaces/assignment/"
+INTERFACES = "/api/interfaces/overview/interfacesInfo"
+VLANS = "/api/interfaces/vlan_settings/searchItem"
+KEA = "/api/kea/dhcpv4/get"
+#: The parts of ``data`` that are configuration (saved in config.xml, restored by a revert).
+CONFIG = (INTERFACES, VLANS, KEA)
+_WRITE = re.compile(
+    r"^/api/(interfaces/vlan_settings|interfaces/assignment|kea/dhcpv4|kea/service|core/backup)"
+    r"/(\w+)(?:/([^/]+))?(?:/([^/]+))?$"
+)
+_DESCR = re.compile(r"^[a-z_0-9]{0,255}$", re.IGNORECASE)
+
+
+class Refused(Exception):
+    """A write the simulated firewall refuses: becomes ``{"result": "failed", ...}``."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.validations = {field: message}
+
+
+def to_xml(state: dict[str, Any], time: str, description: str) -> str:
+    """config.xml of the simulated firewall: a revision header and the state, typed."""
+    root = ET.Element("opnsense")
+    rev = ET.SubElement(root, "revision")
+    ET.SubElement(rev, "time").text = time
+    ET.SubElement(rev, "description").text = description
+    ET.SubElement(rev, "username").text = "signalbox-sim"
+    _put(ET.SubElement(root, "signalbox_sim"), state)
+    return '<?xml version="1.0"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
+
+
+def _put(el: ET.Element, value: Any) -> None:
+    if isinstance(value, dict):
+        el.set("t", "dict")
+        for k, v in value.items():
+            child = ET.SubElement(el, "v", k=str(k))
+            _put(child, v)
+    elif isinstance(value, list):
+        el.set("t", "list")
+        for v in value:
+            _put(ET.SubElement(el, "v"), v)
+    elif value is None:
+        el.set("t", "null")
+    else:
+        el.set("t", type(value).__name__)
+        el.text = str(value)
+
+
+def _get(el: ET.Element) -> Any:
+    kind = el.get("t")
+    if kind == "dict":
+        return {c.get("k", ""): _get(c) for c in el}
+    if kind == "list":
+        return [_get(c) for c in el]
+    text = el.text or ""
+    return {
+        "null": lambda: None,
+        "bool": lambda: text == "True",
+        "int": lambda: int(text),
+        "float": lambda: float(text),
+    }.get(kind or "", lambda: text)()
+
+
+def from_xml(text: str) -> dict[str, Any]:
+    root = ET.fromstring(text)
+    body = root.find("signalbox_sim")
+    if root.tag != "opnsense" or body is None:
+        raise ValueError("not a config.xml of this simulator")
+    state: dict[str, Any] = _get(body)
+    return state
+
+
+class _Writes:
+    """Write endpoints of :class:`OpnsenseSimulator` (mixed in; works on its ``data``)."""
+
+    data: dict[str, Any]
+    history: list[tuple[str, str, str]]
+    pending: list[tuple[str, str, dict[str, Any]]]
+    locked: set[str]
+    posts: list[tuple[str, Any]]
+
+    # configuration history ----------------------------------------------------------------
+
+    def state(self) -> dict[str, Any]:
+        return copy.deepcopy({p: self.data[p] for p in CONFIG if p in self.data})
+
+    def save(self, description: str) -> None:
+        """Store a revision of the current configuration (as every OPNsense save does)."""
+        n = len(self.history)
+        time = f"{1700000000 + n}.{n:04d}"
+        self.history.append((f"config-{time}.xml", time, to_xml(self.state(), time, description)))
+
+    def _current(self) -> None:
+        """Make sure the newest revision is the configuration in use (tests edit ``data``)."""
+        if not self.history or from_xml(self.history[-1][2]) != self.state():
+            self.save("configuration as found")
+
+    def backups(self) -> dict[str, Any]:
+        self._current()
+        return {
+            "items": [
+                {
+                    "time": time,
+                    "time_iso": "",
+                    "description": "",
+                    "username": "signalbox-sim",
+                    "filesize": len(xml),
+                    "id": rid,
+                }
+                for rid, time, xml in reversed(self.history)
+            ]
+        }
+
+    def download(self, rid: str | None) -> str | None:
+        self._current()
+        return next((x for r, _, x in reversed(self.history) if rid in (None, r)), None)
+
+    def revert(self, rid: str) -> dict[str, Any]:
+        found = next((x for r, _, x in self.history if r == rid), None)
+        if found is None:
+            return {"status": "not_found"}
+        self.data.update(copy.deepcopy(from_xml(found)))
+        self.pending.clear()
+        self.save(f"reverted to {rid}")
+        return {"status": "reverted"}
+
+    # helpers ------------------------------------------------------------------------------
+
+    def _rows(self, path: str) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = self.data[path]["rows"]
+        return rows
+
+    def _kea(self) -> dict[str, Any]:
+        if KEA not in self.data:
+            raise KeyError(KEA)
+        root: dict[str, Any] = self.data[KEA]["dhcpv4"]
+        return root
+
+    def _assigned(self) -> dict[str, dict[str, Any]]:
+        return {r["identifier"]: r for r in self._rows(INTERFACES) if r.get("identifier")}
+
+    def _uuid(self, prefix: str) -> str:
+        return f"{prefix}-{len(self.history)}-{len(self.posts)}"
+
+    def _sync_listen(self, selected: list[str] | None = None) -> None:
+        """Kea's interface option field lists every assigned interface (not the WAN)."""
+        general = self._kea()["general"]
+        old = general.get("interfaces", {})
+        if selected is None:
+            selected = [k for k, v in old.items() if v.get("selected")]
+        assigned = {
+            k: r for k, r in self._assigned().items() if k != "wan" and not k.startswith("lo")
+        }
+        general["interfaces"] = {
+            k: {"value": r.get("description") or k.upper(), "selected": int(k in selected)}
+            for k, r in assigned.items()
+        }
+
+    # dispatch -----------------------------------------------------------------------------
+
+    def write(self, path: str, body: Any) -> Any:
+        match = _WRITE.match(path)
+        if match is None or (path.startswith("/api/kea/") and KEA not in self.data):
+            return None
+        area, action, arg, arg2 = match.groups()
+        body = body if isinstance(body, dict) else {}
+        handler = getattr(self, f"_{area.replace('/', '_')}_{action}", None)
+        if handler is None:
+            return None
+        if not action.startswith("search"):
+            self.posts.append((path, body))
+        try:
+            answer: Any = handler(body, arg, arg2)
+        except Refused as exc:
+            return {"result": "failed", "validations": exc.validations}
+        return answer
+
+    # VLAN devices -------------------------------------------------------------------------
+
+    def _vlan_fields(self, item: dict[str, Any], uuid: str | None) -> dict[str, Any]:
+        tag = str(item.get("tag", "")).strip()
+        if not tag.isdigit() or not 1 <= int(tag) <= 4094:
+            raise Refused("vlan.tag", "Value should be between 1 and 4094.")
+        parent = str(item.get("if", ""))
+        ports = {r["device"] for r in self._rows(INTERFACES) if r.get("is_physical")}
+        if parent not in ports:
+            raise Refused("vlan.if", "Please select a valid parent interface.")
+        others = [r for r in self._rows(VLANS) if r.get("uuid") != uuid]
+        if any(r["if"] == parent and str(r["tag"]) == tag for r in others):
+            raise Refused("vlan.tag", "Tag for this device must be unique.")
+        vlanif = str(item.get("vlanif", "")).strip()
+        if not vlanif or any(r["vlanif"] == vlanif for r in others):
+            raise Refused("vlan.vlanif", "The device name must be unique.")
+        return {"vlanif": vlanif, "if": parent, "tag": tag, "descr": str(item.get("descr", ""))}
+
+    def _interfaces_vlan_settings_addItem(self, body: dict[str, Any], *_: Any) -> Any:
+        uuid = self._uuid("v")
+        row = {"uuid": uuid, **self._vlan_fields(body.get("vlan", {}), None)}
+        self._rows(VLANS).append(row)
+        self.save("VLAN added")
+        return {"result": "saved", "uuid": uuid}
+
+    def _interfaces_vlan_settings_delItem(self, _: Any, uuid: str, *__: Any) -> Any:
+        row = next((r for r in self._rows(VLANS) if r["uuid"] == uuid), None)
+        if row is None:
+            return {"result": "not found"}
+        if any(r["device"] == row["vlanif"] for r in self._assigned().values()):
+            raise Refused("vlan.vlanif", "This VLAN cannot be deleted because it is assigned.")
+        self._rows(VLANS).remove(row)
+        self.save("VLAN deleted")
+        return {"result": "deleted"}
+
+    def _interfaces_vlan_settings_reconfigure(self, *_: Any) -> Any:
+        return {"status": "ok"}
+
+    # interface assignments ----------------------------------------------------------------
+
+    def _devices(self) -> dict[str, dict[str, Any]]:
+        physical = {r["device"]: r for r in self._rows(INTERFACES) if r.get("is_physical")}
+        vlans = {r["vlanif"]: r for r in self._rows(VLANS)}
+        return {**physical, **vlans}
+
+    def _iface_fields(self, item: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if "descr" in item:
+            if not _DESCR.match(str(item["descr"])):
+                raise Refused(
+                    "interface.descr",
+                    "Only letters, numbers and underscores are allowed in the description.",
+                )
+            out["description"] = str(item["descr"])
+        if "ipaddr" in item:
+            try:
+                addr = ipaddress.ip_interface(str(item["ipaddr"]))
+            except ValueError:
+                raise Refused("interface.ipaddr", "Please specify a valid address.") from None
+            if addr.version != 4 or "/" not in str(item["ipaddr"]):
+                raise Refused("interface.ipaddr", "A valid IPv4 network must be provided.")
+            out["ipv4"] = [{"ipaddr": str(addr)}]
+        return out
+
+    def _interfaces_assignment_searchItem(self, *_: Any) -> Any:
+        rows = [
+            {"identifier": k, "if": r["device"], "descr": r.get("description", "")}
+            for k, r in self._assigned().items()
+        ]
+        return {"rows": rows, "total": len(rows), "current": 1, "rowCount": len(rows)}
+
+    def _interfaces_assignment_addItem(self, body: dict[str, Any], *_: Any) -> Any:
+        item = body.get("interface", {})
+        device = str(item.get("if", ""))
+        if device not in self._devices():
+            raise Refused("interface.if", "Please select a valid device.")
+        taken = {r["device"] for r in self._assigned().values()}
+        taken |= {i["if"] for op, _, i in self.pending if op == "add"}
+        if device in taken:
+            raise Refused("interface.if", "This device is already assigned.")
+        fields = self._iface_fields(item)
+        used = set(self._assigned()) | {k for _, k, _ in self.pending}
+        n = 1
+        while f"opt{n}" in used:
+            n += 1
+        ident = f"opt{n}"
+        if str(item.get("lock", "1")) == "1":
+            self.locked.add(ident)
+        self.pending.append(("add", ident, {"if": device, **fields}))
+        return {"result": "saved", "uuid": ident}
+
+    def _interfaces_assignment_setItem(self, body: dict[str, Any], ident: str, *_: Any) -> Any:
+        if ident not in self._assigned():
+            return {"result": "failed"}
+        self.pending.append(("set", ident, self._iface_fields(body.get("interface", {}))))
+        return {"result": "saved"}
+
+    def _interfaces_assignment_delItem(self, _: Any, ident: str, *__: Any) -> Any:
+        if ident not in self._assigned():
+            return {"result": "not found"}
+        if ident in self.locked:
+            return {
+                "errorMessage": "Interface locked, unset lock first before removal",
+                "errorTitle": "locked",
+            }
+        self.pending.append(("delete", ident, {}))
+        return {"result": "deleted"}
+
+    def _interfaces_assignment_reconfigure(self, *_: Any) -> Any:
+        rows = self._rows(INTERFACES)
+        devices = self._devices()
+        for op, ident, fields in self.pending:
+            row = self._assigned().get(ident)
+            if op == "delete" and row is not None:
+                rows.remove(row)
+            elif op == "set" and row is not None:
+                row.update(fields)
+            elif op == "add":
+                dev = devices[fields["if"]]
+                parent = next((r for r in rows if r["device"] == dev.get("if")), dev)
+                new = _iface(
+                    fields["if"],
+                    ident,
+                    fields.get("description", ""),
+                    mac=parent.get("macaddr", "02:00:00:00:01:00"),
+                    vlan=int(dev["tag"]) if "tag" in dev else None,
+                )
+                new["ipv4"] = fields.get("ipv4", [])
+                rows.append(new)
+        self.pending.clear()
+        if KEA in self.data:
+            self._sync_listen()
+        self.save("interfaces applied")
+        return {"status": "ok"}
+
+    # Kea DHCPv4 ---------------------------------------------------------------------------
+
+    def _kea_dhcpv4_set(self, body: dict[str, Any], *_: Any) -> Any:
+        general = body.get("dhcpv4", {}).get("general", {})
+        if "interfaces" in general:
+            names = [x for x in str(general["interfaces"]).split(",") if x]
+            unknown = [x for x in names if x not in self._assigned() or x == "wan"]
+            if unknown:
+                raise Refused("dhcpv4.general.interfaces", "Option not in list.")
+            self._sync_listen(names)
+        if "enabled" in general:
+            self._kea()["general"]["enabled"] = str(general["enabled"])
+        self.save("Kea settings")
+        return {"result": "saved"}
+
+    def _subnet_fields(self, item: dict[str, Any], old: dict[str, Any]) -> dict[str, Any]:
+        merged = {**old, **{k: v for k, v in item.items() if k != "option_data"}}
+        merged["option_data"] = {**old.get("option_data", {}), **item.get("option_data", {})}
+        try:
+            net = ipaddress.ip_network(str(merged.get("subnet", "")), strict=False)
+        except ValueError:
+            raise Refused("subnet4.subnet", "Entry is not a valid network.") from None
+        for line in str(merged.get("pools", "")).split("\n"):
+            if not line.strip():
+                continue
+            try:
+                ends = [ipaddress.ip_address(x.strip()) for x in line.split("-")]
+            except ValueError:
+                raise Refused("subnet4.pools", "Invalid pool.") from None
+            if any(a not in net for a in ends):
+                raise Refused("subnet4.pools", "Pool is not inside the subnet.")
+        lifetime = str(merged.get("valid_lifetime", ""))
+        if lifetime and not lifetime.isdigit():
+            raise Refused("subnet4.valid_lifetime", "Please specify a valid number.")
+        merged.setdefault("option_data_autocollect", "1")
+        merged.setdefault("description", "")
+        return merged
+
+    def _kea_dhcpv4_addSubnet(self, body: dict[str, Any], *_: Any) -> Any:
+        subnets = self._kea()["subnets"]["subnet4"]
+        item = self._subnet_fields(body.get("subnet4", {}), {})
+        if any(s["subnet"] == item["subnet"] for s in subnets.values()):
+            raise Refused("subnet4.subnet", "Subnets must be unique.")
+        uuid = self._uuid("s")
+        subnets[uuid] = item
+        self.save("Kea subnet added")
+        return {"result": "saved", "uuid": uuid}
+
+    def _kea_dhcpv4_setSubnet(self, body: dict[str, Any], uuid: str, *_: Any) -> Any:
+        subnets = self._kea()["subnets"]["subnet4"]
+        if uuid not in subnets:
+            return {"result": "failed"}
+        subnets[uuid] = self._subnet_fields(body.get("subnet4", {}), subnets[uuid])
+        self.save("Kea subnet changed")
+        return {"result": "saved"}
+
+    def _kea_dhcpv4_delSubnet(self, _: Any, uuid: str, *__: Any) -> Any:
+        subnets = self._kea()["subnets"]["subnet4"]
+        if subnets.pop(uuid, None) is None:
+            return {"result": "not found"}
+        self.save("Kea subnet deleted")
+        return {"result": "deleted"}
+
+    def _reservation_fields(self, item: dict[str, Any], uuid: str | None) -> dict[str, Any]:
+        subnets = self._kea()["subnets"]["subnet4"]
+        ref = str(item.get("subnet", ""))
+        if ref not in subnets:
+            raise Refused("reservation.subnet", "Related item not found.")
+        net = ipaddress.ip_network(subnets[ref]["subnet"], strict=False)
+        try:
+            address = ipaddress.ip_address(str(item.get("ip_address", "")))
+        except ValueError:
+            raise Refused("reservation.ip_address", "Please specify a valid address.") from None
+        if address not in net:
+            raise Refused("reservation.ip_address", "Address not in subnet.")
+        mac = str(item.get("hw_address", "")).lower()
+        if not re.fullmatch(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", mac):
+            raise Refused("reservation.hw_address", "Please specify a valid MAC address.")
+        others = {k: r for k, r in self._kea()["reservations"]["reservation"].items() if k != uuid}
+        if any(r["hw_address"] == mac and ref in r["subnet"] for r in others.values()):
+            raise Refused("reservation.hw_address", "Duplicate entry exists.")
+        return {
+            "subnet": _opt({ref: (subnets[ref]["subnet"], True)}),
+            "ip_address": str(address),
+            "hw_address": mac,
+            "hostname": str(item.get("hostname", "")),
+            "description": str(item.get("description", "")),
+        }
+
+    def _kea_dhcpv4_addReservation(self, body: dict[str, Any], *_: Any) -> Any:
+        item = self._reservation_fields(body.get("reservation", {}), None)
+        uuid = self._uuid("r")
+        self._kea()["reservations"]["reservation"][uuid] = item
+        self.save("Kea reservation added")
+        return {"result": "saved", "uuid": uuid}
+
+    def _kea_dhcpv4_setReservation(self, body: dict[str, Any], uuid: str, *_: Any) -> Any:
+        reservations = self._kea()["reservations"]["reservation"]
+        if uuid not in reservations:
+            return {"result": "failed"}
+        reservations[uuid] = self._reservation_fields(body.get("reservation", {}), uuid)
+        self.save("Kea reservation changed")
+        return {"result": "saved"}
+
+    def _kea_dhcpv4_delReservation(self, _: Any, uuid: str, *__: Any) -> Any:
+        if self._kea()["reservations"]["reservation"].pop(uuid, None) is None:
+            return {"result": "not found"}
+        self.save("Kea reservation deleted")
+        return {"result": "deleted"}
+
+    def _kea_service_reconfigure(self, *_: Any) -> Any:
+        return {"status": "ok"}
+
+    # backups ------------------------------------------------------------------------------
+
+    def _core_backup_revertBackup(self, _: Any, rid: str, *__: Any) -> Any:
+        return self.revert(rid)
+
+
+def _prefixed(table: dict[str, Any], path: str) -> Any:
+    return next((v for p, v in table.items() if path == p or path.startswith(p + "/")), None)
+
+
 @dataclass
-class OpnsenseSimulator:
+class OpnsenseSimulator(_Writes):
     api_key: str = KEY
     api_secret: str = SECRET
     api_enabled: bool = True
@@ -319,6 +772,16 @@ class OpnsenseSimulator:
     data: dict[str, Any] = field(default_factory=sample_data)
     #: Paths requested so far (to check that nothing is sent before the pin check).
     requests: list[str] = field(default_factory=list)
+    #: Validation messages to answer per path (or path prefix) of a write endpoint.
+    invalid: dict[str, dict[str, str]] = field(default_factory=dict)
+    #: Configuration history: (id, time, config.xml), oldest first.
+    history: list[tuple[str, str, str]] = field(default_factory=list)
+    #: Interface assignment changes waiting for ``reconfigure``.
+    pending: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
+    #: Assigned interfaces that are locked against removal.
+    locked: set[str] = field(default_factory=set)
+    #: Write requests received: (path, body).
+    posts: list[tuple[str, Any]] = field(default_factory=list)
 
     def authorised(self, header: str | None) -> bool:
         if not header or not header.startswith("Basic "):
@@ -348,8 +811,24 @@ class OpnsenseSimulator:
                 )
             if self.delay:
                 await asyncio.sleep(self.delay)
-            if path in self.fail:
-                return JSONResponse({"message": "simulated failure"}, status_code=self.fail[path])
+            status = _prefixed(self.fail, path)
+            if status is not None:
+                return JSONResponse({"message": "simulated failure"}, status_code=status)
+            invalid = _prefixed(self.invalid, path)
+            if invalid is not None:
+                return JSONResponse({"result": "failed", "validations": invalid})
+            if path == BACKUPS:
+                return JSONResponse(self.backups())
+            if path == DOWNLOAD or path.startswith(DOWNLOAD + "/"):
+                xml = self.download(path[len(DOWNLOAD) + 1 :] or None)
+                if xml is None:
+                    return Response(status_code=200)  # OPNsense sends nothing for unknown ids
+                return Response(xml, media_type="application/octet-stream")
+            if request.method == "POST" or path.startswith(ASSIGN):
+                body = await request.json() if await request.body() else {}
+                answer = self.write(path, body)
+                if answer is not None:
+                    return JSONResponse(answer)
             if path not in self.data:
                 return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
             if path in self.malformed:
