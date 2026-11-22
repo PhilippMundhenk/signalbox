@@ -89,6 +89,8 @@ NDP = "/api/diagnostics/interface/get_ndp"
 ALL_ROWS = {"current": 1, "rowCount": -1}
 
 _SKIP_DEVICES = ("lo", "enc", "pflog", "pfsync")
+#: names OPNsense gives VLAN devices (vlan0.20, vlan01, qinq01; before 21.1 igb0_vlan20)
+_VLAN_DEVICE = re.compile(r"^(vlan|qinq)\d|_vlan\d+$")
 _KINDS = (
     ("bridge", PortKind.BRIDGE),
     ("lagg", PortKind.LAG),
@@ -408,6 +410,10 @@ class OpnsenseAdapter(_Adapter):
                 continue
             if row.get("vlan_tag") not in (None, "", 0, "0"):
                 continue  # a VLAN the VLAN table did not list: its parent is unknown
+            if not _text(row.get("identifier")) and _VLAN_DEVICE.match(device):
+                # a VLAN device that is no longer configured: reverting the configuration
+                # history leaves it in the kernel until the next reboot
+                continue
             speed, duplex = _speed(_text(row.get("media")))
             status = _text(row.get("status")).lower()
             ports[device] = Port(
@@ -754,13 +760,19 @@ class OpnsenseAdapter(_Adapter):
     async def _needs_assignments(self, changes: list[Change]) -> None:
         if not any(c.kind is ChangeKind.ROUTER for c in changes):
             return
+        too_old = AdapterError(
+            "this OPNsense version has no interface assignment API with addresses (OPNsense "
+            "26.7.6 or newer is needed to change router interfaces)"
+        )
         try:
-            await self.http.get_json(w.ASSIGN_SEARCH, params=ALL_ROWS)
+            rows = _rows(
+                await self.http.get_json(w.ASSIGN_SEARCH, params=ALL_ROWS), w.ASSIGN_SEARCH
+            )
         except NotFound as exc:
-            raise AdapterError(
-                "this OPNsense version has no interface assignment API (OPNsense 26.7 or newer "
-                "is needed to change router interfaces)"
-            ) from exc
+            raise too_old from exc
+        if rows and not any("ipaddr" in r for r in rows):
+            # 26.7 up to 26.7.5: the assignment API only knows device, description and lock
+            raise too_old
 
     async def plan_changes(
         self, changes: list[Change], secrets: Mapping[str, str]
