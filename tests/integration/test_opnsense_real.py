@@ -1,7 +1,7 @@
 """The OPNsense adapter against the real OPNsense in QEMU (#138).
 
-The VM (tools/integration/opnsense/vm.py) is preseeded with: WAN vtnet0 (DHCP), LAN vtnet1
-192.0.2.1/24 + 2001:db8:1::1/64, VLAN 20 "IoT" on the trunk vtnet2 assigned as opt1
+The VM (tools/integration/opnsense/vm.py) is preseeded with: LAN vtnet0 192.0.2.1/24 +
+2001:db8:1::1/64, WAN vtnet1 (DHCP), VLAN 20 "IoT" on the trunk vtnet2 assigned as opt1
 198.51.100.1/24, Kea DHCPv4 on LAN (pool 192.0.2.100-199, reservation 02:00:00:00:00:10 ->
 192.0.2.10 "printer"), an Unbound host override nas.home.example -> 192.0.2.10, and two API
 users with the read and write privileges of docs/adapters/opnsense.md.
@@ -125,10 +125,10 @@ async def test_mapping_of_the_preseeded_firewall(target: dict[str, str]) -> None
     net = await network(target)
     ports = {p.name: p for p in net.ports}
     assert {"vtnet0", "vtnet1", "vtnet2"} <= set(ports), sorted(ports)
-    assert ports["vtnet1"].mac == "02:00:00:00:01:00"
+    assert ports["vtnet0"].mac == "02:00:00:00:01:00"
     lan = net.segment(LAN)
     assert lan is not None and lan.name == "LAN"
-    assert [(m.port_id, m.mode.value) for m in lan.members] == [("fw/port/vtnet1", "untagged")]
+    assert [(m.port_id, m.mode.value) for m in lan.members] == [("fw/port/vtnet0", "untagged")]
     iot = net.segment(IOT)
     assert iot is not None and iot.name == "IoT" and iot.vlan == 20
     assert [(m.port_id, m.mode.value) for m in iot.members] == [("fw/port/vtnet2", "tagged")]
@@ -255,7 +255,7 @@ async def test_new_network_with_dhcp_and_reservation_then_revert(
     after = await network(target)
     seg = after.segment(LAB)
     assert seg is not None and seg.name == "Lab6"
-    assert [(m.port_id, m.mode.value) for m in seg.members] == [("fw/port/vtnet1", "tagged")]
+    assert [(m.port_id, m.mode.value) for m in seg.members] == [("fw/port/vtnet0", "tagged")]
     kea = next(s for s in after.dhcp_servers if s.segment_id == LAB)
     assert kea.enabled and kea.lease_seconds == 3600
     assert [(r.mac, str(r.address)) for r in kea.reservations] == [

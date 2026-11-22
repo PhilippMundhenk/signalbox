@@ -2,8 +2,8 @@
 
     python3 preseed.py /conf/config.xml seed.json
 
-Sets the interface assignment (WAN vtnet0 by DHCP, LAN vtnet1 192.0.2.1/24 and
-2001:db8:1::1/64, VLAN 20 "IoT" on the trunk vtnet2 as opt1 198.51.100.1/24), switches the
+Sets the interface assignment (LAN vtnet0 192.0.2.1/24 and 2001:db8:1::1/64, WAN vtnet1 by
+DHCP, VLAN 20 "IoT" on the trunk vtnet2 as opt1 198.51.100.1/24), switches the
 default dnsmasq DHCP off (Kea serves the LAN, set up through the API after the reboot) and adds
 the API users of docs/adapters/opnsense.md with their keys (stored as SHA-512 crypt hashes, as
 OPNsense stores them). Everything else stays as the image made it.
@@ -47,13 +47,13 @@ def main(path, seed_path):
 
     ifs = child(root, "interfaces")
     v6 = ("ipaddrv6", "subnetv6", "track6-interface", "track6-prefix-id", "dhcp6-ia-pd-len")
-    interface(ifs, "wan", {"enable": "1", "if": "vtnet0", "ipaddr": "dhcp", "descr": "WAN"}, v6)
+    interface(ifs, "wan", {"enable": "1", "if": "vtnet1", "ipaddr": "dhcp", "descr": "WAN"}, v6)
     interface(
         ifs,
         "lan",
         {
             "enable": "1",
-            "if": "vtnet1",
+            "if": "vtnet0",
             "descr": "LAN",
             "ipaddr": "192.0.2.1",
             "subnet": "24",

@@ -11,9 +11,10 @@ openssl), never in the development sandbox. Standard library only.
                          IT_OPNSENSE_* variables for $GITHUB_ENV
     vm.py stop    DIR    power the VM off
 
-Network: vtnet0 is the WAN (QEMU user networking with DHCP and internet access), vtnet1 the
-LAN 192.0.2.1/24 (the runner reaches the web interface at https://127.0.0.1:8443 through a host
-port forward), vtnet2 a trunk carrying VLAN 20 "IoT". The serial console is logged to
+Network, in the order of the image's default assignment: vtnet0 is the LAN 192.0.2.1/24 (the
+runner reaches the web interface at https://127.0.0.1:8443 through a host port forward), vtnet1
+the WAN (QEMU user networking with DHCP and internet access), vtnet2 a trunk carrying VLAN 20
+"IoT". The serial console is logged to
 DIR/serial.log; every failure prints a GitHub ``::error::`` with its last lines.
 """
 
@@ -42,8 +43,8 @@ from typing import Any
 VERSION = "26.7"
 IMAGE = f"OPNsense-{VERSION}-nano-amd64.img"
 CHECKSUMS = f"OPNsense-{VERSION}-checksums-amd64.sha256"
-#: SHA-256 of the .bz2 as published in the checksum file of the release (pinned once seen).
-PINNED_SHA256 = os.environ.get("OPNSENSE_IMAGE_SHA256", "")
+#: SHA-256 of the .bz2, as listed in the release's checksum file (seen in CI on 2026-11-22).
+PINNED_SHA256 = "28d5e2f37e40d87468a924e3006ef10e2ddc6de485b85333d9e3958c84d0cb9d"
 MIRRORS = [
     f"https://pkg.opnsense.org/releases/{VERSION}/",
     f"https://mirror.ams1.nl.leaseweb.net/opnsense/releases/{VERSION}/",
@@ -169,10 +170,10 @@ def qemu(d: Path, disk: Path, seed: Path | None = None) -> subprocess.Popen[byte
         f"logfile={d / 'serial.log'},logappend=on",
         "-serial", "chardev:ser0",
         "-drive", f"file={disk},if=virtio,format=qcow2,cache=unsafe",
-        "-netdev", "user,id=wan",
-        "-device", f"virtio-net-pci,netdev=wan,mac={MACS['wan']}",
         "-netdev", lan,
         "-device", f"virtio-net-pci,netdev=lan,mac={MACS['lan']}",
+        "-netdev", "user,id=wan",
+        "-device", f"virtio-net-pci,netdev=wan,mac={MACS['wan']}",
         "-netdev", "user,id=trunk,net=10.99.0.0/24,restrict=on",
         "-device", f"virtio-net-pci,netdev=trunk,mac={MACS['trunk']}",
         "-pidfile", str(d / "qemu.pid"),
@@ -257,8 +258,8 @@ class Console:
 FIRST_BOOT = [
     (r"configure LAGGs now\? \[y/N\]", "n\r"),
     (r"configure VLANs now\? \[y/N\]", "n\r"),
-    (r"Enter the WAN interface name", "vtnet0\r"),
-    (r"Enter the LAN interface name", "vtnet1\r"),
+    (r"Enter the WAN interface name", "vtnet1\r"),
+    (r"Enter the LAN interface name", "vtnet0\r"),
     (r"Enter the Optional interface 1 name", "\r"),
     (r"Do you want to proceed\? \[y/N\]", "y\r"),
 ]
