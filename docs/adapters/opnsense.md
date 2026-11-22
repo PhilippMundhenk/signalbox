@@ -231,8 +231,10 @@ Each row also has flags, capabilities, routes and the interface's `config`. `ide
 empty for unassigned devices; `pfsync0` is never listed. The `wan` row also carries what the
 interface received, as OPNsense's interface overview builds it (`OverviewController.php`, the
 `/tmp/<device>_<key>[v6]` files of `Autoconf`): one string per address family, the file's
-content with one value per line *(the shape of the values on a WAN with DHCPv6 still to be seen
-in CI, #21)*:
+content with one value per line. OPNsense 26.7.9 in CI (DHCP on QEMU's user network, no IPv6)
+answers `"link_type": "dhcp"`, `"link_typev6": "none"`, `"gateways": ["10.0.2.2"]`,
+`"ifctl.nameserver": ["10.0.2.3"]`, `"ifctl.router": ["10.0.2.2"]` *(`ifctl.prefix` of a WAN
+with DHCPv6-PD not seen yet, #21)*:
 
 ```json
 {"device": "vtnet1", "identifier": "wan", "status": "up", "link_type": "dhcp",
