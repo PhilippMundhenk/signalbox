@@ -16,6 +16,7 @@ from signalbox.rules.ports import RULES as PORT_RULES
 from signalbox.rules.time_checks import RULES as TIME_RULES
 from signalbox.rules.topology_checks import RULES as TOPOLOGY_CHECK_RULES
 from signalbox.rules.vlan import RULES as VLAN_RULES
+from signalbox.rules.wan import RULES as WAN_RULES
 from signalbox.rules.wifi_hygiene import RULES as WIFI_HYGIENE_RULES
 from signalbox.rules.wireless import RULES as WIRELESS_RULES
 from signalbox.topology import RULES as TOPOLOGY_RULES
@@ -37,4 +38,5 @@ RULES: list[Rule] = [
     *HEALTH_RULES,
     *TIME_RULES,
     *PORT_RULES,
+    *WAN_RULES,
 ]
