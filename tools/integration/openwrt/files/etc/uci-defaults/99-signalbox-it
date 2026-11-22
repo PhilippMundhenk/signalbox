@@ -5,6 +5,7 @@
 #   eth0  management: 10.0.2.15/24 on QEMU's user-mode network (host port forward to 443)
 #   eth1, eth2  ports of br-lan with VLAN filtering:
 #         VLAN 1  "lan"  eth1 + eth2 untagged, 192.0.2.1/24, dnsmasq DHCP .100-.149
+#                        handing out NTP 192.0.2.1 (option 42); sysntpd serves time on lan
 #         VLAN 20 "iot"  eth2 tagged, 198.51.100.1/24, no DHCP
 #   radio0 (2.4 GHz) and radio1 (5 GHz): SSID "Example-IT" (WPA2) on lan
 #   radio2 (2.4 GHz): a station associated to that SSID (network "wwan", DHCP client), so
@@ -67,6 +68,14 @@ uci -q delete dhcp.wan
 uci set dhcp.lan.start='100'
 uci set dhcp.lan.limit='50'
 uci set dhcp.lan.leasetime='12h'
+uci add_list dhcp.lan.dhcp_option='42,192.0.2.1'
+
+# --- time (#179): Europe/Berlin as LuCI writes it, NTP server on lan ------------------------
+uci set system.@system[0].zonename='Europe/Berlin'
+uci set system.@system[0].timezone='CET-1CEST,M3.5.0,M10.5.0/3'
+uci set system.ntp.enabled='1'
+uci set system.ntp.enable_server='1'
+uci set system.ntp.interface='lan'
 
 # --- wireless (radios detected by "wifi config" from mac80211_hwsim, see /etc/modules.conf) --
 for r in 0 1 2; do uci -q delete wireless.default_radio$r; done

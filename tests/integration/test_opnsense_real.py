@@ -184,6 +184,36 @@ async def test_mapping_of_the_preseeded_firewall(fw: dict[str, str]) -> None:
         ("nas.home.example", "192.0.2.10")
     ]
     assert ip_address("192.0.2.1") in dns.listen
+    # option_data.ntp_servers is empty, but with autocollect OPNsense fills in the interface
+    # address on the next Kea save (seen after a deployment): read as that address
+    assert [str(a) for a in kea.ntp_servers] == ["192.0.2.1"]
+
+
+async def test_health_and_time(fw: dict[str, str]) -> None:
+    """The dashboard widgets (uptime, load, memory, the nano image's UFS root and tmpfs, no
+    temperature sensors in QEMU), the CPU type, the clock (``Date`` header, UTC) and ntpd's
+    peers, with the read user's privileges (#178, #179)."""
+    a = adapter(fw)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    h = snap.device.health
+    assert h is not None and h.uptime_seconds is not None and h.uptime_seconds > 0, h
+    assert h.load_average is not None and h.cpu_count and h.cpu_count >= 1, h
+    assert h.memory_total_bytes and h.memory_used_bytes, h
+    assert 0 < h.memory_used_bytes < h.memory_total_bytes, h
+    kinds = {s.name: s.kind.value for s in h.storage}
+    assert kinds.get("/") == "system" and kinds.get("/tmp") == "temporary", h.storage
+    assert h.temperatures == [], h  # QEMU has no sensors
+    t = snap.device.time
+    assert t is not None and t.clock is not None, t
+    offset = t.offset_seconds()
+    assert offset is not None and abs(offset) < 600, t
+    assert t.utc_offset_minutes == 0, t  # the image runs on UTC
+    assert t.ntp_client is not None and t.ntp_client.servers, t
+    assert any(s.endswith("opnsense.pool.ntp.org") for s in t.ntp_client.servers), t
 
 
 async def test_refused_api_key_is_auth_failed(fw: dict[str, str]) -> None:

@@ -6,7 +6,9 @@
     "page-dhcp-kea-v4",
     "page-services-unbound",
     "page-diagnostics-arptable",
-    "page-diagnostics-ndptable"
+    "page-diagnostics-ndptable",
+    "page-system-login-logout",
+    "page-status-ntp"
   ],
   "signalbox-write": [
     "page-system-firmware-manualupdate",
@@ -16,6 +18,8 @@
     "page-services-unbound",
     "page-diagnostics-arptable",
     "page-diagnostics-ndptable",
+    "page-system-login-logout",
+    "page-status-ntp",
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory"
   ]

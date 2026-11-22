@@ -7,7 +7,8 @@ Prints each answer (status and a compact, shortened body) as a GitHub ``::notice
 shapes can be compared with docs/adapters/opnsense.md and the simulator without downloading
 logs; the full answers go to DIR/api-<GROUP>.json (uploaded as an artifact). Only the
 throw-away VM's data is in there (documentation prefixes, the 02: MACs of the test setup).
-GROUP is ``read`` (the read user, camelCase and snake_case paths) or ``write`` (the write and
+GROUP is ``read`` (the read user, camelCase and snake_case paths), ``kea``, ``health`` (the
+dashboard and NTP endpoints of health and time, #178 and #179) or ``write`` (the write and
 the root user). At most ten notices per call (the limit of one step).
 """
 
@@ -47,6 +48,18 @@ GROUPS = {
         ("signalbox-read", "/api/kea/leases4/search" + GRID),
         ("signalbox-read", "/api/interfaces/overview/interfaces_info" + GRID),
         ("signalbox-write", "/api/interfaces/assignment/search_item" + GRID),
+    ],
+    "health": [
+        ("signalbox-read", "/api/diagnostics/system/system_time"),
+        ("signalbox-read", "/api/diagnostics/system/system_resources"),
+        ("signalbox-read", "/api/diagnostics/system/system_disk"),
+        ("signalbox-read", "/api/diagnostics/system/system_temperature"),
+        ("signalbox-read", "/api/diagnostics/cpu_usage/get_cpu_type"),
+        ("signalbox-read", "/api/ntpd/service/status"),
+        ("signalbox-read", "/api/ntpd/service/status" + GRID),
+        ("root", "/api/ntpd/service/status"),
+        ("root", "/api/ntpd/service/gps"),
+        ("root", "/api/diagnostics/system/system_time"),
     ],
     "write": [
         ("signalbox-write", "/api/interfaces/assignment/searchItem" + GRID),

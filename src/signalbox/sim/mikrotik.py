@@ -9,6 +9,8 @@ every value a string. Sample network, documentation addresses only:
   ``wifi3`` in ``bridge`` with VLAN filtering
 - VLAN 1 (native LAN, 192.0.2.1/24, 2001:db8:1::1/64) untagged on ether2, ether3, wifi1/2;
   VLAN 20 "iot" (198.51.100.1/24) tagged on ether2, untagged on ether4 and wifi3; ether5 disabled
+- health (uptime, CPU, memory, flash, one CPU temperature), the clock (Europe/Berlin), an NTP
+  client in sync and the NTP server enabled, handed out by DHCP on the LAN
 - DHCP on both, with static leases; DNS with static entries; ARP, IPv6 neighbours, bridge hosts,
   Wi-Fi registrations; one LLDP/MNDP neighbour (a switch on ether2)
 
@@ -40,6 +42,7 @@ import copy
 import json
 import secrets
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta, timezone
 from ipaddress import ip_address, ip_interface
 from typing import Any
 
@@ -109,9 +112,51 @@ def sample_data() -> dict[str, Any]:
             "total-memory": "268435456",
             "cpu": "ARMv7",
             "cpu-count": "4",
+            "cpu-frequency": "864",
+            "cpu-load": "3",
+            "free-hdd-space": "103260160",
+            "total-hdd-space": "134217728",
+            "write-sect-since-reboot": "1524",
+            "write-sect-total": "85210",
             "architecture-name": "arm64",
             "board-name": "hAP ax^2",
             "platform": "MikroTik",
+        },
+        # RouterOS 7: one row per sensor (CHR: only {"state": "disabled", ...}). A hAP ax^2
+        # has a CPU sensor only; a CRS3xx adds fans, PSU states and the input voltage.
+        "/rest/system/health": _ids(
+            {"name": "cpu-temperature", "value": "52", "type": "C"},
+        ),
+        # date/time are replaced by the current time in gmt-offset on every answer.
+        "/rest/system/clock": {
+            "date": "2026-11-22",
+            "time": "12:00:00",
+            "time-zone-autodetect": "false",
+            "time-zone-name": "Europe/Berlin",
+            "gmt-offset": "+01:00",
+            "dst-active": "false",
+        },
+        "/rest/system/ntp/client": {
+            "enabled": "true",
+            "mode": "unicast",
+            "servers": "0.pool.ntp.org,1.pool.ntp.org",
+            "vrf": "main",
+            "status": "synchronized",
+            "synced-server": "203.0.113.123",
+            "synced-stratum": "2",
+            "system-offset": "-0.215",
+            "freq-drift": "1.124",
+        },
+        "/rest/system/ntp/server": {
+            "enabled": "true",
+            "broadcast": "false",
+            "multicast": "false",
+            "manycast": "false",
+            "broadcast-addresses": "",
+            "vrf": "main",
+            "use-local-clock": "false",
+            "local-clock-stratum": "5",
+            "auth-key": "none",
         },
         "/rest/system/routerboard": {
             "routerboard": "true",
@@ -291,6 +336,7 @@ def sample_data() -> dict[str, Any]:
                 "gateway": "192.0.2.1",
                 "dns-server": "192.0.2.1",
                 "domain": "home.example",
+                "ntp-server": "192.0.2.1",
                 "comment": "defconf",
             },
             {
@@ -298,6 +344,7 @@ def sample_data() -> dict[str, Any]:
                 "gateway": "198.51.100.1",
                 "dns-server": "198.51.100.1,192.0.2.1",
                 "domain": "iot.example",
+                "ntp-server": "",
             },
         ),
         "/rest/ip/pool": _ids(
@@ -671,6 +718,8 @@ class MikrotikSimulator:
     settling: set[str] = field(default_factory=set)
     #: Installed wireless package: "wifi" (RouterOS 7 wifi), "legacy" (wireless) or "none".
     wireless: str = "wifi"
+    #: ``/system/clock`` answers the current time (False: ``date`` and ``time`` as in ``data``).
+    clock_ticks: bool = True
     data: dict[str, Any] = field(default_factory=sample_data)
     #: Paths requested so far (to check that nothing is sent before the pin check).
     requests: list[str] = field(default_factory=list)
@@ -746,6 +795,8 @@ class MikrotikSimulator:
                 return no_such(path)
             if path in self.malformed:
                 return Response('[{".id": "*1", ', media_type="application/json")
+            if path == CLOCK and self.clock_ticks and isinstance(data[path], dict):
+                return JSONResponse(_ticking(data[path]))
             return JSONResponse(data[path])
 
         @app.api_route("/{path:path}", methods=["PUT", "PATCH", "DELETE", "POST"])
@@ -988,6 +1039,19 @@ class MikrotikSimulator:
         return "\n".join(lines) + "\n"
 
 
+def _ticking(clock: dict[str, Any]) -> dict[str, Any]:
+    """``/system/clock`` with the current time in its ``gmt-offset`` (``+01:00``)."""
+    text = str(clock.get("gmt-offset", "+00:00"))
+    try:
+        sign = -1 if text.startswith("-") else 1
+        hours, _, minutes = text.lstrip("+-").partition(":")
+        offset = timedelta(minutes=sign * (int(hours) * 60 + int(minutes or 0)))
+    except ValueError:
+        return clock
+    now = datetime.now(UTC).astimezone(timezone(offset))
+    return {**clock, "date": now.date().isoformat(), "time": now.strftime("%H:%M:%S")}
+
+
 def _bad(detail: str) -> JSONResponse:
     return JSONResponse({"error": 400, "message": "Bad Request", "detail": detail}, status_code=400)
 
@@ -1009,6 +1073,7 @@ IP_ADDRESS = "/rest/ip/address"
 POOL = "/rest/ip/pool"
 DHCP_SERVER = "/rest/ip/dhcp-server"
 DHCP_NETWORK = "/rest/ip/dhcp-server/network"
+CLOCK = "/rest/system/clock"
 DHCP_LEASE = "/rest/ip/dhcp-server/lease"
 WIFI = "/rest/interface/wifi"
 #: Menus the simulator accepts writes for.

@@ -17,6 +17,7 @@ Sample site "Default" (a second site "Branch" is empty), documentation addresses
 - one WLAN group with the SSIDs Home (WPA2, both bands), IoT (hidden, 2.4 GHz, VLAN 20) and
   Guest (open, VLAN 30)
 - five clients, wired and wireless
+- uptime, CPU and memory use per device in the device list; the site's time zone
 
 Like the real controller: the SSID list leaves out the security settings (only
 ``…/ssids/{ssidId}`` has ``pskSetting`` and ``pmfMode``, the passphrase included); the v1 network
@@ -255,6 +256,9 @@ def sample_data() -> dict[str, Any]:
                 "ip": "192.0.2.1",
                 "status": 1,
                 "firmwareVersion": "2.2.3 Build 20231201",
+                "uptime": "12day(s) 3h 4m 5s",
+                "cpuUtil": 7,
+                "memUtil": 41,
             },
             {
                 "mac": SWITCH,
@@ -264,6 +268,9 @@ def sample_data() -> dict[str, Any]:
                 "ip": "192.0.2.2",
                 "status": 1,
                 "firmwareVersion": "1.0.5",
+                "uptime": "12day(s) 3h 2m 1s",
+                "cpuUtil": 3,
+                "memUtil": 55,
             },
             {
                 "mac": EAP1,
@@ -274,6 +281,9 @@ def sample_data() -> dict[str, Any]:
                 "status": 1,
                 "firmwareVersion": "1.1.0",
                 "wlanId": "wlan-default",
+                "uptime": "3h 4m 5s",
+                "cpuUtil": 12,
+                "memUtil": 63,
             },
             {
                 "mac": EAP2,
@@ -283,6 +293,9 @@ def sample_data() -> dict[str, Any]:
                 "ip": "192.0.2.4",
                 "status": 1,
                 "firmwareVersion": "5.1.0",
+                "uptimeLong": 86400,
+                "cpuUtil": 5,
+                "memUtil": 48,
             },
         ],
         f"{SITE}/lan-networks": [

@@ -27,8 +27,11 @@ import secrets
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
+from fnmatch import fnmatchcase
 from ipaddress import ip_interface
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -38,8 +41,16 @@ MAC = "02:00:00:00:{:02x}:{:02x}"
 #: Devices with a DHCP reservation keep their real (universally administered) MAC: the
 #: documentation range of RFC 7042, so that `clients.random-mac` stays quiet for them.
 FIXED_MAC = "00:00:5e:00:53:{:02x}"
-#: UCI configs the simulator knows
+#: UCI configs the simulator knows (and can write)
 CONFIGS = ("network", "wireless", "dhcp")
+#: UCI configs it only reads (time zone and NTP, #179)
+READ_ONLY = ("system",)
+#: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
+FILES = (
+    "/tmp/dhcp.leases",
+    "/sys/class/thermal/thermal_zone*/temp",
+    "/sys/class/thermal/thermal_zone*/type",
+)
 
 Sections = dict[str, dict[str, Any]]
 """One UCI config: section name -> {".type", ".anonymous", options}, in order."""
@@ -342,13 +353,66 @@ def dhcp_config(router: bool) -> dict[str, Any]:
                 "start": "100",
                 "limit": "150",
                 "leasetime": "12h",
-                **({"dhcp_option": ["6,192.0.2.1,192.0.2.53"]} if router else {"ignore": "1"}),
+                **(
+                    {"dhcp_option": ["6,192.0.2.1,192.0.2.53", "42,192.0.2.1"]}
+                    if router
+                    else {"ignore": "1"}
+                ),
             },
         ),
         ("dhcp", "wan", {"interface": "wan", "ignore": "1"}),
         ("host", "cfg06fe63", {"name": "printer", "mac": _fixed(1), "ip": "192.0.2.50"}),
         ("host", "cfg07fe63", {"name": "faraway", "mac": _fixed(2), "ip": "203.0.113.9"}),
     )
+
+
+def system_config(router: bool) -> dict[str, Any]:
+    """``/etc/config/system`` as OpenWrt writes it for Europe/Berlin (LuCI's zone table)."""
+    ntp: dict[str, Any] = {"enabled": "1", "enable_server": "0", "server": ["192.0.2.1"]}
+    if router:
+        servers = [f"{n}.openwrt.pool.ntp.org" for n in range(4)]
+        ntp = {"enabled": "1", "enable_server": "1", "interface": "lan", "server": servers}
+    return _uci(
+        (
+            "system",
+            "cfg01e48a",
+            {
+                "hostname": "ap",
+                "timezone": "CET-1CEST,M3.5.0,M10.5.0/3",
+                "zonename": "Europe/Berlin",
+                "ttylogin": "0",
+                "log_size": "128",
+                "urandom_seed": "0",
+            },
+        ),
+        ("timeserver", "ntp", ntp),
+    )
+
+
+def system_info(now: float, zone: str, uptime: int = 273906) -> dict[str, Any]:
+    """``system info`` of a 512 MiB filogic AP: memory in bytes, root and tmp in KiB, load
+    times 65536, ``localtime`` the wall clock of ``zone`` in seconds since the epoch."""
+    try:
+        offset = datetime.fromtimestamp(now, ZoneInfo(zone)).utcoffset()
+    except (ZoneInfoNotFoundError, ValueError):
+        offset = None
+    local = int(now + (offset.total_seconds() if offset else 0))
+    return {
+        "localtime": local,
+        "uptime": uptime,
+        "load": [6912, 4352, 2880],
+        "memory": {
+            "total": 515878912,
+            "free": 382853120,
+            "shared": 1069056,
+            "buffered": 0,
+            "available": 371363840,
+            "cached": 38051840,
+        },
+        "root": {"total": 104320, "free": 100736, "used": 3584, "avail": 96512},
+        "tmp": {"total": 251892, "free": 251488, "used": 404, "avail": 251488},
+        "swap": {"total": 0, "free": 0},
+    }
 
 
 def clients(ifname: str, section: str) -> dict[str, Any]:
@@ -527,6 +591,10 @@ class OpenWrtSim:
     mac_base: int = 0
     #: time source of sessions and the rollback timer (replace it to test the timer)
     clock: Callable[[], float] = time.monotonic
+    #: seconds the device's wall clock is ahead of the real time (``system info`` localtime)
+    clock_skew: float = 0.0
+    #: thermal zones (``type``, milli-degrees Celsius) under /sys/class/thermal
+    thermal_zones: list[tuple[str, int]] = field(default_factory=lambda: [("cpu-thermal", 47823)])
     sessions: dict[str, float] = field(default_factory=dict)
     logins: int = 0
     requests: int = 0
@@ -558,6 +626,7 @@ class OpenWrtSim:
                 "network": _sections(network_config(self.router)),
                 "wireless": _sections(wireless_config()),
                 "dhcp": _sections(dhcp_config(self.router)),
+                "system": _sections(system_config(self.router)),
             }
         return self.configs
 
@@ -612,7 +681,7 @@ class OpenWrtSim:
         if method == "get":
             if f"uci:{config}" in self.denied:
                 return [DENIED]
-            if config not in CONFIGS or config in self.missing:
+            if config not in CONFIGS + READ_ONLY or config in self.missing:
                 return [NOT_FOUND]
             sections = self.view(sid, config)
             if isinstance(args.get("section"), str):
@@ -683,7 +752,9 @@ class OpenWrtSim:
         if obj == "system" and method == "board":
             return [0, board()]
         if obj == "system" and method == "info":
-            return [0, {"localtime": 1700000000, "uptime": 86400, "load": [0, 0, 0]}]
+            zone = next((sec for sec in self.state["system"].values()), {})
+            name = str(zone.get("zonename") or "UTC")
+            return [0, system_info(time.time() + self.clock_skew, name)]
         if obj == "network.device" and method == "status":
             status = device_status(self.state["network"], self.state["wireless"])
             if self.mac_base:  # a second simulated device needs MACs of its own
@@ -718,8 +789,15 @@ class OpenWrtSim:
             lease = {"expires": 43000, "hostname": name, "macaddr": mac, "ipaddr": ip}
             return [0, {"dhcp_leases": [lease, {"macaddr": "bogus"}], "dhcp6_leases": []}]
         if obj == "file" and method == "read":
-            if args.get("path") != "/tmp/dhcp.leases":
-                return [4]
+            path = str(args.get("path"))
+            if not any(fnmatchcase(path, allowed) for allowed in FILES):
+                return [DENIED]
+            if path.startswith("/sys/class/thermal/thermal_zone"):
+                n, _, leaf = path.removeprefix("/sys/class/thermal/thermal_zone").partition("/")
+                if not n.isdigit() or int(n) >= len(self.thermal_zones):
+                    return [NOT_FOUND]
+                kind, milli = self.thermal_zones[int(n)]
+                return [0, {"data": f"{milli}\n" if leaf == "temp" else f"{kind}\n"}]
             mac, ip, name = LEASE
             text = f"1700043000 {mac} {ip} {name} 01:{mac}\n1700043000 bogus x * *\nshort\n"
             return [0, {"data": text}]

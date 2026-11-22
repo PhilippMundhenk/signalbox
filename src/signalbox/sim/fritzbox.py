@@ -33,10 +33,12 @@ import re
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta, tzinfo
 from functools import cache
 from ipaddress import IPv4Address, IPv4Network
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
@@ -151,6 +153,27 @@ HOSTS: list[tuple[str, str, str, str, str, str]] = [
 ]
 
 
+def time_info(zone: str, skew: float = 0.0) -> dict[str, str]:
+    """``Time:1 GetInfo`` as in AVM's timeSCPD (TR-064 Time:1): NTP servers, the local time
+    with its offset and the zone as a POSIX string (*Guess*: AVM fills in the zone fields like
+    the TR-064 example; no real Fritz!Box confirms it in CI)."""
+    try:
+        tz: tzinfo = ZoneInfo(zone)
+    except (ZoneInfoNotFoundError, ValueError):
+        tz = UTC
+    now = (datetime.now(UTC) + timedelta(seconds=skew)).astimezone(tz).replace(microsecond=0)
+    return {
+        "NewNTPServer1": "ntp.example.net",
+        "NewNTPServer2": "",
+        "NewCurrentLocalTime": now.isoformat(),
+        "NewLocalTimeZone": "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00",
+        "NewLocalTimeZoneName": "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00",
+        "NewDaylightSavingsUsed": "1",
+        "NewDaylightSavingsStart": "0001-01-01T00:00:00",
+        "NewDaylightSavingsEnd": "0001-01-01T00:00:00",
+    }
+
+
 def host_entry(index: int) -> dict[str, str]:
     mac, ip, source, kind, active, name = HOSTS[index]
     return {
@@ -227,6 +250,11 @@ class FritzboxSim:
     writes: list[str] = field(default_factory=list)
     #: every authenticated SOAP call that named an existing service: (service, action, args)
     calls: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
+    #: seconds since the last start (``DeviceInfo GetInfo`` ``NewUpTime``)
+    uptime: int = 1209600
+    #: IANA zone of the box's clock (``Time GetInfo``) and how far it is ahead, in seconds
+    timezone: str = "Europe/Berlin"
+    clock_skew: float = 0.0
 
     def reset(self) -> None:
         fresh = FritzboxSim()
@@ -310,9 +338,11 @@ class FritzboxSim:
                 "NewHardwareVersion": desc.value("modelName"),
                 "NewSpecVersion": "1.0",
                 "NewProvisioningCode": "",
-                "NewUpTime": "86400",
+                "NewUpTime": str(self.uptime),
                 "NewDeviceLog": "",
             }
+        if name == "Time" and action == "GetInfo":
+            return time_info(self.timezone, self.clock_skew)
         if name == "LANHostConfigManagement":
             lan = self.lan
             getters: dict[str, Callable[[], dict[str, str]]] = {

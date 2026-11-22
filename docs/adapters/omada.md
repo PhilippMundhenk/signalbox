@@ -137,6 +137,9 @@ A new token is requested at the start of every observation; requests carry
 
 `[{"siteId": "…", "name": "Default", "region": "…", "timeZone": "UTC", "scenario": "Home",
 "type": 0, "primary": false, ...}]`: the site whose `name` is the configured `site`.
+Its `timeZone` (`"UTC"` on a new controller, as Omada Software Controller 6.3 answers in the
+integration tests of #140) is the time zone of the controller device (time): the zone the
+site's devices run on.
 
 ### `GET /openapi/v1/{omadacId}/sites/{siteId}/devices` (paged) *(API description)*
 
@@ -148,6 +151,21 @@ A new token is requested at the start of every observation; requests carry
 `type` `gateway`, `switch` or `ap`. The WLAN group of an EAP is not in this list (the API
 description names a field `wlan group id` in the AP's own answer); without it the primary WLAN
 group is used, `wlanId` is taken when present.
+
+Health of each managed device, from the same rows: `cpuUtil` (%), the uptime from `uptimeLong`
+(seconds) or the text `uptime` (`"12day(s) 3h 4m 5s"`, `"2 days 04:05:06"`). The field names are
+those of the controller's own API description (6.3: `cpuUtil`, `memoryUtil`, `uptimeLong` on
+the device details); the CI site has no devices, so the values are not confirmed. `memUtil` is
+a percentage without the memory size and is not reported (the model holds bytes). *Guess*:
+`temp` or `temperature` (°C, one sensor `device`), `fanStatus` and `powerStatus` (a fan `fan`,
+a power supply `power`), read only when they are words that leave no doubt (`normal`,
+`abnormal`, `ok`, `fault`, ...). The controller itself has an empty health: the Open API does
+not describe the machine it runs on.
+
+Time: the controller's clock is the `Date` header of `GET /api/info` (whole seconds, read with
+the round trip as uncertainty), its zone the site's `timeZone`. The managed devices take their
+time from the controller; their clocks and the site's NTP settings are not in the endpoints read
+here, so the NTP client and server stay unknown.
 
 ### `GET …/sites/{siteId}/lan-networks` (paged)
 

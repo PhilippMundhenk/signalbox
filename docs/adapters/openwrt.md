@@ -77,8 +77,65 @@ Login (session `00000000000000000000000000000000`):
              "target": "mediatek/filogic", "description": "OpenWrt 23.05.5 …"}}
 ```
 
-`model` becomes the device model, `release.version` the current firmware. `system info` (uptime,
-memory) is allowed by the ACL for later use but not read yet.
+`model` becomes the device model, `release.version` the current firmware.
+
+### `system info` (health, and the clock for time)
+
+```json
+{"localtime": 1795435200, "uptime": 273906, "load": [6912, 4352, 2880],
+ "memory": {"total": 515878912, "free": 382853120, "shared": 1069056, "buffered": 0,
+            "available": 371363840, "cached": 38051840},
+ "root": {"total": 104320, "free": 100736, "used": 3584, "avail": 96512},
+ "tmp": {"total": 251892, "free": 251488, "used": 404, "avail": 251488},
+ "swap": {"total": 0, "free": 0}}
+```
+
+- `uptime` in seconds; `load` the 1/5/15 minute load averages times 65536 (rpcd passes the
+  kernel's fixed-point numbers on). There is no CPU percentage and no CPU count.
+- `memory` in bytes: used is `total - available` (without page cache); rpcd before 21.02 has
+  no `available`, then `free + buffered + cached` counts as available.
+- `root` and `tmp` in **KiB**: `/` (the overlay on squashfs images, where the configuration
+  lives) is storage of kind `system`, `/tmp` (RAM) of kind `temporary`.
+- `localtime` is the wall clock in the device's zone, in seconds since the epoch (UTC seconds
+  plus the zone's offset); see `uci get system` below.
+
+### `file read` of `/sys/class/thermal/thermal_zone<N>/temp` and `.../type` *(optional)* (health)
+
+```json
+{"data": "47823\n"}      temp: milli-degrees Celsius
+{"data": "cpu-thermal\n"} type: the sensor's name (empty: thermal_zone<N>)
+```
+
+Zones 0 to 7 are read until the first one that is missing (ubus status 4), refused or
+unreadable; then health carries no temperatures, which is not an error. Needs `rpcd-mod-file`
+and the two thermal paths in the ACL. *Guess*: the x86-64 VM in CI has no thermal zones, so only
+"missing" is confirmed on a real OpenWrt; the values follow the kernel's sysfs ABI.
+
+### `uci get {"config": "system"}` (time)
+
+```json
+{"values": {
+  "cfg01e48a": {".type": "system", "hostname": "ap", "zonename": "Europe/Berlin",
+                "timezone": "CET-1CEST,M3.5.0,M10.5.0/3"},
+  "ntp": {".type": "timeserver", "enabled": "1", "enable_server": "1", "interface": "lan",
+          "server": ["0.openwrt.pool.ntp.org", "1.openwrt.pool.ntp.org"]}}}
+```
+
+- `timezone` is the POSIX string OpenWrt runs on (`/etc/TZ`; default `UTC`), `zonename` the
+  IANA name LuCI sets with it. The time zone shown is `zonename`, else `timezone`. The UTC
+  offset comes from the POSIX string at the moment of the read (`Mm.w.d` rules, as in LuCI's
+  zone table; a string with other rules gives no offset and so no clock).
+- The clock is `localtime` minus that offset, with whole seconds: the middle of the second,
+  with half the round trip plus half a second as uncertainty.
+- `ntp` (`timeserver`): `enabled` (default on) and `server` are the NTP client,
+  `enable_server` (default off) the server; `interface` (OpenWrt 21.02+) binds the server to
+  that network, which becomes its segment (none: all networks). sysntpd does not report
+  whether it is in sync, so that stays unknown.
+- Needs `system` in the ACL's `uci` list (added for #179; an older ACL makes only the time
+  capability fail, with "access denied for uci.get (system)").
+
+`dhcp_option` `42,<addresses>` (or `option:ntp-server,…`) of a `dhcp` section is the NTP
+server handed out by DHCP (`DhcpServer.ntp_servers`).
 
 ### `network.device status` (ports)
 
@@ -252,8 +309,12 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "file": ["read"],
         "luci.lldpd": ["getStatus"]
       },
-      "uci": ["network", "wireless", "dhcp"],
-      "file": {"/tmp/dhcp.leases": ["read"]}
+      "uci": ["network", "wireless", "dhcp", "system"],
+      "file": {
+        "/tmp/dhcp.leases": ["read"],
+        "/sys/class/thermal/thermal_zone*/temp": ["read"],
+        "/sys/class/thermal/thermal_zone*/type": ["read"]
+      }
     }
   }
 }
@@ -347,8 +408,12 @@ only allows the `uci` methods of a transaction on the three configs:
         "file": ["read"],
         "luci.lldpd": ["getStatus"]
       },
-      "uci": ["network", "wireless", "dhcp"],
-      "file": {"/tmp/dhcp.leases": ["read"]}
+      "uci": ["network", "wireless", "dhcp", "system"],
+      "file": {
+        "/tmp/dhcp.leases": ["read"],
+        "/sys/class/thermal/thermal_zone*/temp": ["read"],
+        "/sys/class/thermal/thermal_zone*/type": ["read"]
+      }
     },
     "write": {
       "ubus": {

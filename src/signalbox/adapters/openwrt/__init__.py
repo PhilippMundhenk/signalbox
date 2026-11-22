@@ -34,7 +34,7 @@ from signalbox.adapters import (
     VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, device_url
-from signalbox.adapters.openwrt import setup
+from signalbox.adapters.openwrt import setup, vitals
 from signalbox.adapters.openwrt.ubus import AccessDenied, InvalidArgument, NoData, NotFound, Ubus
 from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
@@ -57,6 +57,7 @@ from signalbox.model import (
     Security,
     Segment,
     Subnet,
+    TemperatureSensor,
     Wlan,
     normalise_mac,
     object_id,
@@ -135,6 +136,16 @@ def _sections(uci: dict[str, Any], kind: str) -> list[tuple[str, dict[str, Any]]
         if isinstance(s, dict) and s.get(".type") == kind
     ]
     return sorted(found, key=lambda item: _int(item[1].get(".index")) or 0)
+
+
+def _addresses(text: str) -> list[IPAddress]:
+    out: list[IPAddress] = []
+    for part in text.split(","):
+        try:
+            out.append(ip_address(part.strip()))
+        except ValueError:
+            continue
+    return out
 
 
 def _extra(section: dict[str, Any], *keys: str) -> dict[str, JsonValue]:
@@ -359,7 +370,7 @@ class OpenWrtAdapter(Adapter):
         id="openwrt",
         name="OpenWrt",
         version="0.1.0",
-        api_version="1.0",
+        api_version="1.2",
         vendor="OpenWrt",
         roles=frozenset({DeviceRole.AP, DeviceRole.SWITCH, DeviceRole.GATEWAY}),
         capabilities=frozenset(
@@ -369,6 +380,8 @@ class OpenWrtAdapter(Adapter):
                 Capability.DHCP,
                 Capability.CLIENTS,
                 Capability.NEIGHBOURS,
+                Capability.HEALTH,
+                Capability.TIME,
             }
         ),
         config=OpenWrtConfig,
@@ -636,6 +649,9 @@ class OpenWrtAdapter(Adapter):
                     lease_seconds=lease_seconds(s.get("leasetime", "12h")),
                     router=ip_address(router.split(",")[0]) if router else None,
                     dns_servers=[ip_address(x) for x in options.get("6", "").split(",") if x],
+                    ntp_servers=_addresses(
+                        options.get("42") or options.get("option:ntp-server") or ""
+                    ),
                     reservations=[
                         Reservation(mac=m, address=a, hostname=h) for m, a, h in hosts if a in net
                     ],
@@ -643,6 +659,46 @@ class OpenWrtAdapter(Adapter):
                 )
             )
         return Observation(dhcp_servers=servers)
+
+    # health and time --------------------------------------------------------------------
+
+    async def _temperatures(self) -> list[TemperatureSensor]:
+        """Thermal zones through ``file read`` (rpcd-mod-file and the ACL paths of the docs);
+        the first zone that is missing, refused or unreadable ends the list."""
+        found = []
+        for zone in range(vitals.THERMAL_ZONES):
+            base = f"/sys/class/thermal/thermal_zone{zone}"
+            try:
+                temp = await self.ubus.call("file", "read", {"path": f"{base}/temp"})
+            except AdapterError:  # not found, not allowed, not installed
+                break
+            try:
+                kind = await self.ubus.call("file", "read", {"path": f"{base}/type"})
+            except AdapterError:
+                kind = {}
+            sensor = vitals.thermal(zone, temp.get("data"), kind.get("data"))
+            if sensor is not None:
+                found.append(sensor)
+        return found
+
+    async def read_health(self) -> Observation:
+        info = await self.ubus.call("system", "info")
+        value = vitals.health_of(info, await self._temperatures())
+        return Observation(health={self.context.device_id: value})
+
+    async def read_time(self) -> Observation:
+        start = datetime.now(UTC)
+        info = await self.ubus.call("system", "info")
+        end = datetime.now(UTC)
+        uci = await self.ubus.call("uci", "get", {"config": "system"})
+        view = await self._network(running=False)
+        segments = {}
+        for name in view.devices:
+            vid = view.vlan_of_interface(name)
+            if vid is not None:
+                segments[name] = self._seg(vid)
+        value = vitals.time_of(info, uci, start, end, segments)
+        return Observation(time={self.context.device_id: value})
 
     # clients --------------------------------------------------------------------------
 

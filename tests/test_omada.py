@@ -24,8 +24,10 @@ from signalbox.adapters.omada import (
     _int,
     _security,
     _width,
+    vitals,
 )
 from signalbox.model import (
+    DeviceHealth,
     DeviceRole,
     DeviceStatus,
     Membership,
@@ -616,3 +618,56 @@ async def test_managed_devices_are_reported_as_devices(https_url: str, tls: TlsF
     net = merge([Site(id=snap.device.site_id, name="Home")], [snap])
     assert len(net.devices) == 1 + len(snap.extra_devices)
     assert all(net.statuses[d.id] == snap.status for d in net.devices)
+
+
+# --- health and time (#178, #179) ------------------------------------------------------------
+
+
+async def test_health_of_the_managed_devices(snap: Snapshot) -> None:
+    by_name = {d.name: d.health for d in snap.extra_devices}
+    gw, sw, ap1, ap2 = (by_name[n] for n in ("Gateway", "Switch", "AP 1", "AP 2"))
+    assert gw is not None and sw is not None and ap1 is not None and ap2 is not None
+    assert (gw.uptime_seconds, gw.cpu_load_pct) == (((12 * 24 + 3) * 60 + 4) * 60 + 5, 7)
+    assert (ap1.uptime_seconds, ap1.cpu_load_pct) == ((3 * 60 + 4) * 60 + 5, 12)
+    assert (ap2.uptime_seconds, ap2.cpu_load_pct) == (86400, 5)
+    assert gw.boot_time is not None and gw.memory_used_bytes is None  # memUtil: percent only
+    assert snap.device.health == DeviceHealth()  # the controller's host is not described
+
+
+async def test_health_guesses_and_odd_rows(http_url: str, sim: OmadaSimulator) -> None:
+    rows = sim.data[f"{SITE}/devices"]
+    rows[0] |= {"temp": 48.5, "fanStatus": "Normal", "powerStatus": "abnormal", "cpuUtil": 140}
+    rows[1] |= {"uptime": "2 days 04:05:06", "fanStatus": 1, "powerStatus": None}
+    rows[2] |= {"uptime": "soon"}
+    rows[3] |= {"uptimeLong": -1, "uptime": 60.0, "temperature": "hot"}
+    snap = await observe(adapter(http_url))
+    by_name = {d.name: d.health for d in snap.extra_devices}
+    gw, sw, ap1, ap2 = (by_name[n] for n in ("Gateway", "Switch", "AP 1", "AP 2"))
+    assert gw is not None and sw is not None and ap1 is not None and ap2 is not None
+    assert [(t.name, t.value_c) for t in gw.temperatures] == [("device", 48.5)]
+    assert [(f.name, f.ok) for f in gw.fans] == [("fan", True)]
+    assert [(p.name, p.ok) for p in gw.power_supplies] == [("power", False)]
+    assert gw.cpu_load_pct is None
+    assert sw.uptime_seconds == ((2 * 24 + 4) * 60 + 5) * 60 + 6 and sw.fans == []
+    assert ap1.uptime_seconds is None and ap2.uptime_seconds == 60 and ap2.temperatures == []
+
+
+async def test_time_of_the_controller(http_url: str, sim: OmadaSimulator) -> None:
+    sim.data[f"/openapi/v1/{OMADAC_ID}/sites"][0]["timeZone"] = "Europe/Berlin"
+    snap = await observe(adapter(http_url))
+    t = snap.device.time
+    assert t is not None and t.clock is not None and t.timezone == "Europe/Berlin"
+    offset = t.offset_seconds()
+    assert offset is not None and abs(offset) < 2
+    assert t.ntp_client is None and t.ntp_server is None
+    assert all(d.time is None for d in snap.extra_devices)
+
+
+def test_time_and_uptime_helpers() -> None:
+    start = datetime(2026, 11, 22, 16, tzinfo=UTC)
+    t = vitals.time_of("Sun, 22 Nov 2026 16:00:00 GMT", " ", start, start)
+    assert t.offset_seconds() == 0.5 and t.timezone is None
+    for bad in (None, "", "yesterday", "Sun, 22 Nov 2026 16:00:00 -0000"):
+        assert vitals.time_of(bad, "UTC", start, start).clock is None
+    assert vitals.uptime({"uptime": "1d 2h"}) == 93600 and vitals.uptime({"uptime": True}) is None
+    assert vitals.uptime({}) is None

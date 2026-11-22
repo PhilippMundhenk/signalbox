@@ -22,7 +22,7 @@
    "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:DeviceInfo:1\"></u:GetInfo></s:Body></s:Envelope>",
    "status": 200,
    "content_type": "text/xml; charset=\"utf-8\"",
-   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:DeviceInfo:1\"><NewManufacturerName>AVM</NewManufacturerName><NewManufacturerOUI>00040E</NewManufacturerOUI><NewModelName>FRITZ!Box 7590</NewModelName><NewDescription>name-2</NewDescription><NewProductClass>AVMFB</NewProductClass><NewSerialNumber>redacted-secret-02</NewSerialNumber><NewSoftwareVersion>154.07.57</NewSoftwareVersion><NewHardwareVersion>FRITZ!Box 7590</NewHardwareVersion><NewSpecVersion>1.0</NewSpecVersion><NewProvisioningCode></NewProvisioningCode><NewUpTime>86400</NewUpTime><NewDeviceLog></NewDeviceLog></u:GetInfoResponse></s:Body></s:Envelope>"
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:DeviceInfo:1\"><NewManufacturerName>AVM</NewManufacturerName><NewManufacturerOUI>00040E</NewManufacturerOUI><NewModelName>FRITZ!Box 7590</NewModelName><NewDescription>name-2</NewDescription><NewProductClass>AVMFB</NewProductClass><NewSerialNumber>redacted-secret-02</NewSerialNumber><NewSoftwareVersion>154.07.57</NewSoftwareVersion><NewHardwareVersion>FRITZ!Box 7590</NewHardwareVersion><NewSpecVersion>1.0</NewSpecVersion><NewProvisioningCode></NewProvisioningCode><NewUpTime>1209600</NewUpTime><NewDeviceLog></NewDeviceLog></u:GetInfoResponse></s:Body></s:Envelope>"
   },
   {
    "method": "POST",
@@ -203,6 +203,18 @@
   },
   {
    "method": "POST",
+   "path": "/upnp/control/deviceinfo",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:DeviceInfo:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:DeviceInfo:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:DeviceInfo:1\"><NewManufacturerName>AVM</NewManufacturerName><NewManufacturerOUI>00040E</NewManufacturerOUI><NewModelName>FRITZ!Box 7590</NewModelName><NewDescription>name-2</NewDescription><NewProductClass>AVMFB</NewProductClass><NewSerialNumber>redacted-secret-02</NewSerialNumber><NewSoftwareVersion>154.07.57</NewSoftwareVersion><NewHardwareVersion>FRITZ!Box 7590</NewHardwareVersion><NewSpecVersion>1.0</NewSpecVersion><NewProvisioningCode></NewProvisioningCode><NewUpTime>1209600</NewUpTime><NewDeviceLog></NewDeviceLog></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
    "path": "/upnp/control/lanethernetifcfg",
    "headers": {
     "soapaction": "\"urn:dslforum-org:service:LANEthernetInterfaceConfig:1#GetInfo\"",
@@ -320,6 +332,18 @@
    "status": 200,
    "content_type": "text/xml; charset=\"utf-8\"",
    "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>guest</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>1</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/time",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:Time:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:Time:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:Time:1\"><NewNTPServer1>ntp.example.net</NewNTPServer1><NewNTPServer2></NewNTPServer2><NewCurrentLocalTime>2026-11-22T17:46:45+01:00</NewCurrentLocalTime><NewLocalTimeZone>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZone><NewLocalTimeZoneName>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZoneName><NewDaylightSavingsUsed>1</NewDaylightSavingsUsed><NewDaylightSavingsStart>0001-01-01T00:00:00</NewDaylightSavingsStart><NewDaylightSavingsEnd>0001-01-01T00:00:00</NewDaylightSavingsEnd></u:GetInfoResponse></s:Body></s:Envelope>"
   },
   {
    "method": "POST",
@@ -501,12 +525,42 @@
    "capabilities": [
     "clients",
     "dhcp",
+    "health",
     "interfaces",
+    "time",
     "wireless"
    ],
    "managed_by": null,
-   "health": null,
-   "time": null
+   "health": {
+    "uptime_seconds": 1209600,
+    "last_reboot_reason": null,
+    "cpu_load_pct": null,
+    "load_average": null,
+    "cpu_count": null,
+    "memory_total_bytes": null,
+    "memory_used_bytes": null,
+    "storage": [],
+    "temperatures": [],
+    "fans": [],
+    "power_supplies": [],
+    "ups": []
+   },
+   "time": {
+    "clock": "2026-11-22T17:46:45.500000+01:00",
+    "timezone": "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00",
+    "utc_offset_minutes": 60,
+    "ntp_client": {
+     "enabled": true,
+     "servers": [
+      "ntp.example.net"
+     ],
+     "synchronised": null,
+     "last_sync": null,
+     "stratum": null,
+     "current_server": null
+    },
+    "ntp_server": null
+   }
   },
   "status": "ok",
   "ports": [

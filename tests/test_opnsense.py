@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import socket
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from ipaddress import ip_address, ip_interface
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -24,6 +26,7 @@ from signalbox.adapters import https as https_mod
 from signalbox.adapters.https import DeviceHttp, NotFound, normalise_fingerprint
 from signalbox.adapters.opnsense import (
     ARP,
+    CPU_TYPE,
     FIRMWARE,
     HOST_OVERRIDES,
     INTERFACES,
@@ -31,6 +34,9 @@ from signalbox.adapters.opnsense import (
     ISC_STATUS,
     KEA,
     KEA_LEASES,
+    NTP_STATUS,
+    SYSTEM_TEMPERATURE,
+    SYSTEM_TIME,
     UNBOUND,
     VLANS,
     OpnsenseAdapter,
@@ -42,8 +48,9 @@ from signalbox.adapters.opnsense import (
     _rows,
     _selected,
     _speed,
+    vitals,
 )
-from signalbox.model import DeviceRole, DeviceStatus, Membership, Snapshot, port_id
+from signalbox.model import DeviceRole, DeviceStatus, Membership, NtpClient, Snapshot, port_id
 from signalbox.sim.opnsense import KEY, SECRET, OpnsenseSimulator
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
 from signalbox.testing import assert_contract
@@ -527,3 +534,142 @@ async def test_simulator_rejects_odd_auth(http_url: str, header: str) -> None:
     async with httpx.AsyncClient(trust_env=False) as client:
         response = await client.get(http_url + FIRMWARE, headers={"Authorization": header})
     assert response.status_code == 401
+
+
+# --- health and time (#178, #179) ------------------------------------------------------------
+
+
+async def test_health(snap: Snapshot) -> None:
+    h = snap.device.health
+    assert h is not None
+    assert (h.uptime_seconds, h.load_average, h.cpu_count) == (273906, (0.13, 0.07, 0.04), 4)
+    assert h.memory_total_bytes == 4277690368
+    assert h.memory_used_bytes == 1015021568 - 209715200  # the ZFS ARC is cache
+    assert [(s.name, s.kind.value, s.total_bytes, s.used_bytes) for s in h.storage] == [
+        ("/", "system", 27917287424, 1932735283),
+        ("/var/log", "data", 26038288384, 53736243),
+        ("/tmp", "temporary", 2138845184, 266240),
+        ("/boot/efi", "other", 272629760, 1363148),
+    ]
+    assert [(t.name, t.value_c) for t in h.temperatures] == [
+        ("dev.cpu.0.temperature", 47),
+        ("dev.cpu.1.temperature", 45),
+    ]
+    assert h.cpu_load_pct is None  # only as an event stream: not read
+
+
+async def test_time(snap: Snapshot) -> None:
+    t = snap.device.time
+    assert t is not None and t.clock is not None and t.read_at is not None
+    offset = t.offset_seconds()
+    assert offset is not None and abs(offset) < 2
+    zone = datetime.now(ZoneInfo("Europe/Berlin")).utcoffset()
+    assert zone is not None and t.utc_offset_minutes == zone.total_seconds() // 60
+    assert t.clock.utcoffset() == zone
+    assert t.timezone is None and t.ntp_server is None  # not in the API
+    assert t.ntp_client == NtpClient(
+        enabled=True,
+        servers=["203.0.113.123", "198.51.100.123", "0.opnsense.pool.ntp.org"],
+        synchronised=True,
+        stratum=1,
+        current_server="203.0.113.123",
+    )
+    iot = next(s for s in snap.dhcp_servers if s.segment_id == "home/segment/20")
+    assert iot.ntp_servers == [ip_address("198.51.100.1")]
+    lan = next(s for s in snap.dhcp_servers if s.segment_id == "home/segment/native")
+    assert lan.ntp_servers == [ip_address("192.0.2.1")]  # autocollect: the interface address
+
+
+async def test_time_without_ntpd_and_unsynchronised(http_url: str, sim: OpnsenseSimulator) -> None:
+    rows = sim.data[NTP_STATUS]["rows"]
+    for row in rows:
+        row["status"] = " "
+    sim.timezone = "UTC"
+    t = (await observe(adapter(http_url))).device.time
+    assert t is not None and t.utc_offset_minutes == 0 and t.ntp_client is not None
+    assert t.ntp_client.synchronised is False and t.ntp_client.current_server is None
+    sim.data[NTP_STATUS] = {"rows": []}
+    t = (await observe(adapter(http_url))).device.time
+    assert t is not None and t.ntp_client == NtpClient(enabled=False)
+    del sim.data[NTP_STATUS]
+    t = (await observe(adapter(http_url))).device.time
+    assert t is not None and t.ntp_client is None and t.clock is not None
+
+
+async def test_health_and_time_need_the_dashboard_privilege(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    sim.fail = {SYSTEM_TIME: 403, NTP_STATUS: 403}
+    snap = await observe(adapter(http_url))
+    assert snap.status is DeviceStatus.PARTIAL
+    errors = {e.capability: e.message for e in snap.errors}
+    assert set(errors) == {"health", "time"}
+    assert all("check the user's privileges" in m for m in errors.values())
+    sim.fail = {NTP_STATUS: 403}
+    snap = await observe(adapter(http_url))
+    assert [e.capability for e in snap.errors] == ["time"] and snap.device.health
+
+
+async def test_health_of_odd_answers(http_url: str, sim: OpnsenseSimulator) -> None:
+    sim.data[SYSTEM_TEMPERATURE] = []
+    sim.data["/api/diagnostics/system/system_resources"] = {"memory": {"used": "N/A"}}
+    sim.data["/api/diagnostics/system/system_disk"] = []
+    del sim.data[CPU_TYPE]
+    sim.data[SYSTEM_TIME] = {**sim.data[SYSTEM_TIME], "uptime": "00:00:09", "loadavg": "N/A"}
+    h = (await observe(adapter(http_url))).device.health
+    assert h is not None and h.uptime_seconds == 9 and h.load_average is None
+    assert h.memory_total_bytes is None and h.memory_used_bytes is None
+    assert h.storage == h.temperatures == [] and h.cpu_count is None
+    sim.data[SYSTEM_TEMPERATURE] = {"not": "a list"}
+    snap = await observe(adapter(http_url))
+    assert "system_temperature" in {e.capability: e.message for e in snap.errors}["health"]
+    sim.data[SYSTEM_TIME] = []
+    snap = await observe(adapter(http_url))
+    assert {e.capability for e in snap.errors} == {"health", "time"}
+    sim.malformed = {SYSTEM_TIME}
+    snap = await observe(adapter(http_url))
+    assert "not valid JSON" in {e.capability: e.message for e in snap.errors}["time"]
+
+
+def test_health_and_time_helpers() -> None:
+    assert vitals.uptime("1 day, 00:00:01") == 86401 and vitals.uptime("3 days, 04:05:06")
+    assert vitals.uptime("soon") is None and vitals.uptime(None) is None
+    assert vitals.load_average("1, 2") is None and vitals.load_average("-1, 0, 0") is None
+    assert vitals.cpu_count(["x (1 cores, 2 threads)"]) == 2 and vitals.cpu_count([]) is None
+    assert vitals.cpu_count("x (1 core, 0 threads)") is None
+    assert vitals.local_time("Sun Nov 22 17:12:00 CET 2026") == datetime(2026, 11, 22, 17, 12)
+    assert vitals.local_time("Sun Nov 22 17:12:00 2026") is None
+    assert vitals.local_time("Sun Nox 22 17:12:00 CET 2026") is None
+    assert vitals.http_date("Sun, 22 Nov 2026 16:12:00 GMT") == datetime(
+        2026, 11, 22, 16, 12, tzinfo=UTC
+    )
+    assert vitals.http_date(None) is None and vitals.http_date("yesterday") is None
+    assert vitals.http_date("Sun, 22 Nov 2026 16:12:00 -0000") is None  # no zone
+    start = datetime(2026, 11, 22, 16, 12, tzinfo=UTC)
+    head = "Sun, 22 Nov 2026 16:12:00 GMT"
+    odd = vitals.time_of({"datetime": "Sun Nov 22 16:19:00 X 2026"}, head, None, start, start)
+    assert odd.utc_offset_minutes is None and odd.offset_seconds() == 0.5  # 7 min: no zone
+    india = vitals.time_of({"datetime": "Sun Nov 22 21:42:00 IST 2026"}, head, None, start, start)
+    assert india.utc_offset_minutes == 330
+    none = vitals.time_of({}, None, [{"server": ""}, "x"], start, start)
+    assert none.clock is None and none.ntp_client == NtpClient(enabled=False)
+    assert (
+        vitals.health_of({}, {"memory": {"total": 10, "used": 50}}, {}, [], None).memory_used_bytes
+        == 10
+    )
+    disks = {
+        "devices": [
+            {"mountpoint": "/", "total_bytes": 0},
+            {"mountpoint": "", "total_bytes": 5},
+            "x",
+        ]
+    }
+    assert (
+        vitals.health_of({}, {}, disks, [{"device": "", "temperature": "1"}, 5], None).storage == []
+    )
+    assert (
+        vitals.health_of({}, {}, {"devices": [{"mountpoint": "/", "total_bytes": 9}]}, [], None)
+        .storage[0]
+        .used_bytes
+        is None
+    )

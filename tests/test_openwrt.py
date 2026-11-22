@@ -5,9 +5,11 @@ from __future__ import annotations
 import ssl
 import time
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address, ip_interface
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import SecretStr
@@ -28,6 +30,7 @@ from signalbox.adapters.openwrt import (
     bridge_vlans,
     lease_seconds,
     security,
+    vitals,
     width,
 )
 from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
@@ -36,6 +39,8 @@ from signalbox.model import (
     DeviceRole,
     DeviceStatus,
     Membership,
+    NtpClient,
+    NtpServer,
     Pmf,
     PortKind,
     Security,
@@ -199,6 +204,7 @@ async def test_router_mode(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> N
     assert [(str(p.start), str(p.end)) for p in server.pools] == [("192.0.2.100", "192.0.2.249")]
     assert server.router == ip_address("192.0.2.2")
     assert server.dns_servers == [ip_address("192.0.2.1"), ip_address("192.0.2.53")]
+    assert server.ntp_servers == [ip_address("192.0.2.1")]
     assert all(s.gateway for s in subnets)
 
 
@@ -691,3 +697,172 @@ def test_address_alone_is_enough() -> None:
     assert OpenWrtConfig(url="https://192.0.2.2:8443/", password=SecretStr("x")).url == (
         "https://192.0.2.2:8443/ubus"
     )
+
+
+# --- health and time (#178, #179) ------------------------------------------------------------
+
+
+async def test_health(adapter: OpenWrtAdapter) -> None:
+    [(key, h)] = (await adapter.read_health()).health.items()
+    assert key == "ap1"
+    assert h.uptime_seconds == 273906 and h.load_average == (0.11, 0.07, 0.04)
+    assert (h.memory_total_bytes, h.memory_used_bytes) == (515878912, 515878912 - 371363840)
+    assert [(s.name, s.kind.value, s.total_bytes, s.used_bytes) for s in h.storage] == [
+        ("/", "system", 104320 * 1024, 3584 * 1024),
+        ("/tmp", "temporary", 251892 * 1024, 404 * 1024),
+    ]
+    assert [(t.name, t.value_c) for t in h.temperatures] == [("cpu-thermal", 47.823)]
+    assert h.cpu_load_pct is None and h.cpu_count is None  # not in system info
+
+
+async def test_health_without_thermal_access_and_old_rpcd(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    sim.thermal_zones = [("", 51000), ("soc-thermal", 39500), ("gpu", 1)]
+    [h] = (await adapter.read_health()).health.values()
+    assert [(t.name, t.value_c) for t in h.temperatures] == [
+        ("thermal_zone0", 51),
+        ("soc-thermal", 39.5),
+        ("gpu", 0.001),
+    ]
+    sim.denied = {"file"}  # rpcd-mod-file missing from the ACL: no temperatures, no error
+    [h] = (await adapter.read_health()).health.values()
+    assert h.temperatures == [] and h.uptime_seconds == 273906
+
+
+def test_health_mapping_of_odd_answers() -> None:
+    old = vitals.health_of(
+        {
+            "uptime": -1,
+            "load": [65536, "x", 0],
+            "memory": {"total": 1000, "free": 300, "buffered": 100, "cached": 100},
+            "root": {"total": 10, "free": 4},
+            "tmp": {"total": 0},
+        },
+        [],
+    )
+    assert old.uptime_seconds is None and old.load_average is None
+    assert old.memory_used_bytes == 500
+    assert [(s.name, s.used_bytes) for s in old.storage] == [("/", 6 * 1024)]
+    bare = vitals.health_of({"memory": "none", "root": {"total": 5, "used": 9}}, [])
+    assert bare.memory_total_bytes is None and bare.storage[0].used_bytes == 5 * 1024
+    assert vitals.health_of({"root": {"total": 5}}, []).storage[0].used_bytes is None
+    assert vitals.thermal(0, None, None) is None and vitals.thermal(0, "hot", "x") is None
+
+
+async def test_time(adapter: OpenWrtAdapter) -> None:
+    [(key, t)] = (await adapter.read_time()).time.items()
+    assert key == "ap1" and t.clock is not None and t.read_at is not None
+    offset = t.offset_seconds()
+    assert offset is not None and abs(offset) < 2
+    assert t.uncertainty_seconds is not None and t.uncertainty_seconds >= 0.5
+    assert t.timezone == "Europe/Berlin"
+    expected = datetime.now(ZoneInfo("Europe/Berlin")).utcoffset()
+    assert expected is not None and t.utc_offset_minutes == expected.total_seconds() // 60
+    assert t.ntp_client == NtpClient(enabled=True, servers=["192.0.2.1"])
+    assert t.ntp_server == NtpServer(enabled=False)
+
+
+async def test_time_of_a_router_serving_ntp(
+    sim: OpenWrtSim, https_url: str, cert: TlsFiles
+) -> None:
+    sim.router = True
+    sim.clock_skew = 300
+    a = OpenWrtAdapter(
+        context(https_url, pinned_fingerprint=cert.fingerprint, role=DeviceRole.GATEWAY)
+    )
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    t = snap.device.time
+    assert t is not None and t.ntp_client is not None and t.ntp_server is not None
+    offset = t.offset_seconds()
+    assert offset is not None and 298 < offset < 302
+    assert t.ntp_client.servers[0] == "0.openwrt.pool.ntp.org"
+    assert t.ntp_server == NtpServer(enabled=True, segments=["home/segment/native"])
+    [server] = snap.dhcp_servers
+    assert server.ntp_servers == [ip_address("192.0.2.1")]
+
+
+async def test_time_needs_the_system_config(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    sim.denied = {"uci:system"}
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.PARTIAL
+    [error] = snap.errors
+    assert error.capability == "time" and "uci.get (system)" in error.message
+    assert snap.device.health is not None
+
+
+def test_time_mapping_without_zone_or_ntp() -> None:
+    start = datetime(2026, 7, 1, 12, tzinfo=UTC)
+    bare = vitals.time_of({"localtime": int(start.timestamp())}, {"values": {}}, start, start, {})
+    assert bare.timezone == "UTC" and bare.utc_offset_minutes == 0
+    assert bare.offset_seconds() == 0.5 and bare.ntp_client is None and bare.ntp_server is None
+    odd = vitals.time_of(
+        {"localtime": "soon"},
+        {
+            "values": {
+                "a": {".type": "system", "timezone": "<+0545>-5:45"},
+                "ntp": {".type": "timeserver", "enabled": "0", "interface": "wan"},
+            }
+        },
+        start,
+        start,
+        {"lan": "home/segment/native"},
+    )
+    assert odd.clock is None and odd.read_at is None and odd.utc_offset_minutes == 345
+    assert odd.ntp_client == NtpClient(enabled=False)
+    assert odd.ntp_server == NtpServer(enabled=False)
+    huge = vitals.time_of(
+        {"localtime": 0},
+        {"values": {"a": {".type": "system", "timezone": "XYZ-20"}}},
+        start,
+        start,
+        {},
+    )
+    assert huge.utc_offset_minutes is None and huge.clock is None
+    assert vitals.time_of({"localtime": 10**20}, {}, start, start, {}).clock is None
+
+
+@pytest.mark.parametrize(
+    ("tz", "when", "minutes"),
+    [
+        ("UTC", "2026-07-01T00:00:00+00:00", 0),
+        ("GMT0", "2026-07-01T00:00:00+00:00", 0),
+        ("CET-1CEST,M3.5.0,M10.5.0/3", "2026-01-15T12:00:00+00:00", 60),
+        ("CET-1CEST,M3.5.0,M10.5.0/3", "2026-07-15T12:00:00+00:00", 120),
+        ("CET-1CEST,M3.5.0,M10.5.0/3", "2026-03-29T00:59:59+00:00", 60),  # 01:59:59 CET
+        ("CET-1CEST,M3.5.0,M10.5.0/3", "2026-03-29T01:00:00+00:00", 120),  # 03:00 CEST
+        ("CET-1CEST,M3.5.0,M10.5.0/3", "2026-10-25T00:59:59+00:00", 120),
+        ("CET-1CEST,M3.5.0,M10.5.0/3", "2026-10-25T01:00:00+00:00", 60),
+        ("EST5EDT,M3.2.0,M11.1.0", "2026-07-04T12:00:00+00:00", -240),
+        ("EST5EDT,M3.2.0,M11.1.0", "2026-12-24T12:00:00+00:00", -300),
+        ("AEST-10AEDT,M10.1.0,M4.1.0/3", "2026-01-10T00:00:00+00:00", 660),  # southern summer
+        ("AEST-10AEDT,M10.1.0,M4.1.0/3", "2026-07-10T00:00:00+00:00", 600),
+        ("<+0330>-3:30", "2026-07-10T00:00:00+00:00", 210),
+        ("NZST-12NZDT-13,M9.5.0,M4.1.0/3", "2026-01-10T00:00:00+00:00", 780),
+        ("EST5EDT", "2026-07-04T12:00:00+00:00", None),  # DST without rules
+        ("CET-1CEST,J60,J300", "2026-07-04T12:00:00+00:00", None),  # Julian days: not read
+        ("CET-1CEST,M13.5.0,M10.5.0", "2026-07-04T12:00:00+00:00", None),
+        ("Europe/Berlin", "2026-07-04T12:00:00+00:00", None),  # not a POSIX string
+        ("UTC0X", "2026-07-04T12:00:00+00:00", None),
+    ],
+)
+def test_posix_offset(tz: str, when: str, minutes: int | None) -> None:
+    assert vitals.posix_offset(tz, datetime.fromisoformat(when)) == minutes
+
+
+@pytest.mark.parametrize("zone", ["Europe/Berlin", "America/New_York", "Australia/Sydney"])
+def test_posix_offset_agrees_with_zoneinfo(zone: str) -> None:
+    posix = {
+        "Europe/Berlin": "CET-1CEST,M3.5.0,M10.5.0/3",
+        "America/New_York": "EST5EDT,M3.2.0,M11.1.0",
+        "Australia/Sydney": "AEST-10AEDT,M10.1.0,M4.1.0/3",
+    }[zone]
+    when = datetime(2026, 1, 1, tzinfo=UTC)
+    while when.year == 2026:
+        expected = when.astimezone(ZoneInfo(zone)).utcoffset()
+        assert expected is not None
+        assert vitals.posix_offset(posix, when) == expected.total_seconds() // 60, when
+        when += timedelta(hours=7)

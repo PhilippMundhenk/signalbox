@@ -45,6 +45,7 @@ from signalbox.adapters import (
     VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.opnsense import vitals
 from signalbox.adapters.opnsense import write as w
 from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
@@ -83,6 +84,12 @@ UNBOUND = "/api/unbound/settings/get"
 HOST_OVERRIDES = "/api/unbound/settings/search_host_override"
 ARP = "/api/diagnostics/interface/get_arp"
 NDP = "/api/diagnostics/interface/get_ndp"
+SYSTEM_TIME = "/api/diagnostics/system/system_time"
+SYSTEM_RESOURCES = "/api/diagnostics/system/system_resources"
+SYSTEM_DISK = "/api/diagnostics/system/system_disk"
+SYSTEM_TEMPERATURE = "/api/diagnostics/system/system_temperature"
+CPU_TYPE = "/api/diagnostics/cpu_usage/get_cpu_type"
+NTP_STATUS = "/api/ntpd/service/status"
 
 #: Grid endpoints page their answer; ask for everything at once.
 ALL_ROWS = {"current": 1, "rowCount": -1}
@@ -334,11 +341,18 @@ class OpnsenseAdapter(_Adapter):
         id="opnsense",
         name="OPNsense",
         version="0.2.0",
-        api_version="1.0",
+        api_version="1.2",
         vendor="Deciso",
         roles=frozenset({DeviceRole.GATEWAY}),
         capabilities=frozenset(
-            {Capability.INTERFACES, Capability.DHCP, Capability.DNS, Capability.CLIENTS}
+            {
+                Capability.INTERFACES,
+                Capability.DHCP,
+                Capability.DNS,
+                Capability.CLIENTS,
+                Capability.HEALTH,
+                Capability.TIME,
+            }
         ),
         config=OpnsenseConfig,
         description=(
@@ -592,8 +606,11 @@ class OpnsenseAdapter(_Adapter):
             options = _sub(s, "option_data")
             routers = _addrs(options.get("routers"))
             dns = _addrs(options.get("domain_name_servers"))
+            ntp = _addrs(options.get("ntp_servers"))
             if _flag(s.get("option_data_autocollect")):
-                routers, dns = routers or [own], dns or [own]
+                # OPNsense fills all three with the interface address on every Kea save
+                # (KeaDhcpv4::setNodes, 26.7); seen in CI after a deployment
+                routers, dns, ntp = routers or [own], dns or [own], ntp or [own]
             pools = [
                 p
                 for t in re.split(r"[\n,]+", _text(s.get("pools")))
@@ -611,6 +628,7 @@ class OpnsenseAdapter(_Adapter):
                     dns_servers=dns,
                     domain=_text(options.get("domain_name")) or None,
                     reservations=reservations.get(uuid, []),
+                    ntp_servers=ntp,
                     vendor_extra={"server": "kea", "subnet": str(net)},
                 )
             )
@@ -753,6 +771,39 @@ class OpnsenseAdapter(_Adapter):
         return Observation(clients=clients)
 
     # --- writing ------------------------------------------------------------------------------
+
+    # --- health and time ------------------------------------------------------------------
+
+    async def read_health(self) -> Observation:
+        def obj(value: Any, endpoint: str) -> dict[str, Any]:
+            return _dict(value, endpoint, "the answer")
+
+        time = obj(await self._get(SYSTEM_TIME), SYSTEM_TIME)
+        resources = obj(await self._get(SYSTEM_RESOURCES), SYSTEM_RESOURCES)
+        disks = await self._get(SYSTEM_DISK)
+        temperatures = await self._get(SYSTEM_TEMPERATURE)
+        if not isinstance(temperatures, list):
+            raise _unexpected(SYSTEM_TEMPERATURE, f"{type(temperatures).__name__}, not a list")
+        cpu = await self._optional(CPU_TYPE)
+        value = vitals.health_of(
+            time, resources, disks if isinstance(disks, dict | list) else {}, temperatures, cpu
+        )
+        return Observation(health={self.context.device_id: value})
+
+    async def read_time(self) -> Observation:
+        start = datetime.now(UTC)
+        response = await self.http.request("GET", SYSTEM_TIME)
+        end = datetime.now(UTC)
+        try:
+            answer = response.json()
+        except ValueError as exc:
+            raise AdapterError(f"{SYSTEM_TIME}: answer is not valid JSON") from exc
+        time = _dict(answer, SYSTEM_TIME, "the answer")
+        # no query string: the privilege's pattern is the bare path (26.7 refuses ?current=1)
+        status = await self._optional(NTP_STATUS)  # NotFound: ntpd not there
+        rows = _rows(status, NTP_STATUS) if status is not None else None
+        value = vitals.time_of(time, response.headers.get("date"), rows, start, end)
+        return Observation(time={self.context.device_id: value})
 
     async def _write_state(self) -> w.WriteState:
         """A fresh read of what the write planner needs."""

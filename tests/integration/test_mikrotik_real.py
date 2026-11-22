@@ -267,6 +267,34 @@ async def test_mapping_of_the_configured_router(rt: dict[str, str]) -> None:
     ]
     assert ip_address("192.0.2.1") in dns.listen
     assert ip_address("198.51.100.1") in dns.listen
+    assert dhcp.ntp_servers == []  # "ntp-server": "" on the network
+
+
+async def test_health_and_time_of_chr(rt: dict[str, str]) -> None:
+    """``/system/resource`` (uptime, CPU, memory, the virtual disk), ``/system/health`` (no
+    sensors on CHR: empty, not an error), ``/system/clock`` and the NTP client and server, as
+    the read user sees them (#178, #179)."""
+    a = adapter(rt)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    h = snap.device.health
+    assert h is not None
+    assert h.uptime_seconds is not None and h.uptime_seconds > 0, h
+    assert h.cpu_count is not None and h.cpu_count >= 1 and h.cpu_load_pct is not None, h
+    assert h.memory_total_bytes and h.memory_used_bytes, h
+    assert 0 < h.memory_used_bytes < h.memory_total_bytes, h
+    (disk,) = h.storage
+    assert disk.kind.value == "system" and disk.total_bytes and disk.used_bytes, disk
+    assert h.temperatures == h.fans == h.power_supplies == [], h
+    t = snap.device.time
+    assert t is not None and t.clock is not None and t.read_at is not None, t
+    offset = t.offset_seconds()
+    assert offset is not None and abs(offset) < 600, t  # QEMU starts with the host's clock
+    assert t.utc_offset_minutes is not None, t
+    assert t.ntp_client is not None and t.ntp_server is not None, t
 
 
 async def test_refused_password_is_auth_failed(rt: dict[str, str]) -> None:

@@ -8,6 +8,8 @@ not yet confirmed on a real device, issue #21). Sample network, documentation ad
 - VLAN 30 "Guest" on ``igb0``, 203.0.113.1/24, ISC DHCP
 - VLAN 40 "Lab" defined but not assigned; WAN ``igb1`` (uplink, 2001:db8:ffff::2/64)
 - Unbound with forwarders and host overrides; ARP and NDP entries; DHCP leases
+- the dashboard's health widgets (uptime, load, memory, ZFS disks, two CPU sensors), the
+  clock in Europe/Berlin and ntpd in sync with a local GPS-backed server
 
 Failure switches on :class:`OpnsenseSimulator`: ``api_enabled=False`` (404 on everything),
 ``delay`` (seconds before every answer), ``malformed`` (endpoints answering broken JSON),
@@ -36,7 +38,9 @@ import re
 import secrets
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -152,6 +156,7 @@ def sample_data() -> dict[str, Any]:
                                 "routers": "198.51.100.1",
                                 "domain_name_servers": "198.51.100.1,192.0.2.1",
                                 "domain_name": "iot.example",
+                                "ntp_servers": "198.51.100.1",
                             },
                             "description": "IoT",
                         },
@@ -316,12 +321,151 @@ def sample_data() -> dict[str, Any]:
             {"mac": "00:00:5e:00:53:10", "ip": "2001:db8:1::10", "intf": "igb0"},
             {"mac": "00:00:5e:00:53:10", "ip": "fe80::10%igb0", "intf": "igb0"},
         ],
+        # the dashboard widgets (Lobby: Dashboard); "datetime" is set on every answer
+        SYSTEM_TIME: {
+            "uptime": "3 days, 04:05:06",
+            "datetime": "",
+            "boottime": "Thu Nov 19 13:06:54 CET 2026",
+            "config": "Thu Nov 19 13:10:02 CET 2026",
+            "loadavg": "0.13, 0.07, 0.04",
+        },
+        "/api/diagnostics/system/system_resources": {
+            "memory": {
+                "total": "4277690368",
+                "total_frmt": "4079",
+                "used": 1015021568.0,
+                "used_frmt": "968",
+                "arc": "209715200",
+                "arc_frmt": "200",
+                "arc_txt": "ARC size 200 MB",
+            }
+        },
+        "/api/diagnostics/system/system_disk": {
+            "devices": [
+                {
+                    "device": "zroot/ROOT/default",
+                    "type": "zfs",
+                    "blocks": "26G",
+                    "total": "26G",
+                    "total_bytes": 27917287424,
+                    "used": "1.8G",
+                    "used_bytes": 1932735283,
+                    "available": "24G",
+                    "available_bytes": 25984552141,
+                    "used_pct": 7,
+                    "mountpoint": "/",
+                },
+                {
+                    "device": "zroot/var/log",
+                    "type": "zfs",
+                    "blocks": "24G",
+                    "total": "24G",
+                    "total_bytes": 26038288384,
+                    "used": "51M",
+                    "used_bytes": 53736243,
+                    "available": "24G",
+                    "available_bytes": 25984552141,
+                    "used_pct": 0,
+                    "mountpoint": "/var/log",
+                },
+                {
+                    "device": "tmpfs",
+                    "type": "tmpfs",
+                    "blocks": "2.0G",
+                    "total": "2.0G",
+                    "total_bytes": 2138845184,
+                    "used": "260K",
+                    "used_bytes": 266240,
+                    "available": "2.0G",
+                    "available_bytes": 2138578944,
+                    "used_pct": 0,
+                    "mountpoint": "/tmp",
+                },
+                {
+                    "device": "/dev/gpt/efiboot0",
+                    "type": "msdosfs",
+                    "blocks": "260M",
+                    "total": "260M",
+                    "total_bytes": 272629760,
+                    "used": "1.3M",
+                    "used_bytes": 1363148,
+                    "available": "259M",
+                    "available_bytes": 271266612,
+                    "used_pct": 1,
+                    "mountpoint": "/boot/efi",
+                },
+            ]
+        },
+        "/api/diagnostics/system/system_temperature": [
+            {
+                "device": "dev.cpu.0.temperature",
+                "device_seq": 0,
+                "temperature": "47.0",
+                "type_translated": "CPU",
+                "type": "cpu",
+            },
+            {
+                "device": "dev.cpu.1.temperature",
+                "device_seq": 1,
+                "temperature": "45.0",
+                "type_translated": "CPU",
+                "type": "cpu",
+            },
+        ],
+        "/api/diagnostics/cpu_usage/get_cpu_type": ["AMD GX-412TC SOC (4 cores, 4 threads)"],
+        "/api/ntpd/service/status": {
+            "total": 3,
+            "rowCount": 3,
+            "current": 1,
+            "rows": [
+                {
+                    "status": "*",
+                    "server": "203.0.113.123",
+                    "refid": ".GPS.",
+                    "stratum": "1",
+                    "type": "u",
+                    "when": "34",
+                    "poll": "64",
+                    "reach": "377",
+                    "delay": "0.512",
+                    "offset": "-0.103",
+                    "jitter": "0.043",
+                },
+                {
+                    "status": "+",
+                    "server": "198.51.100.123",
+                    "refid": "203.0.113.123",
+                    "stratum": "2",
+                    "type": "u",
+                    "when": "12",
+                    "poll": "64",
+                    "reach": "377",
+                    "delay": "1.204",
+                    "offset": "0.381",
+                    "jitter": "0.112",
+                },
+                {
+                    "status": "__pool",
+                    "server": "0.opnsense.pool.ntp.org",
+                    "refid": ".POOL.",
+                    "stratum": "16",
+                    "type": "p",
+                    "when": "-",
+                    "poll": "64",
+                    "reach": "0",
+                    "delay": "0.000",
+                    "offset": "+0.000",
+                    "jitter": "0.000",
+                },
+            ],
+        },
     }
     return copy.deepcopy(data)
 
 
 # --- writing ---------------------------------------------------------------------------------
 
+SYSTEM_TIME = "/api/diagnostics/system/system_time"
 BACKUPS = "/api/core/backup/backups/this"
 DOWNLOAD = "/api/core/backup/download/this"
 ASSIGN = "/api/interfaces/assignment/"
@@ -886,6 +1030,16 @@ class OpnsenseSimulator(_Writes):
     locked: set[str] = field(default_factory=set)
     #: Write requests received: (path, body).
     posts: list[tuple[str, Any]] = field(default_factory=list)
+    #: Time zone of the firewall (System: Settings: General), for ``system_time``'s datetime.
+    timezone: str = "Europe/Berlin"
+
+    def local_time(self) -> str:
+        """``Sun Nov 22 17:12:00 CET 2026``, PHP's ``date("D M j G:i:s T Y")``."""
+        try:
+            now = datetime.now(ZoneInfo(self.timezone))
+        except (ZoneInfoNotFoundError, ValueError):
+            now = datetime.now(UTC)
+        return f"{now:%a %b} {now.day} {now.hour}:{now:%M:%S} {now.tzname()} {now.year}"
 
     def authorised(self, header: str | None) -> bool:
         if not header or not header.startswith("Basic "):
@@ -947,6 +1101,8 @@ class OpnsenseSimulator(_Writes):
                 return JSONResponse(overview)
             if path in (KEA, *grids):
                 return JSONResponse(self._kea_answer(path))
+            if path == SYSTEM_TIME and isinstance(self.data[path], dict):
+                return JSONResponse({**self.data[path], "datetime": self.local_time()})
             return JSONResponse(self.data[path])
 
         return app

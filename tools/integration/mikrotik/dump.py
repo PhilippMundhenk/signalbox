@@ -7,7 +7,8 @@ Prints each answer (status and a compact body) as a GitHub ``::notice::`` so the
 compared with docs/adapters/mikrotik.md and the simulator without downloading logs; the full
 answers go to DIR/api-<GROUP>.json (uploaded as an artifact). Only the throw-away VM's data is
 in there (documentation prefixes, the 02: MACs of the test setup). GROUP is ``read`` (the
-read user, every menu the read side uses), ``more`` (the rest of them), ``write`` (the write
+read user, every menu the read side uses), ``more`` (the rest of them), ``health`` (resource,
+sensors, clock, NTP and UPS, #178 and #179), ``write`` (the write
 user: the export, refused changes, the menus of the backup) or ``refused`` (a wrong password,
 the read user writing, unknown menus). At most ten notices per call (the limit of one step).
 """
@@ -49,6 +50,14 @@ GROUPS: dict[str, list[tuple[str, str, str, object]]] = {
         (R, "GET", "/rest/ipv6/neighbor", None),
         (R, "GET", "/rest/interface/bridge/host", None),
         (R, "GET", "/rest/ip/neighbor", None),
+    ],
+    "health": [
+        (R, "GET", "/rest/system/resource", None),
+        (R, "GET", "/rest/system/health", None),
+        (R, "GET", "/rest/system/clock", None),
+        (R, "GET", "/rest/system/ntp/client", None),
+        (R, "GET", "/rest/system/ntp/server", None),
+        (R, "GET", "/rest/system/ups", None),
     ],
     "write": [
         (W, "POST", "/rest/export", {}),
