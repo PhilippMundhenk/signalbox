@@ -732,7 +732,9 @@
     "media": null,
     "profile": null,
     "flow_control": null,
-    "eee": null
+    "eee": null,
+    "role": null,
+    "lower": []
    }
   ],
   "segments": [
@@ -1185,7 +1187,8 @@
     },
     "passphrase_digest": null,
     "key_rotation_seconds": null,
-    "beacon_protection": null
+    "beacon_protection": null,
+    "port_id": null
    },
    {
     "id": "recorded/wlan/2",
@@ -1226,7 +1229,8 @@
     },
     "passphrase_digest": null,
     "key_rotation_seconds": null,
-    "beacon_protection": null
+    "beacon_protection": null,
+    "port_id": null
    },
    {
     "id": "recorded/wlan/3",
@@ -1266,7 +1270,8 @@
     },
     "passphrase_digest": null,
     "key_rotation_seconds": null,
-    "beacon_protection": null
+    "beacon_protection": null,
+    "port_id": null
    }
   ],
   "clients": [

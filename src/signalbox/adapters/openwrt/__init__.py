@@ -37,6 +37,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.openwrt import discovery as _discovery
 from signalbox.adapters.openwrt import setup, vitals
+from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import AccessDenied, InvalidArgument, NoData, NotFound, Ubus
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
@@ -480,10 +481,12 @@ class NetworkView:
     pvids: dict[str, int] = field(default_factory=dict)
     #: devices a ``device`` section switches off (``enabled 0``)
     disabled: set[str] = field(default_factory=set)
+    #: the UCI ``network`` config as read (swconfig sections for the port structure)
+    uci: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def build(cls, uci: dict[str, Any], dump: dict[str, Any] | None = None) -> NetworkView:
-        view = cls()
+        view = cls(uci=uci)
         for _, s in _sections(uci, "device"):
             if s.get("type") == "bridge" and s.get("name"):
                 view.bridges[str(s["name"])] = _list(s.get("ports"))
@@ -755,8 +758,9 @@ class OpenWrtAdapter(Adapter):
         status = await self.ubus.call("network.device", "status")
         view = await self._network()
         ports: dict[str, Port] = {}
+        devices, gap = await self._network_devices()
         for name, st in sorted(status.items()):
-            if not isinstance(st, dict) or name == "lo" or "." in name:
+            if not isinstance(st, dict) or name == "lo":
                 continue
             speed, duplex = _speed(st.get("speed"))
             up = st.get("carrier", st.get("up"))
@@ -780,6 +784,14 @@ class OpenWrtAdapter(Adapter):
                 autoneg=autoneg if isinstance(autoneg, bool) else None,
                 vendor_extra=_extra(st, "type"),
             )
+
+        wifi = frozenset(n for n, p in ports.items() if p.kind is PortKind.WIRELESS)
+        tree = structure(sorted(ports), status, devices, view.uci, wifi)
+        for name, (role, lower, kind) in tree.items():
+            update: dict[str, Any] = {"role": role, "lower": [port_id(d, x) for x in lower]}
+            if kind is not None:
+                update["kind"] = kind
+            ports[name] = ports[name].model_copy(update=update)
 
         def ensure(name: str) -> str:
             if name not in ports:
@@ -823,7 +835,7 @@ class OpenWrtAdapter(Adapter):
             for n, addr in enumerate(view.addresses(name))
         ]
         uplinks = self._uplinks(view, ports) if router else []
-        gaps: list[Gap] = []
+        gaps: list[Gap] = [gap] if gap else []
         try:
             services = await self._services(view, ports, {s.id for s in segments})
         except AccessDenied as exc:  # set up with an older ACL: the rest is read
@@ -837,6 +849,22 @@ class OpenWrtAdapter(Adapter):
             services=services,
             incomplete=gaps,
         )
+
+    async def _network_devices(self) -> tuple[dict[str, Any] | None, Gap | None]:
+        """``luci-rpc getNetworkDevices`` for the port structure (#252): None without
+        rpcd-mod-luci (roles stay unknown where netifd does not tell), a gap with an older ACL."""
+        try:
+            data = await self.ubus.call("luci-rpc", "getNetworkDevices")
+        except NotFound:
+            return None, None
+        except AccessDenied:
+            return None, Gap(
+                message="port structure (CPU port, switch ports): luci-rpc getNetworkDevices "
+                "is not allowed",
+                fix="Update Signalbox's permission file on the router (see the device form): "
+                "it now allows luci-rpc getNetworkDevices. Then run service rpcd restart.",
+            )
+        return (data if isinstance(data, dict) else None), None
 
     async def _services(
         self, view: NetworkView, ports: dict[str, Port], segment_ids: set[str]
@@ -1036,6 +1064,13 @@ class OpenWrtAdapter(Adapter):
                 supported_security=supported,
                 vendor_extra=_extra(s, "htmode", "type", "cell_density"),
             )
+        # wifi-iface section -> its running interface (``phy0-ap0``), for Wlan.port_id (#252)
+        ifnames = {
+            str(i["section"]): str(i["ifname"])
+            for radio in up.values()
+            for i in radio.get("interfaces") or []
+            if isinstance(i, dict) and i.get("section") and i.get("ifname")
+        }
         wlans: list[Wlan] = []
         for name, s in _sections(uci, "wifi-iface"):
             radio = radios.get(str(s.get("device")))
@@ -1077,6 +1112,7 @@ class OpenWrtAdapter(Adapter):
                     roaming_80211k=_flag(s.get("ieee80211k")),
                     roaming_80211v=_flag(s.get("bss_transition", s.get("ieee80211v"))),
                     client_isolation=_flag(s.get("isolate")),
+                    port_id=port_id(d, ifnames[name]) if name in ifnames else None,
                     vendor_extra=_extra(s, "encryption", "network"),
                 )
             )

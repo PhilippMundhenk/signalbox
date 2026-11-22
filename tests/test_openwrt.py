@@ -39,6 +39,7 @@ from signalbox.adapters.openwrt import (
     vitals,
     width,
 )
+from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
 from signalbox.model import (
     AddressSource,
@@ -48,10 +49,12 @@ from signalbox.model import (
     DeviceStatus,
     LeaseState,
     Membership,
+    Network,
     NtpClient,
     NtpServer,
     Pmf,
     PortKind,
+    PortRole,
     SaePwe,
     Security,
     WpsMethod,
@@ -133,11 +136,27 @@ def test_entry_point() -> None:
     assert load_adapters()["openwrt"] is OpenWrtAdapter
 
 
+BRIDGED = ("lan1", "lan2", "lan3", "lan4", "phy0-ap0", "phy0-ap1", "phy1-ap0")
+
+
 async def test_interfaces_ports_and_vlans(adapter: OpenWrtAdapter) -> None:
     obs = await adapter.read_interfaces()
     ports = {p.name: p for p in obs.ports}
     assert set(ports) >= {"lan1", "lan2", "lan3", "lan4", "br-lan", "eth0", "phy0-ap0"}
-    assert "lo" not in ports and "br-lan.1" not in ports
+    assert "lo" not in ports
+    # internal structure (#252): DSA user ports on the conduit eth1 (simulated: a guess, #21)
+    cpu, jack = PortRole.CPU, PortRole.JACK
+    assert (ports["eth1"].role, ports["eth1"].lower, ports["eth1"].external) == (cpu, [], False)
+    assert all(ports[f"lan{n}"].role is jack for n in range(1, 5))
+    assert ports["lan1"].lower == ["ap1/port/eth1"] and ports["lan1"].external is True
+    assert ports["eth0"].role is jack and ports["eth0"].lower == []
+    assert ports["br-lan"].role is PortRole.BRIDGE
+    assert ports["br-lan"].lower == [f"ap1/port/{n}" for n in BRIDGED]
+    vlan = ports["br-lan.1"]
+    assert (vlan.role, vlan.kind) == (PortRole.VLAN, PortKind.VIRTUAL)
+    assert vlan.lower == ["ap1/port/br-lan"]
+    assert ports["phy0-ap0"].role is PortRole.WIRELESS and ports["phy0-ap0"].external is False
+    assert not obs.incomplete
     assert ports["lan1"].up and ports["lan1"].speed_mbps == 1000 and ports["lan1"].full_duplex
     assert ports["lan4"].up is False and ports["lan4"].speed_mbps is None
     assert ports["br-lan"].kind is PortKind.BRIDGE
@@ -1146,3 +1165,100 @@ async def test_device_without_wifi_has_no_radios(sim: OpenWrtSim, adapter: OpenW
     snap = await adapter.observe()
     assert snap.status is DeviceStatus.OK, snap.errors
     assert snap.radios == [] and snap.wlans == [] and snap.ports
+
+
+# --- internal port structure (#252) ---------------------------------------------------------
+
+
+async def test_structure_without_luci_rpc(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    """Without rpcd-mod-luci: netifd still tells bridges, VLAN devices and Wi-Fi interfaces;
+    Ethernet ports stay unknown, and nothing is reported as missing."""
+    sim.luci_rpc = False
+    obs = await adapter.read_interfaces()
+    ports = {p.name: p for p in obs.ports}
+    assert ports["br-lan"].role is PortRole.BRIDGE and ports["br-lan.20"].role is PortRole.VLAN
+    assert ports["phy0-ap0"].role is PortRole.WIRELESS
+    assert ports["lan1"].role is None and ports["eth1"].role is None and ports["lan1"].lower == []
+    assert ports["lan1"].external is None
+    assert not obs.incomplete
+
+
+async def test_structure_with_an_older_acl(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    sim.denied = {"luci-rpc.getNetworkDevices"}
+    obs = await adapter.read_interfaces()
+    assert {p.name: p.role for p in obs.ports}["lan1"] is None
+    [gap] = obs.incomplete
+    assert "getNetworkDevices" in gap.message and gap.fix and "permission file" in gap.fix
+
+
+async def test_wlans_name_their_interface(adapter: OpenWrtAdapter) -> None:
+    obs = await adapter.read_wireless()
+    ports = {w.ssid: w.port_id for w in obs.wlans}
+    assert ports["Example"] in {"ap1/port/phy0-ap0", "ap1/port/phy1-ap0"}
+    assert all(p is None or p.startswith("ap1/port/phy") for p in ports.values())
+
+
+async def test_port_tree_of_the_simulated_ap(adapter: OpenWrtAdapter) -> None:
+    snap = await adapter.observe()
+    net = Network(devices=[snap.device], ports=snap.ports, radios=snap.radios, wlans=snap.wlans)
+    tree = {n.id: n for n in net.port_tree("ap1")}
+    conduit = tree["ap1/port/eth1"]
+    assert [c.id for c in conduit.children] == [f"ap1/port/lan{n}" for n in range(1, 5)]
+    bridge = tree["ap1/port/br-lan"]
+    assert bridge.members == [f"ap1/port/{n}" for n in BRIDGED]
+    assert [c.id for c in bridge.children] == ["ap1/port/br-lan.1", "ap1/port/br-lan.20"]
+    radio = tree["ap1/radio/radio0"]
+    assert radio.node == "radio"
+    assert {c.id for c in radio.children} == {"ap1/port/phy0-ap0", "ap1/port/phy0-ap1"}
+    assert all(c.wlans for c in radio.children)  # each interface carries its SSID
+    jacks = [p.name for p in net.external_ports("ap1", unknown=False)]
+    assert jacks == ["eth0", "lan1", "lan2", "lan3", "lan4"]
+
+
+def test_structure_of_a_swconfig_device() -> None:
+    """swconfig: eth0 is the CPU port of switch0 (VLAN devices eth0.1, eth0.2 for its VLANs)."""
+    uci = {
+        "values": {
+            "cfg1": {".type": "switch", "name": "switch0", "enable_vlan": "1"},
+            "cfg2": {".type": "switch_vlan", "device": "switch0", "vlan": "1", "ports": "0t 1 2"},
+            "cfg3": {".type": "switch_vlan", "device": "switch0", "vlan": "2", "vid": "2"},
+            "cfg4": "odd",
+        }
+    }
+    status = {
+        "eth0": {"type": "Network device"},
+        "eth0.1": {"type": "VLAN"},
+        "eth0.2": {"type": "VLAN"},
+        "br-lan": {"type": "bridge", "bridge-members": ["eth0.1", "wlan0", "gone"]},
+        "wlan0": {"type": "Network device", "wireless": True},
+    }
+    out = structure(sorted(status), status, None, uci)
+    assert out["eth0"] == (PortRole.CPU, [], None)
+    assert out["eth0.2"] == (PortRole.VLAN, ["eth0"], PortKind.VIRTUAL)
+    assert out["br-lan"] == (PortRole.BRIDGE, ["eth0.1", "wlan0"], PortKind.BRIDGE)
+    assert out["wlan0"][0] is PortRole.WIRELESS
+    # without swconfig sections eth0 stays unknown
+    plain = structure(["eth0", "eth0.1"], {"eth0.1": {"type": "VLAN"}}, None, None)
+    assert plain["eth0"][0] is None
+    assert structure(["x"], {}, None, {"values": "odd"})["x"] == (None, [], None)
+
+
+def test_structure_kernel_types() -> None:
+    devices: dict[str, Any] = {
+        "wg0": {"devtype": "wireguard", "type": 65534},
+        "pppoe-wan": {"devtype": "ethernet", "type": 512},
+        "veth0": {"devtype": "veth", "type": 1},
+        "eth9": {"devtype": "ethernet", "type": 1},
+        "lan1": {"devtype": "dsa", "parent": "eth0", "type": 1},
+        "lan2": {"devtype": "dsa", "type": 1},
+        "eth0": {"devtype": "ethernet", "type": 1},
+        "v": {"devtype": "vlan", "parent": "eth9"},
+        "odd": "not a table",
+    }
+    out = structure(sorted(devices), {"odd": "x"}, devices)
+    assert out["wg0"][0] is PortRole.TUNNEL and out["pppoe-wan"][0] is PortRole.TUNNEL
+    assert out["veth0"][0] is PortRole.VIRTUAL
+    assert out["eth9"][0] is PortRole.JACK and out["eth0"][0] is PortRole.CPU
+    assert out["lan1"] == (PortRole.JACK, ["eth0"], None) and out["lan2"][1] == []
+    assert out["v"] == (PortRole.VLAN, ["eth9"], PortKind.VIRTUAL)
+    assert out["odd"] == (None, [], None)
