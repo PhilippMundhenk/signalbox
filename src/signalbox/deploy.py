@@ -326,7 +326,14 @@ class Deployer:
                 return self._fail(rec, result, f"device could not be read: {snap.status.value}")
             net = self.runner.network()
             if rec.restore_backup_id is None:
-                stale = [c for c in changes if not matches(net, c, c.old, secrets)]
+                # A change already at its new value is not stale: an object shared by several
+                # devices (an SSID of a controller's WLAN group) was changed through an
+                # earlier device of this deployment. Applying it again changes nothing.
+                stale = [
+                    c
+                    for c in changes
+                    if not matches(net, c, c.old, secrets) and not matches(net, c, c.new, secrets)
+                ]
                 if stale:
                     return self._fail(
                         rec,

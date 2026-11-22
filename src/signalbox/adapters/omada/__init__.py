@@ -1,4 +1,4 @@
-"""TP-Link Omada (read): one site of an Omada controller through its Open API.
+"""TP-Link Omada: one site of an Omada controller through its Open API.
 
 Talks to the controller's Open API v1 with OAuth client credentials (an Open API client with a
 viewer role) over HTTPS with a pinned certificate (:mod:`signalbox.adapters.https`). Endpoint
@@ -18,10 +18,14 @@ managed device's identity (name, model, MAC, firmware, type) in
 
 Parsing is defensive: missing fields never crash, unknown fields are ignored, and an answer of
 the wrong shape raises ``AdapterError("unexpected answer from <endpoint>: ...")``.
+
+Changes (LAN networks, DHCP, switch ports, SSIDs) go through the controller too; see
+:mod:`signalbox.adapters.omada.writes`.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from ipaddress import ip_address, ip_interface
@@ -35,13 +39,17 @@ from signalbox.adapters import (
     AdapterConfig,
     AdapterContext,
     AdapterError,
+    ApplyResult,
     AuthFailed,
+    Backup,
     Capability,
     Manifest,
     Observation,
     SystemInfo,
+    VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound
+from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
     Band,
     Client,
@@ -99,7 +107,13 @@ BAND_BITS = (
 #: ``linkSpeed`` code of a switch port → Mbit/s (guess).
 LINK_SPEEDS = {1: 10, 2: 100, 3: 1000, 4: 2500, 5: 10000, 6: 5000, 7: 25000, 8: 40000}
 #: ``pskSetting.versionPsk`` → security (guess).
-PSK_VERSIONS = {1: Security.OTHER, 2: Security.WPA2, 3: Security.WPA2, 4: Security.WPA3}
+PSK_VERSIONS = {
+    1: Security.OTHER,
+    2: Security.WPA2,
+    3: Security.WPA2,
+    4: Security.WPA3,
+    5: Security.WPA2_WPA3,
+}
 #: ``pmfMode`` → PMF (guess).
 PMF_MODES = {1: Pmf.REQUIRED, 2: Pmf.OPTIONAL, 3: Pmf.DISABLED}
 #: Device ``type`` → prefix of the managed device's slug.
@@ -113,7 +127,10 @@ class OmadaConfig(AdapterConfig):
         description="Controller id (omadacId); empty: read from /api/info",
     )
     site: str = Field(default="Default", description="Name of the Omada site to read")
-    client_id: str = Field(description="Client ID of an Open API client with a viewer role")
+    client_id: str = Field(
+        description="Client ID of an Open API client: viewer role to read, administrator role "
+        "to change"
+    )
     client_secret: SecretStr = Field(description="Client secret of that Open API client")
     allow_insecure_http: bool = Field(
         default=False,
@@ -284,7 +301,7 @@ class OmadaAdapter(_Adapter):
     manifest = Manifest(
         id="omada",
         name="TP-Link Omada",
-        version="0.1.0",
+        version="0.2.0",
         api_version="1.0",
         vendor="TP-Link",
         roles=frozenset({DeviceRole.OTHER, DeviceRole.AP, DeviceRole.SWITCH, DeviceRole.GATEWAY}),
@@ -292,7 +309,9 @@ class OmadaAdapter(_Adapter):
             {Capability.INTERFACES, Capability.DHCP, Capability.WIRELESS, Capability.CLIENTS}
         ),
         config=OmadaConfig,
-        description="Reads one site of an Omada controller through its Open API (read-only).",
+        description="Reads one site of an Omada controller through its Open API and changes "
+        "its LAN networks, DHCP, switch ports and SSIDs.",
+        writes=frozenset({ChangeKind.ROUTER, ChangeKind.DHCP, ChangeKind.PORT, ChangeKind.WLAN}),
     )
 
     def __init__(self, context: AdapterContext) -> None:
@@ -314,6 +333,36 @@ class OmadaAdapter(_Adapter):
 
     async def close(self) -> None:
         await self.http.close()
+
+    # --- writes (signalbox.adapters.omada.writes) ---------------------------------------------
+
+    def _writer(self) -> Any:
+        from signalbox.adapters.omada.writes import Writer
+
+        return Writer(self)
+
+    async def plan_changes(
+        self, changes: list[Change], secrets: Mapping[str, str]
+    ) -> list[VendorCall]:
+        calls: list[VendorCall] = await self._writer().plan_changes(changes, secrets)
+        return calls
+
+    async def backup(self) -> Backup:
+        backup: Backup = await self._writer().backup()
+        return backup
+
+    async def apply(
+        self, changes: list[Change], secrets: Mapping[str, str], rollback_seconds: int
+    ) -> ApplyResult:
+        """No rollback timer: the controller has none (``rollback_seconds`` is not used)."""
+        result: ApplyResult = await self._writer().apply(changes, secrets)
+        return result
+
+    async def confirm(self) -> None:
+        """Nothing to confirm (no rollback timer)."""
+
+    async def restore(self, backup: Backup) -> None:
+        await self._writer().restore(backup)
 
     # --- requests -----------------------------------------------------------------------------
 

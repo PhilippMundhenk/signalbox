@@ -3,13 +3,15 @@
 Reads one site of a TP-Link Omada controller (Software Controller, OC200/OC300 hardware
 controller or Omada Cloud-Based Controller reachable over HTTPS) through its **Open API**: the
 gateway's LAN networks and DHCP, the switches' ports and VLANs, the access points' radios and
-SSIDs, and the clients. Read only; every request except the token request is a `GET`.
+SSIDs, and the clients. It can also change the site through the controller: LAN networks and
+their DHCP, switch ports, SSIDs ([Changing the site](#changing-the-site)).
 
 | | |
 | --- | --- |
 | Adapter id | `omada` |
 | Roles | `other` (recommended: the controller), `ap`, `switch`, `gateway` |
 | Capabilities | interfaces, DHCP, wireless, clients |
+| Writes | router, dhcp, port, wlan (through the controller) |
 | Simulator | `signalbox.sim.omada` (`uvicorn --factory signalbox.sim.omada:create_app`) |
 
 | Capability | What is read |
@@ -43,6 +45,8 @@ controller*, in the topology and in every rule; they need no settings of their o
 1. In the controller: *Global View > Settings > Platform Integration > Open API*, add an
    application in **Client** mode with the **Viewer** role (read only) and access to the site
    you want to read. Note the *Client ID*, *Client Secret* and the *Omada ID* shown there.
+   To deploy changes, give it an **administrator** role for the site instead; with the viewer
+   role every change is refused by the controller.
 2. In Signalbox add a device with adapter `omada`, role `other`:
 
 ```yaml
@@ -193,8 +197,8 @@ unknown).
 - One WLAN per SSID and radio of every EAP that uses the WLAN group; `band` is a bit mask
   (1 = 2.4 GHz, 2 = 5 GHz, 4 = 6 GHz).
 - `security` *(guess for everything but 0 and 3)*: 0 open, 1 OWE, 2 enterprise (`entSetting.versionEnt`
-  4 = WPA3), 3 personal with `pskSetting.versionPsk` 2 or 3 = WPA2, 4 = WPA3, 1 (WPA only) =
-  other; anything else (PPSK) is other.
+  4 = WPA3), 3 personal with `pskSetting.versionPsk` 2 or 3 = WPA2, 4 = WPA3, 5 = WPA2/WPA3
+  mixed, 1 (WPA only) = other; anything else (PPSK) is other.
 - `vlanEnable`/`vlanId` gives the segment (only when such a LAN network exists; otherwise the VLAN
   is in `vendor_extra`). `broadcast: false` is hidden. `pmfMode` *(guess)*: 1 required,
   2 optional, 3 disabled.
@@ -216,10 +220,61 @@ unknown).
 - `lastSeen` is in milliseconds since 1970. A `name` that is just the MAC is no host name.
 - The controller's own managed devices are not reported as clients.
 
+## Changing the site
+
+The gateway, switches and EAPs are devices of their own in Signalbox, so the desired state names
+them (`omada1/gateway-020000000a01`, `omada1/switch-020000000b01`, ...). The deployment sends
+their changes to the controller's adapter: *Allow changes* is set on the controller device, and
+the client needs an administrator role (see [Setup](#setup)). The controller provisions the
+devices by itself, some seconds later; Signalbox verifies what the **controller** reports after
+the change (which is what it reads anyway), not the devices. There is no confirm timer: a
+change that does not read back as planned is undone from the backup.
+
+> **Guesses.** The write endpoints and bodies below are a best effort from the Open API
+> documentation, like the read side, and have only run against the simulator (#21).
+
+| Kind | Device | Calls |
+| --- | --- | --- |
+| `router` | the gateway (the controller itself when the site has no gateway) | new network: `POST …/lan-networks` with `name`, `purpose: interface`, `vlan`, `gatewaySubnet` (and `dhcpSettings` when the same change adds DHCP); changed: `PATCH …/lan-networks/{id}`; removed: `DELETE …/lan-networks/{id}`, or, while a port, port profile or SSID still uses the VLAN, `PATCH` to a VLAN-only network (`purpose: vlan`, no gateway address, no DHCP) |
+| `dhcp` | the gateway | `dhcpSettings` of the network in the same call: `enable`, `ipaddrStart`/`ipaddrEnd`, `leasetime` (minutes), DNS: exactly the gateway address → `dhcpns: auto`, otherwise `manual` with `priDns`/`sndDns`; removed: `dhcpSettings: null` |
+| `port` | a switch | `PATCH …/switches/{mac}/ports/{port}` with `nativeNetworkId`, `tagNetworkIds` and the port profile with exactly these networks (`profileId`, `profileOverrideEnable: false`), or, when no profile matches, `profileOverrideEnable: true` (an override on the port) |
+| `wlan` | an EAP | the SSID in the EAP's WLAN group: `POST …/wlans/{wlanId}/ssids` (new, `band: 3` = 2.4 and 5 GHz *(guess)*), `PATCH …/ssids/{ssidId}`, `DELETE …/ssids/{ssidId}`; body `name`, `security`, `pskSetting.versionPsk` and `securityKey`, `pmfMode`, `vlanEnable`/`vlanId`, `broadcast` (not hidden), `enable` |
+
+A `PATCH` changes only the keys it sends; `null` removes a key *(guess)*. Every write answers
+like a read (`errorCode` 0), a new object `{"id": …}` or `{"ssidId": …}`.
+
+- **An SSID belongs to the WLAN group**, not to one EAP: creating, changing or removing it
+  changes every EAP of the group. The review names them ("in WLAN group Default (EAPs AP 1,
+  AP 2)"). When a deployment has the same SSID for several EAPs of one group, the first one
+  changes it and the others find it already done.
+- **Passphrases** come from the desired state's secrets; the review and the change log show
+  `***`. The Open API normally does not return the key, so Signalbox cannot verify it and a
+  revert cannot put an old passphrase back (the backup has none either). Without a new
+  passphrase an SSID keeps its key.
+- Security that can be set: open, OWE, WPA2, WPA3, WPA2/WPA3 (`versionPsk` 2, 4, 5); enterprise
+  needs a RADIUS profile and is refused, as are 802.11r/k/v (not read, so not verifiable).
+- Refused before anything is sent: a network without a name, removing the native network, DHCP
+  on a network without a gateway address, more than two DNS servers, lease times that are not
+  whole minutes, a port without an untagged network or with VLAN 1 tagged, a VLAN the
+  controller has no network for (a port or SSID on VLAN 40 needs the LAN network of VLAN 40
+  first: a segment with a gateway; within one plan the gateway comes first), a WPA SSID without
+  a passphrase, a passphrase that is not 8 to 63 characters.
+- A refused write ("the controller refused: … Omada error <code>: <msg>") fails the device's
+  step; with a permission error the message names the administrator role.
+- **Backup** (`omada-openapi-json`): the LAN networks, the SSIDs of every WLAN group and the
+  ports of every switch, as the controller lists them. **Restore** compares them with the
+  controller: networks are patched or created again (a network deleted meanwhile gets a new
+  id, and the ports that used it are pointed at it), ports patched, SSIDs patched, created or
+  deleted, networks created since deleted last. Port profiles, reservations and everything else
+  are not touched.
+
 ## Simulator
 
 `signalbox.sim.omada` answers these endpoints with a neutral site: a gateway, one 8-port switch
 with three port profiles and a port override, two EAPs, LAN 192.0.2.0/24 (native), IoT VLAN 20
 198.51.100.0/24, Guest VLAN 30 (VLAN only), three SSIDs and five clients. Failure switches: bad
 client secret, a token that expires once, an error code on one endpoint, slow answers, broken
-JSON, small pages.
+JSON, small pages. It also takes the writes above and refuses what a controller would (a VLAN
+used twice, a network still in use, an SSID name used twice, a bad passphrase, an unknown
+network or profile on a port); failure switches for writes: `read_only` (a viewer-role client)
+and an error code per path.

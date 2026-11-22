@@ -182,3 +182,8 @@ An integration that observes a controller (for example Omada) reports the device
 reachability in `Observation.device_status`. Objects of a managed device use its id as
 `device_id` and as the prefix of their own ids. Site, adapter and `managed_by` are filled in by
 Signalbox. See [ADR 0004](adr/0004-controllers-report-several-devices.md).
+
+Changes of a managed device are sent to the controller's adapter (`Deployer.owner`): its
+`WritesConfig` gets changes whose `device_id` is the managed device, and *Allow changes* is set
+on the controller. Changing an object that several managed devices share (an SSID of a WLAN
+group) reaches all of them; say so in the vendor call's description.

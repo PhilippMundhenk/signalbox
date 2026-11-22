@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from signalbox.adapters import Capability, load_adapters  # noqa: E402
+from signalbox.changes import ChangeKind  # noqa: E402
 from signalbox.config import Config, Section  # noqa: E402
 
 REPORTS = ROOT / "docs" / "hardware-reports.json"
@@ -94,10 +95,13 @@ def maturity() -> str:
         "reported it working on a real device (`docs/hardware-reports.json`). Please report your",
         "device in [#21](https://github.com/PhilippMundhenk/signalbox/issues/21).",
         "",
+        "*writes* lists the kinds of change an adapter can deploy ([CHANGES.md](CHANGES.md));",
+        "they are tested against the simulators only.",
+        "",
         "Generated from the adapter manifests by `tools/gen_docs.py`.",
         "",
-        "| Adapter | " + " | ".join(c.value for c in caps) + " | Confirmed on |",
-        "| --- | " + " | ".join("---" for _ in caps) + " | --- |",
+        "| Adapter | " + " | ".join(c.value for c in caps) + " | writes | Confirmed on |",
+        "| --- | " + " | ".join("---" for _ in caps) + " | --- | --- |",
     ]
     for key in sorted(adapters):
         m = adapters[key].manifest
@@ -111,7 +115,8 @@ def maturity() -> str:
             else:
                 cells.append("simulator")
         devices = ", ".join(confirmed.get("devices", [])) or "nothing yet"
-        lines.append(f"| {m.name} (`{m.id}`) | " + " | ".join(cells) + f" | {devices} |")
+        writes = ", ".join(k.value for k in ChangeKind if k in m.writes) or "-"
+        lines.append(f"| {m.name} (`{m.id}`) | " + " | ".join(cells) + f" | {writes} | {devices} |")
     return "\n".join(lines) + "\n"
 
 
