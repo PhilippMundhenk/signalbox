@@ -21,6 +21,7 @@ from signalbox.model import (
     Port,
     PortKind,
     SegmentPurpose,
+    client_target,
     normalise_mac,
 )
 from signalbox.rules import Result, Severity, found, incomplete, rule
@@ -279,6 +280,8 @@ def unknown_neighbour(net: Network) -> Iterator[Result]:
             continue
         if nb.local_port_id not in own:
             continue
+        if chassis is not None and net.expected(client_target(chassis)).known_neighbour:
+            continue  # the user knows it and left it out of Signalbox on purpose
         key = chassis or nb.chassis_id
         seen.setdefault(key, []).append((nb.local_port_id, addr, nb.system_name))
     for key, entries in sorted(seen.items()):

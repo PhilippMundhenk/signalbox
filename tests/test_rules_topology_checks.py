@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from factories import SITE, device, iface, ip, port
+from factories import SITE, annotated, annotation, device, iface, ip, port
 from signalbox.model import (
     Band,
     Client,
@@ -750,3 +750,12 @@ def test_management_separate_knows_purposes() -> None:
     other = [seg(None, {}), seg(20, {}).model_copy(update={"purpose": SegmentPurpose.MANAGEMENT})]
     (f,) = evaluate(mgmt_net(segments=other), [management_separate], ON)
     assert f.fix == "Move the management addresses to IoT (VLAN 20), the management network."
+
+
+def test_unknown_neighbour_known_neighbour() -> None:
+    net = nb_net(nb(), nb("10", "02:00:00:00:99:02"))
+    known = annotation("02:00:00:00:99:01", expected={"known_neighbour": True})
+    (f,) = run(annotated(net, known), unknown_neighbour)
+    assert f.objects == [port_id("sw", "10")]
+    other = annotation("02:00:00:00:99:03", expected={"known_neighbour": True})
+    assert len(run(annotated(nb_net(nb(chassis="attic-switch")), other), unknown_neighbour)) == 1

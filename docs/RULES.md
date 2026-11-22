@@ -59,6 +59,11 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`dns.single-forwarder`](rules/dns.md#dnssingle-forwarder)
 - [`dns.conflicting-records`](rules/dns.md#dnsconflicting-records)
 
+## [Expectations about clients](rules/expectations.md)
+
+- [`clients.unexpected-network`](rules/expectations.md#clientsunexpected-network)
+- [`clients.category-network`](rules/expectations.md#clientscategory-network)
+
 ## [Firmware](rules/firmware.md)
 
 - [`firmware.drift`](rules/firmware.md#firmwaredrift)

@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta
 
 from signalbox.adapters import Capability
-from signalbox.model import DeviceStatus, Network, PortKind
+from signalbox.model import DeviceStatus, Network, PortKind, client_target
 from signalbox.rules import Result, Rule, Severity, found, history_rule
 from signalbox.rules._names import device_name, segment_name, site_of_device
 from signalbox.rules.clients import is_randomised
@@ -58,6 +58,11 @@ def down_long(net: Network, history: History) -> Iterator[Result]:
     for dev in net.devices:
         if net.statuses.get(dev.id) not in (DeviceStatus.UNREACHABLE, DeviceStatus.AUTH_FAILED):
             continue
+        if (
+            net.statuses.get(dev.id) is DeviceStatus.UNREACHABLE
+            and net.expected(dev.id).may_be_unreachable
+        ):
+            continue  # off on purpose (a lab switch, a seasonal access point)
         past = history.devices.get(dev.id)
         if past is None:
             continue
@@ -170,7 +175,7 @@ def stale_reservation(net: Network, history: History) -> Iterator[Result]:
         if site_of_device(net, srv.device_id) not in sites:
             continue
         for res in srv.reservations:
-            if res.mac in present:
+            if res.mac in present or net.expected(client_target(res.mac)).may_be_unreachable:
                 continue
             host = f" ({res.hostname})" if res.hostname else ""
             yield found(
@@ -199,6 +204,8 @@ def network_changed(net: Network, history: History) -> Iterator[Result]:
     for client in net.clients:
         if client.segment_id is None or is_randomised(client.mac):
             continue
+        if net.expected(client_target(client.mac)).segment is not None:
+            continue  # clients.unexpected-network knows where it belongs
         past = history.clients.get(client.mac)
         recent = [m for m in past.moves if m.at >= since] if past else []
         if not recent or len(recent) >= ROAMING_MOVES or recent[-1].new != client.segment_id:
