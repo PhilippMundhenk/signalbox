@@ -99,6 +99,13 @@ export function pageHead(title, ...actions) {
   return h('div', { class: 'page-head' }, h('h1', {}, title), ...actions);
 }
 
+// Link to a device's own web interface (#214); null when none is known. The URL comes from the
+// backend (scheme, host and port only) and is set as an attribute, never as HTML.
+export function manageLink(device, label, testid, cls) {
+  if (!/^https?:\/\//.test(device.manage_url || '')) return null;
+  return h('a', { class: cls || null, href: device.manage_url, target: '_blank', rel: 'noopener noreferrer', title: `Open the web interface of ${device.name}`, 'aria-label': `Open web interface of ${device.name}`, 'data-testid': testid }, label);
+}
+
 export function card(title, ...children) {
   return h('section', { class: 'card' }, title ? h('h2', {}, title) : null, ...children);
 }

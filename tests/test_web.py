@@ -424,3 +424,9 @@ def test_form_test_while_editing_keeps_stored_secrets(logged_in: TestClient) -> 
     assert res["status"] == "ok" and Dev.seen[-1] == "stored-pw"
     # the stored device is unchanged by the test
     assert logged_in.get("/api/devices/main-gateway").json()["name"] == "Main Gateway"
+
+
+def test_devices_carry_manage_url_key(logged_in: TestClient) -> None:
+    logged_in.post("/api/devices", json=device_body())
+    assert logged_in.get("/api/devices").json()[0]["manage_url"] is None  # unknown adapter
+    assert logged_in.get("/api/devices/main-gateway").json()["manage_url"] is None

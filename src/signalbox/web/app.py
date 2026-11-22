@@ -42,6 +42,7 @@ from signalbox.web.auth import COOKIE, Auth, Locked
 from signalbox.web.changes_api import router as changes_router
 from signalbox.web.desired_api import router as desired_router
 from signalbox.web.discovery_api import router as discovery_router
+from signalbox.web.manage_url import manage_url
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -353,11 +354,21 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
 
     # devices ----------------------------------------------------------------------------
 
-    def device_json(rec: DeviceRecord, past: History | None = None) -> dict[str, Any]:
+    def device_json(
+        rec: DeviceRecord, past: History | None = None, net: Network | None = None
+    ) -> dict[str, Any]:
         net_status = runner_status().get(rec.id)
         seen = (past or runner.history()).devices.get(rec.id)
+        net = net or runner.network()
+        dev = net.device(rec.id)
         return {
             **rec.model_dump(mode="json"),
+            "manage_url": manage_url(
+                rec.adapter,
+                rec.config,
+                net.services_of(rec.id),
+                dev.management_address if dev else None,
+            ),
             "status": net_status,
             "first_seen": seen.first_seen.isoformat() if seen else None,
             "last_seen": seen.last_seen.isoformat() if seen else None,
@@ -371,7 +382,8 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     def devices() -> list[dict[str, Any]]:
         """List devices with their last status and when they were first seen and last read."""
         past = runner.history()
-        return [device_json(d, past) for d in store.devices()]
+        net = runner.network()
+        return [device_json(d, past, net) for d in store.devices()]
 
     def save_device(device_id: str, body: DeviceBody) -> DeviceRecord | JSONResponse:
         cls = services.adapters.get(body.adapter)

@@ -816,3 +816,19 @@ def test_drawer_closes_when_the_screen_gets_wide(page: Any, server: Any) -> None
     expect(page.get_by_test_id("logout")).to_be_visible()
     page.get_by_test_id("nav-devices").click()
     expect(page.get_by_test_id("nav-devices")).to_have_attribute("aria-current", "page")
+
+
+def test_link_to_the_device_web_interface(app: Any) -> None:
+    add_site(app)
+    add_lab(app, "Router")
+    observe(app)
+    go(app, "#/devices")
+    link = app.get_by_test_id("device-manage-link")
+    expect(link).to_have_attribute("href", "https://192.0.2.1")
+    expect(link).to_have_attribute("target", "_blank")
+    expect(link).to_have_attribute("rel", "noopener noreferrer")
+    app.get_by_test_id("device-link").click()
+    page_link = app.get_by_test_id("manage-link")
+    expect(page_link).to_have_text("Open web interface")
+    expect(page_link).to_have_attribute("href", "https://192.0.2.1")
+    expect(page_link).to_have_attribute("rel", "noopener noreferrer")
