@@ -3,6 +3,7 @@ import { get } from '../api.js';
 import { loadNetwork, noData } from '../net.js';
 import { by, clear, fmtAgo, fmtTime, h, place } from '../util.js';
 import { pageHead, table } from '../ui.js';
+import { editNote, noteOf } from '../annotations.js';
 
 let query = '';
 
@@ -38,18 +39,34 @@ export async function renderClients(main, ctx) {
   const body = h('div', {});
   const draw = () => {
     const q = query.trim().toLowerCase();
-    const shown = all.filter((r) => !q || [r.mac, r.hostname || '', ...r.addresses].some((x) => String(x).toLowerCase().includes(q)));
+    const note = (r) => noteOf(ix, `client/${r.mac}`);
+    const shown = all.filter((r) => !q || [r.mac, r.hostname || '', (note(r) || {}).label || '', (note(r) || {}).owner || '', ...r.addresses].some((x) => String(x).toLowerCase().includes(q)));
+    const name = (r) => {
+      const n = note(r);
+      if (!n || !n.label) return r.hostname;
+      return h('span', { 'data-testid': 'client-label' }, n.label, r.hostname ? h('span', { class: 'muted small' }, ` (${r.hostname})`) : null);
+    };
+    const notesButton = (r) => {
+      const n = note(r);
+      if (n && n.source === 'declared') return h('span', { class: 'muted small', title: 'Declared in the desired state' }, n.owner || 'declared');
+      const b = h('button', { class: 'btn small', type: 'button', 'data-testid': 'client-notes' }, n ? n.owner || 'Edit' : 'Add');
+      b.addEventListener('click', async () => {
+        if (await editNote(`client/${r.mac}`, 'client', n, `Notes on ${n && n.label ? n.label : r.hostname || r.mac}`)) ctx.refresh();
+      });
+      return b;
+    };
     place(clear(body), 
       h('p', { class: 'muted', 'data-testid': 'client-count' }, `${shown.length} of ${all.length} clients`),
       table(
         [
-          ['Name', (r) => r.hostname],
+          ['Name', name],
           ['MAC', (r) => h('span', { class: 'mono' }, r.mac)],
           ['Addresses', (r) => [...r.addresses].join(', ')],
           ['Segment', (r) => (r.segment_id ? ix.segmentName(r.segment_id) : null)],
           ['Seen on', (r) => r.seen.map((x) => ix.label(x)).join(', ')],
           ['First seen', (r) => (r.first_seen ? h('span', { title: fmtTime(r.first_seen), 'data-testid': 'client-first-seen' }, fmtAgo(r.first_seen)) : null)],
           ['Last seen', (r) => (r.last_seen ? h('span', { title: fmtTime(r.last_seen) }, fmtAgo(r.last_seen)) : null)],
+          ['Notes', notesButton],
         ],
         shown,
         { testid: 'clients', rowTestid: 'client-row' },

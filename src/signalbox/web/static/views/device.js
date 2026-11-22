@@ -5,6 +5,7 @@ import { clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, place, portDetails, p
 import { card, confirmDialog, empty, kv, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
 import { readErrors, testResult, trustPanel } from './devicetest.js';
+import { notesCard } from '../annotations.js';
 
 const given = (v) => v !== null && v !== undefined;
 // kv() skips undefined: a row only for what the device reports.
@@ -165,6 +166,7 @@ async function overview(main, ctx, device, adapters, sites) {
       ]),
       readErrors(errors, 'device-errors'),
     ),
+    notesCard(ix, device.id, 'device', `Notes on ${device.name}`, () => ctx.refresh()),
     internetCard(ix, device.id),
     observed ? healthCard(observed.health) : null,
     observed ? timeCard(observed.time) : null,

@@ -136,6 +136,10 @@ details.raw { padding: 12px 18px; }
 .finding.sev-info { border-left-color: var(--muted); }
 .finding.incomplete { border-left-style: dashed; background: var(--surface-2); }
 .finding.resolved { opacity: .7; }
+.finding.acknowledged { border-left-style: dotted; }
+.finding .ack { color: var(--muted); }
+details.group > summary { cursor: pointer; }
+details.group > summary h2 { display: inline; }
 .finding-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
 .finding-head h3 { margin: 0; flex: 1; min-width: 12em; }
 .finding p { margin: 6px 0; overflow-wrap: anywhere; }
