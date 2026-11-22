@@ -58,12 +58,16 @@ All notable changes to this project are documented here. The format follows
 - Port checks (PVID, MTU, auto-negotiation, EEE, disabled ports with a neighbour, port descriptions; #110, #112, #114, #108), the WAN uplink model (#148, model stage) and integration tests against the real Omada Software Controller (#140)
 - Device form: test the connection before saving, trust the certificate there, setup steps and commands to paste per integration, a "What to do" for every read error, bare host names as addresses, Fritz!Box TR-064 port discovery (#202)
 - Health and time read from OpenWrt, OPNsense, MikroTik, Fritz!Box and Omada: uptime, CPU, memory, storage, temperatures, fans and power supplies where the device has them, clock, time zone, NTP client and server, DHCP NTP servers; checked against the real OpenWrt, OPNsense, RouterOS CHR and Omada controller in CI (#178, #179)
+- Port details read from the devices: descriptions, administrative state, PVID, frame types, MTU, maximum and advertised speeds, auto-negotiation, flow control, port profiles (#156)
+- WAN uplinks read from OpenWrt, OPNsense, MikroTik, Fritz!Box and Omada: connection type, state, addresses, upstream gateway, provider DNS, delegated IPv6 prefix, line rate; shown as the "Internet" card and exported to Home Assistant (#148)
+- Double NAT is reported as information (`addr.double-nat`), naming both routers (#60)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
 
 ### Fixed
+- Two routers in a row (an ISP router and a firewall behind it) are no longer one untagged network: each router's LAN is its own segment, so "two routers" and "two DHCP servers" are not reported for them; the cable to a router's WAN port is not a VLAN mismatch; links to devices that were not fully read are incomplete instead of errors (#205)
 - OPNsense: Kea fills NTP servers (like routers and DNS) with the interface address on every save; an empty value is read that way now (#179)
 - Fritz!Box: the user name may stay empty (boxes without users); a cleared form field is no longer refilled with its default (#202)
 - NETGEAR ProSAFE Plus: the switch's identity is read before the login, as Switchyard does, so old firmware gets its password scheme (#202)
