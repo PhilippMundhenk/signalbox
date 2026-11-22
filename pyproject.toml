@@ -38,6 +38,7 @@ signalbox = "signalbox.__main__:main"
 
 [project.entry-points."signalbox.adapters"]
 fritzbox = "signalbox.adapters.fritzbox:FritzboxAdapter"
+omada = "signalbox.adapters.omada:OmadaAdapter"
 openwrt = "signalbox.adapters.openwrt:OpenWrtAdapter"
 opnsense = "signalbox.adapters.opnsense:OpnsenseAdapter"
 

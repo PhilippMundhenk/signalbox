@@ -42,7 +42,8 @@ Signalbox is made of separate parts with narrow jobs (details in [docs/DESIGN.md
 | NETGEAR ProSAFE Plus switches | planned, building on [Switchyard](https://github.com/PhilippMundhenk/switchyard) | |
 | AVM Fritz!Box | TR-064 (SOAP over HTTPS) with a dedicated user; read, simulator-tested | LAN, subnet, DHCP, Wi-Fi radios, SSIDs and guest network, connected hosts |
 | MikroTik (RouterOS) | planned (REST API) | |
-| TP-Link (Omada controller, Easy Smart switches) | planned | |
+| TP-Link Omada (controller with gateway, switches, EAPs) | Open API with a viewer-role client, one site per device ([docs](docs/adapters/omada.md)); read, simulator-tested | LAN networks, subnets, DHCP, switch ports and VLANs, radios and SSIDs, clients |
+| TP-Link Easy Smart switches | planned, building on [Switchyard](https://github.com/PhilippMundhenk/switchyard) | |
 
 Adapters are plugins: other devices can be added as separate packages, see
 [docs/ADAPTERS.md](docs/ADAPTERS.md).

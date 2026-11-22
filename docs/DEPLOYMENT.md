@@ -48,6 +48,7 @@ cannot change anything:
 - OpenWrt: an rpcd login with a read-only ACL, see [adapters/openwrt.md](adapters/openwrt.md)
 - Fritz!Box: a user of its own with only the right "FRITZ!Box settings" (TR-064 has no
   read-only right), see [adapters/fritzbox.md](adapters/fritzbox.md)
+- TP-Link Omada: an Open API client with the Viewer role, see [adapters/omada.md](adapters/omada.md)
 
 ## Updates
 

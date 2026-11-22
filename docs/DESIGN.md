@@ -40,7 +40,7 @@ desired state → planner → deployment → devices, with every step tracked.
 | Component | Code | Job | In | Out | Status |
 | --- | --- | --- | --- | --- | --- |
 | **Network model** | `signalbox.model`, `signalbox.merge` | the one vendor-neutral language every other component speaks | – | typed objects, JSON Schema ([schema.json](schema.json)) | done (#3) |
-| **Integrations** (adapters) | `signalbox.adapters.<id>` | map one kind of device to the model and back; nothing vendor-specific leaves an adapter | device API | `Snapshot` (read); vendor calls for a change set (write) | read: OPNsense (#9), OpenWrt (#10); write: #41, #42; more: #22, #24, #43, #44 |
+| **Integrations** (adapters) | `signalbox.adapters.<id>` | map one kind of device to the model and back; nothing vendor-specific leaves an adapter | device API | `Snapshot` (read); vendor calls for a change set (write) | read: OPNsense (#9), OpenWrt (#10), Omada (#44); write: #41, #42; more: #22, #24, #43, #44 |
 | **Adapter API** | `signalbox.adapters` | the contract integrations implement: manifest, capabilities, errors, contract tests | – | – | done (#4) |
 | **Inventory** | `signalbox.store`, `signalbox.config`, `signalbox.secrets` | sites, devices, cables, credentials (encrypted), certificate pins | UI/API | records | done (#11) |
 | **Observation** | `signalbox.runner` | read every device on an interval, merge into one network | inventory, integrations | `Network`, findings history | done (#12) |
