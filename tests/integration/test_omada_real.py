@@ -419,7 +419,7 @@ sites:
     segments:
       - vlan: 30
         name: Guest
-        gateway: {{device: {DEV}, address: 203.0.113.129/25}}
+        gateway: {{device: {DEV}, address: 198.51.100.1/25}}
 """
 
 
@@ -431,7 +431,7 @@ async def test_vlan_only_network_gets_a_gateway_then_backup_restore(
     before = await networks(ctrl)
     _, cid = await deploy(svc, GUEST_ROUTER, {ChangeKind.ROUTER})
     after = await networks(ctrl)
-    assert (after[30]["purpose"], after[30]["gatewaySubnet"]) == (1, "203.0.113.129/25")
+    assert (after[30]["purpose"], after[30]["gatewaySubnet"]) == (1, "198.51.100.1/25")
     rec = svc.store.change(cid)
     assert rec is not None and rec.devices[0].backup_id
     backup = svc.store.backup(rec.devices[0].backup_id)

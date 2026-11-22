@@ -36,8 +36,9 @@ and ``igmpSnoopEnable`` are required, keys left out are gone); ``POST …/wlans/
 (``{"ssidId": …}``), ``PATCH …/ssids/{id}/update-basic-config`` (the whole basic
 configuration), ``PATCH …/wireless-network/ssids/{id}/enable``, ``DELETE …/ssids/{id}``;
 ``PATCH …/switches/{mac}/ports/{port}``. Refusals with the controller's codes: a missing field
-(-1001), a VLAN used twice (-34517), an interface network without LAN interfaces (-33515), an
-unknown network (-33503), an SSID name used twice (-33219), a bad passphrase (-33223), a port
+(-1001), a VLAN used twice (-34517), an overlapping subnet (-33502), an interface network
+without LAN interfaces (-33515), an unknown network (-33503), an SSID name used twice (-33219),
+a bad passphrase (-33223), a port
 pointing at an unknown network or profile. Write switches: ``read_only`` (the application has
 the viewer role: every write is refused with -1007), ``write_error`` (an Omada
 ``(errorCode, msg)`` per path for writes only). ``writes`` records ``(method, path, body)``.
@@ -50,6 +51,7 @@ import copy
 import json
 import secrets
 from dataclasses import dataclass, field
+from ipaddress import ip_interface
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -80,6 +82,7 @@ INVALID_PARAMS = -1001
 VLAN_USED = -34517
 NO_INTERFACES = -33515
 NO_NETWORK = -33503
+SUBNET_USED = -33502
 SSID_EXISTS = -33219
 BAD_KEY = -33223
 NO_AP = -39303
@@ -94,6 +97,7 @@ MESSAGES = {
     VLAN_USED: "This VLAN ID is already used by the LAN interface.",
     NO_INTERFACES: "LAN interfaces could not be none.",
     NO_NETWORK: "This network does not exist.",
+    SUBNET_USED: "This range of IP address already exists.",
     SSID_EXISTS: "This SSID already exists.",
     BAD_KEY: "The security key can only contain 8-63 printable ASCII characters or 8-63 "
     "hexadecimal digits.",
@@ -725,6 +729,14 @@ class OmadaSimulator:
                 return INVALID_PARAMS, "Parameter [gatewaySubnet] should not be null.\n"
             if not row.get("interfaceIds") and not row.get("primary"):
                 return NO_INTERFACES, MESSAGES[NO_INTERFACES]
+            try:
+                mine = ip_interface(row["gatewaySubnet"]).network
+            except ValueError:
+                return INVALID_PARAMS, "Invalid request parameters."
+            for i, r in enumerate(rows):
+                other = r.get("gatewaySubnet")
+                if i != index and other and ip_interface(other).network.overlaps(mine):
+                    return SUBNET_USED, MESSAGES[SUBNET_USED]
         return None
 
     def _network_update(
