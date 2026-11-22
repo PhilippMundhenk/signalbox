@@ -40,7 +40,7 @@ jobs:
         run: mypy
       - name: Tests with the 95 % coverage gate
         run: pytest -m "not e2e" --cov --cov-report=term-missing --cov-report=xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-${{ matrix.python }}
@@ -59,7 +59,7 @@ jobs:
       - run: pip install -e ".[dev,switches]"
       - run: python -m playwright install --with-deps chromium
       - run: pytest -m e2e tests/e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: e2e-results
