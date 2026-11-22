@@ -313,6 +313,52 @@ The IGD services of the Fritz!Box (`/igdupnp/control/...`) spell AVM's actions w
 TR-064 ones with `-`. Recordings replace public and private WAN addresses with documentation
 addresses, so a recorded uplink classifies as `public` whatever the line was.
 
+## Management services
+
+A device reports each way to manage it as a `ManagementService` in `Observation.services`
+(#173), read with the `interfaces` capability (no API version needed). Report **every**
+service the integration knows, disabled ones too (`enabled=False`): an empty list means "not
+read". If the extra call fails or is not allowed (an older ACL), leave the list empty rather
+than failing the whole `interfaces` read. Id `object_id(device, "service", <key>)` with the
+device's own name or the kind as key (`gw/service/ssh`, `gw/service/www-ssl`), unique per device.
+
+| Field | Meaning |
+| --- | --- |
+| `kind`, `name` | `ssh`, `telnet`, `http`, `https`, `api`, `api-ssl`, `snmp`, `ftp`, `tftp`, `winbox`, `mac-telnet`, `mac-winbox`, `romon`, `tr-064`, `upnp`, `vendor` (NSDP, Easy Smart UDP), `other`; the device's own word for it |
+| `enabled`, `port` | on or off; the port it listens on (none for layer-2 services; `SERVICE_PORTS` has the usual ones) |
+| `transport`, `encrypted` | leave them out unless the device says otherwise: they are filled from the kind (`SERVICE_TRANSPORT`, `SERVICE_ENCRYPTED`); set `encrypted` for TR-064 (49443 is TLS) and `other` |
+| `listen`, `interfaces`, `segments` | restrictions the device applies: addresses (empty or `0.0.0.0`/`::`: all), ports it is bound to, networks it is offered in (map a logical interface such as OpenWrt `lan` or OPNsense `opt2` to its segment id) |
+| `allowed_from` | the service's own source filter (MikroTik `address`), never firewall rules (#135) |
+| `from_wan` | only where the device itself says whether the internet can reach it (Fritz!Box internet access); otherwise leave `None` and core derives it |
+| `password_login`, `root_login`, `root_password_login` | SSH only: password logins at all, root at all, root with a password |
+| `redirects_to_https` | HTTP only: plain HTTP just redirects |
+| `snmp` | SNMP only: versions, a factory community (`public`/`private`) configured, v3 privacy required, write access. Never the community string itself |
+
+`SystemInfo.transport_encrypted` says how the integration itself talks to the device: `False`
+for NSDP, Easy Smart UDP and `allow_insecure_http`, `True` for HTTPS/TLS. Do not compute
+reachability: core derives the reachable segments and internet exposure
+(`Network.service_segments()`, `Network.service_from_wan()`). The contract checks report an id
+outside `<device>/service/`, a service reported twice, an unknown port or segment, a layer-2
+service with a port or address, a disabled service reachable from the internet, root login
+options on a service other than SSH, `redirects_to_https` on one other than HTTP and SNMP
+settings on one other than SNMP.
+
+Where each integration could fill the fields (no adapter fills them yet). Sources: OpenWrt from
+the `dropbear` and `uhttpd` init scripts and default configs, OPNsense from the core and
+`os-net-snmp` sources, Fritz!Box from AVM's SCPD files as boxes serve them (FRITZ!OS 8.02),
+Omada from the Open API as published in a generated SDK. *(guess)* marks what could not be
+checked against a source or a device; MikroTik is from the RouterOS documentation and still has
+to be confirmed against the CHR 7.25.1 the integration tests run.
+
+| Integration | Services and where they listen | Logins, redirect, SNMP | Internet exposure | Read by Signalbox |
+| --- | --- | --- | --- | --- |
+| OPNsense | No API for the administration settings (legacy page, no MVC controller in `core/Api`): parse `system/webgui` and `system/ssh` of the configuration from `/api/core/backup/download/this` (the write side already uses it; needs the backup privilege, and the file holds secrets: read the two elements, discard the rest). `webgui/protocol` (`http`/`https`), `webgui/port` (empty: 80/443), `webgui/interfaces` (empty: all; logical names to segments); `ssh/enabled` (`enabled`), `ssh/port`, `ssh/interfaces`. SNMP plugin: `/api/netsnmp/general/get` (`general.enabled`, `listen`) | `webgui/disablehttpredirect` set: no redirect; `ssh/passwordauth`, `ssh/permitrootlogin` (`1`); SNMP `general.community` compared with `public` (v2c only in the plugin's general settings *(guess)*) | not from the device: the anti-lockout rule (`system/webgui/noantilockout` *(guess: key)*) and WAN rules are #135; leave `from_wan` `None` | `True` (HTTPS), `False` with `allow_insecure_http` |
+| OpenWrt | `uci get` `dropbear` (each `dropbear` section: `enable`, `Port`, `Interface` = logical network → `segments`, `DirectInterface` → `interfaces`) and `uhttpd` (`main`: `listen_http`, `listen_https` as `addr:port`, `0.0.0.0`/`[::]` = all); `rpcd`/`luci` need nothing. **The read ACL allows only `network`, `wireless`, `dhcp`, `system`**: add `dropbear` and `uhttpd` to `READ_ACL`, docs/adapters/openwrt.md and the integration image; routers set up earlier will refuse the call (leave the list empty). Telnet is not in current releases *(guess: since which one)*; `snmpd` only when installed (`uci get snmpd` *(guess: section layout)*) | dropbear `PasswordAuth`, `RootPasswordAuth`, `RootLogin` (all default on); uhttpd `redirect_https` (default `0`) | `uhttpd` `rfc1918_filter` (default `1`) refuses requests from public addresses to private ones; the WAN zone's input policy is #135; leave `from_wan` `None` | `True` (HTTPS), `False` with `allow_insecure_http` |
+| MikroTik | `/rest/ip/service`: one row per service, `name` (`telnet`, `ftp`, `www`, `ssh`, `www-ssl`, `api`, `winbox`, `api-ssl`), `port`, `disabled`, `address` (comma-separated prefixes → `allowed_from`), `certificate`; `/rest/tool/mac-server` and `/rest/tool/mac-server/mac-winbox` `allowed-interface-list` (`all`, `none` or a list: resolve with `/rest/interface/list/member` to ports), `/rest/tool/romon` `enabled`, `/rest/ip/upnp` `enabled`, `/rest/tool/bandwidth-server` `enabled` (`other`) *(guess: field names, confirm on CHR)* | `/rest/ip/ssh` `always-allow-password-login`, `strong-crypto` *(guess)*; `/rest/snmp` `enabled`, `/rest/snmp/community` (`name` = `public`, `security`, `write-access`, `addresses`) | services listen on every interface, the default firewall drops WAN input: #135; leave `from_wan` `None`. MAC server on `all` includes the WAN port | `True` (REST over `www-ssl`) |
+| Fritz!Box | Web UI: HTTP 80 and HTTPS 443 in the LAN are fixed (adapter knowledge, *(guess)*: no TR-064 action reports them); `DeviceInfo:1 GetSecurityPort` (`NewSecurityPort`, TR-064 over TLS) and TR-064 on 49000; `X_AVM-DE_UPnP:1 GetInfo` (`NewEnable`); `X_AVM-DE_Storage:1 GetInfo` (`NewFTPEnable` in the LAN) | `LANConfigSecurity:1 GetInfo` `NewX_AVM-DE_IsDefaultPasswordActive` and `X_AVM-DE_GetAnonymousLogin` are login facts the model has no field for yet (`vendor_extra`) | the device says: `X_AVM-DE_RemoteAccess:1 GetInfo` (`NewEnabled`, `NewPort`, `NewLetsEncryptEnabled`) → `https`, `name` `remote-access`, `from_wan` = `NewEnabled`; `X_AVM-DE_MyFritz:1 GetInfo` (`NewEnabled`, `NewPort`); `X_AVM-DE_Storage:1 GetInfo` `NewFTPWANEnable`, `NewFTPWANPort`, `NewFTPWANSSLOnly` → `ftp` from the internet (`encrypted` from SSL only); `X_AVM-DE_AppSetup:1 GetConfig` `NewAccessFromInternet` is per app user | `True` (TR-064 on 49443), `False` with `allow_insecure_http` |
+| Omada | Controller Open API per site: `GET .../sites/{siteId}/ssh` (`sshEnable`, `sshServerPort`, `layer3Access`: `false` = only from the management network, so `segments` is the devices' management VLAN), `GET .../sites/{siteId}/setting/service/snmp` (`snmpV1V2CEnable`, `snmpV3Enable`, `securityLevel` 2 = authPriv, `communityString` compared with `public`, never stored); the settings apply to every managed device: report them per device id of `Observation.devices`. Device web UIs are off under a controller *(guess)*; the controller's own HTTPS port and cloud access *(guess: no Open API call found)* | SSH password login: device account only, no key login *(guess)* | cloud access is the controller's, not a device service; leave `from_wan` `None` | `True` (HTTPS), `False` with `allow_insecure_http` |
+| ProSAFE / Easy Smart | Fixed, from the adapter's knowledge: `vendor` service `nsdp` (UDP 63322) or `easy-smart` (UDP 29808), always on, unencrypted, listening everywhere; the web UI `http` on 80 (most models have no HTTPS *(guess per model)*) | none | `False` (switches have no uplink) | `False`: NSDP and Easy Smart UDP send the password obfuscated, not encrypted |
+
 ## Health and time (adapter API 1.2)
 
 Two capabilities fill value objects on the device itself, keyed by device id so that a

@@ -84,12 +84,13 @@ carries its source (adapter and device), the time it was observed and a stable i
 | Object | Contents |
 | --- | --- |
 | Site | One network domain; a second location over a VPN is a second site |
-| Device | Vendor, model, firmware, role (`gateway`, `switch`, `ap`, `other`), management address, adapter, capabilities, health, time |
+| Device | Vendor, model, firmware, role (`gateway`, `switch`, `ap`, `other`), management address, adapter, capabilities, health, time, whether Signalbox reads it encrypted |
 | Port | Physical or logical port, link state, speed, PoE, LAG membership, neighbour (LLDP where available); configuration details: description, admin state, PVID, frame types, ingress filter, MTU / L2 MTU / jumbo flag, maximum and advertised speeds, auto-negotiation, medium, port profile, flow control, EEE |
 | Link | A cable or wireless uplink between two ports; observed (LLDP, MAC tables) or entered by hand |
 | Segment | Layer-2 network: VLAN id, name, purpose and its source, isolated by the device; membership per port `untagged` / `tagged` / `none` |
 | Subnet | Prefix, gateway address, segment, IPv4/IPv6 |
 | Uplink | A gateway's WAN connection: kind (`dhcp`, `static`, `pppoe`, `dslite`, `map-e`, `lte`, `bridge`, `other`), port, connected and since when, own addresses, delegated IPv6 prefixes, upstream gateway, provider DNS, public IPv4 where the device knows it, line rates; NAT class derived |
+| ManagementService | A way to manage a device (SSH, telnet, HTTP/HTTPS, API, SNMP, FTP/TFTP, Winbox, MAC telnet/Winbox, RoMON, TR-064, UPnP, the vendor's own protocol): enabled, port, transport, encrypted, listen addresses / ports / segments, allowed source networks, reachable from the internet as the device says, SSH password and root login, HTTP-to-HTTPS redirect, SNMP versions and default community; reachable segments and internet exposure derived |
 | DhcpServer | Device, segment, enabled, pool, lease time, options (router, DNS, NTP), static reservations |
 | DnsService | Resolver, host overrides, forwarders, split-DNS domains |
 | Wlan | SSID, security (WPA2/WPA3, PMF), passphrase reference, segment, bands, hidden, roaming (802.11r/k/v), purpose and its source, client isolation |
@@ -166,6 +167,39 @@ Desired state (design, not built yet): a site could declare `internet: {public_i
 (or `ipv6: true`), and `wan.expected` would report drift when the provider moves the line to
 CGNAT or drops IPv6. Writing uplink settings stays out of scope: getting it wrong cuts off the
 site and Signalbox with it.
+
+Management services (#173) are objects of their own (`Snapshot.services`, `Network.services`,
+id `<device>/service/<key>`, key the device's name of the service or its kind), one per service
+the device has, enabled or not. Like uplinks they are read with the `interfaces` capability:
+an additive list, no new capability and no adapter API change (still 1.2). An integration
+that reads services reports every one it knows, so an empty list means "not read", never "no
+services", and checks act only on reported services. If reading them ever needs its own slow
+call or its own "incomplete" finding, a `services` capability can be added in a later minor
+version without breaking adapters that fill the list today. `kind` is the vocabulary checks
+use; `name` keeps the device's own word (`www-ssl`, `dropbear`, `remote-access`). `transport`
+and `encrypted` are filled from the kind when the device does not say (SNMP counts as
+encrypted only when it answers v3 with privacy alone; TR-064, RoMON and `other` stay unknown).
+Community strings and passwords never enter the model, only whether a factory default is set.
+
+Where a service listens is what the device itself applies: `listen` (addresses; empty or
+`0.0.0.0`/`::` means all), `interfaces` (ports), `segments` (networks, OpenWrt `Interface`,
+OPNsense listen interfaces, mapped by the adapter) and `allowed_from` (the service's own source
+filter, MikroTik `address`). Reachability is derived in core, not reported, and without
+firewall data (#135) it is an upper bound: `Network.service_segments()` lists the segments
+that can reach one of the device's addresses (its own subnets and the network of its
+management address; for layer-2 services the networks on its ports), narrowed by those four
+restrictions. `Network.service_from_wan()` answers the device's own `from_wan` (Fritz!Box
+internet access, FTP from the internet) where there is one; otherwise `false` for a device
+without an uplink, a service bound away from the uplink or one restricted to private source
+networks, and `null` ("the firewall decides") for a service that listens on the uplink. With
+#135 the same two helpers will also take the input rules into account; the checks call them
+and need not change. `Device.transport_encrypted` is separate: it is how Signalbox itself
+reads the device (`false` for NSDP, Easy Smart UDP, plain HTTP), set by the adapter through
+`SystemInfo`.
+
+Desired state (design, not built yet): `devices[].services: {telnet: off, http: redirect, ssh:
+{password: false}}`. Turning a service off must be refused when it is the one the integration
+itself uses (MikroTik `www-ssl`/`api-ssl`, OpenWrt `uhttpd` for ubus).
 
 ### Untagged networks of several routers
 
