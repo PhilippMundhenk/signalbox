@@ -189,6 +189,9 @@ class SystemInfo(BaseModel):
     model: str | None = None
     firmware: Firmware | None = None
     management_address: str | None = None
+    #: Vendor fields of the device itself (MAC, serial, protocol details); shown on the
+    #: device's advanced tab only, never read by rules.
+    vendor_extra: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class Observation(BaseModel):

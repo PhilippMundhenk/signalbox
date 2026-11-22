@@ -10,7 +10,9 @@ Generated from the adapter manifests by `tools/gen_docs.py`.
 
 | Adapter | interfaces | dhcp | dns | wireless | clients | neighbours | Confirmed on |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| TP-Link Easy Smart (`easysmart`) | simulator | - | - | - | - | - | nothing yet |
 | AVM Fritz!Box (`fritzbox`) | simulator | simulator | - | simulator | simulator | - | nothing yet |
 | TP-Link Omada (`omada`) | simulator | simulator | - | simulator | simulator | - | nothing yet |
 | OpenWrt (`openwrt`) | simulator | simulator | - | simulator | simulator | simulator | nothing yet |
 | OPNsense (`opnsense`) | simulator | simulator | simulator | - | simulator | - | nothing yet |
+| NETGEAR ProSAFE Plus (`prosafe`) | simulator | - | - | - | - | - | nothing yet |

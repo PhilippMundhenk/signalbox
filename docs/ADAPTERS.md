@@ -42,7 +42,8 @@ class MyAdapter(Adapter):
 ```
 
 - `read_system` is the only required method. It raises `Unreachable`, `AuthFailed` or
-  `UntrustedCertificate` when the device cannot be read at all.
+  `UntrustedCertificate` when the device cannot be read at all. Device details the model has
+  no field for (MAC, serial, protocol version) go into `SystemInfo.vendor_extra`.
 - Every declared capability must be implemented (`ReadsInterfaces`, `ReadsDhcp`, `ReadsDns`,
   `ReadsWireless`, `ReadsClients`, `ReadsNeighbours`); a missing one is an error when the adapter
   is constructed, not a silent gap.
@@ -108,6 +109,11 @@ class MyAdapter(Adapter):
 - Plain `http://` is refused unless the adapter passes `allow_insecure_http=True`. Expose it as
   a config field of exactly that name, `allow_insecure_http: bool = False`, and say in its
   description that credentials then travel in clear text; it is meant for simulators.
+
+Devices without HTTPS (the UDP protocols of small switches, see
+[adapters/plusswitch.md](adapters/plusswitch.md)) cannot use `DeviceHttp`; such an adapter says
+in its documentation what protects the credentials, and maps timeouts to `Unreachable` and
+refused logins to `AuthFailed` itself.
 
 For tests, `signalbox.sim.server` serves a simulator app on a free local port:
 `serve(app, tls=self_signed_certificate(tmp_path))` yields the base URL, the returned

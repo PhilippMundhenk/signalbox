@@ -1,10 +1,13 @@
 # syntax=docker/dockerfile:1
 FROM python:3.13-slim AS build
 WORKDIR /src
-RUN pip install --no-cache-dir build
+# git: the switches extra pins Switchyard by commit (docs/adr/0003-switchyard-library.md)
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* && pip install --no-cache-dir build
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN python -m build --wheel --outdir /dist
+RUN python -m build --wheel --outdir /build \
+    && pip wheel --no-cache-dir --wheel-dir /dist "$(ls /build/*.whl)[switches]"
 
 FROM python:3.13-slim
 ARG VERSION=dev
@@ -17,8 +20,8 @@ LABEL org.opencontainers.image.title="Signalbox" \
 RUN if [ -n "$EXTRA_PACKAGES" ]; then \
       apt-get update && apt-get install -y --no-install-recommends $EXTRA_PACKAGES \
       && rm -rf /var/lib/apt/lists/*; fi
-COPY --from=build /dist/*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/*.whl && rm /tmp/*.whl \
+COPY --from=build /dist/*.whl /tmp/wheels/
+RUN pip install --no-cache-dir --no-index /tmp/wheels/*.whl && rm -r /tmp/wheels \
     && useradd --system --uid 10001 --home-dir /data signalbox \
     && mkdir /data && chown signalbox /data
 USER signalbox
