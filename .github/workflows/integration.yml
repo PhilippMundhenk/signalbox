@@ -78,6 +78,8 @@ jobs:
         run: python3 tools/integration/opnsense/dump.py "$VM_DIR" write
       - name: Record the API answers (Kea, compact rows)
         run: python3 tools/integration/opnsense/dump.py "$VM_DIR" kea
+      - name: Record the API answers (health and time)
+        run: python3 tools/integration/opnsense/dump.py "$VM_DIR" health
       - name: Integration tests
         run: |
           set -o pipefail
