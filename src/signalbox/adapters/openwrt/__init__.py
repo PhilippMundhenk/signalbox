@@ -28,6 +28,7 @@ from signalbox.adapters import (
     ApplyResult,
     Backup,
     Capability,
+    Gap,
     Manifest,
     Observation,
     SystemInfo,
@@ -632,26 +633,30 @@ class OpenWrtAdapter(Adapter):
             for n, addr in enumerate(view.addresses(name))
         ]
         uplinks = self._uplinks(view, ports) if router else []
+        gaps: list[Gap] = []
+        try:
+            services = await self._services(view, ports, {s.id for s in segments})
+        except AccessDenied as exc:  # set up with an older ACL: the rest is read
+            services = []
+            gaps.append(Gap(message=f"management services: {exc}", fix=exc.fix))
         return Observation(
             ports=list(ports.values()),
             segments=segments,
             subnets=subnets,
             uplinks=uplinks,
-            services=await self._services(view, ports, {s.id for s in segments}),
+            services=services,
+            incomplete=gaps,
         )
 
     async def _services(
         self, view: NetworkView, ports: dict[str, Port], segment_ids: set[str]
     ) -> list[ManagementService]:
         """SSH (dropbear) and the web UI (uhttpd) from their UCI configs (#173). A router set
-        up with an older ACL refuses ``uci get`` of both: the services are then not read, the
-        rest of the observation is unaffected."""
+        up with an older ACL refuses ``uci get`` of both (AccessDenied): the caller reports that
+        as a gap with the fix, the rest of the observation is unaffected."""
         d = self.context.device_id
-        try:
-            dropbear = _sections(await self._uci("dropbear"), "dropbear")
-            uhttpd = _sections(await self._uci("uhttpd"), "uhttpd")
-        except AccessDenied:
-            return []
+        dropbear = _sections(await self._uci("dropbear"), "dropbear")
+        uhttpd = _sections(await self._uci("uhttpd"), "uhttpd")
         out: list[ManagementService] = []
         taken: set[str] = set()
 
@@ -784,6 +789,8 @@ class OpenWrtAdapter(Adapter):
         """
         try:
             status = await self.ubus.call("network.wireless", "status")
+        except NotFound:  # no Wi-Fi at all (a switch, or wireless packages removed): no radios
+            return {}
         except InvalidArgument:
             try:
                 status = await self.ubus.call("luci-rpc", "getWirelessDevices")

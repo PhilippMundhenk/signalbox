@@ -569,6 +569,26 @@ async def test_prosafe_old_firmware_refuses_the_identity_read(
     assert sim.switches[0].failed_logins == 0
 
 
+@needs_switchyard
+@pytest.mark.parametrize("refused", ["read_vlan", "read_lag"])
+async def test_prosafe_old_firmware_refuses_vlan_or_lag(
+    nsdp: Start, monkeypatch: pytest.MonkeyPatch, refused: str
+) -> None:
+    """Old firmware answers the VLAN or LAG read with "incorrect password": the ports stay."""
+    from switchyard.nsdp import client as nsdp_client
+
+    async def no(self: Any) -> Any:
+        raise nsdp_client.NsdpError(7)
+
+    monkeypatch.setattr(nsdp_client.SwitchClient, refused, no)
+    sim, port = await nsdp(netgear())
+    snap = await ProsafeAdapter(_context(ProsafeAdapter, port)).observe()
+    assert snap.status is DeviceStatus.PARTIAL
+    assert snap.ports and sim.switches[0].failed_logins == 0
+    [gap] = snap.errors
+    assert gap.capability == "interfaces" and "without a password" in gap.message and gap.fix
+
+
 def test_refused_setting_is_named() -> None:
     from switchyard.drivers import base as errors
     from switchyard.nsdp import client as nsdp_client
@@ -653,10 +673,9 @@ async def test_failed_vlan_read_keeps_the_identity(
     monkeypatch.setattr(SwitchClient, "read_vlan", broken)
     _, port = await nsdp(netgear())
     snap = await ProsafeAdapter(_context(ProsafeAdapter, port)).observe()
-    assert snap.status is DeviceStatus.PARTIAL
-    assert snap.device.model == "GS108E" and snap.ports == []
+    assert snap.status is DeviceStatus.PARTIAL  # the ports are kept, VLANs reported missing
+    assert snap.device.model == "GS108E" and snap.ports
     assert snap.errors[0].capability == "interfaces"
-    assert "does not support" in snap.errors[0].message
 
 
 @needs_switchyard
@@ -703,3 +722,30 @@ async def test_sessions_on_one_port_take_turns(nsdp: Start) -> None:
         "02:00:00:00:10:01",
         "02:00:00:00:10:02",
     }
+
+
+@needs_switchyard
+async def test_real_switches_use_switchyards_interface_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Against a real switch the transport has no fixed target, like Switchyard: it sends from
+    the host's interfaces with a real MAC (old firmware refuses the broadcast MAC)."""
+    import switchyard.nsdp as nsdp_mod
+
+    seen: dict[str, Any] = {}
+
+    class Stop(OSError):
+        pass
+
+    class Recorder:
+        def __init__(self, **kw: Any) -> None:
+            seen.update(kw)
+
+        async def start(self) -> None:
+            raise Stop
+
+    monkeypatch.setattr(nsdp_mod, "Transport", Recorder)
+    ctx = _context(ProsafeAdapter, 9)
+    real = AdapterContext(**{**ctx.__dict__, "extra": {"client_port": 0}})
+    snap = await ProsafeAdapter(real).observe()
+    assert seen["targets"] is None and snap.status is not DeviceStatus.OK

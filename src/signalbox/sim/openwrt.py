@@ -677,6 +677,8 @@ class OpenWrtSim:
     denied: set[str] = field(default_factory=set)
     #: UCI configs that do not exist (a router without Wi-Fi has no ``wireless``)
     missing: set[str] = field(default_factory=set)
+    #: no ``network.wireless`` ubus object (a device without Wi-Fi)
+    no_wireless_object: bool = False
     #: UCI configs the ACL lets the user change (``write`` → ``uci`` in the rpcd ACL)
     writable: set[str] = field(default_factory=lambda: set(CONFIGS))
     #: objects answered with broken JSON (``*``: every request)
@@ -875,6 +877,8 @@ class OpenWrtSim:
         if obj == "network.interface" and method == "dump":
             return [0, interface_dump(self.state["network"])]
         if obj == "network.wireless" and method == "status":
+            if self.no_wireless_object:  # no Wi-Fi hardware/packages (an OpenWrt switch)
+                return [NOT_FOUND]
             if self.wireless_ucode:
                 return [INVALID_ARGUMENT]
             return [0, wireless_status(self.state["wireless"])]
