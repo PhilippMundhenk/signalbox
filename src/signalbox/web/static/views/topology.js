@@ -1,6 +1,6 @@
 // Topology: devices with their ports, links between ports, VLAN overlay, entered cables.
 import { del, enc, get, post } from '../api.js';
-import { by, clear, h, place, s } from '../util.js';
+import { by, clear, h, place, portDetails, portSpeed, s } from '../util.js';
 import { card, confirmDialog, field, pageHead, run, select, statusBadge, table, tag, toast } from '../ui.js';
 
 const LAYER = { gateway: 0, switch: 1, ap: 2, other: 3 };
@@ -112,8 +112,8 @@ function drawGraph(data, nodes, onPort) {
       const member = state.segment && (p.untagged.includes(state.segment) ? 'untagged' : p.tagged.includes(state.segment) ? 'tagged' : null);
       const clients = (data.clients[p.id] || []).length;
       const cls = ['port', p.up === false ? 'down' : 'up', linked.has(p.id) ? 'linked' : '', member ? `m-${member}` : '', clients ? 'has-clients' : ''];
-      const rect = s('rect', { x: String(px), y: String(py), width: String(PORT), height: String(PORT), rx: '3', class: cls.join(' ').trim(), tabindex: '0', role: 'button', 'aria-label': `${node.name} port ${p.name}${clients ? `, ${clients} clients` : ''}`, 'data-testid': 'topo-port', 'data-id': p.id });
-      place(rect, s('title', {}, `${p.name}${member ? ` (${member})` : ''}${clients ? ` – ${clients} clients` : ''}`));
+      const rect = s('rect', { x: String(px), y: String(py), width: String(PORT), height: String(PORT), rx: '3', class: cls.join(' ').trim(), tabindex: '0', role: 'button', 'aria-label': `${node.name} port ${p.name}${p.description ? ` (${p.description})` : ''}${clients ? `, ${clients} clients` : ''}`, 'data-testid': 'topo-port', 'data-id': p.id });
+      place(rect, s('title', {}, `${p.name}${p.description ? ` (${p.description})` : ''}${member ? ` (${member})` : ''}${clients ? ` – ${clients} clients` : ''}`));
       rect.addEventListener('click', () => onPort(node, p));
       rect.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' || ev.key === ' ') {
@@ -128,13 +128,26 @@ function drawGraph(data, nodes, onPort) {
   return svg;
 }
 
+// Speed, PVID, MTU, admin state, profile: a line only when the device reports any of them.
+function portFacts(port, segments) {
+  const parts = [portSpeed(port), ...portDetails(port)];
+  // PVID and untagged membership disagree (ProSAFE, Easy Smart allow it): say where frames go.
+  if (port.pvid_segment && port.untagged.length && !port.untagged.includes(port.pvid_segment)) {
+    parts.push(`untagged frames in: ${segments[port.pvid_segment] || port.pvid_segment}`);
+  }
+  const text = parts.filter(Boolean).join(' · ');
+  return text ? h('p', { class: 'muted', 'data-testid': 'port-facts' }, text) : null;
+}
+
 function portPanel(data, segments, node, port) {
   const clients = data.clients[port.id] || [];
   return h(
     'div',
     { class: 'card port-panel', 'data-testid': 'port-panel' },
     h('h3', {}, `${node.name} · port ${port.name}`),
+    port.description ? h('p', { 'data-testid': 'port-description' }, port.description) : null,
     h('p', { class: 'muted' }, [port.untagged.length ? `untagged: ${port.untagged.map((x) => segments[x] || x).join(', ')}` : null, port.tagged.length ? `tagged: ${port.tagged.map((x) => segments[x] || x).join(', ')}` : null].filter(Boolean).join(' · ') || 'No VLAN membership reported.'),
+    portFacts(port, segments),
     clients.length
       ? table(
           [

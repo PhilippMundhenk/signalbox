@@ -911,6 +911,16 @@
       "title": "Firmware",
       "type": "object"
     },
+    "FrameTypes": {
+      "description": "Which frames a port accepts on ingress (802.1Q acceptable frame types).",
+      "enum": [
+        "all",
+        "tagged-only",
+        "untagged-only"
+      ],
+      "title": "FrameTypes",
+      "type": "string"
+    },
     "HostRecord": {
       "additionalProperties": false,
       "properties": {
@@ -1299,10 +1309,90 @@
     },
     "Port": {
       "additionalProperties": false,
+      "description": "A port of a device.\n\n``up`` is the link state. The configuration details below (from ``description`` on) are\nfilled only where the device reports them, as part of the ``interfaces`` capability;\n``None`` (or an empty list) means \"not reported\", never \"off\".",
       "properties": {
+        "admin_up": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Admin Up"
+        },
+        "advertised_speeds_mbps": {
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": "Advertised Speeds Mbps",
+          "type": "array"
+        },
+        "autoneg": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Autoneg"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
         "device_id": {
           "title": "Device Id",
           "type": "string"
+        },
+        "eee": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Eee"
+        },
+        "flow_control": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Flow Control"
+        },
+        "frame_types": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrameTypes"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "full_duplex": {
           "anyOf": [
@@ -1320,9 +1410,47 @@
           "title": "Id",
           "type": "string"
         },
+        "ingress_filter": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ingress Filter"
+        },
+        "jumbo": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Jumbo"
+        },
         "kind": {
           "$ref": "#/$defs/PortKind",
           "default": "ethernet"
+        },
+        "l2_mtu": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 68,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "L2 Mtu"
         },
         "lag": {
           "anyOf": [
@@ -1348,6 +1476,44 @@
           ],
           "default": null,
           "title": "Mac"
+        },
+        "max_speed_mbps": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Speed Mbps"
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortMedia"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mtu": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 68,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mtu"
         },
         "name": {
           "title": "Name",
@@ -1377,6 +1543,32 @@
           ],
           "default": null,
           "title": "Poe"
+        },
+        "profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Profile"
+        },
+        "pvid": {
+          "anyOf": [
+            {
+              "maximum": 4094,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pvid"
         },
         "source": {
           "anyOf": [
@@ -1438,6 +1630,17 @@
         "virtual"
       ],
       "title": "PortKind",
+      "type": "string"
+    },
+    "PortMedia": {
+      "description": "Physical medium of a wired port (wireless ports are ``PortKind.WIRELESS``).",
+      "enum": [
+        "copper",
+        "sfp",
+        "sfp+",
+        "other"
+      ],
+      "title": "PortMedia",
       "type": "string"
     },
     "PortMembership": {

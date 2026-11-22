@@ -213,6 +213,11 @@ def test_concept_views_show_the_network(app: Any) -> None:
     go(app, "#/device/router/advanced")
     expect(app.get_by_test_id("raw-port")).to_have_count(3)
     expect(app.get_by_test_id("raw-port-table")).to_contain_text('"led":"green"')
+    lan1 = app.get_by_test_id("raw-port").filter(has_text="lan1")
+    expect(lan1).to_contain_text("Desk")
+    expect(lan1).to_contain_text("1 Gbit/s of 2.5 Gbit/s")
+    expect(lan1).to_contain_text("PVID 20 · MTU 1500")
+    expect(app.get_by_test_id("raw-port").filter(has_text="lan3")).to_contain_text("disabled")
 
 
 def test_topology_manual_link_and_vlan_highlight(app: Any) -> None:
@@ -247,6 +252,10 @@ def test_topology_manual_link_and_vlan_highlight(app: Any) -> None:
     # clients under their port
     app.locator('[data-testid="topo-port"][data-id="router/port/lan1"]').click()
     expect(app.get_by_test_id("port-client")).to_contain_text("printer")
+    expect(app.get_by_test_id("port-description")).to_have_text("Desk")
+    facts = app.get_by_test_id("port-facts")
+    expect(facts).to_contain_text("1 Gbit/s of 2.5 Gbit/s · PVID 20 · MTU 1500")
+    expect(facts).to_contain_text("untagged frames in: Guests")
 
     app.get_by_test_id("link-delete").click()
     app.get_by_test_id("confirm-ok").click()

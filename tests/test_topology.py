@@ -133,6 +133,8 @@ def test_view_with_unknown_port_and_unnamed_segment() -> None:
         "port": "eth0",
         "known": False,
         "speed_mbps": None,
+        "max_speed_mbps": None,
+        "mtu": None,
         "up": None,
     }
     assert edge["segments"][0]["consistent"] is False

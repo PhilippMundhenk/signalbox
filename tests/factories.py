@@ -15,6 +15,7 @@ from signalbox.model import (
     NtpClient,
     NtpServer,
     Port,
+    PortMedia,
     PowerSupply,
     Site,
     Snapshot,
@@ -46,6 +47,29 @@ def device(
 
 def port(device_id: str, name: str, **kw: Any) -> Port:
     return Port(id=port_id(device_id, name), device_id=device_id, name=name, **kw)
+
+
+def configured_port(device_id: str, name: str, **kw: Any) -> Port:
+    """A gigabit copper port, link up, with every configuration detail reported (#156).
+
+    Enabled, PVID 1, MTU 1500, auto-negotiation 10/100/1000; override any field, for example
+    ``configured_port("sw", "5", pvid=20, description="office desk")`` or ``mtu=9000``.
+    """
+    values: dict[str, Any] = {
+        "up": True,
+        "speed_mbps": 1000,
+        "full_duplex": True,
+        "admin_up": True,
+        "pvid": 1,
+        "mtu": 1500,
+        "max_speed_mbps": 1000,
+        "advertised_speeds_mbps": [10, 100, 1000],
+        "autoneg": True,
+        "media": PortMedia.COPPER,
+        "flow_control": False,
+        "eee": False,
+    }
+    return port(device_id, name, **(values | kw))
 
 
 def snapshot(dev: Device, **kw: Any) -> Snapshot:

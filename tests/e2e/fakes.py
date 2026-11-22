@@ -123,9 +123,21 @@ class Lab(Adapter):
                 speed_mbps=1000,
                 mac=mac(d, 1),
                 vendor_extra={"led": "green", "hw_queue": 4},
+                description="Desk",
+                admin_up=True,
+                pvid=20,  # differs from its untagged VLAN 10 (#156)
+                mtu=1500,
+                max_speed_mbps=2500,
             ),
             Port(id=port_id(d, "lan2"), device_id=d, name="lan2", up=True, mac=mac(d, 2)),
-            Port(id=port_id(d, "lan3"), device_id=d, name="lan3", up=False, mac=mac(d, 3)),
+            Port(
+                id=port_id(d, "lan3"),
+                device_id=d,
+                name="lan3",
+                up=False,
+                admin_up=False,
+                mac=mac(d, 3),
+            ),
         ]
         segments = [
             Segment(

@@ -17,7 +17,7 @@ from enum import StrEnum
 from ipaddress import IPv4Address, IPv4Interface, IPv6Address, IPv6Interface
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 IPAddress = IPv4Address | IPv6Address
 IPInterface = IPv4Interface | IPv6Interface
@@ -276,7 +276,39 @@ class PortKind(StrEnum):
     VIRTUAL = "virtual"
 
 
+class FrameTypes(StrEnum):
+    """Which frames a port accepts on ingress (802.1Q acceptable frame types)."""
+
+    ALL = "all"
+    TAGGED_ONLY = "tagged-only"  # a trunk: untagged frames are dropped, the PVID is unused
+    UNTAGGED_ONLY = "untagged-only"  # an access port: tagged frames are dropped
+
+
+class PortMedia(StrEnum):
+    """Physical medium of a wired port (wireless ports are ``PortKind.WIRELESS``)."""
+
+    COPPER = "copper"  # RJ45
+    SFP = "sfp"  # 1 Gbit/s cage
+    SFP_PLUS = "sfp+"  # 10 Gbit/s (and faster) cage
+    OTHER = "other"
+
+
+#: Largest frame payload of standard Ethernet; a larger MTU means jumbo frames.
+STANDARD_MTU = 1500
+
+Vlan = Annotated[int, Field(ge=1, le=4094)]
+Mtu = Annotated[int, Field(ge=68, le=65535)]
+Mbps = Annotated[int, Field(ge=1)]
+
+
 class Port(Observed):
+    """A port of a device.
+
+    ``up`` is the link state. The configuration details below (from ``description`` on) are
+    filled only where the device reports them, as part of the ``interfaces`` capability;
+    ``None`` (or an empty list) means "not reported", never "off".
+    """
+
     device_id: str
     name: str
     kind: PortKind = PortKind.ETHERNET
@@ -286,6 +318,59 @@ class Port(Observed):
     poe: bool | None = None
     lag: str | None = None
     mac: Mac | None = None
+    #: The user's own label of the port (alias, comment: "office desk"). User text: may
+    #: contain names, so it is shown but never put into exports or reports by default.
+    description: str | None = None
+    #: Administratively enabled. A disabled port has ``admin_up=False`` and ``up=False``.
+    admin_up: bool | None = None
+    #: VLAN that untagged frames arriving on the port are put into (1: the native network).
+    #: Ingress only: what the port *sends* untagged is its untagged ``Segment.members``
+    #: entry; on switches that keep both settings apart (ProSAFE, Easy Smart) they can differ.
+    pvid: Vlan | None = None
+    frame_types: FrameTypes | None = None
+    #: Frames of VLANs the port is not a member of are dropped on ingress.
+    ingress_filter: bool | None = None
+    #: Layer-3 MTU (IP packet size; 1500 standard).
+    mtu: Mtu | None = None
+    #: Largest layer-2 frame without the Ethernet header, where the device has its own setting
+    #: (MikroTik ``l2mtu``).
+    l2_mtu: Mtu | None = None
+    #: Jumbo frames on, for switches that only have a switch-wide or per-port flag.
+    jumbo: bool | None = None
+    #: Fastest speed the port supports (hardware), for "1G link on 2.5G ports".
+    max_speed_mbps: Mbps | None = None
+    #: Speeds the port offers in auto-negotiation, ascending (empty: not reported).
+    advertised_speeds_mbps: list[Mbps] = Field(default_factory=list)
+    #: Auto-negotiation on; ``False``: speed and duplex are forced.
+    autoneg: bool | None = None
+    media: PortMedia | None = None
+    #: Name of the port profile a controller applies (Omada).
+    profile: str | None = None
+    flow_control: bool | None = None
+    #: Energy-efficient Ethernet (802.3az).
+    eee: bool | None = None
+
+    @field_validator("advertised_speeds_mbps")
+    @classmethod
+    def _sorted_speeds(cls, value: list[int]) -> list[int]:
+        return sorted(set(value))
+
+    @field_validator("description", "profile")
+    @classmethod
+    def _no_blank(cls, value: str | None) -> str | None:
+        return (value.strip() or None) if value is not None else None
+
+    def label(self) -> str:
+        """Name for findings and the UI: ``5 (office desk)`` when the port has a description."""
+        if self.description and self.description != self.name:
+            return f"{self.name} ({self.description})"
+        return self.name
+
+    def jumbo_frames(self) -> bool | None:
+        """Jumbo frames on, from the flag or the MTU (comparable across both kinds of device)."""
+        if self.jumbo is not None:
+            return self.jumbo
+        return None if self.mtu is None else self.mtu > STANDARD_MTU
 
 
 class Membership(StrEnum):
@@ -551,6 +636,25 @@ class Network(Model):
 
     def segment(self, segment_id: str) -> Segment | None:
         return next((s for s in self.segments if s.id == segment_id), None)
+
+    def pvid_segment(self, port_id: str) -> str | None:
+        """Segment that untagged frames arriving on the port land in (from ``Port.pvid``).
+
+        ``None`` when the port or its PVID is unknown, or the port accepts tagged frames only.
+        """
+        port = self.port(port_id)
+        if port is None or port.pvid is None or port.frame_types is FrameTypes.TAGGED_ONLY:
+            return None
+        device = self.device(port.device_id)
+        return None if device is None else segment_id(device.site_id, port.pvid)
+
+    def untagged_segments(self, port_id: str) -> list[str]:
+        """Segments the port sends untagged (egress), sorted."""
+        return sorted(
+            s.id
+            for s in self.segments
+            if any(m.port_id == port_id and m.mode is Membership.UNTAGGED for m in s.members)
+        )
 
 
 def json_schema() -> dict[str, Any]:

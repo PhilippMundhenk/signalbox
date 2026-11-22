@@ -76,6 +76,27 @@ export function yesNo(value) {
   return '–';
 }
 
+export function fmtSpeed(mbps) {
+  return mbps >= 1000 ? `${mbps / 1000} Gbit/s` : `${mbps} Mbit/s`;
+}
+
+// Link speed, with the port's maximum where it is faster ("1 Gbit/s of 2.5 Gbit/s").
+export function portSpeed(p) {
+  const top = p.max_speed_mbps;
+  if (!p.speed_mbps) return top ? `max ${fmtSpeed(top)}` : null;
+  return top && top > p.speed_mbps ? `${fmtSpeed(p.speed_mbps)} of ${fmtSpeed(top)}` : fmtSpeed(p.speed_mbps);
+}
+
+// Port configuration details (#156), only those the device reports.
+export function portDetails(p) {
+  return [
+    p.admin_up === false ? 'disabled' : null,
+    p.pvid ? `PVID ${p.pvid}` : null,
+    p.mtu ? `MTU ${p.mtu}` : p.jumbo === true ? 'jumbo frames' : null,
+    p.profile ? `profile ${p.profile}` : null,
+  ].filter(Boolean);
+}
+
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

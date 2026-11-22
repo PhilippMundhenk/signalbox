@@ -12,7 +12,16 @@ Use from an adapter's tests::
 from __future__ import annotations
 
 from signalbox.adapters import Adapter, Capability, check_manifest
-from signalbox.model import Device, DeviceHealth, DeviceStatus, DeviceTime, Membership, Snapshot
+from signalbox.model import (
+    Device,
+    DeviceHealth,
+    DeviceStatus,
+    DeviceTime,
+    Membership,
+    Port,
+    PortKind,
+    Snapshot,
+)
 
 
 def _aware(value: object) -> bool:
@@ -46,6 +55,21 @@ def health_problems(device_id: str, health: DeviceHealth) -> list[str]:
     for when in (health.boot_time, *(u.last_test for u in health.ups)):
         if when is not None and not _aware(when):
             out.append(f"{device_id}: health time {when} has no time zone")
+    return out
+
+
+def port_problems(port: Port) -> list[str]:
+    """Inconsistent port details (#156): speed above the maximum, a disabled port with link."""
+    out: list[str] = []
+    top = port.max_speed_mbps
+    if top is not None and port.speed_mbps is not None and port.speed_mbps > top:
+        out.append(f"port {port.id}: speed {port.speed_mbps} > max speed {top}")
+    if top is not None and any(s > top for s in port.advertised_speeds_mbps):
+        out.append(f"port {port.id}: advertises a speed above its max speed {top}")
+    if port.admin_up is False and port.up:
+        out.append(f"port {port.id}: link up on a disabled port")
+    if port.kind is PortKind.WIRELESS and port.media is not None:
+        out.append(f"port {port.id}: wireless port with a wired medium")
     return out
 
 
@@ -155,6 +179,8 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
             out.append(f"wlan {wlan.id} references unknown radio {wlan.radio_id}")
         if wlan.segment_id is not None and wlan.segment_id not in segment_ids:
             out.append(f"wlan {wlan.id} references unknown segment {wlan.segment_id}")
+    for port in snapshot.ports:
+        out += port_problems(port)
     for nb in snapshot.neighbours:
         if nb.local_port_id not in port_ids:
             out.append(f"neighbour {nb.id} on unknown port {nb.local_port_id}")

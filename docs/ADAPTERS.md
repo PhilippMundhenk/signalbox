@@ -188,6 +188,34 @@ Changes of a managed device are sent to the controller's adapter (`Deployer.owne
 on the controller. Changing an object that several managed devices share (an SSID of a WLAN
 group) reaches all of them; say so in the vendor call's description.
 
+## Port details
+
+`Port` has optional configuration details, read with the `interfaces` capability (no API
+version needed; leave out what the device does not report, never guess):
+
+| Field | Meaning |
+| --- | --- |
+| `description` | the user's port label (alias, comment); blank becomes `None` |
+| `admin_up` | administratively enabled; a disabled port also reports `up=False` |
+| `pvid`, `frame_types`, `ingress_filter` | VLAN of untagged ingress frames (1: native), accepted frames (`all`, `tagged-only`, `untagged-only`), filtering of non-member VLANs |
+| `mtu`, `l2_mtu`, `jumbo` | layer-3 MTU, the device's own layer-2 MTU, or only a jumbo-frames flag |
+| `max_speed_mbps`, `advertised_speeds_mbps`, `autoneg`, `media` | fastest supported speed, speeds offered in auto-negotiation, auto-negotiation on, `copper`/`sfp`/`sfp+`/`other` |
+| `profile` | port profile name a controller applies |
+| `flow_control`, `eee` | pause frames, energy-efficient Ethernet |
+
+Keep reporting VLAN membership as the device forwards frames (`Segment.members`); the PVID does
+not replace it. The contract checks report a speed above `max_speed_mbps` and link up on a
+disabled port. Values the integrations already read into `vendor_extra` and should move here:
+
+| Integration | Already read | Where |
+| --- | --- | --- |
+| ProSAFE / Easy Smart | `vendor_extra.pvid` (802.1Q modes), `enabled` (Easy Smart), `link` | `plusswitch/mapping.py`, `interfaces()` |
+| MikroTik | `comment`, `mtu`, `disabled` in `vendor_extra`; bridge port `pvid` and `frame-types` used for membership only; `/interface/ethernet` read for speed (`advertise`, `auto-negotiation` not kept) | `mikrotik/__init__.py`, `_build_layout()` |
+| OpenWrt | `vendor_extra.mtu` from `network.device status` | `openwrt/__init__.py`, `read_interfaces()` |
+| OPNsense | `vendor_extra.description` | `opnsense/__init__.py`, interface overview |
+| Omada | `vendor_extra.profile` (`profileName`), `disabled` (`disable`); `nativeNetworkId` used for membership only | `omada/__init__.py`, switch ports |
+| Fritz!Box | `NewMaxBitRate` is used as `speed_mbps` (may be the maximum rather than the link speed: check before moving it to `max_speed_mbps`) | `fritzbox/__init__.py`, LAN port |
+
 ## Health and time (adapter API 1.2)
 
 Two capabilities fill value objects on the device itself, keyed by device id so that a

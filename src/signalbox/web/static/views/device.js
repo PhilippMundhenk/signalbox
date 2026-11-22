@@ -1,7 +1,7 @@
 // One device: overview with connection test and certificate trust, settings, advanced (raw data).
 import { del, enc, get, post } from '../api.js';
 import { loadNetwork } from '../net.js';
-import { clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, groupHex, h, place, yesNo } from '../util.js';
+import { clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, groupHex, h, place, portDetails, portSpeed, yesNo } from '../util.js';
 import { card, confirmDialog, empty, kv, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
 
@@ -186,9 +186,11 @@ async function advanced(main, ctx, device) {
         table(
           [
             ['Port', (p) => p.name],
+            ['Description', (p) => p.description],
             ['Kind', (p) => p.kind],
             ['Up', (p) => yesNo(p.up)],
-            ['Speed', (p) => (p.speed_mbps ? `${p.speed_mbps} Mbit/s` : null)],
+            ['Speed', (p) => portSpeed(p)],
+            ['Settings', (p) => portDetails(p).join(' · ') || null],
             ['MAC', (p) => (p.mac ? h('span', { class: 'mono' }, p.mac) : null)],
             ['Vendor fields', (p) => (Object.keys(p.vendor_extra || {}).length ? h('code', { class: 'extra' }, JSON.stringify(p.vendor_extra)) : null)],
           ],

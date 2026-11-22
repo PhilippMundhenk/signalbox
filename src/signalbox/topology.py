@@ -125,6 +125,8 @@ def view(net: Network) -> dict[str, Any]:
             "port": port.name if port else port_id.rsplit("/", 1)[-1],
             "known": port is not None,
             "speed_mbps": port.speed_mbps if port else None,
+            "max_speed_mbps": port.max_speed_mbps if port else None,
+            "mtu": port.mtu if port else None,
             "up": port.up if port else None,
         }
 
@@ -170,6 +172,15 @@ def view(net: Network) -> dict[str, Any]:
                     "name": p.name,
                     "kind": p.kind.value,
                     "up": p.up,
+                    "description": p.description,
+                    "admin_up": p.admin_up,
+                    "speed_mbps": p.speed_mbps,
+                    "max_speed_mbps": p.max_speed_mbps,
+                    "pvid": p.pvid,
+                    "pvid_segment": net.pvid_segment(p.id),
+                    "mtu": p.mtu,
+                    "jumbo": p.jumbo_frames(),
+                    "profile": p.profile,
                     "untagged": [s for s, m in modes.get(p.id, {}).items() if m == "untagged"],
                     "tagged": [s for s, m in modes.get(p.id, {}).items() if m == "tagged"],
                 }

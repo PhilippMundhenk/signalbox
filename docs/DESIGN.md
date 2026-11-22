@@ -83,7 +83,7 @@ carries its source (adapter and device), the time it was observed and a stable i
 | --- | --- |
 | Site | One network domain; a second location over a VPN is a second site |
 | Device | Vendor, model, firmware, role (`gateway`, `switch`, `ap`, `other`), management address, adapter, capabilities, health, time |
-| Port | Physical or logical port, link state, speed, PoE, LAG membership, neighbour (LLDP where available) |
+| Port | Physical or logical port, link state, speed, PoE, LAG membership, neighbour (LLDP where available); configuration details: description, admin state, PVID, frame types, ingress filter, MTU / L2 MTU / jumbo flag, maximum and advertised speeds, auto-negotiation, medium, port profile, flow control, EEE |
 | Link | A cable or wireless uplink between two ports; observed (LLDP, MAC tables) or entered by hand |
 | Segment | Layer-2 network: VLAN id, name, purpose and its source, isolated by the device; membership per port `untagged` / `tagged` / `none` |
 | Subnet | Prefix, gateway address, segment, IPv4/IPv6 |
@@ -108,6 +108,28 @@ interface would be a device of its own. Clock offsets are computed in core
 (`DeviceTime.offset_seconds()`) from the device's clock and Signalbox's time at the read, with
 half the round trip as error bound. The time zone reveals the region: it is shown in the UI but
 not exported to MQTT.
+
+Port configuration details (#156) are optional fields on `Port`, filled by the `interfaces`
+capability where the device reports them (no new capability, no adapter API change: an adapter
+that sets none of them is unchanged). `up` stays the link state and `admin_up` the configured
+one. `pvid` is the ingress VLAN; the untagged `Segment.members` entry stays the egress truth
+("sent untagged"), so the VLAN view keeps showing membership and the topology port panel adds
+where untagged frames land when the two differ, which switches with separate PVID and
+membership settings (ProSAFE, Easy Smart) allow. `vlan.single-untagged` (#110) reports that
+mismatch; `Network.pvid_segment()` and `Network.untagged_segments()` give both sides.
+`Port.jumbo_frames()` compares a jumbo flag with an MTU for `link.mtu` (#114), `max_speed_mbps`
+lets `link.slow` (#108) flag a 1G link on 2.5G ports, and `Port.label()` puts the user's own
+port description into findings ("port 5 (office desk)"). A description is user text that may
+contain names: it is shown in the UI, never exported (MQTT, reports) by default. Ports are not
+merged across devices (each port belongs to one snapshot), so the fields need no merge rule.
+
+Desired state and plans (design, not built yet): `ports[]` would get optional `description`,
+`admin_up` and `mtu`, `None` meaning "leave as is", and `PortValue` the same three fields. PVID
+is not declared separately: it is implied by `untagged` (writers already set the PVID to the
+untagged VLAN). Today a declared port always plans its VLANs, so a port entry that only names a
+description would remove its memberships; the VLAN fields first have to become "not
+specified" when left out. Disabling a port must be refused when it is on the path to Signalbox
+or to a device later in the plan.
 
 Rules for the model:
 

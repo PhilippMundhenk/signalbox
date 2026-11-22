@@ -530,7 +530,22 @@
     "full_duplex": true,
     "poe": null,
     "lag": null,
-    "mac": "00:00:5e:00:53:07"
+    "mac": "00:00:5e:00:53:07",
+    "description": null,
+    "admin_up": null,
+    "pvid": null,
+    "frame_types": null,
+    "ingress_filter": null,
+    "mtu": null,
+    "l2_mtu": null,
+    "jumbo": null,
+    "max_speed_mbps": null,
+    "advertised_speeds_mbps": [],
+    "autoneg": null,
+    "media": null,
+    "profile": null,
+    "flow_control": null,
+    "eee": null
    }
   ],
   "segments": [
