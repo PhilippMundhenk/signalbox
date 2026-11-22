@@ -1,5 +1,5 @@
 // Entry point: session handling, shell and hash router.
-import { get, onUnauthorized, post } from './api.js';
+import { announceLogout, get, onReachability, onUnauthorized, post, watchSession } from './api.js';
 import { clear, h } from './util.js';
 import { showError } from './ui.js';
 import { buildShell } from './nav.js';
@@ -109,6 +109,7 @@ function footer(session) {
 function renderLogin(message) {
   runCleanups();
   clear(root);
+  clear(document.getElementById('modal-root'));
   const pw = h('input', { type: 'password', id: 'pw', autocomplete: 'current-password', required: true, 'data-testid': 'login-password' });
   const err = h('p', { class: 'error', role: 'alert', 'data-testid': 'login-error' }, message || '');
   const submit = h('button', { class: 'btn primary', type: 'submit', 'data-testid': 'login-submit' }, 'Sign in');
@@ -159,6 +160,7 @@ async function render() {
         'data-testid': 'logout',
         onclick: async () => {
           await post('/logout').catch(() => null);
+          announceLogout();
           await boot();
         },
       },
@@ -189,13 +191,34 @@ async function render() {
   }
 }
 
+// Shown while the server does not answer; the page behind it stays as it is.
+const banner = h('div', { class: 'banner', role: 'status', hidden: true, 'data-testid': 'offline' }, 'Signalbox is not reachable. Retrying…');
+document.body.prepend(banner);
+onReachability((up) => {
+  banner.hidden = up;
+});
+
+const SESSION_ENDED = 'Your session ended; log in again';
+function sessionEnded() {
+  if (state.session && state.session.authenticated) {
+    state.session.authenticated = false;
+    renderLogin(SESSION_ENDED); // the hash stays, so the same page returns after login
+  }
+}
+
+let bootRetry = null;
+let bootDelay = 2000;
 async function boot() {
-  const session = await get('/session').catch(() => null);
-  if (!session) {
-    clear(root);
-    root.append(h('main', {}, h('p', { class: 'error', 'data-testid': 'offline' }, 'Cannot reach the Signalbox server.')));
+  clearTimeout(bootRetry);
+  let session;
+  try {
+    session = await get('/session');
+  } catch (err) {
+    bootRetry = setTimeout(boot, bootDelay);
+    bootDelay = Math.min(bootDelay * 2, 60000);
     return;
   }
+  bootDelay = 2000;
   state.session = session;
   if (!session.authenticated) {
     renderLogin();
@@ -207,12 +230,8 @@ async function boot() {
 window.addEventListener('hashchange', () => {
   if (state.session && state.session.authenticated) render();
 });
-onUnauthorized(() => {
-  if (state.session && state.session.authenticated) {
-    state.session.authenticated = false;
-    renderLogin('Your session ended. Please sign in again.');
-  }
-});
+onUnauthorized(sessionEnded);
+watchSession({ onEnded: sessionEnded });
 
 applyTheme(savedTheme());
 boot();

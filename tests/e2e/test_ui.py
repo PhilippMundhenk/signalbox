@@ -838,3 +838,50 @@ def test_link_to_the_device_web_interface(app: Any) -> None:
     expect(page_link).to_have_text("Open web interface")
     expect(page_link).to_have_attribute("href", "https://192.0.2.1")
     expect(page_link).to_have_attribute("rel", "noopener noreferrer")
+
+
+def _recheck(page: Any) -> None:
+    """What the tab does when it becomes visible again."""
+    page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+
+
+def test_ended_session_shows_login_in_place_and_returns_to_the_page(app: Any) -> None:
+    go(app, "#/devices")
+    app.context.clear_cookies()  # expired, or the server restarted with a new secret
+    _recheck(app)
+    expect(app.get_by_test_id("login-submit")).to_be_visible()
+    expect(app.get_by_test_id("login-error")).to_have_text("Your session ended; log in again")
+    assert app.url.endswith("#/devices")
+    app.get_by_test_id("login-password").fill(PASSWORD)
+    app.get_by_test_id("login-submit").click()
+    expect(app.get_by_test_id("nav-devices")).to_have_attribute("aria-current", "page")
+    expect(app.locator("main h1").first).to_be_visible()
+
+
+def test_a_401_from_any_call_ends_the_session(app: Any) -> None:
+    go(app, "#/clients")
+    app.context.clear_cookies()
+    app.evaluate("import('/api.js').then((m) => m.get('/devices').catch(() => null))")
+    expect(app.get_by_test_id("login-submit")).to_be_visible()
+
+
+def test_logout_in_a_second_page_logs_out_the_first(app: Any) -> None:
+    second = app.context.new_page()
+    second.goto(app.server.url)
+    second.get_by_test_id("logout").wait_for()
+    second.get_by_test_id("logout").click()
+    expect(second.get_by_test_id("login-submit")).to_be_visible()
+    expect(app.get_by_test_id("login-submit")).to_be_visible()
+
+
+def test_unreachable_server_shows_a_banner_not_the_login(app: Any) -> None:
+    go(app, "#/devices")
+    app.route("**/api/**", lambda route: route.abort())
+    _recheck(app)
+    expect(app.get_by_test_id("offline")).to_be_visible()
+    expect(app.get_by_test_id("offline")).to_contain_text("not reachable")
+    expect(app.get_by_test_id("login-submit")).to_have_count(0)
+    expect(app.get_by_test_id("logout")).to_be_visible()  # the page stays
+    app.unroute("**/api/**")
+    expect(app.get_by_test_id("offline")).to_be_hidden()  # retried with backoff
+    expect(app.get_by_test_id("login-submit")).to_have_count(0)
