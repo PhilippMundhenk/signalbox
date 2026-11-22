@@ -459,3 +459,28 @@ the package revision in `product_version`, assignment rows with address fields
 revert (`leftovers`).
 `signalbox.sim.server.serve()` runs it on a free local port, over TLS with a certificate from
 `self_signed_certificate()`.
+
+
+## Management services (#173)
+
+Signalbox reads only two things, because OPNsense has no narrow API for the rest:
+
+- The **web interface** Signalbox itself uses (*verified on 26.7.9 in CI*): `https` (or `http` with `allow_insecure_http`)
+  on the port of the configured address, always enabled (it answers). `transport_encrypted`
+  follows the scheme.
+- **SNMP**, when the `os-net-snmp` plugin is installed: `GET /api/netsnmp/general/get`
+  (`general.enabled`, `listen`, and whether `general.community` is `public` or `private`; the
+  string itself is never stored; the plugin's general settings are SNMP v2c only). Without the
+  plugin the endpoint does not exist and no SNMP service is reported. The user needs the
+  *Services: Net-SNMP* privilege for it (*guess: privilege name from the plugin's ACL, not tried
+  in CI, where the plugin is not installed*); without it SNMP is left out.
+
+**Not readable, and why.** The SSH daemon (enabled, port, listen interfaces, password and
+root login), the web interface's own settings (listen interfaces, protocol, redirect from HTTP,
+other ports) and the plugin's SNMPv3 users are only in the system configuration. The
+administration page is a legacy PHP page with no API (`core/Api` has no controller for it),
+and the only way to the values is the configuration backup (`/api/core/backup/download/this`),
+which needs a privilege that exposes every secret of the firewall: certificates' private keys,
+VPN and RADIUS secrets, password hashes. Signalbox does not download it for reading; the
+backup privilege stays with the write user that needs it for changes. A rule that needs to know
+whether SSH is on therefore has no answer for OPNsense.

@@ -358,6 +358,14 @@ async def test_prosafe_contract(nsdp: Start, switch: dict[str, Any]) -> None:
     assert [s.id for s in snap.segments] == [NATIVE]
     assert len(snap.segments[0].members) == len(snap.ports)
     assert sim.switches[0].failed_logins == 0
+    # management services (#173): fixed, unencrypted
+    assert dev.transport_encrypted is False
+    assert [
+        (x.id, x.kind.value, x.port, x.transport.value, x.encrypted) for x in snap.services
+    ] == [
+        ("sw1/service/nsdp", "vendor", 63322, "udp", False),
+        ("sw1/service/http", "http", 80, "tcp", False),
+    ]
 
 
 @needs_switchyard
@@ -419,6 +427,11 @@ async def test_easysmart_disabled_port(easysmart: Start) -> None:
     ports, _ = _by(snap)
     assert (ports["4"].admin_up, ports["4"].up) == (False, False)
     assert (ports["5"].autoneg, ports["5"].flow_control) == (False, True)
+    assert [(x.name, x.port, x.enabled) for x in snap.services] == [
+        ("easy-smart", 29808, True),
+        ("http", 80, True),
+    ]
+    assert snap.device.transport_encrypted is False
 
 
 @needs_switchyard

@@ -8,7 +8,8 @@ compared with docs/adapters/omada.md and the simulator without downloading logs;
 answers go to DIR/api-<GROUP>.json. Only the throw-away controller's data is in there
 (documentation prefixes, example passphrases). GROUP is ``read`` (the viewer application),
 ``detail`` (SSIDs and networks in full), ``auth`` (refusals: a wrong secret, a bogus token,
-a write with the viewer role) or ``spec`` (the fields of the managed-device answers from the
+a write with the viewer role), ``services`` (the site's SSH and SNMP settings, #173) or
+``spec`` (the fields of the managed-device answers and the services' own descriptions from the
 controller's own Open API description). Ten notices per call (the limit of one step).
 """
 
@@ -71,6 +72,14 @@ def spec() -> dict[str, Any]:
     paths = doc.get("paths", {}) if isinstance(doc, dict) else {}
     # the gateway's WAN ports (#148): the path parameter's name is the description's own
     wanted += tuple(p for p in paths if p.startswith("/openapi/v1/") and p.endswith("/wan-status"))
+    # the site's SSH and SNMP settings (#173)
+    wanted += tuple(
+        p
+        for p in paths
+        if "/sites/{siteId}/" in p
+        and p.rsplit("/", 1)[-1] in ("ssh", "snmp")
+        and "{" not in p[p.index("{siteId}") + 8 :]
+    )
     for path in wanted:
         op = paths.get(path, {}).get("get", {})
         content = op.get("responses", {}).get("200", {}).get("content", {})
@@ -99,6 +108,12 @@ def calls(group: str) -> list[tuple[str, str, str, Any, dict[str, str]]]:
              None, h),
             ("site ssids", "GET", f"{V1}/wireless-network/ssids{PAGE}", None, h),
         ]  # fmt: skip
+    if group == "services":
+        h = bearer()
+        return [
+            ("ssh", "GET", f"{V1}/ssh", None, h),
+            ("snmp", "GET", f"{V1}/setting/service/snmp", None, h),
+        ]
     if group == "detail":
         h = bearer()
         _, listed = controller.request("GET", f"{V1}/wireless-network/wlans/{WID}/ssids{PAGE}",

@@ -23,6 +23,14 @@ from a public dump of the files real boxes serve: repository
 `wancommonifconfigSCPD.xml` (WANCommonInterfaceConfig:1, added for the uplink, #148) is from
 the same dump and commit, for both versions.
 
+### The management service descriptions (#173)
+
+`x_remoteSCPD.xml` (X_AVM-DE_RemoteAccess:1), `x_myfritzSCPD.xml` (X_AVM-DE_MyFritz:1),
+`x_storageSCPD.xml` (X_AVM-DE_Storage:1) and `x_upnpSCPD.xml` (X_AVM-DE_UPnP:1) are from the
+same gofritz dump and commit as the first files (MIT, same directories), byte for byte, for both
+versions. The four files are identical in the 7.57 and the 8.02 dump. (`GetSecurityPort` is an
+action of the `deviceinfoSCPD.xml` that was already there.)
+
 ### The WAN connection descriptions
 
 The gofritz dump has only the services of the root device, not those of the embedded
@@ -73,6 +81,10 @@ c1af0e6a18c67690e130baa5f981ecf117dd60d7a212f00b2553a28594ed6507  8.02/ethifconf
 85c824ee7e52dc0c6ed490af7fd27c8dc612476c1969034b6b1ad65fd7b24457  8.02/wlanconfigSCPD.xml
 1c52829abceadeb81e9edcc91dfbd7977143b562d741a240aaefd5316647e5bd  7.57/wancommonifconfigSCPD.xml
 1c52829abceadeb81e9edcc91dfbd7977143b562d741a240aaefd5316647e5bd  8.02/wancommonifconfigSCPD.xml
+493476ce98a30fd30c3d189ecfcbbe3d298680585d6058bafb05c30a6115e7e1  7.57/x_myfritzSCPD.xml and 8.02/x_myfritzSCPD.xml
+41bca5adc39ed85d460de6c72fbfd502691f5dcd8646d8c52780269fb41f20a0  7.57/x_remoteSCPD.xml and 8.02/x_remoteSCPD.xml
+49cac9619e97207e300e23e875fa6f3d4f20cb81199148215a3069f4f08dcd2b  7.57/x_storageSCPD.xml and 8.02/x_storageSCPD.xml
+c0ffefe56417077e48fe428bb4658ee00c5510964eaf674bfdf4deb9d9818ab5  7.57/x_upnpSCPD.xml and 8.02/x_upnpSCPD.xml
 0e6cb75dcffc0fcdd6d5a3a9dbdbe125a7abce3fa08413c2c5e8856379311517  udondan/fritz 8.25/wanipconnSCPD.xml
 c1ece74a5f4cb89c66ad15f608abe1817841a718f29e95115e657ffbc34a0046  udondan/fritz 8.25/wanpppconnSCPD.xml
 ```

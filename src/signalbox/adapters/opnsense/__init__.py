@@ -21,6 +21,7 @@ segment of the site: it appears as a port only.
 
 from __future__ import annotations
 
+import contextlib
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Iterator, Mapping
@@ -51,6 +52,7 @@ from signalbox.adapters.opnsense import write as w
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
+    SERVICE_PORTS,
     Client,
     DeviceRole,
     DhcpPool,
@@ -60,6 +62,7 @@ from signalbox.model import (
     HostRecord,
     IPAddress,
     IPInterface,
+    ManagementService,
     Membership,
     Port,
     PortKind,
@@ -67,6 +70,9 @@ from signalbox.model import (
     PortMembership,
     Reservation,
     Segment,
+    ServiceKind,
+    SnmpSettings,
+    SnmpVersion,
     Subnet,
     Uplink,
     UplinkKind,
@@ -75,6 +81,16 @@ from signalbox.model import (
     port_id,
     segment_id,
 )
+
+
+def _listen_values(value: Any) -> list[str]:
+    """A list field of the model API: ``"a,b"``, or ``{"a": {"value": "a", "selected": 1}}``."""
+    if isinstance(value, str):
+        return [v.strip() for v in value.split(",") if v.strip()]
+    if isinstance(value, dict):
+        return [str(k) for k, v in value.items() if not isinstance(v, dict) or v.get("selected")]
+    return []
+
 
 FIRMWARE = "/api/core/firmware/status"
 INTERFACES = "/api/interfaces/overview/interfaces_info"
@@ -95,6 +111,7 @@ SYSTEM_DISK = "/api/diagnostics/system/system_disk"
 SYSTEM_TEMPERATURE = "/api/diagnostics/system/system_temperature"
 CPU_TYPE = "/api/diagnostics/cpu_usage/get_cpu_type"
 NTP_STATUS = "/api/ntpd/service/status"
+NETSNMP = "/api/netsnmp/general/get"
 
 #: Grid endpoints page their answer; ask for everything at once.
 ALL_ROWS = {"current": 1, "rowCount": -1}
@@ -512,6 +529,7 @@ class OpnsenseAdapter(_Adapter):
             model=_text(product.get("product_name")) or "OPNsense",
             firmware=Firmware(current=current, available=latest if newer else None),
             management_address=self.http.host,
+            transport_encrypted=self.http.secure,
         )
 
     # --- interfaces ---------------------------------------------------------------------------
@@ -654,7 +672,60 @@ class OpnsenseAdapter(_Adapter):
             segments=list(layout.segments.values()),
             subnets=subnets,
             uplinks=uplinks,
+            services=await self._services(),
         )
+
+    async def _services(self) -> list[ManagementService]:
+        """Management services (#173), as far as a narrow API tells.
+
+        The web interface and SSH settings (``system/webgui``, ``system/ssh``) have no API of
+        their own, and the configuration backup that holds them also holds every secret of the
+        firewall: it is not downloaded. What is read: the web interface Signalbox itself talks
+        to (scheme and port of the address it uses) and, when the ``os-net-snmp`` plugin is
+        installed, ``/api/netsnmp/general/get``.
+        """
+        dev = self.context.device_id
+        https = self.http.secure
+        out = [
+            ManagementService(
+                id=object_id(dev, "service", "webgui"),
+                device_id=dev,
+                kind=ServiceKind.HTTPS if https else ServiceKind.HTTP,
+                name="webgui",
+                enabled=True,
+                port=self.http.port,
+            )
+        ]
+        try:
+            data = await self._optional(NETSNMP)
+        except AdapterError:  # no privilege for the plugin's page: not read
+            return out
+        general = _dict(data, NETSNMP, "the answer").get("general") if data is not None else None
+        if not isinstance(general, dict):
+            return out
+        community = _text(general.get("community"))
+        listen: list[IPAddress] = []
+        for part in _listen_values(general.get("listen")):
+            with contextlib.suppress(ValueError):
+                listen.append(ip_address(part))
+        out.append(
+            ManagementService(
+                id=object_id(dev, "service", "snmp"),
+                device_id=dev,
+                kind=ServiceKind.SNMP,
+                name="net-snmp",
+                enabled=_text(general.get("enabled")) == "1",
+                port=SERVICE_PORTS[ServiceKind.SNMP],
+                listen=listen,
+                snmp=SnmpSettings(
+                    versions=[SnmpVersion.V2C] if community else [],
+                    default_community=community.lower() in ("public", "private")
+                    if community
+                    else None,
+                ),
+            )
+        )
+        return out
 
     # --- DHCP ---------------------------------------------------------------------------------
 

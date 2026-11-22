@@ -890,3 +890,55 @@ def test_posix_offset_agrees_with_zoneinfo(zone: str) -> None:
         assert expected is not None
         assert vitals.posix_offset(posix, when) == expected.total_seconds() // 60, when
         when += timedelta(hours=7)
+
+
+# --- management services (#173) --------------------------------------------------------------
+
+
+async def test_services(adapter: OpenWrtAdapter, sim: OpenWrtSim) -> None:
+    obs = await adapter.read_interfaces()
+    by = {s.id: s for s in obs.services}
+    assert sorted(by) == ["ap1/service/dropbear", "ap1/service/uhttpd", "ap1/service/uhttpd-ssl"]
+    ssh = by["ap1/service/dropbear"]
+    assert (ssh.kind.value, ssh.port, ssh.enabled, ssh.encrypted) == ("ssh", 22, True, True)
+    assert ssh.segments == ["home/segment/native"]  # Interface lan
+    assert ssh.password_login and ssh.root_login and ssh.root_password_login
+    http, https = by["ap1/service/uhttpd"], by["ap1/service/uhttpd-ssl"]
+    assert (http.port, http.enabled, http.redirects_to_https) == (80, True, False)
+    assert (https.port, https.enabled, https.redirects_to_https) == (443, True, None)
+    assert http.listen == [ip_address("0.0.0.0"), ip_address("::")]
+    assert (await adapter.read_system()).transport_encrypted is True
+
+
+async def test_services_follow_the_config(adapter: OpenWrtAdapter, sim: OpenWrtSim) -> None:
+    sim.state["dropbear"] = {
+        "cfg1": {".type": "dropbear", "enable": "0", "RootPasswordAuth": "off", "Port": "2222"},
+        "cfg2": {".type": "dropbear", "DirectInterface": "lan1", "RootLogin": "0"},
+    }
+    sim.state["uhttpd"]["main"].update(
+        {"listen_http": [], "listen_https": ["192.0.2.2:8443"], "redirect_https": "1"}
+    )
+    by = {s.id: s for s in (await adapter.read_interfaces()).services}
+    off, second = by["ap1/service/dropbear"], by["ap1/service/dropbear-22"]
+    assert (off.enabled, off.port, off.root_password_login, off.segments) == (
+        False,
+        2222,
+        False,
+        [],
+    )
+    assert second.interfaces == ["ap1/port/lan1"] and second.root_login is False
+    assert not by["ap1/service/uhttpd"].enabled and by["ap1/service/uhttpd"].redirects_to_https
+    assert by["ap1/service/uhttpd-ssl"].port == 8443
+    assert by["ap1/service/uhttpd-ssl"].listen == [ip_address("192.0.2.2")]
+
+
+async def test_old_acl_leaves_services_unread(adapter: OpenWrtAdapter, sim: OpenWrtSim) -> None:
+    sim.denied = {"uci:dropbear", "uci:uhttpd"}
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.OK and snap.ports and snap.services == []
+
+
+async def test_router_without_dropbear_config(adapter: OpenWrtAdapter, sim: OpenWrtSim) -> None:
+    sim.missing = {"dropbear"}  # not installed: only the web UI
+    names = {s.name for s in (await adapter.read_interfaces()).services}
+    assert names == {"uhttpd", "uhttpd-ssl"}

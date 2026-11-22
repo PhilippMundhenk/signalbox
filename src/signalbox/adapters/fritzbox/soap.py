@@ -53,6 +53,10 @@ SERVICES: dict[str, tuple[str, str]] = {
         f"{URN}WANCommonInterfaceConfig:1",
         "/upnp/control/wancommonifconfig1",
     ),
+    "X_AVM-DE_RemoteAccess1": (f"{URN}X_AVM-DE_RemoteAccess:1", "/upnp/control/x_remote"),
+    "X_AVM-DE_MyFritz1": (f"{URN}X_AVM-DE_MyFritz:1", "/upnp/control/x_myfritz"),
+    "X_AVM-DE_Storage1": (f"{URN}X_AVM-DE_Storage:1", "/upnp/control/x_storage"),
+    "X_AVM-DE_UPnP1": (f"{URN}X_AVM-DE_UPnP:1", "/upnp/control/x_upnp"),
     "WANPPPConnection1": (f"{URN}WANPPPConnection:1", "/upnp/control/wanpppconn1"),
     "WANIPConnection1": (f"{URN}WANIPConnection:1", "/upnp/control/wanipconnection1"),
     **{

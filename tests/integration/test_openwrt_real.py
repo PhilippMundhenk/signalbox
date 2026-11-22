@@ -259,6 +259,27 @@ async def test_health_and_time(ow: Target, pin: str) -> None:
     assert t.ntp_server.segments == [NATIVE], t
 
 
+async def test_management_services(ow: Target, pin: str) -> None:
+    """dropbear (SSH) and uhttpd (LuCI, HTTPS with the image's certificate) from ``uci get`` as
+    the read-only login sees them (#173; needs ``dropbear`` and ``uhttpd`` in the ACL)."""
+    adapter = OpenWrtAdapter(context(ow, pin))
+    try:
+        snap = await adapter.observe()
+    finally:
+        await adapter.close()
+    assert snap.status is DeviceStatus.OK, snap.errors
+    by = {s.kind.value: s for s in snap.services}
+    assert {"ssh", "http", "https"} <= set(by), snap.services
+    ssh = by["ssh"]
+    assert ssh.enabled and ssh.port == 22 and ssh.encrypted is True, ssh
+    # OpenWrt defaults: password login for everyone, root included
+    assert ssh.password_login and ssh.root_login and ssh.root_password_login, ssh
+    assert by["http"].enabled and by["http"].port == 80, by["http"]
+    assert by["https"].enabled and by["https"].port == 443, by["https"]
+    assert by["http"].redirects_to_https is False, by["http"]
+    assert snap.device.transport_encrypted is True
+
+
 async def test_the_management_interface_is_the_uplink(ow: Target, pin: str) -> None:
     """The lab has no ``wan``: ``mgmt`` (static 10.0.2.15/24 on eth0, default route via QEMU's
     10.0.2.2) leads upstream and is no network of the site; ``wwan`` has no default route."""

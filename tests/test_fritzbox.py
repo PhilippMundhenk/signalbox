@@ -652,3 +652,57 @@ def test_time_mapping() -> None:
     ok = time_of({"NewCurrentLocalTime": "2026-11-22T21:30:00+05:30"}, start, start)
     assert ok.utc_offset_minutes == 330 and ok.offset_seconds() == 0.5
     assert local_time(None) is None
+
+
+# --- management services (#173) --------------------------------------------------------------
+
+
+async def test_services(adapter: FritzboxAdapter, sim: FritzboxSim) -> None:
+    by = {s.name: s for s in (await adapter.read_interfaces()).services}
+    assert sorted(by) == [
+        "ftp",
+        "ftp-internet",
+        "http",
+        "https",
+        "myfritz",
+        "remote-access",
+        "tr-064",
+        "upnp",
+    ]
+    assert (by["http"].port, by["https"].port) == (80, 443)
+    tr = by["tr-064"]
+    assert (tr.kind.value, tr.port, tr.encrypted) == ("tr-064", 49443, True)
+    remote = by["remote-access"]  # off as shipped: not reachable from the internet
+    assert (remote.enabled, remote.from_wan, remote.kind.value) == (False, False, "https")
+    assert by["myfritz"].enabled and by["myfritz"].from_wan
+    assert by["ftp"].enabled and by["ftp"].from_wan is False
+    wan = by["ftp-internet"]
+    assert (wan.enabled, wan.from_wan, wan.port) == (False, False, 21)
+    assert by["upnp"].enabled and by["upnp"].kind.value == "upnp" and by["upnp"].port is None
+    assert (await adapter.read_system()).transport_encrypted is True
+
+
+async def test_services_open_to_the_internet(adapter: FritzboxAdapter, sim: FritzboxSim) -> None:
+    sim.remote_access |= {"NewEnabled": "1", "NewPort": "8443"}
+    sim.storage |= {"NewFTPWANEnable": "1", "NewFTPWANSSLOnly": "0", "NewFTPWANPort": "2121"}
+    sim.myfritz |= {"NewEnabled": "0", "NewPort": "0"}
+    by = {s.name: s for s in (await adapter.read_interfaces()).services}
+    assert (by["remote-access"].port, by["remote-access"].from_wan) == (8443, True)
+    ftp = by["ftp-internet"]
+    assert (ftp.enabled, ftp.from_wan, ftp.port, ftp.encrypted) == (True, True, 2121, False)
+    assert (by["myfritz"].enabled, by["myfritz"].port, by["myfritz"].from_wan) == (
+        False,
+        None,
+        False,
+    )
+    sim.storage |= {"NewFTPWANSSLOnly": "1"}
+    ftp = {s.name: s for s in (await adapter.read_interfaces()).services}["ftp-internet"]
+    assert ftp.encrypted is True
+
+
+async def test_services_missing_on_an_older_box(adapter: FritzboxAdapter, sim: FritzboxSim) -> None:
+    sim.faults = {"X_AVM-DE_RemoteAccess#GetInfo": 401, "X_AVM-DE_Storage#GetInfo": 401}
+    snap = await adapter.observe()
+    names = {s.name for s in snap.services}
+    assert not snap.errors and {"remote-access", "ftp", "ftp-internet"}.isdisjoint(names)
+    assert {"http", "myfritz", "upnp"} <= names

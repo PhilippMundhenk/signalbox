@@ -251,6 +251,8 @@ jobs:
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" health
       - name: Record the REST answers (read user, uplink)
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" uplink
+      - name: Record the REST answers (read user, management services)
+        run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" services
       - name: Record the REST answers (write user)
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" write
       - name: Record the REST answers (refused and missing)
@@ -323,10 +325,14 @@ jobs:
         run: python3 tools/integration/omada/dump.py "$CTRL_DIR" detail 1
       - name: Record the API answers (refusals)
         run: python3 tools/integration/omada/dump.py "$CTRL_DIR" auth 0
+      - name: Record the site services (SSH, SNMP)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" services 0
       - name: Record the spec of the managed devices (1)
         run: python3 tools/integration/omada/dump.py "$CTRL_DIR" spec 0
       - name: Record the spec of the managed devices (2)
         run: python3 tools/integration/omada/dump.py "$CTRL_DIR" spec 1
+      - name: Record the spec of the managed devices (3)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" spec 2
       - name: Integration tests
         run: |
           set -o pipefail
