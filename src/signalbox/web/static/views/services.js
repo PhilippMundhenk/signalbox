@@ -12,6 +12,13 @@ function leaseCount(leases) {
   return h('span', { 'data-testid': 'dhcp-leases' }, text || 'none');
 }
 
+// A DNS forwarder (#241): {address, port}; older data has a bare address.
+function forwarder(f) {
+  if (typeof f === 'string') return f;
+  if (!f.port || f.port === 53) return f.address;
+  return f.address.includes(':') ? `[${f.address}]:${f.port}` : `${f.address}:${f.port}`;
+}
+
 function dhcpCard(ix, d) {
   return h(
     'section',
@@ -78,13 +85,31 @@ export async function renderServices(main, ctx) {
       place(main, 
         card(
           null,
-          h('h3', {}, ix.deviceName(d.device_id), ' ', d.enabled ? tag('serving', 'ok') : tag('disabled')),
+          h(
+            'h3',
+            {},
+            ix.deviceName(d.device_id),
+            d.name ? ` (${d.name})` : '',
+            ' ',
+            d.enabled ? tag('serving', 'ok') : tag('disabled'),
+            d.config_read === false ? tag('not read') : null,
+          ),
           kv([
             ['Listens on', d.listen.length ? d.listen.join(', ') : null],
-            ['Forwards to', d.forwarders.length ? d.forwarders.join(', ') : null],
+            ['Port', String(d.port ?? 53)],
+            [
+              'Forwards to',
+              d.config_read === false
+                ? 'not read'
+                : d.forwarders.length
+                  ? d.forwarders.map(forwarder).join(', ')
+                  : null,
+            ],
             ['Enabled', yesNo(d.enabled)],
           ]),
-          d.host_records.length
+          d.config_read === false
+            ? h('p', { class: 'muted' }, 'Signalbox only knows that it answers on this port; its settings are not read.')
+            : d.host_records.length
             ? table(
                 [
                   ['Name', (r) => r.name],

@@ -52,12 +52,14 @@ from signalbox.adapters.opnsense import write as w
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
+    DNS_PORT,
     SERVICE_PORTS,
     AddressSource,
     Client,
     DeviceRole,
     DhcpPool,
     DhcpServer,
+    DnsForwarder,
     DnsService,
     Firmware,
     HostRecord,
@@ -104,6 +106,7 @@ ISC_STATUS = "/api/dhcpv4/service/status"
 ISC_LEASES = "/api/dhcpv4/leases/search_lease"
 UNBOUND = "/api/unbound/settings/get"
 HOST_OVERRIDES = "/api/unbound/settings/search_host_override"
+DNSMASQ = "/api/dnsmasq/settings/get"
 ARP = "/api/diagnostics/interface/get_arp"
 NDP = "/api/diagnostics/interface/get_ndp"
 SYSTEM_TIME = "/api/diagnostics/system/system_time"
@@ -220,6 +223,12 @@ def _addr(value: Any) -> IPAddress | None:
         return ip_address(text)
     except ValueError:
         return None
+
+
+def _port(value: Any) -> int | None:
+    """A port field: None when empty, zero or out of range."""
+    port = _int(value)
+    return port if port and port <= 65535 else None
 
 
 def _addrs(value: Any) -> list[IPAddress]:
@@ -874,23 +883,33 @@ class OpnsenseAdapter(_Adapter):
     # --- DNS ----------------------------------------------------------------------------------
 
     async def read_dns(self) -> Observation:
+        """Unbound, dnsmasq when its DNS is on, and a DNS server Signalbox does not read (#241).
+
+        Unbound and dnsmasq each have their port. When neither answers on port 53 although one
+        of them is on, something else does (AdGuard Home, a plugin whose API needs its own
+        login): it is reported as an unread service ``<device>/dns/port-53``.
+        """
         layout = await self._layout()
+        dev = self.context.device_id
         data = _dict(await self._get(UNBOUND), UNBOUND, "the answer")
         root = _dict(data.get("unbound"), UNBOUND, "unbound")
         general = _sub(root, "general")
         active = _selected(general.get("active_interface"))
         listen_on = [i for i in layout.ifaces if not active or i.identifier in active]
-        forwarders: list[IPAddress] = []
+        forwarders: list[DnsForwarder] = []
         domain_forwards: dict[str, str] = {}
         for _, f in _items(_sub(root, "dots").get("dot")):
             server = _addr(f.get("server"))
             if not _flag(f.get("enabled")) or server is None:
                 continue
+            # an empty port: 853 for DNS over TLS, 53 for a plain forward (Unbound's defaults)
+            default = 853 if _text(f.get("type")) in ("", "dot") else DNS_PORT
+            fwd = DnsForwarder(address=server, port=_port(f.get("port")) or default)
             domain = _text(f.get("domain"))
             if domain:
-                domain_forwards[domain] = str(server)
-            elif server not in forwarders:
-                forwarders.append(server)
+                domain_forwards[domain] = str(fwd)
+            elif fwd not in forwarders:
+                forwarders.append(fwd)
         records = []
         for row in _rows(await self._get(HOST_OVERRIDES, grid=True), HOST_OVERRIDES):
             address = _addr(row.get("server") or row.get("address"))
@@ -901,21 +920,69 @@ class OpnsenseAdapter(_Adapter):
             name = ".".join(x for x in (host if host != "*" else "", domain) if x)
             if name:
                 records.append(HostRecord(name=name, address=address))
-        extra: dict[str, Any] = {"port": port} if (port := _int(general.get("port"))) else {}
-        if domain_forwards:
-            extra["domain_forwards"] = domain_forwards
-        return Observation(
-            dns_services=[
+        extra: dict[str, Any] = {"domain_forwards": domain_forwards} if domain_forwards else {}
+        services = [
+            DnsService(
+                id=object_id(dev, "dns", "unbound"),
+                device_id=dev,
+                name="unbound",
+                enabled=_flag(general.get("enabled")),
+                listen=_unique(a.ip for i in listen_on for a in i.addresses),
+                port=_port(general.get("port")) or DNS_PORT,
+                forwarders=forwarders,
+                host_records=records,
+                vendor_extra=extra,
+            )
+        ]
+        if (dnsmasq := await self._dnsmasq(layout)) is not None:
+            services.append(dnsmasq)
+        on = [d for d in services if d.enabled]
+        if on and not any(d.port == DNS_PORT for d in on):
+            ports = ", ".join(f"{d.name} on {d.port}" for d in on)
+            services.append(
                 DnsService(
-                    id=object_id(self.context.device_id, "dns", "unbound"),
-                    device_id=self.context.device_id,
-                    enabled=_flag(general.get("enabled")),
-                    listen=_unique(a.ip for i in listen_on for a in i.addresses),
-                    forwarders=forwarders,
-                    host_records=records,
-                    vendor_extra=extra,
+                    id=object_id(dev, "dns", f"port-{DNS_PORT}"),
+                    device_id=dev,
+                    config_read=False,
+                    vendor_extra={
+                        "note": f"{ports}: another DNS server (AdGuard Home, a plugin) answers "
+                        "on port 53; its settings are not read"
+                    },
                 )
-            ]
+            )
+        return Observation(dns_services=services)
+
+    async def _dnsmasq(self, layout: _Layout) -> DnsService | None:
+        """Dnsmasq's DNS (OPNsense 25.1+), None when not installed or its DNS is off
+        (``port`` 0: DHCP only). Its upstream servers are the system's DNS servers, which
+        this API does not show: forwarders stay empty."""
+        try:
+            data = await self._optional(DNSMASQ)
+        except AdapterError:  # no privilege for dnsmasq: not read
+            return None
+        root = _dict(data, DNSMASQ, "the answer").get("dnsmasq") if data is not None else None
+        if not isinstance(root, dict) or not _flag(root.get("enable")):
+            return None
+        port = _int(root.get("port"))
+        if port == 0:
+            return None
+        selected = _selected(root.get("interface"))
+        listen_on = [i for i in layout.ifaces if not selected or i.identifier in selected]
+        records = []
+        for _, h in _items(root.get("hosts")):
+            host, domain = _text(h.get("host")), _text(h.get("domain"))
+            name = ".".join(x for x in (host if host != "*" else "", domain) if x)
+            for address in _addrs(_listen_values(h.get("ip"))):
+                if name:
+                    records.append(HostRecord(name=name, address=address))
+        return DnsService(
+            id=object_id(self.context.device_id, "dns", "dnsmasq"),
+            device_id=self.context.device_id,
+            name="dnsmasq",
+            listen=_unique(a.ip for i in listen_on for a in i.addresses),
+            port=_port(port) or DNS_PORT,
+            host_records=records,
+            vendor_extra={"upstream": "the system's DNS servers (not read)"},
         )
 
     # --- clients ------------------------------------------------------------------------------

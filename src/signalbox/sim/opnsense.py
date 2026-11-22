@@ -8,7 +8,8 @@ not yet confirmed on a real device, issue #21). Sample network, documentation ad
 - VLAN 30 "Guest" on ``igb0``, 203.0.113.1/24, ISC DHCP
 - VLAN 40 "Lab" defined but not assigned; WAN ``igb1`` (uplink, DHCP behind the provider's
   carrier-grade NAT: 100.64.23.45/22, 2001:db8:ffff::2/64, delegated prefix 2001:db8:1::/56)
-- Unbound with forwarders and host overrides; ARP and NDP entries; DHCP leases
+- Unbound with forwarders and host overrides, dnsmasq for DHCP only; ARP and NDP entries;
+  DHCP leases
 - the dashboard's health widgets (uptime, load, memory, ZFS disks, two CPU sensors), the
   clock in Europe/Berlin and ntpd in sync with a local GPS-backed server
 
@@ -285,6 +286,8 @@ def sample_data() -> dict[str, Any]:
                 },
             }
         },
+        # dnsmasq does DHCP only (port 0), as on a fresh OPNsense 25.7
+        "/api/dnsmasq/settings/get": {"dnsmasq": {"enable": "1", "port": "0", "hosts": {}}},
         "/api/unbound/settings/search_host_override": {
             "total": 4,
             "rows": [

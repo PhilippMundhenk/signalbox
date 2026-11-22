@@ -4,7 +4,9 @@
 
 Only enabled DNS services count. Host records are compared per site. An address is *used* if it
 is an interface address or management address of a known device, a listen address of a DNS
-service, or an address of a client seen in this run. Checks that rely on "no client uses this
+service, or an address of a client seen in this run. A device may run several DNS services
+(AdGuard Home on port 53 next to Unbound on another port); each has its own port, and a
+forwarder is an address and a port (53 unless given). Checks that rely on "no client uses this
 address" only run for a site and IP version for which clients were reported (IPv4 when a device
 reads clients; IPv6 only when IPv6 client addresses were seen), and stay silent otherwise.
 
@@ -42,10 +44,14 @@ reads clients; IPv6 only when IPv6 client addresses were seen), and stay silent 
 ## `dns.forwarder-loop`
 
 - **Severity:** error
-- **Checks:** DNS services do not forward in a circle. A forwarder that is an address of a
-  device running a known DNS service (its listen addresses, or all its addresses if none are
-  reported) leads to that service; a cycle, including a service that forwards to itself, is one
-  finding that names each step. Domain-specific (conditional) forwards are not counted.
+- **Checks:** DNS services do not forward in a circle. A forwarder leads to a known DNS service
+  only if address **and** port match (its listen addresses, or all addresses of its device if
+  none are reported; a loopback address is the forwarding device itself); a cycle, including a
+  service that forwards to itself, is one finding that names each step. Domain-specific
+  (conditional) forwards are not counted. A forward to a service whose settings are not read
+  (`config_read: false`), or to a device that runs a known DNS service on a port none of its
+  services listens on (another DNS server, such as AdGuard Home), cannot be followed: it is
+  reported as incomplete (info), never as a loop (#241).
 - **Fix:** let one of them forward to an upstream resolver, or resolve recursively.
 
 ## `dns.forwarder-missing`
@@ -63,7 +69,8 @@ reads clients; IPv6 only when IPv6 client addresses were seen), and stay silent 
   belong to the same known device count as one. If the single upstream is a known DNS service,
   the chain is followed: it is fine when that service has several upstreams or resolves itself.
   A service without forwarders is treated as resolving recursively and is not reported; loops
-  are left to `dns.forwarder-loop`.
+  are left to `dns.forwarder-loop`. A chain that reaches a service whose settings are not read
+  is not reported (its upstreams are unknown).
 - **Fix:** add a second upstream resolver, or let the resolver resolve recursively.
 
 ## `dns.conflicting-records`

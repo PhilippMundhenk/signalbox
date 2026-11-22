@@ -141,7 +141,7 @@ clear text and is only meant for the simulator.
   `1d00:00:00`), router, DNS and domain from the most specific `/ip/dhcp-server/network` entry
   containing the interface address. Static leases (`dynamic=false`) of that server, or of `all` in its network,
   are reservations; the hostname is the lease comment, else `host-name`.
-- **DNS**: one service. Enabled when `allow-remote-requests=yes`; it then listens on the
+- **DNS**: one service on port 53 (`<device>/dns/dns`). Enabled when `allow-remote-requests=yes`; it then listens on the
   addresses of every non-uplink interface. `servers` are the forwarders, `dynamic-servers`
   (from DHCP/PPP) go to `vendor_extra`. Enabled static entries of type `A` (the default) and
   `AAAA` with a name become host records; regexp entries and CNAMEs are skipped.

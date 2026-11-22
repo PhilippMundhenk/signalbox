@@ -44,10 +44,11 @@ def subnet(dev: str, address: str, seg: str = LAN, gateway: bool = True) -> Subn
 
 def dns(dev: str, *records: tuple[str, str], **kw: Any) -> DnsService:
     return DnsService(
-        id=f"{dev}/dns/main",
+        id=f"{dev}/dns/{kw.get('name') or 'main'}",
         device_id=dev,
         listen=[ip(a) for a in kw.pop("listen", [])],
-        forwarders=[ip(a) for a in kw.pop("forwarders", ["203.0.113.53", "198.51.100.53"])],
+        # "192.0.2.1", or with a port: "192.0.2.1:5353", "[2001:db8::1]:5353"
+        forwarders=list(kw.pop("forwarders", ["203.0.113.53", "198.51.100.53"])),
         host_records=[HostRecord(name=n, address=ip(a)) for n, a in records],
         **kw,
     )
@@ -303,6 +304,71 @@ def test_disabled_services_do_not_count() -> None:
         ]
     )
     assert run(forwarder_loop, net) == []
+
+
+def test_adguard_home_and_unbound_on_one_router_are_not_a_loop() -> None:
+    """#241, the reported setup: AdGuard Home (unread) on 53, Unbound on 53530 forwarding to
+    the router's own address on port 53."""
+    adguard = dns("gw", name="adguardhome", forwarders=[], config_read=False)
+    unbound = dns("gw", name="unbound", port=53530, forwarders=["192.0.2.1"])
+    net = network(dns_services=[adguard, unbound])
+    (f,) = run(forwarder_loop, net)
+    assert f.incomplete and f.severity == "info"
+    assert f.message == (
+        "gw (unbound) forwards DNS to 192.0.2.1, the DNS service gw (adguardhome) that "
+        "Signalbox does not read: whether lookups come back in a loop cannot be checked"
+    )
+    assert f.objects == ["gw/dns/adguardhome", "gw/dns/unbound"]
+    assert run(single_forwarder, net) == []  # AdGuard's upstreams are not known
+    # AdGuard not even recognised: a port of the router where no known service listens
+    (f,) = run(forwarder_loop, network(dns_services=[unbound]))
+    assert f.incomplete and "port 53 of gw, where another DNS server" in f.message
+
+
+def test_forward_to_another_port_of_the_device_is_another_service() -> None:
+    for fwd in ("127.0.0.1:5353", "192.0.2.1:5353", "[::1]:5353"):
+        net = network(dns_services=[dns("gw", forwarders=[fwd])])
+        (f,) = run(forwarder_loop, net)
+        assert f.incomplete, fwd
+    # the same port is a loop, also through loopback
+    for fwd in ("127.0.0.1", "192.0.2.1:53", "[::1]:53"):
+        (f,) = run(forwarder_loop, network(dns_services=[dns("gw", forwarders=[fwd])]))
+        assert not f.incomplete and f.message.endswith(", itself"), fwd
+
+
+def test_two_services_on_one_router_can_still_loop() -> None:
+    dnsmasq = dns("gw", name="dnsmasq", forwarders=["127.0.0.1:53530"])
+    unbound = dns("gw", name="unbound", port=53530, forwarders=["192.0.2.1"])
+    (f,) = run(forwarder_loop, network(dns_services=[dnsmasq, unbound]))
+    assert not f.incomplete and f.message == (
+        "DNS lookups loop: gw (dnsmasq) forwards to 127.0.0.1:53530 (gw (unbound)), "
+        "gw (unbound) forwards to 192.0.2.1 (gw (dnsmasq))"
+    )
+    # Unbound resolving itself: a chain, not a loop
+    unbound = dns("gw", name="unbound", port=53530, forwarders=[])
+    assert run(forwarder_loop, network(dns_services=[dnsmasq, unbound])) == []
+    assert run(single_forwarder, network(dns_services=[dnsmasq, unbound])) == []
+
+
+def test_port_must_match_across_devices() -> None:
+    net = network(
+        dns_services=[
+            dns("gw", listen=["192.0.2.1"], forwarders=["192.0.2.2:5353"]),
+            dns("mt", forwarders=["192.0.2.1"]),
+        ]
+    )
+    (f,) = run(forwarder_loop, net)
+    assert f.incomplete and f.objects == ["gw/dns/main"]
+    net = network(
+        dns_services=[
+            dns("gw", listen=["192.0.2.1"], forwarders=["192.0.2.2:5353"]),
+            dns("mt", port=5353, forwarders=["192.0.2.1"]),
+        ]
+    )
+    (f,) = run(forwarder_loop, net)
+    assert f.message == (
+        "DNS lookups loop: gw forwards to 192.0.2.2:5353 (mt), mt forwards to 192.0.2.1 (gw)"
+    )
 
 
 # --- dns.forwarder-missing ----------------------------------------------------------------------

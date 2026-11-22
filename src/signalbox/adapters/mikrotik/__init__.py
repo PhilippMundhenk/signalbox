@@ -60,6 +60,7 @@ from signalbox.model import (
     DeviceTime,
     DhcpPool,
     DhcpServer,
+    DnsForwarder,
     DnsService,
     Fan,
     Firmware,
@@ -1155,7 +1156,10 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     device_id=self.context.device_id,
                     enabled=remote,
                     listen=listen,
-                    forwarders=_unique(_addrs(dns.get("servers"))),
+                    name="dns",
+                    forwarders=[
+                        DnsForwarder(address=a) for a in _unique(_addrs(dns.get("servers")))
+                    ],
                     host_records=records,
                     vendor_extra=_extra(dns, "dynamic-servers", "cache-size"),
                 )

@@ -27,6 +27,7 @@ from signalbox.adapters.https import DeviceHttp, NotFound, normalise_fingerprint
 from signalbox.adapters.opnsense import (
     ARP,
     CPU_TYPE,
+    DNSMASQ,
     FIRMWARE,
     HOST_OVERRIDES,
     INTERFACES,
@@ -53,6 +54,7 @@ from signalbox.adapters.opnsense import (
     media_of,
     vitals,
 )
+from signalbox.merge import merge
 from signalbox.model import (
     AddressSource,
     DeviceRole,
@@ -60,9 +62,12 @@ from signalbox.model import (
     Membership,
     NtpClient,
     PortMedia,
+    Site,
     Snapshot,
     port_id,
 )
+from signalbox.rules import evaluate
+from signalbox.rules.dns import forwarder_loop, single_forwarder
 from signalbox.sim.opnsense import KEY, SECRET, OpnsenseSimulator
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
 from signalbox.testing import assert_contract
@@ -234,15 +239,99 @@ async def test_dhcp(snap: Snapshot) -> None:
 
 
 async def test_dns(snap: Snapshot) -> None:
-    (dns,) = snap.dns_services
-    assert dns.enabled
+    (dns,) = snap.dns_services  # dnsmasq does DHCP only (port 0): no DNS service
+    assert dns.id == "fw/dns/unbound" and dns.name == "unbound"
+    assert dns.enabled and dns.port == 53 and dns.config_read
     assert [str(a) for a in dns.listen] == ["192.0.2.1", "2001:db8:1::1", "198.51.100.1"]
-    assert [str(a) for a in dns.forwarders] == ["192.0.2.53", "2001:db8:53::53"]
+    assert [str(a) for a in dns.forwarders] == ["192.0.2.53", "[2001:db8:53::53]:853"]
     assert [(h.name, str(h.address)) for h in dns.host_records] == [
         ("nas.home.example", "192.0.2.10"),
         ("nas.home.example", "2001:db8:1::10"),
     ]
-    assert dns.vendor_extra == {"port": 53, "domain_forwards": {"corp.example": "198.51.100.53"}}
+    assert dns.vendor_extra == {"domain_forwards": {"corp.example": "198.51.100.53"}}
+
+
+def _unbound(sim: OpnsenseSimulator, port: str, *forwards: dict[str, str]) -> None:
+    unbound = sim.data[UNBOUND]["unbound"]
+    unbound["general"]["port"] = port
+    unbound["dots"]["dot"] = {f"d-{i}": {"enabled": "1", **f} for i, f in enumerate(forwards)}
+
+
+async def test_adguard_home_next_to_unbound_is_not_a_loop(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    """#241: AdGuard Home (plugin) answers on 53, Unbound moved to 53530 and forwards to the
+    firewall's own address: two services, not a loop."""
+    _unbound(sim, "53530", {"type": "forward", "server": "192.0.2.1", "port": ""})
+    snap = await observe(adapter(http_url))
+    unbound, other = snap.dns_services
+    assert unbound.port == 53530 and [(str(f.address), f.port) for f in unbound.forwarders] == [
+        ("192.0.2.1", 53)
+    ]
+    assert other.id == "fw/dns/port-53" and other.port == 53 and not other.config_read
+    assert other.listen == [] and "unbound on 53530" in str(other.vendor_extra["note"])
+    net = merge([Site(id="home", name="Home")], [snap])
+    found = [f for f in evaluate(net, [forwarder_loop, single_forwarder]) if not f.acknowledged]
+    assert [(f.rule_id, f.incomplete) for f in found] == [("dns.forwarder-loop", True)]
+    assert found[0].message == (
+        "Firewall (unbound) forwards DNS to 192.0.2.1, the DNS service Firewall (port 53) "
+        "that Signalbox does not read: whether lookups come back in a loop cannot be checked"
+    )
+    # Unbound forwarding to its own port is still a loop
+    _unbound(sim, "53530", {"type": "forward", "server": "192.0.2.1", "port": "53530"})
+    net = merge([Site(id="home", name="Home")], [await observe(adapter(http_url))])
+    (loop,) = evaluate(net, [forwarder_loop])
+    assert not loop.incomplete and loop.message == (
+        "DNS lookups loop: Firewall (unbound) forwards to 192.0.2.1:53530, itself"
+    )
+
+
+async def test_unbound_forwarding_to_adguard_on_another_port(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    """The other way round: Unbound on 53 forwards to AdGuard Home on 127.0.0.1:5353."""
+    _unbound(sim, "", {"type": "forward", "server": "127.0.0.1", "port": "5353"})
+    snap = await observe(adapter(http_url))
+    (unbound,) = snap.dns_services
+    assert unbound.port == 53 and [str(f) for f in unbound.forwarders] == ["127.0.0.1:5353"]
+    net = merge([Site(id="home", name="Home")], [snap])
+    (f,) = evaluate(net, [forwarder_loop])
+    assert f.incomplete and "port 5353 of Firewall, where another DNS server" in f.message
+
+
+async def test_dnsmasq_dns(http_url: str, sim: OpnsenseSimulator) -> None:
+    sim.data[DNSMASQ]["dnsmasq"] = {
+        "enable": "1",
+        "port": "5353",
+        "interface": {"lan": {"value": "LAN", "selected": 1}, "opt1": {"value": "IoT"}},
+        "hosts": {
+            "h1": {"host": "printer", "domain": "home.example", "ip": "192.0.2.50,2001:db8:1::50"},
+            "h2": {"host": "", "domain": "", "ip": "192.0.2.51"},
+        },
+    }
+    _, dnsmasq = (await observe(adapter(http_url))).dns_services
+    assert dnsmasq.id == "fw/dns/dnsmasq" and dnsmasq.port == 5353 and dnsmasq.enabled
+    assert [str(a) for a in dnsmasq.listen] == ["192.0.2.1", "2001:db8:1::1"]
+    assert [(h.name, str(h.address)) for h in dnsmasq.host_records] == [
+        ("printer.home.example", "192.0.2.50"),
+        ("printer.home.example", "2001:db8:1::50"),
+    ]
+    assert dnsmasq.forwarders == [] and "system" in str(dnsmasq.vendor_extra["upstream"])
+    sim.data[DNSMASQ]["dnsmasq"]["port"] = ""  # default port: dnsmasq answers on 53
+    sim.data[UNBOUND]["unbound"]["general"]["port"] = "53530"
+    services = (await observe(adapter(http_url))).dns_services
+    assert [(d.id, d.port) for d in services] == [("fw/dns/unbound", 53530), ("fw/dns/dnsmasq", 53)]
+    sim.data[DNSMASQ]["dnsmasq"]["enable"] = "0"
+    assert [d.id for d in (await observe(adapter(http_url))).dns_services] == [
+        "fw/dns/unbound",
+        "fw/dns/port-53",
+    ]
+    sim.fail = {DNSMASQ: 403}  # no privilege for dnsmasq: not read
+    assert len((await observe(adapter(http_url))).dns_services) == 2
+    sim.fail = {}
+    del sim.data[DNSMASQ]  # not installed
+    sim.data[UNBOUND]["unbound"]["general"]["enabled"] = "0"
+    assert [d.id for d in (await observe(adapter(http_url))).dns_services] == ["fw/dns/unbound"]
 
 
 async def test_clients(snap: Snapshot) -> None:

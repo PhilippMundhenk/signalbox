@@ -210,6 +210,10 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(app.get_by_test_id("dhcp-server")).to_have_count(2)
     expect(app.get_by_test_id("reservation")).to_contain_text("printer")
     expect(app.get_by_test_id("host-record")).to_contain_text("printer.lan")
+    dns = app.get_by_test_id("dns-service")
+    expect(dns).to_have_count(2)
+    expect(dns.first).to_contain_text("203.0.113.53, [2001:db8::53]:5353")
+    expect(dns.last).to_contain_text("not read")
     expect(app.get_by_test_id("dhcp-leases")).to_have_text("1 active, 1 expired")  # #183
 
     go(app, "#/clients")

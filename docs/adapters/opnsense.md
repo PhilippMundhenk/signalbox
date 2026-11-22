@@ -9,7 +9,7 @@ DHCP subnets and reservations ([Writing](#writing-changes)).
 | system | product name, firmware version and the newest available version |
 | interfaces | ports, VLANs, assigned IPv4/IPv6 addresses: segments and subnets (the firewall is the gateway of each) |
 | dhcp | Kea DHCPv4 (pools, router, DNS, domain, lease time, reservations); ISC DHCPv4 (enabled, static mappings) |
-| dns | Unbound: enabled, listen addresses, forwarders, host overrides |
+| dns | Unbound: enabled, listen addresses and port, forwarders with ports, host overrides; dnsmasq's DNS when on; an unread DNS server on port 53 when neither listens there (AdGuard Home) |
 | clients | ARP and NDP tables plus DHCP leases (Kea and ISC), with segment and port |
 
 > **Verified against OPNsense 26.7.9 in CI.** The endpoints, privileges, answers and write
@@ -186,10 +186,17 @@ these pages, so treat its key like an admin password.
   Kea is read first; ISC only for interfaces that no enabled Kea server serves (Kea off or not
   configured: ISC alone; both: each on its own interfaces). Signalbox reports one server per interface that has leases, enabled when the service runs,
   with the static mappings from the lease list as reservations, and no pools.
-- **DNS**: one Unbound service. Listen addresses are the addresses of the selected interfaces
-  (all when none is selected). Global forwarders (`dots` entries without a domain) become
-  `forwarders`; per-domain forwards go to `vendor_extra.domain_forwards`. Enabled `A`/`AAAA`
-  host overrides become host records.
+- **DNS** (#241): Unbound is `<device>/dns/unbound`. Listen addresses are the addresses of the
+  selected interfaces (all when none is selected), the port is `general.port`. Global forwarders
+  (`dots` entries without a domain) become `forwarders` with their port (empty: 853 for DNS over
+  TLS, 53 for a plain forward, Unbound's defaults); per-domain forwards go to
+  `vendor_extra.domain_forwards`. Enabled `A`/`AAAA` host overrides become host records.
+  Dnsmasq (`/api/dnsmasq/settings/get`, OPNsense 25.1+) is `<device>/dns/dnsmasq` when enabled
+  with a DNS port (`port` 0 is DHCP only, empty is 53): its selected interfaces, port and
+  `hosts`; its upstreams are the system's DNS servers, which this API does not show. When
+  neither listens on port 53 although one is on, something else does (AdGuard Home, a plugin
+  whose API needs its own login): it is reported as `<device>/dns/port-53` with
+  `config_read: false`, its settings are not read.
 - **Clients**: merged by MAC from ARP, NDP, ISC and Kea leases; the firewall's own MACs, permanent
   and incomplete entries are skipped. Segment and port from the interface the entry was seen on,
   otherwise from the address.
@@ -342,7 +349,18 @@ the plugin's source:
 ```
 
 No selected interface means Unbound listens on all of them. `dots.dot` is a list when empty,
-an object by uuid otherwise.
+an object by uuid otherwise; an entry is `{"enabled": "1", "type": "dot" | "forward", "domain":
+"", "server": "192.0.2.53", "port": ""}` (field names from the opnsense/core Unbound model).
+
+### `/api/dnsmasq/settings/get` (dns, optional)
+
+```json
+{"dnsmasq": {"enable": "1", "port": "0", "interface": {"lan": {"value": "LAN", "selected": 1}},
+  "hosts": {"<uuid>": {"host": "nas", "domain": "home.example", "ip": "192.0.2.10"}}}}
+```
+
+Not installed (404) or not allowed (403): not read. *Guess*: the shape follows the opnsense/core
+Dnsmasq model; not yet seen on a real device.
 
 ### `/api/unbound/settings/search_host_override` (dns)
 

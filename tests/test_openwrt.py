@@ -202,6 +202,46 @@ async def test_dhcp_off_on_an_ap(adapter: OpenWrtAdapter) -> None:
     ]
 
 
+async def test_dnsmasq_dns(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    """#241: dnsmasq's port and ``server`` entries with ``#port``."""
+    (dns,) = (await adapter.read_dns()).dns_services
+    assert (dns.id, dns.name, dns.port, dns.enabled) == ("ap1/dns/dnsmasq", "dnsmasq", 53, True)
+    assert dns.listen == [] and dns.forwarders == []
+    assert "resolvfile" in str(dns.vendor_extra["upstream"])  # no noresolv: the WAN's servers
+    assert [(h.name, str(h.address)) for h in dns.host_records] == [("printer.lan", "192.0.2.50")]
+    main = next(k for k, v in sim.state["dhcp"].items() if v[".type"] == "dnsmasq")
+    sim.state["dhcp"][main].update(
+        {
+            "port": "53530",
+            "noresolv": "1",
+            "server": [
+                "192.0.2.53",
+                "198.51.100.53#5353",
+                "2001:db8::53#5353@eth0",
+                "/corp.example/198.51.100.53",
+                "not-an-address",
+                "192.0.2.53",
+            ],
+            "interface": ["lan"],
+        }
+    )
+    (dns,) = (await adapter.read_dns()).dns_services
+    assert dns.port == 53530 and dns.vendor_extra == {}
+    assert [str(f) for f in dns.forwarders] == [
+        "192.0.2.53",
+        "198.51.100.53:5353",
+        "[2001:db8::53]:5353",
+    ]
+    assert [str(a) for a in dns.listen] == ["192.0.2.2", "2001:db8::2"]
+    sim.state["dhcp"][main].update({"port": "0", "listen_address": ["192.0.2.2", "bad"]})
+    sim.state["dhcp"]["second"] = {".type": "dnsmasq", ".anonymous": False}
+    sim.state["dhcp"]["broken"] = {".type": "domain", ".anonymous": False, "ip": "nas"}
+    first, second = (await adapter.read_dns()).dns_services
+    assert first.id == f"ap1/dns/{main}" and not first.enabled and first.port == 53
+    assert [str(a) for a in first.listen] == ["192.0.2.2"]
+    assert second.id == "ap1/dns/second" and second.enabled and second.host_records == []
+
+
 async def test_router_mode(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
     sim.router = True
     a = OpenWrtAdapter(
@@ -289,7 +329,7 @@ async def test_wrong_password(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -
     [
         ({"hostapd.phy1-ap0"}, ["clients"], "hostapd.phy1-ap0.get_clients"),
         ({"network.wireless.status"}, ["clients", "wireless"], "network.wireless.status"),
-        ({"uci:dhcp"}, ["dhcp"], "uci.get (dhcp)"),
+        ({"uci:dhcp"}, ["dhcp", "dns"], "uci.get (dhcp)"),
     ],
 )
 async def test_missing_acl_is_partial(

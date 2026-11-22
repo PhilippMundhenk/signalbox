@@ -155,7 +155,7 @@ def dns_mismatch(net: Network) -> Iterator[Result]:
         for dns in sorted(net.dns_services, key=lambda d: d.id):
             if dns.device_id != up.device_id or not dns.enabled:
                 continue
-            for fwd in dns.forwarders:
+            for fwd in (f.address for f in dns.forwarders):
                 if fwd in handed or fwd in own or fwd == up.upstream_gateway or fwd in known:
                     continue
                 if not any(_in(fwd, n) for n in networks):
