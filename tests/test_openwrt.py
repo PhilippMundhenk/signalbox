@@ -935,7 +935,11 @@ async def test_services_follow_the_config(adapter: OpenWrtAdapter, sim: OpenWrtS
 async def test_old_acl_leaves_services_unread(adapter: OpenWrtAdapter, sim: OpenWrtSim) -> None:
     sim.denied = {"uci:dropbear", "uci:uhttpd"}
     snap = await adapter.observe()
-    assert snap.status is DeviceStatus.OK and snap.ports and snap.services == []
+    # the rest is read; the missing permission is reported with what to paste (gap)
+    assert snap.status is DeviceStatus.PARTIAL and snap.ports and snap.services == []
+    [gap] = snap.errors
+    assert gap.capability == "interfaces" and "management services" in gap.message
+    assert gap.fix and "Prepare the router" in gap.fix
 
 
 async def test_router_without_dropbear_config(adapter: OpenWrtAdapter, sim: OpenWrtSim) -> None:

@@ -263,10 +263,9 @@ class _PlusSwitch(Adapter):
                 )
                 for what in reading.skipped
             ]
-            return observed.model_copy(update={"incomplete": gaps}) if gaps else observed
         except (ValueError, TypeError, AttributeError) as exc:
             raise AdapterError(f"{self._host}: unexpected port or VLAN answer: {exc}") from exc
-        return observed.model_copy(update={"services": self._services()})
+        return observed.model_copy(update={"services": self._services(), "incomplete": gaps})
 
     def _services(self) -> list[ManagementService]:
         """Management services (#173), fixed by the product line and not read from the
