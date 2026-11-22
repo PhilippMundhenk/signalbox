@@ -35,6 +35,7 @@ import asyncio
 import contextlib
 import hashlib
 import ssl
+from collections.abc import Collection
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -104,7 +105,7 @@ def _reason(exc: BaseException) -> str:
 
 
 class DeviceHttp:
-    """JSON over HTTP(S) to one device, with certificate pinning.
+    """JSON (or, with :meth:`request`, anything) over HTTP(S) to one device, with pinning.
 
     Create one per adapter instance. Call :meth:`reset` at the start of every observation (the
     adapter's ``read_system``) so that the certificate is probed and compared again; requests
@@ -178,6 +179,20 @@ class DeviceHttp:
         return await self.request_json("POST", path, json=body)
 
     async def request_json(self, method: str, path: str, **kw: Any) -> Any:
+        response = await self.request(method, path, **kw)
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise AdapterError(f"{path}: answer is not valid JSON") from exc
+
+    async def request(
+        self, method: str, path: str, *, accept: Collection[int] = (), **kw: Any
+    ) -> httpx.Response:
+        """Send a request and return the raw response (for protocols other than JSON).
+
+        Errors are mapped as for :meth:`request_json`; statuses in ``accept`` are returned
+        instead (SOAP, for example, reports faults with HTTP 500 and a body).
+        """
         await self.connect()
         assert self._client is not None
         try:
@@ -188,6 +203,8 @@ class DeviceHttp:
             await self.reset()
             raise Unreachable(f"{path}: cannot reach {self.base_url}: {_reason(exc)}") from exc
         code = response.status_code
+        if code in accept:
+            return response
         if code == 401:
             raise AuthFailed(f"{path}: the device refused the credentials (HTTP 401)")
         if code == 403:
@@ -196,7 +213,4 @@ class DeviceHttp:
             raise NotFound(f"{path}: not found (HTTP 404); is the API enabled?")
         if not 200 <= code < 300:
             raise AdapterError(f"{path}: HTTP {code} {response.reason_phrase}".rstrip())
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise AdapterError(f"{path}: answer is not valid JSON") from exc
+        return response

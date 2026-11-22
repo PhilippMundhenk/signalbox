@@ -40,7 +40,7 @@ Signalbox is made of separate parts with narrow jobs (details in [docs/DESIGN.md
 | OPNsense | REST API with a read-only API key | interfaces, VLANs, subnets, DHCP (Kea, ISC), Unbound DNS, ARP/NDP and leases |
 | OpenWrt (access points, routers) | ubus JSON-RPC over HTTPS with a read-only rpcd user | ports, DSA bridge VLANs, Wi-Fi radios and SSIDs, DHCP, connected clients, LLDP |
 | NETGEAR ProSAFE Plus switches | planned, building on [Switchyard](https://github.com/PhilippMundhenk/switchyard) | |
-| AVM Fritz!Box | planned (TR-064) | |
+| AVM Fritz!Box | TR-064 (SOAP over HTTPS) with a dedicated user; read, simulator-tested | LAN, subnet, DHCP, Wi-Fi radios, SSIDs and guest network, connected hosts |
 | MikroTik (RouterOS) | planned (REST API) | |
 | TP-Link (Omada controller, Easy Smart switches) | planned | |
 
@@ -73,7 +73,8 @@ Adapters are plugins: other devices can be added as separate packages, see
    Lost it? `docker compose run --rm signalbox reset-password`, then restart.
 3. Create a read-only user on each device: an API key for OPNsense
    ([docs/adapters/opnsense.md](docs/adapters/opnsense.md)), an rpcd login for OpenWrt
-   ([docs/adapters/openwrt.md](docs/adapters/openwrt.md)).
+   ([docs/adapters/openwrt.md](docs/adapters/openwrt.md)), a dedicated user for a Fritz!Box
+   ([docs/adapters/fritzbox.md](docs/adapters/fritzbox.md)).
 4. Add the devices under *Devices*. On the first connection Signalbox shows the fingerprint of
    the device's certificate: compare it with the device and trust it. After that a changed
    certificate is refused until you confirm it again.

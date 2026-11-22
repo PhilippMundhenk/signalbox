@@ -46,6 +46,8 @@ cannot change anything:
 
 - OPNsense: an API user with read privileges only, see [adapters/opnsense.md](adapters/opnsense.md)
 - OpenWrt: an rpcd login with a read-only ACL, see [adapters/openwrt.md](adapters/openwrt.md)
+- Fritz!Box: a user of its own with only the right "FRITZ!Box settings" (TR-064 has no
+  read-only right), see [adapters/fritzbox.md](adapters/fritzbox.md)
 
 ## Updates
 
