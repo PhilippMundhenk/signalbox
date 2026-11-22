@@ -351,3 +351,18 @@ def test_desired_state_import_edit_save_and_drift(app: Any) -> None:
     app.get_by_test_id("secret-delete").click()
     app.get_by_test_id("confirm-ok").click()
     expect(app.get_by_test_id("secret-row")).to_have_count(0)
+
+
+def test_plan_shows_the_changes_in_order(app: Any) -> None:
+    add_site(app)
+    add_lab(app, "Router")
+    observe(app)
+    api(
+        app,
+        "PUT",
+        "/desired",
+        {"yaml": "sites:\n  home:\n    segments:\n      - vlan: native\n        name: Main LAN\n"},
+    )
+    go(app, "#/desired")
+    app.get_by_test_id("plan-make").click()
+    expect(app.get_by_test_id("plan")).to_contain_text(re.compile("change|Nothing to change"))

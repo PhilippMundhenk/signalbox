@@ -257,3 +257,30 @@ def test_api_and_runner(tmp_path: Path) -> None:
             assert svc.store.get_secret("main-psk") is None
     finally:
         svc.close()
+
+
+def test_plan_api(tmp_path: Path) -> None:
+    import asyncio
+
+    svc = build(tmp_path, env={"SIGNALBOX_AUTH_PASSWORD": PW})
+    try:
+        with demo_devices(svc), TestClient(create_app(svc, run_background=False)) as c:
+            asyncio.run(svc.runner.observe_all())
+            c.post("/api/login", json={"password": PW})
+            assert c.post("/api/plan").json()["error"] == "no_desired_state"
+            c.put("/api/desired", json={"yaml": "sites: {home: {ports: [{device: x, port: '1'}]}}"})
+            assert "device x is not configured" in c.post("/api/plan").json()["message"]
+            text = (
+                "sites: {home: {wlans: [{ssid: New, security: wpa2-psk, "
+                "passphrase_secret: s, devices: [ap-1]}]}}"
+            )
+            c.put("/api/desired", json={"yaml": text})
+            assert "secret 's' is not stored" in c.post("/api/plan").json()["message"]
+            c.put("/api/secrets/s", json={"value": "new passphrase"})
+            p = c.post("/api/plan").json()
+            assert p["changes"][0]["text"].startswith("ap-1: create wlan New")
+            assert "new passphrase" not in str(p) and p["devices"] == ["ap-1"]
+            (tmp_path / "desired" / "bad.yaml").write_text("sites: [")
+            assert c.post("/api/plan").json()["error"] == "invalid"
+    finally:
+        svc.close()

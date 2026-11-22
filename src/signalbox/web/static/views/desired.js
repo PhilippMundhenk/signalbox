@@ -93,7 +93,39 @@ function secretsCard(ctx, names) {
   return card('Secrets', h('p', { class: 'muted' }, 'Wi-Fi passphrases named by passphrase_secret in the desired state.'), list, form);
 }
 
+function findingList(title, findings, testid) {
+  if (!findings.length) return null;
+  return h('div', { 'data-testid': testid }, h('h3', {}, title), h('ul', {}, findings.map((f) => h('li', {}, `${f.severity}: ${f.message}`))));
+}
+
+export function renderPlan(box, p) {
+  clear(box);
+  if (!p.changes.length) {
+    place(box, h('p', { 'data-testid': 'plan-empty' }, 'Nothing to change: the devices already match the desired state.'));
+    return;
+  }
+  place(
+    box,
+    h('p', {}, `${p.changes.length} change(s) on ${p.devices.length} device(s), in this order:`),
+    h(
+      'ol',
+      { 'data-testid': 'plan-changes' },
+      p.changes.map((c) => h('li', {}, c.text, c.risk ? h('div', { class: 'error' }, `Risk: ${c.risk}`) : null)),
+    ),
+    p.blocking.length ? h('p', { class: 'error', 'data-testid': 'plan-blocked' }, 'This plan would create errors; it cannot be deployed as it is.') : null,
+    findingList('New findings after the change', p.new_findings, 'plan-new'),
+    findingList('Findings this resolves', p.resolved_findings, 'plan-resolved'),
+  );
+}
+
+function planCard() {
+  const box = h('div', { 'data-testid': 'plan' }, h('p', { class: 'muted' }, 'Compute what would change on the devices. Nothing is changed.'));
+  const btn = h('button', { class: 'btn', type: 'button', 'data-testid': 'plan-make' }, 'Plan changes');
+  btn.addEventListener('click', () => run(btn, async () => renderPlan(box, await post('/plan'))));
+  return card('Plan', h('div', { class: 'row' }, btn), box);
+}
+
 export async function renderDesired(main, ctx) {
   const [current, sites, names] = await Promise.all([get('/desired'), get('/sites'), get('/secrets')]);
-  place(clear(main), pageHead('Desired state'), editorCard(ctx, current, sites), secretsCard(ctx, names));
+  place(clear(main), pageHead('Desired state'), editorCard(ctx, current, sites), planCard(), secretsCard(ctx, names));
 }

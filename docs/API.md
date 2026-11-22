@@ -37,6 +37,7 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | GET | `/api/desired` | The desired state as YAML (empty when nothing is declared) and whether it is valid. |
 | PUT | `/api/desired` | Validate and save the desired state (a git commit when the folder is a repository). |
 | POST | `/api/desired/import/{site_id}` | The observed state of a site as desired-state YAML, to start from what exists. |
+| POST | `/api/plan` | Plan the changes from the observed to the desired state (nothing is changed). |
 | GET | `/api/secrets` | Names of stored secrets (values are never returned). |
 | PUT | `/api/secrets/{name}` | Store a secret (encrypted), e.g. a Wi-Fi passphrase named in the desired state. |
 | DELETE | `/api/secrets/{name}` | Delete a secret. |

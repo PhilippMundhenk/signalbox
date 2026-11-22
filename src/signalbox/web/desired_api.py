@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from signalbox import desired
+from signalbox import changes, desired
 from signalbox.service import Services
 
 
@@ -22,6 +22,22 @@ class SecretBody(BaseModel):
 
 
 SECRET_NAME = r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$"
+
+
+def plan_json(p: changes.Plan) -> dict[str, Any]:
+    """A plan for the UI; passphrase secrets appear only by name."""
+    return {
+        "id": p.id,
+        "created_at": p.created_at.isoformat(),
+        "changes": [
+            {**c.model_dump(mode="json"), "id": c.id, "action": c.action, "text": c.describe()}
+            for c in p.changes
+        ],
+        "new_findings": [f.model_dump(mode="json") for f in p.new_findings],
+        "resolved_findings": [f.model_dump(mode="json") for f in p.resolved_findings],
+        "blocking": [f.model_dump(mode="json") for f in p.blocking],
+        "devices": p.devices(),
+    }
 
 
 def router(services: Services) -> APIRouter:
@@ -63,6 +79,27 @@ def router(services: Services) -> APIRouter:
         if site_id not in {s.id for s in store.sites()}:
             return _error(404, "not_found", "No such site.")
         return {"yaml": desired.dump(desired.from_network(runner.network(), site_id))}
+
+    @api.post("/plan", response_model=None)
+    def make_plan() -> dict[str, Any] | JSONResponse:
+        """Plan the changes from the observed to the desired state (nothing is changed)."""
+        try:
+            state = desired.load(data_dir)
+        except desired.DesiredError as exc:
+            return _error(422, "invalid", str(exc))
+        if state is None:
+            return _error(409, "no_desired_state", "Nothing is declared in the desired state yet.")
+        try:
+            p = changes.plan(
+                state,
+                runner.network(),
+                services.rules,
+                services.config.rules,
+                secret=store.get_secret,
+            )
+        except changes.PlanError as exc:
+            return _error(422, "plan_error", str(exc))
+        return plan_json(p)
 
     @api.get("/secrets")
     def secrets() -> list[str]:

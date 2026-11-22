@@ -24,8 +24,9 @@ from enum import StrEnum
 from importlib.metadata import entry_points
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
     Client,
     Device,
@@ -89,6 +90,60 @@ class AdapterContractError(Exception):
     """
 
 
+class VendorCall(BaseModel):
+    """One call an integration makes to apply a change; shown in the review before deploying."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    description: str
+    method: str
+    target: str
+    #: Secrets replaced by "***".
+    payload: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class Backup(BaseModel):
+    """A device's configuration before a change, as the device exports it."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    device_id: str
+    taken_at: datetime
+    format: str
+    content: str
+
+
+class ApplyResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: Set when the device rolls itself back at this time unless ``confirm()`` is called.
+    confirm_deadline: datetime | None = None
+    calls: list[VendorCall] = Field(default_factory=list)
+
+
+@runtime_checkable
+class WritesConfig(Protocol):
+    """Write capability: declared by a non-empty ``Manifest.writes``.
+
+    ``secrets`` maps secret names (e.g. Wi-Fi passphrases) to their values; adapters must never
+    log them or put them into a VendorCall payload.
+    """
+
+    async def plan_changes(
+        self, changes: list[Change], secrets: Mapping[str, str]
+    ) -> list[VendorCall]: ...
+
+    async def backup(self) -> Backup: ...
+
+    async def apply(
+        self, changes: list[Change], secrets: Mapping[str, str], rollback_seconds: int
+    ) -> ApplyResult: ...
+
+    async def confirm(self) -> None: ...
+
+    async def restore(self, backup: Backup) -> None: ...
+
+
 class AdapterConfig(BaseModel):
     """Base class of an adapter's connection settings; the UI renders a form from its schema.
 
@@ -110,6 +165,8 @@ class Manifest(BaseModel):
     capabilities: frozenset[Capability]
     config: type[AdapterConfig]
     description: str = ""
+    #: Kinds of change the integration can apply (empty: read only).
+    writes: frozenset[ChangeKind] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -212,6 +269,10 @@ class Adapter(ABC):
                 f"{self.manifest.id}: config must be {self.manifest.config.__name__}"
             )
         self.context = context
+        if self.manifest.writes and not isinstance(self, WritesConfig):
+            raise AdapterContractError(
+                f"{self.manifest.id} declares writes but does not implement WritesConfig"
+            )
         for cap in self.manifest.capabilities:
             proto, _ = PROTOCOLS[cap]
             if not isinstance(self, proto):

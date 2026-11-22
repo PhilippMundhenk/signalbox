@@ -136,3 +136,23 @@ mydevice = "mypackage.adapter:MyAdapter"
 
 Signalbox refuses to start with an adapter whose API major version differs from its own, or with
 two adapters of the same id.
+
+## Writing to devices
+
+An integration that can change a device declares the kinds of change it supports in
+`Manifest.writes` (`router`, `dhcp`, `reservation`, `port`, `wlan`; see `signalbox.changes`) and
+implements `WritesConfig`:
+
+| Method | Job |
+| --- | --- |
+| `plan_changes(changes, secrets)` | the vendor calls it would make, for the review; secrets as `***` |
+| `backup()` | the full configuration as the device exports it, before anything is touched |
+| `apply(changes, secrets, rollback_seconds)` | stage and apply; if the device can roll itself back unless confirmed, return the deadline |
+| `confirm()` | keep the applied change (stop the device's rollback timer) |
+| `restore(backup)` | put the backed-up configuration back |
+
+Each change carries the value before and after, so an integration never has to guess what to
+undo. The deployment component calls these in order (lock, backup, apply, verify, confirm or
+restore) and records everything; integrations do not decide on their own to keep or undo a
+change. Declaring `writes` without implementing `WritesConfig` is refused when the adapter is
+constructed.
