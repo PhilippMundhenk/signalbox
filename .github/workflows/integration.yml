@@ -255,7 +255,7 @@ jobs:
           pytest tests/integration/test_mikrotik_real.py -v -p no:cacheprovider 2>&1 \
             | tee "$VM_DIR/pytest.log" || {
               code=$?
-              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest.log" | cut -c1-400 | tail -n 80)
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest.log" | cut -c1-3000 | tail -n 80)
               body=$(printf '%s\n--- last lines ---\n%s' "$summary" "$(tail -n 60 "$VM_DIR/pytest.log")")
               body=${body//'%'/'%25'}
               body=${body//$'\n'/'%0A'}
