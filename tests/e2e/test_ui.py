@@ -210,7 +210,19 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(app.get_by_test_id("client-row")).to_have_count(1)
     expect(app.get_by_test_id("client-row")).to_contain_text("Router · SSID Home")
 
+    # the uplink (#148): a summary, the addresses only after a click
+    go(app, "#/device/router")
+    summary = app.get_by_test_id("uplink-summary")
+    expect(summary).to_contain_text("PPPoE · up for 3 h")
+    expect(summary).to_contain_text("public IPv4 · IPv6 /56 delegated")
+    expect(summary).to_contain_text("100 Mbit/s down / 40 Mbit/s up")
+    expect(app.get_by_text("203.0.113.23/32")).not_to_be_visible()
+    app.get_by_test_id("uplink-addresses").locator("summary").click()
+    expect(app.get_by_test_id("uplink-addresses")).to_contain_text("2001:db8:100::/56 (delegated)")
+    expect(app.get_by_text("203.0.113.23/32")).to_be_visible()
+
     go(app, "#/device/router/advanced")
+    expect(app.get_by_test_id("raw-uplinks")).to_contain_text("uplinks (1)")
     expect(app.get_by_test_id("raw-port")).to_have_count(3)
     expect(app.get_by_test_id("raw-port-table")).to_contain_text('"led":"green"')
     lan1 = app.get_by_test_id("raw-port").filter(has_text="lan1")

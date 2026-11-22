@@ -119,6 +119,7 @@ def merge(
             "ports": every("ports"),
             "segments": _merge_segments(snaps),
             "subnets": every("subnets"),
+            "uplinks": every("uplinks"),
             "dhcp_servers": every("dhcp_servers"),
             "dns_services": every("dns_services"),
             "radios": every("radios"),

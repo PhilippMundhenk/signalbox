@@ -86,6 +86,52 @@ function timeCard(time) {
   return h('section', { class: 'card', 'data-testid': 'device-time' }, h('h2', {}, 'Time'), kv(rows));
 }
 
+const UPLINK_KIND = { dhcp: 'DHCP', static: 'static address', pppoe: 'PPPoE', dslite: 'DS-Lite', 'map-e': 'MAP-E', lte: 'mobile', bridge: 'bridge (modem only)', other: null };
+const NAT_TEXT = {
+  public: 'public IPv4',
+  cgnat: 'IPv4 behind the provider’s NAT (CGNAT)',
+  private: 'private IPv4: another router is in front (double NAT)',
+  none: 'no IPv4 of its own',
+};
+const kbps = (v) => (v >= 1000 ? `${Math.round(v / 100) / 10} Mbit/s` : `${v} kbit/s`);
+
+// One uplink (#148): summary first, addresses only on request (they identify the household).
+function uplinkValue(ix, u) {
+  const since = u.up && u.since ? `up for ${fmtDuration((Date.now() - new Date(u.since).getTime()) / 1000)}` : null;
+  const v6 = u.addresses.some((a) => a.includes(':') && !a.toLowerCase().startsWith('fe80'));
+  const pd = u.delegated_prefixes.length ? `IPv6 /${u.delegated_prefixes[0].split('/')[1]} delegated` : v6 ? 'IPv6' : null;
+  const summary = [
+    UPLINK_KIND[u.kind],
+    u.up === false ? 'down' : since || (u.up ? 'up' : null),
+    // in the LAN of another known router: that one is in front, whatever the address looks like
+    u.upstream_device ? `behind ${ix.deviceName(u.upstream_device)} (double NAT)` : NAT_TEXT[u.nat_class],
+    pd,
+    u.downstream_kbps && u.upstream_kbps ? `${kbps(u.downstream_kbps)} down / ${kbps(u.upstream_kbps)} up` : null,
+  ].filter(Boolean);
+  const details = [
+    ...u.addresses,
+    ...u.delegated_prefixes.map((p) => `${p} (delegated)`),
+    u.public_ipv4 ? `${u.public_ipv4} (public)` : null,
+    u.upstream_gateway ? `gateway ${u.upstream_gateway}` : null,
+    u.dns_servers.length ? `DNS ${u.dns_servers.join(', ')}` : null,
+  ].filter(Boolean);
+  return h(
+    'div',
+    { 'data-testid': 'uplink' },
+    h('span', { 'data-testid': 'uplink-summary' }, summary.join(' · ') || 'no details reported'),
+    details.length
+      ? h('details', { class: 'addresses', 'data-testid': 'uplink-addresses' }, h('summary', {}, 'Show addresses'), h('ul', { class: 'mono' }, details.map((a) => h('li', {}, a))))
+      : null,
+  );
+}
+
+function internetCard(ix, deviceId) {
+  const uplinks = ix.net.uplinks.filter((u) => u.device_id === deviceId);
+  if (!uplinks.length) return null;
+  const rows = uplinks.map((u) => [u.name || u.id.split('/uplink/').pop(), uplinkValue(ix, u)]);
+  return h('section', { class: 'card', 'data-testid': 'device-internet' }, h('h2', {}, 'Internet'), kv(rows));
+}
+
 async function overview(main, ctx, device, adapters, sites) {
   const id = ctx.renderId;
   const ix = await loadNetwork();
@@ -143,6 +189,7 @@ async function overview(main, ctx, device, adapters, sites) {
       ]),
       errors.length ? h('ul', { class: 'error', 'data-testid': 'device-errors' }, errors.map((e) => h('li', {}, `${e.capability}: ${e.message}`))) : null,
     ),
+    internetCard(ix, device.id),
     observed ? healthCard(observed.health) : null,
     observed ? timeCard(observed.time) : null,
     trustBox,
@@ -159,6 +206,7 @@ function rawObjects(net, deviceId) {
     ports: net.ports.filter(mine),
     segments: net.segments.filter((x) => x.source && x.source.device_id === deviceId),
     subnets: net.subnets.filter(mine),
+    uplinks: net.uplinks.filter(mine),
     dhcp_servers: net.dhcp_servers.filter(mine),
     dns_services: net.dns_services.filter(mine),
     radios: net.radios.filter(mine),

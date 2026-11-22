@@ -603,6 +603,7 @@
     "gateway": true
    }
   ],
+  "uplinks": [],
   "dhcp_servers": [
    {
     "id": "recorded/dhcp/lan",

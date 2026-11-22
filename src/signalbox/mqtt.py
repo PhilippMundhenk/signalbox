@@ -5,7 +5,8 @@ Active when ``mqtt.enabled`` is true. Every observation round publishes:
 - ``<prefix>/status``: ``online`` / ``offline`` (last will), availability of everything
 - ``<prefix>/site/<site>/state``: findings per severity for one site
 - ``<prefix>/device/<device>/state``: status, firmware, clients and findings of one device, and
-  its health (uptime, CPU, memory, temperature) where the device reports it
+  its health (uptime, CPU, memory, temperature) where the device reports it, and for a
+  gateway with uplinks whether it is online and its NAT class (never its addresses)
 
 Discovery messages make each site and each device a Home Assistant device with sensors.
 """
@@ -28,7 +29,7 @@ from paho.mqtt.enums import CallbackAPIVersion
 
 from signalbox import __version__
 from signalbox.config import MqttConfig
-from signalbox.model import Device, DeviceStatus, Network
+from signalbox.model import Device, DeviceStatus, NatClass, Network
 from signalbox.rules import Finding, Severity
 
 log = logging.getLogger(__name__)
@@ -81,6 +82,27 @@ def health_values(dev: Device | None) -> dict[str, float | int | None]:
     }
 
 
+NAT_CLASSES = [c.value for c in NatClass]
+
+
+def uplink_values(net: Network, device_id: str) -> dict[str, str]:
+    """Internet connectivity and NAT class of a gateway's uplinks (#148).
+
+    Online when any uplink is up; the NAT class of the first one that is up (or the first).
+    Addresses and prefixes identify the household and are never published.
+    """
+    uplinks = net.uplinks_of(device_id)
+    out: dict[str, str] = {}
+    states = [u.up for u in uplinks if u.up is not None]
+    if states:
+        out["internet"] = "ON" if any(states) else "OFF"
+    ordered = sorted(uplinks, key=lambda u: u.up is not True)
+    nat = next((c for c in (u.nat_class() for u in ordered) if c is not None), None)
+    if nat is not None:
+        out["nat"] = nat.value
+    return out
+
+
 def device_state(net: Network, findings: list[Finding], device_id: str) -> dict[str, Any]:
     dev = net.device(device_id)
     status = net.statuses.get(device_id, DeviceStatus.UNREACHABLE)
@@ -98,6 +120,7 @@ def device_state(net: Network, findings: list[Finding], device_id: str) -> dict[
         "clients": len(clients),
         "findings": len(mine),
         **{k: v for k, v in health_values(dev).items() if v is not None},
+        **uplink_values(net, device_id),
     }
 
 
@@ -258,6 +281,30 @@ class Discovery:
                     entity_category="diagnostic",
                     icon=icon,
                     **extra,
+                )
+            wan = uplink_values(net, dev.id)
+            if "internet" in wan:
+                out[f"{self.discovery}/binary_sensor/{node}/internet/config"] = self._entity(
+                    node,
+                    "internet",
+                    "Internet",
+                    topic,
+                    device,
+                    value_template="{{ value_json.internet }}",
+                    device_class="connectivity",
+                )
+            if "nat" in wan:
+                out[f"{self.discovery}/sensor/{node}/nat/config"] = self._entity(
+                    node,
+                    "nat",
+                    "Internet NAT",
+                    topic,
+                    device,
+                    value_template="{{ value_json.nat }}",
+                    device_class="enum",
+                    options=NAT_CLASSES,
+                    entity_category="diagnostic",
+                    icon="mdi:router-network",
                 )
         return out
 

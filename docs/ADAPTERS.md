@@ -216,6 +216,41 @@ disabled port. Values the integrations already read into `vendor_extra` and shou
 | Omada | `vendor_extra.profile` (`profileName`), `disabled` (`disable`); `nativeNetworkId` used for membership only | `omada/__init__.py`, switch ports |
 | Fritz!Box | `NewMaxBitRate` is used as `speed_mbps` (may be the maximum rather than the link speed: check before moving it to `max_speed_mbps`) | `fritzbox/__init__.py`, LAN port |
 
+## Uplinks
+
+A gateway reports each WAN connection as an `Uplink` in `Observation.uplinks`, read with the
+`interfaces` capability (no API version needed; leave the list empty where the device cannot
+tell, never guess). Id `object_id(device, "uplink", <name>)`, for example `gw/uplink/wan`.
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `dhcp`, `static`, `pppoe`, `dslite`, `map-e`, `lte`, `bridge` (modem only, no address), `other` |
+| `port_id`, `name` | the port it uses (must be one of the snapshot's ports), the device's name for the connection |
+| `up`, `since` | connected (address bound, PPP session up), not only link; when the current connection came up (time zone aware) |
+| `addresses`, `delegated_prefixes` | the device's own addresses on the uplink with prefix length, IPv4 and IPv6; IPv6 prefixes delegated by the provider |
+| `upstream_gateway`, `dns_servers` | the next hop of the default route; the resolvers the provider handed out |
+| `public_ipv4` | only an address the device knows apart from its own (a cloud lookup it does itself); its own WAN address goes into `addresses` |
+| `downstream_kbps`, `upstream_kbps` | line rate where the modem knows it (DSL sync, LTE) |
+
+Do not compute a NAT class: core derives it (`Uplink.nat_class()`). The contract checks report
+an id outside `<device>/uplink/`, an unknown port, a naive `since`, `since` on a down uplink, a
+`bridge` with addresses and a `public_ipv4` that is not public. Where each integration could
+fill the fields (no adapter fills them yet; confirm on a real device before relying on a
+value):
+
+| Integration | Kind, state, uptime | Addresses, prefix, gateway, DNS | Line rate, public IPv4 |
+| --- | --- | --- | --- |
+| OPNsense | `/api/interfaces/overview/interfacesInfo`, row `identifier` `wan`: `link_type` (`dhcp`, `pppoe`, `static`), `status`; no session uptime in the API | same row: `ipv4[]`/`ipv6[]` (`ipaddr` as addr/bits), `ifctl.prefix` (delegated prefix), `gateways[]` or `ifctl.router`, `ifctl.nameserver`; `/api/routes/gateway/status` for the gateway's state | `media` is the Ethernet rate only; no public address |
+| OpenWrt | `network.interface dump` entries `wan`/`wan6` (already read): `proto` (`dhcp`, `static`, `pppoe`, `dslite`, `qmi`/`mbim`/`modemmanager` for LTE), `up`, `uptime` (seconds) | `ipv4-address[]`, `ipv6-address[]`, `ipv6-prefix[]`, `route[]` with target `0.0.0.0`/`::` mask 0 (`nexthop`), `dns-server[]`; `l3_device` gives the port | none for DSL/LTE; no public address |
+| MikroTik | members of the interface list `WAN` (already read): `/rest/ip/dhcp-client` (`status` bound), `/rest/interface/pppoe-client` with `monitor` (`status`, `uptime`), `/rest/interface/lte` `monitor` (`status`, `session-uptime`) | dhcp-client `address`, `gateway`, `primary-dns`/`secondary-dns`; pppoe monitor `local-address`, `remote-address`; `/rest/ipv6/dhcp-client` `prefix`; `/rest/ipv6/address` on the interface | `/rest/ip/cloud` `public-address` (only after the device's own cloud update) is `public_ipv4` |
+| Fritz!Box | TR-064 `WANPPPConnection:1` or `WANIPConnection:1` `GetInfo`/`GetStatusInfo` (`NewConnectionStatus`, `NewUptime`, `NewConnectionType`); IGD `WANCommonInterfaceConfig:1` `X_AVM_DE_GetDsliteStatus` for DS-Lite, `GetCommonLinkProperties` `NewWANAccessType`; `X_AVM-DE_WANMobileConnection:1` for LTE | `GetExternalIPAddress` (own address), `X_GetDNSServers`; IGD `WANIPConnection:1` `X_AVM_DE_GetExternalIPv6Address`, `X_AVM_DE_GetIPv6Prefix`, `X_AVM_DE_GetDNSServer`/`X_AVM_DE_GetIPv6DNSServer`; gateway only as `NewRemoteIPAddress` on PPP | `WANCommonInterfaceConfig:1 GetCommonLinkProperties` `NewLayer1DownstreamMaxBitRate`/`NewLayer1UpstreamMaxBitRate` (bit/s), `WANDSLInterfaceConfig:1 GetInfo` current rates |
+| Omada | gateway `GET .../gateways/{mac}/wan-status`, one entry per WAN port: `port`/`name`, `status`, `internetState`; connection type not in the published schema | `wanPortIpv4Config` `ip`, `gateway`, `priDns`/`sndDns`; `wanPortIpv6Config` `addr`, `gateway`, DNS; no delegated prefix | `portConfigs[].linkSpeed` of the gateway detail (Ethernet rate) |
+| ProSAFE / Easy Smart | switches: no uplinks | | |
+
+The IGD services of the Fritz!Box (`/igdupnp/control/...`) spell AVM's actions with `_`, the
+TR-064 ones with `-`. Recordings replace public and private WAN addresses with documentation
+addresses, so a recorded uplink classifies as `public` whatever the line was.
+
 ## Health and time (adapter API 1.2)
 
 Two capabilities fill value objects on the device itself, keyed by device id so that a
