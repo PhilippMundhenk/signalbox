@@ -197,3 +197,87 @@ jobs:
             .it/openwrt-run/console.log
           if-no-files-found: ignore
           retention-days: 7
+
+  mikrotik:
+    name: MikroTik RouterOS CHR (official image in QEMU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REQUIRE_INTEGRATION: "1"
+      VM_DIR: ${{ github.workspace }}/.vm/mikrotik
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -e ".[dev,switches]"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install QEMU
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qemu-system-x86 qemu-utils
+      - name: Restore the prepared VM
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .vm/mikrotik
+          # the version is pinned in vm.py: a new version or setup is a new key
+          key: mikrotik-chr-${{ hashFiles('tools/integration/mikrotik/vm.py') }}
+      - name: Download and verify the official image
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: python3 tools/integration/mikrotik/vm.py fetch "$VM_DIR"
+      - name: First boot, admin password, certificate, REST setup
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: python3 tools/integration/mikrotik/vm.py prepare "$VM_DIR"
+      - name: Save the prepared VM
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .vm/mikrotik
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      - name: Boot the test VM
+        run: python3 tools/integration/mikrotik/vm.py start "$VM_DIR"
+      - name: Record the REST answers (read user)
+        run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" read
+      - name: Record the REST answers (read user, DHCP, DNS, clients)
+        run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" more
+      - name: Record the REST answers (write user)
+        run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" write
+      - name: Record the REST answers (refused and missing)
+        run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" refused
+      - name: Integration tests
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_mikrotik_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$VM_DIR/pytest.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest.log" | cut -c1-400 | tail -n 80)
+              body=$(printf '%s\n--- last lines ---\n%s' "$summary" "$(tail -n 60 "$VM_DIR/pytest.log")")
+              body=${body//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=MikroTik integration tests failed::$body"
+              exit $code
+            }
+      - name: Serial console on failure
+        if: failure()
+        run: |
+          body=$(tail -n 60 "$VM_DIR/serial.log" 2>/dev/null | tr -d '\r' | sed 's/\x1b\[[0-9;?]*[A-Za-z]//g')
+          body=${body//'%'/'%25'}
+          body=${body//$'\n'/'%0A'}
+          echo "::error title=MikroTik serial console::$body"
+      - name: Power off
+        if: always()
+        run: python3 tools/integration/mikrotik/vm.py stop "$VM_DIR" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mikrotik-logs
+          path: |
+            .vm/mikrotik/*.log
+            .vm/mikrotik/api-*.json
+          if-no-files-found: ignore
+          retention-days: 7
