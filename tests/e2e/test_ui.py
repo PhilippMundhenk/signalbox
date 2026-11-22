@@ -170,6 +170,12 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(office).to_contain_text("Office")
     expect(office.get_by_test_id("segment-member")).to_contain_text("lan1")
     expect(office.get_by_test_id("subnet")).to_contain_text("192.0.2.1/24")
+    # purposes: reported by the device, or guessed from the name (marked with "?")
+    expect(office.get_by_test_id("purpose")).to_have_text("main")
+    expect(office.get_by_test_id("purpose")).to_have_attribute("data-source", "reported")
+    guests = app.locator('[data-testid="segment"][data-id="home/segment/20"]')
+    expect(guests.get_by_test_id("purpose")).to_have_text("guest?")
+    expect(guests.get_by_test_id("segment-isolated")).to_have_count(0)
 
     go(app, "#/wireless")
     expect(app.get_by_test_id("ssid")).to_have_count(2)
@@ -177,6 +183,10 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(home.get_by_test_id("wlan-row")).to_have_count(2)
     expect(home).to_contain_text("WPA3 Personal")
     expect(home).to_contain_text("802.11r on")
+    guest = app.get_by_test_id("ssid").filter(has_text="Guest")
+    expect(guest.get_by_test_id("purpose")).to_have_text("guest?")
+    expect(guest.get_by_test_id("client-isolation")).to_have_text("on")
+    expect(home.get_by_test_id("purpose").first).to_have_text("main")
     expect(app.get_by_test_id("radio-row")).to_have_count(2)
     expect(app.get_by_test_id("radios")).to_contain_text("80 MHz")
 
@@ -348,12 +358,20 @@ def test_desired_state_import_edit_save_and_drift(app: Any) -> None:
     app.get_by_test_id("desired-save").click()
     expect(app.get_by_test_id("desired-status")).to_contain_text("not valid YAML")
     # a segment that does not exist becomes a drift finding
-    editor.fill("sites:\n  home:\n    segments:\n      - vlan: 42\n        name: Lab\n")
+    editor.fill(
+        "sites:\n  home:\n    segments:\n      - vlan: 42\n        name: Lab\n"
+        "      - vlan: 20\n        purpose: iot\n"
+    )
     app.get_by_test_id("desired-message").fill("plan the lab VLAN")
     app.get_by_test_id("desired-save").click()
     expect(app.get_by_test_id("desired-status")).to_contain_text("Valid. Sites: home")
     go(app, "#/")
     expect(app.locator("main")).to_contain_text("Segment 42 (Lab) does not exist")
+    # a declared purpose beats the guess from the name ("Guests") in every view
+    go(app, "#/segments")
+    guests = app.locator('[data-testid="segment"][data-id="home/segment/20"]')
+    expect(guests.get_by_test_id("purpose")).to_have_text("iot")
+    expect(guests.get_by_test_id("purpose")).to_have_attribute("data-source", "declared")
     # secrets: stored, listed by name only, deleted
     go(app, "#/desired")
     app.get_by_test_id("secret-name").fill("main-wifi")

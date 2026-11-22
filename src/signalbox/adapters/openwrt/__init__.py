@@ -538,6 +538,7 @@ class OpenWrtAdapter(Adapter):
                     roaming_80211r=_flag(s.get("ieee80211r")),
                     roaming_80211k=_flag(s.get("ieee80211k")),
                     roaming_80211v=_flag(s.get("bss_transition", s.get("ieee80211v"))),
+                    client_isolation=_flag(s.get("isolate")),
                     vendor_extra=_extra(s, "encryption", "network"),
                 )
             )

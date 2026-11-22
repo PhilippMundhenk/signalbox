@@ -85,11 +85,11 @@ carries its source (adapter and device), the time it was observed and a stable i
 | Device | Vendor, model, firmware, role (`gateway`, `switch`, `ap`, `other`), management address, adapter, capabilities |
 | Port | Physical or logical port, link state, speed, PoE, LAG membership, neighbour (LLDP where available) |
 | Link | A cable or wireless uplink between two ports; observed (LLDP, MAC tables) or entered by hand |
-| Segment | Layer-2 network: VLAN id, name, purpose; membership per port `untagged` / `tagged` / `none` |
+| Segment | Layer-2 network: VLAN id, name, purpose and its source, isolated by the device; membership per port `untagged` / `tagged` / `none` |
 | Subnet | Prefix, gateway address, segment, IPv4/IPv6 |
 | DhcpServer | Device, segment, enabled, pool, lease time, options, static reservations |
 | DnsService | Resolver, host overrides, forwarders, split-DNS domains |
-| Wlan | SSID, security (WPA2/WPA3, PMF), passphrase reference, segment, bands, hidden, roaming (802.11r/k/v) |
+| Wlan | SSID, security (WPA2/WPA3, PMF), passphrase reference, segment, bands, hidden, roaming (802.11r/k/v), purpose and its source, client isolation |
 | Radio | Band, channel, width, transmit power, country code |
 | Firewall | Zones, rules, NAT; read-only at first |
 | Client | MAC, IP, hostname, segment, where it was seen (port or access point), last seen |
@@ -101,6 +101,18 @@ Rules for the model:
   into an explicit `vendor_extra` that core logic never reads.
 - A field is optional because a device cannot report it (declared as a capability), never by
   accident.
+
+Network purpose (`main`, `guest`, `iot`, `management`, `servers`, `lab`, `voice`, `cameras`,
+`transit`, `other`) on segments and SSIDs carries `purpose_source`: `reported` (set by the
+adapter: Fritz!Box guest network, Omada guest SSID), `declared` (desired state) or `heuristic`
+(guessed from the name by the merge: words starting with guest, gast or visitor; the word iot).
+Declared beats reported beats heuristic. The merge sets reported purposes (the first device that
+reports one for a segment wins) and fills the rest with guesses; the runner then applies the
+declared purposes from the desired state to every network it builds (`Runner.network()`, so
+checks, views and plans see the same), keeping a different reported value in
+`reported_purpose` for the drift rules. `Segment.isolated` means the device keeps that network
+apart by itself (the Fritz!Box guest network); `Wlan.client_isolation` that stations of an SSID
+cannot reach each other (OpenWrt `isolate`). Both are None when not known.
 
 ## Topology
 

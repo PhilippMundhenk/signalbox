@@ -27,7 +27,9 @@ from signalbox.model import (
     Membership,
     Network,
     Pmf,
+    PurposeSource,
     Security,
+    SegmentPurpose,
     normalise_mac,
     passphrase_fingerprint,
     port_id,
@@ -74,6 +76,9 @@ class ReservationSpec(Spec):
 class SegmentSpec(Spec):
     vlan: SegmentRef = Field(description='VLAN id, or "native" for the untagged LAN')
     name: str | None = None
+    purpose: SegmentPurpose | None = Field(
+        None, description="What the network is for (main, guest, iot, management, ...)"
+    )
     gateway: GatewaySpec | None = None
     dhcp: DhcpSpec | None = None
     reservations: list[ReservationSpec] = Field(default_factory=list)
@@ -95,6 +100,12 @@ class WlanSpec(Spec):
     hidden: bool = False
     enabled: bool = True
     roaming: RoamingSpec = RoamingSpec()
+    purpose: SegmentPurpose | None = Field(
+        None, description="What the SSID is for; default: the purpose of its segment"
+    )
+    client_isolation: bool | None = Field(
+        None, description="Stations of this SSID cannot reach each other"
+    )
 
 
 class PortSpec(Spec):
@@ -220,7 +231,60 @@ def save(data_dir: Path, text: str, message: str, author: str = "Signalbox") -> 
     return run("rev-parse", "HEAD")
 
 
+# declared purposes --------------------------------------------------------------------------
+
+
+def apply_declared(net: Network, state: DesiredState | None) -> Network:
+    """The network with the purposes the desired state declares (they beat reported ones).
+
+    A reported purpose that differs is kept in ``reported_purpose`` (the drift rules report it).
+    An SSID purpose applies to that SSID on the declared devices, default: all of the site.
+    """
+    if state is None:
+        return net
+    segs: dict[str, SegmentPurpose] = {}
+    ssids: dict[tuple[str, str], tuple[SegmentPurpose, list[str] | None]] = {}
+    for site_id, spec in state.sites.items():
+        for s in spec.segments:
+            if s.purpose is not None:
+                segs[segment_id(site_id, seg_key(s.vlan))] = s.purpose
+        for w in spec.wlans:
+            if w.purpose is not None:
+                ssids[(site_id, w.ssid)] = (w.purpose, w.devices)
+    if not segs and not ssids:
+        return net
+
+    def declared(obj: Any, purpose: SegmentPurpose) -> Any:
+        reported = obj.purpose if obj.purpose_source is PurposeSource.REPORTED else None
+        return obj.model_copy(
+            update={
+                "purpose": purpose,
+                "purpose_source": PurposeSource.DECLARED,
+                "reported_purpose": reported if reported not in (None, purpose) else None,
+            }
+        )
+
+    sites = {d.id: d.site_id for d in net.devices}
+    wlans = []
+    for x in net.wlans:
+        want = ssids.get((sites.get(x.device_id, ""), x.ssid))
+        if want is not None and (want[1] is None or x.device_id in want[1]):
+            x = declared(x, want[0])
+        wlans.append(x)
+    return net.model_copy(
+        update={
+            "segments": [declared(x, segs[x.id]) if x.id in segs else x for x in net.segments],
+            "wlans": wlans,
+        }
+    )
+
+
 # import from the observed network ------------------------------------------------------------
+
+
+def _known_purpose(obj: Any) -> SegmentPurpose | None:
+    """A purpose worth exporting: reported or declared, never a name guess."""
+    return obj.purpose if obj.purpose_source is not PurposeSource.HEURISTIC else None
 
 
 def from_network(net: Network, site_id: str) -> DesiredState:
@@ -247,6 +311,7 @@ def from_network(net: Network, site_id: str) -> DesiredState:
             SegmentSpec(
                 vlan="native" if seg.vlan in (None, 1) else seg.vlan,
                 name=seg.name,
+                purpose=_known_purpose(seg),
                 gateway=GatewaySpec(device=sub.device_id, address=sub.interface) if sub else None,
                 dhcp=DhcpSpec(
                     enabled=dhcp.enabled,
@@ -281,6 +346,8 @@ def from_network(net: Network, site_id: str) -> DesiredState:
             hidden=w.hidden,
             enabled=w.enabled,
             roaming=RoamingSpec(r=w.roaming_80211r, k=w.roaming_80211k, v=w.roaming_80211v),
+            purpose=_known_purpose(w),
+            client_isolation=w.client_isolation,
         )
     ports: list[PortSpec] = []
     for p in (p for p in net.ports if p.device_id in devices):
@@ -343,6 +410,15 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                         [sid],
                         key="name",
                         severity=Severity.INFO,
+                    )
+                if s.purpose is not None and seg.reported_purpose is not None:
+                    yield found(
+                        f"Segment {_fmt(s.vlan)} is declared as {s.purpose.value}, but "
+                        f"the device reports it as {seg.reported_purpose.value}",
+                        [sid],
+                        key="purpose",
+                        severity=Severity.INFO,
+                        fix="Check which is right and correct the desired state or the device.",
                     )
                 if s.gateway:
                     yield from _gateway(net, sid, s.gateway)
@@ -471,6 +547,32 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                                 [x.id],
                                 key=name,
                             )
+                    if w.client_isolation is not None and x.client_isolation is None:
+                        yield incomplete(
+                            f"SSID {w.ssid} on {dev}: the device does not report client isolation",
+                            [x.id],
+                            key="client-isolation",
+                        )
+                    elif (
+                        w.client_isolation is not None and x.client_isolation != w.client_isolation
+                    ):
+                        yield found(
+                            _differ(
+                                f"SSID {w.ssid} on {dev} client isolation",
+                                "on" if w.client_isolation else "off",
+                                "on" if x.client_isolation else "off",
+                            ),
+                            [x.id],
+                            key="client-isolation",
+                        )
+                    if w.purpose is not None and x.reported_purpose is not None:
+                        yield found(
+                            f"SSID {w.ssid} on {dev} is declared as {w.purpose.value}, but the "
+                            f"device reports it as {x.reported_purpose.value}",
+                            [x.id],
+                            key="purpose",
+                            severity=Severity.INFO,
+                        )
                     if fp is not None and x.passphrase_fingerprint not in (None, fp):
                         yield found(
                             f"SSID {w.ssid} on {dev}: passphrase differs from the stored secret",

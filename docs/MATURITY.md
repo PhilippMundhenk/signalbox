@@ -12,6 +12,7 @@ they are tested against the simulators.
 *Emulated*: verified against the real device software in CI, reads and writes
 ([TESTING.md](TESTING.md)):
 
+- MikroTik: RouterOS 7.25.1, official CHR image in QEMU, without Wi-Fi ([details](adapters/mikrotik.md#integration-tests))
 - OpenWrt: 24.10.8 and 25.12.6, official x86-64 images in QEMU ([details](adapters/openwrt.md#verified-against-the-real-openwrt))
 - OPNsense: 26.7.9, official nano image in QEMU ([details](adapters/opnsense.md#integration-tests))
 

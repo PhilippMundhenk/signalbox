@@ -24,6 +24,7 @@ from signalbox.model import (
     ReadError,
     Security,
     Segment,
+    SegmentPurpose,
     Site,
     Subnet,
     Wlan,
@@ -736,3 +737,16 @@ def test_openwrt_sim_mac_base() -> None:
 )
 def test_empty_network_is_quiet(rule_: Any) -> None:
     assert run(Network(), rule_) == []
+
+
+def test_management_separate_knows_purposes() -> None:
+    # the network with the purpose management is the management VLAN: not reported
+    mgmt = [seg(None, {}).model_copy(update={"purpose": SegmentPurpose.MANAGEMENT}), seg(20, {})]
+    assert evaluate(mgmt_net(segments=mgmt), [management_separate], ON) == []
+    # guest and IoT networks are security.management-exposure's finding
+    iot = [seg(None, {}).model_copy(update={"purpose": SegmentPurpose.IOT}), seg(20, {})]
+    assert evaluate(mgmt_net(segments=iot), [management_separate], ON) == []
+    # with a management network elsewhere, the fix names it
+    other = [seg(None, {}), seg(20, {}).model_copy(update={"purpose": SegmentPurpose.MANAGEMENT})]
+    (f,) = evaluate(mgmt_net(segments=other), [management_separate], ON)
+    assert f.fix == "Move the management addresses to IoT (VLAN 20), the management network."

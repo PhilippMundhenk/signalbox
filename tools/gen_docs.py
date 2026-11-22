@@ -84,6 +84,8 @@ def configuration() -> str:
 
 #: Adapters verified against the real software by the integration tests (#136).
 EMULATED = {
+    "mikrotik": "MikroTik: RouterOS 7.25.1, official CHR image in QEMU, without Wi-Fi "
+    "([details](adapters/mikrotik.md#integration-tests))",
     "openwrt": "OpenWrt: 24.10.8 and 25.12.6, official x86-64 images in QEMU "
     "([details](adapters/openwrt.md#verified-against-the-real-openwrt))",
     "opnsense": "OPNsense: 26.7.9, official nano image in QEMU "

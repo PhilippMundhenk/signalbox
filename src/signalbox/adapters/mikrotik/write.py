@@ -20,15 +20,24 @@ How a change is translated (details and open questions in ``docs/adapters/mikrot
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from ipaddress import IPv4Interface, ip_address, ip_interface
 from typing import TYPE_CHECKING, Any
 
-from signalbox.adapters import AdapterError, ApplyResult, Backup, Unreachable, VendorCall
+from signalbox.adapters import (
+    AdapterError,
+    ApplyResult,
+    AuthFailed,
+    Backup,
+    Unreachable,
+    VendorCall,
+)
 from signalbox.adapters.https import NotFound
 from signalbox.changes import (
     Change,
@@ -47,11 +56,18 @@ if TYPE_CHECKING:  # pragma: no cover
     from signalbox.adapters.https import DeviceHttp
     from signalbox.adapters.mikrotik import _Layout
 
+#: How long a DHCP server may stay ``invalid`` after a change ("No IP address on interface":
+#: RouterOS 7.25.1 shows that for about a second after the address of a new VLAN interface).
+SETTLE_SECONDS = 15.0
+
 #: Kinds of change the integration applies (all of them, on the RouterOS 7 ``wifi`` package).
 WRITES = frozenset(ChangeKind)
 
 BACKUP_FORMAT = "routeros-export"
-EXPORT = "/rest/export"
+#: ``POST /rest/export`` answers ``[]`` (the text goes to a terminal that REST does not have);
+#: ``/execute`` with ``as-string`` returns the output of the script as ``{"ret": ...}``.
+EXECUTE = "/rest/execute"
+EXPORT_SCRIPT = {"script": "/export", "as-string": ""}
 
 _TRUE, _FALSE = "true", "false"
 _SECURITY_TYPES = {
@@ -67,6 +83,7 @@ _SECRET_PROPS = {"security.passphrase", "passphrase", "wpa2-pre-shared-key", "wp
 #: Properties the device computes; never compared or sent when restoring.
 _READ_ONLY = {
     ".id",
+    ".about",
     ".nextid",
     "dynamic",
     "running",
@@ -103,6 +120,34 @@ _READ_ONLY = {
     "sending-rstp",
     "external-fdb-status",
     "class-id",
+    # read-only state RouterOS 7.25.1 CHR lists in these menus (seen in CI, #139)
+    "actual-path-cost",
+    "designated-bridge-id",
+    "designated-cost",
+    "designated-port-id",
+    "discard-transitions",
+    "edge-port-discovery",
+    "forward-transitions",
+    "mvrp-applicant-state",
+    "mvrp-registrar-state",
+    "root-path-cost",
+    "rx-bpdu",
+    "rx-tc",
+    "topology-changes",
+    "tx-bpdu",
+    "tx-tc",
+    "port-id",
+    "l2mtu",
+    "loop-protect-status",
+    "hw-offloaded",
+    "managed",
+    "available",
+    "total",
+    "used",
+    "active-agent-circuit-id",
+    "active-agent-remote-id",
+    "agent-circuit-id",
+    "agent-remote-id",
 }
 
 
@@ -238,7 +283,8 @@ def _v4(row: dict[str, Any]) -> IPv4Interface | None:
 
 
 def _refused(description: str, response: Any, scrub: Callable[[str], str]) -> AdapterError:
-    """RouterOS answers a refused change with ``{"error": 400, "message", "detail"}``."""
+    """RouterOS answers a refused change with ``{"error": 400, "message", "detail"}``, and a
+    user without the ``write`` policy with HTTP 500 ``not enough permissions (9)``."""
     try:
         data = response.json()
     except ValueError:
@@ -247,6 +293,10 @@ def _refused(description: str, response: Any, scrub: Callable[[str], str]) -> Ad
     if isinstance(data, dict):
         detail = _text(data.get("detail")) or _text(data.get("message"))
     detail = detail or f"HTTP {response.status_code}"
+    if "not enough permissions" in detail:
+        return AuthFailed(
+            scrub(f"{description}: access denied ({detail}); the user's group needs write")
+        )
     return AdapterError(scrub(f"{description}: the router refused the change: {detail}"))
 
 
@@ -289,7 +339,7 @@ class MikrotikWrites:
             )
         ):
             try:
-                menus[menu] = m._rows(await self.http.get_json(menu), menu)
+                menus[menu] = m._rows(await m.get_menu(self.http, menu), menu)
             except NotFound:
                 menus[menu] = []
                 wifi = wifi and menu != m.WIFI
@@ -354,15 +404,17 @@ class MikrotikWrites:
         return None
 
     async def backup(self) -> Backup:
+        from signalbox.adapters import mikrotik as m
+
         menus: dict[str, Any] = {}
         for menu in _menus():
             try:
-                menus[menu] = await self.http.get_json(menu)
+                menus[menu] = await m.get_menu(self.http, menu)
             except NotFound:
                 menus[menu] = None  # package not installed: nothing to restore
         export: str | None
         try:
-            response = await self.http.request("POST", EXPORT, json={})
+            response = await self.http.request("POST", EXECUTE, json=EXPORT_SCRIPT)
             export = _export_text(response)
         except Unreachable:
             raise
@@ -446,6 +498,28 @@ class MikrotikWrites:
                 ids[str(op.ref)] = _text(created[".id"])
         self._cache.clear()
         self._layout_cache = None
+        from signalbox.adapters import mikrotik as m
+
+        touched = {
+            ids.get(op.ref or "", op.ref or "")
+            for op in ops
+            if op.menu == m.DHCP_SERVER and op.method in ("PUT", "PATCH")
+        }
+        if touched:
+            await self._settle_dhcp(touched)
+
+    async def _settle_dhcp(self, ids: set[str]) -> None:
+        """Wait until the DHCP servers just written are valid again (RouterOS checks the
+        interface's address a moment after the change); the verification judges the rest."""
+        from signalbox.adapters import mikrotik as m
+
+        deadline = time.monotonic() + SETTLE_SECONDS
+        while True:
+            rows = m._rows(await m.get_menu(self.http, m.DHCP_SERVER), m.DHCP_SERVER)
+            waiting = [r for r in rows if r.get(".id") in ids and _flag(r.get("invalid"))]
+            if not waiting or time.monotonic() > deadline:
+                return
+            await asyncio.sleep(0.5)
 
     # ROUTER -------------------------------------------------------------------------------------
 
@@ -584,7 +658,10 @@ class MikrotikWrites:
         for row in cfg.static(m.VLAN):
             if layout.l3.get(_text(row.get("name"))) == key:
                 sources.append((m.VLAN, row))
-        for menu, row in sources:
+        # The read side takes the first comment in this order: a name goes to the first source
+        # only (the others stay as they are, so undoing it leaves the device as it was); no
+        # name clears them all.
+        for menu, row in sources[:1] if name else sources:
             if name:
                 cfg.patch(menu, row, {"comment": name}, f"{what}: {name}")
             else:
@@ -896,6 +973,11 @@ class MikrotikWrites:
                     )
                 cfg.delete(m.WIFI, row, f"remove the Wi-Fi interface {row.get('name')}")
             return
+        if new.client_isolation is not None:
+            raise AdapterError(
+                f"SSID {c.key}: client isolation is not read or changed on RouterOS yet; "
+                "leave client_isolation out of the desired state"
+            )
         if new.security not in _SECURITY_TYPES:
             raise AdapterError(
                 f"SSID {c.key}: {new.security.value} cannot be set through Signalbox on RouterOS "
@@ -1082,7 +1164,7 @@ def _writable(menu: str, row: dict[str, Any]) -> dict[str, str]:
 
 
 def _export_text(response: Any) -> str:
-    """``POST /rest/export``: a JSON string, ``{"ret": ...}`` or plain text (unconfirmed)."""
+    """The export: ``{"ret": ...}`` (a JSON string or plain text are accepted too)."""
     try:
         data = response.json()
     except ValueError:

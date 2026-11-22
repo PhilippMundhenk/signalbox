@@ -68,9 +68,11 @@ from signalbox.model import (
     Port,
     PortKind,
     PortMembership,
+    PurposeSource,
     Radio,
     Security,
     Segment,
+    SegmentPurpose,
     Subnet,
     Wlan,
     normalise_mac,
@@ -359,6 +361,9 @@ class FritzboxAdapter(Adapter):
                         id=self._guest,
                         site_id=site,
                         name="Guest network",
+                        purpose=SegmentPurpose.GUEST,
+                        purpose_source=PurposeSource.REPORTED,
+                        isolated=True,  # the Fritz!Box keeps guests out of the LAN itself
                         vendor_extra={"fritzbox": "guest network (isolated by the Fritz!Box)"},
                     )
                 )
@@ -490,6 +495,8 @@ class FritzboxAdapter(Adapter):
                     security=sec,
                     passphrase_fingerprint=fingerprint,
                     segment_id=self._guest if w.guest else self._native,
+                    purpose=SegmentPurpose.GUEST if w.guest else None,
+                    purpose_source=PurposeSource.REPORTED if w.guest else None,
                     vendor_extra=_extra(info, "NewBeaconType", "NewStandard", "NewBSSID")
                     | ({"guest": True} if w.guest else {}),
                 )

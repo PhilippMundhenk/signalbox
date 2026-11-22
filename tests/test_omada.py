@@ -267,7 +267,11 @@ async def test_wireless(snap: Snapshot) -> None:
     iot = wlans[f"{AP2}/wlan/ssid-iot-2g"]  # EAP 2 names no WLAN group: the primary one
     assert iot.hidden and iot.segment_id == "home/segment/20" and iot.passphrase_fingerprint
     assert iot.passphrase_fingerprint == wlans[f"{AP1}/wlan/ssid-iot-2g"].passphrase_fingerprint
-    assert wlans[f"{AP1}/wlan/ssid-guest-2g"].security is Security.OPEN
+    guest = wlans[f"{AP1}/wlan/ssid-guest-2g"]
+    assert guest.security is Security.OPEN
+    # the Omada guest network flag is a reported purpose; isolation is not read
+    assert (guest.purpose, guest.purpose_source) == ("guest", "reported")
+    assert guest.client_isolation is None and home.purpose is None
     assert not wlans[f"{AP2}/wlan/ssid-home-5g"].enabled  # its radio is off
 
 

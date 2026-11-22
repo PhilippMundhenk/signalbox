@@ -39,6 +39,7 @@ from signalbox.adapters import (
     AdapterConfig,
     AdapterContext,
     AdapterError,
+    AuthFailed,
     Capability,
     Manifest,
     Observation,
@@ -338,6 +339,38 @@ def _extra(row: dict[str, Any], *keys: str) -> dict[str, JsonValue]:
     return {k: _text(row[k]) for k in keys if _text(row.get(k))}
 
 
+def ros_error(endpoint: str, response: Any) -> AdapterError:
+    """A refused request: RouterOS answers ``{"error", "message", "detail"}``.
+
+    A menu this device does not have (a package that is not installed, ``/system/routerboard``
+    on CHR) is HTTP 400 ``no such command or directory (...)`` (or ``no such command prefix``):
+    :class:`NotFound`, as an optional menu. A missing policy is HTTP 500 ``not enough
+    permissions (9)``: :class:`AuthFailed`. Both as RouterOS 7.25 CHR answers them in CI.
+    """
+    try:
+        data = response.json()
+    except ValueError:
+        data = {}
+    detail = _text(data.get("detail")) if isinstance(data, dict) else ""
+    if detail.startswith("no such command"):
+        return NotFound(f"{endpoint}: not on this device ({detail})")
+    if "not enough permissions" in detail:
+        return AuthFailed(f"{endpoint}: access denied ({detail}); check the user's group policies")
+    reason = detail or _text(getattr(response, "reason_phrase", ""))
+    return AdapterError(f"{endpoint}: HTTP {response.status_code} {reason}".rstrip())
+
+
+async def get_menu(http: DeviceHttp, endpoint: str) -> Any:
+    """``GET`` one menu (errors mapped by :func:`ros_error`)."""
+    response = await http.request("GET", endpoint, accept=(400, 500))
+    if response.status_code >= 400:
+        raise ros_error(endpoint, response)
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise AdapterError(f"{endpoint}: answer is not valid JSON") from exc
+
+
 # --- interface layout, shared by every capability --------------------------------------------
 
 
@@ -410,7 +443,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
     async def _get(self, endpoint: str) -> Any:
         """GET once per observation (DHCP and clients both need the leases, ...)."""
         if endpoint not in self._cache:
-            self._cache[endpoint] = await self.http.get_json(endpoint)
+            self._cache[endpoint] = await get_menu(self.http, endpoint)
         return self._cache[endpoint]
 
     async def _rows(self, endpoint: str) -> list[dict[str, Any]]:
@@ -541,7 +574,8 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 for key in ("tagged", "current-tagged"):
                     for p in _names(row.get(key)):
                         join(seg, vid, p, Membership.TAGGED)
-                label(seg, _text(row.get("comment")))
+                if not _flag(row.get("dynamic")):  # RouterOS: "added by pvid"
+                    label(seg, _text(row.get("comment")))
         for row in bridge_ports:
             b, p = _text(row.get("bridge")), _text(row.get("interface"))
             if b in filtering:
@@ -1011,4 +1045,4 @@ def _unique(addresses: Iterable[IPAddress]) -> list[IPAddress]:
     return out
 
 
-__all__ = ["MikrotikAdapter", "MikrotikConfig"]
+__all__ = ["MikrotikAdapter", "MikrotikConfig", "get_menu"]

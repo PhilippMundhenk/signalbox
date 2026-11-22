@@ -1,7 +1,7 @@
 // Wireless: SSIDs grouped by name with the settings of every access point, and the radios.
 import { loadNetwork, noData } from '../net.js';
 import { by, h, place, yesNo } from '../util.js';
-import { card, pageHead, table, tag } from '../ui.js';
+import { card, pageHead, purposeTag, table, tag } from '../ui.js';
 
 const SECURITY = {
   open: 'Open (no encryption)',
@@ -53,6 +53,8 @@ export async function renderWireless(main, ctx) {
             ['Security', (w) => h('span', { class: w.security === 'open' ? 'warn-text' : '' }, SECURITY[w.security] || w.security)],
             ['PMF', (w) => w.pmf],
             ['Segment', (w) => (w.segment_id ? ix.segmentName(w.segment_id) : null)],
+            ['Purpose', (w) => purposeTag(w.purpose ? w : ix.net.segments.find((s) => s.id === w.segment_id))],
+            ['Client isolation', (w) => (w.client_isolation === true || w.client_isolation === false ? h('span', { class: w.client_isolation ? 'tag ok' : 'tag', 'data-testid': 'client-isolation' }, w.client_isolation ? 'on' : 'off') : null)],
             ['Roaming', roaming],
             ['State', (w) => [w.enabled ? 'enabled' : 'disabled', w.hidden ? ', hidden' : '']],
           ],

@@ -243,6 +243,7 @@ def sample_data() -> dict[str, Any]:
                 "band": 3,
                 "security": 0,
                 "broadcast": True,
+                "guestNetEnable": True,
                 "vlanEnable": True,
                 "vlanId": 30,
             },

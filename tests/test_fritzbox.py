@@ -113,7 +113,10 @@ async def test_interfaces(adapter: FritzboxAdapter) -> None:
     segs = {s.id: s for s in obs.segments}
     assert set(segs) == {"home/segment/native", "home/segment/guest"}
     assert [m.port_id for m in segs["home/segment/native"].members] == ["fb/port/lan"]
-    assert segs["home/segment/guest"].vendor_extra
+    guest_seg = segs["home/segment/guest"]
+    assert guest_seg.vendor_extra and guest_seg.isolated is True
+    assert (guest_seg.purpose, guest_seg.purpose_source) == ("guest", "reported")
+    assert segs["home/segment/native"].purpose is None
     [subnet] = obs.subnets
     assert subnet.interface == ip_interface("192.0.2.1/24") and subnet.gateway
 
@@ -150,6 +153,8 @@ async def test_wireless(adapter: FritzboxAdapter) -> None:
     guest = wlans["fb/wlan/3"]
     assert guest.ssid == "Example-Guest" and guest.security is Security.WPA2
     assert guest.segment_id == "home/segment/guest" and guest.vendor_extra["guest"] is True
+    assert (guest.purpose, guest.purpose_source) == ("guest", "reported")
+    assert wlans["fb/wlan/1"].purpose is None and guest.client_isolation is None
     assert guest.radio_id == "fb/radio/1"  # rides on the 2.4 GHz radio
     assert "example-guest-passphrase" not in obs.model_dump_json()
 

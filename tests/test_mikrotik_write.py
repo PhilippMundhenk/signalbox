@@ -590,6 +590,8 @@ async def test_wlan_refusals(url: str, sim: MikrotikSimulator) -> None:
 
     with pytest.raises(AdapterError, match="cannot be set through Signalbox"):
         await apply(url, [wlan("Example", security=Security.WPA2_ENTERPRISE)])
+    with pytest.raises(AdapterError, match="client isolation is not read or changed on RouterOS"):
+        await apply(url, [wlan("Example", client_isolation=True)])
     with pytest.raises(AdapterError, match="needs a passphrase secret"):
         await apply(url, [wlan("New")])
     with pytest.raises(AdapterError, match="secret 'missing' was not given"):
@@ -712,7 +714,7 @@ async def test_backup_and_restore_round_trip(url: str, sim: MikrotikSimulator) -
 
 
 async def test_backup_without_export_and_menus(url: str, sim: MikrotikSimulator) -> None:
-    sim.fail_write["/rest/export"] = 400
+    sim.fail_write["/rest/execute"] = 400
     sim.wireless = "legacy"
     a = adapter(url)
     try:
@@ -746,7 +748,10 @@ async def test_write_refused_by_the_router(url: str, sim: MikrotikSimulator) -> 
     net = await network(url)
     c = change(net, ChangeKind.WLAN, "Example", WlanValue(ssid="Example", security=Security.WPA3))
     sim.read_only = True
-    with pytest.raises(AdapterError, match=r"access denied \(HTTP 403\)"):
+    with pytest.raises(
+        AdapterError,
+        match=r"access denied \(not enough permissions \(9\)\); the user's group needs write",
+    ):
         await apply(url, [c])
     sim.read_only = False
     sim.fail_write[WIFI] = 500
@@ -859,7 +864,11 @@ async def test_simulator_refuses_like_routeros(url: str, sim: MikrotikSimulator)
         assert "tagged" in await put(
             BRIDGE_VLAN, {"bridge": "bridge", "vlan-ids": "5", "tagged": "x"}
         )
-        assert (await client.put("/rest/ip/dns", json={})).status_code == 404
+        r = await client.put("/rest/ip/dns", json={})
+        assert r.status_code == 400 and r.json()["detail"] == "no such command or directory (dns)"
+        r = await client.post("/rest/execute", json={"script": "/system reboot"})
+        assert r.status_code == 400
+        assert (await client.post("/rest/export", json={})).json() == []
         assert (await client.patch(f"{IP_ADDRESS}/*77", json={})).status_code == 404
         dynamic = sim.data[IP_ADDRESS][2][".id"]
         assert (await client.delete(f"{IP_ADDRESS}/{dynamic}")).status_code == 400
