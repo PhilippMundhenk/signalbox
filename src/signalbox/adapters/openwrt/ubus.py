@@ -23,8 +23,10 @@ NO_SESSION = "0" * 32
 
 # ubus status codes (libubus.h)
 UBUS_OK = 0
+UBUS_INVALID_ARGUMENT = 2
 UBUS_METHOD_NOT_FOUND = 3
 UBUS_NOT_FOUND = 4
+UBUS_NO_DATA = 5
 UBUS_PERMISSION_DENIED = 6
 UBUS_STATUS = {
     1: "invalid command",
@@ -51,6 +53,15 @@ class NotFound(AdapterError):
 
 class AccessDenied(AdapterError):
     """The rpcd ACL of the user does not allow the call."""
+
+
+class InvalidArgument(AdapterError):
+    """ubus status 2: the object refuses the arguments of the call."""
+
+
+class NoData(AdapterError):
+    """ubus status 5: rpcd's ``uci apply`` with nothing staged, ``uci confirm`` or
+    ``uci rollback`` with no change waiting for its confirmation."""
 
 
 class _Denied(Exception):
@@ -90,6 +101,10 @@ class Ubus:
             raise _Denied
         if status in (UBUS_NOT_FOUND, UBUS_METHOD_NOT_FOUND):
             raise NotFound(f"ubus {what}: {UBUS_STATUS[status]}")
+        if status == UBUS_INVALID_ARGUMENT:
+            raise InvalidArgument(f"ubus {what} failed: {UBUS_STATUS[status]}")
+        if status == UBUS_NO_DATA:
+            raise NoData(f"ubus {what} failed: {UBUS_STATUS[status]}")
         if status != UBUS_OK:
             raise AdapterError(f"ubus {what} failed: {UBUS_STATUS.get(status, status)}")
         data = result[1] if len(result) > 1 else {}

@@ -43,6 +43,8 @@ CONFIGS = ("network", "wireless", "dhcp")
 
 Sections = dict[str, dict[str, Any]]
 """One UCI config: section name -> {".type", ".anonymous", options}, in order."""
+Staged = dict[str, list[tuple[str, dict[str, Any]]]]
+"""Staged operations of one session: config -> [(method, args)]."""
 
 
 def _mac(a: int, b: int) -> str:
@@ -379,8 +381,18 @@ def board() -> dict[str, Any]:
     }
 
 
+def lldp_status() -> dict[str, Any]:
+    """``luci.lldpd getStatus`` (luci-app-lldpd): ``lldpcli -f json0 show ...`` of each part."""
+    return {
+        "statistics": {"lldp": [{"interface": []}]},
+        "neighbors": lldp_neighbours(),
+        "interfaces": {"lldp": [{"interface": []}]},
+        "chassis": {"local-chassis": [{"chassis": [{"name": [{"value": "ap"}]}]}]},
+    }
+
+
 def lldp_neighbours() -> dict[str, Any]:
-    """lldpcli ``-f json0`` shape."""
+    """lldpcli ``-f json0 show neighbors details`` shape."""
     return {
         "lldp": [
             {
@@ -419,22 +431,23 @@ def _uci_value(value: Any) -> Any:
 
 
 def uci_op(config: Sections, method: str, args: dict[str, Any], counter: int) -> list[Any]:
-    """Run one staged ``uci`` operation on a config (in place); the ubus result."""
+    """Run one staged ``uci`` operation on a config (in place); the ubus result (rpcd uci.c)."""
     section = args.get("section")
     if method == "add":
         kind = args.get("type")
         if not isinstance(kind, str) or not kind:
             return [INVALID_ARGUMENT]
-        name = args.get("name")
-        anonymous = not name
-        name = name or f"cfg{counter:06x}"
-        if name in config:
-            return [INVALID_ARGUMENT]
-        config[name] = {".anonymous": anonymous, ".type": kind}
+        name = args.get("name") or f"cfg{counter:06x}"
+        if name in config:  # rpcd: uci_set on the name; an existing section only changes type
+            config[name][".type"] = kind
+        else:
+            config[name] = {".anonymous": not args.get("name"), ".type": kind}
         config[name].update({k: _uci_value(v) for k, v in (args.get("values") or {}).items()})
         return [OK, {"section": name}]
     if method == "order":
-        names = [n for n in args.get("sections") or [] if n in config]
+        names = list(args.get("sections") or [])
+        if any(n not in config for n in names):
+            return [NOT_FOUND]  # rpcd saves nothing then
         rest = [n for n in config if n not in names]
         moved = {n: config[n] for n in [*names, *rest]}
         config.clear()
@@ -448,14 +461,38 @@ def uci_op(config: Sections, method: str, args: dict[str, Any], counter: int) ->
             return [INVALID_ARGUMENT]
         config[section].update({k: _uci_value(v) for k, v in values.items()})
         return [OK]
-    # delete
-    options = list(args.get("options") or []) + ([args["option"]] if args.get("option") else [])
-    if options:
-        for option in options:
-            config[section].pop(option, None)
+    # delete: rpcd answers "not found" if none of the named options exists
+    if "options" in args:
+        present = [o for o in args["options"] or [] if o in config[section]]
+    elif "option" in args:
+        present = [args["option"]] if args["option"] in config[section] else []
     else:
         del config[section]
-    return [OK]
+        return [OK]
+    for option in present:
+        del config[section][option]
+    return [OK] if present else [NOT_FOUND]
+
+
+def uci_delta(method: str, args: dict[str, Any]) -> list[list[Any]]:
+    """A staged operation as rpcd's ``uci changes`` lists it (``uci_delta`` entries)."""
+    section = str(args.get("section") or args.get("name") or "")
+    out: list[list[Any]] = []
+    if method == "add":
+        out.append(["add", section, str(args.get("type"))])
+    if method in ("add", "set"):
+        for option, value in (args.get("values") or {}).items():
+            if isinstance(value, list):
+                out.append(["remove", section, option])
+                out += [["list-add", section, option, _uci_value(v)] for v in value]
+            else:
+                out.append(["set", section, option, _uci_value(value)])
+    if method == "delete":
+        options = args.get("options") or ([args["option"]] if args.get("option") else [])
+        out += [["remove", section, o] for o in options] or [["remove", section]]
+    if method == "order":
+        out += [["order", n, i] for i, n in enumerate(args.get("sections") or [])]
+    return out
 
 
 @dataclass
@@ -476,8 +513,11 @@ class OpenWrtSim:
     #: seconds to wait before answering (``slow`` objects only, or every request if empty)
     delay: float = 0.0
     slow: set[str] = field(default_factory=set)
+    #: luci-app-lldpd installed (ubus object ``luci.lldpd``)
     lldpd: bool = True
     luci_rpc: bool = True
+    #: OpenWrt 25.12: netifd's ucode wireless object answers "invalid argument" through rpcd
+    wireless_ucode: bool = False
     #: DHCP on, no default route on lan: the device acts as the router of 192.0.2.0/24
     router: bool = False
     #: fourth byte of the port MACs (02:00:00:<base>:..), so several simulators differ
@@ -491,8 +531,9 @@ class OpenWrtSim:
     configs: dict[str, Sections] | None = None
     #: session -> config -> staged operations (``uci changes``)
     staged: dict[str, dict[str, list[tuple[str, dict[str, Any]]]]] = field(default_factory=dict)
-    #: the ``uci apply`` waiting for ``uci confirm``: session, deadline, configs before it
-    pending: tuple[str, float, dict[str, Sections]] | None = None
+    #: the ``uci apply`` waiting for ``uci confirm``: session, deadline, configs before it,
+    #: the staged changes it applied (rpcd puts them back into the session on a rollback)
+    pending: tuple[str, float, dict[str, Sections], Staged] | None = None
     #: uci calls that changed something: ("apply" | "confirm" | "rollback" | "revert", ...)
     history: list[str] = field(default_factory=list)
     _added: int = 0
@@ -517,11 +558,21 @@ class OpenWrtSim:
             }
         return self.configs
 
+    def _roll_back(self) -> None:
+        """rpcd's rollback: the configs before the apply come back; if the applying session
+        still exists, so do its staged changes (LuCI shows them as unsaved again)."""
+        assert self.pending is not None
+        sid, _, before, staged = self.pending
+        self.configs = before
+        self.pending = None
+        expires = self.sessions.get(sid)
+        if expires is not None and expires >= self.clock():
+            self.staged[sid] = staged
+
     def tick(self) -> None:
         """The rollback timer: past the deadline, the configs before the apply come back."""
         if self.pending is not None and self.clock() >= self.pending[1]:
-            self.configs = self.pending[2]
-            self.pending = None
+            self._roll_back()
             self.history.append("timeout-rollback")
 
     def view(self, sid: str, config: str) -> Sections:
@@ -538,6 +589,8 @@ class OpenWrtSim:
             return [6]
         self.logins += 1
         sid = secrets.token_hex(16)
+        if self.pending is not None and self.sessions.get(self.pending[0], -1) >= self.clock():
+            sid = self.pending[0]  # rpcd reclaims the session of a pending apply (same user)
         self.sessions[sid] = self.clock() + self.session_ttl
         ttl = int(self.session_ttl)
         return [
@@ -577,6 +630,10 @@ class OpenWrtSim:
                 self.staged.setdefault(sid, {}).setdefault(config, []).append((method, args))
             return result
         if method == "revert":
+            if self.pending is not None:
+                return [DENIED]  # rpcd: no revert while a change waits for its confirmation
+            if config not in self.writable or f"uci:{config}" in self.denied:
+                return [DENIED]
             self.staged.get(sid, {}).pop(config, None)
             if not self.staged.get(sid, True):
                 del self.staged[sid]
@@ -584,14 +641,17 @@ class OpenWrtSim:
             return [OK]
         if method == "changes":
             staged = self.staged.get(sid, {})
-            return [OK, {"changes": {c: [[m, a] for m, a in ops] for c, ops in staged.items()}}]
+            changes = {c: [d for m, a in ops for d in uci_delta(m, a)] for c, ops in staged.items()}
+            return [OK, {"changes": {c: d for c, d in changes.items() if d}}]
         if method == "apply":
             return self._apply(sid, args)
         if method in ("confirm", "rollback"):
-            if self.pending is None or self.pending[0] != sid:
+            if self.pending is None:
+                return [NO_DATA]
+            if self.pending[0] != sid:
                 return [DENIED]
             if method == "rollback":
-                self.configs = self.pending[2]
+                self._roll_back()
             self.pending = None
             self.history.append(method)
             return [OK]
@@ -599,7 +659,9 @@ class OpenWrtSim:
 
     def _apply(self, sid: str, args: dict[str, Any]) -> list[Any]:
         if self.pending is not None:
-            return [DENIED]  # rpcd: another apply waits for its confirmation
+            # rpcd: another apply waits for its confirmation. With rollback that is refused;
+            # without, rpcd answers OK and applies nothing (the changes stay staged).
+            return [DENIED] if args.get("rollback") else [OK]
         staged = self.staged.pop(sid, {})
         if not staged:
             return [NO_DATA]
@@ -609,7 +671,7 @@ class OpenWrtSim:
                 uci_op(self.state[config], method, op_args, 0)
         if args.get("rollback"):
             timeout = float(args.get("timeout", 30))
-            self.pending = (sid, self.clock() + timeout, before)
+            self.pending = (sid, self.clock() + timeout, before, staged)
         self.history.append("apply")
         return [OK]
 
@@ -631,6 +693,8 @@ class OpenWrtSim:
         if obj == "network.interface" and method == "dump":
             return [0, interface_dump(self.state["network"])]
         if obj == "network.wireless" and method == "status":
+            if self.wireless_ucode:
+                return [INVALID_ARGUMENT]
             return [0, wireless_status(self.state["wireless"])]
         if obj == "uci":
             return self._uci(sid, method, args)
@@ -640,6 +704,11 @@ class OpenWrtSim:
                 ifname = obj[8:]
                 return [0, clients(ifname, running[ifname])] if method == "get_clients" else [3]
         if obj == "luci-rpc" and self.luci_rpc:
+            if method == "getWirelessDevices":  # network.wireless status plus iwinfo
+                status = wireless_status(self.state["wireless"])
+                for radio in status.values():
+                    radio["iwinfo"] = {"hwmodes": ["n"]}
+                return [0, status]
             if method != "getDHCPLeases":
                 return [3]
             mac, ip, name = LEASE
@@ -651,8 +720,8 @@ class OpenWrtSim:
             mac, ip, name = LEASE
             text = f"1700043000 {mac} {ip} {name} 01:{mac}\n1700043000 bogus x * *\nshort\n"
             return [0, {"data": text}]
-        if obj == "lldpd" and self.lldpd:
-            return [0, lldp_neighbours()] if method == "show_neighbours" else [3]
+        if obj == "luci.lldpd" and self.lldpd:
+            return [0, lldp_status()] if method == "getStatus" else [3]
         return None
 
     async def handle(self, body: bytes) -> Response:

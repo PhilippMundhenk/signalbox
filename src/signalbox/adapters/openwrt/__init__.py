@@ -34,7 +34,7 @@ from signalbox.adapters import (
     VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp
-from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
+from signalbox.adapters.openwrt.ubus import AccessDenied, InvalidArgument, NoData, NotFound, Ubus
 from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
     Band,
@@ -469,7 +469,23 @@ class OpenWrtAdapter(Adapter):
     # wireless -------------------------------------------------------------------------
 
     async def _radios_up(self) -> dict[str, dict[str, Any]]:
-        status = await self.ubus.call("network.wireless", "status")
+        """``network.wireless status``; on OpenWrt 25.12 through ``luci-rpc``.
+
+        netifd's wireless object is written in ucode since 25.12 and answers "invalid
+        argument" to calls through rpcd (which adds ``ubus_rpc_session``). LuCI reads it through
+        ``luci-rpc getWirelessDevices`` (rpcd-mod-luci), which calls it on the device and
+        answers the same shape with ``iwinfo`` added.
+        """
+        try:
+            status = await self.ubus.call("network.wireless", "status")
+        except InvalidArgument:
+            try:
+                status = await self.ubus.call("luci-rpc", "getWirelessDevices")
+            except (NotFound, AccessDenied):
+                raise AdapterError(
+                    "network.wireless status refuses calls over HTTP (OpenWrt 25.12 and later): "
+                    "install rpcd-mod-luci and allow luci-rpc getWirelessDevices in the ACL"
+                ) from None
         return {k: v for k, v in status.items() if isinstance(v, dict)}
 
     async def read_wireless(self) -> Observation:
@@ -678,6 +694,37 @@ class OpenWrtAdapter(Adapter):
             with contextlib.suppress(AdapterError, OSError):
                 await self.ubus.call("uci", "revert", {"config": config}, keep_session=True)
 
+    async def _staged(self) -> set[str]:
+        """The written configs with changes staged in this session (``uci changes``)."""
+        data = await self.ubus.call("uci", "changes", {}, keep_session=True)
+        changes = data.get("changes")
+        return {c for c in write.CONFIGS if isinstance(changes, dict) and changes.get(c)}
+
+    async def _clear_staging(self) -> None:
+        """Drop changes left staged in this session before reading the configs to change.
+
+        rpcd puts the staged changes of an apply back into its session when it rolls back (the
+        timer ran out, or ``uci rollback``), as LuCI shows them as unsaved changes again. Left
+        there, the next ``uci get`` would see them and the next ``uci apply`` would commit
+        them. Best effort: a login without the write ACL fails later with a clear error.
+
+        While an apply waits for its confirmation, rpcd refuses ``uci revert``, and a new login
+        of the same user gets the session of that apply ("reclaims" it, rpcd session.c), with
+        whatever another client staged there. Then nothing can be changed safely: refused.
+        """
+        try:
+            stale = await self._staged()
+        except (AdapterError, OSError):
+            return
+        for config in sorted(stale):
+            with contextlib.suppress(AdapterError, OSError):
+                await self.ubus.call("uci", "revert", {"config": config}, keep_session=True)
+        if stale and await self._staged():
+            raise AdapterError(
+                "another change waits for its confirmation on the device (rpcd accepts no "
+                "other change until it is confirmed or rolled back); try again later"
+            )
+
     async def _transaction(self, ops: list[write.UciOp], apply: dict[str, Any]) -> None:
         """Stage ``ops`` in this session, then ``uci apply``; revert the staging on any error."""
         try:
@@ -709,6 +756,7 @@ class OpenWrtAdapter(Adapter):
         self, changes: list[Change], secrets: Mapping[str, str], rollback_seconds: int
     ) -> ApplyResult:
         async def attempt() -> ApplyResult:
+            await self._clear_staging()
             ops = (await self._translate(changes, secrets)).ops
             if not ops:
                 return ApplyResult()
@@ -729,6 +777,12 @@ class OpenWrtAdapter(Adapter):
     async def confirm(self) -> None:
         try:
             await self.ubus.call("uci", "confirm", {}, keep_session=True)
+        except NoData:
+            self._pending = False
+            raise AdapterError(
+                "uci confirm: nothing waits for confirmation; the deadline passed and the device "
+                "rolled the change back"
+            ) from None
         except AccessDenied:
             raise AdapterError(
                 "uci confirm refused (session expired, or not allowed by the rpcd ACL); the "
@@ -754,12 +808,21 @@ class OpenWrtAdapter(Adapter):
             self._pending = False
 
         async def attempt() -> None:
+            await self._clear_staging()
             current = {
                 c: (await self.ubus.call("uci", "get", {"config": c})).get("values") for c in saved
             }
             ops = write.restore_ops(saved, current)
-            if ops:
-                await self._transaction(ops, {"rollback": False})
+            if not ops:
+                return
+            await self._transaction(ops, {"rollback": False})
+            # rpcd answers OK to an apply without rollback while another change waits for its
+            # confirmation, but applies nothing: the changes are still staged.
+            if await self._staged():
+                raise AdapterError(
+                    "the backup was not applied: another change waits for its confirmation on "
+                    "the device (rpcd applies nothing until it is confirmed or rolled back)"
+                )
 
         await self._twice(attempt)
 
@@ -768,11 +831,16 @@ class OpenWrtAdapter(Adapter):
     async def read_neighbours(self) -> Observation:
         d = self.context.device_id
         try:
-            data = await self.ubus.call("lldpd", "show_neighbours")
+            status = await self.ubus.call("luci.lldpd", "getStatus")
         except NotFound:
-            raise AdapterError("lldpd not installed (no ubus object lldpd)") from None
+            raise AdapterError("luci-app-lldpd not installed (no ubus object luci.lldpd)") from None
+        data = status.get("neighbors")
+        if not isinstance(data, dict):
+            raise AdapterError("lldpd is not running (luci.lldpd getStatus has no neighbours)")
         neighbours: list[Neighbour] = []
         for lldp in data.get("lldp") or []:
+            if not isinstance(lldp, dict):
+                continue
             for iface in lldp.get("interface") or []:
                 name = iface.get("name")
                 chassis = (iface.get("chassis") or [{}])[0]

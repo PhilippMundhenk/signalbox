@@ -13,9 +13,11 @@ Signalbox can deploy port VLANs, SSIDs, DHCP pools and reservations ([Writing](#
 | Writes | `port`, `wlan`, `dhcp`, `reservation` (not `router`, see [Writing](#writing)) |
 | Simulator | `signalbox.sim.openwrt` (`uvicorn --factory signalbox.sim.openwrt:create_app`) |
 
-> The answer shapes below follow the OpenWrt documentation and source (netifd, rpcd, hostapd,
-> uhttpd-mod-ubus). They are implemented by the simulator but still need to be confirmed on a
-> real device (#21). Shapes marked *(guess)* are the least certain.
+> Verified against OpenWrt 24.10.8 and 25.12.6 (x86-64 in QEMU) in CI: every call below, the read-only and
+> the write ACL of this page, and the write transaction including the rollback timer
+> ([TESTING.md](../TESTING.md), #137). What the real device showed differently from the first
+> version of the simulator is listed under
+> [Verified against the real OpenWrt](#verified-against-the-real-openwrt).
 
 ## Settings
 
@@ -107,7 +109,7 @@ port, `phy*`/`wlan*` (or `"wireless": true`) a wireless one.
 - Every `bridge-vlan` is a segment `<site>/segment/<vlan>`, named after the interface on
   `<bridge>.<vlan>`. Port suffix `:t` is tagged, `:u` untagged, `*` the primary VLAN (PVID). A port
   without a suffix is untagged when it is in only one VLAN of the bridge, tagged otherwise
-  (netifd's rule; *to confirm*).
+  (netifd's rule; the test device uses explicit suffixes, so this one is not verified yet).
 - A bridge without `bridge-vlan` sections is the untagged network (`<site>/segment/native`), with
   all its ports untagged.
 - Interfaces on other devices (WAN port, loopback, tunnels) do not map to a segment and are left out.
@@ -142,6 +144,11 @@ interface with a default route leads upstream).
 {"radio0": {"up": true, "pending": false, "disabled": false,
             "interfaces": [{"section": "default_radio0", "ifname": "phy0-ap0", "config": {…}}]}}
 ```
+
+Since OpenWrt 25.12 netifd's wireless object (now ucode) answers `network.wireless status`
+through rpcd with "invalid argument". Signalbox then calls `luci-rpc getWirelessDevices`
+(rpcd-mod-luci, what LuCI uses), which runs it on the device and answers the same shape with
+`iwinfo` added.
 
 - Radio: `band` `2g`/`5g`/`6g` (before 21.02: `hwmode` `11g`/`11a`, else from the channel),
   width from the digits of `htmode` (`NOHT` = 20), `txpower` dBm, `country`. Enabled when not
@@ -194,25 +201,29 @@ seen on that WLAN, in its segment. An interface without hostapd object (not up) 
 Leases add addresses and host names to the stations (and add wired clients of a DHCP server).
 Both are optional: if neither is installed or allowed, clients have no addresses.
 
-### `lldpd show_neighbours` (LLDP) *(guess)*
+### `luci.lldpd getStatus` (LLDP)
 
-OpenWrt's `lldpd` package has no standard ubus object; this call expects one that returns
-`lldpcli -f json0 show neighbors`:
+`lldpd` itself has no ubus object. `luci-app-lldpd` (OpenWrt 24.10 and later) adds the rpcd
+object `luci.lldpd`, whose `getStatus` returns `lldpcli -f json0 show ...` of the statistics,
+the neighbours, the interfaces and the chassis; Signalbox reads `neighbors`:
 
 ```json
-{"lldp": [{"interface": [{"name": "lan1", "via": "LLDP",
+{"neighbors": {"lldp": [{"interface": [{"name": "lan1", "via": "LLDP",
    "chassis": [{"id": [{"type": "mac", "value": "02:00:00:00:30:01"}],
                 "name": [{"value": "switch"}], "mgmt-ip": [{"value": "192.0.2.3"}]}],
-   "port": [{"id": [{"type": "ifname", "value": "port 8"}]}]}]}]}
+   "port": [{"id": [{"type": "ifname", "value": "port 8"}]}]}]}]},
+ "statistics": {…}, "interfaces": {…}, "chassis": {…}}
 ```
 
-Without the object the neighbours read fails with "lldpd not installed", which shows as an
-incomplete device; the other capabilities are unaffected.
+Without the object the neighbours read fails with "luci-app-lldpd not installed"; when `lldpd`
+is not running, `neighbors` is missing ("lldpd is not running"). Either shows as an incomplete
+device; the other capabilities are unaffected.
 
 ## Read-only user on the device
 
 Packages: `rpcd`, `uhttpd`, `uhttpd-mod-ubus` (all part of a LuCI install); `rpcd-mod-file` for
-the lease file and `rpcd-mod-luci` for `luci-rpc` are optional.
+the lease file, `rpcd-mod-luci` for `luci-rpc` and `luci-app-lldpd` for LLDP are optional; on
+OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
 
 `/usr/share/rpcd/acl.d/signalbox.json`:
 
@@ -228,9 +239,9 @@ the lease file and `rpcd-mod-luci` for `luci-rpc` are optional.
         "network.wireless": ["status"],
         "uci": ["get"],
         "hostapd.*": ["get_clients"],
-        "luci-rpc": ["getDHCPLeases"],
+        "luci-rpc": ["getDHCPLeases", "getWirelessDevices"],
         "file": ["read"],
-        "lldpd": ["show_neighbours"]
+        "luci.lldpd": ["getStatus"]
       },
       "uci": ["network", "wireless", "dhcp"],
       "file": {"/tmp/dhcp.leases": ["read"]}
@@ -280,13 +291,20 @@ Failures:
   what it had staged, so the whole transaction starts over once after a new login. Denied again:
   the ACL forbids it, and the error names the call (`access denied for uci.add (wireless)`). rpcd
   also refuses `uci apply` while another change waits for its confirmation.
+- Another change waits for its confirmation: rpcd gives every new login of the same user the
+  session of that apply, and refuses `uci revert` until it is confirmed or rolled back. Changes
+  left staged in the session (by another client, or put back by a rollback) that cannot be
+  dropped stop the transaction before anything is staged ("another change waits for its
+  confirmation").
 - Verification fails: `uci rollback` of the pending change (immediately, rather than waiting for
   the timer), then the backup is compared with the device and put back if anything differs.
 - `uci confirm` fails (session gone): the device rolls back at the deadline; Signalbox restores
   the backup at once.
 - **Restore** of a backup: sections not in the backup are deleted, the backup's sections are set
   (options not in the backup removed) or added under their old names, `uci order` restores the
-  section order, then `uci apply {"rollback": false}`.
+  section order, then `uci apply {"rollback": false}`. rpcd answers OK to that while another
+  change waits for its confirmation but applies nothing; Signalbox checks `uci changes` afterwards
+  and reports the restore as failed if anything is still staged.
 
 ### What each change does in UCI
 
@@ -316,9 +334,9 @@ only allows the `uci` methods of a transaction on the three configs:
         "network.wireless": ["status"],
         "uci": ["get"],
         "hostapd.*": ["get_clients"],
-        "luci-rpc": ["getDHCPLeases"],
+        "luci-rpc": ["getDHCPLeases", "getWirelessDevices"],
         "file": ["read"],
-        "lldpd": ["show_neighbours"]
+        "luci.lldpd": ["getStatus"]
       },
       "uci": ["network", "wireless", "dhcp"],
       "file": {"/tmp/dhcp.leases": ["read"]}
@@ -337,8 +355,44 @@ and `list write 'signalbox'` next to `list read 'signalbox'` in the login entry 
 `/etc/config/rpcd`. Without the write part, deploying fails at the first staged call with
 "access denied for uci.… : add it to the rpcd ACL", and nothing is changed.
 
-> *(guesses, to confirm on a device in #21)*: that `uci add` accepts `name` (named sections, so
-> the review shows the exact names), that `uci confirm` and `uci rollback` must come from the
-> session that applied, that a pending apply makes another `uci apply` answer "permission
-> denied", and that `uci apply` with nothing staged answers "no data". The simulator behaves
-> like that.
+802.11v (`bss_transition`) needs the full `wpad` (`wpad-mbedtls`, `wpad-openssl`,
+...): the hostapd of `wpad-basic-*` rejects `bss_transition` as an unknown option and then does
+not start the interface at all. Signalbox only checks the UCI values after a change, not that
+hostapd runs it.
+
+## Verified against the real OpenWrt
+
+The integration job (`.github/workflows/integration.yml`, [TESTING.md](../TESTING.md)) builds
+OpenWrt 24.10.8 and 25.12.6 x86-64 images with the official image builder, installs the ACL of this page
+verbatim and runs `tests/integration/test_openwrt_real.py`: contract and mapping of a lab
+configuration (bridge VLANs, hwsim radios, SSIDs, dnsmasq, a wireless station with a lease),
+certificate pinning, a refused login, `port`, `wlan`, `dhcp` and `reservation` through the
+Deployer with a revert that leaves UCI exactly as before, the restore of a backup, the rollback
+timer without confirm, a refused change with the read-only login, and two clients at once.
+
+Confirmed as documented: the answer shapes of every read call; `uci add` with `name` (named
+sections); `uci apply` with nothing staged answers "no data"; a pending apply makes another
+`uci apply` with rollback answer "permission denied"; `uci confirm` and `uci rollback` only from
+the session that applied.
+
+Found on the real device (and in rpcd's source, `uci.c` and `session.c`), fixed in the adapter
+and in the simulator:
+
+- **OpenWrt 25.12**: `network.wireless status` answers "invalid argument" through rpcd; the
+  adapter falls back to `luci-rpc getWirelessDevices` (new in the ACL).
+- **LLDP**: there is no `lldpd` ubus object. `luci-app-lldpd` provides `luci.lldpd getStatus`,
+  which the adapter reads now (ACL entry `"luci.lldpd": ["getStatus"]` instead of
+  `"lldpd": ["show_neighbours"]`).
+- **Rollback**: after the timer runs out (or `uci rollback`), rpcd puts the rolled back changes
+  into the applying session's staging again (LuCI shows them as unsaved changes). A later
+  transaction in that session would have committed them; the adapter drops them first.
+- **Confirm after the deadline**: `uci confirm` answers "no data" (not "permission denied") when
+  nothing waits; the adapter reports that the device rolled the change back.
+- **A second client**: a new login of the same user during a pending apply gets that apply's
+  session; its staging is shared and `uci revert` is refused. The adapter reported "nothing to do"
+  for its own staged change; it refuses now.
+- **Apply without rollback** while another change waits answers OK and applies nothing (the
+  restore checks for it now); `uci revert` is refused while a change waits.
+- `uci add` with an existing name changes only the section type; `uci order` and
+  `uci delete` of options that do not exist answer "not found"; `uci changes` lists rpcd's
+  delta entries (`["set", section, option, value]`, ...). The simulator answers like that.

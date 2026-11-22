@@ -1,0 +1,32 @@
+#!/bin/sh
+# Signalbox integration test image: report on the serial console when the device is ready.
+# Prints SIGNALBOX-IT-READY once HTTPS and the access points are up (or SIGNALBOX-IT-NOT-READY
+# after 180 s) and the state the tests depend on, so a failing CI run shows it in the console
+# log. Missing details (the station's lease, LLDP) are left to the tests to report.
+
+ready() {
+  netstat -ltn 2>/dev/null | grep -q ':443 ' &&
+    ubus -S list hostapd.phy0-ap0 >/dev/null 2>&1 &&
+    ubus -S list hostapd.phy1-ap0 >/dev/null 2>&1
+}
+
+complete() {
+  ready && grep -q . /tmp/dhcp.leases 2>/dev/null
+}
+
+i=0
+while ! complete && [ $i -lt 180 ]; do
+  sleep 1
+  i=$((i + 1))
+done
+
+echo "== signalbox-it: after ${i}s"
+cat /etc/openwrt_release
+ubus list | tr '\n' ' '
+echo
+iw reg get
+iw dev
+wifi status | grep -E '"(up|ifname|section|disabled|pending)"'
+cat /tmp/dhcp.leases
+logread | grep -iE 'hostapd|wpa_supplicant|phy[0-9]|radio|daemon.err|kern.err|rpcd|uhttpd' | tail -40
+if ready; then echo SIGNALBOX-IT-READY; else echo SIGNALBOX-IT-NOT-READY; fi

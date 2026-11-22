@@ -7,7 +7,12 @@ reported it working on a real device (`docs/hardware-reports.json`). Please repo
 device in [#21](https://github.com/PhilippMundhenk/signalbox/issues/21).
 
 *writes* lists the kinds of change an adapter can deploy ([CHANGES.md](CHANGES.md));
-they are tested against the simulators only.
+they are tested against the simulators.
+
+*Emulated*: verified against the real device software in CI, reads and writes
+([TESTING.md](TESTING.md)):
+
+- OpenWrt: 24.10.8 and 25.12.6, official x86-64 images in QEMU ([details](adapters/openwrt.md#verified-against-the-real-openwrt))
 
 Generated from the adapter manifests by `tools/gen_docs.py`.
 
