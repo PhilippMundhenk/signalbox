@@ -161,7 +161,7 @@ interface with a default route leads upstream).
 {"values": {
   "lan": {".type": "dhcp", "interface": "lan", "start": "100", "limit": "150",
           "leasetime": "12h", "ignore": "1"},
-  "cfg06fe63": {".type": "host", "name": "printer", "mac": "02:00:00:00:10:01", "ip": "192.0.2.50"}}}
+  "cfg06fe63": {".type": "host", "name": "printer", "mac": "00:00:5e:00:53:01", "ip": "192.0.2.50"}}}
 ```
 
 One DHCP server per `dhcp` section whose interface maps to a segment and has an IPv4 address.

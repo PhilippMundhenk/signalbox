@@ -35,6 +35,9 @@ from fastapi.responses import JSONResponse, Response
 
 NO_SESSION = "0" * 32
 MAC = "02:00:00:00:{:02x}:{:02x}"
+#: Devices with a DHCP reservation keep their real (universally administered) MAC: the
+#: documentation range of RFC 7042, so that `clients.random-mac` stays quiet for them.
+FIXED_MAC = "00:00:5e:00:53:{:02x}"
 #: UCI configs the simulator knows
 CONFIGS = ("network", "wireless", "dhcp")
 
@@ -44,6 +47,10 @@ Sections = dict[str, dict[str, Any]]
 
 def _mac(a: int, b: int) -> str:
     return MAC.format(a, b)
+
+
+def _fixed(n: int) -> str:
+    return FIXED_MAC.format(n)
 
 
 def _uci(*sections: tuple[str, str, dict[str, Any]]) -> dict[str, Any]:
@@ -336,8 +343,8 @@ def dhcp_config(router: bool) -> dict[str, Any]:
             },
         ),
         ("dhcp", "wan", {"interface": "wan", "ignore": "1"}),
-        ("host", "cfg06fe63", {"name": "printer", "mac": _mac(0x10, 1), "ip": "192.0.2.50"}),
-        ("host", "cfg07fe63", {"name": "faraway", "mac": _mac(0x10, 2), "ip": "203.0.113.9"}),
+        ("host", "cfg06fe63", {"name": "printer", "mac": _fixed(1), "ip": "192.0.2.50"}),
+        ("host", "cfg07fe63", {"name": "faraway", "mac": _fixed(2), "ip": "203.0.113.9"}),
     )
 
 

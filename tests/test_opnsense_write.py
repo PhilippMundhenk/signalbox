@@ -333,8 +333,8 @@ async def test_dhcp_refusals(url: str, sim: OpnsenseSimulator) -> None:
         change(
             net,
             ChangeKind.RESERVATION,
-            f"{GUEST}/02:00:00:00:00:30",
-            res("02:00:00:00:00:30", "203.0.113.11"),
+            f"{GUEST}/00:00:5e:00:53:30",
+            res("00:00:5e:00:53:30", "203.0.113.11"),
         ),
         "ISC DHCP",
     )
@@ -356,10 +356,10 @@ async def test_reservations_add_change_remove(url: str, sim: OpnsenseSimulator) 
     move = change(
         net,
         ChangeKind.RESERVATION,
-        f"{LAN}/02:00:00:00:00:10",
-        res("02:00:00:00:00:10", "192.0.2.11"),
+        f"{LAN}/00:00:5e:00:53:10",
+        res("00:00:5e:00:53:10", "192.0.2.11"),
     )
-    drop = change(net, ChangeKind.RESERVATION, f"{IOT}/02:00:00:00:00:20", None)
+    drop = change(net, ChangeKind.RESERVATION, f"{IOT}/00:00:5e:00:53:20", None)
     await apply(url, add, move, drop)
     assert "r-2" not in sim.data[KEA]["dhcpv4"]["reservations"]["reservation"]
     a = adapter(url)
@@ -784,7 +784,7 @@ RES = {"subnet": "s-lan", "ip_address": "192.0.2.50", "hw_address": "02:00:00:00
         (w.KEA_ADD_RES, {"reservation": {**RES, "hw_address": "x"}}, "reservation.hw_address"),
         (
             w.KEA_ADD_RES,
-            {"reservation": {**RES, "hw_address": "02:00:00:00:00:10"}},
+            {"reservation": {**RES, "hw_address": "00:00:5e:00:53:10"}},
             "reservation.hw_address",
         ),
     ],

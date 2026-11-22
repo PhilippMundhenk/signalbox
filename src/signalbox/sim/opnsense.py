@@ -162,13 +162,13 @@ def sample_data() -> dict[str, Any]:
                         "r-1": {
                             "subnet": _opt({"s-lan": ("192.0.2.0/24", True)}),
                             "ip_address": "192.0.2.10",
-                            "hw_address": "02:00:00:00:00:10",
+                            "hw_address": "00:00:5e:00:53:10",
                             "hostname": "printer",
                         },
                         "r-2": {
                             "subnet": _opt({"s-iot": ("198.51.100.0/24", True)}),
                             "ip_address": "198.51.100.20",
-                            "hw_address": "02:00:00:00:00:20",
+                            "hw_address": "00:00:5e:00:53:20",
                             "hostname": "sensor",
                         },
                     }
@@ -204,7 +204,7 @@ def sample_data() -> dict[str, Any]:
                 },
                 {
                     "address": "203.0.113.10",
-                    "mac": "02:00:00:00:00:30",
+                    "mac": "00:00:5e:00:53:30",
                     "hostname": "kiosk",
                     "if": "opt2",
                     "if_descr": "Guest",
@@ -290,7 +290,7 @@ def sample_data() -> dict[str, Any]:
         },
         "/api/diagnostics/interface/getArp": [
             {
-                "mac": "02:00:00:00:00:10",
+                "mac": "00:00:5e:00:53:10",
                 "ip": "192.0.2.10",
                 "intf": "igb0",
                 "expired": False,
@@ -308,13 +308,13 @@ def sample_data() -> dict[str, Any]:
                 "permanent": False,
                 "hostname": "",
             },
-            {"mac": "02:00:00:00:00:20", "ip": "198.51.100.20", "intf": "vlan01", "hostname": ""},
+            {"mac": "00:00:5e:00:53:20", "ip": "198.51.100.20", "intf": "vlan01", "hostname": ""},
             {"mac": "02:00:00:00:01:00", "ip": "192.0.2.1", "intf": "igb0", "permanent": True},
             {"mac": "(incomplete)", "ip": "192.0.2.99", "intf": "igb0"},
         ],
         "/api/diagnostics/interface/getNdp": [
-            {"mac": "02:00:00:00:00:10", "ip": "2001:db8:1::10", "intf": "igb0"},
-            {"mac": "02:00:00:00:00:10", "ip": "fe80::10%igb0", "intf": "igb0"},
+            {"mac": "00:00:5e:00:53:10", "ip": "2001:db8:1::10", "intf": "igb0"},
+            {"mac": "00:00:5e:00:53:10", "ip": "fe80::10%igb0", "intf": "igb0"},
         ],
     }
     return copy.deepcopy(data)
