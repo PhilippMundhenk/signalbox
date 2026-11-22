@@ -40,6 +40,29 @@ export async function renderDevices(main, ctx) {
       { testid: 'devices', rowTestid: 'device-row', rowAttrs: (d) => ({ 'data-id': d.id }) },
     ),
   );
+  const net = await get('/network');
+  if (!ctx.alive(id)) return;
+  const managed = net.devices.filter((d) => d.managed_by);
+  if (managed.length) {
+    const controller = (cid) => (devices.find((x) => x.id === cid) || {}).name || cid;
+    place(main,
+      h('section', { class: 'card' },
+        h('h2', {}, 'Managed through a controller'),
+        h('p', { class: 'muted' }, 'Reported by a controller you added (for example an Omada controller). They need no settings of their own.'),
+        table(
+          [
+            ['Name', (d) => d.name],
+            ['Status', (d) => statusBadge(net.statuses[d.id])],
+            ['Role', (d) => ROLE_TEXT[d.role] || d.role],
+            ['Model', (d) => d.model || ''],
+            ['Controller', (d) => h('a', { href: `#/device/${enc(d.managed_by)}` }, controller(d.managed_by))],
+          ],
+          managed,
+          { testid: 'managed-devices', rowTestid: 'managed-row' },
+        ),
+      ),
+    );
+  }
 }
 
 // The first site, created inline: a device needs one and a fresh install has none.

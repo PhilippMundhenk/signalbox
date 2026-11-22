@@ -160,3 +160,11 @@ undo. The deployment component calls these in order (lock, backup, apply, verify
 restore) and records everything; integrations do not decide on their own to keep or undo a
 change. Declaring `writes` without implementing `WritesConfig` is refused when the adapter is
 constructed.
+
+## Controllers (adapter API 1.1)
+
+An integration that observes a controller (for example Omada) reports the devices it manages in
+`Observation.devices` (ids `<configured device>/<slug>`, role, vendor, model, firmware) and their
+reachability in `Observation.device_status`. Objects of a managed device use its id as
+`device_id` and as the prefix of their own ids. Site, adapter and `managed_by` are filled in by
+Signalbox. See [ADR 0004](adr/0004-controllers-report-several-devices.md).

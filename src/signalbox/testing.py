@@ -29,6 +29,15 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
 
     own = f"{ctx.device_id}/"
     site = f"{ctx.site_id}/segment/"
+    owners = {ctx.device_id, *(d.id for d in snapshot.extra_devices)}
+    for d in snapshot.extra_devices:
+        if not d.id.startswith(own):
+            out.append(f"extra device id {d.id} does not start with {own}")
+        if d.managed_by != ctx.device_id or d.site_id != ctx.site_id:
+            out.append(f"extra device {d.id} has managed_by {d.managed_by}, site {d.site_id}")
+    for key in snapshot.extra_status:
+        if key not in owners:
+            out.append(f"status for unknown device {key}")
     port_ids = {p.id for p in snapshot.ports}
     radio_ids = {r.id for r in snapshot.radios}
     segment_ids = {s.id for s in snapshot.segments}
@@ -37,8 +46,11 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         for obj in getattr(snapshot, kind):
             if not obj.id.startswith(own):
                 out.append(f"{kind} id {obj.id} does not start with {own}")
-            if getattr(obj, "device_id", ctx.device_id) != ctx.device_id:
+            owner = getattr(obj, "device_id", ctx.device_id)
+            if owner not in owners:
                 out.append(f"{kind} {obj.id} has device_id {obj.device_id}")
+            elif not obj.id.startswith(f"{owner}/"):
+                out.append(f"{kind} id {obj.id} does not start with {owner}/")
     for kind in ("clients", "neighbours"):
         for obj in getattr(snapshot, kind):
             if not obj.id.startswith(own):

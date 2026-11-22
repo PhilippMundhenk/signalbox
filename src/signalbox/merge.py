@@ -96,8 +96,12 @@ def merge(
     return Network.model_validate(
         {
             "sites": sorted(sites, key=lambda s: s.id),
-            "devices": [s.device for s in snaps],
-            "statuses": {s.device.id: s.status for s in snaps},
+            "devices": [d for s in snaps for d in (s.device, *s.extra_devices)],
+            "statuses": {
+                d.id: s.extra_status.get(d.id, s.status) if d is not s.device else s.status
+                for s in snaps
+                for d in (s.device, *s.extra_devices)
+            },
             "ports": every("ports"),
             "segments": _merge_segments(snaps),
             "subnets": every("subnets"),

@@ -574,3 +574,23 @@ async def test_simulator_odd_requests(http_url: str) -> None:
         assert r.status_code == 404
     assert create_app() is not None
     assert EAP1 != EAP2
+
+
+async def test_managed_devices_are_reported_as_devices(https_url: str, tls: TlsFiles) -> None:
+    from signalbox.merge import merge
+    from signalbox.model import Site
+
+    a = adapter(https_url, pin=tls.fingerprint)
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    roles = {d.role.value for d in snap.extra_devices}
+    assert {"gateway", "switch", "ap"} <= roles
+    assert all(d.managed_by == snap.device.id for d in snap.extra_devices)
+    owners = {d.id for d in snap.extra_devices}
+    assert {p.device_id for p in snap.ports} <= owners
+    assert {r.device_id for r in snap.radios} <= owners
+    net = merge([Site(id=snap.device.site_id, name="Home")], [snap])
+    assert len(net.devices) == 1 + len(snap.extra_devices)
+    assert all(net.statuses[d.id] == snap.status for d in net.devices)

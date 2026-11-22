@@ -49,7 +49,7 @@ from signalbox.model import (
 
 #: Version of this API. An adapter declares the version it was written for; the major part
 #: must match.
-API_VERSION = "1.0"
+API_VERSION = "1.1"
 
 
 class Capability(StrEnum):
@@ -205,6 +205,11 @@ class Observation(BaseModel):
     wlans: list[Wlan] = Field(default_factory=list)
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
+    #: Devices managed through the observed one (API 1.1). Ids must start with
+    #: ``<device id>/``; site, adapter and ``managed_by`` are filled in by ``observe()``.
+    devices: list[Device] = Field(default_factory=list)
+    #: Reachability of those devices as the controller reports it.
+    device_status: dict[str, DeviceStatus] = Field(default_factory=dict)
 
 
 @runtime_checkable
@@ -337,11 +342,36 @@ class Adapter(ABC):
             **info.model_dump(exclude_none=True, exclude={"firmware"}),
             firmware=info.firmware,
         )
-        lists: dict[str, list[Any]] = {name: [] for name in Observation.model_fields}
+        skip = {"devices", "device_status"}
+        lists: dict[str, list[Any]] = {n: [] for n in Observation.model_fields if n not in skip}
+        extra: dict[str, Device] = {}
+        extra_status: dict[str, DeviceStatus] = {}
         for obs in reads:
             for name in lists:
                 lists[name].extend(_stamp(o, source, now) for o in getattr(obs, name))
-        return Snapshot(device=device, observed_at=now, status=status, errors=errors, **lists)
+            for d in obs.devices:
+                extra.setdefault(
+                    d.id,
+                    d.model_copy(
+                        update={
+                            "site_id": ctx.site_id,
+                            "adapter": self.manifest.id,
+                            "managed_by": ctx.device_id,
+                            "source": source,
+                            "observed_at": now,
+                        }
+                    ),
+                )
+            extra_status.update(obs.device_status)
+        return Snapshot(
+            device=device,
+            observed_at=now,
+            status=status,
+            errors=errors,
+            extra_devices=sorted(extra.values(), key=lambda d: d.id),
+            extra_status={k: v for k, v in extra_status.items() if k in extra},
+            **lists,
+        )
 
     def _error(self, capability: str, exc: BaseException) -> ReadError:
         message = str(exc) or type(exc).__name__

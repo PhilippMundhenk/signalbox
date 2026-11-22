@@ -27,27 +27,16 @@ SSIDs, and the clients. Read only; every request except the token request is a `
 > missing field is left empty, unknown fields are ignored, and an answer of the wrong shape
 > becomes a readable "could not read" finding (`unexpected answer from <endpoint>: ...`).
 
-## One Signalbox device for the whole site (limitation)
+## The controller and the devices it manages
 
-An Omada controller manages many devices, but a Signalbox adapter instance reports one device.
-Until the model can carry several devices per observation
-([#46](https://github.com/PhilippMundhenk/signalbox/issues/46)), the adapter works like this:
-
-- The Signalbox device you add with adapter `omada` stands for the controller's **site**. Its
-  device is the controller itself (give it the role `other`); vendor `TP-Link`, model `Omada
-  Controller`, firmware the controller version.
-- The ports, radios, WLANs, subnets and DHCP servers of the managed devices all belong to this
-  one Signalbox device. Their ids carry the configured device id and a slug of the managed
-  device, `<type>-<mac>`: `omada1/switch-020000000b01/port/3`,
-  `omada1/eap-020000000c01/radio/5g`, `omada1/eap-020000000c01/wlan/<ssidId>-2g`,
-  `omada1/gateway-020000000a01/subnet/<networkId>`.
-- Each of these objects has the managed device's identity in `vendor_extra["omada_device"]`:
-  `name`, `model`, `mac`, `firmware`, `type` (`gateway`, `switch`, `eap`). The UI shows it on
-  the advanced tab; rules do not read it. Port names start with the switch name
-  (`Switch Port3`), radio names with the EAP name (`AP 1 5 GHz`).
-
-So the device list and the topology show the controller, not the individual EAPs and switches,
-and rules that compare devices (firmware, channels between access points) see one device.
+The Signalbox device you add with adapter `omada` stands for the controller's **site** (give it
+the role `other`): vendor `TP-Link`, model `Omada Controller`, firmware the controller version.
+The gateway, switches and access points the controller manages are reported as devices of their
+own (adapter API 1.1, [ADR 0004](../adr/0004-controllers-report-several-devices.md)), with ids
+`<configured device>/<type>-<mac>`, for example `omada1/switch-020000000b01`, and their ports,
+radios, WLANs, subnets and DHCP servers belong to them: `omada1/switch-020000000b01/port/3`,
+`omada1/eap-020000000c01/radio/5g`. They appear under *Devices*, *Managed through a
+controller*, in the topology and in every rule; they need no settings of their own.
 
 ## Setup
 

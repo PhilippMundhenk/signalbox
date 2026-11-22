@@ -319,3 +319,43 @@ def test_load_adapters_rejects_other_api_major(monkeypatch: pytest.MonkeyPatch) 
 def test_manifest_id_pattern() -> None:
     with pytest.raises(ValueError):
         Fake.manifest.model_validate({**Fake.manifest.model_dump(), "id": "Bad Id"})
+
+
+async def test_extra_devices_are_stamped_and_checked() -> None:
+    from signalbox.model import Device
+
+    class Controller(Fake):
+        async def read_interfaces(self) -> Observation:
+            base = await super().read_interfaces()
+            d = self.context.device_id
+            managed = Device(
+                id=f"{d}/sw1", site_id="x", name="Switch 1", role=DeviceRole.SWITCH, adapter="x"
+            )
+            return base.model_copy(
+                update={
+                    "devices": [managed, managed],
+                    "device_status": {
+                        f"{d}/sw1": DeviceStatus.UNREACHABLE,
+                        "other": DeviceStatus.OK,
+                    },
+                    "ports": [*base.ports, port(f"{d}/sw1", "1")],
+                }
+            )
+
+    a = Controller(ctx())
+    snap = await assert_contract(a)
+    (sw,) = snap.extra_devices
+    assert sw.managed_by == "ap1" and sw.site_id == "home" and sw.adapter == "fake"
+    assert snap.extra_status == {"ap1/sw1": DeviceStatus.UNREACHABLE}
+    bad = snap.model_copy(
+        update={
+            "extra_devices": [sw.model_copy(update={"id": "elsewhere", "managed_by": None})],
+            "extra_status": {"ghost": DeviceStatus.OK},
+            "ports": [*snap.ports, port("ap1/sw1", "9").model_copy(update={"id": "ap1/x"})],
+        }
+    )
+    text = "\n".join(problems(a, bad))
+    assert "extra device id elsewhere" in text
+    assert "has managed_by None" in text
+    assert "status for unknown device ghost" in text
+    assert "ports ap1/port/1" in text or "has device_id ap1/sw1" in text

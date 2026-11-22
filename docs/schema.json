@@ -154,6 +154,18 @@
           "title": "Id",
           "type": "string"
         },
+        "managed_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Managed By"
+        },
         "management_address": {
           "anyOf": [
             {
@@ -1352,6 +1364,20 @@
           },
           "title": "Errors",
           "type": "array"
+        },
+        "extra_devices": {
+          "items": {
+            "$ref": "#/$defs/Device"
+          },
+          "title": "Extra Devices",
+          "type": "array"
+        },
+        "extra_status": {
+          "additionalProperties": {
+            "$ref": "#/$defs/DeviceStatus"
+          },
+          "title": "Extra Status",
+          "type": "object"
         },
         "neighbours": {
           "items": {

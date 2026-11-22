@@ -125,8 +125,13 @@ class Deployer:
             out[name] = value
         return out
 
+    def owner(self, device_id: str) -> str:
+        """The configured device that reaches ``device_id`` (itself, or its controller)."""
+        dev = self.runner.network().device(device_id)
+        return dev.managed_by if dev is not None and dev.managed_by else device_id
+
     def adapter(self, device_id: str) -> Adapter:
-        rec = self.store.device(device_id)
+        rec = self.store.device(self.owner(device_id))
         if rec is None:
             raise DeployError(f"device {device_id} is not configured")
         cls = self.runner.adapters.get(rec.adapter)
@@ -144,7 +149,7 @@ class Deployer:
         return cls(ctx)
 
     def _writable(self, device_id: str, kinds: set[ChangeKind]) -> None:
-        rec = self.store.device(device_id)
+        rec = self.store.device(self.owner(device_id))
         if rec is None:
             raise DeployError(f"device {device_id} is not configured")
         if not rec.allow_writes:
@@ -236,7 +241,7 @@ class Deployer:
     # deployment ---------------------------------------------------------------------------
 
     async def _observe(self, device_id: str) -> Snapshot:
-        rec = self.store.device(device_id)
+        rec = self.store.device(self.owner(device_id))
         assert rec is not None
         return await self.runner.observe_device(rec)
 
@@ -261,7 +266,7 @@ class Deployer:
             if failed:
                 result.status = DeviceStatus.SKIPPED
                 continue
-            lock = self.locks.setdefault(dev, asyncio.Lock())
+            lock = self.locks.setdefault(self.owner(dev), asyncio.Lock())
             async with lock:
                 ok = await self._deploy_device(rec, dev, secrets)
             self._save(rec)

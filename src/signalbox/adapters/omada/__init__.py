@@ -45,6 +45,7 @@ from signalbox.adapters.https import DeviceHttp, NotFound
 from signalbox.model import (
     Band,
     Client,
+    Device,
     DeviceRole,
     DhcpPool,
     DhcpServer,
@@ -212,6 +213,9 @@ def _check(data: Any, path: str) -> Any:
 
 
 # --- what the controller manages -------------------------------------------------------------
+
+
+ROLES = {"gateway": DeviceRole.GATEWAY, "switch": DeviceRole.SWITCH, "eap": DeviceRole.AP}
 
 
 @dataclass(frozen=True)
@@ -496,7 +500,7 @@ class OmadaAdapter(_Adapter):
                 ports.append(
                     Port(
                         id=pid,
-                        device_id=dev,
+                        device_id=self._prefix(sw),
                         name=f"{sw.name} {_text(row.get('name')) or f'Port{number}'}",
                         up=None if link is None else link == 1,
                         speed_mbps=None if link == 0 else LINK_SPEEDS.get(speed or 0),
@@ -549,12 +553,26 @@ class OmadaAdapter(_Adapter):
                     id=f"{owner}/subnet/{n.id}",
                     segment_id=n.segment,
                     interface=iface,
-                    device_id=dev,
+                    device_id=self._prefix(gateway) if gateway else dev,
                     gateway=True,
                     vendor_extra=gateway.extra(network=n.name) if gateway else {"network": n.name},
                 )
             )
-        return Observation(ports=ports, segments=segs, subnets=subnets)
+        managed = [
+            Device(
+                id=self._prefix(d),
+                site_id=site,
+                name=d.name,
+                role=ROLES.get(d.kind, DeviceRole.OTHER),
+                vendor="TP-Link",
+                model=d.model,
+                firmware=Firmware(current=d.firmware) if d.firmware else None,
+                adapter=self.manifest.id,
+                vendor_extra={"omada_device": d.identity()},
+            )
+            for d in await self._devices()
+        ]
+        return Observation(ports=ports, segments=segs, subnets=subnets, devices=managed)
 
     # --- DHCP ---------------------------------------------------------------------------------
 
@@ -581,7 +599,7 @@ class OmadaAdapter(_Adapter):
             servers.append(
                 DhcpServer(
                     id=f"{owner}/dhcp/{n.id}",
-                    device_id=dev,
+                    device_id=self._prefix(gateway) if gateway else dev,
                     segment_id=n.segment,
                     enabled=_flag(dhcp.get("enable")),
                     pools=pools,
@@ -613,7 +631,7 @@ class OmadaAdapter(_Adapter):
     async def _wireless(self) -> _Wireless:
         if self._wireless_cache is not None:
             return self._wireless_cache
-        dev, site = self.context.device_id, self.context.site_id
+        site = self.context.site_id
         out = _Wireless()
         nets = await self._networks()
         vlans = {n.vlan or 1 for n in nets.values()}
@@ -644,7 +662,7 @@ class OmadaAdapter(_Adapter):
                 channel = _int(cfg.get("channel"))
                 radios[key] = Radio(
                     id=f"{self._prefix(ap)}/radio/{short}",
-                    device_id=dev,
+                    device_id=self._prefix(ap),
                     name=f"{ap.name} {band.value} GHz" + (" (2)" if key.endswith("5g2") else ""),
                     band=band,
                     channel=channel or None,
@@ -674,7 +692,7 @@ class OmadaAdapter(_Adapter):
                         out.wlans.append(
                             Wlan(
                                 id=wid,
-                                device_id=dev,
+                                device_id=self._prefix(ap),
                                 ssid=name,
                                 radio_id=radio.id,
                                 enabled=radio.enabled and _flag(s.get("enable"), default=True),

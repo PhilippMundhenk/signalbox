@@ -294,3 +294,18 @@ async def test_matches_handles_wlan_passphrase_and_missing_port(svc: Services) -
     assert not matches(net, wlan, wlan.new, {"psk": "the new passphrase"})
     port = next(c for c in rec.plan.changes if c.kind.value == "port")
     assert not matches(net, port, None, {})
+
+
+async def test_changes_on_a_managed_device_go_through_its_controller(svc: Services) -> None:
+    await svc.runner.observe_all()
+    d = Deployer(svc.runner)
+    assert d.owner("gw") == "gw" and d.owner("unknown") == "unknown"
+    from signalbox.model import Device
+
+    managed = Device(
+        id="gw/eap1", site_id="home", name="EAP", role=DeviceRole.AP, adapter="w", managed_by="gw"
+    )
+    net = svc.runner.network()
+    svc.runner.network = lambda: net.model_copy(update={"devices": [*net.devices, managed]})  # type: ignore[method-assign]
+    assert d.owner("gw/eap1") == "gw"
+    assert d.adapter("gw/eap1").context.device_id == "gw"

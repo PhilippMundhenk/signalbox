@@ -114,6 +114,8 @@ class Device(Observed):
     management_address: str | None = None
     adapter: str
     capabilities: list[str] = Field(default_factory=list)
+    #: Set for a device reported through a controller (the configured device that observed it).
+    managed_by: str | None = None
 
 
 class PortKind(StrEnum):
@@ -320,6 +322,11 @@ class Snapshot(Model):
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
     errors: list[ReadError] = Field(default_factory=list)
+    #: Devices reported through this one (a controller's managed devices). Their ids start with
+    #: ``<device id>/`` and their ``managed_by`` is the observed device.
+    extra_devices: list[Device] = Field(default_factory=list)
+    #: Status per extra device, when the controller knows it (default: the snapshot's status).
+    extra_status: dict[str, DeviceStatus] = Field(default_factory=dict)
 
 
 class Network(Model):
