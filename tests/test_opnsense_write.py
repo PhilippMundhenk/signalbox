@@ -250,11 +250,17 @@ async def test_router_refusals(url: str, sim: OpnsenseSimulator) -> None:
         change(net, ChangeKind.ROUTER, NEW, router(60, "203.0.113.1/24", "X")),
         "no LAN port",
     )
+    sim.assignment_api = "26.7"
+    await refused(
+        url,
+        change(net, ChangeKind.ROUTER, IOT, router(20, "198.51.100.1/24", "IoT")),
+        "26.7.6 or newer",
+    )
     sim.fail[w.ASSIGN_SEARCH] = 404
     await refused(
         url,
         change(net, ChangeKind.ROUTER, IOT, router(20, "198.51.100.1/24", "IoT")),
-        "26.7 or newer",
+        "26.7.6 or newer",
     )
 
 
@@ -722,7 +728,7 @@ async def test_deployment_applies_and_reverts(
 
 
 async def test_failure_after_apply_restores_the_backup(
-    svc: Services, sim: OpnsenseSimulator
+    svc: Services, sim: OpnsenseSimulator, url: str
 ) -> None:
     before = sim.state()
     sim.invalid[w.KEA_ADD_RES] = {"reservation.hw_address": "Duplicate entry exists."}
@@ -734,6 +740,10 @@ async def test_failure_after_apply_restores_the_backup(
     assert rec.devices[0].status is DeviceStatus.ROLLED_BACK
     assert sim.state() == before
     assert any(p.startswith(w.REVERT) for p, _ in sim.posts)
+    # as on OPNsense 26.7: the reverted VLAN device stays until a reboot, it is not a port
+    assert [r["device"] for r in sim.leftovers] == ["vlan0.60"]
+    net = await network(url)
+    assert "fw/port/vlan0.60" not in {p.id for p in net.ports}
 
 
 async def test_backup_object_is_plain_text(url: str) -> None:

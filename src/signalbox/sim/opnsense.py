@@ -405,6 +405,8 @@ class _Writes:
     data: dict[str, Any]
     history: list[tuple[str, str, str]]
     pending: list[tuple[str, str, dict[str, Any]]]
+    leftovers: list[dict[str, Any]]
+    assignment_api: str
     locked: set[str]
     posts: list[tuple[str, Any]]
 
@@ -448,8 +450,30 @@ class _Writes:
         found = next((x for r, _, x in self.history if r == rid), None)
         if found is None:
             return {"status": "not_found"}
+        before = {r["vlanif"]: r for r in self._rows(VLANS)} if VLANS in self.data else {}
         self.data.update(copy.deepcopy(from_xml(found)))
         self.pending.clear()
+        if VLANS in self.data and INTERFACES in self.data:
+            # as on OPNsense: the revert changes config.xml, the VLAN reconfigure only creates
+            # devices; one that is gone from the configuration stays until a reboot
+            kept = {r["vlanif"] for r in self._rows(VLANS)}
+            rows = self._rows(INTERFACES)
+            present = {r.get("device") for r in [*rows, *self.leftovers]}
+            for name, vlan in before.items():
+                if name not in kept and name not in present:
+                    parent = next((r for r in rows if r.get("device") == vlan["if"]), {})
+                    self.leftovers.append(
+                        {
+                            "device": name,
+                            "identifier": "",
+                            "description": "Unassigned Interface",
+                            "is_physical": False,
+                            "status": "up",
+                            "macaddr": parent.get("macaddr", ""),
+                            "ipv4": [],
+                            "ipv6": [],
+                        }
+                    )
         self.save(f"reverted to {rid}")
         return {"status": "reverted"}
 
@@ -603,10 +627,27 @@ class _Writes:
         return out
 
     def _interfaces_assignment_search_item(self, *_: Any) -> Any:
-        rows = [
-            {"identifier": k, "if": r["device"], "descr": r.get("description", "")}
-            for k, r in self._assigned().items()
-        ]
+        rows = []
+        for k, r in self._assigned().items():
+            v4 = next((a["ipaddr"] for a in r.get("ipv4", []) if isinstance(a, dict)), "")
+            v6 = [a["ipaddr"] for a in r.get("ipv6", []) if isinstance(a, dict)]
+            v6 = [a for a in v6 if not a.lower().startswith("fe80")]
+            rows.append(
+                {
+                    "uuid": k,
+                    "identifier": k,
+                    "if": r["device"],
+                    "descr": r.get("description", ""),
+                    "lock": "1" if k in self.locked else "0",
+                    "enable": "1",
+                    "type4": "staticv4" if v4 else "",
+                    "ipaddr": v4,
+                    "type6": "staticv6" if v6 else "",
+                    "ipaddrv6": v6[0] if v6 else "",
+                }
+            )
+        if self.assignment_api == "26.7":  # before 26.7.6: no address fields
+            rows = [{k: r[k] for k in ("uuid", "identifier", "if", "descr", "lock")} for r in rows]
         return {"rows": rows, "total": len(rows), "current": 1, "rowCount": len(rows)}
 
     def _interfaces_assignment_add_item(self, body: dict[str, Any], *_: Any) -> Any:
@@ -837,6 +878,10 @@ class OpnsenseSimulator(_Writes):
     history: list[tuple[str, str, str]] = field(default_factory=list)
     #: Interface assignment changes waiting for ``reconfigure``.
     pending: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
+    #: Devices left in the "kernel" by a revert (overview rows that are not configuration).
+    leftovers: list[dict[str, Any]] = field(default_factory=list)
+    #: "26.7.6": assignment rows with addresses; "26.7": only device, description, lock.
+    assignment_api: str = "26.7.6"
     #: Assigned interfaces that are locked against removal.
     locked: set[str] = field(default_factory=set)
     #: Write requests received: (path, body).
@@ -896,6 +941,10 @@ class OpnsenseSimulator(_Writes):
                 return Response('{"rows": [', media_type="application/json")
             if path == VLANS:
                 return JSONResponse(self._vlan_list())
+            if path == INTERFACES and self.leftovers and isinstance(self.data[path], dict):
+                overview = copy.deepcopy(self.data[path])
+                overview["rows"] = [*overview.get("rows", []), *copy.deepcopy(self.leftovers)]
+                return JSONResponse(overview)
             if path in (KEA, *grids):
                 return JSONResponse(self._kea_answer(path))
             return JSONResponse(self.data[path])
