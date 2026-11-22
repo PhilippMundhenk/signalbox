@@ -43,6 +43,12 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | GET | `/api/secrets` | Names of stored secrets (values are never returned). |
 | PUT | `/api/secrets/{name}` | Store a secret (encrypted), e.g. a Wi-Fi passphrase named in the desired state. |
 | DELETE | `/api/secrets/{name}` | Delete a secret. |
+| GET | `/api/annotations` | Annotations and acknowledgements in effect, declared and stored (with `source`). |
+| GET | `/api/annotations/export` | The annotations and acknowledgements set in the UI as desired-state YAML. |
+| PUT | `/api/annotations/{target}` | Set the label, purpose, owner, notes, tags and expectations of an object. |
+| DELETE | `/api/annotations/{target}` | Remove the annotation of an object set in the UI. |
+| POST | `/api/findings/{finding_id}/acknowledge` | Acknowledge a current finding (or every finding of its rule about one object). |
+| DELETE | `/api/acknowledgements/{ack_id}` | Remove an acknowledgement set in the UI: the finding counts as a problem again. |
 | GET | `/api/changes` | The change log, newest first, and whether deploying is enabled. |
 | POST | `/api/changes` | Plan the desired state and record it as a change waiting for approval. |
 | GET | `/api/changes/{change_id}` | One change with its plan, per-device results and event log. |

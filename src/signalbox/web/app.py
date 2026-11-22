@@ -32,11 +32,12 @@ from signalbox.model import (
     Snapshot,
 )
 from signalbox.mqtt import MqttBridge
-from signalbox.rules import READ_ERRORS, rule_enabled
+from signalbox.rules import ENGINE_RULES, rule_enabled
 from signalbox.secrets import SecretError
 from signalbox.service import Services
 from signalbox.sightings import History
 from signalbox.store import DeviceRecord, StoreError, slug
+from signalbox.web.annotations_api import router as annotations_router
 from signalbox.web.auth import COOKIE, Auth, Locked
 from signalbox.web.changes_api import router as changes_router
 from signalbox.web.desired_api import router as desired_router
@@ -303,7 +304,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     def rules() -> list[dict[str, Any]]:
         """All rules with explanation, severity and whether they are enabled."""
         out = []
-        for r in [READ_ERRORS, *services.rules]:
+        for r in [*ENGINE_RULES, *services.rules]:
             s = config.rules.get(r.id)
             out.append(
                 {
@@ -543,6 +544,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
 
     app.include_router(api)
     app.include_router(desired_router(services))
+    app.include_router(annotations_router(services))
     app.include_router(changes_router(services, Deployer(runner)))
     app.include_router(discovery_router(discovery))
     if STATIC.is_dir():

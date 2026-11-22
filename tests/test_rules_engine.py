@@ -123,7 +123,7 @@ def _eps(monkeypatch: pytest.MonkeyPatch, *targets: object) -> None:
 def test_load_rules(monkeypatch: pytest.MonkeyPatch) -> None:
     _eps(monkeypatch, [every_device], boom)
     assert [r.id for r in load_rules()] == ["test.boom", "test.devices"]
-    assert list(engine.all_rule_ids([boom])) == ["signalbox.read", "test.boom"]
+    assert list(engine.all_rule_ids([boom])) == ["signalbox.read", "ack.expired", "test.boom"]
 
 
 def test_load_rules_rejects(monkeypatch: pytest.MonkeyPatch) -> None:

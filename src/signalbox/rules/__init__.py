@@ -23,12 +23,13 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
 from importlib.metadata import entry_points
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from signalbox.model import DeviceStatus, Network
+from signalbox.model import Acknowledgement, AnnotationSource, DeviceStatus, Network
 from signalbox.sightings import History
 
 
@@ -54,6 +55,14 @@ class Finding(BaseModel):
     fix: str | None = None
     #: True when the rule could not check something (missing data), not a confirmed problem.
     incomplete: bool = False
+    #: The user's acknowledgement that covers this finding (#186): it is shown apart and not
+    #: counted as a problem (start page, MQTT, plan approval). None: not acknowledged.
+    acknowledged: Acknowledgement | None = None
+
+    @property
+    def problem(self) -> bool:
+        """A confirmed, open problem: neither incomplete nor acknowledged."""
+        return not self.incomplete and self.acknowledged is None
 
 
 @dataclass(frozen=True)
@@ -181,6 +190,48 @@ _STATUS_FIX = {
 }
 
 
+ACK_EXPIRED = Rule(
+    "ack.expired",
+    "Acknowledgement expired",
+    Severity.INFO,
+    "An acknowledgement of a finding has passed its end date, so the finding counts as a "
+    "problem again if it still exists. Renew the acknowledgement or remove it.",
+    lambda net: (),
+)
+
+#: Rules the engine produces itself (not discovered through entry points).
+ENGINE_RULES = (READ_ERRORS, ACK_EXPIRED)
+
+
+def _expired_findings(net: Network, now: datetime, severity: Severity) -> list[Finding]:
+    out = []
+    for ack in net.acknowledgements:
+        if ack.until is None or ack.active(now):
+            continue
+        what = f" for {ack.target}" if ack.target else ""
+        why = f" (reason: {ack.reason})" if ack.reason else ""
+        message = f"The acknowledgement of {ack.rule_id}{what} expired on {ack.until:%Y-%m-%d}{why}"
+        where = (
+            "remove the entry from the desired state"
+            if ack.source is AnnotationSource.DECLARED
+            else "remove the acknowledgement under Findings"
+        )
+        fix = f"Acknowledge the finding again if it is still accepted, or fix it; then {where}."
+        res = Result(message, (ack.target,) if ack.target else (), fix, None, False, ack.id)
+        out.append(_finding(ACK_EXPIRED, res, severity))
+    return out
+
+
+def acknowledge(findings: Iterable[Finding], net: Network, now: datetime) -> list[Finding]:
+    """The findings with the network's acknowledgements that are active at ``now`` applied."""
+    active = [a for a in net.acknowledgements if a.active(now)]
+    out = []
+    for f in findings:
+        ack = next((a for a in active if a.matches(f.rule_id, f.id, f.objects, f.message)), None)
+        out.append(f if ack is None else f.model_copy(update={"acknowledged": ack}))
+    return out
+
+
 def _read_findings(net: Network, severity: Severity) -> list[Finding]:
     out = []
     for err in net.errors:
@@ -212,14 +263,17 @@ def evaluate(
     rules: Iterable[Rule],
     settings: Mapping[str, RuleSettings] | None = None,
     history: History | None = None,
+    now: datetime | None = None,
 ) -> list[Finding]:
     """Run every enabled rule. A rule that crashes becomes an error finding, never a silent gap.
 
     ``history`` reaches the rules made with :func:`history_rule`; without it they see an empty
-    history (the desired or predicted state).
+    history (the desired or predicted state). The network's acknowledgements are applied as of
+    ``now`` (default: the history's time, else the clock); expired ones become ``ack.expired``.
     """
     settings = settings or {}
     past = history or History.empty()
+    when = now or past.now or datetime.now(UTC)
 
     def severity_of(r: Rule) -> Severity:
         s = settings.get(r.id)
@@ -231,6 +285,9 @@ def evaluate(
     findings: dict[str, Finding] = {}
     if enabled(READ_ERRORS):
         for f in _read_findings(net, severity_of(READ_ERRORS)):
+            findings[f.id] = f
+    if enabled(ACK_EXPIRED):
+        for f in _expired_findings(net, when, severity_of(ACK_EXPIRED)):
             findings[f.id] = f
     for r in rules:
         if not enabled(r):
@@ -245,7 +302,8 @@ def evaluate(
             f = _finding(r, res, severity_of(r))
             findings.setdefault(f.id, f)
     return sorted(
-        findings.values(), key=lambda f: (SEVERITY_ORDER[f.severity], f.rule_id, f.message)
+        acknowledge(findings.values(), net, when),
+        key=lambda f: (SEVERITY_ORDER[f.severity], f.rule_id, f.message),
     )
 
 
@@ -258,12 +316,12 @@ def load_rules(group: str = "signalbox.rules") -> list[Rule]:
         for item in items:
             if not isinstance(item, Rule):
                 raise TypeError(f"entry point {ep.name}: {item!r} is not a Rule")
-            if item.id in out or item.id == READ_ERRORS.id:
+            if item.id in out or any(item.id == e.id for e in ENGINE_RULES):
                 raise ValueError(f"two rules with id {item.id}")
             out[item.id] = item
     return sorted(out.values(), key=lambda r: r.id)
 
 
 def all_rule_ids(rules: Iterable[Rule]) -> Iterator[str]:
-    yield READ_ERRORS.id
+    yield from (r.id for r in ENGINE_RULES)
     yield from (r.id for r in rules)

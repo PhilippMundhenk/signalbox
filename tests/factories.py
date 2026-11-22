@@ -7,11 +7,14 @@ from ipaddress import ip_address, ip_interface, ip_network
 from typing import Any
 
 from signalbox.model import (
+    Acknowledgement,
+    Annotation,
     Device,
     DeviceHealth,
     DeviceRole,
     DeviceTime,
     Fan,
+    Network,
     NtpClient,
     NtpServer,
     Port,
@@ -175,3 +178,30 @@ def ip(text: str) -> Any:
 
 def iface(text: str) -> Any:
     return ip_interface(text)
+
+
+def annotation(target: str, **kw: Any) -> Annotation:
+    """A user annotation (#186); expectations go into ``expected``, for example
+    ``annotation("client/02:00:00:00:00:44", label="printer", expected={"static_address": True})``.
+    """
+    return Annotation(target=target, **kw)
+
+
+def acknowledgement(rule_id: str, target: str | None = None, **kw: Any) -> Acknowledgement:
+    """An acknowledgement of every finding of ``rule_id`` that names ``target`` (or of one
+    finding: ``finding_id=...``), made at ``T0`` unless ``at`` is given."""
+    kw.setdefault("id", f"ack-{rule_id}-{target or kw.get('finding_id')}")
+    kw.setdefault("at", T0)
+    return Acknowledgement(rule_id=rule_id, target=target, **kw)
+
+
+def annotated(net: Network, *items: Annotation | Acknowledgement) -> Network:
+    """The network with these annotations and acknowledgements added (as the runner does)."""
+    notes = [i for i in items if isinstance(i, Annotation)]
+    acks = [i for i in items if isinstance(i, Acknowledgement)]
+    return net.model_copy(
+        update={
+            "annotations": [*net.annotations, *notes],
+            "acknowledgements": [*net.acknowledgements, *acks],
+        }
+    )

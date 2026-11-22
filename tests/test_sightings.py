@@ -103,7 +103,7 @@ def test_migration_from_schema_2_keeps_data(tmp_path: Path) -> None:
     db.close()
     s = Store(path, load_vault(tmp_path, env={}))
     try:
-        assert s._db.execute("PRAGMA user_version").fetchone()[0] == len(SCHEMA) == 3
+        assert s._db.execute("PRAGMA user_version").fetchone()[0] == len(SCHEMA) == 4
         assert s.sites() == [SITE]
         assert s.history(T0, 30) == History(now=T0, days=30)
         s.record_history(net_of(gateway()), T0)

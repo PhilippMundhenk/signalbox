@@ -17,7 +17,17 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from signalbox.adapters import AdapterConfig, Backup
 from signalbox.history import BackupInfo, ChangeEvent, ChangeRecord
-from signalbox.model import DeviceRole, DeviceStatus, Link, Network, Site, Snapshot
+from signalbox.model import (
+    Acknowledgement,
+    Annotation,
+    AnnotationSource,
+    DeviceRole,
+    DeviceStatus,
+    Link,
+    Network,
+    Site,
+    Snapshot,
+)
 from signalbox.rules import Finding
 from signalbox.secrets import SecretError, Vault
 from signalbox.sightings import (
@@ -115,6 +125,11 @@ SCHEMA = [
         new TEXT NOT NULL
     );
     CREATE INDEX sighting_changes_at ON sighting_changes (at);
+    """,
+    # version 4: annotations and acknowledged findings set in the UI (#186)
+    """
+    CREATE TABLE annotations (target TEXT PRIMARY KEY, data TEXT NOT NULL);
+    CREATE TABLE acknowledgements (id TEXT PRIMARY KEY, data TEXT NOT NULL);
     """,
 ]
 
@@ -562,6 +577,47 @@ class Store:
             )
             for r in rows
         ]
+
+    # annotations and acknowledgements set in the UI (#186) ------------------------------
+    # Declared ones live in the desired state; these are the database's (source "stored").
+
+    def annotations(self) -> list[Annotation]:
+        rows = self._all("SELECT data FROM annotations ORDER BY target")
+        return [Annotation.model_validate_json(r["data"]) for r in rows]
+
+    def annotation(self, target: str) -> Annotation | None:
+        row = self._one("SELECT data FROM annotations WHERE target = ?", (target,))
+        return Annotation.model_validate_json(row["data"]) if row else None
+
+    def put_annotation(self, annotation: Annotation) -> None:
+        stored = annotation.model_copy(update={"source": AnnotationSource.STORED})
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO annotations (target, data) VALUES (?, ?) "
+                "ON CONFLICT(target) DO UPDATE SET data = excluded.data",
+                (stored.target, stored.model_dump_json()),
+            )
+
+    def delete_annotation(self, target: str) -> bool:
+        with self._tx() as db:
+            return db.execute("DELETE FROM annotations WHERE target = ?", (target,)).rowcount > 0
+
+    def acknowledgements(self) -> list[Acknowledgement]:
+        rows = self._all("SELECT data FROM acknowledgements ORDER BY id")
+        return [Acknowledgement.model_validate_json(r["data"]) for r in rows]
+
+    def put_acknowledgement(self, ack: Acknowledgement) -> None:
+        stored = ack.model_copy(update={"source": AnnotationSource.STORED})
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO acknowledgements (id, data) VALUES (?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET data = excluded.data",
+                (stored.id, stored.model_dump_json()),
+            )
+
+    def delete_acknowledgement(self, ack_id: str) -> bool:
+        with self._tx() as db:
+            return db.execute("DELETE FROM acknowledgements WHERE id = ?", (ack_id,)).rowcount > 0
 
     # change tracking (append-only) ------------------------------------------------------
 

@@ -665,7 +665,7 @@ class Plan(BaseModel):
 
     @property
     def blocking(self) -> list[Finding]:
-        return [f for f in self.new_findings if f.severity is Severity.ERROR and not f.incomplete]
+        return [f for f in self.new_findings if f.severity is Severity.ERROR and f.problem]
 
     def devices(self) -> list[str]:
         return list(dict.fromkeys(c.device_id for c in self.changes))

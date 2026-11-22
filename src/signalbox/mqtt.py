@@ -3,7 +3,8 @@
 Active when ``mqtt.enabled`` is true. Every observation round publishes:
 
 - ``<prefix>/status``: ``online`` / ``offline`` (last will), availability of everything
-- ``<prefix>/site/<site>/state``: findings per severity for one site
+- ``<prefix>/site/<site>/state``: findings per severity for one site; acknowledged findings
+  (#186) are counted apart and never switch the problem sensor on
 - ``<prefix>/device/<device>/state``: status, firmware, clients and findings of one device, and
   its health (uptime, CPU, memory, temperature) where the device reports it, and for a
   gateway with uplinks whether it is online and its NAT class (never its addresses)
@@ -46,12 +47,13 @@ def site_state(net: Network, findings: list[Finding], site_id: str) -> dict[str,
     mine = [
         f for f in findings if not f.objects or any(o.split("/")[0] in devices for o in f.objects)
     ]
-    sev = Counter(f.severity.value for f in mine if not f.incomplete)
+    sev = Counter(f.severity.value for f in mine if f.problem)
     return {
         "errors": sev.get(Severity.ERROR.value, 0),
         "warnings": sev.get(Severity.WARNING.value, 0),
         "info": sev.get(Severity.INFO.value, 0),
-        "incomplete": sum(1 for f in mine if f.incomplete),
+        "incomplete": sum(1 for f in mine if f.incomplete and f.acknowledged is None),
+        "acknowledged": sum(1 for f in mine if f.acknowledged is not None),
         "problem": "ON" if sev.get(Severity.ERROR.value, 0) else "OFF",
         "devices": len(devices),
         "unreachable": sum(
@@ -110,7 +112,7 @@ def device_state(net: Network, findings: list[Finding], device_id: str) -> dict[
     mine = [
         f
         for f in findings
-        if not f.incomplete and any(o == device_id or o.startswith(prefix) for o in f.objects)
+        if f.problem and any(o == device_id or o.startswith(prefix) for o in f.objects)
     ]
     clients = [c for c in net.clients if (c.seen_on or "").startswith(prefix)]
     return {
@@ -180,6 +182,7 @@ class Discovery:
                 ("errors", "Errors"),
                 ("warnings", "Warnings"),
                 ("incomplete", "Not checked"),
+                ("acknowledged", "Acknowledged"),
             ):
                 out[f"{self.discovery}/sensor/{node}/{key}/config"] = self._entity(
                     node,
