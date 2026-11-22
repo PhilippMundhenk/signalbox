@@ -41,6 +41,8 @@ from signalbox.adapters.ssh import PinnedSsh
 ACL_PATH = "/usr/share/rpcd/acl.d/signalbox.json"
 ACL_GROUP = "signalbox"
 LOGIN_NAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+#: UCI section names as `uci -X` prints them; anything else is not put into a command
+SECTION = re.compile(r"^[A-Za-z0-9_]+$")
 COMPARE = (
     "On the router: dropbearkey -y -f /etc/dropbear/dropbear_ed25519_host_key (or the _rsa_ "
     "key) prints the fingerprint; ssh-keygen -lf on a copy of the public key shows the same."
@@ -176,7 +178,7 @@ def parse_logins(text: str) -> list[Login]:
             write=options.get(name, {}).get("write", []),
         )
         for name, kind in types.items()
-        if kind == "login"
+        if kind == "login" and SECTION.match(name)
     ]
 
 

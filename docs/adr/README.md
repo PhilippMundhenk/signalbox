@@ -10,5 +10,6 @@
 | [0006](0006-discovery-probes.md) | Device discovery: user-started, unauthenticated probes owned by the integrations |
 | [0007](0007-annotations-and-acknowledgements.md) | Annotations and acknowledged findings are user data on the network (#186) |
 | [0008](0008-internal-port-structure.md) | The internal port structure of a device: `Port.role` and `Port.lower` (#252) |
+| [0009](0009-automatic-setup-with-an-admin-login.md) | Automatic setup with an admin login, used once and never kept (#231) |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.

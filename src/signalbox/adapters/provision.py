@@ -34,7 +34,7 @@ class Redactor:
 
     def add(self, *values: str | None) -> None:
         for value in values:
-            if value and len(value) >= 4:  # shorter values would garble ordinary words
+            if value:  # short ones too: an unreadable message is better than a leak
                 self.values.add(value)
 
     def __call__(self, text: str) -> str:

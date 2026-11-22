@@ -87,6 +87,9 @@ class PinnedSsh:
                     connect_timeout=self.timeout,
                     login_timeout=self.timeout,
                     keepalive_interval=0,
+                    gss_auth=False,  # no Kerberos credentials of this machine
+                    gss_kex=False,  # a GSS key exchange would skip the host key
+                    host_based_auth=False,
                 ),
                 timeout=self.timeout * 2,
             )

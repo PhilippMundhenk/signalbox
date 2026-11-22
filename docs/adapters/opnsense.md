@@ -38,6 +38,34 @@ certificate was presented (see `signalbox/adapters/https.py`).
 `allow_insecure_http: true` allows an `http://` URL. It sends the key in clear text and is only
 meant for the simulator.
 
+## Automatic setup
+
+*Set up automatically* in the device form (#231, [ADR 0008](../adr/0008-automatic-setup-with-an-admin-login.md))
+creates the user of the next section through the API, with an API key of root:
+
+1. *System > Access > Users*, root, *API keys*, `+`: the browser downloads key and secret.
+2. In the device form: the address, then that key and secret under *Set up automatically*.
+   *Show what it does* shows the web interface's certificate fingerprint first; nothing is sent
+   before you trust it.
+3. The plan: the user `signalbox` (scrambled password, so no web interface login; no groups;
+   exactly the privileges below, or with those of the write user when *Allow changes* is on),
+   then a new API key for it; older keys of `signalbox` are deleted once the new one exists.
+4. *Set up the device* runs it and saves the device with the new key, stored encrypted and
+   never shown. Root's key is not stored or logged: **delete it on the firewall afterwards**.
+
+The calls are those of the web interface's user manager (OPNsense 24.7 and later):
+`POST /api/auth/user/search`, `GET /api/auth/user/get/<uuid>`, `POST /api/auth/user/add` or
+`set/<uuid>` with `{"user": {"name", "descr", "scrambled_password": "1", "priv": "<ids>",
+"group_memberships": ""}}`, `POST /api/auth/user/add_api_key/signalbox` (answers `key` and
+`secret`), `POST /api/auth/user/search_api_key` and `del_api_key/<id>`; the removal is
+`POST /api/auth/user/del/<uuid>`. A user `signalbox` with scope `system` is left alone.
+Running it again puts the privileges back as documented and replaces the key.
+
+Verified in CI on 26.7 (`tests/integration/test_opnsense_setup_real.py`): pinning and a refused
+root secret; the user created, the firewall read with its key (contract, every capability);
+a second run with nothing to change but the key; with writes the privileges updated and the
+old key refused afterwards; the new key refused by the user manager (403); the removal.
+
 ## A least-privilege API user
 
 1. *System > Access > Users*: add a user `signalbox`, no shell, a scrambled password, no group

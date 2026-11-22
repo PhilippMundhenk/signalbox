@@ -82,7 +82,7 @@ def test_parse_logins_and_certificate() -> None:
     text = (
         "rpcd.cfg01=rpcd\nrpcd.cfg01.socket='/var/run/ubus/ubus.sock'\n"
         "rpcd.cfg02=login\nrpcd.cfg02.username='signalbox'\nrpcd.cfg02.read='signalbox' 'x'\n"
-        "rpcd.cfg03=login\nrpcd.cfg03.username='it'\\''s'\nbroken\nrpcd.cfg03.read='unclosed\n"
+        "rpcd.cfg03=login\nrpcd.cfg03.username='it'\\''s'\nbroken\nrpcd.cfg03.read='unclosed\nrpcd.x$(reboot)=login\n"
     )
     logins = parse_logins(text)
     assert [(x.section, x.username, x.read) for x in logins] == [
@@ -98,7 +98,7 @@ def test_parse_logins_and_certificate() -> None:
 def test_redactor_and_fingerprints() -> None:
     redact = Redactor()
     redact.add("abc", None, "s3cret-value")
-    assert redact("x s3cret-value y abc") == "x *** y abc"
+    assert redact("x s3cret-value y abc") == "x *** y ***"
     assert same_fingerprint("SHA256:AbC=", "sha256:AbC")
     assert not same_fingerprint("SHA256:AbC", "SHA256:abc")
     assert same_fingerprint("AB:CD", "abcd")

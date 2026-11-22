@@ -66,6 +66,29 @@ certificate was presented (see `signalbox/adapters/https.py`).
 `allow_insecure_http: true` allows an `http://` URL (service `www`). It sends the password in
 clear text and is only meant for the simulator.
 
+### Automatic setup
+
+*Set up automatically* in the device form (#231, [ADR 0008](../adr/0008-automatic-setup-with-an-admin-login.md))
+creates the group and the user below through the REST API as admin, once HTTPS is set up as
+above:
+
+1. In the device form: the address, the user to create (`signalbox`), then admin's password
+   under *Set up automatically*. *Show what it does* shows the certificate fingerprint first;
+   nothing is sent before you trust it.
+2. The plan: the group `signalbox-read` with the policies below (or `signalbox-write` with those
+   of [A user group that may write](#a-user-group-that-may-write) when *Allow changes* is on),
+   created (`PUT /rest/user/group`) or its policies put back (`PATCH`), and the user in it with a
+   new generated password (`PUT /rest/user`, or `PATCH` of the existing one). Policies are
+   compared as the set of granted ones, because RouterOS lists them in its own order.
+3. *Set up the device* runs it and saves the device with the new password, stored encrypted and
+   never shown; admin's password is not stored or logged.
+
+*Remove what Signalbox set up* deletes the user, and each of the two groups when no other user
+is in it. Verified in CI on the RouterOS CHR (`tests/integration/test_mikrotik_setup_real.py`):
+pinning, a refused admin password, the image's group recognised as already right, the user
+created and the router read with it (contract), moved to the write group with a new password
+(the old one refused), and the removal keeping the groups the image's users are in.
+
 ### A read-only user group
 
 ```
