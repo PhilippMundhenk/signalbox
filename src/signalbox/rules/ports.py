@@ -42,12 +42,14 @@ def _and(items: list[str]) -> str:
 
 
 def _cable_ends(net: Network) -> Iterator[tuple[Link, Port, Port]]:
-    """Cable links whose two ends are known wired ports."""
+    """Cable links whose two ends are known wired ports, not internal ones (#252)."""
     for link in net.links:
         if link.kind is LinkKind.WIRELESS:
             continue
         a, b = net.port(link.a), net.port(link.b)
         if a is None or b is None or a.kind not in _WIRED or b.kind not in _WIRED:
+            continue
+        if a.external is False or b.external is False:
             continue
         yield link, a, b
 
@@ -76,8 +78,8 @@ def _segment_site(net: Network, segment_id: str) -> str:
 )
 def single_untagged(net: Network) -> Iterator[Result]:
     for p in sorted(net.ports, key=lambda p: p.id):
-        if p.kind not in _WIRED:
-            continue
+        if p.kind not in _WIRED or p.external is False:
+            continue  # bridges, Wi-Fi, CPU ports (#252): no device behind them
         untagged = net.untagged_segments(p.id)
         name = _port_name(net, p.id)
         if len(untagged) > 1:
@@ -155,6 +157,8 @@ def client_port_mismatch(net: Network) -> Iterator[Result]:
         p = net.port(port_id)
         if p is None or p.kind is not PortKind.ETHERNET or port_id in ends or len(indexes) > 1:
             continue  # not a wired access port, an uplink, or several devices behind it
+        if p.external is False:
+            continue  # a CPU port (#252) carries every VLAN of the switch
         site = _site(net, p.device_id)
         port_seg = _port_segment(net, p, tagged)
         if site is None or port_seg is None or port_seg not in with_subnet:

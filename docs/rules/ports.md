@@ -6,6 +6,8 @@ These rules use the port configuration details a device reports with its interfa
 admin state, MTU or jumbo frames, auto-negotiation, energy-efficient Ethernet and the port
 description. A port that does not report a detail is skipped for the rules that need it. Port
 names in findings include the port description ("port 5 (office desk)").
+Internal ports (CPU port, bridge, VLAN interface; #252) are skipped: no cable or device is
+plugged in there.
 
 ## `vlan.single-untagged`
 

@@ -159,6 +159,13 @@ def _gateways(net: Network) -> dict[str, set[str]]:
     return out
 
 
+def internal(net: Network, port: str) -> bool:
+    """The port is known to be internal (CPU port, bridge, VLAN interface; #252): no cable
+    ends there, so link and VLAN checks that compare cable ends leave it out."""
+    p = net.port(port)
+    return p is not None and p.external is False
+
+
 def _link_ends(net: Network) -> set[str]:
     return {p for link in net.links for p in (link.a, link.b)}
 
@@ -177,6 +184,7 @@ def _used_segments(net: Network) -> dict[str, set[str]]:
             if (
                 m.mode is Membership.UNTAGGED
                 and m.port_id not in uplinks
+                and not internal(net, m.port_id)
                 and roles.get(dev) in (DeviceRole.AP, DeviceRole.SWITCH)
             ):
                 out.setdefault(dev, set()).add(seg.id)
@@ -233,8 +241,8 @@ def path_to_gateway(net: Network) -> Iterator[Result]:
             target = min(reached, key=lambda g: (len(paths[g]), g))
             for link in paths[target]:
                 for end in (link.a, link.b):
-                    if uplink_end(net, view, link, end)[0]:
-                        continue  # a router's uplink: not a path inside this network
+                    if uplink_end(net, view, link, end)[0] or internal(net, end):
+                        continue  # a router's uplink, or an internal port (#252)
                     if not view.known(end):
                         unknown_ends.add((link.id, end))
                     elif not view.carries(end, seg):
@@ -276,8 +284,10 @@ def path_to_gateway(net: Network) -> Iterator[Result]:
 
 
 def _comparable(net: Network, view: _View) -> Iterator[Link]:
-    """Links whose two ends both report VLAN memberships."""
+    """Links whose two ends both report VLAN memberships and are not internal ports."""
     for link in net.links:
+        if internal(net, link.a) or internal(net, link.b):
+            continue
         if view.known(link.a) and view.known(link.b):
             yield link
 
@@ -402,6 +412,8 @@ def speed_duplex(net: Network) -> Iterator[Result]:
         a, b = net.port(link.a), net.port(link.b)
         if a is None or b is None or a.up is False or b.up is False:
             continue
+        if a.external is False or b.external is False:
+            continue  # an internal port (#252): its speed is not the cable's
         objects = [link.id, link.a, link.b]
         if a.speed_mbps is not None and b.speed_mbps is not None and a.speed_mbps != b.speed_mbps:
             yield found(
@@ -560,6 +572,8 @@ def slow(net: Network) -> Iterator[Result]:
         ports = [p for e in (link.a, link.b) if (p := net.port(e)) is not None]
         if any(p.kind is not PortKind.ETHERNET or p.up is False for p in ports):
             continue  # an end is down, or an aggregate or virtual port
+        if any(p.external is False for p in ports):
+            continue  # an internal port (#252)
         speeds = [p.speed_mbps for p in ports if p.speed_mbps is not None]
         maxima = [p.max_speed_mbps for p in ports if p.max_speed_mbps is not None]
         if speeds and maxima and min(speeds) >= min(maxima):
@@ -597,8 +611,8 @@ def slow(net: Network) -> Iterator[Result]:
         dev = devices.get(p.device_id)
         if p.id in ends or dev is None or dev.role not in INFRASTRUCTURE:
             continue
-        if p.kind is not PortKind.ETHERNET or p.up is not True:
-            continue
+        if p.kind is not PortKind.ETHERNET or p.up is not True or p.external is False:
+            continue  # not a wired port with link, or an internal one (CPU port, #252)
         if p.full_duplex is False:
             yield found(
                 f"{_port_name(net, p.id)} runs in half duplex.",
