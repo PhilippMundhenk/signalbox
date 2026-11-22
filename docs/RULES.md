@@ -175,6 +175,14 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`wifi.segment-weakest-link`](rules/wifi_hygiene.md#wifisegment-weakest-link)
 - [`wifi.default-ssid`](rules/wifi_hygiene.md#wifidefault-ssid)
 
+## [Wi-Fi security](rules/wifi_security.md)
+
+- [`wifi.weak-security`](rules/wifi_security.md#wifiweak-security)
+- [`wifi.wpa3-available`](rules/wifi_security.md#wifiwpa3-available)
+- [`wifi.passphrase-reuse`](rules/wifi_security.md#wifipassphrase-reuse)
+- [`wifi.wps`](rules/wifi_security.md#wifiwps)
+- [`wifi.6ghz-h2e`](rules/wifi_security.md#wifi6ghz-h2e)
+
 ## [Wi-Fi](rules/wireless.md)
 
 - [`wifi.ssid-consistent`](rules/wireless.md#wifissid-consistent)
