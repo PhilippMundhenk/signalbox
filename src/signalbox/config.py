@@ -71,6 +71,16 @@ class DeployConfig(Section):
     )
 
 
+class HistoryConfig(Section):
+    days: int = Field(
+        30,
+        ge=1,
+        le=3650,
+        description="Days the observation history (first/last seen, status and link changes) "
+        "is kept. Client sightings are a presence log: keep this short.",
+    )
+
+
 class PluginsConfig(Section):
     remote_adapters: dict[str, list[str]] = Field(
         default_factory=dict,
@@ -84,6 +94,7 @@ class Config(Section):
     observe: ObserveConfig = ObserveConfig()
     mqtt: MqttConfig = MqttConfig()
     deploy: DeployConfig = DeployConfig()
+    history: HistoryConfig = HistoryConfig()
     plugins: PluginsConfig = PluginsConfig()
     rules: dict[str, RuleSettings] = Field(
         default_factory=dict,
@@ -139,6 +150,13 @@ deploy:
   enabled: false
   # Devices that can roll back by themselves (OpenWrt) do so unless confirmed in time.
   confirm_seconds: 120
+
+history:
+  # Days the observation history is kept: when devices, clients and ports were first and
+  # last seen, device status and link changes. Some checks use it (stale reservations,
+  # clients that change networks, long outages). Client sightings show who was at home:
+  # they are never exported and are deleted after this many days.
+  days: 30
 
 plugins:
   # Adapters that run as separate programs, each with only the settings of its device:

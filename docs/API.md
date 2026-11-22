@@ -20,7 +20,7 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | POST | `/api/sites` | Add a site. |
 | PUT | `/api/sites/{site_id}` | Rename a site. |
 | DELETE | `/api/sites/{site_id}` | Delete a site without devices. |
-| GET | `/api/devices` | List devices with their last status. |
+| GET | `/api/devices` | List devices with their last status and when they were first seen and last read. |
 | POST | `/api/devices` | Add a device; secrets in `config` are stored encrypted. |
 | GET | `/api/devices/{device_id}` | One device. |
 | PUT | `/api/devices/{device_id}` | Change a device; secret settings left empty keep their value. |
@@ -29,6 +29,7 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | POST | `/api/devices/{device_id}/trust` | Trust the certificate the device presented (pending fingerprint). |
 | GET | `/api/network` | The merged network model (passphrase fingerprints removed). |
 | GET | `/api/findings` | Current findings; `?resolved=true` includes resolved ones. |
+| GET | `/api/history` | Observation history: first/last seen and changes of devices, clients and ports. |
 | POST | `/api/observe` | Read all devices now. |
 | GET | `/api/topology` | Devices, ports, links with the VLANs at each end, and clients per port. |
 | GET | `/api/links` | Manually entered links (cables). |

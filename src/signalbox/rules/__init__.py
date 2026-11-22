@@ -10,6 +10,10 @@ A rule is a plain function over a :class:`~signalbox.model.Network` that yields
         ...
         yield found(f"{n} DHCP servers on {seg}", [seg.id, *ids], fix="Disable all but one.")
 
+A rule that needs the past (first/last seen, status and link changes) uses
+:func:`history_rule` and receives a read-only :class:`~signalbox.sightings.History` as a second
+argument.
+
 Rules are discovered through the ``signalbox.rules`` entry point group; a target is a
 :class:`Rule` or a list of them.
 """
@@ -25,6 +29,7 @@ from importlib.metadata import entry_points
 from pydantic import BaseModel, ConfigDict, Field
 
 from signalbox.model import DeviceStatus, Network
+from signalbox.sightings import History
 
 
 class Severity(StrEnum):
@@ -79,6 +84,7 @@ def incomplete(message: str, objects: Iterable[str], *, key: str = "") -> Result
 
 
 Check = Callable[[Network], Iterable[Result]]
+HistoryCheck = Callable[[Network, History], Iterable[Result]]
 
 
 @dataclass(frozen=True)
@@ -90,6 +96,8 @@ class Rule:
     check: Check = field(compare=False)
     #: False for an opt-in rule: it runs only when the configuration sets ``enabled: true``.
     default_enabled: bool = True
+    #: Set for a rule that needs the observation history (see :func:`history_rule`).
+    history_check: HistoryCheck | None = field(default=None, compare=False)
 
 
 def rule(
@@ -97,6 +105,30 @@ def rule(
 ) -> Callable[[Check], Rule]:
     def wrap(fn: Check) -> Rule:
         return Rule(id, title, severity, explanation, fn, enabled)
+
+    return wrap
+
+
+def history_rule(
+    id: str, title: str, severity: Severity, explanation: str, *, enabled: bool = True
+) -> Callable[[HistoryCheck], Rule]:
+    """Like :func:`rule` for a check of ``(net, history)``.
+
+    The history is read-only and empty where none exists (desired or predicted state, a fresh
+    installation): such a rule must stay silent then. Called as ``rule.check(net)`` it sees an
+    empty history.
+    """
+
+    def wrap(fn: HistoryCheck) -> Rule:
+        return Rule(
+            id,
+            title,
+            severity,
+            explanation,
+            lambda net: fn(net, History.empty()),
+            enabled,
+            fn,
+        )
 
     return wrap
 
@@ -178,9 +210,15 @@ def evaluate(
     net: Network,
     rules: Iterable[Rule],
     settings: Mapping[str, RuleSettings] | None = None,
+    history: History | None = None,
 ) -> list[Finding]:
-    """Run every enabled rule. A rule that crashes becomes an error finding, never a silent gap."""
+    """Run every enabled rule. A rule that crashes becomes an error finding, never a silent gap.
+
+    ``history`` reaches the rules made with :func:`history_rule`; without it they see an empty
+    history (the desired or predicted state).
+    """
     settings = settings or {}
+    past = history or History.empty()
 
     def severity_of(r: Rule) -> Severity:
         s = settings.get(r.id)
@@ -197,7 +235,7 @@ def evaluate(
         if not enabled(r):
             continue
         try:
-            results = list(r.check(net))
+            results = list(r.history_check(net, past) if r.history_check else r.check(net))
         except Exception as exc:  # a broken rule must be visible
             results = [
                 Result(f"rule failed: {type(exc).__name__}: {exc}", (), None, Severity.ERROR)

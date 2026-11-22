@@ -24,6 +24,7 @@ from signalbox.model import (
 )
 from signalbox.rules import Finding, Rule, Severity, evaluate, found
 from signalbox.secrets import SecretError
+from signalbox.sightings import History
 from signalbox.store import DeviceRecord, Store, StoreError
 
 log = logging.getLogger(__name__)
@@ -141,10 +142,18 @@ class Runner:
             rules += drift_rules(state, self.store.get_secret)
         return rules
 
-    def evaluate(self) -> tuple[Network, list[Finding]]:
+    def history(self, now: datetime | None = None) -> History:
+        """The observation history (read-only) as of ``now``."""
+        return self.store.history(now or datetime.now(UTC), self.config.history.days)
+
+    def evaluate(self, record: bool = False) -> tuple[Network, list[Finding]]:
+        """Check the network. ``record``: this is a new observation round, add it to the history."""
         net = self.network()
-        findings = evaluate(net, self.active_rules(), self.config.rules)
         now = datetime.now(UTC)
+        if record:
+            self.store.record_history(net, now)
+            self.store.prune_history(now - timedelta(days=self.config.history.days))
+        findings = evaluate(net, self.active_rules(), self.config.rules, self.history(now))
         self.store.record_findings(findings, now)
         self.store.prune_resolved(now - timedelta(days=30))
         for listener in self.listeners:
@@ -163,7 +172,7 @@ class Runner:
 
         await asyncio.gather(*(one(r) for r in self.store.devices() if r.enabled))
         self.last_run = datetime.now(UTC)
-        return self.evaluate()
+        return self.evaluate(record=True)
 
     # loop -------------------------------------------------------------------------------
 

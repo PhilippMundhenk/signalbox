@@ -1,7 +1,7 @@
 // Devices: list, add and edit (settings form generated from the adapter's schema).
 import { enc, get, post, put } from '../api.js';
 import { schemaForm } from '../schemaform.js';
-import { clear, h, place } from '../util.js';
+import { clear, fmtAgo, fmtTime, h, place } from '../util.js';
 import { checkField, empty, field, pageHead, run, select, statusBadge, table, toast } from '../ui.js';
 
 export const ROLE_TEXT = { gateway: 'Gateway / router', switch: 'Switch', ap: 'Access point', other: 'Other' };
@@ -35,6 +35,8 @@ export async function renderDevices(main, ctx) {
         ['Adapter', (d) => adapterName(d.adapter)],
         ['Role', (d) => ROLE_TEXT[d.role] || d.role],
         ['Site', (d) => siteName(d.site_id)],
+        ['First seen', (d) => ago(d.first_seen, 'device-first-seen')],
+        ['Last read', (d) => ago(d.last_ok, 'device-last-ok')],
       ],
       devices,
       { testid: 'devices', rowTestid: 'device-row', rowAttrs: (d) => ({ 'data-id': d.id }) },
@@ -63,6 +65,11 @@ export async function renderDevices(main, ctx) {
       ),
     );
   }
+}
+
+// A time as "3 h ago" with the exact time on hover; nothing for an unknown time.
+function ago(iso, testid) {
+  return iso ? h('span', { title: fmtTime(iso), 'data-testid': testid }, fmtAgo(iso)) : null;
 }
 
 // The first site, created inline: a device needs one and a fresh install has none.

@@ -54,6 +54,12 @@ Generated from the code by `tools/gen_docs.py`.
 | `deploy.enabled` | `SIGNALBOX_DEPLOY_ENABLED` | false | Allow deploying changes at all (devices also need 'allow changes'). |
 | `deploy.confirm_seconds` | `SIGNALBOX_DEPLOY_CONFIRM_SECONDS` | `120` | Devices that support it roll back by themselves unless confirmed in time. |
 
+## `history`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `history.days` | `SIGNALBOX_HISTORY_DAYS` | `30` | Days the observation history (first/last seen, status and link changes) is kept. Client sightings are a presence log: keep this short. |
+
 ## `plugins`
 
 | Setting | Environment variable | Default | Meaning |

@@ -44,7 +44,8 @@ desired state → planner → deployment → devices, with every step tracked.
 | **Adapter API** | `signalbox.adapters` | the contract integrations implement: manifest, capabilities, errors, contract tests | – | – | done (#4) |
 | **Inventory** | `signalbox.store`, `signalbox.config`, `signalbox.secrets` | sites, devices, cables, credentials (encrypted), certificate pins | UI/API | records | done (#11) |
 | **Observation** | `signalbox.runner` | read every device on an interval, merge into one network | inventory, integrations | `Network`, findings history | done (#12) |
-| **Checks** (rules) | `signalbox.rules.*` | find inconsistencies, explain them, suggest a fix; never change anything | `Network` | findings | done (#5–#8, #15) |
+| **History** | `signalbox.sightings`, `signalbox.store` | after every round: first/last seen of devices, clients (per network) and ports, device status, link state, client network; changes as events; pruned after `history.days` | `Network` per round | read-only `History` for rules (`history_rule`), first/last seen in API and UI | done (#185) |
+| **Checks** (rules) | `signalbox.rules.*` | find inconsistencies, explain them, suggest a fix; never change anything | `Network` (and `History`) | findings | done (#5–#8, #15) |
 | **Topology** | `signalbox.topology` | links from LLDP, MAC tables and entered cables; the wiring and VLAN view | `Network` | links, topology view | done (#15) |
 | **Desired state** | `signalbox.desired` | what the network should look like; drift against the observed state | YAML, UI | desired model, drift findings | done (#36), [DESIRED.md](DESIRED.md) |
 | **Planner** | `signalbox.changes` | desired minus observed → typed change set per device, ordered; checks run on the predicted state | desired + observed state | plan | done (#37) |
@@ -58,7 +59,9 @@ Rules for the boundaries:
 - Only integrations know vendors. The model, checks, planner, deployment and UI never branch on
   a vendor; vendor details reach the UI only through `vendor_extra` on a device's advanced tab.
 - Checks are pure functions of the model. They run the same way on the observed state, the
-  desired state and the predicted state of a plan.
+  desired state and the predicted state of a plan. A check that needs the past also gets the
+  read-only history (`rule(net, history)`); the desired and predicted states have none, so such
+  checks stay silent there.
 - Nothing writes to a device except the deployment component, and only with an approved plan.
 - Every write is a tracked change that can be rolled back.
 
