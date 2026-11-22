@@ -62,6 +62,7 @@ from signalbox.changes import Change, ChangeKind, WlanValue
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     SERVICE_PORTS,
+    AddressSource,
     Band,
     Client,
     DeviceHealth,
@@ -203,6 +204,12 @@ def _v4_list(value: str | None) -> list[IPv4Address]:
 
 #: ``NewWANAccessType`` of WANCommonInterfaceConfig that are a mobile connection
 _MOBILE = {"X_AVM-DE_UMTS", "X_AVM-DE_LTE"}
+#: Hosts ``NewAddressSource`` (TR-064 Hosts:1: DHCP, Static, AutoIP) per client address (#183).
+_ADDRESS_SOURCE = {
+    "dhcp": AddressSource.DHCP,
+    "static": AddressSource.STATIC,
+    "autoip": AddressSource.LINK_LOCAL,
+}
 
 
 def _kbps(value: str | None) -> int | None:
@@ -853,8 +860,10 @@ class FritzboxAdapter(Adapter):
             entry.setdefault("vendor_extra", {})
             if kind:
                 entry["vendor_extra"]["interface_type"] = kind
-            if host.get("NewAddressSource"):
-                entry["vendor_extra"]["address_source"] = host["NewAddressSource"]
+            if a is not None and host.get("NewAddressSource"):
+                entry.setdefault("address_sources", {})[a] = _ADDRESS_SOURCE.get(
+                    str(host["NewAddressSource"]).strip().lower(), AddressSource.UNKNOWN
+                )
         return Observation(
             clients=[
                 Client(id=object_id(d, "client", m), mac=m, **fields)

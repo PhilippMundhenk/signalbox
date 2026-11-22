@@ -52,6 +52,7 @@ from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     SERVICE_PORTS,
+    AddressSource,
     Band,
     Client,
     DeviceHealth,
@@ -1337,15 +1338,20 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         }
         seen: dict[str, dict[str, Any]] = {}
 
-        def add(mac: str | None, address: Any = None, **info: Any) -> None:
+        def add(
+            mac: str | None, address: Any = None, source: AddressSource | None = None, **info: Any
+        ) -> None:
             if mac is None or mac in own:
                 return
             entry = seen.setdefault(
-                mac, {"addresses": [], "hostname": None, "segment": None, "seen_on": None}
+                mac,
+                {"addresses": [], "hostname": None, "segment": None, "seen_on": None, "src": {}},
             )
             addr = _addr(address)
             if addr is not None and not addr.is_link_local and addr not in entry["addresses"]:
                 entry["addresses"].append(addr)
+            if addr is not None and addr in entry["addresses"] and source is not None:
+                entry["src"][addr] = source
             for key, value in info.items():
                 entry[key] = entry[key] or value or None
 
@@ -1364,9 +1370,11 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             if _text(row.get("status")) != "bound" or _flag(row.get("disabled")):
                 continue  # dynamic leases and static ones in use
             iface = servers.get(_text(row.get("server")), "")
+            static = not _flag(row.get("dynamic"))
             add(
                 _mac(row.get("active-mac-address") or row.get("mac-address")),
                 row.get("active-address") or row.get("address"),
+                AddressSource.DHCP_RESERVED if static else AddressSource.DHCP,
                 hostname=_text(row.get("host-name")),
                 segment=layout.l3.get(iface),
             )
@@ -1399,6 +1407,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 hostname=e["hostname"],
                 segment_id=e["segment"],
                 seen_on=e["seen_on"],
+                address_sources=e["src"],
             )
             for mac, e in sorted(seen.items())
         ]

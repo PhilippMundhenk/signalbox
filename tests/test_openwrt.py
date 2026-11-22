@@ -37,6 +37,7 @@ from signalbox.adapters.openwrt import (
 )
 from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
 from signalbox.model import (
+    AddressSource,
     Band,
     DeviceRole,
     DeviceStatus,
@@ -228,6 +229,7 @@ async def test_clients(adapter: OpenWrtAdapter) -> None:
     laptop = clients["02:00:00:00:20:03"]
     assert laptop.seen_on == "ap1/wlan/default_radio1" and laptop.hostname == "laptop"
     assert laptop.addresses == [ip_address("192.0.2.103")]
+    assert laptop.address_sources == {ip_address("192.0.2.103"): AddressSource.DHCP}  # #183
 
 
 async def test_leases_from_file_without_luci_rpc(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:

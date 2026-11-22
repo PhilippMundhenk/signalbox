@@ -27,6 +27,7 @@ from signalbox.adapters.fritzbox import (
 from signalbox.adapters.fritzbox.soap import SoapFault, Tr064, parse_answer, parse_xml
 from signalbox.adapters.https import DeviceHttp
 from signalbox.model import (
+    AddressSource,
     Band,
     DeviceHealth,
     DeviceRole,
@@ -203,7 +204,9 @@ async def test_clients(adapter: FritzboxAdapter) -> None:
     assert phone.addresses == []
     printer = clients["02:00:00:00:10:01"]
     assert printer.seen_on == "fb/port/lan" and printer.segment_id == "home/segment/native"
-    assert printer.vendor_extra == {"interface_type": "Ethernet", "address_source": "DHCP"}
+    assert printer.vendor_extra == {"interface_type": "Ethernet"}
+    assert printer.address_sources == dict.fromkeys(printer.addresses, AddressSource.DHCP)
+    assert printer.addresses
 
 
 async def test_clients_entry_by_entry_without_host_list(

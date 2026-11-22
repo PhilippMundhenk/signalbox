@@ -9,14 +9,21 @@ from typing import Any
 from signalbox.model import (
     SERVICE_PORTS,
     Acknowledgement,
+    AddressSource,
     Annotation,
     Band,
     Cipher,
+    Client,
     Device,
     DeviceHealth,
     DeviceRole,
     DeviceTime,
+    DhcpLease,
+    DhcpPool,
+    DhcpRelay,
+    DhcpServer,
     Fan,
+    LeaseState,
     ManagementService,
     Network,
     NtpClient,
@@ -46,6 +53,7 @@ from signalbox.model import (
     object_id,
     passphrase_digest,
     port_id,
+    segment_id,
 )
 
 T0 = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
@@ -241,6 +249,67 @@ def mikrotik_default_services(device_id: str) -> list[ManagementService]:
         service(device_id, "romon", port=None, enabled=False),
     ]
     return out
+
+
+def dhcp_server(device_id: str, vlan: int | None = None, **kw: Any) -> DhcpServer:
+    """An enabled DHCP server for 192.0.2.0/24 with the pool .100-.199 and a day's lease.
+
+    Id ``<device>/dhcp/<vlan or lan>`` in segment ``home/segment/<vlan or native>``. Leases
+    are not read (``leases=None``) unless given: ``dhcp_server("gw", leases=[lease(...)])``;
+    ``leases=[]`` read and empty.
+    """
+    values: dict[str, Any] = {
+        "enabled": True,
+        "pools": [DhcpPool(start=ip("192.0.2.100"), end=ip("192.0.2.199"))],
+        "lease_seconds": 86400,
+        "router": ip("192.0.2.1"),
+        "dns_servers": [ip("192.0.2.1")],
+    }
+    return DhcpServer(
+        id=object_id(device_id, "dhcp", str(vlan) if vlan else "lan"),
+        device_id=device_id,
+        segment_id=segment_id(SITE.id, vlan),
+        **(values | kw),
+    )
+
+
+def lease(
+    address: str, mac: str, state: LeaseState | str = LeaseState.ACTIVE, **kw: Any
+) -> DhcpLease:
+    """A lease (#183) that started an hour before T0 and runs for a day unless given:
+    ``lease("192.0.2.150", "02:00:00:00:00:44", "expired")``, ``reserved=True``,
+    ``vendor_class="android-dhcp-14"``."""
+    values: dict[str, Any] = {
+        "starts": T0 - timedelta(hours=1),
+        "expires": T0 + timedelta(hours=23),
+    }
+    return DhcpLease(address=ip(address), mac=mac, state=LeaseState(state), **(values | kw))
+
+
+def relay(device_id: str, vlan: int | None, *servers: str, **kw: Any) -> DhcpRelay:
+    """An enabled DHCP relay on ``home/segment/<vlan>`` forwarding to *servers* (#183)."""
+    return DhcpRelay(
+        id=object_id(device_id, "dhcp-relay", str(vlan) if vlan else "lan"),
+        device_id=device_id,
+        segment_id=segment_id(SITE.id, vlan),
+        servers=[ip(x) for x in servers],
+        **kw,
+    )
+
+
+def client(mac: str, *addresses: str, **kw: Any) -> Client:
+    """A merged client (``client/<mac>``) in the native segment. ``sources`` maps addresses to
+    their source (#183): ``client("02:...", "192.0.2.150", sources={"192.0.2.150": "static"})``.
+    """
+    sources = kw.pop("sources", {})
+    values: dict[str, Any] = {"segment_id": segment_id(SITE.id, None)}
+    return Client(
+        id=f"client/{mac}",
+        mac=mac,
+        addresses=[ip(a) for a in addresses],
+        address_sources={ip(a): AddressSource(v) for a, v in sources.items()},
+        **(values | kw),
+    )
 
 
 def net(text: str) -> Any:

@@ -54,6 +54,7 @@ from signalbox.adapters.opnsense import (
     vitals,
 )
 from signalbox.model import (
+    AddressSource,
     DeviceRole,
     DeviceStatus,
     Membership,
@@ -259,6 +260,9 @@ async def test_clients(snap: Snapshot) -> None:
     assert printer.segment_id == "home/segment/native" and printer.seen_on == port_id("fw", "igb0")
     assert by_mac["00:00:5e:00:53:20"].segment_id == "home/segment/20"
     assert by_mac["02:00:00:00:00:21"].hostname == "laptop"  # from the Kea lease
+    laptop = by_mac["02:00:00:00:00:21"]
+    assert set(laptop.address_sources.values()) == {AddressSource.DHCP}  # #183
+    assert set(laptop.address_sources) <= set(laptop.addresses)
     assert by_mac["02:00:00:00:00:31"].segment_id == "home/segment/30"
 
 
