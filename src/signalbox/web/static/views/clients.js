@@ -1,4 +1,5 @@
 // Clients: every MAC address the devices know, with addresses, name, segment and where it was seen.
+import { get } from '../api.js';
 import { loadNetwork, noData } from '../net.js';
 import { by, clear, fmtAgo, fmtTime, h, place } from '../util.js';
 import { pageHead, table } from '../ui.js';
@@ -7,7 +8,7 @@ let query = '';
 
 export async function renderClients(main, ctx) {
   const id = ctx.renderId;
-  const ix = await loadNetwork();
+  const [ix, past] = await Promise.all([loadNetwork(), get('/history')]);
   if (!ctx.alive(id)) return;
   place(main, pageHead('Clients'));
   const clients = [...ix.net.clients].sort(by((c) => c.hostname || `~${c.mac}`));
@@ -26,6 +27,12 @@ export async function renderClients(main, ctx) {
     if (c.last_seen && (!row.last_seen || c.last_seen > row.last_seen)) row.last_seen = c.last_seen;
     rows.set(c.mac, row);
   }
+  // First and last seen come from the observation history where it knows the client.
+  for (const row of rows.values()) {
+    const seen = past.clients[row.mac];
+    row.first_seen = seen ? seen.first_seen : null;
+    if (seen && (!row.last_seen || seen.last_seen > row.last_seen)) row.last_seen = seen.last_seen;
+  }
   const all = [...rows.values()];
   const search = h('input', { type: 'search', placeholder: 'Filter by name, MAC or address', 'aria-label': 'Filter clients', 'data-testid': 'client-filter', value: query });
   const body = h('div', {});
@@ -41,6 +48,7 @@ export async function renderClients(main, ctx) {
           ['Addresses', (r) => [...r.addresses].join(', ')],
           ['Segment', (r) => (r.segment_id ? ix.segmentName(r.segment_id) : null)],
           ['Seen on', (r) => r.seen.map((x) => ix.label(x)).join(', ')],
+          ['First seen', (r) => (r.first_seen ? h('span', { title: fmtTime(r.first_seen), 'data-testid': 'client-first-seen' }, fmtAgo(r.first_seen)) : null)],
           ['Last seen', (r) => (r.last_seen ? h('span', { title: fmtTime(r.last_seen) }, fmtAgo(r.last_seen)) : null)],
         ],
         shown,

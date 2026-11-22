@@ -161,6 +161,9 @@ def test_concept_views_show_the_network(app: Any) -> None:
     add_site(app)
     add_lab(app, "Router")
     observe(app)
+    go(app, "#/devices")
+    expect(app.get_by_test_id("device-first-seen")).to_have_count(1)
+    expect(app.get_by_test_id("device-last-ok")).to_have_count(1)
     go(app, "#/segments")
     expect(app.get_by_test_id("segment")).to_have_count(2)
     office = app.locator('[data-testid="segment"][data-id="home/segment/10"]')
@@ -184,6 +187,7 @@ def test_concept_views_show_the_network(app: Any) -> None:
 
     go(app, "#/clients")
     expect(app.get_by_test_id("client-row")).to_have_count(2)
+    expect(app.get_by_test_id("client-first-seen")).to_have_count(2)  # observation history
     app.get_by_test_id("client-filter").fill("laptop")
     expect(app.get_by_test_id("client-row")).to_have_count(1)
     expect(app.get_by_test_id("client-row")).to_contain_text("Router · SSID Home")

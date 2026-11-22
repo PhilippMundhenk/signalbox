@@ -8,6 +8,7 @@ from signalbox.rules.clients import RULES as CLIENT_RULES
 from signalbox.rules.dhcp import RULES as DHCP_RULES
 from signalbox.rules.dns import RULES as DNS_RULES
 from signalbox.rules.firmware import RULES as FIRMWARE_RULES
+from signalbox.rules.history_checks import RULES as HISTORY_RULES
 from signalbox.rules.ipv6 import RULES as IPV6_RULES
 from signalbox.rules.topology_checks import RULES as TOPOLOGY_CHECK_RULES
 from signalbox.rules.vlan import RULES as VLAN_RULES
@@ -27,4 +28,5 @@ RULES: list[Rule] = [
     *WIFI_HYGIENE_RULES,
     *ADDRESSING_RULES,
     *TOPOLOGY_CHECK_RULES,
+    *HISTORY_RULES,
 ]

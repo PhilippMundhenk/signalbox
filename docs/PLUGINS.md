@@ -55,6 +55,26 @@ def no_open_wifi(net):
             yield found(f"{w.ssid} on {w.device_id} is open", [w.id], fix="Use WPA2 or WPA3.")
 ```
 
+A rule that needs the past uses `history_rule` and gets the read-only observation history
+(`signalbox.sightings.History`: first/last seen and changes per device, client and port) as a
+second argument. On the desired or predicted state the history is empty: stay silent then.
+
+```python
+from datetime import timedelta
+
+from signalbox.rules import Severity, found, history_rule
+
+
+@history_rule("acme.new-device", "New device", Severity.INFO, "A MAC seen for the first time.")
+def new_device(net, history):
+    if history.now is None or not history.covers(timedelta(days=7)):
+        return
+    for c in net.clients:
+        seen = history.clients.get(c.mac)
+        if seen and history.now - seen.first_seen < timedelta(hours=1):
+            yield found(f"{c.mac} is new", [c.id])
+```
+
 Register a rule or a list of rules under the entry point group `signalbox.rules`. They appear on
 the Settings page and can be turned off or re-rated in the configuration like built-in rules.
 

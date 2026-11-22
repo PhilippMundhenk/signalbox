@@ -25,6 +25,7 @@ from signalbox.mqtt import MqttBridge
 from signalbox.rules import READ_ERRORS, rule_enabled
 from signalbox.secrets import SecretError
 from signalbox.service import Services
+from signalbox.sightings import History
 from signalbox.store import DeviceRecord, StoreError, slug
 from signalbox.web.auth import COOKIE, Auth, Locked
 from signalbox.web.changes_api import router as changes_router
@@ -308,17 +309,25 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
 
     # devices ----------------------------------------------------------------------------
 
-    def device_json(rec: DeviceRecord) -> dict[str, Any]:
+    def device_json(rec: DeviceRecord, past: History | None = None) -> dict[str, Any]:
         net_status = runner_status().get(rec.id)
-        return {**rec.model_dump(mode="json"), "status": net_status}
+        seen = (past or runner.history()).devices.get(rec.id)
+        return {
+            **rec.model_dump(mode="json"),
+            "status": net_status,
+            "first_seen": seen.first_seen.isoformat() if seen else None,
+            "last_seen": seen.last_seen.isoformat() if seen else None,
+            "last_ok": seen.last_ok.isoformat() if seen and seen.last_ok else None,
+        }
 
     def runner_status() -> dict[str, str]:
         return {s.device.id: s.status.value for s in store.snapshots()}
 
     @api.get("/devices")
     def devices() -> list[dict[str, Any]]:
-        """List devices with their last status."""
-        return [device_json(d) for d in store.devices()]
+        """List devices with their last status and when they were first seen and last read."""
+        past = runner.history()
+        return [device_json(d, past) for d in store.devices()]
 
     def save_device(device_id: str, body: DeviceBody) -> DeviceRecord | JSONResponse:
         cls = services.adapters.get(body.adapter)
@@ -406,6 +415,11 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     def findings(resolved: bool = False) -> list[dict[str, Any]]:
         """Current findings; `?resolved=true` includes resolved ones."""
         return [r.model_dump(mode="json") for r in store.findings(include_resolved=resolved)]
+
+    @api.get("/history")
+    def history() -> dict[str, Any]:
+        """Observation history: first/last seen and changes of devices, clients and ports."""
+        return runner.history().model_dump(mode="json")
 
     @api.post("/observe", status_code=202)
     def observe() -> dict[str, bool]:

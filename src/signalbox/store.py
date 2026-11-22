@@ -16,9 +16,25 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from signalbox.adapters import AdapterConfig, Backup
 from signalbox.history import BackupInfo, ChangeEvent, ChangeRecord
-from signalbox.model import DeviceRole, Link, Site, Snapshot
+from signalbox.model import DeviceRole, DeviceStatus, Link, Network, Site, Snapshot
 from signalbox.rules import Finding
 from signalbox.secrets import SecretError, Vault
+from signalbox.sightings import (
+    ANSWERED,
+    CLIENT,
+    CLIENT_SEGMENT,
+    DEVICE,
+    PORT,
+    ClientHistory,
+    DeviceHistory,
+    History,
+    LinkChange,
+    PortHistory,
+    SegmentChange,
+    SegmentSighting,
+    StatusChange,
+    observed_values,
+)
 
 SCHEMA = [
     # version 1
@@ -71,6 +87,28 @@ SCHEMA = [
         format TEXT NOT NULL,
         content TEXT NOT NULL
     );
+    """,
+    # version 3: observation history for rules and the UI (#185)
+    """
+    CREATE TABLE sightings (
+        kind TEXT NOT NULL,
+        key TEXT NOT NULL,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        value TEXT,
+        value_since TEXT NOT NULL,
+        last_ok TEXT,
+        PRIMARY KEY (kind, key)
+    );
+    CREATE TABLE sighting_changes (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        key TEXT NOT NULL,
+        at TEXT NOT NULL,
+        old TEXT NOT NULL,
+        new TEXT NOT NULL
+    );
+    CREATE INDEX sighting_changes_at ON sighting_changes (at);
     """,
 ]
 
@@ -337,6 +375,13 @@ class Store:
         with self._tx() as db:
             db.execute("DELETE FROM devices WHERE id = ?", (device_id,))
             db.execute("DELETE FROM snapshots WHERE device_id = ?", (device_id,))
+            # its history, its ports' and that of the devices it manages (``<id>/...``)
+            for table in ("sightings", "sighting_changes"):
+                db.execute(
+                    f"DELETE FROM {table} WHERE kind IN (?, ?) "
+                    "AND (key = ? OR substr(key, 1, ?) = ?)",
+                    (DEVICE, PORT, device_id, len(device_id) + 1, f"{device_id}/"),
+                )
 
     def set_pending_fingerprint(self, device_id: str, fingerprint: str | None) -> None:
         with self._tx() as db:
@@ -539,3 +584,117 @@ class Store:
                 (before.isoformat(),),
             )
             return cur.rowcount
+
+    # observation history (#185) ---------------------------------------------------------
+
+    def record_history(self, net: Network, now: datetime) -> None:
+        """Record one observation round: sightings, last values and their changes."""
+        stamp = now.isoformat()
+        seen = observed_values(net)
+        with self._tx() as db:
+            known = {
+                (r["kind"], r["key"]): r["value"]
+                for r in db.execute("SELECT kind, key, value FROM sightings")
+            }
+            for (kind, key), value in seen.items():
+                ok = stamp if kind == DEVICE and DeviceStatus(str(value)) in ANSWERED else None
+                if (kind, key) not in known:
+                    db.execute(
+                        "INSERT INTO sightings (kind, key, first_seen, last_seen, value, "
+                        "value_since, last_ok) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (kind, key, stamp, stamp, value, stamp, ok),
+                    )
+                    continue
+                old = known[(kind, key)]
+                if value is not None and value != old:
+                    if old is not None:
+                        db.execute(
+                            "INSERT INTO sighting_changes (kind, key, at, old, new) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            (kind, key, stamp, old, value),
+                        )
+                    db.execute(
+                        "UPDATE sightings SET value = ?, value_since = ? "
+                        "WHERE kind = ? AND key = ?",
+                        (value, stamp, kind, key),
+                    )
+                db.execute(
+                    "UPDATE sightings SET last_seen = ?, last_ok = coalesce(?, last_ok) "
+                    "WHERE kind = ? AND key = ?",
+                    (stamp, ok, kind, key),
+                )
+            db.execute(
+                "INSERT INTO settings (key, value) VALUES ('history:since', ?) "
+                "ON CONFLICT(key) DO NOTHING",
+                (stamp,),
+            )
+            db.execute(
+                "INSERT INTO settings (key, value) VALUES ('history:observations', '1') "
+                "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1"
+            )
+
+    def prune_history(self, before: datetime) -> int:
+        """Delete sightings not seen since ``before`` and older changes."""
+        stamp = before.isoformat()
+        with self._tx() as db:
+            gone = db.execute("DELETE FROM sightings WHERE last_seen < ?", (stamp,)).rowcount
+            db.execute("DELETE FROM sighting_changes WHERE at < ?", (stamp,))
+            return int(gone)
+
+    def history(self, now: datetime, days: int) -> History:
+        """The recorded history as rules and the UI see it."""
+        changes: dict[tuple[str, str], list[sqlite3.Row]] = {}
+        for r in self._all("SELECT * FROM sighting_changes ORDER BY seq"):
+            changes.setdefault((r["kind"], r["key"]), []).append(r)
+        devices: dict[str, DeviceHistory] = {}
+        clients: dict[str, ClientHistory] = {}
+        ports: dict[str, PortHistory] = {}
+        segments: dict[str, list[SegmentSighting]] = {}
+        for r in self._all("SELECT * FROM sightings ORDER BY kind, key"):
+            kind, key = r["kind"], str(r["key"])
+            own = changes.get((kind, key), [])
+            if kind == DEVICE:
+                devices[key] = DeviceHistory(
+                    first_seen=r["first_seen"],
+                    last_seen=r["last_seen"],
+                    last_ok=r["last_ok"],
+                    status=r["value"],
+                    status_since=r["value_since"],
+                    changes=[StatusChange(at=c["at"], old=c["old"], new=c["new"]) for c in own],
+                )
+            elif kind == PORT:
+                ports[key] = PortHistory(
+                    first_seen=r["first_seen"],
+                    last_seen=r["last_seen"],
+                    up=r["value"] == "up",
+                    since=r["value_since"],
+                    changes=[LinkChange(at=c["at"], up=c["new"] == "up") for c in own],
+                )
+            elif kind == CLIENT:
+                clients[key] = ClientHistory(
+                    mac=key,
+                    first_seen=r["first_seen"],
+                    last_seen=r["last_seen"],
+                    segment_id=r["value"],
+                    moves=[SegmentChange(at=c["at"], old=c["old"], new=c["new"]) for c in own],
+                )
+            elif kind == CLIENT_SEGMENT:
+                mac, _, seg = key.partition(" ")
+                segments.setdefault(mac, []).append(
+                    SegmentSighting(
+                        segment_id=seg, first_seen=r["first_seen"], last_seen=r["last_seen"]
+                    )
+                )
+        for mac, seen in segments.items():
+            if mac in clients:
+                ordered = sorted(seen, key=lambda s: (s.first_seen, s.segment_id))
+                clients[mac] = clients[mac].model_copy(update={"segments": ordered})
+        return History(
+            now=now,
+            since=self.get_setting("history:since"),
+            observations=int(self.get_setting("history:observations") or 0),
+            days=days,
+            devices=devices,
+            clients=clients,
+            ports=ports,
+        )
