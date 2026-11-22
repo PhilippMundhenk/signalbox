@@ -522,16 +522,16 @@ def start(d: Path) -> None:
     der = ssl.PEM_cert_to_DER_cert(ssl.get_server_certificate(("127.0.0.1", HTTPS_PORT)))
     env = {
         "IT_OPNSENSE_URL": URL,
-        "IT_OPNSENSE_FINGERPRINT": hashlib.sha256(der).hexdigest(),
-        "IT_OPNSENSE_KEY": keys["signalbox-read"]["key"],
-        "IT_OPNSENSE_SECRET": keys["signalbox-read"]["secret"],
-        "IT_OPNSENSE_WRITE_KEY": keys["signalbox-write"]["key"],
-        "IT_OPNSENSE_WRITE_SECRET": keys["signalbox-write"]["secret"],
+        "IT_OPNSENSE_PIN": hashlib.sha256(der).hexdigest(),
+        "IT_OPNSENSE_USER": keys["signalbox-read"]["key"],
+        "IT_OPNSENSE_PASSWORD": keys["signalbox-read"]["secret"],
+        "IT_OPNSENSE_WRITE_USER": keys["signalbox-write"]["key"],
+        "IT_OPNSENSE_WRITE_PASSWORD": keys["signalbox-write"]["secret"],
         "IT_OPNSENSE_ROOT_KEY": keys["root"]["key"],
         "IT_OPNSENSE_ROOT_SECRET": keys["root"]["secret"],
     }
     for name, value in env.items():
-        if "SECRET" in name or "KEY" in name:
+        if name not in ("IT_OPNSENSE_URL", "IT_OPNSENSE_PIN"):
             print(f"::add-mask::{value}")
     target = os.environ.get("GITHUB_ENV")
     lines = "".join(f"{k}={v}\n" for k, v in env.items())

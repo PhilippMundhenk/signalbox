@@ -33,8 +33,8 @@ jobs:
       REQUIRE_INTEGRATION: "1"
       VM_DIR: ${{ github.workspace }}/.vm/opnsense
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with: { python-version: "3.13", cache: pip }
       - run: pip install -e ".[dev,switches]"
       - name: Enable KVM
@@ -100,7 +100,7 @@ jobs:
       - name: Power off
         if: always()
         run: python3 tools/integration/opnsense/vm.py stop "$VM_DIR" || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: opnsense-logs
