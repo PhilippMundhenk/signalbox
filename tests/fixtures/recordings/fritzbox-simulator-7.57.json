@@ -1,0 +1,787 @@
+{
+ "format": "signalbox-recording",
+ "version": 1,
+ "adapter": "fritzbox",
+ "recorded": "2026-11-22",
+ "role": "gateway",
+ "path": "",
+ "settings": {},
+ "device": {
+  "model": "FRITZ!Box 7590",
+  "firmware": "154.07.57"
+ },
+ "note": "Signalbox's own Fritz!Box simulator (fritzos-7.57), recorded as an example",
+ "exchanges": [
+  {
+   "method": "POST",
+   "path": "/upnp/control/deviceinfo",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:DeviceInfo:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:DeviceInfo:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:DeviceInfo:1\"><NewManufacturerName>AVM</NewManufacturerName><NewManufacturerOUI>00040E</NewManufacturerOUI><NewModelName>FRITZ!Box 7590</NewModelName><NewDescription>name-2</NewDescription><NewProductClass>AVMFB</NewProductClass><NewSerialNumber>redacted-secret-02</NewSerialNumber><NewSoftwareVersion>154.07.57</NewSoftwareVersion><NewHardwareVersion>FRITZ!Box 7590</NewHardwareVersion><NewSpecVersion>1.0</NewSpecVersion><NewProvisioningCode></NewProvisioningCode><NewUpTime>86400</NewUpTime><NewDeviceLog></NewDeviceLog></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>6</NewChannel><NewSSID>name-3</NewSSID><NewBeaconType>11iandWPA3</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:00</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>36</NewChannel><NewSSID>name-3</NewSSID><NewBeaconType>11iandWPA3</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:01</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>5000</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>6</NewChannel><NewSSID>name-4</NewSSID><NewBeaconType>11i</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:02</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig4",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:4#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:4\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 404,
+   "content_type": "",
+   "response": "<html>404 Not Found</html>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>normal</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>0</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>normal</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>5000</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>0</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>guest</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>1</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#GetTotalAssociations\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalAssociations xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:GetTotalAssociations></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalAssociationsResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewTotalAssociations>0</NewTotalAssociations></u:GetTotalAssociationsResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#GetTotalAssociations\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalAssociations xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:GetTotalAssociations></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalAssociationsResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewTotalAssociations>1</NewTotalAssociations></u:GetTotalAssociationsResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#GetGenericAssociatedDeviceInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericAssociatedDeviceInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewAssociatedDeviceIndex>0</NewAssociatedDeviceIndex></u:GetGenericAssociatedDeviceInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericAssociatedDeviceInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewAssociatedDeviceMACAddress>00:00:5e:00:53:03</NewAssociatedDeviceMACAddress><NewAssociatedDeviceIPAddress>192.0.2.101</NewAssociatedDeviceIPAddress><NewAssociatedDeviceAuthState>1</NewAssociatedDeviceAuthState><NewX_AVM-DE_Speed>866</NewX_AVM-DE_Speed><NewX_AVM-DE_SignalStrength>70</NewX_AVM-DE_SignalStrength><NewX_AVM-DE_ChannelWidth>80</NewX_AVM-DE_ChannelWidth></u:GetGenericAssociatedDeviceInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#GetTotalAssociations\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalAssociations xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"></u:GetTotalAssociations></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalAssociationsResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewTotalAssociations>1</NewTotalAssociations></u:GetTotalAssociationsResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#GetGenericAssociatedDeviceInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericAssociatedDeviceInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewAssociatedDeviceIndex>0</NewAssociatedDeviceIndex></u:GetGenericAssociatedDeviceInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericAssociatedDeviceInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewAssociatedDeviceMACAddress>00:00:5e:00:53:04</NewAssociatedDeviceMACAddress><NewAssociatedDeviceIPAddress>0.0.0.0</NewAssociatedDeviceIPAddress><NewAssociatedDeviceAuthState>1</NewAssociatedDeviceAuthState><NewX_AVM-DE_Speed>866</NewX_AVM-DE_Speed><NewX_AVM-DE_SignalStrength>70</NewX_AVM-DE_SignalStrength><NewX_AVM-DE_ChannelWidth>80</NewX_AVM-DE_ChannelWidth></u:GetGenericAssociatedDeviceInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/hosts",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:Hosts:1#X_AVM-DE_GetHostListPath\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetHostListPath xmlns:u=\"urn:dslforum-org:service:Hosts:1\"></u:X_AVM-DE_GetHostListPath></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetHostListPathResponse xmlns:u=\"urn:dslforum-org:service:Hosts:1\"><NewX_AVM-DE_HostListPath>/devicehostlist.lua?sid=redacted-secret-03</NewX_AVM-DE_HostListPath></u:X_AVM-DE_GetHostListPathResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "GET",
+   "path": "/devicehostlist.lua?sid=redacted-secret-03",
+   "headers": {},
+   "body": "",
+   "status": 200,
+   "content_type": "text/xml; charset=utf-8",
+   "response": "<?xml version=\"1.0\" encoding=\"utf-8\"?><List><Item><Index>1</Index><IPAddress>192.0.2.101</IPAddress><AddressSource>DHCP</AddressSource><LeaseTimeRemaining>86400</LeaseTimeRemaining><MACAddress>00:00:5e:00:53:03</MACAddress><InterfaceType>802.11</InterfaceType><Active>1</Active><HostName>name-5</HostName></Item><Item><Index>2</Index><IPAddress></IPAddress><AddressSource>DHCP</AddressSource><LeaseTimeRemaining>86400</LeaseTimeRemaining><MACAddress>00:00:5e:00:53:04</MACAddress><InterfaceType>802.11</InterfaceType><Active>1</Active><HostName>name-6</HostName></Item><Item><Index>3</Index><IPAddress>192.0.2.50</IPAddress><AddressSource>DHCP</AddressSource><LeaseTimeRemaining>86400</LeaseTimeRemaining><MACAddress>00:00:5e:00:53:05</MACAddress><InterfaceType>Ethernet</InterfaceType><Active>1</Active><HostName>name-7</HostName></Item><Item><Index>4</Index><IPAddress>192.0.2.60</IPAddress><AddressSource>DHCP</AddressSource><LeaseTimeRemaining>0</LeaseTimeRemaining><MACAddress>00:00:5e:00:53:06</MACAddress><InterfaceType>Ethernet</InterfaceType><Active>0</Active><HostName>name-8</HostName></Item></List>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/lanhostconfigmgm",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:LANHostConfigManagement:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:LANHostConfigManagement:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:LANHostConfigManagement:1\"><NewDHCPServerConfigurable>1</NewDHCPServerConfigurable><NewDHCPRelay>0</NewDHCPRelay><NewMinAddress>192.0.2.20</NewMinAddress><NewMaxAddress>192.0.2.200</NewMaxAddress><NewReservedAddresses></NewReservedAddresses><NewDHCPServerEnable>1</NewDHCPServerEnable><NewDNSServers>192.0.2.1</NewDNSServers><NewDomainName>fritz.box</NewDomainName><NewIPRouters>192.0.2.1</NewIPRouters><NewSubnetMask>255.255.255.0</NewSubnetMask></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/lanethernetifcfg",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:LANEthernetInterfaceConfig:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:LANEthernetInterfaceConfig:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:LANEthernetInterfaceConfig:1\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMACAddress>00:00:5e:00:53:07</NewMACAddress><NewMaxBitRate>1000</NewMaxBitRate><NewDuplexMode>Full</NewDuplexMode></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/lanethernetifcfg",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:LANEthernetInterfaceConfig:1#GetStatistics\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetStatistics xmlns:u=\"urn:dslforum-org:service:LANEthernetInterfaceConfig:1\"></u:GetStatistics></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetStatisticsResponse xmlns:u=\"urn:dslforum-org:service:LANEthernetInterfaceConfig:1\"><NewBytesSent>1000</NewBytesSent><NewBytesReceived>2000</NewBytesReceived><NewPacketsSent>10</NewPacketsSent><NewPacketsReceived>20</NewPacketsReceived></u:GetStatisticsResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/lanhostconfigmgm",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:LANHostConfigManagement:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:LANHostConfigManagement:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:LANHostConfigManagement:1\"><NewDHCPServerConfigurable>1</NewDHCPServerConfigurable><NewDHCPRelay>0</NewDHCPRelay><NewMinAddress>192.0.2.20</NewMinAddress><NewMaxAddress>192.0.2.200</NewMaxAddress><NewReservedAddresses></NewReservedAddresses><NewDHCPServerEnable>1</NewDHCPServerEnable><NewDNSServers>192.0.2.1</NewDNSServers><NewDomainName>fritz.box</NewDomainName><NewIPRouters>192.0.2.1</NewIPRouters><NewSubnetMask>255.255.255.0</NewSubnetMask></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>6</NewChannel><NewSSID>name-3</NewSSID><NewBeaconType>11iandWPA3</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:00</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>36</NewChannel><NewSSID>name-3</NewSSID><NewBeaconType>11iandWPA3</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:01</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>5000</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>6</NewChannel><NewSSID>name-4</NewSSID><NewBeaconType>11i</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:02</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig4",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:4#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:4\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 404,
+   "content_type": "",
+   "response": "<html>404 Not Found</html>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>normal</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>0</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>normal</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>5000</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>0</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>guest</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>1</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>6</NewChannel><NewSSID>name-3</NewSSID><NewBeaconType>11iandWPA3</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:00</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>36</NewChannel><NewSSID>name-3</NewSSID><NewBeaconType>11iandWPA3</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:01</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>5000</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>6</NewChannel><NewSSID>name-4</NewSSID><NewBeaconType>11i</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:02</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig4",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:4#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:4\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 404,
+   "content_type": "",
+   "response": "<html>404 Not Found</html>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>normal</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>0</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>normal</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>5000</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>0</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>guest</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>1</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#GetBeaconAdvertisement\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetBeaconAdvertisement xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:GetBeaconAdvertisement></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetBeaconAdvertisementResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewBeaconAdvertisementEnabled>1</NewBeaconAdvertisementEnabled></u:GetBeaconAdvertisementResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#GetSecurityKeys\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetSecurityKeys xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:GetSecurityKeys></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetSecurityKeysResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewWEPKey0></NewWEPKey0><NewWEPKey1></NewWEPKey1><NewWEPKey2></NewWEPKey2><NewWEPKey3></NewWEPKey3><NewPreSharedKey>redacted-secret-04</NewPreSharedKey><NewKeyPassphrase>redacted-secret-05</NewKeyPassphrase></u:GetSecurityKeysResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#GetBeaconAdvertisement\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetBeaconAdvertisement xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:GetBeaconAdvertisement></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetBeaconAdvertisementResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewBeaconAdvertisementEnabled>1</NewBeaconAdvertisementEnabled></u:GetBeaconAdvertisementResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#GetSecurityKeys\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetSecurityKeys xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:GetSecurityKeys></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetSecurityKeysResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewWEPKey0></NewWEPKey0><NewWEPKey1></NewWEPKey1><NewWEPKey2></NewWEPKey2><NewWEPKey3></NewWEPKey3><NewPreSharedKey>redacted-secret-04</NewPreSharedKey><NewKeyPassphrase>redacted-secret-05</NewKeyPassphrase></u:GetSecurityKeysResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#GetBeaconAdvertisement\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetBeaconAdvertisement xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"></u:GetBeaconAdvertisement></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetBeaconAdvertisementResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewBeaconAdvertisementEnabled>1</NewBeaconAdvertisementEnabled></u:GetBeaconAdvertisementResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#GetSecurityKeys\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetSecurityKeys xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"></u:GetSecurityKeys></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetSecurityKeysResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewWEPKey0></NewWEPKey0><NewWEPKey1></NewWEPKey1><NewWEPKey2></NewWEPKey2><NewWEPKey3></NewWEPKey3><NewPreSharedKey>redacted-secret-04</NewPreSharedKey><NewKeyPassphrase>redacted-secret-06</NewKeyPassphrase></u:GetSecurityKeysResponse></s:Body></s:Envelope>"
+  }
+ ],
+ "snapshot": {
+  "device": {
+   "id": "recorded",
+   "source": {
+    "adapter": "fritzbox",
+    "device_id": "recorded"
+   },
+   "vendor_extra": {},
+   "site_id": "home",
+   "name": "recorded device",
+   "role": "gateway",
+   "vendor": "AVM",
+   "model": "FRITZ!Box 7590",
+   "firmware": {
+    "current": "154.07.57",
+    "available": null,
+    "end_of_life": null
+   },
+   "management_address": "127.0.0.1",
+   "adapter": "fritzbox",
+   "capabilities": [
+    "clients",
+    "dhcp",
+    "interfaces",
+    "wireless"
+   ],
+   "managed_by": null
+  },
+  "status": "ok",
+  "ports": [
+   {
+    "id": "recorded/port/lan",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "BytesSent": "1000",
+     "BytesReceived": "2000",
+     "PacketsSent": "10",
+     "PacketsReceived": "20"
+    },
+    "device_id": "recorded",
+    "name": "lan",
+    "kind": "bridge",
+    "up": true,
+    "speed_mbps": 1000,
+    "full_duplex": true,
+    "poe": null,
+    "lag": null,
+    "mac": "00:00:5e:00:53:07"
+   }
+  ],
+  "segments": [
+   {
+    "id": "home/segment/native",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "site_id": "home",
+    "vlan": null,
+    "name": "LAN",
+    "members": [
+     {
+      "port_id": "recorded/port/lan",
+      "mode": "untagged"
+     }
+    ]
+   },
+   {
+    "id": "home/segment/guest",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "fritzbox": "guest network (isolated by the Fritz!Box)"
+    },
+    "site_id": "home",
+    "vlan": null,
+    "name": "Guest network",
+    "members": []
+   }
+  ],
+  "subnets": [
+   {
+    "id": "recorded/subnet/lan",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "segment_id": "home/segment/native",
+    "interface": "192.0.2.1/24",
+    "device_id": "recorded",
+    "gateway": true
+   }
+  ],
+  "dhcp_servers": [
+   {
+    "id": "recorded/dhcp/lan",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "reservations": "not exposed by TR-064"
+    },
+    "device_id": "recorded",
+    "segment_id": "home/segment/native",
+    "enabled": true,
+    "pools": [
+     {
+      "start": "192.0.2.20",
+      "end": "192.0.2.200"
+     }
+    ],
+    "lease_seconds": null,
+    "router": "192.0.2.1",
+    "dns_servers": [
+     "192.0.2.1"
+    ],
+    "domain": "fritz.box",
+    "reservations": []
+   }
+  ],
+  "dns_services": [],
+  "radios": [
+   {
+    "id": "recorded/radio/1",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "Standard": "ax",
+     "X_AVM-DE_FrequencyBand": "2400"
+    },
+    "device_id": "recorded",
+    "name": "2.4 GHz",
+    "band": "2.4",
+    "channel": 6,
+    "width_mhz": null,
+    "tx_power_dbm": null,
+    "country": null,
+    "enabled": true
+   },
+   {
+    "id": "recorded/radio/2",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "Standard": "ax",
+     "X_AVM-DE_FrequencyBand": "5000"
+    },
+    "device_id": "recorded",
+    "name": "5 GHz",
+    "band": "5",
+    "channel": 36,
+    "width_mhz": null,
+    "tx_power_dbm": null,
+    "country": null,
+    "enabled": true
+   }
+  ],
+  "wlans": [
+   {
+    "id": "recorded/wlan/1",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "BeaconType": "11iandWPA3",
+     "Standard": "ax",
+     "BSSID": "00:00:5e:00:53:00"
+    },
+    "device_id": "recorded",
+    "ssid": "name-3",
+    "radio_id": "recorded/radio/1",
+    "enabled": true,
+    "security": "wpa2-wpa3",
+    "pmf": null,
+    "passphrase_fingerprint": "a01ea5be1ba05885",
+    "segment_id": "home/segment/native",
+    "hidden": false,
+    "roaming_80211r": null,
+    "roaming_80211k": null,
+    "roaming_80211v": null
+   },
+   {
+    "id": "recorded/wlan/2",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "BeaconType": "11iandWPA3",
+     "Standard": "ax",
+     "BSSID": "00:00:5e:00:53:01"
+    },
+    "device_id": "recorded",
+    "ssid": "name-3",
+    "radio_id": "recorded/radio/2",
+    "enabled": true,
+    "security": "wpa2-wpa3",
+    "pmf": null,
+    "passphrase_fingerprint": "a01ea5be1ba05885",
+    "segment_id": "home/segment/native",
+    "hidden": false,
+    "roaming_80211r": null,
+    "roaming_80211k": null,
+    "roaming_80211v": null
+   },
+   {
+    "id": "recorded/wlan/3",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "BeaconType": "11i",
+     "Standard": "ax",
+     "BSSID": "00:00:5e:00:53:02",
+     "guest": true
+    },
+    "device_id": "recorded",
+    "ssid": "name-4",
+    "radio_id": "recorded/radio/1",
+    "enabled": true,
+    "security": "wpa2-psk",
+    "pmf": null,
+    "passphrase_fingerprint": "10db0ee80a1f092c",
+    "segment_id": "home/segment/guest",
+    "hidden": false,
+    "roaming_80211r": null,
+    "roaming_80211k": null,
+    "roaming_80211v": null
+   }
+  ],
+  "clients": [
+   {
+    "id": "recorded/client/00:00:5e:00:53:03",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "interface_type": "802.11",
+     "address_source": "DHCP"
+    },
+    "mac": "00:00:5e:00:53:03",
+    "addresses": [
+     "192.0.2.101"
+    ],
+    "hostname": "name-5",
+    "segment_id": "home/segment/native",
+    "seen_on": "recorded/wlan/2",
+    "last_seen": null
+   },
+   {
+    "id": "recorded/client/00:00:5e:00:53:04",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "interface_type": "802.11",
+     "address_source": "DHCP"
+    },
+    "mac": "00:00:5e:00:53:04",
+    "addresses": [],
+    "hostname": "name-6",
+    "segment_id": "home/segment/guest",
+    "seen_on": "recorded/wlan/3",
+    "last_seen": null
+   },
+   {
+    "id": "recorded/client/00:00:5e:00:53:05",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {
+     "interface_type": "Ethernet",
+     "address_source": "DHCP"
+    },
+    "mac": "00:00:5e:00:53:05",
+    "addresses": [
+     "192.0.2.50"
+    ],
+    "hostname": "name-7",
+    "segment_id": "home/segment/native",
+    "seen_on": "recorded/port/lan",
+    "last_seen": null
+   }
+  ],
+  "neighbours": [],
+  "errors": [],
+  "extra_devices": [],
+  "extra_status": {}
+ }
+}

@@ -12,6 +12,88 @@ where that is checked. When a real target disagrees with a simulator, the adapte
 **and** the simulator is changed to answer like the real software, so the normal suite keeps
 testing the real behaviour (#136).
 
+## Simulators that cannot be checked against the real software
+
+Some devices cannot run emulated (#136), so their simulators are built from the closest thing to
+the real implementation there is, and tests check the adapters against that:
+
+- **Fritz!Box**: `signalbox.sim.fritzbox` is built from AVM's TR-064 descriptions
+  (`tests/fixtures/tr064/`, `tr64desc.xml` and the SCPD files of FRITZ!OS 7.57 and 8.02, with
+  their source in `SOURCES.md`). It serves them, answers only described actions and arguments
+  with the described data types, and refuses the rest with the UPnP fault.
+  `tests/test_fritzbox_scpd.py` checks every action and argument the adapter sends or reads
+  against the descriptions, for both versions; a wrong name fails it. What the descriptions
+  corrected is listed in [adapters/fritzbox.md](adapters/fritzbox.md#checked-against-avms-service-descriptions).
+- **ProSAFE Plus, Easy Smart**: Switchyard's simulators are the reference
+  ([ADR 0003](adr/0003-switchyard-library.md)); the published captures of real switches are
+  pinned with the Switchyard commit in `tests/fixtures/switches/captures.json` and
+  `tests/test_switch_captures.py` checks the pinned Switchyard against them byte for byte.
+- **Recordings of real devices**: see below.
+
+## Recordings of real devices (record and replay)
+
+A device report (#21) is most useful as a recording: what the device answered to Signalbox,
+with private data neutralised, replayed as a regression test.
+
+```sh
+pip install -e ".[dev]"
+export SIGNALBOX_RECORD_PASSWORD='...'          # the password or API secret, never an argument
+python tools/record_device.py --adapter fritzbox --url https://192.0.2.1:49443 \
+  --username signalbox --show-fingerprint       # compare it with what the browser shows
+python tools/record_device.py --adapter fritzbox --url https://192.0.2.1:49443 \
+  --username signalbox --pin <fingerprint> --note "FRITZ!Box 7590, FRITZ!OS 7.57" \
+  --out fritzbox-7590-7.57.json
+```
+
+Use the address of the device as you reach it; it is replaced in the file. Further settings
+of the adapter (see its page under [adapters/](adapters/)) are given with `--set key=value`,
+and `--role ap` where the device is not the gateway. It works for the adapters that talk
+HTTP(S): `fritzbox`, `openwrt`, `opnsense`, `mikrotik`, `omada`. The first secret setting
+(password, API key, client secret) is read from `SIGNALBOX_RECORD_PASSWORD`, further ones from
+`SIGNALBOX_RECORD_<SETTING>` (OPNsense: `SIGNALBOX_RECORD_API_SECRET`).
+
+- **Only reads.** The tool observes the device once through its adapter (`observe()`); nothing
+  is changed, no change is planned or applied.
+- **Recorded:** every HTTP exchange of the adapter's `DeviceHttp` (method, path, the
+  `SOAPAction` and `Content-Type` headers, body, status, content type and body of the answer).
+  Not recorded: credentials (`Authorization`, cookies) and digest challenges.
+- **Neutralised** (`signalbox.recording.Neutraliser`), the same value always to the same
+  placeholder so the replay still fits together:
+  - IPv4 addresses: each /24 network to a documentation network (192.0.2.0/24,
+    198.51.100.0/24, 203.0.113.0/24, then 198.18.0.0/15), the last octet kept, so addresses
+    stay in their subnets; masks, loopback, multicast and broadcast stay;
+  - IPv6 addresses: each /64 to `2001:db8:<n>::/64`, interface ids to `::<n>`, link-local to
+    `fe80::<n>`;
+  - MAC addresses: to `00:00:5e:00:53:<n>` (the documentation range of RFC 7042), from the
+    257th on `02:00:5e:00:..`;
+  - secrets (passwords, passphrases, pre-shared and WEP keys, tokens, session ids, `sid=` in
+    URLs, serial numbers): `redacted-secret-<n>`; the password given to the tool becomes
+    `recorded-secret`, the user name `recorded-user`;
+  - names people chose (SSIDs, host names, friendly names, descriptions, comments, domain
+    names other than vendor defaults such as `fritz.box`): `name-<n>`;
+  - free-text logs (`NewDeviceLog` and other fields ending in `log`): emptied.
+
+  Model and firmware version stay: they are what the report is about. Names inside other
+  free text and MAC addresses written without separators are **not** found, so read the file
+  before you publish it.
+- **Replayed:** the tool then replays the neutralised file through the adapter and stores the
+  snapshot the adapter made of it (`snapshot`), and warns if the adapter asked for something
+  that was not recorded.
+
+Attach the file to your report on #21 (or open a pull request adding it to
+`tests/fixtures/recordings/`). `tests/test_recordings.py` replays every file there through its
+adapter over pinned TLS (`signalbox.recording.create_app`, which answers each request with
+the recorded answer, in order for repeated requests, and 501 for anything not recorded): the
+adapter must report exactly the stored snapshot and pass the contract checks. When a change
+of the adapter changes the snapshot on purpose, replay the file again with
+`signalbox.recording.replay_snapshot` and commit the new snapshot with the change, so the
+review shows what changed for that device.
+
+The replay also runs on its own, as a simulator of the recorded device:
+`SIGNALBOX_REPLAY=recording.json uvicorn --factory signalbox.recording:create_app`.
+`tests/fixtures/recordings/fritzbox-simulator-7.57.json` is an example, recorded from the
+Fritz!Box simulator.
+
 ## Integration tests
 
 `tests/integration/` (marker `integration`, left out of `make test`). Each target is a real
