@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from factories import SITE
-from signalbox.changes import plan
+from factories import SITE, ip
+from signalbox.changes import Change, ChangeKind, DhcpValue, WlanValue, plan
 from signalbox.deploy import Deployer, DeployError, matches
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
-from signalbox.model import DeviceRole, Link, LinkOrigin
+from signalbox.model import DeviceRole, Link, LinkOrigin, Pmf, Security
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
 from signalbox.store import DeviceRecord
@@ -309,3 +309,45 @@ async def test_changes_on_a_managed_device_go_through_its_controller(svc: Servic
     svc.runner.network = lambda: net.model_copy(update={"devices": [*net.devices, managed]})  # type: ignore[method-assign]
     assert d.owner("gw/eap1") == "gw"
     assert d.adapter("gw/eap1").context.device_id == "gw"
+
+
+async def test_integration_that_cannot_translate_is_a_deploy_error(svc: Services) -> None:
+    await svc.runner.observe_all()
+    p = plan(parse(WANT), svc.runner.network(), RULES, secret=svc.store.get_secret)
+    Writable.fail["ap"] = {"plan"}
+    with pytest.raises(DeployError, match="ap: cannot translate the change"):
+        await Deployer(svc.runner).prepare(p, "x", "t")
+
+
+async def test_confirm_that_fails_restores_and_rolls_back(svc: Services) -> None:
+    before = snapshot_json("gw")
+    d, cid = await planned(svc)
+    Writable.fail["gw"] = {"timer", "confirm"}
+    assert await deployed(svc, d, cid) is ChangeStatus.ROLLED_BACK
+    rec = svc.store.change(cid)
+    assert rec is not None
+    gw = rec.devices[0]
+    assert "confirm failed: confirm refused" in (gw.error or "")
+    assert gw.status is DeviceStatus.ROLLED_BACK and snapshot_json("gw") == before
+
+
+async def test_unspecified_values_are_left_to_the_device(svc: Services) -> None:
+    await svc.runner.observe_all()
+    net = svc.runner.network()
+    wlan = WlanValue(ssid="Example", security=Security.WPA2)
+    seen = Change(kind=ChangeKind.WLAN, device_id="ap", site_id="home", key="Example", new=wlan)
+    assert matches(net, seen, wlan, {})  # pmf and roaming None: whatever the device has
+    assert not matches(net, seen, wlan.model_copy(update={"pmf": Pmf.REQUIRED}), {})
+    gw = Writable.state["gw"]
+    servers = [s.model_copy(update={"enabled": False, "pools": []}) for s in gw.dhcp_servers]
+    Writable.state["gw"] = gw.model_copy(update={"dhcp_servers": servers})
+    await svc.runner.observe_all()
+    net = svc.runner.network()
+    off = DhcpValue(
+        enabled=False, pool=(ip("192.0.2.100"), ip("192.0.2.199")), dns=[ip("192.0.2.1")]
+    )
+    dhcp = Change(
+        kind=ChangeKind.DHCP, device_id="gw", site_id="home", key="home/segment/native", new=off
+    )
+    assert matches(net, dhcp, off, {})  # a switched-off server reports no pool
+    assert not matches(net, dhcp, off.model_copy(update={"enabled": True}), {})

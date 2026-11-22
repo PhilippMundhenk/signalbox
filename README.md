@@ -38,7 +38,7 @@ Signalbox is made of separate parts with narrow jobs (details in [docs/DESIGN.md
 | Device | How Signalbox reads it | What it reads |
 | --- | --- | --- |
 | OPNsense | REST API with a read-only API key ([docs](docs/adapters/opnsense.md)) | interfaces, VLANs, subnets, DHCP (Kea, ISC), Unbound DNS, ARP/NDP and leases; writes: router interfaces (26.7+), VLANs on ports, Kea DHCP subnets and reservations (simulator-tested) |
-| OpenWrt (access points, routers) | ubus JSON-RPC over HTTPS with a read-only rpcd user | ports, DSA bridge VLANs, Wi-Fi radios and SSIDs, DHCP, connected clients, LLDP |
+| OpenWrt (access points, routers) | ubus JSON-RPC over HTTPS with an rpcd user (read-only, or write access to UCI `network`, `wireless`, `dhcp`) | ports, DSA bridge VLANs, Wi-Fi radios and SSIDs, DHCP, connected clients, LLDP; writes: port VLANs, SSIDs, DHCP pools and reservations, through UCI with a confirm-or-revert timer ([docs](docs/adapters/openwrt.md#writing)) |
 | NETGEAR ProSAFE Plus switches | NSDP (UDP) through [Switchyard](https://github.com/PhilippMundhenk/switchyard), read, simulator-tested | model, firmware, ports with link and speed, 802.1Q VLANs (tagged/untagged, PVIDs), port-based VLAN groups, link aggregation |
 | AVM Fritz!Box | TR-064 (SOAP over HTTPS) with a dedicated user; read, simulator-tested | LAN, subnet, DHCP, Wi-Fi radios, SSIDs and guest network, connected hosts |
 | MikroTik (RouterOS 7) | REST API over HTTPS with a read-only user group ([docs](docs/adapters/mikrotik.md)); read, simulator-tested | ports, bridge VLAN filtering, subnets, DHCP, DNS, Wi-Fi (wifi and wireless packages), clients, LLDP/MNDP neighbours |

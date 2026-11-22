@@ -115,15 +115,27 @@ class Ubus:
             raise AdapterError("unexpected answer to session.login")
         self.session = session
 
-    async def call(self, obj: str, method: str, args: dict[str, Any] | None = None) -> Any:
-        """Call ``obj.method``; returns the data object of the answer."""
+    async def call(
+        self,
+        obj: str,
+        method: str,
+        args: dict[str, Any] | None = None,
+        *,
+        keep_session: bool = False,
+    ) -> Any:
+        """Call ``obj.method``; returns the data object of the answer.
+
+        ``keep_session``: never log in again on "access denied". UCI staging belongs to the
+        session, so a write transaction must notice a lost session instead of silently going on
+        in a new, empty one; the caller starts the transaction over.
+        """
         for attempt in (1, 2):
             if self.session is None:
                 await self.login()
             try:
                 return await self._rpc([self.session, obj, method, args or {}])
             except _Denied:
-                if attempt == 2:
+                if attempt == 2 or keep_session:
                     break
                 self.session = None  # may simply have expired: log in again once
         what = f"{obj}.{method}"

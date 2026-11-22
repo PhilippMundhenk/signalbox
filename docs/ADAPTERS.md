@@ -167,6 +167,14 @@ restore) and records everything; integrations do not decide on their own to keep
 change. Declaring `writes` without implementing `WritesConfig` is refused when the adapter is
 constructed.
 
+The deployment verifies by reading the device again: after `apply`, the read side must report
+exactly each change's `new` value. A `None` in `pmf`, the roaming flags of a WLAN or the lease
+time of a DHCP server means "not specified" and accepts what the device reports; a switched-off
+DHCP server is not expected to report a pool. Raise `AdapterError` with a message for the user
+for a change the device cannot take (`plan_changes` already raises it, so the change is refused
+when it is recorded). The OpenWrt integration is the reference
+([adapters/openwrt.md](adapters/openwrt.md#writing)).
+
 ## Controllers (adapter API 1.1)
 
 An integration that observes a controller (for example Omada) reports the devices it manages in

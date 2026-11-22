@@ -25,7 +25,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from signalbox.adapters import Adapter, AdapterContext, WritesConfig
+from signalbox.adapters import Adapter, AdapterContext, AdapterError, WritesConfig
 from signalbox.changes import (
     Change,
     ChangeKind,
@@ -77,9 +77,24 @@ def current_value(net: Network, c: Change) -> Any:
     return observed_wlan(net, c.device_id, c.key)
 
 
+#: Fields of a planned value that are left to the device when the plan has None for them.
+UNSPECIFIED: dict[ChangeKind, tuple[str, ...]] = {
+    ChangeKind.WLAN: ("pmf", "roaming_80211r", "roaming_80211k", "roaming_80211v"),
+    ChangeKind.DHCP: ("lease_seconds",),
+}
+
+
 def matches(net: Network, c: Change, want: Any, secrets: Mapping[str, str]) -> bool:
     """Whether the device has ``want`` (old or new value of ``c``) for the changed object."""
     have = current_value(net, c)
+    if want is not None and have is not None:
+        # None in a planned value means "not specified": whatever the device reports is fine
+        loose = [f for f in UNSPECIFIED.get(c.kind, ()) if getattr(want, f) is None]
+        want = want.model_copy(update={f: getattr(have, f) for f in loose})
+        if c.kind is ChangeKind.DHCP and not want.enabled:
+            # a switched-off server serves no pool; not every device reports the configured one
+            have = have.model_copy(update={"pool": None})
+            want = want.model_copy(update={"pool": None})
     if c.kind is ChangeKind.WLAN and want is not None and have is not None:
         name = want.passphrase_secret
         if name and name in secrets:
@@ -187,6 +202,8 @@ class Deployer:
             assert isinstance(adapter, WritesConfig)
             try:
                 calls = await adapter.plan_changes(plan.for_device(dev), secrets)
+            except (AdapterError, OSError, TimeoutError) as exc:
+                raise DeployError(f"{dev}: {exc}") from exc
             finally:
                 await adapter.close()
             results.append(DeviceResult(device_id=dev, calls=calls))
@@ -355,7 +372,13 @@ class Deployer:
                 await self._restore(rec, dev, adapter)
                 return False
             if deadline is not None:
-                await adapter.confirm()
+                try:
+                    await adapter.confirm()
+                except Exception as exc:
+                    result.error = f"confirm failed: {exc}"
+                    self._event(rec, dev, "confirm-failed", str(exc))
+                    await self._restore(rec, dev, adapter)
+                    return False
             result.status = DeviceStatus.CONFIRMED
             self._event(rec, dev, "confirmed")
             return True
