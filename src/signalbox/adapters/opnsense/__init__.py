@@ -72,16 +72,18 @@ from signalbox.model import (
 )
 
 FIRMWARE = "/api/core/firmware/status"
-INTERFACES = "/api/interfaces/overview/interfacesInfo"
-VLANS = "/api/interfaces/vlan_settings/searchItem"
+INTERFACES = "/api/interfaces/overview/interfaces_info"
+VLANS = "/api/interfaces/vlan_settings/search_item"
 KEA = "/api/kea/dhcpv4/get"
+KEA_SUBNETS = "/api/kea/dhcpv4/search_subnet"
+KEA_RESERVATIONS = "/api/kea/dhcpv4/search_reservation"
 KEA_LEASES = "/api/kea/leases4/search"
 ISC_STATUS = "/api/dhcpv4/service/status"
-ISC_LEASES = "/api/dhcpv4/leases/searchLease"
+ISC_LEASES = "/api/dhcpv4/leases/search_lease"
 UNBOUND = "/api/unbound/settings/get"
-HOST_OVERRIDES = "/api/unbound/settings/searchHostOverride"
-ARP = "/api/diagnostics/interface/getArp"
-NDP = "/api/diagnostics/interface/getNdp"
+HOST_OVERRIDES = "/api/unbound/settings/search_host_override"
+ARP = "/api/diagnostics/interface/get_arp"
+NDP = "/api/diagnostics/interface/get_ndp"
 
 #: Grid endpoints page their answer; ask for everything at once.
 ALL_ROWS = {"current": 1, "rowCount": -1}
@@ -197,6 +199,26 @@ def _mac(value: Any) -> str | None:
         return normalise_mac(_text(value))
     except ValueError:
         return None
+
+
+def _vlanif(value: Any) -> str:
+    """The VLAN device name; the VLAN list appends ``[<interface>]`` once it is assigned."""
+    return re.sub(r"\s*\[.*\]$", "", _text(value))
+
+
+def _nest(row: dict[str, Any]) -> dict[str, Any]:
+    """A grid row with dotted names (``option_data.routers``) as nested objects."""
+    out: dict[str, Any] = {}
+    for key, value in row.items():
+        *parents, last = str(key).split(".")
+        target = out
+        for part in parents:
+            target = target.setdefault(part, {})
+            if not isinstance(target, dict):
+                break
+        else:
+            target[last] = value
+    return out
 
 
 def _int(value: Any) -> int | None:
@@ -352,10 +374,12 @@ class OpnsenseAdapter(_Adapter):
         if not current:
             raise _unexpected(FIRMWARE, "no product_version")
         latest = _text(product.get("product_latest"))
+        # product_version carries the package revision (26.7.9_3), product_latest does not
+        newer = latest and latest not in (current, current.split("_", 1)[0])
         return SystemInfo(
             vendor="Deciso",
             model=_text(product.get("product_name")) or "OPNsense",
-            firmware=Firmware(current=current, available=latest if latest != current else None),
+            firmware=Firmware(current=current, available=latest if newer else None),
             management_address=self.http.host,
         )
 
@@ -373,7 +397,7 @@ class OpnsenseAdapter(_Adapter):
         dev, site = self.context.device_id, self.context.site_id
         vlans: dict[str, tuple[str, int, str]] = {}
         for v in vlan_rows:
-            name, parent, tag = _text(v.get("vlanif")), _text(v.get("if")), _int(v.get("tag"))
+            name, parent, tag = _vlanif(v.get("vlanif")), _text(v.get("if")), _int(v.get("tag"))
             if name and parent and tag is not None and 1 <= tag <= 4094:
                 vlans[name] = (parent, tag, _text(v.get("descr")))
 
@@ -474,16 +498,35 @@ class OpnsenseAdapter(_Adapter):
 
     # --- DHCP ---------------------------------------------------------------------------------
 
+    async def _kea_config(self) -> dict[str, Any] | None:
+        """Kea DHCPv4: ``general`` plus subnets and reservations by uuid (None: no Kea).
+
+        ``/api/kea/dhcpv4/get`` answers only the general settings (OPNsense 26.7); subnets and
+        reservations are grids whose rows name nested fields with dots
+        (``option_data.routers``). They are put back into the nested form of the model.
+        """
+        data = await self._optional(KEA)
+        if data is None:
+            return None
+        root = dict(_dict(_dict(data, KEA, "the answer").get("dhcpv4"), KEA, "dhcpv4"))
+        if "subnets" not in root:
+            subnets = _rows(await self._get(KEA_SUBNETS, grid=True), KEA_SUBNETS)
+            reservations = _rows(await self._get(KEA_RESERVATIONS, grid=True), KEA_RESERVATIONS)
+            root["subnets"] = {"subnet4": {_text(r.get("uuid")): _nest(r) for r in subnets}}
+            root["reservations"] = {
+                "reservation": {_text(r.get("uuid")): _nest(r) for r in reservations}
+            }
+        return root
+
     async def read_dhcp(self) -> Observation:
         layout = await self._layout()
-        servers = self._kea(layout, await self._optional(KEA))
+        servers = self._kea(layout, await self._kea_config())
         servers += await self._isc(layout)
         return Observation(dhcp_servers=servers)
 
-    def _kea(self, layout: _Layout, data: Any) -> list[DhcpServer]:
-        if data is None:
+    def _kea(self, layout: _Layout, root: dict[str, Any] | None) -> list[DhcpServer]:
+        if root is None:
             return []
-        root = _dict(_dict(data, KEA, "the answer").get("dhcpv4"), KEA, "dhcpv4")
         general = _sub(root, "general")
         enabled = _flag(general.get("enabled"))
         listen = set(_selected(general.get("interfaces")))
@@ -495,7 +538,7 @@ class OpnsenseAdapter(_Adapter):
             mac, address = _mac(r.get("hw_address")), _addr(r.get("ip_address"))
             if mac is None or address is None:
                 continue
-            refs = set(_selected(r.get("subnet")))
+            refs = set(_selected(r.get("subnet"))) | {_text(r.get("%subnet"))} - {""}
             if isinstance(r.get("subnet"), dict):  # option values carry the CIDR text
                 refs |= {_text(v.get("value")) for v in r["subnet"].values() if isinstance(v, dict)}
             for uuid, s in subnets.items():
@@ -691,14 +734,14 @@ class OpnsenseAdapter(_Adapter):
         self._layout_cache = None
         layout = await self._layout()
         vlans = [
-            {k: _text(v.get(k)) for k in ("uuid", "vlanif", "if", "tag", "descr")}
+            {k: _text(v.get(k)) for k in ("uuid", "if", "tag", "descr")}
+            | {"vlanif": _vlanif(v.get("vlanif"))}
             for v in _rows(await self._get(VLANS, grid=True), VLANS)
         ]
-        kea = await self._optional(KEA)
+        root = await self._kea_config()
         isc = {s.segment_id for s in await self._isc(layout)}
         st = w.WriteState(site=self.context.site_id, layout=layout, vlans=vlans, kea=None, isc=isc)
-        if kea is not None:
-            root = _dict(_dict(kea, KEA, "the answer").get("dhcpv4"), KEA, "dhcpv4")
+        if root is not None:
             general = _sub(root, "general")
             st.kea = root
             st.kea_enabled = _flag(general.get("enabled"))

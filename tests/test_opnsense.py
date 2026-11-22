@@ -132,7 +132,16 @@ async def test_system(snap: Snapshot) -> None:
     d = snap.device
     assert (d.vendor, d.model, d.management_address) == ("Deciso", "OPNsense", "127.0.0.1")
     assert d.firmware is not None
-    assert (d.firmware.current, d.firmware.available) == ("24.7.1", "24.7.2")
+    assert (d.firmware.current, d.firmware.available) == ("26.7.8_1", "26.7.9")
+
+
+async def test_package_revision_is_not_an_update(http_url: str, sim: OpnsenseSimulator) -> None:
+    """OPNsense 26.7: product_version carries the package revision, product_latest not."""
+    product = sim.data[FIRMWARE]["product"]
+    product["product_version"], product["product_latest"] = "26.7.9_3", "26.7.9"
+    snap = await observe(adapter(http_url))
+    assert snap.device.firmware is not None
+    assert (snap.device.firmware.current, snap.device.firmware.available) == ("26.7.9_3", None)
 
 
 async def test_ports_and_segments(snap: Snapshot) -> None:

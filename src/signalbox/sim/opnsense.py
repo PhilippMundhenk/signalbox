@@ -19,7 +19,7 @@ history) change ``data``, so the read endpoints show the result: configuration e
 once, the interface overview after ``/api/interfaces/assignment/reconfigure`` (it shows the
 running interfaces). Every write stores a revision of the configuration history; a revision
 downloads as a ``config.xml`` serialising the configuration part of ``data``, and
-``revertBackup`` puts it back. Write failure switches: ``invalid`` (path or path prefix ->
+``revert_backup`` puts it back. Write failure switches: ``invalid`` (path or path prefix ->
 validation messages, answered as ``{"result": "failed", "validations": {...}}``) and ``fail``
 (also by prefix); the simulated firewall validates fields itself, too (descriptions, tags,
 networks, pools, MACs).
@@ -76,12 +76,12 @@ def sample_data() -> dict[str, Any]:
             "status_msg": "There are 3 updates available.",
             "product": {
                 "product_name": "OPNsense",
-                "product_version": "24.7.1",
-                "product_latest": "24.7.2",
+                "product_version": "26.7.8_1",
+                "product_latest": "26.7.9",
                 "product_arch": "amd64",
             },
         },
-        "/api/interfaces/overview/interfacesInfo": {
+        "/api/interfaces/overview/interfaces_info": {
             "total": 6,
             "rowCount": 6,
             "current": 1,
@@ -118,7 +118,7 @@ def sample_data() -> dict[str, Any]:
                 _iface("lo0", "lo0", "Loopback", mac="", v4=["127.0.0.1/8"], v6=["::1/128"]),
             ],
         },
-        "/api/interfaces/vlan_settings/searchItem": {
+        "/api/interfaces/vlan_settings/search_item": {
             "total": 3,
             "rowCount": 3,
             "current": 1,
@@ -188,7 +188,7 @@ def sample_data() -> dict[str, Any]:
             ],
         },
         "/api/dhcpv4/service/status": {"status": "running"},
-        "/api/dhcpv4/leases/searchLease": {
+        "/api/dhcpv4/leases/search_lease": {
             "total": 2,
             "interfaces": {"opt2": "Guest"},
             "rows": [
@@ -250,7 +250,7 @@ def sample_data() -> dict[str, Any]:
                 },
             }
         },
-        "/api/unbound/settings/searchHostOverride": {
+        "/api/unbound/settings/search_host_override": {
             "total": 4,
             "rows": [
                 {
@@ -288,7 +288,7 @@ def sample_data() -> dict[str, Any]:
                 },
             ],
         },
-        "/api/diagnostics/interface/getArp": [
+        "/api/diagnostics/interface/get_arp": [
             {
                 "mac": "00:00:5e:00:53:10",
                 "ip": "192.0.2.10",
@@ -312,7 +312,7 @@ def sample_data() -> dict[str, Any]:
             {"mac": "02:00:00:00:01:00", "ip": "192.0.2.1", "intf": "igb0", "permanent": True},
             {"mac": "(incomplete)", "ip": "192.0.2.99", "intf": "igb0"},
         ],
-        "/api/diagnostics/interface/getNdp": [
+        "/api/diagnostics/interface/get_ndp": [
             {"mac": "00:00:5e:00:53:10", "ip": "2001:db8:1::10", "intf": "igb0"},
             {"mac": "00:00:5e:00:53:10", "ip": "fe80::10%igb0", "intf": "igb0"},
         ],
@@ -325,9 +325,11 @@ def sample_data() -> dict[str, Any]:
 BACKUPS = "/api/core/backup/backups/this"
 DOWNLOAD = "/api/core/backup/download/this"
 ASSIGN = "/api/interfaces/assignment/"
-INTERFACES = "/api/interfaces/overview/interfacesInfo"
-VLANS = "/api/interfaces/vlan_settings/searchItem"
+INTERFACES = "/api/interfaces/overview/interfaces_info"
+VLANS = "/api/interfaces/vlan_settings/search_item"
 KEA = "/api/kea/dhcpv4/get"
+KEA_SUBNETS = "/api/kea/dhcpv4/search_subnet"
+KEA_RESERVATIONS = "/api/kea/dhcpv4/search_reservation"
 #: The parts of ``data`` that are configuration (saved in config.xml, restored by a revert).
 CONFIG = (INTERFACES, VLANS, KEA)
 _WRITE = re.compile(
@@ -520,14 +522,48 @@ class _Writes:
             raise Refused("vlan.vlanif", "The device name must be unique.")
         return {"vlanif": vlanif, "if": parent, "tag": tag, "descr": str(item.get("descr", ""))}
 
-    def _interfaces_vlan_settings_addItem(self, body: dict[str, Any], *_: Any) -> Any:
+    def _vlan_list(self) -> Any:
+        """The VLAN grid as OPNsense shows it: an assigned device gets ``[<interface>]``."""
+        answer = copy.deepcopy(self.data[VLANS])
+        overview = self.data.get(INTERFACES)
+        rows = answer.get("rows") if isinstance(answer, dict) else None
+        if not isinstance(rows, list) or not isinstance(overview, dict):
+            return answer  # test data of the wrong shape: as it is
+        names = {
+            r.get("device"): r.get("description") or str(r["identifier"]).upper()
+            for r in overview.get("rows", [])
+            if isinstance(r, dict) and r.get("identifier")
+        }
+        for row in rows:
+            if isinstance(row, dict) and row.get("vlanif") in names:
+                row["vlanif"] = f"{row['vlanif']} [{names[row['vlanif']]}]"
+        return answer
+
+    def _kea_answer(self, path: str) -> Any:
+        """Kea as OPNsense 26.7 answers it: ``get`` has the general settings only, subnets
+        and reservations are grids with dotted names for nested fields."""
+        data = self.data[KEA]
+        root = data.get("dhcpv4") if isinstance(data, dict) else None
+        if not isinstance(root, dict):
+            return data if path == KEA else {"rows": []}
+        if path == KEA:
+            hidden = ("subnets", "reservations")
+            return {"dhcpv4": {k: v for k, v in root.items() if k not in hidden}}
+        part, name = (
+            ("subnets", "subnet4") if path == KEA_SUBNETS else ("reservations", "reservation")
+        )
+        items = root.get(part, {}).get(name, {})
+        rows = [{"uuid": k, **_grid_row(v)} for k, v in items.items() if isinstance(v, dict)]
+        return {"rows": rows, "rowCount": len(rows), "total": len(rows), "current": 1}
+
+    def _interfaces_vlan_settings_add_item(self, body: dict[str, Any], *_: Any) -> Any:
         uuid = self._uuid("v")
         row = {"uuid": uuid, **self._vlan_fields(body.get("vlan", {}), None)}
         self._rows(VLANS).append(row)
         self.save("VLAN added")
         return {"result": "saved", "uuid": uuid}
 
-    def _interfaces_vlan_settings_delItem(self, _: Any, uuid: str, *__: Any) -> Any:
+    def _interfaces_vlan_settings_del_item(self, _: Any, uuid: str, *__: Any) -> Any:
         row = next((r for r in self._rows(VLANS) if r["uuid"] == uuid), None)
         if row is None:
             return {"result": "not found"}
@@ -566,14 +602,14 @@ class _Writes:
             out["ipv4"] = [{"ipaddr": str(addr)}]
         return out
 
-    def _interfaces_assignment_searchItem(self, *_: Any) -> Any:
+    def _interfaces_assignment_search_item(self, *_: Any) -> Any:
         rows = [
             {"identifier": k, "if": r["device"], "descr": r.get("description", "")}
             for k, r in self._assigned().items()
         ]
         return {"rows": rows, "total": len(rows), "current": 1, "rowCount": len(rows)}
 
-    def _interfaces_assignment_addItem(self, body: dict[str, Any], *_: Any) -> Any:
+    def _interfaces_assignment_add_item(self, body: dict[str, Any], *_: Any) -> Any:
         item = body.get("interface", {})
         device = str(item.get("if", ""))
         if device not in self._devices():
@@ -593,13 +629,13 @@ class _Writes:
         self.pending.append(("add", ident, {"if": device, **fields}))
         return {"result": "saved", "uuid": ident}
 
-    def _interfaces_assignment_setItem(self, body: dict[str, Any], ident: str, *_: Any) -> Any:
+    def _interfaces_assignment_set_item(self, body: dict[str, Any], ident: str, *_: Any) -> Any:
         if ident not in self._assigned():
             return {"result": "failed"}
         self.pending.append(("set", ident, self._iface_fields(body.get("interface", {}))))
         return {"result": "saved"}
 
-    def _interfaces_assignment_delItem(self, _: Any, ident: str, *__: Any) -> Any:
+    def _interfaces_assignment_del_item(self, _: Any, ident: str, *__: Any) -> Any:
         if ident not in self._assigned():
             return {"result": "not found"}
         if ident in self.locked:
@@ -675,7 +711,7 @@ class _Writes:
         merged.setdefault("description", "")
         return merged
 
-    def _kea_dhcpv4_addSubnet(self, body: dict[str, Any], *_: Any) -> Any:
+    def _kea_dhcpv4_add_subnet(self, body: dict[str, Any], *_: Any) -> Any:
         subnets = self._kea()["subnets"]["subnet4"]
         item = self._subnet_fields(body.get("subnet4", {}), {})
         if any(s["subnet"] == item["subnet"] for s in subnets.values()):
@@ -685,7 +721,7 @@ class _Writes:
         self.save("Kea subnet added")
         return {"result": "saved", "uuid": uuid}
 
-    def _kea_dhcpv4_setSubnet(self, body: dict[str, Any], uuid: str, *_: Any) -> Any:
+    def _kea_dhcpv4_set_subnet(self, body: dict[str, Any], uuid: str, *_: Any) -> Any:
         subnets = self._kea()["subnets"]["subnet4"]
         if uuid not in subnets:
             return {"result": "failed"}
@@ -693,7 +729,7 @@ class _Writes:
         self.save("Kea subnet changed")
         return {"result": "saved"}
 
-    def _kea_dhcpv4_delSubnet(self, _: Any, uuid: str, *__: Any) -> Any:
+    def _kea_dhcpv4_del_subnet(self, _: Any, uuid: str, *__: Any) -> Any:
         subnets = self._kea()["subnets"]["subnet4"]
         if subnets.pop(uuid, None) is None:
             return {"result": "not found"}
@@ -726,14 +762,14 @@ class _Writes:
             "description": str(item.get("description", "")),
         }
 
-    def _kea_dhcpv4_addReservation(self, body: dict[str, Any], *_: Any) -> Any:
+    def _kea_dhcpv4_add_reservation(self, body: dict[str, Any], *_: Any) -> Any:
         item = self._reservation_fields(body.get("reservation", {}), None)
         uuid = self._uuid("r")
         self._kea()["reservations"]["reservation"][uuid] = item
         self.save("Kea reservation added")
         return {"result": "saved", "uuid": uuid}
 
-    def _kea_dhcpv4_setReservation(self, body: dict[str, Any], uuid: str, *_: Any) -> Any:
+    def _kea_dhcpv4_set_reservation(self, body: dict[str, Any], uuid: str, *_: Any) -> Any:
         reservations = self._kea()["reservations"]["reservation"]
         if uuid not in reservations:
             return {"result": "failed"}
@@ -741,7 +777,7 @@ class _Writes:
         self.save("Kea reservation changed")
         return {"result": "saved"}
 
-    def _kea_dhcpv4_delReservation(self, _: Any, uuid: str, *__: Any) -> Any:
+    def _kea_dhcpv4_del_reservation(self, _: Any, uuid: str, *__: Any) -> Any:
         if self._kea()["reservations"]["reservation"].pop(uuid, None) is None:
             return {"result": "not found"}
         self.save("Kea reservation deleted")
@@ -752,8 +788,31 @@ class _Writes:
 
     # backups ------------------------------------------------------------------------------
 
-    def _core_backup_revertBackup(self, _: Any, rid: str, *__: Any) -> Any:
+    def _core_backup_revert_backup(self, _: Any, rid: str, *__: Any) -> Any:
         return self.revert(rid)
+
+
+def _grid_row(item: dict[str, Any]) -> dict[str, Any]:
+    """A model item as a search grid row: option fields as the selected keys plus ``%name``
+    with their labels, nested containers as ``parent.child``."""
+    row: dict[str, Any] = {}
+    for key, value in item.items():
+        if not isinstance(value, dict):
+            row[key] = value
+        elif value and all(isinstance(v, dict) and "selected" in v for v in value.values()):
+            chosen = [k for k, v in value.items() if v.get("selected")]
+            row[key] = ",".join(chosen)
+            row[f"%{key}"] = ",".join(str(value[k].get("value", k)) for k in chosen)
+        else:
+            row |= {f"{key}.{k}": v for k, v in value.items()}
+    return row
+
+
+def _snake(part: str) -> str:
+    """``searchItem`` -> ``search_item`` (only plain camelCase words, never ids or MACs)."""
+    if not re.fullmatch(r"[a-z]+(?:[A-Z][a-z0-9]*)+", part):
+        return part
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", part).lower()
 
 
 def _prefixed(table: dict[str, Any], path: str) -> Any:
@@ -799,7 +858,8 @@ class OpnsenseSimulator(_Writes):
 
         @app.api_route("/{path:path}", methods=["GET", "POST"])
         async def answer(path: str, request: Request) -> Response:
-            path = "/" + path
+            # OPNsense routes camelCase and snake_case actions alike (snake_case is canonical)
+            path = "/" + "/".join(_snake(part) for part in path.split("/"))
             self.requests.append(path)
             if not self.api_enabled:
                 return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
@@ -829,10 +889,15 @@ class OpnsenseSimulator(_Writes):
                 answer = self.write(path, body)
                 if answer is not None:
                     return JSONResponse(answer)
-            if path not in self.data:
+            grids = (KEA_SUBNETS, KEA_RESERVATIONS)
+            if path not in self.data and not (path in grids and KEA in self.data):
                 return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
             if path in self.malformed:
                 return Response('{"rows": [', media_type="application/json")
+            if path == VLANS:
+                return JSONResponse(self._vlan_list())
+            if path in (KEA, *grids):
+                return JSONResponse(self._kea_answer(path))
             return JSONResponse(self.data[path])
 
         return app

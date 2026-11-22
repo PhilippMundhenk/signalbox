@@ -93,6 +93,28 @@ def configuration(net: Network) -> Any:
     return {k: strip(dump[k]) for k in keep}
 
 
+def differences(a: Any, b: Any, path: str = "") -> list[str]:
+    """Where two configurations differ, as short readable lines (lists of objects by id)."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return [
+            line
+            for k in sorted(set(a) | set(b))
+            for line in differences(a.get(k), b.get(k), f"{path}.{k}")
+        ]
+    if (
+        isinstance(a, list)
+        and isinstance(b, list)
+        and all(isinstance(x, dict) and "id" in x for x in [*a, *b])
+    ):
+        return differences({x["id"]: x for x in a}, {x["id"]: x for x in b}, path)
+    return [] if a == b else [f"{path}: {a!r} -> {b!r}"]
+
+
+def assert_unchanged(before: Any, after: Any) -> None:
+    found = differences(before, after)
+    assert not found, "the firewall did not return to its configuration:\n" + "\n".join(found)
+
+
 # --- reading -------------------------------------------------------------------------------
 
 
@@ -262,7 +284,7 @@ async def test_new_network_with_dhcp_and_reservation_then_revert(
         ("02:00:00:00:00:60", "203.0.113.60")
     ]
     await revert(svc, d, cid)
-    assert configuration(await network(target)) == before
+    assert_unchanged(before, configuration(await network(target)))
 
 
 CHANGE_EXISTING = """
@@ -302,7 +324,7 @@ async def test_change_router_dhcp_reservation_and_port_then_revert(
     }
     assert trunk == {20, 70}
     await revert(svc, d, cid)
-    assert configuration(await network(target)) == before
+    assert_unchanged(before, configuration(await network(target)))
 
 
 async def test_backup_and_restore_through_the_configuration_history(
@@ -321,7 +343,7 @@ async def test_backup_and_restore_through_the_configuration_history(
     d.approve(restore.id, "ci")
     done = await d.deploy(restore.id)
     assert done.status is ChangeStatus.APPLIED, events(svc, restore.id)
-    assert configuration(await network(target)) == before
+    assert_unchanged(before, configuration(await network(target)))
 
 
 async def test_validation_error_of_the_firewall_names_the_field(target: dict[str, str]) -> None:

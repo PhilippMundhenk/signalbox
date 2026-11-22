@@ -51,7 +51,7 @@ meant for the simulator.
    | Services: Kea DHCP: v4 (if Kea is used) | `/api/kea/dhcpv4/*`, `/api/kea/leases4/*` |
    | Services: DHCP: Server, Status: DHCP leases (if ISC DHCP is used) | `/api/dhcpv4/service/status`, `/api/dhcpv4/leases/*` |
    | Services: Unbound DNS: General, Host Overrides | `/api/unbound/settings/*` |
-   | Diagnostics: ARP Table, Diagnostics: NDP Table | `/api/diagnostics/interface/getArp`, `getNdp` |
+   | Diagnostics: ARP Table, Diagnostics: NDP Table | `/api/diagnostics/interface/get_arp`, `get_ndp` |
 
 3. Create an API key for the user (*API keys*, `+`); the browser downloads a file with key and
    secret.
@@ -69,10 +69,10 @@ With `deploy.enabled` and *Allow changes* on the device, Signalbox can change:
 
 | Kind | What it does on the firewall | Endpoints (all `POST`) |
 | --- | --- | --- |
-| `router` | **update**: sets the static IPv4 address (and the description, if the name changes) of the interface assigned to the network; IPv6 is left alone. **create** (VLAN networks only): creates the VLAN device on the LAN's port if it does not exist (device name `vlan0.<tag>`), assigns it as a new interface (`optN`, not locked) with a static IPv4 address. **remove** (VLAN networks only): unassigns the interface and deletes its VLAN device when nothing else uses it | `/api/interfaces/vlan_settings/addItem`, `delItem/<uuid>`, `reconfigure`; `/api/interfaces/assignment/addItem`, `setItem/<identifier>`, `delItem/<identifier>`, `reconfigure` |
-| `dhcp` | Kea DHCPv4: creates, updates or deletes the subnet of the network's interface (pool, DNS servers, lease time; on a new subnet the router option is the interface address and option autocollect is off), and adds or removes the interface from the interfaces Kea listens on (turning a network on also turns the Kea service on) | `/api/kea/dhcpv4/addSubnet`, `setSubnet/<uuid>`, `delSubnet/<uuid>`, `/api/kea/dhcpv4/set`, then `/api/kea/service/reconfigure` |
-| `reservation` | adds, changes or deletes a Kea reservation in the network's subnet | `/api/kea/dhcpv4/addReservation`, `setReservation/<uuid>`, `delReservation/<uuid>`, then `/api/kea/service/reconfigure` |
-| `port` | the **tagged** VLANs of a port are the VLAN devices with that port as parent: adds and deletes them. The **untagged** network of a port is its interface assignment, which is never changed (refused) | `/api/interfaces/vlan_settings/addItem`, `delItem/<uuid>`, `reconfigure` |
+| `router` | **update**: sets the static IPv4 address (and the description, if the name changes) of the interface assigned to the network; IPv6 is left alone. **create** (VLAN networks only): creates the VLAN device on the LAN's port if it does not exist (device name `vlan0.<tag>`), assigns it as a new interface (`optN`, not locked) with a static IPv4 address. **remove** (VLAN networks only): unassigns the interface and deletes its VLAN device when nothing else uses it | `/api/interfaces/vlan_settings/add_item`, `del_item/<uuid>`, `reconfigure`; `/api/interfaces/assignment/add_item`, `set_item/<identifier>`, `del_item/<identifier>`, `reconfigure` |
+| `dhcp` | Kea DHCPv4: creates, updates or deletes the subnet of the network's interface (pool, DNS servers, lease time; on a new subnet the router option is the interface address and option autocollect is off), and adds or removes the interface from the interfaces Kea listens on (turning a network on also turns the Kea service on) | `/api/kea/dhcpv4/add_subnet`, `set_subnet/<uuid>`, `del_subnet/<uuid>`, `/api/kea/dhcpv4/set`, then `/api/kea/service/reconfigure` |
+| `reservation` | adds, changes or deletes a Kea reservation in the network's subnet | `/api/kea/dhcpv4/add_reservation`, `set_reservation/<uuid>`, `del_reservation/<uuid>`, then `/api/kea/service/reconfigure` |
+| `port` | the **tagged** VLANs of a port are the VLAN devices with that port as parent: adds and deletes them. The **untagged** network of a port is its interface assignment, which is never changed (refused) | `/api/interfaces/vlan_settings/add_item`, `del_item/<uuid>`, `reconfigure` |
 
 Not writable: `wlan` (OPNsense is no access point). Unbound host overrides are not a change
 kind of Signalbox yet.
@@ -94,7 +94,7 @@ Refused, with a message naming the reason, before anything is sent:
   interface (unlock it in the web interface).
 
 A validation error of the firewall becomes an error naming the field, for example
-`/api/interfaces/vlan_settings/addItem: the firewall refused the change (vlan.tag: Tag for this
+`/api/interfaces/vlan_settings/add_item: the firewall refused the change (vlan.tag: Tag for this
 device must be unique.)`.
 
 `plan_changes` lists every call with its payload for the review. A call that refers to
@@ -114,7 +114,7 @@ returns a deadline. Safety comes from the backup:
   deployment before anything is changed.
 - **restore** (when applying or verifying fails, or when you restore a backup): finds the stored
   revision in the history again (same revision time and content), reverts to it with
-  `POST /api/core/backup/revertBackup/<id>` and applies it with the `reconfigure` calls of VLANs,
+  `POST /api/core/backup/revert_backup/<id>` and applies it with the `reconfigure` calls of VLANs,
   interface assignments and Kea (a component that is not installed is skipped). Restoring twice
   is harmless. If the revision was pruned from the history in the meantime, the restore fails
   with a message: upload the `config.xml` stored with the change in *System > Configuration >
@@ -122,7 +122,7 @@ returns a deadline. Safety comes from the backup:
 
 > **Needs confirmation on a real device** ([#21](https://github.com/PhilippMundhenk/signalbox/issues/21)):
 > that the newest history revision always equals the running configuration, and whether
-> `revertBackup` followed by the `reconfigure` calls puts interface addresses back without a
+> `revert_backup` followed by the `reconfigure` calls puts interface addresses back without a
 > reboot (the assignment `reconfigure` applies pending assignment changes; after a revert there
 > may be none).
 
@@ -187,7 +187,7 @@ installed" and is not an error.
 
 `product_version` is required; the fields may also be at the top level.
 
-### `/api/interfaces/overview/interfacesInfo` (interfaces)
+### `/api/interfaces/overview/interfaces_info` (interfaces)
 
 ```json
 {"rows": [{"device": "igb0", "identifier": "lan", "description": "LAN", "status": "up",
@@ -198,7 +198,7 @@ installed" and is not an error.
 
 `identifier` is empty for unassigned devices.
 
-### `/api/interfaces/vlan_settings/searchItem` (interfaces)
+### `/api/interfaces/vlan_settings/search_item` (interfaces)
 
 ```json
 {"rows": [{"uuid": "...", "vlanif": "vlan01", "if": "igb0", "tag": "20", "descr": "IoT"}]}
@@ -233,7 +233,7 @@ installed" and is not an error.
 
 `running`, `stopped` or `disabled` (then the leases are not read for DHCP).
 
-### `/api/dhcpv4/leases/searchLease` (dhcp, clients)
+### `/api/dhcpv4/leases/search_lease` (dhcp, clients)
 
 ```json
 {"rows": [{"address": "203.0.113.10", "mac": "00:00:5e:00:53:30", "hostname": "kiosk",
@@ -250,7 +250,7 @@ installed" and is not an error.
                               "server": "192.0.2.53", "port": "53"}}}}}
 ```
 
-### `/api/unbound/settings/searchHostOverride` (dns)
+### `/api/unbound/settings/search_host_override` (dns)
 
 ```json
 {"rows": [{"enabled": "1", "hostname": "nas", "domain": "home.example", "rr": "A",
@@ -259,7 +259,7 @@ installed" and is not an error.
 
 Newer versions may call the address field `address`; both are accepted.
 
-### `/api/diagnostics/interface/getArp`, `/api/diagnostics/interface/getNdp` (clients)
+### `/api/diagnostics/interface/get_arp`, `/api/diagnostics/interface/get_ndp` (clients)
 
 ```json
 [{"mac": "00:00:5e:00:53:10", "ip": "192.0.2.10", "intf": "igb0", "permanent": false,
@@ -281,7 +281,7 @@ It also implements the write endpoints above. Writes change the answers of the r
 configuration endpoints (VLANs, Kea) at once, the interface overview after the assignment
 `reconfigure`, as on a firewall. Every write stores a revision in a simulated configuration
 history; a revision downloads as a `config.xml` that serialises the simulator's configuration,
-and `revertBackup` puts it back. The simulated firewall checks fields like OPNsense does
+and `revert_backup` puts it back. The simulated firewall checks fields like OPNsense does
 (description characters, unique tags and device names, networks, pools inside the subnet, MACs,
 locked interfaces) and answers `{"result": "failed", "validations": {"<field>": "..."}}`;
 `invalid` forces such an answer for any write endpoint.

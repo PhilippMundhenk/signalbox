@@ -68,7 +68,7 @@ def main() -> None:
                     login(page, base)
                     for name, route in DESKTOP:
                         shoot(page, base, name, route)
-                    page.evaluate("localStorage.setItem('theme', 'dark')")
+                    page.evaluate("localStorage.set_item('theme', 'dark')")
                     page.reload()
                     shoot(page, base, "findings-dark", "#/")
                     page.evaluate("localStorage.removeItem('theme')")
