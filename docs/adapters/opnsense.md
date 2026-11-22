@@ -12,11 +12,12 @@ DHCP subnets and reservations ([Writing](#writing-changes)).
 | dns | Unbound: enabled, listen addresses, forwarders, host overrides |
 | clients | ARP and NDP tables plus DHCP leases (Kea and ISC), with segment and port |
 
-> **Not yet confirmed on a real device.** The endpoint paths and JSON shapes below come from the
-> public OPNsense API documentation and the source of the web interface, not from a recorded
-> answer. Real-device validation is [issue #21](https://github.com/PhilippMundhenk/signalbox/issues/21).
-> Parsing is deliberately tolerant: a missing field is left empty, unknown fields are ignored, and
-> an answer of the wrong shape becomes a readable "could not read" finding
+> **Verified against OPNsense 26.7.9 in CI.** The endpoints, privileges, answers and write
+> calls below are checked every night against the official OPNsense nano image (26.7, updated
+> to the newest 26.7.x) running in QEMU: tests/integration/test_opnsense_real.py, set up by
+> tools/integration/opnsense/ ([Integration tests](#integration-tests)). Versions before 26.7
+> are not tested. Parsing stays tolerant: a missing field is left empty, unknown fields are
+> ignored, and an answer of the wrong shape becomes a readable "could not read" finding
 > (`unexpected answer from <endpoint>: ...`), never a crash.
 
 ## Setup
@@ -47,11 +48,13 @@ meant for the simulator.
    | --- | --- |
    | System: Firmware | `/api/core/firmware/status` (system) |
    | Status: Interfaces | `/api/interfaces/overview/*` |
-   | Interfaces: Other Types: VLAN | `/api/interfaces/vlan_settings/*` |
-   | Services: Kea DHCP: v4 (if Kea is used) | `/api/kea/dhcpv4/*`, `/api/kea/leases4/*` |
-   | Services: DHCP: Server, Status: DHCP leases (if ISC DHCP is used) | `/api/dhcpv4/service/status`, `/api/dhcpv4/leases/*` |
-   | Services: Unbound DNS: General, Host Overrides | `/api/unbound/settings/*` |
+   | Interfaces: VLAN | `/api/interfaces/vlan_settings/*` |
+   | Services: DHCP: Kea(v4) (if Kea is used) | `/api/kea/dhcpv4/*`, `/api/kea/leases4/*` |
+   | Services: Unbound | `/api/unbound/*` (the general settings are only readable with this one; *Services: Unbound DNS: General* and *Edit Host and Domain Override* do not cover `/api/unbound/settings/get`) |
    | Diagnostics: ARP Table, Diagnostics: NDP Table | `/api/diagnostics/interface/get_arp`, `get_ndp` |
+
+   ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
+   and are skipped. With the plugin, add its DHCP server and lease pages.
 
 3. Create an API key for the user (*API keys*, `+`); the browser downloads a file with key and
    secret.
@@ -59,8 +62,10 @@ meant for the simulator.
 OPNsense privileges are per page and do not distinguish reading from writing: the user can call
 the write endpoints of these pages too (for example start a firmware update). Signalbox only
 sends `GET` requests with this user, but treat the key like an admin password, and restrict who can reach the
-web interface. The privilege names above are from the documentation; check them against your
-version. A missing privilege shows up as `access denied (HTTP 403); check the user's
+web interface. The privileges above are what the integration tests give their read user
+(verified on 26.7.9: everything is read, the configuration history is refused with 403).
+Their patterns only match the snake_case paths (`get_arp`, not `getArp`), which is why
+Signalbox uses those. A missing privilege shows up as `access denied (HTTP 403); check the user's
 privileges` for the capability that needs it, the rest is still read.
 
 ## Writing (changes)
@@ -82,10 +87,11 @@ Refused, with a message naming the reason, before anything is sent:
 - **ISC DHCP**: the OPNsense API cannot change ISC DHCP (its ranges and options live on legacy
   pages). A DHCP or reservation change on a network served by ISC is refused; move the network
   to Kea DHCP to manage it with Signalbox.
-- **Router interfaces on OPNsense before 26.7**: interface assignments and addresses got an API
-  with the MVC rewrite of *Interfaces > Assignments* in 26.7 (`/api/interfaces/assignment/*`).
-  On older versions every `router` change is refused (`no interface assignment API`); `dhcp`,
-  `reservation` and `port` work on 24.7 and newer.
+- **Router interfaces on OPNsense before 26.7.6**: *Interfaces > Assignments* got an API in
+  26.7 (`/api/interfaces/assignment/*`), but only with device, description and lock; the
+  address fields (`type4`, `ipaddr`, ...) came with 26.7.6. Without them (no `ipaddr` in the
+  assignment rows, or no API at all) every `router` change is refused (`no interface assignment
+  API with addresses`); `dhcp`, `reservation` and `port` do not need it.
 - removing or creating the LAN or a network on its own port (only VLAN networks are created and
   removed); a new network without a name; names other than letters, digits and `_` (OPNsense's
   rule for interface descriptions); IPv6 router addresses; a new DHCP network without
@@ -120,11 +126,11 @@ returns a deadline. Safety comes from the backup:
   with a message: upload the `config.xml` stored with the change in *System > Configuration >
   Backups* by hand (the upload is not part of the API).
 
-> **Needs confirmation on a real device** ([#21](https://github.com/PhilippMundhenk/signalbox/issues/21)):
-> that the newest history revision always equals the running configuration, and whether
-> `revert_backup` followed by the `reconfigure` calls puts interface addresses back without a
-> reboot (the assignment `reconfigure` applies pending assignment changes; after a revert there
-> may be none).
+Verified on 26.7.9: the newest history revision is the configuration in use (every API save
+adds one), and `revert_backup` with the `reconfigure` calls puts VLANs, interface assignments
+and addresses and Kea back without a reboot. One leftover: a VLAN device created after the
+backup stays in the kernel (unassigned, no longer in the configuration) until the next reboot;
+the read side ignores unassigned VLAN devices, so the network reads as before.
 
 Because there is no timer, a change that cuts Signalbox off from the firewall (a new LAN address,
 for example) cannot be undone automatically: the verification fails, and the restore cannot
@@ -137,13 +143,12 @@ in the device settings only while changes are allowed. It needs the read privile
 
 | Privilege (as named in the web interface) | Needed for |
 | --- | --- |
-| Interfaces: Other Types: VLAN | `/api/interfaces/vlan_settings/*` (create and delete VLAN devices) |
-| Interfaces: Assignments | `/api/interfaces/assignment/*` (router interfaces, 26.7 and newer) |
-| Services: Kea DHCP: v4 | `/api/kea/dhcpv4/*`, `/api/kea/service/reconfigure` |
+| Interfaces: VLAN | `/api/interfaces/vlan_settings/*` (create and delete VLAN devices) |
+| Interfaces: Assign network ports | `/api/interfaces/assignment/*` (router interfaces, 26.7.6 and newer) |
+| Services: DHCP: Kea(v4) | `/api/kea/dhcpv4/*`, `/api/kea/service/reconfigure` |
 | Diagnostics: Configuration History | `/api/core/backup/*` (backup and restore) |
 
-The privilege names are taken from the documentation and the source; check them against your
-version. As with reading, OPNsense privileges are per page: this user can change everything on
+These are the privileges of the integration tests' write user (verified on 26.7.9). As with reading, OPNsense privileges are per page: this user can change everything on
 these pages, so treat its key like an admin password.
 
 ## Mapping to the model
@@ -172,68 +177,100 @@ these pages, so treat its key like an admin password.
   and incomplete entries are skipped. Segment and port from the interface the entry was seen on,
   otherwise from the address.
 
-## Endpoints and assumed answers
+## Endpoints and answers
 
-All `GET`, HTTP basic auth (key as user, secret as password). Grid endpoints get
+As OPNsense 26.7.9 answers them (shortened; recorded by tools/integration/opnsense/dump.py in
+every integration run). All `GET`, HTTP basic auth (key as user, secret as password). Grid endpoints get
 `?current=1&rowCount=-1` (all rows). A 404 on the optional DHCP endpoints means "component not
 installed" and is not an error.
 
 ### `/api/core/firmware/status` (system)
 
 ```json
-{"status": "update", "product": {"product_name": "OPNsense", "product_version": "24.7.1",
-  "product_latest": "24.7.2"}}
+{"status": "none", "product": {"product_name": "OPNsense", "product_version": "26.7.9_3",
+  "product_latest": "26.7.9", "product_series": "26.7"}}
 ```
 
-`product_version` is required; the fields may also be at the top level.
+`product_version` is required; the fields may also be at the top level. It carries the package
+revision (`_3`), `product_latest` does not: the same release is no update.
 
 ### `/api/interfaces/overview/interfaces_info` (interfaces)
 
 ```json
-{"rows": [{"device": "igb0", "identifier": "lan", "description": "LAN", "status": "up",
-  "macaddr": "02:00:00:00:01:00", "media": "1000baseT <full-duplex>", "vlan_tag": null,
-  "ipv4": [{"ipaddr": "192.0.2.1/24"}],
-  "ipv6": [{"ipaddr": "2001:db8:1::1/64", "link-local": false}]}]}
+{"rows": [{"device": "vtnet0", "identifier": "lan", "description": "LAN", "status": "up",
+  "is_physical": true, "macaddr": "02:00:00:00:01:00", "media": "10Gbase-T <full-duplex>",
+  "vlan_tag": null, "ipv4": [{"ipaddr": "192.0.2.1/24"}],
+  "ipv6": [{"ipaddr": "2001:db8:1::1/64"}, {"ipaddr": "fe80::ff:fe00:100/64"}]},
+ {"device": "vlan0.20", "identifier": "opt1", "description": "IoT", "is_physical": false,
+  "vlan_tag": "20", "ipv4": [{"ipaddr": "198.51.100.1/24"}]},
+ {"device": "vtnet2", "identifier": "", "description": "Unassigned Interface", "ipv4": []}]}
 ```
 
-`identifier` is empty for unassigned devices.
+Each row also has flags, capabilities, routes and the interface's `config`. `identifier` is
+empty for unassigned devices; `pfsync0` is never listed.
 
 ### `/api/interfaces/vlan_settings/search_item` (interfaces)
 
 ```json
-{"rows": [{"uuid": "...", "vlanif": "vlan01", "if": "igb0", "tag": "20", "descr": "IoT"}]}
+{"rows": [{"uuid": "...", "if": "vtnet2", "tag": "20", "pcp": "0", "proto": "",
+  "descr": "IoT", "vlanif": "vlan0.20 [IoT]"}]}
 ```
 
-### `/api/kea/dhcpv4/get` (dhcp)
+An assigned VLAN's `vlanif` has the interface description appended in brackets; Signalbox
+strips it. New VLAN devices are named `vlan0.<tag>` by Signalbox (OPNsense would number them
+`vlan01`, `vlan02`, ... when no name is given).
+
+### `/api/interfaces/assignment/search_item` (writing, 26.7.6 and newer)
 
 ```json
-{"dhcpv4": {
-  "general": {"enabled": "1", "valid_lifetime": "4000",
-              "interfaces": {"lan": {"value": "LAN", "selected": 1}}},
-  "subnets": {"subnet4": {"<uuid>": {"subnet": "192.0.2.0/24",
-      "pools": "192.0.2.100-192.0.2.199", "option_data_autocollect": "1",
-      "option_data": {"routers": "", "domain_name_servers": "", "domain_name": ""}}}},
-  "reservations": {"reservation": {"<uuid>": {
-      "subnet": {"<subnet uuid>": {"value": "192.0.2.0/24", "selected": 1}},
-      "ip_address": "192.0.2.10", "hw_address": "00:00:5e:00:53:10", "hostname": "printer"}}}}}
+{"rows": [{"uuid": "opt1", "identifier": "opt1", "if": "vlan0.20", "descr": "IoT", "lock": "0",
+  "enable": "1", "type4": "staticv4", "ipaddr": "198.51.100.1/24", "type6": "",
+  "ipaddrv6": ""}]}
 ```
+
+### `/api/kea/dhcpv4/get`, `search_subnet`, `search_reservation` (dhcp)
+
+`get` has the general settings only (`general`, `lexpire`, `ha`):
+
+```json
+{"dhcpv4": {"general": {"enabled": "1", "valid_lifetime": "4000",
+  "interfaces": {"lan": {"value": "LAN", "selected": 1}, "opt1": {"value": "IoT", "selected": 0}}}}}
+```
+
+Subnets and reservations are grids (`?current=1&rowCount=-1`); nested fields are named with
+dots:
+
+```json
+{"rows": [{"uuid": "<uuid>", "subnet": "192.0.2.0/24", "pools": "192.0.2.100-192.0.2.199",
+  "valid_lifetime": "", "option_data_autocollect": "1", "option_data.routers": "",
+  "option_data.domain_name_servers": "", "option_data.domain_name": "", "description": "LAN"}]}
+```
+
+```json
+{"rows": [{"uuid": "<uuid>", "subnet": "<subnet uuid>", "%subnet": "192.0.2.0/24",
+  "ip_address": "192.0.2.10", "hw_address": "02:00:00:00:00:10", "hostname": "printer"}]}
+```
+
+An answer of `get` that still contains `subnets` and `reservations` (the model form) is read
+as well.
 
 ### `/api/kea/leases4/search` (clients)
 
 ```json
-{"rows": [{"address": "192.0.2.100", "hwaddr": "02:00:00:00:00:21", "hostname": "laptop",
-  "if_name": "lan"}]}
+{"rows": [{"address": "192.0.2.100", "hwaddr": "00:00:5e:00:53:21", "hostname": "laptop",
+  "if_name": "lan"}], "stats": {"active": 1}, "interfaces": []}
 ```
 
-### `/api/dhcpv4/service/status` (dhcp)
+### `/api/dhcpv4/service/status`, `/api/dhcpv4/leases/search_lease` (dhcp, clients)
+
+Only with the ISC DHCP plugin (404 on 26.7 without it; not tested in CI). Assumed answers, from
+the plugin's source:
 
 ```json
 {"status": "running"}
 ```
 
 `running`, `stopped` or `disabled` (then the leases are not read for DHCP).
-
-### `/api/dhcpv4/leases/search_lease` (dhcp, clients)
 
 ```json
 {"rows": [{"address": "203.0.113.10", "mac": "00:00:5e:00:53:30", "hostname": "kiosk",
@@ -245,28 +282,65 @@ installed" and is not an error.
 ```json
 {"unbound": {
   "general": {"enabled": "1", "port": "53",
-              "active_interface": {"lan": {"value": "LAN", "selected": 1}}},
-  "dots": {"dot": {"<uuid>": {"enabled": "1", "type": "forward", "domain": "",
-                              "server": "192.0.2.53", "port": "53"}}}}}
+              "active_interface": {"lan": {"value": "LAN", "selected": 0}}},
+  "dots": {"dot": []}}}
 ```
+
+No selected interface means Unbound listens on all of them. `dots.dot` is a list when empty,
+an object by uuid otherwise.
 
 ### `/api/unbound/settings/search_host_override` (dns)
 
 ```json
-{"rows": [{"enabled": "1", "hostname": "nas", "domain": "home.example", "rr": "A",
-  "server": "192.0.2.10"}]}
+{"rows": [{"uuid": "<uuid>", "enabled": "1", "hostname": "nas", "domain": "home.example",
+  "rr": "A", "server": "192.0.2.10", "description": "", "isAlias": false}]}
 ```
-
-Newer versions may call the address field `address`; both are accepted.
 
 ### `/api/diagnostics/interface/get_arp`, `/api/diagnostics/interface/get_ndp` (clients)
 
 ```json
-[{"mac": "00:00:5e:00:53:10", "ip": "192.0.2.10", "intf": "igb0", "permanent": false,
-  "hostname": "printer.home.example"}]
+[{"mac": "02:00:00:00:01:00", "ip": "192.0.2.1", "intf": "vtnet0", "expired": false,
+  "expires": -1, "permanent": true, "type": "ethernet", "hostname": "",
+  "intf_description": "LAN"}]
 ```
 
-A plain list; `{"rows": [...]}` is accepted as well. NDP addresses may carry a `%scope`.
+A plain list; `{"rows": [...]}` is accepted as well. NDP entries have no `permanent` field and
+their addresses may carry a `%scope`. The camelCase paths (`getArp`) answer 403 to a user with
+only the *Diagnostics: ARP Table* privilege.
+
+### Write answers
+
+`add_*` answer `{"result": "saved", "uuid": "..."}` (the assignment API answers the new
+identifier, `opt2`), `set_*` `{"result": "saved"}`, `del_*` `{"result": "deleted"}`,
+`reconfigure` `{"status": "ok"}`, `revert_backup/<id>` `{"status": "reverted"}`. A refused value
+is `{"result": "failed", "validations": {"<model>.<field>": "<message>"}}`, for example
+`reservation.ip_address: Address not in specified subnet`.
+
+## Integration tests
+
+`.github/workflows/integration.yml` (job `opnsense`, nightly, on demand and on pull requests
+that touch adapters or simulators) downloads `OPNsense-26.7-nano-amd64.img.bz2` from the
+official mirror, checks its SHA-256 against the published checksum file and a pinned hash, and
+boots it in QEMU with KVM (tools/integration/opnsense/vm.py):
+
+- first boot over the serial console: log in, update to the newest 26.7.x packages
+  (`pkg upgrade`), preseed `/conf/config.xml` (tools/integration/opnsense/preseed.py: LAN
+  vtnet0 192.0.2.1/24 and 2001:db8:1::1/64, WAN vtnet1 by DHCP, VLAN 20 "IoT" on the trunk
+  vtnet2 as opt1 198.51.100.1/24, the read and write API users of
+  tools/integration/opnsense/privileges.json with fresh keys), reboot, then through the API:
+  Kea on LAN with a pool and a reservation, an Unbound host override. The prepared disk is
+  cached (weekly, to pick up new 26.7.x releases).
+- every run boots a throw-away overlay of that disk; the runner reaches the web interface at
+  `https://127.0.0.1:8443` (a port forward to the LAN).
+- tests/integration/test_opnsense_real.py: the read contract with the read user, the mapping of
+  the preseeded firewall, certificate pinning with the real web interface certificate, a wrong
+  secret (auth failed), the read user refused on the configuration history, deployments through
+  the Deployer (a new VLAN network with Kea subnet and reservation; changed router address,
+  DHCP pool, DNS and lease time, reservation and tagged VLANs on the trunk), each reverted to
+  the original, the restore of a backup through the configuration history, and a validation
+  error of the firewall.
+
+The test VM is never run locally: without `IT_OPNSENSE_URL` the tests skip.
 
 ## Simulator
 
@@ -285,5 +359,11 @@ and `revert_backup` puts it back. The simulated firewall checks fields like OPNs
 (description characters, unique tags and device names, networks, pools inside the subnet, MACs,
 locked interfaces) and answers `{"result": "failed", "validations": {"<field>": "..."}}`;
 `invalid` forces such an answer for any write endpoint.
+Where the integration tests found the real OPNsense answering differently, the simulator was
+changed to answer the same way: snake_case paths (camelCase is accepted too, as by OPNsense's
+router), `[<interface>]` after assigned VLAN names, Kea subnets and reservations as grids,
+the package revision in `product_version`, assignment rows with address fields
+(`assignment_api="26.7"` drops them, as before 26.7.6) and VLAN devices left behind by a
+revert (`leftovers`).
 `signalbox.sim.server.serve()` runs it on a free local port, over TLS with a certificate from
 `self_signed_certificate()`.

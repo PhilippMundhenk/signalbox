@@ -336,12 +336,28 @@ async def test_change_router_dhcp_reservation_and_port_then_revert(
     assert_unchanged(before, configuration(await network(fw)))
 
 
+PORT_ONLY = "sites:\n  home:\n    ports:\n      - {device: fw, port: vtnet2, tagged: [20, 80]}\n"
+ROUTER_ONLY = """
+sites:
+  home:
+    segments:
+      - vlan: 90
+        name: Lab9
+        gateway: {device: fw, address: 203.0.113.129/25}
+"""
+
+
+@pytest.mark.parametrize(
+    ("want", "kinds"),
+    [(PORT_ONLY, {ChangeKind.PORT}), (ROUTER_ONLY, {ChangeKind.ROUTER})],
+    ids=["vlan-on-a-port", "new-router-interface"],
+)
 async def test_backup_and_restore_through_the_configuration_history(
-    svc: Services, fw: dict[str, str]
+    svc: Services, fw: dict[str, str], want: str, kinds: set[ChangeKind]
 ) -> None:
+    """A deployment, then the restore of its backup (revert_backup and the reconfigures)."""
     before = configuration(await network(fw))
-    want = "sites:\n  home:\n    ports:\n      - {device: fw, port: vtnet2, tagged: [20, 80]}\n"
-    _, cid = await deploy(svc, want, {ChangeKind.PORT})
+    _, cid = await deploy(svc, want, kinds)
     rec = svc.store.change(cid)
     assert rec is not None and rec.devices[0].backup_id
     backup = svc.store.backup(rec.devices[0].backup_id)
