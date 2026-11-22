@@ -25,7 +25,15 @@ from signalbox.adapters.omada import (
     _security,
     _width,
 )
-from signalbox.model import DeviceRole, DeviceStatus, Membership, Pmf, Security, Snapshot
+from signalbox.model import (
+    DeviceRole,
+    DeviceStatus,
+    Membership,
+    Pmf,
+    Security,
+    Snapshot,
+    passphrase_fingerprint,
+)
 from signalbox.sim.omada import (
     CLIENT_ID,
     CLIENT_SECRET,
@@ -138,7 +146,7 @@ async def test_system(snap: Snapshot, sim: OmadaSimulator) -> None:
         "TP-Link",
         "Omada Controller",
     )
-    assert d.firmware is not None and d.firmware.current == "5.14.26"
+    assert d.firmware is not None and d.firmware.current == "6.3.0.111"
     assert d.management_address == "127.0.0.1"
     assert sim.token_requests == 1
 
@@ -219,7 +227,7 @@ async def test_subnets_and_dhcp(snap: Snapshot) -> None:
         "home/segment/native",
         True,
     )
-    assert lan.vendor_extra["omada_device"]["model"] == "ER605"  # type: ignore[index]
+    assert lan.vendor_extra["omada_device"]["model"] == "ER605 v2.0"  # type: ignore[index]
 
     servers = {s.id: s for s in snap.dhcp_servers}
     assert sorted(servers) == [f"{GW}/dhcp/net-iot", f"{GW}/dhcp/net-lan"]
@@ -262,7 +270,8 @@ async def test_wireless(snap: Snapshot) -> None:
         "home/segment/native",
         False,
     )
-    assert home.passphrase_fingerprint is None  # the API does not return the passphrase
+    # the SSID detail has the passphrase: only its fingerprint is kept
+    assert home.passphrase_fingerprint == passphrase_fingerprint("Home", "example-home-passphrase")
     assert home.vendor_extra["wlan_group"] == "Default"
     iot = wlans[f"{AP2}/wlan/ssid-iot-2g"]  # EAP 2 names no WLAN group: the primary one
     assert iot.hidden and iot.segment_id == "home/segment/20" and iot.passphrase_fingerprint
@@ -444,8 +453,8 @@ async def test_answer_without_error_code_and_token() -> None:
 
 async def test_optional_endpoints_absent(http_url: str, sim: OmadaSimulator) -> None:
     del sim.data[f"{SITE}/lan-profiles"]
-    del sim.data[f"{SITE}/eaps/{EAP1}/radios"]
-    sim.error = {f"{SITE}/eaps/{EAP2}/radios": (-1600, "Unsupported request path.")}
+    del sim.data[f"{SITE}/aps/{EAP1}/radio-config"]
+    sim.error = {f"{SITE}/aps/{EAP2}/radio-config": (-39303, "AP does not exist.")}
     snap = await observe(adapter(http_url))
     assert snap.status is DeviceStatus.OK, snap.errors
     native = next(s for s in snap.segments if s.id == "home/segment/native")
@@ -529,15 +538,19 @@ async def test_no_gateway_and_odd_data(http_url: str, sim: OmadaSimulator) -> No
 
 
 def test_security_mapping() -> None:
-    assert _security({"security": 1}) is Security.OWE
+    assert _security({"security": 0, "oweEnable": True}) is Security.OWE
+    assert _security({"security": 0}) is Security.OPEN
+    assert _security({"security": 1}) is Security.OTHER  # no such mode
     assert _security({"security": 2}) is Security.WPA2_ENTERPRISE
     assert _security({"security": 2, "entSetting": {"versionEnt": 4}}) is Security.WPA3_ENTERPRISE
-    assert _security({"security": 3, "pskSetting": {"versionPsk": 4}}) is Security.WPA3
+    assert _security({"security": 3, "pskSetting": {"versionPsk": 4}}) is Security.WPA2_WPA3
+    assert _security({"security": 3, "pskSetting": {"versionPsk": 3}}) is Security.OTHER
     assert _security({"security": 3, "pskSetting": {"versionPsk": 1}}) is Security.OTHER
     assert _security({"security": 3, "pskSetting": {"versionPsk": 9}}) is Security.OTHER
     assert _security({"security": 3}) is Security.WPA2
     assert _security({"security": 5}) is Security.OTHER
-    assert _width("160") == 160 and _width("2") is None
+    assert _width("160") == 160 and _width("5") == 80 and _width("6") is None  # 6: auto
+    assert _width("2") == 20 and _width("99") is None
     assert _int(True) is None and _int("-3") == -3 and _int(None) is None
 
 
@@ -567,13 +580,18 @@ async def test_simulator_odd_requests(http_url: str) -> None:
         r = await client.post("/openapi/authorize/token?grant_type=client_credentials", content="x")
         assert r.json()["errorCode"] == -44106
         r = await client.get(f"/openapi/v1/{OMADAC_ID}/sites")
-        assert r.json()["errorCode"] == -44113
+        assert (r.status_code, r.json()["errorCode"]) == (401, -44116)
+        r = await client.get(f"/openapi/v1/{OMADAC_ID}/sites", headers={"Authorization": "x"})
+        assert r.json()["errorCode"] == -44116
+        bogus = {"Authorization": "AccessToken=AT-bogus"}
+        r = await client.get(f"/openapi/v1/{OMADAC_ID}/sites", headers=bogus)
+        assert r.json()["errorCode"] == -44112  # a token never issued reads as expired
         body = {"omadacId": OMADAC_ID, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET}
         r = await client.post("/openapi/authorize/token?grant_type=client_credentials", json=body)
         token = r.json()["result"]["accessToken"]
         headers = {"Authorization": f"AccessToken={token}"}
         r = await client.get(f"/openapi/v1/{OMADAC_ID}/sites?page=x", headers=headers)
-        assert r.json() == {"errorCode": 0, "msg": "Success.", "result": None}
+        assert r.json() == {"errorCode": 0, "msg": "Success."}
         r = await client.get(f"{SITE}/nothing", headers=headers)
         assert r.status_code == 404
     assert create_app() is not None

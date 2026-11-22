@@ -288,3 +288,61 @@ jobs:
             .vm/mikrotik/api-*.json
           if-no-files-found: ignore
           retention-days: 7
+
+  omada:
+    name: Omada Software Controller 6.3 (official package in Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REQUIRE_INTEGRATION: "1"
+      CTRL_DIR: ${{ github.workspace }}/.ctrl/omada
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -e ".[dev,switches]"
+      - name: Start the controller
+        run: python3 tools/integration/omada/controller.py start "$CTRL_DIR"
+      - name: First-start wizard, Open API applications, test site
+        run: python3 tools/integration/omada/controller.py setup "$CTRL_DIR"
+      - name: Record the API answers (viewer, 1)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" read 0
+      - name: Record the API answers (viewer, 2)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" read 1
+      - name: Record the API answers (viewer, 3)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" read 2
+      - name: Record the API answers (details, 1)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" detail 0
+      - name: Record the API answers (details, 2)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" detail 1
+      - name: Record the API answers (refusals)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" auth 0
+      - name: Record the spec of the managed devices (1)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" spec 0
+      - name: Record the spec of the managed devices (2)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" spec 1
+      - name: Integration tests
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_omada_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$CTRL_DIR/pytest.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$CTRL_DIR/pytest.log" | cut -c1-1200 | tail -n 40)
+              body=$(printf '%s\n--- last lines ---\n%s' "$summary" "$(tail -n 60 "$CTRL_DIR/pytest.log")")
+              body=${body//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=Omada integration tests failed::$body"
+              exit $code
+            }
+      - name: Stop
+        if: always()
+        run: python3 tools/integration/omada/controller.py stop "$CTRL_DIR" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: omada-logs
+          path: |
+            .ctrl/omada/*.log
+            .ctrl/omada/api-*.json
+          if-no-files-found: ignore
+          retention-days: 7

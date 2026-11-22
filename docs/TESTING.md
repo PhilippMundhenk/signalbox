@@ -161,6 +161,11 @@ What the real OpenWrt showed that the simulator had wrong is listed in
 `tools/integration/mikrotik/`, job `Integration / MikroTik`; see
 [adapters/mikrotik.md](adapters/mikrotik.md#integration-tests).
 
+### TP-Link Omada (Software Controller in Docker)
+
+`tools/integration/omada/`, job `Integration / Omada`; see
+[adapters/omada.md](adapters/omada.md#integration-tests).
+
 ### OPNsense (nano image in QEMU)
 
 `tools/integration/opnsense/`, job `Integration / OPNsense`; see

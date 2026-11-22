@@ -171,8 +171,14 @@ async def test_create_ssid_reaches_the_whole_wlan_group(url: str, sim: OmadaSimu
     c = wlan(net, AP1, "Office", new)
     await round_trip(url, [c])
     posted = [w for w in sim.writes if w[0] == "POST"]
-    assert posted[0][2]["pskSetting"] == {"versionPsk": 5, "securityKey": "a new passphrase"}
+    assert posted[0][2]["pskSetting"] == {
+        "versionPsk": 4,  # WPA2-PSK/WPA3-SAE
+        "encryptionPsk": 3,
+        "gikRekeyPskEnable": False,
+        "securityKey": "a new passphrase",
+    }
     assert posted[0][2]["band"] == 3 and posted[0][2]["vlanId"] == 20
+    assert (posted[0][2]["pmfMode"], posted[0][2]["deviceType"]) == (1, 1)
     # the second EAP of the group saw it too, while it existed
     await apply(url, [c])
     assert matches(await network(url), wlan(net, AP2, "Office", new), new, SECRETS)
@@ -184,7 +190,7 @@ async def test_update_ssid_and_back(url: str, sim: OmadaSimulator) -> None:
     assert old is not None
     new = old.model_copy(
         update={
-            "security": Security.WPA3,
+            "security": Security.WPA2_WPA3,
             "hidden": True,
             "segment": 20,
             "pmf": Pmf.REQUIRED,
@@ -194,11 +200,25 @@ async def test_update_ssid_and_back(url: str, sim: OmadaSimulator) -> None:
     await round_trip(url, [wlan(net, AP1, "Home", new)])
     home = next(s for s in sim.data[SSIDS] if s["name"] == "Home")
     assert home["pskSetting"]["versionPsk"] == 2 and "vlanId" not in home
-    # the passphrase set on the way is not taken back by the inverse (it is not readable)
+    # the inverse has no passphrase: the one set on the way stays
     assert home["pskSetting"]["securityKey"] == "a new passphrase"
-    # open, then disabled, then without PMF
-    plain = old.model_copy(update={"security": Security.OPEN, "pmf": None, "enabled": False})
-    await round_trip(url, [wlan(net, AP1, "Home", plain)])
+    paths = [p for m, p, _ in sim.writes]
+    assert all(p.endswith("/update-basic-config") for p in paths), paths
+    # disabled (a call of its own) and without PMF
+    off = old.model_copy(update={"pmf": None, "enabled": False})
+    await round_trip(url, [wlan(net, AP1, "Home", off)])
+    assert any(p.endswith("/wireless-network/ssids/ssid-home/enable") for _, p, _ in sim.writes)
+    # open: the passphrase is gone with it, back to WPA2 needs a new one
+    plain = old.model_copy(update={"security": Security.OPEN, "pmf": None})
+    await apply(url, [wlan(net, AP1, "Home", plain)])
+    home = next(s for s in sim.data[SSIDS] if s["name"] == "Home")
+    assert home["security"] == 0 and "pskSetting" not in home
+    back = wlan(await network(url), AP1, "Home", old)
+    with pytest.raises(AdapterError, match="needs a passphrase"):
+        await apply(url, [back])
+    await apply(
+        url, [back.model_copy(update={"new": old.model_copy(update={"passphrase_secret": "psk"})})]
+    )
 
 
 async def test_delete_ssid_and_recreate(url: str) -> None:
@@ -220,7 +240,12 @@ async def test_plan_shows_no_secret_and_names_the_group(url: str, sim: OmadaSimu
     finally:
         await a.close()
     assert len(calls) == 1 and calls[0].method == "POST" and calls[0].target == SSIDS
-    assert calls[0].payload["pskSetting"] == {"versionPsk": 2, "securityKey": "***"}
+    assert calls[0].payload["pskSetting"] == {
+        "versionPsk": 2,
+        "encryptionPsk": 3,
+        "gikRekeyPskEnable": False,
+        "securityKey": "***",
+    }
     assert "a new passphrase" not in json.dumps([c.model_dump() for c in calls])
     assert "WLAN group Default (EAPs AP 1, AP 2)" in calls[0].description
     assert not sim.writes  # planning and backing up write nothing
@@ -231,6 +256,8 @@ async def test_plan_shows_no_secret_and_names_the_group(url: str, sim: OmadaSimu
     ("update", "secrets", "message"),
     [
         ({"security": Security.WPA2_ENTERPRISE}, SECRETS, "cannot set wpa2-enterprise"),
+        ({"security": Security.WPA3}, SECRETS, "WPA3 only together with WPA2"),
+        ({"security": Security.OWE}, SECRETS, "does not report OWE back"),
         ({"roaming_80211r": True}, SECRETS, "fast roaming"),
         ({"client_isolation": True}, SECRETS, "client isolation is not read or changed"),
         ({"passphrase_secret": "other"}, SECRETS, "secret 'other' was not provided"),
@@ -327,7 +354,7 @@ async def test_create_network_with_dhcp_and_remove_it(url: str, sim: OmadaSimula
     ]
     await round_trip(url, changes)
     assert [w[0] for w in sim.writes] == ["POST", "DELETE"]
-    assert sim.writes[0][2]["dhcpSettings"]["dhcpns"] == "auto"
+    assert sim.writes[0][2]["dhcpSettingsVO"]["dhcpns"] == "auto"
     assert [n["id"] for n in sim.data[NETS]] == ["net-lan", "net-iot", "net-guest"]
 
 
@@ -346,7 +373,7 @@ async def test_update_network_and_dhcp_and_back(url: str, sim: OmadaSimulator) -
     lan = router(net, None, RouterValue(name="LAN", address=iface("192.0.2.254/24")))
     await apply(url, [lan])
     row = next(n for n in sim.data[NETS] if n["id"] == "net-lan")
-    assert row["dhcpSettings"]["gateway"] == "192.0.2.254"
+    assert row["dhcpSettingsVO"]["gateway"] == "192.0.2.254"
     assert matches(await network(url), lan, lan.new, {})
 
 
@@ -355,7 +382,8 @@ async def test_router_on_a_vlan_only_network_and_back(url: str, sim: OmadaSimula
     c = router(net, 30, RouterValue(vlan=30, name="Guest", address=iface("203.0.113.1/24")))
     await round_trip(url, [c])
     guest = next(n for n in sim.data[NETS] if n["id"] == "net-guest")
-    assert guest == {"id": "net-guest", "name": "Guest", "purpose": "vlan", "vlan": 30}
+    assert (guest["name"], guest["purpose"], guest["vlan"]) == ("Guest", 0, 30)
+    assert "gatewaySubnet" not in guest and "dhcpSettingsVO" not in guest
 
 
 async def test_dhcp_removal_and_back(url: str) -> None:
@@ -441,7 +469,7 @@ async def test_controller_without_gateway_owns_the_networks(url: str, sim: Omada
 async def test_viewer_role_is_refused(url: str, sim: OmadaSimulator) -> None:
     sim.read_only = True
     net = await network(url)
-    with pytest.raises(AdapterError, match="administrator role"):
+    with pytest.raises(AdapterError, match="Admin role"):
         await apply(url, [port(net, 5, 20, [])])
 
 
@@ -480,7 +508,7 @@ async def test_token_refused_twice_on_a_write(url: str, sim: OmadaSimulator) -> 
             answer = await raw.patch(
                 f"{PORTS}/5", content=b"{", headers={"Authorization": f"AccessToken={a._token}"}
             )
-        assert answer.json()["msg"] == "Invalid JSON."
+        assert answer.status_code == 400  # Tomcat's own page, like the real controller
     finally:
         await a.close()
 
@@ -494,7 +522,7 @@ async def test_network_used_only_by_an_ssid_stays_as_a_vlan(url: str, sim: Omada
     net = await network(url)
     await apply(url, [router(net, 20, None), dhcp(net, 20, None)])
     iot = next(n for n in sim.data[NETS] if n["id"] == "net-iot")
-    assert iot["purpose"] == "vlan" and "gatewaySubnet" not in iot
+    assert iot["purpose"] == 0 and "gatewaySubnet" not in iot
 
 
 async def test_site_without_wlan_group(url: str, sim: OmadaSimulator) -> None:
@@ -510,26 +538,88 @@ async def test_simulator_refuses_what_a_controller_would(url: str, sim: OmadaSim
     w = Writer(a)
     try:
         await a.read_system()
+        net = {"purpose": 0, "igmpSnoopEnable": False}
+        ssid = {
+            "deviceType": 1, "band": 3, "guestNetEnable": False, "security": 0,
+            "broadcast": True, "vlanEnable": False, "mloEnable": False, "pmfMode": 2,
+            "enable11r": False, "hidePwd": False,
+        }  # fmt: skip
+        basic = f"{SSIDS}/ssid-home/update-basic-config"
         for method, path, body, message in [
-            ("POST", NETS, {"name": "x", "vlan": 20}, "already used"),
-            ("POST", NETS, {"vlan": 41}, "needs a name"),
-            ("POST", NETS, {"name": "x", "vlan": 5000}, "1-4094"),
+            ("POST", NETS, {**net, "name": "x", "vlan": 20}, "-34517: This VLAN ID is already"),
+            ("POST", NETS, {**net, "vlan": 41}, r"-1001: Parameter \[name\]"),
+            ("POST", NETS, {"name": "x", "vlan": 41}, r"Parameter \[purpose\]"),
+            ("POST", NETS, {**net, "name": "x", "vlan": 5000}, "1-4094"),
+            ("POST", NETS, {**net, "name": "x", "vlan": 41, "purpose": 1}, r"\[gatewaySubnet\]"),
+            (
+                "POST",
+                NETS,
+                {**net, "name": "x", "vlan": 41, "purpose": 1, "gatewaySubnet": "203.0.113.1/24"},
+                "-33515: LAN interfaces could not be none",
+            ),
+            (
+                "POST",
+                NETS,
+                {
+                    **net,
+                    "name": "x",
+                    "vlan": 41,
+                    "purpose": 1,
+                    "interfaceIds": ["2_x"],
+                    "gatewaySubnet": "192.0.2.129/25",
+                },
+                "-33502: This range of IP address already exists",
+            ),
+            (
+                "POST",
+                NETS,
+                {
+                    **net,
+                    "name": "x",
+                    "vlan": 41,
+                    "purpose": 1,
+                    "interfaceIds": ["2_x"],
+                    "gatewaySubnet": "nonsense",
+                },
+                "Invalid request",
+            ),
             ("POST", NETS, [], "Invalid request"),
-            ("POST", SSIDS, {"name": "Home"}, "already exists"),
-            ("POST", SSIDS, {"name": ""}, "needs a name"),
-            ("POST", SSIDS, {"name": "x", "security": 3}, "8-63"),
-            ("DELETE", f"{NETS}/net-iot", None, "in use"),
-            ("DELETE", f"{PORTS}/1", None, "cannot be deleted"),
-            ("DELETE", f"{NETS}/nope", None, "does not exist"),
+            ("PATCH", f"{NETS}/net-iot", {"name": "x"}, r"Parameter \[purpose\]"),
+            ("POST", SSIDS, {**ssid, "name": "Home"}, "-33219: This SSID already exists"),
+            ("POST", SSIDS, {"name": "x"}, r"Parameter \[deviceType\]"),
+            ("POST", SSIDS, {**ssid, "name": ""}, r"Parameter \[name\]"),
+            ("POST", SSIDS, {**ssid, "name": "x", "security": 3}, "-33223: The security key"),
+            ("PATCH", basic, {"broadcast": False}, r"Parameter \[name\]"),
+            ("PATCH", basic, [], "Invalid request"),
+            ("PATCH", f"{SSIDS}/nope/update-basic-config", {}, "does not exist"),
+            ("PATCH", f"{SITE_PATH}/wireless-network/ssids/nope/enable", {}, "does not exist"),
+            (
+                "PATCH",
+                f"{SITE_PATH}/wireless-network/ssids/ssid-home/enable",
+                {},
+                r"\[ssidEnable\]",
+            ),
+            ("DELETE", f"{NETS}/nope", None, "-33503: This network does not exist"),
             ("PATCH", f"{PORTS}/1", {"nativeNetworkId": "nope"}, "network does not exist"),
             ("PATCH", f"{PORTS}/1", {"profileId": "nope"}, "profile does not exist"),
             ("PATCH", f"{PORTS}/1", [], "Invalid request"),
+            ("PATCH", f"{PORTS}/99", {}, "Not found"),
         ]:
             with pytest.raises(AdapterError, match=message):
                 await w.send(method, path, body)  # type: ignore[arg-type]
-        for method, path in [("POST", f"{SITE_PATH}/devices"), ("PATCH", f"{SITE_PATH}/x/y")]:
-            with pytest.raises(AdapterError, match="404"):
-                await w.send(method, path, {})
+        for method, path, status in [
+            ("POST", f"{SITE_PATH}/devices", "404"),
+            ("PATCH", f"{SITE_PATH}/x/y", "404"),
+            ("PATCH", f"{SSIDS}/ssid-home", "405"),  # SSIDs change through update-basic-config
+            ("DELETE", f"{PORTS}/1", "405"),
+            ("POST", NETS, "400"),  # "purpose" is a number
+            ("PATCH", f"{NETS}/net-iot", "400"),
+            ("POST", f"{SITE_PATH}/x/update-basic-config", "404"),
+        ]:
+            body = {"purpose": "vlan"} if path.startswith(NETS) else {}
+            with pytest.raises(AdapterError, match=status):
+                await w.send(method, path, body)
+        await w.send("DELETE", f"{NETS}/net-iot")  # in use by an SSID and ports: still gone
     finally:
         await a.close()
 
@@ -598,8 +688,20 @@ async def test_backup_and_restore_round_trip(url: str, sim: OmadaSimulator) -> N
             ({k: v for k, v in r.items() if k != key} for r in rows), key=lambda r: str(r)
         )
 
-    assert same(now[NETS], "id") == same(original[NETS], "id")
-    assert same(now[SSIDS], "ssidId") == same(original[SSIDS], "ssidId")
+    def differences(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> list[str]:
+        by_name = {r["name"]: r for r in b}
+        return [
+            f"{r['name']}.{k}: {r.get(k)!r} != {by_name.get(r['name'], {}).get(k)!r}"
+            for r in a
+            for k in sorted(set(r) | set(by_name.get(r["name"], {})))
+            if k not in ("id", "ssidId") and r.get(k) != by_name.get(r["name"], {}).get(k)
+        ]
+
+    assert differences(now[NETS], original[NETS]) == []
+    assert len(now[NETS]) == len(original[NETS]) and len(now[SSIDS]) == len(original[SSIDS])
+    ssids_now = [{k: v for k, v in r.items() if k != "id"} for r in now[SSIDS]]
+    ssids_then = [{k: v for k, v in r.items() if k != "id"} for r in original[SSIDS]]
+    assert differences(ssids_now, ssids_then) == []
     fixed = [{**r, "nativeNetworkId": "net-guest"} if r["port"] == 8 else r for r in now[PORTS]]
     assert fixed == original[PORTS]
 
@@ -615,7 +717,12 @@ async def test_restore_takes_over_a_network_with_the_same_vlan(
     finally:
         await a.close()
     guest = sim.data[NETS][2]
-    assert guest == {"id": "net-other", "name": "Guest", "purpose": "vlan", "vlan": 30}
+    assert (guest["id"], guest["name"], guest["purpose"], guest["vlan"]) == (
+        "net-other",
+        "Guest",
+        0,
+        30,
+    )
 
 
 @pytest.mark.parametrize(
@@ -648,7 +755,9 @@ async def test_restore_of_a_missing_port_and_created_ids(url: str, sim: OmadaSim
         backup = await a.backup()
         content = json.loads(backup.content)
         content["ports"][SWITCH].append({"port": 9, "profileId": "prof-lan"})
-        content["lan_networks"].append({"id": "net-x", "name": "X", "vlan": 50})
+        content["lan_networks"].append(
+            {"id": "net-x", "name": "X", "vlan": 50, "purpose": 0, "igmpSnoopEnable": False}
+        )
         changed = backup.model_copy(update={"content": json.dumps(content)})
         await a.restore(changed)
         assert any(n.get("vlan") == 50 for n in sim.data[NETS])
@@ -792,7 +901,8 @@ async def test_revert_restores_the_replaced_passphrase(svc: Services, sim: Omada
 async def test_revert_without_a_readable_key_uses_what_signalbox_set(
     svc: Services, sim: OmadaSimulator
 ) -> None:
-    # Home does not report its key: only the passphrase Signalbox deployed itself is trusted
+    # Home hides its key (hidePwd): only the passphrase Signalbox deployed itself is trusted
+    next(s for s in sim.data[SSIDS] if s["name"] == "Home")["hidePwd"] = True
     await svc.runner.observe_all()
     assert fingerprints(svc.runner.network(), "Home") == {None}
     d = Deployer(svc.runner)

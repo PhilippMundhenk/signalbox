@@ -83,41 +83,48 @@ PAGE_SIZE = 100
 #: Stop paging after this many pages, whatever ``totalRows`` says.
 MAX_PAGES = 100
 
-#: Omada error codes of a refused access token (expired, invalid): re-authorise once.
+#: Omada error codes of a refused access token (-44112 "The access token has expired", also
+#: the answer to a token the controller never issued; -44113 invalid): re-authorise once.
 TOKEN_ERRORS = frozenset({-44112, -44113})
 
-#: Radio keys of the radio settings answer, with their band.
+#: Radio keys of the radio configuration (``/aps/{mac}/radio-config``), with their band.
 RADIO_KEYS: dict[str, Band] = {
     "radioSetting2g": Band.GHZ_2_4,
     "radioSetting5g": Band.GHZ_5,
+    "radioSetting5g1": Band.GHZ_5,
     "radioSetting5g2": Band.GHZ_5,
     "radioSetting6g": Band.GHZ_6,
 }
-#: ``radioId`` of a wireless client → radio key (guess).
+#: ``radioId`` of a wireless client → radio keys (0: 2.4 GHz, 1: 5 GHz-1, 2: 5 GHz-2, 3: 6 GHz).
 CLIENT_RADIOS = {
-    0: "radioSetting2g",
-    1: "radioSetting5g",
-    2: "radioSetting5g2",
-    3: "radioSetting6g",
+    0: ("radioSetting2g",),
+    1: ("radioSetting5g", "radioSetting5g1"),
+    2: ("radioSetting5g2",),
+    3: ("radioSetting6g",),
 }
 #: Bits of an SSID's ``band`` → radio keys.
 BAND_BITS = (
     (1, ("radioSetting2g",)),
-    (2, ("radioSetting5g", "radioSetting5g2")),
+    (2, ("radioSetting5g", "radioSetting5g1", "radioSetting5g2")),
     (4, ("radioSetting6g",)),
 )
-#: ``linkSpeed`` code of a switch port → Mbit/s (guess).
-LINK_SPEEDS = {1: 10, 2: 100, 3: 1000, 4: 2500, 5: 10000, 6: 5000, 7: 25000, 8: 40000}
-#: ``pskSetting.versionPsk`` → security (guess).
+#: ``channelWidth`` code of the radio configuration → MHz (4, 6 and 8 are "auto").
+WIDTH_CODES = {2: 20, 3: 40, 5: 80, 7: 160, 10: 320}
+#: ``linkSpeed`` code of a switch port → Mbit/s.
+LINK_SPEEDS = {1: 10, 2: 100, 3: 1000, 4: 2500, 5: 10000, 6: 5000, 7: 25000, 8: 100000}
+#: ``pskSetting.versionPsk`` → security: 1 WPA-PSK, 2 WPA2-PSK, 3 WPA/WPA2-PSK,
+#: 4 WPA2-PSK/WPA3-SAE (WPA3-SAE alone on a 6 GHz-only SSID).
 PSK_VERSIONS = {
     1: Security.OTHER,
     2: Security.WPA2,
-    3: Security.WPA2,
-    4: Security.WPA3,
-    5: Security.WPA2_WPA3,
+    3: Security.OTHER,
+    4: Security.WPA2_WPA3,
 }
-#: ``pmfMode`` → PMF (guess).
+#: ``pmfMode`` → PMF: 1 mandatory, 2 capable, 3 disabled.
 PMF_MODES = {1: Pmf.REQUIRED, 2: Pmf.OPTIONAL, 3: Pmf.DISABLED}
+#: ``purpose`` of a LAN network (0 VLAN only, 1 interface: a gateway address); older
+#: controllers and the web API spell it as a word.
+PURPOSES = {0: "vlan", 1: "interface", "vlan": "vlan", "interface": "interface"}
 #: Device ``type`` → prefix of the managed device's slug.
 TYPES = {"gateway": "gateway", "router": "gateway", "switch": "switch", "ap": "eap", "eap": "eap"}
 
@@ -280,12 +287,12 @@ class _Wireless:
 
 
 def _security(ssid: dict[str, Any]) -> Security:
+    """``security``: 0 none (OWE with ``oweEnable``), 2 WPA-Enterprise, 3 WPA-Personal,
+    4 and 5 PPSK (other)."""
     mode = _int(ssid.get("security"))
     psk = _sub(ssid, "pskSetting")
     if mode == 0:
-        return Security.OPEN
-    if mode == 1:
-        return Security.OWE
+        return Security.OWE if ssid.get("oweEnable") is True else Security.OPEN
     if mode == 2:
         version = _int(_sub(ssid, "entSetting").get("versionEnt"))
         return Security.WPA3_ENTERPRISE if version == 4 else Security.WPA2_ENTERPRISE
@@ -295,8 +302,28 @@ def _security(ssid: dict[str, Any]) -> Security:
 
 
 def _width(value: Any) -> int | None:
+    """MHz from a ``channelWidth`` code (a plain MHz number is accepted too)."""
     number = _int(value)
-    return number if number in (20, 40, 80, 160, 320) else None
+    if number in (20, 40, 80, 160, 320):
+        return number
+    return WIDTH_CODES.get(number or 0)
+
+
+def _dhcp_settings(row: dict[str, Any]) -> dict[str, Any]:
+    """The DHCP settings of a LAN network: ``dhcpSettingsVO`` in the v1 list, ``dhcpSettings``
+    (with ``ipRangePool``) in the detail and the newer lists."""
+    return _sub(row, "dhcpSettingsVO") or _sub(row, "dhcpSettings")
+
+
+def _ranges(dhcp: dict[str, Any]) -> list[tuple[str, str]]:
+    pool = dhcp.get("ipRangePool")
+    if isinstance(pool, list) and pool:
+        return [
+            (_text(r.get("ipaddrStart")), _text(r.get("ipaddrEnd")))
+            for r in pool
+            if isinstance(r, dict)
+        ]
+    return [(_text(dhcp.get("ipaddrStart")), _text(dhcp.get("ipaddrEnd")))]
 
 
 class OmadaAdapter(_Adapter):
@@ -541,7 +568,7 @@ class OmadaAdapter(_Adapter):
 
         ports: list[Port] = []
         for sw in (d for d in await self._devices() if d.kind == "switch"):
-            for row in await self._rows(f"{self._site_path}/switches/{sw.raw_mac}/ports"):
+            for row in await self._ports(sw.raw_mac):
                 number = _int(row.get("port"))
                 if number is None:
                     continue
@@ -633,15 +660,20 @@ class OmadaAdapter(_Adapter):
         owner = self._prefix(gateway) if gateway else f"{dev}/gateway"
         servers: list[DhcpServer] = []
         for n in (await self._networks()).values():
-            dhcp = _sub(n.raw, "dhcpSettings")
+            dhcp = _dhcp_settings(n.raw)
             if not dhcp:
                 continue
             try:
                 own: IPAddress | None = ip_interface(_text(n.raw.get("gatewaySubnet"))).ip
             except ValueError:
                 own = None
-            start, end = _addr(dhcp.get("ipaddrStart")), _addr(dhcp.get("ipaddrEnd"))
-            pools = [DhcpPool(start=start, end=end)] if start and end else []
+            pools = [
+                DhcpPool(start=start, end=end)
+                for start, end in ((_addr(a), _addr(b)) for a, b in _ranges(dhcp))
+                if start and end
+            ]
+            if not pools and not _flag(dhcp.get("enable")):
+                continue  # what the controller leaves of removed DHCP settings: none
             if _text(dhcp.get("dhcpns")).lower() == "manual":
                 dns = [a for a in (_addr(dhcp.get(k)) for k in ("priDns", "sndDns")) if a]
             else:
@@ -679,6 +711,28 @@ class OmadaAdapter(_Adapter):
         )
         return names, primary
 
+    async def _ports(self, raw_mac: str) -> list[dict[str, Any]]:
+        """A switch's ports: ``portList`` of ``GET …/switches/{mac}`` (there is no port list
+        endpoint of its own)."""
+        path = f"{self._site_path}/switches/{raw_mac}"
+        if path not in self._cache:
+            ports = _dict(await self._api(path), path, "result").get("portList")
+            if not isinstance(ports, list):
+                raise _unexpected(path, "no portList")
+            self._cache[path] = [p for p in ports if isinstance(p, dict)]
+        return list(self._cache[path])
+
+    async def _ssids(self, group: str) -> list[dict[str, Any]]:
+        """The SSIDs of a WLAN group with their details: the list leaves out the security
+        settings (``pskSetting``, ``pmfMode``), which only ``…/ssids/{ssidId}`` answers."""
+        path = f"{self._site_path}/wireless-network/wlans/{group}/ssids"
+        out = []
+        for row in await self._rows(path):
+            sid = _text(row.get("ssidId") or row.get("id"))
+            detail = await self._object(f"{path}/{sid}") if sid else None
+            out.append({**row, **(detail or {})})
+        return out
+
     async def _wireless(self) -> _Wireless:
         if self._wireless_cache is not None:
             return self._wireless_cache
@@ -689,12 +743,8 @@ class OmadaAdapter(_Adapter):
         groups, primary = await self._wlan_groups()
         for ap in (d for d in await self._devices() if d.kind == "eap"):
             group = ap.wlan_id if ap.wlan_id in groups else primary
-            ssids = (
-                await self._rows(f"{self._site_path}/wireless-network/wlans/{group}/ssids")
-                if group
-                else []
-            )
-            settings = await self._object(f"{self._site_path}/eaps/{ap.raw_mac}/radios")
+            ssids = await self._ssids(group) if group else []
+            settings = await self._object(f"{self._site_path}/aps/{ap.raw_mac}/radio-config")
             radios: dict[str, Radio] = {}
             if settings is None:  # no radio settings: the radios the SSIDs need, details unknown
                 needed = {
@@ -748,7 +798,8 @@ class OmadaAdapter(_Adapter):
                                 device_id=self._prefix(ap),
                                 ssid=name,
                                 radio_id=radio.id,
-                                enabled=radio.enabled and _flag(s.get("enable"), default=True),
+                                enabled=radio.enabled
+                                and _flag(s.get("ssidEnable", s.get("enable")), default=True),
                                 security=sec,
                                 pmf=PMF_MODES.get(_int(s.get("pmfMode")) or 0),
                                 passphrase_fingerprint=(
@@ -802,9 +853,12 @@ class OmadaAdapter(_Adapter):
             seen_on: str | None = None
             if _flag(row.get("wireless")):
                 ap = _mac(row.get("apMac"))
-                key = CLIENT_RADIOS.get(_int(row.get("radioId")) or 0, "")
+                keys = CLIENT_RADIOS.get(_int(row.get("radioId")) or 0, ())
                 if wireless and ap:
-                    seen_on = wireless.by_ssid.get((ap, key, _text(row.get("ssid"))))
+                    ssid = _text(row.get("ssid"))
+                    seen_on = next(
+                        (w for k in keys if (w := wireless.by_ssid.get((ap, k, ssid)))), None
+                    )
             else:
                 sw = by_mac.get(_mac(row.get("switchMac")) or "")
                 number = _int(row.get("port"))
