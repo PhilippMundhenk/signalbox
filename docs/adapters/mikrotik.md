@@ -333,9 +333,11 @@ Read only when the list `WAN` has members.
 {"public-address": "203.0.113.2", "ddns-enabled": "false", "status": "updated"}
 ```
 
-*Guess* (#21): the shapes are from the RouterOS documentation (the CHR in CI has the DHCP
-client on its uplink; tools/integration/mikrotik/dump.py `uplink` records all four), the
-lifetime after the prefix included. For a PPPoE client the adapter runs its monitor once,
+The DHCP client is as RouterOS 7.25.1 CHR answers it in CI (`ether1`, bound, with `gateway`
+and `primary-dns`); there `/ip/cloud` has no `public-address` (no cloud update), and the other
+two menus are empty lists (tools/integration/mikrotik/dump.py `uplink` records all four).
+*Guess* (#21): the IPv6 client's `prefix` with its lifetime after the comma, and the PPPoE
+client and monitor fields, are from the RouterOS documentation. For a PPPoE client the adapter runs its monitor once,
 `POST /rest/interface/pppoe-client/monitor` with `{"numbers": "pppoe-out1", "once": ""}`, a read
 command of the `read` policy *(guess: not tried on a device with a PPPoE session)*:
 
@@ -344,8 +346,9 @@ command of the `read` policy *(guess: not tried on a device with a PPPoE session
   "remote-address": "203.0.113.1", "service-name": "", "ac-name": "isp-bras", "mtu": "1492"}]
 ```
 
-A refused monitor leaves the uplink with the client's `running` flag and without addresses or
-uptime; a refused `/ip/cloud` without a public address.
+A monitor of a client that does not exist is HTTP 404 `{"error": 404, "message": "Not Found"}`
+on the CHR. A refused monitor leaves the uplink with the client's `running` flag and without
+addresses or uptime; a refused `/ip/cloud` without a public address.
 
 ### `/rest/ip/dhcp-server`, `/rest/ip/dhcp-server/network`, `/rest/ip/pool`, `/rest/ip/dhcp-server/lease` (dhcp, clients)
 

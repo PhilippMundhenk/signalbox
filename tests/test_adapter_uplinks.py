@@ -17,11 +17,13 @@ from pydantic import SecretStr
 from signalbox.adapters import Adapter, AdapterConfig, AdapterContext
 from signalbox.adapters.fritzbox import FritzboxAdapter, FritzboxConfig, wan_uplink
 from signalbox.adapters.mikrotik import MikrotikAdapter, MikrotikConfig
+from signalbox.adapters.omada import OmadaAdapter, OmadaConfig
+from signalbox.adapters.omada import wan_uplink as omada_uplink
 from signalbox.adapters.openwrt import NetworkView, OpenWrtAdapter, OpenWrtConfig
 from signalbox.adapters.opnsense import OpnsenseAdapter, OpnsenseConfig
 from signalbox.adapters.opnsense import wan_uplink as opnsense_uplink
 from signalbox.model import DeviceRole, NatClass, Port, Uplink, UplinkKind, port_id
-from signalbox.sim import mikrotik, opnsense
+from signalbox.sim import mikrotik, omada, opnsense
 from signalbox.sim.fritzbox import FritzboxSim
 from signalbox.sim.fritzbox import create_app as fritzbox_app
 from signalbox.sim.openwrt import OpenWrtSim
@@ -329,6 +331,7 @@ async def test_mikrotik_pppoe(mikrotik_sim: tuple[mikrotik.MikrotikSimulator, st
     assert _recent(up.since, 93784)  # 1d2h3m4s
     assert up.vendor_extra == {"status": "connected", "ac-name": "isp-bras", "mtu": "1492"}
     assert sim.writes == []  # the monitor is a read
+    assert sim.monitor({"numbers": "nothere", "once": ""}).status_code == 404  # as on the CHR
     # without the right to monitor: the client's running flag, no uptime
     sim.read_only_monitor = True
     [up] = await _uplinks(_mikrotik(url))
@@ -486,3 +489,107 @@ def test_fritzbox_bridged_and_unset_values() -> None:
     )
     assert uplink_problems(bridged, set()) == []
     assert wan_uplink("gw", {"NewEnable": "0"}, None, {}, now) is None
+
+
+# --- Omada -------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def omada_sim() -> Iterator[tuple[omada.OmadaSimulator, str]]:
+    sim = omada.OmadaSimulator()
+    with serve(sim.app()) as url:
+        yield sim, url
+
+
+def _omada(url: str) -> OmadaAdapter:
+    config = OmadaConfig(
+        url=url,
+        client_id=omada.CLIENT_ID,
+        client_secret=SecretStr(omada.CLIENT_SECRET),
+        allow_insecure_http=True,
+    )
+    return OmadaAdapter(_context(config, DeviceRole.OTHER))
+
+
+WAN_STATUS = f"{omada.SITE}/gateways/{omada.GATEWAY}/wan-status"
+
+
+async def test_omada_gateway_wan_ports(omada_sim: tuple[omada.OmadaSimulator, str]) -> None:
+    dhcp, pppoe = await _uplinks(_omada(omada_sim[1]))  # port 3 is in LAN mode
+    gw = "gw/gateway-020000000a01"
+    assert (dhcp.id, dhcp.device_id, dhcp.name, dhcp.kind, dhcp.up, dhcp.port_id) == (
+        f"{gw}/uplink/port1",
+        gw,
+        "SFP WAN",
+        UplinkKind.DHCP,
+        True,
+        None,  # the gateway's ports are not reported
+    )
+    assert dhcp.addresses == [ip_interface("203.0.113.45/24"), ip_interface("2001:db8:ffff::45")]
+    assert dhcp.upstream_gateway == ip_address("203.0.113.1")
+    assert dhcp.dns_servers == [
+        ip_address("203.0.113.53"),
+        ip_address("203.0.113.54"),
+        ip_address("2001:db8:ffff::53"),
+    ]
+    assert dhcp.since is None and dhcp.nat_class() is NatClass.PUBLIC
+    assert dhcp.vendor_extra["proto"] == "DHCP" and dhcp.vendor_extra["port"] == 1
+    device = dhcp.vendor_extra["omada_device"]
+    assert isinstance(device, dict) and device["type"] == "gateway"
+    assert (pppoe.kind, pppoe.up, pppoe.addresses, pppoe.upstream_gateway) == (
+        UplinkKind.PPPOE,
+        False,
+        [],
+        None,
+    )
+
+
+async def test_omada_wan_status_refused_or_without_gateway(
+    omada_sim: tuple[omada.OmadaSimulator, str],
+) -> None:
+    sim, url = omada_sim
+    sim.error[WAN_STATUS] = (-39999, "simulated failure")
+    assert await _uplinks(_omada(url)) == []
+    del sim.error[WAN_STATUS]
+    devices = sim.data[f"{omada.SITE}/devices"]
+    devices[:] = [d for d in devices if d["type"] != "gateway"]
+    before = len(sim.requests)
+    assert await _uplinks(_omada(url)) == []
+    assert WAN_STATUS not in sim.requests[before:]
+
+
+def test_omada_wan_entries() -> None:
+    extra: dict[str, Any] = {}
+    assert omada_uplink({"name": "no port"}, "gw", extra) is None
+    assert omada_uplink({"port": 4, "type": 2}, "gw", extra) is None  # a LAN port
+    bare = omada_uplink(
+        {"port": 5, "type": 1, "proto": "MAP-E", "ip": "203.0.113.9", "status": 1}, "gw", extra
+    )
+    assert bare is not None
+    assert (bare.kind, bare.up, bare.name, bare.addresses) == (
+        UplinkKind.MAP_E,
+        None,  # connected port, internet state not reported
+        "WAN5",
+        [ip_interface("203.0.113.9/32")],
+    )
+    odd = omada_uplink(
+        {
+            "port": 6,
+            "proto": "Static IP",
+            "internetState": 1,
+            "wanPortIpv4Config": {"ip": "198.51.100.7", "netmask": "bogus", "priDns": "0.0.0.0"},
+            "wanPortIpv6Config": {"enable": 1, "addr": "not an address", "gateway": "fe80::1"},
+        },
+        "gw",
+        extra,
+    )
+    assert odd is not None
+    assert (odd.kind, odd.up, odd.addresses, odd.dns_servers, odd.upstream_gateway) == (
+        UplinkKind.STATIC,
+        True,
+        [ip_interface("198.51.100.7/32")],
+        [],
+        ip_address("fe80::1"),
+    )
+    lite = omada_uplink({"port": 7, "proto": "ds-lite", "internetState": 0}, "gw", extra)
+    assert lite is not None and (lite.kind, lite.up) == (UplinkKind.DSLITE, False)

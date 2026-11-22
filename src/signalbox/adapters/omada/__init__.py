@@ -28,7 +28,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from ipaddress import ip_address, ip_interface
+from ipaddress import IPv4Address, IPv4Interface, ip_address, ip_interface
 from typing import Any
 
 from pydantic import Field, JsonValue, SecretStr, field_validator, model_validator
@@ -60,6 +60,7 @@ from signalbox.model import (
     DhcpServer,
     Firmware,
     IPAddress,
+    IPInterface,
     Membership,
     Pmf,
     Port,
@@ -70,6 +71,8 @@ from signalbox.model import (
     Segment,
     SegmentPurpose,
     Subnet,
+    Uplink,
+    UplinkKind,
     Wlan,
     normalise_mac,
     object_id,
@@ -226,6 +229,77 @@ def _mac(value: Any) -> str | None:
         return normalise_mac(_text(value))
     except ValueError:
         return None
+
+
+#: ``proto`` of a WAN port ("Static IP, DHCP, PPPoE, L2TP, PPTP, DS-Lite, and MAP-E" in the
+#: API description), compared without case, spaces and dashes
+_PROTOS = {
+    "staticip": UplinkKind.STATIC,
+    "static": UplinkKind.STATIC,
+    "dhcp": UplinkKind.DHCP,
+    "pppoe": UplinkKind.PPPOE,
+    "dslite": UplinkKind.DSLITE,
+    "mape": UplinkKind.MAP_E,
+}
+
+
+def _config(row: dict[str, Any], key: str) -> dict[str, Any]:
+    value = row.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _wan_addresses(row: dict[str, Any]) -> list[IPInterface]:
+    v4, v6 = _config(row, "wanPortIpv4Config"), _config(row, "wanPortIpv6Config")
+    out: list[IPInterface] = []
+    ip = _addr(v4.get("ip")) or _addr(row.get("ip"))
+    if isinstance(ip, IPv4Address) and not ip.is_unspecified:
+        try:
+            out.append(IPv4Interface(f"{ip}/{_text(v4.get('netmask')) or 32}"))
+        except ValueError:
+            out.append(IPv4Interface(ip))
+    if _flag(v6.get("enable"), default=True):
+        try:
+            addr = ip_interface(_text(v6.get("addr")))
+        except ValueError:
+            addr = None
+        if addr is not None and addr.version == 6 and not addr.ip.is_unspecified:
+            out.append(addr)
+    return out
+
+
+def wan_uplink(row: dict[str, Any], device_id: str, extra: dict[str, JsonValue]) -> Uplink | None:
+    """One entry of ``…/gateways/{mac}/wan-status``; a port in LAN mode is no uplink."""
+    port = _int(row.get("port"))
+    mode, kind_of_port = _int(row.get("mode")), _int(row.get("type"))
+    if port is None or mode == 1 or (mode is None and kind_of_port == 2):
+        return None
+    v4, v6 = _config(row, "wanPortIpv4Config"), _config(row, "wanPortIpv6Config")
+    proto = _text(row.get("proto"))
+    kind = _PROTOS.get(proto.lower().replace(" ", "").replace("-", ""), UplinkKind.OTHER)
+    status, internet = _int(row.get("status")), _int(row.get("internetState"))
+    up = False if status == 0 else {0: False, 1: True}.get(internet if internet is not None else -1)
+    gateways = [a for a in (_addr(v4.get("gateway")), _addr(v6.get("gateway"))) if a]
+    dns: list[IPAddress] = []
+    for config in (v4, v6):
+        for key in ("priDns", "sndDns"):
+            a = _addr(config.get(key))
+            if a is not None and not a.is_unspecified and a not in dns:
+                dns.append(a)
+    return Uplink(
+        id=f"{device_id}/uplink/port{port}",
+        device_id=device_id,
+        name=_text(row.get("name")) or f"WAN{port}",
+        kind=kind,
+        up=up,
+        addresses=_wan_addresses(row),
+        upstream_gateway=next((g for g in gateways if not g.is_unspecified), None),
+        dns_servers=dns,
+        vendor_extra={
+            **extra,
+            **{k: _text(row[k]) for k in ("proto", "portDesc") if _text(row.get(k))},
+            **({"port": port}),
+        },
+    )
 
 
 def _check(data: Any, path: str) -> Any:
@@ -694,7 +768,16 @@ class OmadaAdapter(_Adapter):
             )
             for d in await self._devices()
         ]
-        return Observation(ports=ports, segments=segs, subnets=subnets, devices=managed)
+        uplinks: list[Uplink] = []
+        if gateway is not None:
+            path = f"{self._site_path}/gateways/{gateway.raw_mac}/wan-status"
+            for row in await self._optional_rows(path):
+                uplink = wan_uplink(row, self._prefix(gateway), gateway.extra())
+                if uplink is not None:
+                    uplinks.append(uplink)
+        return Observation(
+            ports=ports, segments=segs, subnets=subnets, devices=managed, uplinks=uplinks
+        )
 
     # --- health and time ----------------------------------------------------------------------
 

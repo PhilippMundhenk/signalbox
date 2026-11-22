@@ -362,10 +362,10 @@ def sample_data() -> dict[str, Any]:
             }
         ),
         "/rest/interface/pppoe-client": [],
-        "/rest/ip/cloud": {
-            "ddns-enabled": "false",
+        "/rest/ip/cloud": {  # after a cloud update (CHR in CI without one: no public-address)
+            "ddns-enabled": "auto",
             "ddns-update-interval": "none",
-            "update-time": "true",
+            "update-time": "false",
             "public-address": "203.0.113.2",
             "status": "updated",
         },
@@ -905,8 +905,8 @@ class MikrotikSimulator:
         name = str(body.get("numbers", ""))
         rows = self.answers().get(PPPOE_CLIENT, [])
         row = next((r for r in rows if name in (r.get("name"), r.get(".id"))), None)
-        if row is None:
-            return _bad("no such item")
+        if row is None:  # as RouterOS 7.25.1 CHR answers an unknown client
+            return JSONResponse({"error": 404, "message": "Not Found"}, status_code=404)
         if row.get("running") != "true":
             return JSONResponse([{"status": "disconnected"}])
         return JSONResponse([dict(self.pppoe_session)])
