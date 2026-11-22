@@ -69,7 +69,7 @@ left out when the state is imported from the network and cannot be declared yet.
 
 `purpose` says what a segment or SSID is for: `main`, `guest`, `iot`, `management`, `servers`,
 `lab`, `voice`, `cameras`, `transit` or `other`. Most devices do not know it, so it is mainly
-declared here; the guest and IoT checks ([RULES.md](RULES.md#network-purposes)) depend on it.
+declared here; the guest and IoT checks ([rules/networks.md](rules/networks.md)) depend on it.
 
 - A declared purpose is applied to the observed network every time Signalbox builds it (before
   the checks run and in every view), and beats what a device reports (Fritz!Box guest network,

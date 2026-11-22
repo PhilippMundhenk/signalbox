@@ -138,7 +138,42 @@ def maturity() -> str:
     return "\n".join(lines) + "\n"
 
 
-OUTPUTS = {"CONFIGURATION.md": configuration, "MATURITY.md": maturity}
+RULES_INTRO = """# Rules
+
+The consistency rules that ship with Signalbox: what each one checks and how to fix a finding.
+
+Each rule can be turned off or given another severity in the configuration
+(`rules: {dhcp.dns-option: {enabled: false}}`). When a rule cannot check something because a
+device did not report the data, it reports an *incomplete* finding (severity info) instead of
+staying silent.
+
+Each group is documented next to the others in [rules/](rules/), one file per rule module
+(`docs/rules/<module>.md` for `src/signalbox/rules/<module>.py`), so that new rules do not
+touch a shared file. This index is generated (`python tools/gen_docs.py`).
+
+"""
+
+
+def rules_index() -> str:
+    """docs/RULES.md: the groups in docs/rules/ with their rule ids."""
+    import re
+
+    lines = [RULES_INTRO]
+    for path in sorted((ROOT / "docs" / "rules").glob("*.md")):
+        text = path.read_text()
+        title = re.search(r"^# (.+)$", text, re.M)
+        ids = re.findall(r"^## `([^`]+)`", text, re.M)
+        lines.append(f"## [{title.group(1) if title else path.stem}](rules/{path.name})\n\n")
+        lines.extend(f"- [`{i}`](rules/{path.name}#{re.sub(r'[^a-z0-9-]', '', i)})\n" for i in ids)
+        lines.append("\n")
+    return "".join(lines).rstrip("\n") + "\n"
+
+
+OUTPUTS = {
+    "CONFIGURATION.md": configuration,
+    "MATURITY.md": maturity,
+    "RULES.md": rules_index,
+}
 
 if __name__ == "__main__":
     for name, fn in OUTPUTS.items():

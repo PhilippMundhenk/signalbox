@@ -7,1195 +7,160 @@ Each rule can be turned off or given another severity in the configuration
 device did not report the data, it reports an *incomplete* finding (severity info) instead of
 staying silent.
 
-<!-- VLAN and link rules (src/signalbox/rules/vlan.py) -->
-
-## VLANs and links
-
-These rules use the known links (discovered by LLDP or entered by hand) and the VLAN memberships
-of the ports at both ends. A device that reports no VLAN memberships at all (an unmanaged switch,
-or one that could not be read) is treated as unknown: checks through it are reported as
-incomplete, never as errors. The same goes for a device that was not fully read this round
-(unreachable, or reading its interfaces failed), and for a disagreement on a link that is only
-inferred from a MAC table: such a link may run through switches Signalbox does not read.
-
-A router's uplink (WAN) port is in no network of its own router; it carries the network of the
-router in front of it untagged (the router whose subnet holds the uplink address). Where an
-integration does not report uplinks, a router port in no network that is cabled to another
-router is taken for its uplink and not compared.
-
-### `vlan.path-to-gateway`
-
-- **Severity:** error
-- **Checks:** every network (VLAN) that an access point offers on an enabled SSID, or that an
-  access point or switch puts untagged on an access port, is carried (tagged, or untagged as the
-  native VLAN) on both ends of every link along the shortest known path from that device to the
-  router that has a subnet for the network. One finding per missing link, listing the devices
-  whose clients need it.
-- **Incomplete:** a device that is not connected to the router in the known topology (once per
-  device), a link end whose device does not report VLAN memberships or was not fully read, or a
-  missing VLAN on a link that is only inferred from a MAC table.
-- **Fix:** add the VLAN as tagged VLAN to the ports named in the finding. For an incomplete
-  finding, add the missing link by hand or enable LLDP on the devices in between.
-
-### `vlan.native-mismatch`
-
-- **Severity:** error
-- **Checks:** both ends of a link send the same network untagged (or both send nothing untagged).
-  A router's uplink port counts as sending the network of the router in front of it.
-- **Incomplete:** the ends disagree on a link that is only inferred from a MAC table. Silent when
-  an end was not fully read or is an uplink to a router Signalbox does not know.
-- **Fix:** set the same untagged (native) VLAN on both ports, or none on both.
-
-### `vlan.tagged-both-ends`
-
-- **Severity:** warning (a VLAN the far end actually needs is an error of `vlan.path-to-gateway`)
-- **Checks:** a VLAN tagged on one end of a link is configured on the other end as well. Uplink
-  cables between routers are skipped.
-- **Incomplete:** on a link that is only inferred from a MAC table.
-- **Fix:** add the VLAN as tagged VLAN to the other port, or remove it from the first one.
-
-### `vlan.unused`
-
-- **Severity:** info
-- **Checks:** a network that has a subnet on the router but no member port on any other device
-  and no SSID that uses it. Often left over from an earlier setup.
-- **Fix:** remove the VLAN and its subnet if it is no longer needed, or add it to the ports and
-  SSIDs that should use it.
-
-### `link.speed-duplex`
-
-- **Severity:** warning
-- **Checks:** the two ends of a cable link report a different speed or duplex mode (only where
-  both ends report it and neither port is down; wireless links are skipped). Speed and duplex are
-  separate findings.
-- **Fix:** set both ports to auto-negotiation (or the same fixed speed and duplex); if the
-  mismatch stays, replace the cable.
-
-### `vlan.trunk-scope`
-
-- **Severity:** info
-- **Checks:** a cable from a switch or router to an access point carries tagged only the networks
-  the access point uses: those of its enabled SSIDs, of its own access ports, of its own
-  addresses (subnets it reports) and of its management address. One finding per link lists the
-  extra VLANs. Every extra VLAN can be reached by anyone who unplugs the access point.
-- **Stays quiet** for links to switches, for access points with further links (they forward to
-  other devices), for access points whose Wi-Fi could not be read or that have an SSID without a
-  known network, for access points reported by a controller (it may move SSIDs between them), and
-  when the network the access point is managed in is not known.
-- **Fix:** remove the VLANs named in the finding from the switch port.
-
-### `link.slow`
-
-- **Severity:** warning; info for a single port at 10 Mbit/s
-- **Checks:** a cable between two network devices (router, switch, access point) runs below
-  1 Gbit/s or in half duplex. Unlike `link.speed-duplex` this checks the value itself, so it also
-  works when only one end reports it. A port of a network device that is up in half duplex is
-  reported even without a known link; one that is up at 10 Mbit/s is reported as info. Ports that
-  are down, wireless, aggregates or virtual are skipped. Where the ports report their maximum
-  speed, a link that runs as fast as the slower port can go (a 100 Mbit/s-only device) is not
-  reported, and a link slower than both ports support (1 Gbit/s on two 2.5 Gbit/s ports) is
-  reported as info.
-- **Fix:** replace the cable (a damaged cable often uses only two pairs, which limits it to
-  100 Mbit/s) and check that both ports are set to auto-negotiation. For a link below the
-  ports' maximum, use a cable rated for that speed (Cat 5e or better for 2.5 Gbit/s, Cat 6a for
-  10 Gbit/s). If a device only has 100 Mbit/s ports and does not report it, turn the rule off or
-  accept the finding.
-
-<!-- end of VLAN and link rules -->
-
-<!-- DHCP and addressing rules (src/signalbox/rules/dhcp.py) -->
-
-## DHCP and addressing
-
-A *router address* below is the address of a subnet marked as the gateway, or of any subnet of
-a device with the gateway role.
-
-### `dhcp.one-server`
-
-- **Severity:** error (more than one server), warning (none)
-- **Checks:** every network (VLAN) with an IPv4 router address has exactly one enabled DHCP
-  server. Networks with only IPv6 are skipped (they often use SLAAC). If no device at the site
-  can report DHCP servers (or every one that can failed to), the rule reports the network as
-  incomplete rather than as missing a server.
-- **Fix:** keep the DHCP server on the router of the network and disable the others; enable one
-  if there is none, unless every device on that network has a fixed address on purpose.
-
-### `dhcp.pools-overlap`
-
-- **Severity:** warning
-- **Checks:** the address pools of one DHCP server do not cover the same addresses.
-- **Fix:** shrink or merge the pools so that every address is in at most one.
-
-### `dhcp.pool-fixed-address`
-
-- **Severity:** warning
-- **Checks:** no address that a router, switch or access point uses on the network (its subnet
-  interface address) lies inside a DHCP pool of that network.
-- **Fix:** move the pool above the fixed addresses, or give the device an address outside it.
-
-### `dhcp.reservation-in-pool`
-
-- **Severity:** warning
-- **Checks:** static DHCP reservations use addresses outside the dynamic pool range.
-- **Fix:** pick a reserved address outside the pool, or shrink the pool.
-
-### `dhcp.router-option`
-
-- **Severity:** warning
-- **Checks:** the router (default gateway) option a DHCP server hands out is the interface
-  address of the router on that network. A server without a router option is not checked (most
-  servers then send their own address). If no router address is known for the network, the
-  check is incomplete.
-- **Fix:** set the router option to the router's address on that network.
-
-### `dhcp.dns-option`
-
-- **Severity:** warning
-- **Checks:** every DNS server a DHCP server hands out is either a listen address of an enabled
-  DNS service Signalbox knows (a service without listen addresses counts with all addresses of
-  its device) or a router address of that network. Outside resolvers are reported; turn the rule
-  off if you use one on purpose.
-- **Fix:** hand out the address of your router or local resolver.
-
-### `addr.subnet-overlap`
-
-- **Severity:** error
-- **Checks:** subnets of different networks, at the same or at different sites, do not overlap.
-  The same subnet seen by several devices on one network is fine.
-- **Fix:** give each network its own, non-overlapping address range.
-
-### `addr.duplicate-ip`
-
-- **Severity:** error
-- **Checks:** no IP address belongs to more than one MAC address, among the addresses of known
-  clients and the DHCP reservations of all servers. IPv6 link-local addresses are ignored.
-- **Fix:** change the reservation or fixed address of one of the devices.
-
-<!-- end of DHCP and addressing rules -->
-
-<!-- Addressing and DHCP checks (src/signalbox/rules/addressing.py) -->
-
-## Addressing and DHCP checks
-
-More checks of addresses, DHCP pools, reservations and options. As above, a *router address* is
-the address of a subnet marked as the gateway, or of any subnet of a device with the gateway
-role. IPv6 link-local and IPv4 169.254.0.0/16 addresses are ignored unless a rule says otherwise.
-
-### `addr.client-subnet`
-
-- **Severity:** warning
-- **Checks:** every address of a client lies in a subnet known for the network (VLAN) it is in
-  (only IP versions for which the network has a subnet are compared). A client whose addresses
-  lie in the subnets of two different networks is reported once, as a likely VLAN leak.
-- **Incomplete:** once per network that has clients but no known subnet.
-- **Fix:** check the client for a fixed address, look for a second DHCP server, or put the port
-  or access point in the right VLAN.
-
-### `dhcp.self-assigned`
-
-- **Severity:** warning
-- **Checks:** clients whose only IPv4 addresses are self-assigned (169.254.x.x) on a network that
-  has an enabled DHCP server: their DHCP request was not answered. One finding per network.
-  Networks without a DHCP server are left to `dhcp.one-server`.
-- **Fix:** check that the DHCP server is running, its pool is not full and the VLAN reaches the
-  port or access point of the client.
-
-### `addr.prefix-consistent`
-
-- **Severity:** error (address outside the router's subnet), warning (other mask)
-- **Checks:** the IPv4 address of every device on a network that is not a router (switch and
-  access point management interfaces) lies inside a router subnet of that network, with the same
-  prefix length. Further subnets on the router itself are allowed. IPv6 is not compared, because
-  IPv6 networks often carry several prefixes.
-- **Incomplete:** a network with such device addresses but no IPv4 router address.
-- **Fix:** set the device's address and mask to the router's subnet.
-
-### `addr.gateway-position`
-
-- **Severity:** info
-- **Checks:** the router address of every IPv4 subnet (except /31 and /32) is the first or the
-  last usable address, and all networks of a site use the same position. A site that mixes both
-  reports the networks that differ from the majority (first wins a tie).
-- **Fix:** move the router address (and update the DHCP router option and devices with a fixed
-  address), or turn the rule off if your convention is different.
-
-### `dhcp.pool-usage`
-
-- **Severity:** warning (more than 80 % of the pool in use, or more clients seen on the network
-  than the pool has addresses), error (pool full)
-- **Checks:** the free addresses of each enabled DHCP server (all its pools together, overlaps
-  counted once, minus reserved addresses inside the pools) against the clients without a
-  reservation that hold an address in the pool. Clients without an address do not count.
-- **Incomplete:** a server that did not report its pool.
-- **Fix:** enlarge the pool (and the subnet if needed) or shorten the lease time.
-
-### `dhcp.lease-time`
-
-- **Severity:** info; warning for a long lease when the pool is more than 80 % in use
-- **Checks:** the lease time of every enabled DHCP server is between 5 minutes and 7 days, and at
-  most one day on a guest network (a network or SSID with the purpose `guest`: declared,
-  reported or guessed from the name, see [Network purposes](#network-purposes)). Networks where
-  every client has a reservation are skipped.
-- **Fix:** use 12-24 hours, a few hours on guest networks.
-
-### `dhcp.in-subnet`
-
-- **Severity:** error
-- **Checks:** every pool of an enabled DHCP server starts before it ends and lies inside a router
-  subnet of its network, without the network or broadcast address; every reservation lies inside
-  that subnet and is not its network, broadcast or router address. (A pool that contains the
-  router address is reported by `dhcp.pool-fixed-address`.)
-- **Incomplete:** no router subnet of that IP version is known for the network, for example
-  because the server serves a relayed network.
-- **Fix:** shrink the pool to the subnet; reserve a normal host address.
-
-### `addr.one-gateway`
-
-- **Severity:** error
-- **Checks:** a network has at most one router: a device counts if its subnet on the network is
-  marked as the gateway, or if it has the gateway role and runs a DHCP server there. Devices that
-  share an address (the virtual address of a redundant pair) count as one. A DHCP server that
-  hands out another router address is reported by `dhcp.router-option`.
-- **Fix:** keep one router per network; put the others in access-point (bridge) mode or onto
-  their own transit network. A router behind another router (its WAN in the other one's LAN) is
-  not a second router on that network: the two LANs are separate networks (see
-  [DESIGN.md](DESIGN.md#untagged-networks-of-several-routers)), and the double NAT is reported
-  by `addr.double-nat`.
-
-### `addr.double-nat`
-
-- **Severity:** info
-- **Checks:** a router whose uplink (WAN) address lies in the subnet of another known router at
-  the site (names both routers and the cable between them where it is known), or whose WAN
-  address is private (RFC 1918: a router Signalbox does not read is in front) or in the shared
-  carrier-grade NAT space 100.64.0.0/10. Without uplink data: a router port that is in no network
-  and is cabled to another router's LAN port.
-- **Why info:** a firewall behind the provider's router is often intended and works for
-  browsing; Signalbox cannot see whether the outer router has the inner one as exposed host.
-- **Fix:** nothing if everything works. If port forwards, a VPN server, games or IPv6 behind the
-  inner router matter: put the outer router into bridge (modem) mode, or make the inner router
-  its exposed host (DMZ). For CGNAT: ask the provider for a public IPv4 address, or use IPv6.
-
-### `inventory.management-address`
-
-- **Severity:** warning
-- **Checks:** the management address of a configured device (not one reported by a controller)
-  is not in a DHCP pool at its site unless a reservation for one of the device's MAC addresses
-  (or, if they are unknown, any reservation) holds it; and no two devices share a management
-  address. Host names are resolved through the DNS host records Signalbox knows; names it cannot
-  resolve and loopback addresses are skipped.
-- **Fix:** add a reservation for the device's MAC address or give it a fixed address outside
-  the pool; give every device its own address.
-
-### `dhcp.duplicate-reservation`
-
-- **Severity:** warning; info for the same reservation entered twice on one server
-- **Checks:** a MAC address has reservations with only one address per network (across all
-  enabled servers of that network), and a host name (first label, case-insensitive) is reserved
-  for only one MAC address per network. A MAC reserved on different networks is fine.
-- **Fix:** keep one reservation per device; rename or remove the duplicate.
-
-### `dhcp.domain`
-
-- **Severity:** info; warning for `.local`
-- **Checks:** per site, the domains the enabled DHCP servers hand out: networks without a domain
-  while others have one, networks with different domains, and domains ending in `.local`
-  (reserved for mDNS). DNS host records with a dotted name whose address is in a network with a
-  DHCP domain must end in that domain. Sites where no server hands out a domain are skipped.
-- **Fix:** use one local domain (`home.arpa` is recommended by RFC 8375), or ignore the finding
-  if the domains differ on purpose.
-
-### `dhcp.reservation-hostname`
-
-- **Severity:** info
-- **Checks:** the host name of a reservation matches the host name the client with that MAC
-  reports (first label, case-insensitive). Missing and generic names (the MAC itself,
-  `android-...`, `localhost`, `*`) are skipped.
-- **Fix:** rename the reservation, or check that it is for the right device.
-
-### `dhcp.dns-cross-network`
-
-- **Severity:** info
-- **Checks:** a DNS server handed out by DHCP lies in a known subnet of the network it serves, or
-  is a router address (routers answer on all their interfaces). A resolver in another network
-  works only if the firewall lets DNS through.
-- **Fix:** allow only DNS to that address in the firewall, or hand out the router's address in
-  the network.
-
-<!-- end of addressing and DHCP checks -->
-
-<!-- Wi-Fi rules (src/signalbox/rules/wireless.py) -->
-
-## Wi-Fi
-
-### `wifi.ssid-consistent`
-
-- **Severity:** error for security mode, passphrase and network (VLAN); warning for protected
-  management frames (PMF), hidden setting, the roaming settings 802.11r, k and v, and client
-  isolation
-- **Checks:** a Wi-Fi network (SSID) broadcast by several access points of one site has the same
-  settings on all of them. One finding per differing setting names the value per access point;
-  passphrases are compared only by a fingerprint and the finding says just "passphrase differs"
-  and which access points belong together. Settings a device did not report are not compared.
-  The same SSID at different sites is checked per site (networks are per site).
-- **Fix:** set the same value for that setting on every access point.
-
-### `wifi.country`
-
-- **Severity:** warning
-- **Checks:** every enabled radio has a country code, and all radios of a site use the same one
-  (compared case-insensitively).
-- **Fix:** set the country code of the country the site is in on every radio.
-
-### `wifi.channel-overlap`
-
-- **Severity:** warning
-- **Checks:** two enabled radios on different access points of the same site and band do not
-  use overlapping channels. Signalbox does not know which access points hear each other, so
-  every pair at a site counts as neighbours.
-  - 2.4 GHz: channels overlap if they are less than 5 apart (1, 6 and 11 do not overlap); the
-    channel width is ignored.
-  - 5 and 6 GHz: a radio occupies the aligned block of 20 MHz channels of its width (20 MHz if
-    not reported) in the standard channel plan (5 GHz blocks start at 36 and at 149, 6 GHz at
-    1); radios overlap if their blocks share a 20 MHz channel. For example 36 at 80 MHz
-    occupies 36-48 and overlaps 44 at 20 MHz but not 52 at 80 MHz.
-- **Fix:** move one access point to a channel that does not overlap, or use a narrower width.
-
-### `wifi.segment-at-gateway`
-
-- **Severity:** error
-- **Checks:** a Wi-Fi network bound to a VLAN uses a network for which a router has a subnet
-  (a subnet marked as the gateway, or any subnet of a device with the gateway role).
-  If no router at the site reported its subnets, the check is incomplete. A network a router
-  keeps to itself is served by that router and not reported: isolated by the device, no subnet
-  in the model, and every SSID in it on a device with the gateway role (the Fritz!Box guest
-  Wi-Fi, which has its own addresses that TR-064 does not expose).
-- **Fix:** create the VLAN with an address and DHCP on the router, or bind the SSID to a network
-  that exists there.
-
-<!-- end of Wi-Fi rules -->
-
-<!-- Topology rules (src/signalbox/topology.py) -->
-
-## Topology
-
-Links come from LLDP (devices that announce their neighbours), from MAC tables (a device sees
-another device's port address on one of its ports), and from cables entered by hand on the
-*Topology* page. LLDP wins over MAC tables; entered cables are kept as they are.
-
-### `topology.manual-conflict`
-
-- **Severity:** warning
-- **Checks:** a cable entered by hand agrees with what the devices report: if LLDP or a MAC table
-  says one of its ports is connected to a different port, the entry and reality disagree.
-- **Fix:** move the cable, or change the entered link to match.
-
-### `topology.untagged-only-link`
-
-- **Severity:** info
-- **Checks:** when the site uses VLANs, a wired link between two devices that both report VLAN
-  memberships carries at least one tagged VLAN. A link with only the untagged network is often a
-  trunk that was configured as an access port.
-- **Fix:** if VLANs should pass the link, tag them on both ports; otherwise ignore or turn off.
-
-<!-- end of topology rules -->
-
-<!-- Firmware rules (src/signalbox/rules/firmware.py) -->
-
-## Firmware
-
-### `firmware.drift`
-
-- **Severity:** warning
-- **Checks:** devices of the same vendor and model at one site run the same firmware version.
-- **Fix:** update all of them to the same (newest) version.
-
-### `firmware.update-available`
-
-- **Severity:** info
-- **Checks:** a device that reports an available update (OPNsense, MikroTik, ...) runs it.
-- **Fix:** read the release notes and update in a maintenance window.
-
-### `firmware.end-of-life`
-
-- **Severity:** warning
-- **Checks:** a device whose firmware the integration reports as end of life.
-- **Fix:** update to a supported release, or plan to replace the device.
-
-<!-- end of firmware rules -->
-
-<!-- IPv6 rules (src/signalbox/rules/ipv6.py) -->
-
-## IPv6
-
-A *client network* below is a network (VLAN) with an enabled SSID or at least one client seen on
-it. *Router prefixes* are the IPv6 subnets of a router (a subnet marked as the gateway, or any
-subnet of a device with the gateway role); link-local addresses are ignored.
-
-### `ipv6.unknown-prefix`
-
-- **Severity:** warning
-- **Checks:** every global (2000::/3) or unique local (fc00::/7) IPv6 address of a client lies
-  in a router prefix of the client's network. One finding per foreign /64, naming the clients
-  that use it: another router or hotspot is sending router advertisements there. Clients
-  without a known network, and networks without a known router, are skipped.
-- **Incomplete:** clients have IPv6 addresses, but no router at the site reported any IPv6
-  subnet (the integration may not read IPv6).
-- **Fix:** look for another router, phone hotspot or virtual machine host on the network and
-  turn off its router advertisements.
-
-### `ipv6.prefix-64`
-
-- **Severity:** warning
-- **Checks:** every router prefix on a client network is a /64, the only length automatic
-  addressing (SLAAC) works with. Networks without SSIDs or clients (point-to-point or transit
-  links such as a /127) are not checked. Turn the rule off if a network uses only DHCPv6 on
-  purpose.
-- **Fix:** use a /64 per network; split a larger delegated prefix into /64s.
-
-### `ipv6.partial`
-
-- **Severity:** info
-- **Checks:** per site, if the router has IPv6 on at least one client network, every other
-  client network with a router subnet has IPv6 too; and if one has a global prefix, none has
-  only a unique local (ULA) prefix.
-- **Fix:** add a /64 from the delegated prefix to the network named in the finding, or turn the
-  rule off if IPv6 is disabled there on purpose.
-
-<!-- end of IPv6 rules -->
-
-<!-- DNS rules (src/signalbox/rules/dns.py) -->
-
-## DNS
-
-Only enabled DNS services count. Host records are compared per site. An address is *used* if it
-is an interface address or management address of a known device, a listen address of a DNS
-service, or an address of a client seen in this run. Checks that rely on "no client uses this
-address" only run for a site and IP version for which clients were reported (IPv4 when a device
-reads clients; IPv6 only when IPv6 client addresses were seen), and stay silent otherwise.
-
-### `dns.host-record-reservation`
-
-- **Severity:** warning; info for a record with another name on a reserved address
-- **Checks:** a host record whose name without the domain (`nas` for `nas.home.example`,
-  case-insensitive) equals the hostname of a DHCP reservation at the same site points to the
-  same addresses (several records of one name, round robin, are compared as a set; IPv4 and IPv6
-  separately). A record whose address is reserved for a device with a different hostname is
-  reported as info; it may be an intended second name. Reservations without a hostname are
-  skipped.
-- **Fix:** update the DNS record (or the reservation) so that both use the same address.
-
-### `dns.host-record-stale`
-
-- **Severity:** info for an unused address in a network of the site (the device may be off),
-  warning for a private address outside every network Signalbox knows
-- **Checks:** a host record does not point to an address in a network of the site that no
-  device, client or DHCP reservation uses, nor to a non-public address that lies in no known
-  network (a typo or an old network). Public addresses (intended overrides), `0.0.0.0` and
-  loopback (blocking entries) and link-local addresses are not reported.
-- **Fix:** remove the record, or correct the address.
-
-### `dns.host-record-dynamic`
-
-- **Severity:** warning
-- **Checks:** a host record does not point to an address inside the pool of an enabled DHCP
-  server at the same site unless that server has a reservation for the address. Records are
-  treated as static: names the DNS service registers from DHCP leases are not reported as host
-  records by the integrations.
-- **Fix:** add a DHCP reservation for the device at that address, or move the record (and the
-  device) to an address outside the pool.
-
-### `dns.forwarder-loop`
-
-- **Severity:** error
-- **Checks:** DNS services do not forward in a circle. A forwarder that is an address of a
-  device running a known DNS service (its listen addresses, or all its addresses if none are
-  reported) leads to that service; a cycle, including a service that forwards to itself, is one
-  finding that names each step. Domain-specific (conditional) forwards are not counted.
-- **Fix:** let one of them forward to an upstream resolver, or resolve recursively.
-
-### `dns.forwarder-missing`
-
-- **Severity:** error when it is the only forwarder or DNS server, warning when others exist
-- **Checks:** a forwarder of a DNS service, or a DNS server handed out by an enabled DHCP
-  server, that lies in a known network is used by a known device, DNS service or client.
-  Addresses outside every known network are not checked.
-- **Fix:** point the setting to an existing resolver, or bring the resolver back.
-
-### `dns.single-forwarder`
-
-- **Severity:** info
-- **Checks:** a DNS service with forwarders has more than one upstream: two forwarders that
-  belong to the same known device count as one. If the single upstream is a known DNS service,
-  the chain is followed: it is fine when that service has several upstreams or resolves itself.
-  A service without forwarders is treated as resolving recursively and is not reported; loops
-  are left to `dns.forwarder-loop`.
-- **Fix:** add a second upstream resolver, or let the resolver resolve recursively.
-
-### `dns.conflicting-records`
-
-- **Severity:** warning
-- **Checks:** a name has the same addresses on every DNS service of a site that has a record for
-  it. Names are compared case-insensitively and without a local domain (the domain a DHCP server
-  of the site hands out), so `nas` and `nas.home.example` are the same name when `home.example`
-  is a DHCP domain. IPv4 and IPv6 records are compared separately; identical round-robin sets
-  are fine, and several addresses of one name on a single service (round robin) are not
-  reported.
-- **Fix:** use the same record on every resolver, or use a single resolver.
-
-<!-- end of DNS rules -->
-
-<!-- Client rules (src/signalbox/rules/clients.py) -->
-
-## Clients
-
-A MAC address is *randomised* when it is locally administered (the second-lowest bit of the
-first octet is set, for example `02:`, `x6:`, `xA:`, `xE:`). Phones, tablets and laptops use such
-"private Wi-Fi addresses" by default and change them; virtual machines and containers use them
-too, but keep them.
-
-### `clients.duplicate-hostname`
-
-- **Severity:** warning; info when one of the MAC addresses is randomised (often one phone or
-  laptop seen with its private and its real address)
-- **Checks:** clients with different MAC addresses on one network do not announce the same host
-  name (compared case-insensitively, without the domain). Networks whose DHCP servers hand out
-  the same domain are compared together. Empty and generic names (`android`, `iphone`, `ipad`,
-  `espressif`, `localhost`, ...) and names that are just the MAC address are ignored, as are
-  clients whose network is not known.
-- **Fix:** rename one of the devices (in its own settings).
-
-### `clients.random-mac`
-
-- **Severity:** warning for a DHCP reservation or a DNS name; info for the share per network
-- **Checks:**
-  - no DHCP reservation is for a randomised MAC address (the same reservation on several servers
-    is one finding);
-  - no local DNS host record points to an address that a client with a randomised MAC address
-    uses (IPv6 link-local addresses are ignored);
-  - for information, per network: how many of the known clients use a randomised MAC address
-    (only when at least one does). It explains why client lists grow and reservations, parental
-    controls or firewall rules do not stick.
-- **Fix:** turn off the private (random) address for this network on the device, then reserve
-  its real MAC. Reservations for virtual machines or containers that keep their address are
-  fine; turn the rule off if all of yours are.
-
-<!-- end of client rules -->
-
-<!-- Wi-Fi hygiene rules (src/signalbox/rules/wifi_hygiene.py) -->
-
-## Wi-Fi hygiene
-
-These rules look at single access points and radios; the rules under *Wi-Fi* compare access
-points with each other. Disabled radios and SSIDs are skipped, and so are values a device did
-not report (automatic channel, width or power).
-
-### `wifi.6ghz-security`
-
-- **Severity:** error
-- **Checks:** every SSID on a 6 GHz radio uses WPA3 (personal or enterprise) or Enhanced Open
-  (OWE). WPA2, WPA2/WPA3 transition mode and open networks are not allowed on 6 GHz and clients
-  do not join them there. Protected management frames, which 6 GHz requires too, are checked by
-  `wifi.pmf`.
-- **Fix:** on 6 GHz use WPA3 only (or OWE) with PMF required; keep transition mode on 2.4 and
-  5 GHz if old devices need it.
-
-### `wifi.pmf`
-
-- **Severity:** error for WPA3 (personal or enterprise) and OWE without PMF *required*; warning
-  for WPA2/WPA3 transition mode with PMF *disabled*
-- **Checks:** the protected management frames (PMF, 802.11w) setting matches the security mode.
-  WPA2 and open networks are not checked. One finding per access point and SSID.
-- **Incomplete:** the device did not report PMF for a WPA3, OWE or transition-mode SSID.
-- **Fix:** set PMF to required (WPA3, OWE) or at least optional (transition mode).
-
-### `wifi.hidden`
-
-- **Severity:** info
-- **Checks:** no enabled SSID is hidden. One finding per SSID and site. A hidden SSID that both
-  ends of a wireless link broadcast (a mesh or bridge backhaul) is skipped.
-- **Fix:** hiding adds no security; consider broadcasting the SSID and relying on WPA2/WPA3.
-
-### `wifi.ssid-count`
-
-- **Severity:** warning
-- **Checks:** a radio broadcasts at most four SSIDs (three on 2.4 GHz). Hidden SSIDs count too,
-  they send beacons as well.
-- **Fix:** merge SSIDs or turn off the ones you do not need.
-
-### `wifi.channel-width`
-
-- **Severity:** warning for a 2.4 GHz radio wider than 20 MHz; info for 160 MHz on 5 GHz or
-  320 MHz on 6 GHz at a site with more than one access point on that band
-- **Checks:** channel widths fit the band and the number of access points. Radios with an
-  unknown width are skipped.
-- **Fix:** use 20 MHz on 2.4 GHz; 80 MHz on 5 GHz (160 MHz or less on 6 GHz) with several
-  access points.
-
-### `wifi.24-channel-plan`
-
-- **Severity:** info
-- **Checks:** a 2.4 GHz radio uses channel 1, 6 or 11. Where the country code allows channel 13
-  (any reported code except US and CA), 5, 9 and 13 of the plan 1, 5, 9, 13 are accepted too.
-  Radios on automatic channel selection are skipped. `wifi.channel-overlap` compares your own
-  access points; this rule is about the neighbours.
-- **Fix:** use channel 1, 6 or 11.
-
-### `wifi.dfs`
-
-- **Severity:** info
-- **Checks:** a 5 GHz radio uses a radar (DFS) channel (52-144), or a width that reaches into
-  them (for example 36 at 160 MHz occupies 36-64). The access point then waits up to ten minutes
-  for radar after a start and leaves the channel when it detects one. Turn the rule off if you
-  use DFS on purpose.
-- **Fix:** if clients lose Wi-Fi now and then, try channels 36-48 or 149-165.
-
-### `wifi.tx-power`
-
-- **Severity:** info
-- **Checks:**
-  - on one access point, the 2.4 GHz radio does not send more than 3 dB louder than its 5 GHz
-    radio, where both broadcast the same SSID;
-  - at one site, the radios of one band on different access points are within 6 dB of each
-    other.
-  Radios with automatic or unreported power are skipped. The maximum power of a radio is not
-  known, so "every radio at maximum power" is not checked.
-- **Fix:** lower 2.4 GHz to about 3-6 dB below 5 GHz; bring the access points within about
-  6 dB of each other, usually by lowering the loud one.
-
-### `wifi.ssid-coverage`
-
-- **Severity:** info
-- **Checks:** at a site with several access points, an SSID is broadcast by every access point
-  that has a radio for its bands, and on every band where another access point offers it (if
-  the access point has a radio for that band). Sites with one access point are skipped. SSIDs in
-  a desired state are compared by `drift.wlan` as well.
-- **Fix:** add the SSID to the access points or bands named in the finding, or turn the rule
-  off if a network is meant to cover only part of the site (for example a guest network).
-
-### `wifi.segment-weakest-link`
-
-- **Severity:** error when an open or OWE SSID puts clients into the same network (VLAN) as a
-  password- or enterprise-protected SSID; info for password-protected SSIDs with different
-  passwords on one network
-- **Checks:** all SSIDs that share a network are equally protected. Two SSIDs with the same
-  security and password (for example a 2.4 GHz-only SSID for IoT devices) are fine. An SSID that
-  has different passwords on different access points is left to `wifi.ssid-consistent`.
-- **Incomplete:** an open or OWE SSID whose network is not reported, at a site with a protected
-  SSID.
-- **Fix:** move the weaker SSID to its own network (VLAN), for example a guest network.
-
-### `wifi.default-ssid`
-
-- **Severity:** warning; error when the SSID is also open
-- **Checks:** no enabled SSID has a vendor's factory name: `OpenWrt`, `LEDE`, `MikroTik-XXXXXX`,
-  `FRITZ!Box ...`, `FRITZ!Repeater ...`, `TP-Link_XXXX`, `NETGEARxx`, `Omada_XXXXXX`, `dlink`,
-  `ASUS`, `Linksys12345`, `ubnt`, `Xiaomi_XXXX`, `Tenda_XXXXXX` (whole name, case-insensitive).
-- **Fix:** set up the access point (own SSID and password) or turn the radio off.
-
-<!-- end of Wi-Fi hygiene rules -->
-
-<!-- Topology and inventory rules (src/signalbox/rules/topology_checks.py) -->
-
-## Topology and inventory
-
-### `lag.consistent`
-
-- **Severity:** error for members with different VLANs and for a LAG whose far end is not one
-  LAG on one device; warning for members with different speed or duplex; info when only one
-  member of a LAG is up
-- **Checks:** the member ports of a link aggregation (LAG, bond) have the same speed, duplex and
-  VLAN memberships (VLANs only where every member reports them; speed and duplex only for members
-  that are not down). Where at least two members have known links, those links go to one device,
-  and the ports there are members of one LAG too.
-- **Incomplete:** the far-end device does not report its ports.
-- **Fix:** configure a LAG on the other device as well (or remove all but one cable), connect
-  all members to the same device, and configure VLANs on the LAG itself or the same on every
-  member.
-
-### `topology.hidden-device`
-
-- **Severity:** info; warning when the port carries tagged VLANs
-- **Checks:** a cable port of a router, switch or access point with no known link, behind which
-  more than 3 client devices, or client devices of at least two networks, are seen. Usually an
-  unmanaged switch or a travel router is connected there, which Signalbox cannot see through.
-- **Stays quiet** when a device Signalbox knows (by MAC or address) is seen on that port: then
-  the clients are behind that device. Signalbox keeps one place per client, so the count is a
-  lower bound.
-- **Fix:** add the switch or access point under *Devices*, or enter it on the *Topology* page.
-  An unmanaged switch should not be on a port with tagged VLANs. For a server with virtual
-  machines on that port, turn the rule off.
-
-### `inventory.unknown-neighbour`
-
-- **Severity:** info
-- **Checks:** a device announced by LLDP (or a similar protocol) with a management address whose
-  chassis MAC, system name and management address match no device in Signalbox. One finding per
-  announced device, listing the ports that see it. LLDP capabilities are not read yet, so phones
-  or computers that send LLDP with an address are reported as well.
-- **Fix:** add the device under *Devices* if it is a router, switch or access point; otherwise
-  ignore the finding.
-
-### `vlan.management-separate`
-
-- **Severity:** info; **off unless enabled** (`rules: {vlan.management-separate: {enabled: true}}`)
-- **Checks:** at a site that uses VLANs, the management addresses of routers, switches and
-  access points lie in a network that also has client devices (other than the network devices
-  themselves) or an SSID. One finding per network names the devices. Sites without VLANs stay
-  quiet. A network with the purpose `management` is the management VLAN and is not reported;
-  guest and IoT networks are left to `security.management-exposure`.
-- **Fix:** consider a management VLAN that only admin devices can reach, and move the
-  management addresses there; when the site has a network with the purpose `management`, the
-  fix names it.
-
-### `inventory.duplicate-device`
-
-- **Severity:** warning
-- **Checks:** no two devices in Signalbox (configured ones or ones reported by a controller, at
-  any site) have the same management address or a port with the same MAC address. Loopback
-  addresses and VRRP/CARP virtual MACs (`00:00:5e:00:01:xx`, `00:00:5e:00:02:xx`) are ignored.
-- **Fix:** remove all but one of the devices from Signalbox; keep the one read through its
-  controller if it has one.
-
-### `redundancy.single-point`
-
-- **Severity:** info
-- **Checks:** at a site with a router and at least three network devices, the switches and
-  access points whose failure, and the single links (not LAGs) whose failure, cut off at least
-  two switches or access points from the router. One finding per site lists them all. Checked
-  only when every switch and access point of the site has a known path to the router.
-- **Fix:** add a second uplink (with LAG or spanning tree) for the devices named in the finding,
-  or keep a spare switch.
-
-<!-- end of topology and inventory rules -->
-
-<!-- History rules (src/signalbox/rules/history_checks.py) -->
-
-## History
-
-These checks use the observation history (issue #185): after every observation round Signalbox
-records when each device, client and port was first and last seen, the device status and the
-link state, the network of each client, and per device its boot time (rounded to the minute,
-with the reboot reason) and whether its CPU load was high. Changes are kept as events. Everything is deleted
-after `history.days` (default 30, see [CONFIGURATION.md](CONFIGURATION.md)); client sightings
-are a presence log and are never exported over MQTT. The checks stay silent while the history
-is too short, and on the desired or the predicted state of a plan (which have no history).
-
-### `device.down-long`
-
-- **Severity:** warning after one hour, error after 24 hours
-- **Checks:** a device that is unreachable or refuses the login, with how long it has not
-  answered and when it was last read (or, if it never answered, when Signalbox first saw it).
-  The per-round `signalbox.read` finding stays; this one adds the duration. Disabled devices
-  are not checked.
-- **Fix:** check power, cabling, address and password; remove or disable the device in
-  Signalbox if it was replaced or retired.
-
-### `device.flapping`
-
-- **Severity:** warning
-- **Checks:** a device that stopped answering (ok or partial to unreachable, login refused or
-  untrusted certificate) at least 3 times in the last 24 hours.
-- **Fix:** check its power supply or PoE budget, its temperature and its uplink cable.
-
-### `port.flapping`
-
-- **Severity:** warning for a port on a link between network devices; info for other ports
-- **Checks:** an Ethernet port or LAG whose link went down at least 3 times in the last 24
-  hours. The link state is taken from each observation round, so only losses that last until a
-  round are seen. Wireless and virtual interfaces are ignored. Error counters (CRC, FCS) are not
-  read yet (#115, #158).
-- **Fix:** replace or re-terminate the cable, check the connectors, keep auto-negotiation on
-  both ends. A computer that sleeps and wakes often also causes this (info).
-
-### `dhcp.stale-reservation`
-
-- **Severity:** info
-- **Checks:** a DHCP reservation whose MAC address was not seen as a client during the whole
-  history period (`history.days`). Checked only once Signalbox has observed the network for that
-  long, and only at sites where a device that reports clients answered and reported them in this
-  round. To look further back, raise `history.days`.
-- **Fix:** remove the reservation if the device is gone. A device that is rarely on keeps it;
-  turn the rule off if needed.
-
-### `clients.network-changed`
-
-- **Severity:** info
-- **Checks:** a client that moved to another network (VLAN, or another site) in the last 7
-  days, with the time of the move. Ignored: randomised MAC addresses, clients that moved 3 times
-  or more in that week (they roam between networks by design), and moves seen while a device
-  did not answer or did not report its clients (another device may know the client less well).
-- **Fix:** if this was not intended, check the SSID it joined, or the switch port it is plugged
-  into and that port's VLAN.
-
-<!-- end of history rules -->
-
-<!-- Device health rules (src/signalbox/rules/health.py) -->
-
-## Device health
-
-These checks read the health values a device reports (uptime, CPU, memory, storage, sensors,
-fans, power supplies, UPS; capability `health`). Devices report very different subsets: a check
-stays silent for a device that does not report its value. The thresholds are fixed for now
-(configurable rule parameters are issue #187):
-
-| Value | Threshold |
-| --- | --- |
-| Memory in use (programs, without page cache) | 90 % |
-| CPU load | 90 % in two consecutive observations |
-| Temperature | the sensor's own limit, else 85 °C |
-| Storage (system and data) | 90 % (error from 98 %) |
-| UPS runtime | 10 minutes |
-| UPS self-test | older than 180 days |
-| Uptime | 365 days |
-| Restarts | in the last 24 hours; 3 or more is a warning |
-
-### `device.resources`
-
-- **Severity:** warning
-- **Checks:** a device's memory in use (total minus available: page cache and buffers do not
-  count) is below 90 %; its CPU load is not 90 % or more in this and the previous observation
-  (a single spike is ignored; needs the history); every temperature sensor is below its own
-  limit, or below 85 °C where the device reports no limit. One finding per value.
-- **Fix:** memory: restart the device, remove unused packages or features, look for a firmware
-  update; CPU: find what keeps it busy (inspection, VPN, logging) or use hardware offloading;
-  temperature: give it air, clean its vents, check its fans.
-
-### `health.storage-full`
-
-- **Severity:** warning from 90 %, error from 98 %
-- **Checks:** system storage (root, overlay, flash) and data disks are less than 90 % full.
-  RAM-backed storage (tmpfs) and storage of unknown kind are not checked.
-- **Fix:** remove unused packages, old logs or firmware images, or move logs to another disk.
-
-### `health.fan-failed`
-
-- **Severity:** warning
-- **Checks:** no fan is reported as failed by the device. A fan at 0 rpm without the device's
-  verdict is not reported: it may be off on purpose.
-- **Fix:** clean or replace the fan; keep the device cool until then.
-
-### `health.psu-failed`
-
-- **Severity:** warning
-- **Checks:** no power supply is reported as failed (no input or broken). Matters most for
-  redundant power supplies, where the device keeps running on the other one.
-- **Fix:** check the power cable and the outlet or UPS; replace the power supply if it has power.
-
-### `health.ups-on-battery`
-
-- **Severity:** warning
-- **Checks:** a UPS monitored by a device (NUT on OPNsense, MikroTik `/system/ups`) does not run
-  on battery.
-- **Fix:** check the mains power and the UPS input; shut down devices that are not needed.
-
-### `health.ups-runtime-low`
-
-- **Severity:** warning
-- **Checks:** the runtime a UPS reports at its present load is at least 10 minutes.
-- **Fix:** replace the battery, or move devices that do not need the UPS to another outlet.
-
-### `health.ups-not-tested`
-
-- **Severity:** info
-- **Checks:** the last self-test a UPS reports is not older than 180 days. Silent when it
-  reports none, and without a history (no reference time).
-- **Fix:** run a self-test and schedule one regularly.
-
-### `health.uptime-very-long`
-
-- **Severity:** info
-- **Checks:** a device has restarted within the last 365 days. Firmware updates restart the
-  device, so a longer uptime means it has not been updated either.
-- **Fix:** check for a firmware update and install it in a quiet hour.
-
-### `device.reboot`
-
-- **Severity:** info for a restart in the last 24 hours, warning for 3 or more
-- **Checks:** a device restarted when its boot time (reported, or derived from its uptime)
-  moved between two observation rounds. The boot time is recorded rounded to the minute, and a
-  move of less than 3 minutes is ignored, so the jitter of a derived boot time is not a restart.
-  Restarts the device reports as a firmware update (`upgrade`) or as started by a user (`user`)
-  are planned and not counted; power loss, watchdog, crash, other or unknown reasons are. A
-  device seen for the first time, and the desired or predicted state of a plan, are not checked.
-  Restarts by a Signalbox deployment are not matched yet: the integrations report them as
-  `user` or `upgrade` where the device says so.
-- **Fix:** if nobody restarted it, check its power supply or PoE budget, its temperature and
-  memory use, and look for a firmware update if it crashes.
-
-<!-- end of device health rules -->
-
-<!-- Time rules (src/signalbox/rules/time_checks.py) -->
-
-## Time and NTP
-
-These checks read the clock, time zone and NTP settings a device reports (capability `time`)
-and the NTP servers a DHCP server hands out (option 42). A check stays silent for a device that
-does not report the value. An NTP server is *local* when its address lies in a known network or
-a private range (RFC 1918, CGNAT, link-local, ULA); it is *public* when it is any other address
-or the name of a well-known public service (`*.ntp.org`, `time.google.com`,
-`time.cloudflare.com`, `time.apple.com`, `time.windows.com`, `time.facebook.com`,
-`time.aws.com`, `*.nist.gov`, `*.ptb.de`, `ntp.ubuntu.com`). Other names may be local
-(`router.lan`) and are not counted as public.
-
-### `time.offset`
-
-- **Severity:** warning
-- **Checks:** a device's clock differs from Signalbox's by at most 60 seconds, plus the
-  uncertainty of the reading (half the request's round trip). Signalbox's own clock is the
-  reference: keep the host that runs it synchronised.
-- **Fix:** configure NTP on the device (the finding names a device of the site that serves
-  time) and check that it reaches the server.
-
-### `time.not-synchronised`
-
-- **Severity:** warning when NTP is configured but not synchronised; info when the NTP client is
-  off or has no server
-- **Checks:** a device's NTP client is on, has a server and is synchronised. An unknown sync
-  state is not reported.
-- **Fix:** turn on the NTP client with a server (preferably the gateway); for a client that does
-  not synchronise, check the server address, the firewall and DNS.
-
-### `time.ntp-unreachable`
-
-- **Severity:** warning
-- **Checks:** an NTP server address of a device that lies in a known network is used by a known
-  device or client (checked only where clients are reported for that network), and when it is a
-  known device that reports its NTP server, that device serves time on that network. Names and
-  addresses outside the known networks are not checked.
-- **Fix:** point the device to a device that serves time, or turn on that device's NTP server
-  for the network.
-
-### `time.dhcp-ntp-mismatch`
-
-- **Severity:** warning
-- **Checks:** the same as `time.ntp-unreachable` for the NTP servers an enabled DHCP server
-  hands out.
-- **Fix:** hand out the address of a device that serves time (usually the gateway), or turn on
-  its NTP server for that network.
-
-### `time.no-local-ntp`
-
-- **Severity:** info
-- **Checks:** per site, devices other than gateways that do not serve time themselves use at
-  least one local NTP server. Reported when only public servers are configured and either a
-  device of the site serves time (the finding names it) or a gateway of the site reports that it
-  does not. Silent when nothing is known about the gateway's NTP server.
-- **Fix:** point the devices (and DHCP option 42) to the gateway, after turning on its NTP
-  server.
-
-### `time.timezone`
-
-- **Severity:** info
-- **Checks:** all devices of a site use the same offset from UTC. The offset is the one the
-  device reports, or is derived from an IANA zone name (`Europe/Berlin`) at the time of
-  reading; POSIX TZ strings without a reported offset are not compared. Zones with different
-  names but the same offset are not reported.
-- **Fix:** set the same time zone on every device of the site.
-
-<!-- end of time rules -->
-
-<!-- Network purpose rules (src/signalbox/rules/networks.py) -->
-
-## Network purposes
-
-What a network is for (`main`, `guest`, `iot`, `management`, `servers`, `lab`, `voice`,
-`cameras`, `transit`, `other`) is known from three sources, strongest first:
-
-1. **declared** in the desired state (`segments: [{vlan: 30, purpose: guest}]`, or `purpose` on
-   an SSID), see [DESIRED.md](DESIRED.md);
-2. **reported** by the device: the Fritz!Box guest network (segment and SSID), the Omada guest
-   network flag of an SSID;
-3. **guessed** from the name of the segment or SSID: a word starting with `guest`, `gast` or
-   `visitor` means guest, the word `iot` means IoT. A guess is marked as such in findings and
-   in the UI, and makes the guest Wi-Fi finding a warning instead of an error.
-
-`guest`, `iot` and `cameras` count as untrusted networks.
-
-### `wifi.guest-isolation`
-
-- **Severity:** error; warning when the SSID is a guest network only by its name
-- **Checks:** an enabled SSID with the purpose `guest` is not in the same network (VLAN) as
-  other, non-guest SSIDs, in a network with another purpose, or in the untagged main network.
-  Silent when the SSID's network has the purpose `guest` or is isolated by the device, when the
-  SSID's own VLAN has no known purpose (then `segment.purpose-missing` asks), and for guest
-  networks the device reports itself (Fritz!Box, Omada guest network): the device keeps those
-  apart. Declare `purpose: main` on an SSID that only looks like a guest network.
-- **Fix:** bind the SSID to a separate guest VLAN, or use the router's guest network.
-
-### `segment.guest-no-isolation`
-
-- **Severity:** warning
-- **Checks:** an enabled SSID whose purpose (or its network's) is `guest` has client isolation
-  switched off, so guests reach each other's devices. Checked where the access point reports
-  the setting (OpenWrt `option isolate`); unknown values and networks isolated by the device
-  are not reported.
-- **Fix:** turn on client isolation (`client_isolation: true` on the SSID in the desired state;
-  OpenWrt: `option isolate '1'`).
-
-### `security.management-exposure`
-
-- **Severity:** error; incomplete (info) for routers
-- **Checks (level 1, without firewall data):** the management address of a switch or access
-  point lies in a guest, IoT or camera network, or such a device has an address there (a
-  subnet interface that is not the gateway). A router has an address in every network it
-  serves; whether its management interface is reachable from there depends on its firewall,
-  which Signalbox does not read yet, so each such router address is reported as not checked.
-  Level 2 (firewall rules, issue #135) is not implemented.
-- **Fix:** move the management address to the LAN or a management VLAN, or block access from
-  that network to the device.
-
-### `segment.purpose-missing`
-
-- **Severity:** info
-- **Checks:** at a site with at least two networks, every network has a declared or reported
-  purpose. One finding per site lists the networks without one, and those with only a guess.
-- **Fix:** declare the purposes in the desired state, for example
-  `segments: [{vlan: 20, purpose: iot}]`.
-
-### `segment.iot-on-5ghz-only`
-
-- **Severity:** info
-- **Checks:** an enabled SSID whose purpose (or its network's) is `iot` is broadcast on at least
-  one radio of a known band at the site, and on 2.4 GHz. Many IoT devices only have 2.4 GHz.
-- **Fix:** also broadcast the SSID on 2.4 GHz, unless all its devices support 5 GHz.
-
-<!-- end of network purpose rules -->
-
-<!-- Port rules (src/signalbox/rules/ports.py) -->
-
-## Ports
-
-These rules use the port configuration details a device reports with its interfaces: PVID,
-admin state, MTU or jumbo frames, auto-negotiation, energy-efficient Ethernet and the port
-description. A port that does not report a detail is skipped for the rules that need it. Port
-names in findings include the port description ("port 5 (office desk)").
-
-### `vlan.single-untagged`
-
-- **Severity:** error
-- **Checks:** a wired port is untagged member of at most one network (VLAN). Where the switch
-  reports a PVID (the VLAN for incoming untagged frames, a separate setting on NETGEAR Plus and
-  TP-Link Easy Smart switches), it is the port's untagged VLAN.
-- **Stays quiet** for the PVID when the port has no untagged VLAN (a tagged-only trunk), when
-  the port accepts tagged frames only, and when the PVID is not reported.
-- **Fix:** keep one untagged VLAN on the port and set the PVID to it; make the other VLANs
-  tagged.
-
-### `vlan.client-port-mismatch`
-
-- **Severity:** warning
-- **Checks:** a client seen on a wired access port (no tagged VLANs, no known link, no other
-  client on the port) uses addresses in the network of that port: the port's PVID where it is
-  reported, otherwise its only untagged VLAN. The client's network is taken from the subnets
-  its addresses lie in (link-local addresses are ignored).
-- **Stays quiet** for trunk ports, uplinks, ports with several clients (see
-  `topology.hidden-device`), clients whose addresses lie in no or several networks (see
-  `addr.client-subnet`), and when the port's network has no known subnet.
-- **Fix:** check the VLAN of the port and the network settings of the device: a fixed address,
-  VLAN tagging on the device itself (a hypervisor or NAS), or a switch in between.
-
-### `link.mtu`
-
-- **Severity:** warning
-- **Checks:** both ends of a cable link have the same MTU. Where an end reports only a jumbo
-  frames setting, both ends must agree on jumbo frames on or off.
-- **Stays quiet** for wireless links and when an end reports neither MTU nor jumbo frames.
-  VLAN interfaces and bridges are not compared with their parent port (the model does not link
-  them yet).
-- **Fix:** use the same MTU on both ends: 1500, unless every device on the path supports jumbo
-  frames.
-
-### `port.admin-down-with-neighbour`
-
-- **Severity:** warning
-- **Checks:** a port that is disabled in its configuration, but has a cable link or an LLDP
-  neighbour (a device connected to it).
-- **Fix:** enable the port, or move the cable to an enabled port; remove a link entered by hand
-  if the cable is gone.
-
-### `port.eee-on-uplink`
-
-- **Severity:** info
-- **Checks:** energy-efficient Ethernet (EEE, 802.3az, "green Ethernet") is on at an end of a
-  cable between two network devices (router, switch, access point). EEE on such links saves
-  little and is a known cause of link drops and latency.
-- **Fix:** turn off EEE on the ports named in the finding.
-
-### `port.autoneg-mismatch`
-
-- **Severity:** warning
-- **Checks:** both ends of a cable link use auto-negotiation, or both have a fixed speed. A
-  fixed speed on one end makes the auto-negotiating end fall back to half duplex.
-- **Fix:** set both ports to auto-negotiation (or the same fixed speed and duplex on both, only
-  if a device requires it).
-
-### `port.description-mismatch`
-
-- **Severity:** info
-- **Checks:** a port description that names a device Signalbox knows (its name as whole words,
-  at least 4 letters) names the device connected to the port by a cable link or LLDP.
-- **Stays quiet** for ports without a description or without a known link to a known device,
-  and when the description also names the connected device (or its LLDP system name).
-- **Fix:** update the port description, or check whether the cable is in the right port.
-
-<!-- end of port rules -->
-
-<!-- WAN uplink rules (src/signalbox/rules/wan.py) -->
-
-## Internet connection (WAN)
-
-These rules read the internet connections (uplinks) a gateway reports. They only look at
-uplinks that were reported: a gateway whose integration does not read uplinks is not checked.
-An uplink reported as down is ignored by the rules other than `wan.down` (its addresses may be
-stale). Double NAT (a router behind another router) is `addr.double-nat`.
-
-### `wan.cgnat`
-
-- **Severity:** info
-- **Checks:** an uplink whose IPv4 address is in the carrier-grade NAT range 100.64.0.0/10, or
-  a DS-Lite uplink (IPv4 only through the provider's NAT). Port forwards, a VPN server at home
-  and other connections from the internet over IPv4 cannot work.
-- **Stays quiet** when another connected uplink of the site has a public IPv4 (a backup line on
-  LTE behind CGNAT is normal), when a known router of the site uses the 100.64.0.0/10 address
-  (double NAT), for MAP-E (part of the ports can be forwarded) and for an uplink with IPv6 only.
-- **Fix:** with IPv6 on the line, reach the devices at home over IPv6; otherwise ask the
-  provider for a public IPv4 address, or use a VPN or tunnel service that connects outwards.
-
-### `wan.down`
-
-- **Severity:** warning; info when another uplink of the same gateway is up (the finding names
-  it)
-- **Checks:** an uplink the gateway reports as not connected (no address, no PPP session).
-- **Stays quiet** when the gateway does not say whether the uplink is connected.
-- **Fix:** check the cable and the modem, the account details of a PPPoE login, and whether
-  the provider reports an outage. Turn the rule off for a standby line that is down by design.
-
-### `wan.dns-mismatch`
-
-- **Severity:** info
-- **Checks:** the DNS service of the gateway forwards to an address on the network of its own
-  uplink (the provider's or the modem's side), which is not one of the DNS servers the provider
-  hands out on that uplink, not the upstream gateway, and not used by any device, DNS service
-  or client Signalbox knows. Typical after a modem or provider change: the old address was
-  typed in and answers slowly or not at all.
-- **Stays quiet** when the uplink reported no DNS servers, and for forwarders anywhere else:
-  forwarding to a public resolver, a Pi-hole or a filter instead of the provider's DNS is a
-  choice, not a mistake.
-- **Fix:** forward to the DNS servers the provider hands out (named in the finding), or to a
-  resolver you chose.
-
-### `wan.no-ipv6`
-
-- **Severity:** info
-- **Checks:** a connected uplink has an IPv6 prefix delegated by the provider, but no network
-  of the site with clients (an enabled SSID or a client seen on it) has a global IPv6 router
-  subnet, nor any router subnet from the delegated prefix. `ipv6.partial` reports a site where
-  only some networks have IPv6.
-- **Stays quiet** when no network with clients is known at the site.
-- **Incomplete:** the gateway reported no IPv6 subnet at all (not even a link-local or unique
-  local one), so its integration may not read IPv6 on its networks.
-- **Fix:** give each client network a /64 from the delegated prefix (with router
-  advertisements), or turn the rule off if IPv6 stays off on purpose.
-
-<!-- end of WAN uplink rules -->
+Each group is documented next to the others in [rules/](rules/), one file per rule module
+(`docs/rules/<module>.md` for `src/signalbox/rules/<module>.py`), so that new rules do not
+touch a shared file. This index is generated (`python tools/gen_docs.py`).
+
+## [Addressing and DHCP checks](rules/addressing.md)
+
+- [`addr.client-subnet`](rules/addressing.md#addrclient-subnet)
+- [`dhcp.self-assigned`](rules/addressing.md#dhcpself-assigned)
+- [`addr.prefix-consistent`](rules/addressing.md#addrprefix-consistent)
+- [`addr.gateway-position`](rules/addressing.md#addrgateway-position)
+- [`dhcp.pool-usage`](rules/addressing.md#dhcppool-usage)
+- [`dhcp.lease-time`](rules/addressing.md#dhcplease-time)
+- [`dhcp.in-subnet`](rules/addressing.md#dhcpin-subnet)
+- [`addr.one-gateway`](rules/addressing.md#addrone-gateway)
+- [`addr.double-nat`](rules/addressing.md#addrdouble-nat)
+- [`inventory.management-address`](rules/addressing.md#inventorymanagement-address)
+- [`dhcp.duplicate-reservation`](rules/addressing.md#dhcpduplicate-reservation)
+- [`dhcp.domain`](rules/addressing.md#dhcpdomain)
+- [`dhcp.reservation-hostname`](rules/addressing.md#dhcpreservation-hostname)
+- [`dhcp.dns-cross-network`](rules/addressing.md#dhcpdns-cross-network)
+
+## [Clients](rules/clients.md)
+
+- [`clients.duplicate-hostname`](rules/clients.md#clientsduplicate-hostname)
+- [`clients.random-mac`](rules/clients.md#clientsrandom-mac)
+
+## [DHCP and addressing](rules/dhcp.md)
+
+- [`dhcp.one-server`](rules/dhcp.md#dhcpone-server)
+- [`dhcp.pools-overlap`](rules/dhcp.md#dhcppools-overlap)
+- [`dhcp.pool-fixed-address`](rules/dhcp.md#dhcppool-fixed-address)
+- [`dhcp.reservation-in-pool`](rules/dhcp.md#dhcpreservation-in-pool)
+- [`dhcp.router-option`](rules/dhcp.md#dhcprouter-option)
+- [`dhcp.dns-option`](rules/dhcp.md#dhcpdns-option)
+- [`addr.subnet-overlap`](rules/dhcp.md#addrsubnet-overlap)
+- [`addr.duplicate-ip`](rules/dhcp.md#addrduplicate-ip)
+
+## [DNS](rules/dns.md)
+
+- [`dns.host-record-reservation`](rules/dns.md#dnshost-record-reservation)
+- [`dns.host-record-stale`](rules/dns.md#dnshost-record-stale)
+- [`dns.host-record-dynamic`](rules/dns.md#dnshost-record-dynamic)
+- [`dns.forwarder-loop`](rules/dns.md#dnsforwarder-loop)
+- [`dns.forwarder-missing`](rules/dns.md#dnsforwarder-missing)
+- [`dns.single-forwarder`](rules/dns.md#dnssingle-forwarder)
+- [`dns.conflicting-records`](rules/dns.md#dnsconflicting-records)
+
+## [Firmware](rules/firmware.md)
+
+- [`firmware.drift`](rules/firmware.md#firmwaredrift)
+- [`firmware.update-available`](rules/firmware.md#firmwareupdate-available)
+- [`firmware.end-of-life`](rules/firmware.md#firmwareend-of-life)
+
+## [Device health](rules/health.md)
+
+- [`device.resources`](rules/health.md#deviceresources)
+- [`health.storage-full`](rules/health.md#healthstorage-full)
+- [`health.fan-failed`](rules/health.md#healthfan-failed)
+- [`health.psu-failed`](rules/health.md#healthpsu-failed)
+- [`health.ups-on-battery`](rules/health.md#healthups-on-battery)
+- [`health.ups-runtime-low`](rules/health.md#healthups-runtime-low)
+- [`health.ups-not-tested`](rules/health.md#healthups-not-tested)
+- [`health.uptime-very-long`](rules/health.md#healthuptime-very-long)
+- [`device.reboot`](rules/health.md#devicereboot)
+
+## [History](rules/history_checks.md)
+
+- [`device.down-long`](rules/history_checks.md#devicedown-long)
+- [`device.flapping`](rules/history_checks.md#deviceflapping)
+- [`port.flapping`](rules/history_checks.md#portflapping)
+- [`dhcp.stale-reservation`](rules/history_checks.md#dhcpstale-reservation)
+- [`clients.network-changed`](rules/history_checks.md#clientsnetwork-changed)
+
+## [IPv6](rules/ipv6.md)
+
+- [`ipv6.unknown-prefix`](rules/ipv6.md#ipv6unknown-prefix)
+- [`ipv6.prefix-64`](rules/ipv6.md#ipv6prefix-64)
+- [`ipv6.partial`](rules/ipv6.md#ipv6partial)
+
+## [Network purposes](rules/networks.md)
+
+- [`wifi.guest-isolation`](rules/networks.md#wifiguest-isolation)
+- [`segment.guest-no-isolation`](rules/networks.md#segmentguest-no-isolation)
+- [`security.management-exposure`](rules/networks.md#securitymanagement-exposure)
+- [`segment.purpose-missing`](rules/networks.md#segmentpurpose-missing)
+- [`segment.iot-on-5ghz-only`](rules/networks.md#segmentiot-on-5ghz-only)
+
+## [Ports](rules/ports.md)
+
+- [`vlan.single-untagged`](rules/ports.md#vlansingle-untagged)
+- [`vlan.client-port-mismatch`](rules/ports.md#vlanclient-port-mismatch)
+- [`link.mtu`](rules/ports.md#linkmtu)
+- [`port.admin-down-with-neighbour`](rules/ports.md#portadmin-down-with-neighbour)
+- [`port.eee-on-uplink`](rules/ports.md#porteee-on-uplink)
+- [`port.autoneg-mismatch`](rules/ports.md#portautoneg-mismatch)
+- [`port.description-mismatch`](rules/ports.md#portdescription-mismatch)
+
+## [Time and NTP](rules/time_checks.md)
+
+- [`time.offset`](rules/time_checks.md#timeoffset)
+- [`time.not-synchronised`](rules/time_checks.md#timenot-synchronised)
+- [`time.ntp-unreachable`](rules/time_checks.md#timentp-unreachable)
+- [`time.dhcp-ntp-mismatch`](rules/time_checks.md#timedhcp-ntp-mismatch)
+- [`time.no-local-ntp`](rules/time_checks.md#timeno-local-ntp)
+- [`time.timezone`](rules/time_checks.md#timetimezone)
+
+## [Topology](rules/topology.md)
+
+- [`topology.manual-conflict`](rules/topology.md#topologymanual-conflict)
+- [`topology.untagged-only-link`](rules/topology.md#topologyuntagged-only-link)
+
+## [Topology and inventory](rules/topology_checks.md)
+
+- [`lag.consistent`](rules/topology_checks.md#lagconsistent)
+- [`topology.hidden-device`](rules/topology_checks.md#topologyhidden-device)
+- [`inventory.unknown-neighbour`](rules/topology_checks.md#inventoryunknown-neighbour)
+- [`vlan.management-separate`](rules/topology_checks.md#vlanmanagement-separate)
+- [`inventory.duplicate-device`](rules/topology_checks.md#inventoryduplicate-device)
+- [`redundancy.single-point`](rules/topology_checks.md#redundancysingle-point)
+
+## [VLANs and links](rules/vlan.md)
+
+- [`vlan.path-to-gateway`](rules/vlan.md#vlanpath-to-gateway)
+- [`vlan.native-mismatch`](rules/vlan.md#vlannative-mismatch)
+- [`vlan.tagged-both-ends`](rules/vlan.md#vlantagged-both-ends)
+- [`vlan.unused`](rules/vlan.md#vlanunused)
+- [`link.speed-duplex`](rules/vlan.md#linkspeed-duplex)
+- [`vlan.trunk-scope`](rules/vlan.md#vlantrunk-scope)
+- [`link.slow`](rules/vlan.md#linkslow)
+
+## [Internet connection (WAN)](rules/wan.md)
+
+- [`wan.cgnat`](rules/wan.md#wancgnat)
+- [`wan.down`](rules/wan.md#wandown)
+- [`wan.dns-mismatch`](rules/wan.md#wandns-mismatch)
+- [`wan.no-ipv6`](rules/wan.md#wanno-ipv6)
+
+## [Wi-Fi hygiene](rules/wifi_hygiene.md)
+
+- [`wifi.6ghz-security`](rules/wifi_hygiene.md#wifi6ghz-security)
+- [`wifi.pmf`](rules/wifi_hygiene.md#wifipmf)
+- [`wifi.hidden`](rules/wifi_hygiene.md#wifihidden)
+- [`wifi.ssid-count`](rules/wifi_hygiene.md#wifissid-count)
+- [`wifi.channel-width`](rules/wifi_hygiene.md#wifichannel-width)
+- [`wifi.24-channel-plan`](rules/wifi_hygiene.md#wifi24-channel-plan)
+- [`wifi.dfs`](rules/wifi_hygiene.md#wifidfs)
+- [`wifi.tx-power`](rules/wifi_hygiene.md#wifitx-power)
+- [`wifi.ssid-coverage`](rules/wifi_hygiene.md#wifissid-coverage)
+- [`wifi.segment-weakest-link`](rules/wifi_hygiene.md#wifisegment-weakest-link)
+- [`wifi.default-ssid`](rules/wifi_hygiene.md#wifidefault-ssid)
+
+## [Wi-Fi](rules/wireless.md)
+
+- [`wifi.ssid-consistent`](rules/wireless.md#wifissid-consistent)
+- [`wifi.country`](rules/wireless.md#wificountry)
+- [`wifi.channel-overlap`](rules/wireless.md#wifichannel-overlap)
+- [`wifi.segment-at-gateway`](rules/wireless.md#wifisegment-at-gateway)

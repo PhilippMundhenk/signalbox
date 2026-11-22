@@ -2,12 +2,17 @@
 
 - Commands: `make lint`, `make test` (95 % coverage gate), `make e2e`, `make smoke`, `make demo`.
   Without make: `.venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy`,
-  `.venv/bin/pytest -m "not e2e" --cov`. Run lint last before every commit.
+  `.venv/bin/pytest -m "not e2e" -n auto --cov`. Run lint last before every commit.
 - Design: docs/DESIGN.md; decisions: docs/adr/. Work log: GitHub issues, commit subjects end in `(#N)`.
 - Core code never imports vendor code: adapters live in `src/signalbox/adapters/<id>/` and only
   return model objects (`src/signalbox/model.py`). Every adapter has a simulator in
   `src/signalbox/sim/` and passes `signalbox.testing` contract tests against it.
-- New model field: model, `make schema` (docs/schema.json is checked by a test), rules/UI if used.
+- New model field: model, then `make generated` (schema, CONFIGURATION/MATURITY/RULES index, API.md,
+  recorded snapshots; each is checked by a test), rules/UI if used.
+- New rules: a module in `src/signalbox/rules/` exporting `RULES` registers itself; document each
+  rule in `docs/rules/<module>.md` under a heading `## ` plus the id in backticks. Do not edit
+  docs/RULES.md (generated index).
+- Tests run in parallel (`pytest -n auto`, ~1 min); keep tests independent (free ports, tmp paths).
 - UI under `src/signalbox/web/static/` has no build step. Strict CSP: no inline script or style,
   never put untrusted text into `innerHTML`.
 - Localhost HTTP from a shell in the sandbox needs `NO_PROXY=127.0.0.1,localhost`.
