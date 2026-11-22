@@ -69,9 +69,12 @@ from signalbox.model import (
     DeviceHealth,
     DeviceRole,
     DeviceTime,
+    DhcpLease,
     DhcpPool,
+    DhcpRelay,
     DhcpServer,
     Firmware,
+    LeaseState,
     ManagementService,
     Membership,
     NtpClient,
@@ -428,6 +431,7 @@ class FritzboxAdapter(Adapter):
             allow_insecure_http=cfg.allow_insecure_http,
         )
         self.tr064 = Tr064(self.http)
+        self._host_cache: list[dict[str, str]] | None = None
 
     @classmethod
     async def discover(cls, probe: HostProbe) -> Candidate | None:
@@ -454,6 +458,7 @@ class FritzboxAdapter(Adapter):
 
     async def read_system(self) -> SystemInfo:
         await self.http.reset()  # a new observation: probe the certificate again
+        self._host_cache = None
         try:
             info = await self.tr064.call("DeviceInfo1", "GetInfo")
         except (NotFound, Unreachable) as exc:
@@ -732,6 +737,30 @@ class FritzboxAdapter(Adapter):
         # restores the same pool.
         pools = [DhcpPool(start=first, end=last)] if first and last else []
         routers = _v4_list(lan.get("NewIPRouters"))
+        now = datetime.now(UTC)
+        found: list[DhcpLease] = []
+        leases: list[DhcpLease] | None = found
+        try:
+            hosts = await self._hosts()
+        except AdapterError:  # the host list is a client matter: the server is read without
+            leases, hosts = None, []
+        for host in hosts:  # no lease table: the DHCP hosts of the host list (guess)
+            mac, address = _mac(host.get("NewMACAddress")), _v4(host.get("NewIPAddress"))
+            if mac is None or address is None:
+                continue
+            if host.get("NewAddressSource", "").strip().lower() != "dhcp":
+                continue
+            left = _int(host.get("NewLeaseTimeRemaining"))
+            active = _flag(host.get("NewActive"))
+            found.append(
+                DhcpLease(
+                    address=address,
+                    mac=mac,
+                    hostname=host.get("NewHostName") or None,
+                    state=LeaseState.ACTIVE if active else LeaseState.EXPIRED,
+                    expires=now + timedelta(seconds=left) if active and left else None,
+                )
+            )
         server = DhcpServer(
             id=object_id(d, "dhcp", "lan"),
             device_id=d,
@@ -741,9 +770,23 @@ class FritzboxAdapter(Adapter):
             router=routers[0] if routers else None,
             dns_servers=list(_v4_list(lan.get("NewDNSServers"))),
             domain=lan.get("NewDomainName") or None,
+            leases=leases,
             vendor_extra={"reservations": "not exposed by TR-064"},
         )
-        return Observation(dhcp_servers=[server])
+        # NewDHCPRelay: the box relays instead of serving; the server address is not exposed
+        relays = (
+            [
+                DhcpRelay(
+                    id=object_id(d, "dhcp-relay", "lan"),
+                    device_id=d,
+                    segment_id=self._native,
+                    enabled=True,
+                )
+            ]
+            if _flag(lan.get("NewDHCPRelay"))
+            else []
+        )
+        return Observation(dhcp_servers=[server], dhcp_relays=relays)
 
     # wireless -------------------------------------------------------------------------
 
@@ -857,6 +900,12 @@ class FritzboxAdapter(Adapter):
     # clients --------------------------------------------------------------------------
 
     async def _hosts(self) -> list[dict[str, str]]:
+        """The host table, read once per observation (DHCP and clients both use it)."""
+        if self._host_cache is None:
+            self._host_cache = await self._read_hosts()
+        return self._host_cache
+
+    async def _read_hosts(self) -> list[dict[str, str]]:
         """The host table: the XML list behind X_AVM-DE_GetHostListPath (one request), else
         GetGenericHostEntry for every index."""
         try:
