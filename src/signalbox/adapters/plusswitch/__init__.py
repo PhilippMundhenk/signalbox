@@ -52,7 +52,7 @@ from signalbox.adapters.plusswitch import discovery as _discovery
 from signalbox.adapters.plusswitch import mapping, writes
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import BroadcastResult, NetworkProbe
-from signalbox.model import DeviceRole
+from signalbox.model import SERVICE_PORTS, DeviceRole, ManagementService, ServiceKind, object_id
 
 _T = TypeVar("_T")
 
@@ -158,6 +158,9 @@ class _PlusSwitch(Adapter):
     """One session per observation; read_system reads everything, read_interfaces maps it."""
 
     protocol: ClassVar[str]
+    #: the switch's own UDP protocol as a management service: its name and port
+    service_name: ClassVar[str]
+    service_port: ClassVar[int]
     vendor: ClassVar[str]
 
     def __init__(self, context: AdapterContext) -> None:
@@ -222,7 +225,7 @@ class _PlusSwitch(Adapter):
         if reading.error is not None:
             raise reading.error
         try:
-            return mapping.interfaces(
+            observed = mapping.interfaces(
                 self.context.device_id,
                 self.context.site_id,
                 reading.ports,
@@ -232,6 +235,32 @@ class _PlusSwitch(Adapter):
             )
         except (ValueError, TypeError, AttributeError) as exc:
             raise AdapterError(f"{self._host}: unexpected port or VLAN answer: {exc}") from exc
+        return observed.model_copy(update={"services": self._services()})
+
+    def _services(self) -> list[ManagementService]:
+        """Management services (#173), fixed by the product line and not read from the
+        switch: its own UDP protocol (NSDP, Easy Smart) and the web interface on port 80
+        (most models have no HTTPS). Both are always on and unencrypted."""
+        d = self.context.device_id
+        return [
+            ManagementService(
+                id=object_id(d, "service", self.service_name),
+                device_id=d,
+                kind=ServiceKind.VENDOR,
+                name=self.service_name,
+                enabled=True,
+                port=self.service_port,
+                encrypted=False,
+            ),
+            ManagementService(
+                id=object_id(d, "service", "http"),
+                device_id=d,
+                kind=ServiceKind.HTTP,
+                name="http",
+                enabled=True,
+                port=SERVICE_PORTS[ServiceKind.HTTP],
+            ),
+        ]
 
     # -- writes (802.1Q port membership) -----------------------------------------------------
 
@@ -369,6 +398,8 @@ PLUSSWITCH_STEPS = (
 
 class ProsafeAdapter(_PlusSwitch):
     protocol = "nsdp"
+    service_name = "nsdp"
+    service_port = 63322
     vendor = "NETGEAR"
     manifest = Manifest(
         setup_steps=PLUSSWITCH_STEPS,
@@ -436,6 +467,8 @@ class ProsafeAdapter(_PlusSwitch):
 
 class EasySmartAdapter(_PlusSwitch):
     protocol = "easysmart"
+    service_name = "easy-smart"
+    service_port = 29808
     vendor = "TP-Link"
     manifest = Manifest(
         setup_steps=PLUSSWITCH_STEPS,

@@ -181,3 +181,12 @@ a write the switch refuses and a password the switch refused (not resent), and d
 state through the deployment component and reverts it. Without the extra
 these tests are skipped; CI sets `REQUIRE_SWITCH_TESTS=1`, so they can never be skipped
 there.
+
+
+## Management services (#173)
+
+Fixed by the product line, nothing is read from the switch: a `vendor` service (`nsdp`, UDP
+63322, for NETGEAR ProSAFE Plus; `easy-smart`, UDP 29808, for TP-Link Easy Smart) and the web
+interface `http` on port 80 (most models have no HTTPS *(guess per model)*), both always on,
+unencrypted and listening everywhere. `transport_encrypted` is false: both protocols send the
+password only obfuscated.

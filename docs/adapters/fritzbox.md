@@ -385,3 +385,24 @@ is described by `ethifconfigSCPD.xml`), every other action and argument the adap
 key arguments. Still open (not in the descriptions): the value `guest` of
 `NewX_AVM-DE_APType`, which fault a box gives for which mistake, and whether empty WEP/PSK
 arguments are accepted by `SetSecurityKeys`.
+
+
+## Management services (#173)
+
+Read with the `interfaces` capability; every call is optional (a FRITZ!OS without it, or a user
+without the right, only leaves that service out).
+
+| Service | TR-064 | Reported |
+| --- | --- | --- |
+| `http`, `https` | none: adapter knowledge *(guess)* | web interface in the LAN, 80 and 443, always on |
+| `tr-064` | `DeviceInfo:1 GetSecurityPort` | `NewSecurityPort`, encrypted |
+| `upnp` | `X_AVM-DE_UPnP:1 GetInfo` | `NewEnable` |
+| `remote-access` | `X_AVM-DE_RemoteAccess:1 GetInfo` | `https`, `NewEnabled`, `NewPort`; `from_wan` = `NewEnabled` |
+| `myfritz` | `X_AVM-DE_MyFritz:1 GetInfo` | `https`, `NewEnabled`, `NewPort`; `from_wan` = `NewEnabled` *(guess: that MyFRITZ! reaches the box from the internet on that port)* |
+| `ftp` | `X_AVM-DE_Storage:1 GetInfo` | `NewFTPEnable` on port 21, LAN only |
+| `ftp-internet` | the same: `NewFTPWANEnable`, `NewFTPWANPort`, `NewFTPWANSSLOnly` | FTP from the internet; encrypted when SSL only |
+
+The descriptions of the four `X_AVM-DE_*` services are in `tests/fixtures/tr064` for FRITZ!OS
+7.57 and 8.02 (see SOURCES.md there) and the conformance test checks every action and argument
+against them. `transport_encrypted` is true for the https URL. Not read: SSH (the box has none),
+the password policy and the app users' internet access (`X_AVM-DE_AppSetup`).

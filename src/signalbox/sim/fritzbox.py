@@ -103,6 +103,31 @@ LAN = {
     "NewSubnetMask": "255.255.255.0",
 }
 
+REMOTE_ACCESS = {
+    "NewEnabled": "0",
+    "NewPort": "443",
+    "NewUsername": "",
+    "NewLetsEncryptEnabled": "0",
+    "NewLetsEncryptState": "",
+}
+MYFRITZ = {
+    "NewEnabled": "1",
+    "NewDeviceRegistered": "1",
+    "NewDynDNSName": "example.myfritz.example",
+    "NewPort": "443",
+    "NewState": "ok",
+    "NewEmail": "",
+}
+STORAGE = {
+    "NewFTPEnable": "1",
+    "NewFTPStatus": "Started",
+    "NewSMBEnable": "0",
+    "NewFTPWANEnable": "0",
+    "NewFTPWANSSLOnly": "1",
+    "NewFTPWANPort": "21",
+}
+UPNP = {"NewEnable": "1", "NewUPnPMediaServer": "0"}
+
 WLANS: dict[int, dict[str, str]] = {
     1: {
         "NewSSID": "Example",
@@ -308,6 +333,12 @@ class FritzboxSim:
     sid: str = field(default_factory=lambda: secrets.token_hex(8))
     #: the configuration the write actions change (copies of the sample data)
     lan: dict[str, str] = field(default_factory=lambda: dict(LAN))
+    #: internet access to the box (``X_AVM-DE_RemoteAccess GetInfo``, off as shipped)
+    remote_access: dict[str, str] = field(default_factory=lambda: dict(REMOTE_ACCESS))
+    myfritz: dict[str, str] = field(default_factory=lambda: dict(MYFRITZ))
+    #: ``X_AVM-DE_Storage GetInfo``: FTP in the LAN and from the internet
+    storage: dict[str, str] = field(default_factory=lambda: dict(STORAGE))
+    upnp: dict[str, str] = field(default_factory=lambda: dict(UPNP))
     #: ``LANEthernetInterfaceConfig GetInfo``: NewMaxBitRate is a maximum (or ``Auto``)
     ethernet: dict[str, str] = field(default_factory=lambda: dict(ETHERNET))
     wlans: dict[int, dict[str, str]] = field(default_factory=lambda: copy.deepcopy(WLANS))
@@ -417,6 +448,14 @@ class FritzboxSim:
                 "NewUpTime": str(self.uptime),
                 "NewDeviceLog": "",
             }
+        if name == "X_AVM-DE_RemoteAccess" and action == "GetInfo":
+            return dict(self.remote_access)
+        if name == "X_AVM-DE_MyFritz" and action == "GetInfo":
+            return dict(self.myfritz)
+        if name == "X_AVM-DE_Storage" and action == "GetInfo":
+            return dict(self.storage)
+        if name == "X_AVM-DE_UPnP" and action == "GetInfo":
+            return dict(self.upnp)
         if name == "Time" and action == "GetInfo":
             return time_info(self.timezone, self.clock_skew)
         if name == "LANHostConfigManagement":

@@ -146,6 +146,7 @@ MAC_SERVER = "/rest/tool/mac-server"
 MAC_WINBOX = "/rest/tool/mac-server/mac-winbox"
 ROMON = "/rest/tool/romon"
 IP_SSH = "/rest/ip/ssh"
+UPNP = "/rest/ip/upnp"
 SNMP = "/rest/snmp"
 SNMP_COMMUNITY = "/rest/snmp/community"
 
@@ -824,15 +825,22 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         for row in rows:
             name = _text(row.get("name"))
             kind = _IP_SERVICES.get(name)
-            if kind is None:
+            # dynamic rows are open connections and the resolver, not services (CHR 7.25.1)
+            if kind is None or _flag(row.get("dynamic")):
                 continue
             allowed: list[IPNetwork] = []
-            for part in _text(row.get("address")).split(","):
+            for part in _text(row.get("available-from") or row.get("address")).split(","):
                 with contextlib.suppress(ValueError):
                     allowed.append(ip_network(part.strip(), strict=False))
             values: dict[str, Any] = {}
-            if kind is ServiceKind.SSH and _flag(ssh.get("always-allow-password-login")):
-                values["password_login"] = True  # "no": still allowed while no key is set
+            if kind is ServiceKind.SSH:
+                # RouterOS 7.25.1: yes, no, or yes-if-no-key (a password only while the user
+                # has no key: neither); older versions: always-allow-password-login
+                auth = _text(ssh.get("password-authentication")).lower()
+                if auth in ("yes", "no"):
+                    values["password_login"] = auth == "yes"
+                elif _flag(ssh.get("always-allow-password-login")):
+                    values["password_login"] = True
             out.append(
                 ManagementService(
                     id=object_id(dev, "service", name),
@@ -878,6 +886,17 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     enabled=_flag(romon.get("enabled")),
                 )
             )
+        upnp = await self._optional_object(UPNP)
+        if upnp:
+            out.append(
+                ManagementService(
+                    id=object_id(dev, "service", "upnp"),
+                    device_id=dev,
+                    kind=ServiceKind.UPNP,
+                    name="upnp",
+                    enabled=_flag(upnp.get("enabled")),
+                )
+            )
         snmp = await self._snmp()
         if snmp is not None:
             out.append(snmp)
@@ -902,11 +921,14 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         versions: set[SnmpVersion] = set()
         v3_plain = False
         for r in rows:
-            if _text(r.get("security")) in ("", "none"):
+            # security: none (v1/v2c), authorized (authNoPriv) or private (authPriv); the
+            # protocol fields are filled whatever the level (DES on the CHR's "public")
+            security = _text(r.get("security"))
+            if security in ("", "none"):
                 versions.add(SnmpVersion.V2C)
             else:
                 versions.add(SnmpVersion.V3)
-                v3_plain |= _text(r.get("encryption-protocol")) in ("", "none")
+                v3_plain |= security != "private"
         settings = SnmpSettings(
             versions=sorted(versions),
             default_community=any(_text(r.get("name")).lower() == "public" for r in rows),

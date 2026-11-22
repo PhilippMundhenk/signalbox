@@ -701,3 +701,39 @@ def test_health_and_time_helpers() -> None:
         .used_bytes
         is None
     )
+
+
+# --- management services (#173) --------------------------------------------------------------
+
+
+async def test_services(snap: Snapshot) -> None:
+    by = {s.id: s for s in snap.services}
+    assert sorted(by) == ["fw/service/snmp", "fw/service/webgui"]
+    web = by["fw/service/webgui"]  # the plain-HTTP simulator
+    assert (web.kind.value, web.enabled, web.encrypted) == ("http", True, False)
+    snmp = by["fw/service/snmp"]
+    assert snmp.enabled and snmp.port == 161 and snmp.name == "net-snmp"
+    assert [str(a) for a in snmp.listen] == ["192.0.2.1"]  # the unselected one is not listened on
+    assert snmp.snmp is not None and snmp.snmp.default_community
+    assert [v.value for v in snmp.snmp.versions] == ["2c"]
+    assert snap.device.transport_encrypted is False
+
+
+async def test_services_without_the_plugin_or_privilege(http_url: str, sim: Any) -> None:
+    del sim.data["/api/netsnmp/general/get"]  # os-net-snmp not installed
+    snap = await observe(adapter(http_url))
+    assert [s.name for s in snap.services] == ["webgui"]
+    sim.fail["/api/netsnmp/general/get"] = 403
+    snap = await observe(adapter(http_url))
+    assert [s.name for s in snap.services] == ["webgui"] and not snap.errors
+
+
+async def test_never_downloads_the_backup(http_url: str, sim: Any) -> None:
+    await observe(adapter(http_url))
+    assert not [p for p in sim.requests if "backup" in p], sim.requests
+
+
+async def test_tls_web_interface(https_url: str, tls: TlsFiles) -> None:
+    snap = await observe(adapter(https_url, pin=tls.fingerprint))
+    web = next(s for s in snap.services if s.name == "webgui")
+    assert (web.kind.value, web.encrypted) == ("https", True)

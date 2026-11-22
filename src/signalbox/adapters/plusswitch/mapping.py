@@ -94,6 +94,7 @@ def system_info(info: Mapping[str, Any], vendor: str, address: str) -> SystemInf
         model=str(info["model"]) if info.get("model") else None,
         firmware=Firmware(current=str(firmware)) if firmware else None,
         management_address=address,
+        transport_encrypted=False,  # UDP, the password is only obfuscated
         vendor_extra=extra,
     )
 

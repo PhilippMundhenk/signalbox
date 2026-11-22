@@ -150,6 +150,12 @@ async def test_read_contract(fw: dict[str, str]) -> None:
         await a.close()
     assert snap.device.firmware is not None
     assert snap.device.firmware.current.startswith("26.7"), snap.device.firmware
+    # management services (#173): only the web interface of the address in use; the base system
+    # has no os-net-snmp, and the backup (SSH, web interface settings) is not downloaded
+    assert [(s.name, s.kind.value, s.enabled) for s in snap.services] == [
+        ("webgui", "https", True)
+    ], snap.services
+    assert snap.device.transport_encrypted is True
 
 
 async def test_mapping_of_the_preseeded_firewall(fw: dict[str, str]) -> None:

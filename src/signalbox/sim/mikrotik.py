@@ -362,42 +362,75 @@ def sample_data() -> dict[str, Any]:
             }
         ),
         "/rest/interface/pppoe-client": [],
+        # as RouterOS 7.25.1 (CHR) answers: ``available-from``, dynamic rows for the resolver and
+        # open connections, a ``reverse-proxy`` row that is no service of the adapter's list
         "/rest/ip/service": _ids(
             *(
                 {
                     "name": n,
                     "port": port,
-                    "address": addr,
-                    "certificate": cert,
+                    "available-from": addr,
+                    **({"certificate": cert} if cert is not None else {}),
                     "disabled": off,
-                    "invalid": "false",
                     "dynamic": "false",
+                    "invalid": "false",
+                    "max-sessions": "20",
+                    "proto": "tcp",
+                    "vrf": "main",
                 }
                 for n, port, addr, cert, off in (
-                    ("api", "8728", "", "", "false"),
-                    ("api-ssl", "8729", "", "none", "true"),
-                    ("ftp", "21", "", "", "true"),
-                    ("ssh", "22", "192.0.2.0/24,198.51.100.0/24", "", "false"),
-                    ("telnet", "23", "", "", "true"),
-                    ("winbox", "8291", "192.0.2.0/24", "", "false"),
-                    ("www", "80", "", "", "false"),
+                    ("ftp", "21", "", None, "true"),
+                    ("ssh", "22", "192.0.2.0/24,198.51.100.0/24", None, "false"),
+                    ("telnet", "23", "", None, "true"),
+                    ("www", "80", "", None, "false"),
                     ("www-ssl", "443", "", "signalbox-www", "false"),
+                    ("reverse-proxy", "443", "", "none", "false"),
+                    ("winbox", "8291", "192.0.2.0/24", None, "false"),
+                    ("api", "8728", "", None, "false"),
+                    ("api-ssl", "8729", "", "none", "true"),
                 )
-            )
+            ),
+            {
+                "name": "resolver",
+                "port": "53",
+                "proto": "tcp",
+                "disabled": "false",
+                "dynamic": "true",
+                "invalid": "false",
+            },
+            {
+                "name": "www-ssl",
+                "port": "443",
+                "proto": "tcp",
+                "local": "192.0.2.1",
+                "remote": "192.0.2.2:56578",
+                "connection": "true",
+                "disabled": "false",
+                "dynamic": "true",
+                "invalid": "false",
+            },
         ),
-        "/rest/tool/mac-server": {".id": "*0", "allowed-interface-list": "LAN"},
-        "/rest/tool/mac-server/mac-winbox": {".id": "*0", "allowed-interface-list": "none"},
-        "/rest/tool/romon": {"enabled": "false", "id": "00:00:00:00:00:00"},
+        "/rest/tool/mac-server": {"allowed-interface-list": "LAN"},
+        "/rest/tool/mac-server/mac-winbox": {"allowed-interface-list": "none"},
+        "/rest/tool/romon": {"enabled": "false", "id": "00:00:00:00:00:00", "secrets": "*****"},
         "/rest/ip/ssh": {
-            "always-allow-password-login": "false",
-            "strong-crypto": "true",
+            "ciphers": "auto",
             "forwarding-enabled": "no",
+            "host-key-type": "ed25519",
+            "password-authentication": "yes-if-no-key",
+            "strong-crypto": "false",
+        },
+        "/rest/ip/upnp": {
+            "allow-disable-external-interface": "false",
+            "enabled": "false",
+            "show-dummy-rule": "true",
         },
         "/rest/snmp": {
-            "enabled": "true",
             "contact": "",
+            "enabled": "true",
             "location": "",
             "trap-version": "1",
+            "vrf": "main",
         },
         "/rest/snmp/community": _ids(
             {
@@ -406,6 +439,10 @@ def sample_data() -> dict[str, Any]:
                 "security": "none",
                 "read-access": "true",
                 "write-access": "false",
+                "authentication-protocol": "MD5",
+                "authentication-password": "*****",
+                "encryption-protocol": "DES",
+                "encryption-password": "*****",
                 "disabled": "false",
                 "default": "true",
             }
