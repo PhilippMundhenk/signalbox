@@ -77,10 +77,10 @@ def _rows(answer: Any) -> list[dict[str, Any]]:
 
 def _saved(path: str, answer: Any) -> dict[str, Any]:
     """An answer of an add/set/del action: ``{"result": "saved"}`` or validations."""
-    if isinstance(answer, dict) and str(answer.get("result", "")).lower() in (
-        "saved",
-        "deleted",
-        "ok",
+    done = ("saved", "deleted", "ok")
+    if isinstance(answer, dict) and (
+        str(answer.get("result", "")).lower() in done
+        or str(answer.get("status", "")).lower() in done
     ):
         return answer
     if isinstance(answer, dict) and answer.get("validations"):
