@@ -590,3 +590,77 @@ def test_find_devices_and_add_one_through_the_prefilled_form(app: Any) -> None:
     expect(rows.filter(has_text="192.0.2.7").get_by_test_id("candidate-added")).to_be_visible()
     status = api(app, "GET", "/discovery")
     assert status["scope"][0] == "203.0.113.5: 1 address(es) you entered"
+
+
+def test_acknowledge_a_finding_and_annotate_objects(app: Any) -> None:
+    """#186: accept a known false positive with a reason; notes on a device and a client."""
+    add_site(app)
+    add_lab(app, "Router")
+    add_lab(app, "Cellar", host="down.example")
+    observe(app)
+    go(app, "#/")
+    open_wifi = app.locator('[data-testid="finding"][data-rule="lab.open-wifi"]')
+    expect(open_wifi).to_have_count(1)
+    expect(app.get_by_test_id("group-acknowledged")).to_have_count(0)
+    # cancel changes nothing
+    open_wifi.get_by_test_id("acknowledge").click()
+    app.get_by_test_id("ack-cancel").click()
+    expect(app.get_by_test_id("modal")).to_have_count(0)
+    open_wifi.get_by_test_id("acknowledge").click()
+    app.get_by_test_id("ack-reason").fill("café hotspot, open on purpose")
+    app.get_by_test_id("ack-scope").select_option(index=1)
+    app.get_by_test_id("ack-save").click()
+    expect(app.get_by_test_id("toast").first).to_contain_text("Finding acknowledged")
+    acked = app.get_by_test_id("group-acknowledged")
+    expect(acked).to_contain_text("Acknowledged (1)")
+    # not counted as a problem: the card moved into the closed section
+    expect(open_wifi).not_to_be_visible()
+    acked.locator("summary").click()
+    expect(acked.get_by_test_id("ack-info")).to_contain_text("café hotspot, open on purpose")
+    expect(acked.get_by_test_id("acknowledge")).to_have_count(0)
+    # kept across a new observation round
+    observe(app)
+    go(app, "#/")
+    expect(app.get_by_test_id("group-acknowledged")).to_contain_text("Acknowledged (1)")
+    findings = api(app, "GET", "/findings")
+    wifi = next(r["finding"] for r in findings if r["finding"]["rule_id"] == "lab.open-wifi")
+    assert wifi["acknowledged"]["target"] and wifi["acknowledged"]["reason"]
+    # remove the acknowledgement: it counts again
+    acked = app.get_by_test_id("group-acknowledged")
+    acked.locator("summary").click()
+    acked.get_by_test_id("ack-remove").click()
+    app.get_by_test_id("confirm-ok").click()
+    expect(app.get_by_test_id("group-acknowledged")).to_have_count(0)
+    expect(open_wifi.get_by_test_id("acknowledge")).to_be_visible()
+    # an end date in the past is refused with a message
+    open_wifi.get_by_test_id("acknowledge").click()
+    app.get_by_test_id("ack-until").fill("2020-01-01")
+    app.get_by_test_id("ack-save").click()
+    expect(app.get_by_test_id("toast").last).to_contain_text("in the past")
+    app.get_by_test_id("ack-cancel").click()
+
+    # notes on a device
+    go(app, "#/device/cellar")
+    app.get_by_test_id("notes").get_by_test_id("edit-notes").click()
+    app.get_by_test_id("note-label").fill("cellar switch")
+    app.get_by_test_id("note-owner").fill("Example Owner")
+    app.get_by_test_id("note-may_be_unreachable").check()
+    app.get_by_test_id("note-save").click()
+    expect(app.get_by_test_id("notes")).to_contain_text("cellar switch")
+    expect(app.get_by_test_id("notes")).to_contain_text("Example Owner")
+    note = api(app, "GET", "/annotations")["annotations"][0]
+    assert note["target"] == "cellar" and note["expected"]["may_be_unreachable"] is True
+
+    # notes on a client: the label replaces the reported name in the list
+    go(app, "#/clients")
+    row = app.get_by_test_id("client-row").filter(has_text="laptop")
+    row.get_by_test_id("client-notes").click()
+    app.get_by_test_id("note-label").fill("work laptop")
+    app.get_by_test_id("note-category").select_option("computer")
+    app.get_by_test_id("note-save").click()
+    expect(app.get_by_test_id("client-label")).to_contain_text("work laptop")
+    app.get_by_test_id("client-filter").fill("work")
+    expect(app.get_by_test_id("client-row")).to_have_count(1)
+    app.get_by_test_id("client-notes").click()
+    app.get_by_test_id("note-remove").click()
+    expect(app.get_by_test_id("client-label")).to_have_count(0)

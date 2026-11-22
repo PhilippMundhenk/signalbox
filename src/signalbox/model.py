@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from ipaddress import (
     IPv4Address,
@@ -28,7 +28,7 @@ from ipaddress import (
 )
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 IPAddress = IPv4Address | IPv6Address
 IPInterface = IPv4Interface | IPv6Interface
@@ -731,6 +731,256 @@ class ReadError(Model):
     fix: str | None = None
 
 
+# annotations (#186) -------------------------------------------------------------------------
+#
+# User data, not observed: a friendly name, what an object is for, who looks after it, notes,
+# typed expectations, and acknowledged findings. Declared in the desired state (YAML) or set in
+# the UI (database); the runner puts them on every Network it builds
+# (``signalbox.annotate.apply``). They never cause writes to devices. Labels, owners and
+# notes are personal data: shown in the UI, never exported to MQTT.
+
+
+class AnnotationSource(StrEnum):
+    """Where an annotation or acknowledgement comes from."""
+
+    #: The desired-state YAML (reviewable, in git); read-only in the UI.
+    DECLARED = "declared"
+    #: Set in the web interface or the API; kept in the database.
+    STORED = "stored"
+    #: Seeded from a name or comment on a device (not used yet).
+    IMPORTED = "imported"
+
+
+class TargetKind(StrEnum):
+    """What an annotation target names (see :func:`target_kind`)."""
+
+    DEVICE = "device"
+    PORT = "port"
+    SEGMENT = "segment"
+    SUBNET = "subnet"
+    #: A MAC address: a client, a station, a foreign access point (BSSID), an LLDP neighbour.
+    CLIENT = "client"
+    #: Any other object of a device: ``<device>/<uplink|wlan|radio|dhcp|dns|...>/<name>``.
+    OTHER = "other"
+
+
+class ClientCategory(StrEnum):
+    """What kind of thing a client is, in the words people use."""
+
+    COMPUTER = "computer"
+    PHONE = "phone"
+    TABLET = "tablet"
+    IOT = "iot"
+    CAMERA = "camera"
+    PRINTER = "printer"
+    MEDIA = "media"
+    SERVER = "server"
+    NETWORK = "network"
+    OTHER = "other"
+
+
+CLIENT_TARGET = "client/"
+_OBJECT_KIND = re.compile(
+    r"^.+/(port|segment|subnet|uplink|dhcp|dns|radio|wlan|neighbour|client|gateway)/.+$"
+)
+_PLAIN_MAC = re.compile(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
+
+
+def client_target(mac: str) -> str:
+    """The annotation target of a MAC address: ``client/<mac>`` (the merged client's id)."""
+    return f"{CLIENT_TARGET}{normalise_mac(mac)}"
+
+
+def annotation_target(text: str) -> str:
+    """The canonical form of a target.
+
+    A bare MAC address (``02:00:...``) or ``client/<MAC>`` becomes ``client/<lower-case mac>``;
+    every other id is a model id and stays as it is. Raises ValueError for an empty target or a
+    ``client/`` target that is not a MAC address.
+    """
+    text = text.strip()
+    if not text:
+        raise ValueError("the target is empty")
+    if _PLAIN_MAC.match(text):
+        return client_target(text)
+    if text.startswith(CLIENT_TARGET):
+        return client_target(text[len(CLIENT_TARGET) :])
+    return text
+
+
+def target_kind(target: str) -> TargetKind:
+    """The kind of object a canonical target names, from the id alone.
+
+    ``client/<mac>``: client; ``<device>/port/<name>``: port; ``<site>/segment/<key>``: segment;
+    ``<device>/subnet/<name>``: subnet; ``<device>/<kind>/<name>`` of another kind: other;
+    anything else is a device id (also ``<controller>/<device>`` of a managed device).
+    """
+    if target.startswith(CLIENT_TARGET):
+        return TargetKind.CLIENT
+    m = _OBJECT_KIND.match(target)
+    if m is None:
+        return TargetKind.DEVICE
+    kinds = {"port": TargetKind.PORT, "segment": TargetKind.SEGMENT, "subnet": TargetKind.SUBNET}
+    return kinds.get(m.group(1), TargetKind.OTHER)
+
+
+class Expected(Model):
+    """Typed expectations about one object; each field applies to the kinds named.
+
+    Checks read them to stay silent (or be more precise) where the user has said what is
+    intended. None: nothing said.
+    """
+
+    #: client: the network (segment id) it belongs in.
+    segment: str | None = Field(None, max_length=200)
+    #: client: uses a fixed address on purpose (no lease, perhaps inside the pool).
+    static_address: bool | None = None
+    #: client: what it is (IoT, camera, printer, ...).
+    category: ClientCategory | None = None
+    #: port: the neighbour expected behind it (device id, LLDP system name or MAC address).
+    neighbour: str | None = Field(None, max_length=200)
+    #: port: an uplink towards the router.
+    uplink: bool | None = None
+    #: device: the role it is meant to have.
+    role: DeviceRole | None = None
+    #: device or client: may be off or unreachable for long (a laptop, a seasonal camera).
+    may_be_unreachable: bool | None = None
+    #: client (MAC): a known foreign device (a neighbour's access point, a device left out of
+    #: Signalbox on purpose): not ours, not a problem.
+    known_neighbour: bool | None = None
+
+
+#: Which target kinds each expectation applies to.
+EXPECTED_KINDS: dict[str, frozenset[TargetKind]] = {
+    "segment": frozenset({TargetKind.CLIENT}),
+    "static_address": frozenset({TargetKind.CLIENT}),
+    "category": frozenset({TargetKind.CLIENT}),
+    "neighbour": frozenset({TargetKind.PORT}),
+    "uplink": frozenset({TargetKind.PORT}),
+    "role": frozenset({TargetKind.DEVICE}),
+    "may_be_unreachable": frozenset({TargetKind.DEVICE, TargetKind.CLIENT}),
+    "known_neighbour": frozenset({TargetKind.CLIENT}),
+}
+
+
+def check_expected(target: str, expected: Expected) -> None:
+    """Raise ValueError when an expectation does not apply to the kind of the target."""
+    kind = target_kind(target)
+    wrong = sorted(
+        k
+        for k, kinds in EXPECTED_KINDS.items()
+        if getattr(expected, k) is not None and kind not in kinds
+    )
+    if wrong:
+        raise ValueError(f"{', '.join(wrong)} does not apply to a {kind.value} ({target})")
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    """Times without a zone are UTC (YAML and date inputs often have none)."""
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+class Annotation(Model):
+    """What the user knows about one object (#186): label, purpose, owner, notes, expectations.
+
+    ``target`` is a model id (:func:`target_kind`): a device id, ``<device>/port/<name>``,
+    ``<site>/segment/<key>``, ``<device>/subnet/<name>`` or ``client/<mac>``. A network's
+    purpose stays in the desired state's ``segments[].purpose``; ``purpose`` here is free text.
+    """
+
+    target: str = Field(min_length=1, max_length=300)
+    #: Friendly name ("office printer").
+    label: str | None = Field(None, max_length=100)
+    purpose: str | None = Field(None, max_length=200)
+    owner: str | None = Field(None, max_length=100)
+    notes: str | None = Field(None, max_length=2000)
+    tags: list[Annotated[str, Field(min_length=1, max_length=40)]] = Field(
+        default_factory=list, max_length=20
+    )
+    expected: Expected = Field(default_factory=Expected)
+    source: AnnotationSource = AnnotationSource.STORED
+    updated_at: datetime | None = None
+
+    @field_validator("target")
+    @classmethod
+    def _target(cls, value: str) -> str:
+        return annotation_target(value)
+
+    @field_validator("label", "purpose", "owner", "notes")
+    @classmethod
+    def _blank(cls, value: str | None) -> str | None:
+        return (value.strip() or None) if value is not None else None
+
+    @model_validator(mode="after")
+    def _fits(self) -> Annotation:
+        check_expected(self.target, self.expected)
+        return self
+
+    def kind(self) -> TargetKind:
+        return target_kind(self.target)
+
+
+def finding_fingerprint(message: str) -> str:
+    """Fingerprint of a finding's details.
+
+    An acknowledgement that carries it lapses when the message changes (another address, a new
+    error count).
+    """
+    return hashlib.sha256(message.encode()).hexdigest()[:16]
+
+
+class Acknowledgement(Model):
+    """A finding the user has accepted (#186): shown apart, not counted as a problem.
+
+    Matches either one finding (``finding_id``, stable across runs) or every finding of
+    ``rule_id`` that names ``target`` among its objects. ``until``: expires then (the finding
+    comes back and ``ack.expired`` says so). ``fingerprint``: lapses when the finding's message
+    changes (:func:`finding_fingerprint`).
+    """
+
+    id: str = Field(min_length=1, max_length=64)
+    rule_id: str = Field(min_length=1, max_length=100)
+    finding_id: str | None = Field(None, max_length=64)
+    target: str | None = Field(None, max_length=300)
+    reason: str | None = Field(None, max_length=500)
+    by: str | None = Field(None, max_length=100)
+    at: datetime | None = None
+    until: datetime | None = None
+    fingerprint: str | None = Field(None, max_length=64)
+    source: AnnotationSource = AnnotationSource.STORED
+
+    @field_validator("target")
+    @classmethod
+    def _target(cls, value: str | None) -> str | None:
+        return annotation_target(value) if value is not None else None
+
+    @field_validator("at", "until")
+    @classmethod
+    def _zone(cls, value: datetime | None) -> datetime | None:
+        return _utc(value)
+
+    @model_validator(mode="after")
+    def _scope(self) -> Acknowledgement:
+        if self.finding_id is None and self.target is None:
+            raise ValueError("an acknowledgement names a finding or a target object")
+        return self
+
+    def active(self, now: datetime) -> bool:
+        return self.until is None or self.until > now
+
+    def matches(self, rule_id: str, finding_id: str, objects: list[str], message: str) -> bool:
+        """True when this acknowledgement covers the finding (expiry aside)."""
+        if rule_id != self.rule_id:
+            return False
+        if self.finding_id is not None and self.finding_id != finding_id:
+            return False
+        if self.target is not None and self.target not in objects:
+            return False
+        return self.fingerprint is None or self.fingerprint == finding_fingerprint(message)
+
+
 class DeviceStatus(StrEnum):
     OK = "ok"
     PARTIAL = "partial"
@@ -783,6 +1033,48 @@ class Network(Model):
     neighbours: list[Neighbour] = Field(default_factory=list)
     links: list[Link] = Field(default_factory=list)
     errors: list[ReadError] = Field(default_factory=list)
+    #: User annotations, one per target (#186), set by the runner; read-only for rules.
+    annotations: list[Annotation] = Field(default_factory=list)
+    #: Acknowledged findings (#186); :func:`signalbox.rules.evaluate` applies them.
+    acknowledgements: list[Acknowledgement] = Field(default_factory=list)
+
+    def annotation(self, target: str) -> Annotation | None:
+        """The annotation of a target (a model id or a MAC address), if the user made one."""
+        try:
+            key = annotation_target(target)
+        except ValueError:
+            return None
+        return next((a for a in self.annotations if a.target == key), None)
+
+    def expected(self, target: str) -> Expected:
+        """The user's expectations about a target; empty (all None) when nothing is said."""
+        a = self.annotation(target)
+        return a.expected if a else Expected()
+
+    def label(self, target: str) -> str | None:
+        """The user's friendly name of a target, if any."""
+        a = self.annotation(target)
+        return a.label if a else None
+
+    def knows(self, object_id: str) -> bool:
+        """True when an object with this id is in the network: a device, a site, any observed
+        object, a merged client (``client/<mac>``) or a link."""
+        groups: list[list[Any]] = [
+            self.devices,
+            self.sites,
+            self.ports,
+            self.segments,
+            self.subnets,
+            self.uplinks,
+            self.dhcp_servers,
+            self.dns_services,
+            self.radios,
+            self.wlans,
+            self.clients,
+            self.neighbours,
+            self.links,
+        ]
+        return any(o.id == object_id for objs in groups for o in objs)
 
     def device(self, device_id: str) -> Device | None:
         return next((d for d in self.devices if d.id == device_id), None)

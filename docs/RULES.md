@@ -28,6 +28,11 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`dhcp.reservation-hostname`](rules/addressing.md#dhcpreservation-hostname)
 - [`dhcp.dns-cross-network`](rules/addressing.md#dhcpdns-cross-network)
 
+## [Annotations and acknowledgements](rules/annotation_checks.md)
+
+- [`annotations.stale`](rules/annotation_checks.md#annotationsstale)
+- [`ack.expired`](rules/annotation_checks.md#ackexpired)
+
 ## [Clients](rules/clients.md)
 
 - [`clients.duplicate-hostname`](rules/clients.md#clientsduplicate-hostname)

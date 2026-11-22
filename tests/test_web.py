@@ -184,7 +184,7 @@ def test_network_findings_rules_observe(logged_in: TestClient, services: Service
     assert [f["finding"]["message"] for f in findings] == ["main-gateway"]
     assert logged_in.get("/api/findings?resolved=true").status_code == 200
     rules = {r["id"]: r for r in logged_in.get("/api/rules").json()}
-    assert set(rules) == {"signalbox.read", "test.per-device"}
+    assert set(rules) == {"signalbox.read", "ack.expired", "test.per-device"}
     assert rules["test.per-device"]["severity"] == "warning" and rules["test.per-device"]["enabled"]
     assert logged_in.post("/api/observe").status_code == 202
     adapters = logged_in.get("/api/adapters").json()

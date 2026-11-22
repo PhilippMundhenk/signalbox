@@ -1,5 +1,233 @@
 {
   "$defs": {
+    "Acknowledgement": {
+      "additionalProperties": false,
+      "description": "A finding the user has accepted (#186): shown apart, not counted as a problem.\n\nMatches either one finding (``finding_id``, stable across runs) or every finding of\n``rule_id`` that names ``target`` among its objects. ``until``: expires then (the finding\ncomes back and ``ack.expired`` says so). ``fingerprint``: lapses when the finding's message\nchanges (:func:`finding_fingerprint`).",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "At"
+        },
+        "by": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "By"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finding Id"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "rule_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/AnnotationSource",
+          "default": "stored"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "until": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Until"
+        }
+      },
+      "required": [
+        "id",
+        "rule_id"
+      ],
+      "title": "Acknowledgement",
+      "type": "object"
+    },
+    "Annotation": {
+      "additionalProperties": false,
+      "description": "What the user knows about one object (#186): label, purpose, owner, notes, expectations.\n\n``target`` is a model id (:func:`target_kind`): a device id, ``<device>/port/<name>``,\n``<site>/segment/<key>``, ``<device>/subnet/<name>`` or ``client/<mac>``. A network's\npurpose stays in the desired state's ``segments[].purpose``; ``purpose`` here is free text.",
+      "properties": {
+        "expected": {
+          "$ref": "#/$defs/Expected"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
+        "purpose": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Purpose"
+        },
+        "source": {
+          "$ref": "#/$defs/AnnotationSource",
+          "default": "stored"
+        },
+        "tags": {
+          "items": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Tags",
+          "type": "array"
+        },
+        "target": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "title": "Annotation",
+      "type": "object"
+    },
+    "AnnotationSource": {
+      "description": "Where an annotation or acknowledgement comes from.",
+      "enum": [
+        "declared",
+        "stored",
+        "imported"
+      ],
+      "title": "AnnotationSource",
+      "type": "string"
+    },
     "Band": {
       "enum": [
         "2.4",
@@ -124,6 +352,23 @@
       ],
       "title": "Client",
       "type": "object"
+    },
+    "ClientCategory": {
+      "description": "What kind of thing a client is, in the words people use.",
+      "enum": [
+        "computer",
+        "phone",
+        "tablet",
+        "iot",
+        "camera",
+        "printer",
+        "media",
+        "server",
+        "network",
+        "other"
+      ],
+      "title": "ClientCategory",
+      "type": "string"
     },
     "Device": {
       "additionalProperties": false,
@@ -829,6 +1074,110 @@
       "title": "DnsService",
       "type": "object"
     },
+    "Expected": {
+      "additionalProperties": false,
+      "description": "Typed expectations about one object; each field applies to the kinds named.\n\nChecks read them to stay silent (or be more precise) where the user has said what is\nintended. None: nothing said.",
+      "properties": {
+        "category": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClientCategory"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "known_neighbour": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Known Neighbour"
+        },
+        "may_be_unreachable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "May Be Unreachable"
+        },
+        "neighbour": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Neighbour"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceRole"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "segment": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment"
+        },
+        "static_address": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Static Address"
+        },
+        "uplink": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uplink"
+        }
+      },
+      "title": "Expected",
+      "type": "object"
+    },
     "Fan": {
       "additionalProperties": false,
       "properties": {
@@ -1103,6 +1452,20 @@
       "additionalProperties": false,
       "description": "The merged view of all sites: what rules, topology and UI work on.",
       "properties": {
+        "acknowledgements": {
+          "items": {
+            "$ref": "#/$defs/Acknowledgement"
+          },
+          "title": "Acknowledgements",
+          "type": "array"
+        },
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/Annotation"
+          },
+          "title": "Annotations",
+          "type": "array"
+        },
         "clients": {
           "items": {
             "$ref": "#/$defs/Client"

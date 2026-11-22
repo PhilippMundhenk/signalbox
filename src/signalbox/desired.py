@@ -10,18 +10,31 @@ Drift rules compare the desired state with the observed network field by field.
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
 from collections.abc import Callable, Iterator, Mapping
+from datetime import UTC, date, datetime
 from ipaddress import IPv4Address
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from signalbox.model import (
+    Acknowledgement,
+    Annotation,
+    AnnotationSource,
     DeviceRole,
+    Expected,
     IPAddress,
     IPInterface,
     Membership,
@@ -30,6 +43,8 @@ from signalbox.model import (
     PurposeSource,
     Security,
     SegmentPurpose,
+    annotation_target,
+    check_expected,
     is_native_segment,
     normalise_mac,
     passphrase_fingerprint,
@@ -116,10 +131,97 @@ class PortSpec(Spec):
     tagged: list[int] = Field(default_factory=list)
 
 
+class AnnotationSpec(Spec):
+    """What the user knows about one object (#186); never written to a device."""
+
+    target: str = Field(
+        min_length=1,
+        max_length=300,
+        description="Device id, <device>/port/<name>, <site>/segment/<key>, a MAC address, ...",
+    )
+    label: str | None = Field(None, max_length=100, description="Friendly name")
+    purpose: str | None = Field(None, max_length=200)
+    owner: str | None = Field(None, max_length=100)
+    notes: str | None = Field(None, max_length=2000)
+    tags: list[Annotated[str, Field(min_length=1, max_length=40)]] = Field(
+        default_factory=list, max_length=20
+    )
+    expected: Expected = Field(default_factory=Expected)
+
+    @field_validator("target")
+    @classmethod
+    def _target(cls, v: str) -> str:
+        return annotation_target(v)
+
+    def annotation(self) -> Annotation:
+        return Annotation(
+            **self.model_dump(exclude={"expected"}),
+            expected=self.expected,
+            source=AnnotationSource.DECLARED,
+        )
+
+
+class AcknowledgementSpec(Spec):
+    """A finding accepted on purpose (#186): one finding, or every finding of a rule that
+    names the target."""
+
+    rule: str = Field(min_length=1, max_length=100, description="Rule id, e.g. dhcp.static-in-pool")
+    finding: str | None = Field(None, max_length=64, description="Finding id (one finding)")
+    target: str | None = Field(None, max_length=300, description="Object the findings name")
+    reason: str | None = Field(None, max_length=500)
+    by: str | None = Field(None, max_length=100)
+    at: date | datetime | None = Field(None, description="When it was acknowledged")
+    until: date | datetime | None = Field(
+        None, description="Expires then (a date: at the start of that day, UTC)"
+    )
+    fingerprint: str | None = Field(
+        None, max_length=64, description="Lapses when the finding's message changes"
+    )
+
+    @field_validator("target")
+    @classmethod
+    def _target(cls, v: str | None) -> str | None:
+        return annotation_target(v) if v is not None else None
+
+    def acknowledgement(self, site_id: str) -> Acknowledgement:
+        key = "\x00".join([site_id, self.rule, self.finding or "", self.target or ""])
+        return Acknowledgement(
+            id="declared-" + hashlib.sha256(key.encode()).hexdigest()[:12],
+            rule_id=self.rule,
+            finding_id=self.finding,
+            target=self.target,
+            reason=self.reason,
+            by=self.by,
+            at=_as_datetime(self.at),
+            until=_as_datetime(self.until),
+            fingerprint=self.fingerprint,
+            source=AnnotationSource.DECLARED,
+        )
+
+
+def _as_datetime(value: datetime | date | None) -> datetime | None:
+    if value is None or isinstance(value, datetime):
+        return value
+    return datetime(value.year, value.month, value.day, tzinfo=UTC)
+
+
 class SiteSpec(Spec):
     segments: list[SegmentSpec] = Field(default_factory=list)
     wlans: list[WlanSpec] = Field(default_factory=list)
     ports: list[PortSpec] = Field(default_factory=list)
+    #: User annotations of objects of the site (#186).
+    annotations: list[AnnotationSpec] = Field(default_factory=list)
+    #: Accepted findings (#186).
+    acknowledgements: list[AcknowledgementSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _scoped(self) -> SiteSpec:
+        for a in self.annotations:
+            check_expected(a.target, a.expected)
+        for ack in self.acknowledgements:
+            if ack.finding is None and ack.target is None:
+                raise ValueError(f"acknowledgement of {ack.rule}: name a finding or a target")
+        return self
 
 
 class DesiredState(Spec):
@@ -136,6 +238,8 @@ class DesiredState(Spec):
                     segments=[*old.segments, *spec.segments],
                     wlans=[*old.wlans, *spec.wlans],
                     ports=[*old.ports, *spec.ports],
+                    annotations=[*old.annotations, *spec.annotations],
+                    acknowledgements=[*old.acknowledgements, *spec.acknowledgements],
                 )
             )
         return DesiredState(sites=sites)
@@ -166,6 +270,10 @@ def parse(text: str, source: str = "desired state") -> DesiredState:
 
 
 def _check_unique(state: DesiredState, source: str) -> None:
+    targets = [a.target for spec in state.sites.values() for a in spec.annotations]
+    dup = sorted({t for t in targets if targets.count(t) > 1})
+    if dup:
+        raise DesiredError(f"{source}: annotation declared twice: {', '.join(dup)}")
     for site, spec in state.sites.items():
         vlans = [seg_key(s.vlan) for s in spec.segments]
         dup = sorted({str(v or "native") for v in vlans if vlans.count(v) > 1})

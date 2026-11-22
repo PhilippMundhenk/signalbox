@@ -96,6 +96,58 @@ device does not report it the finding is incomplete. Deployments write it on Ope
 A device that was not read gives an "incomplete" finding instead. An unreadable desired-state
 file gives the error finding `desired.invalid` with the reason.
 
+## Annotations and acknowledgements
+
+Your own knowledge about objects, and findings you accept on purpose (#186,
+[ADR 0007](adr/0007-annotations-and-acknowledgements.md)). They are never written to a device and
+never cause drift; they are applied to the observed network every time Signalbox builds it, like
+declared purposes.
+
+```yaml
+sites:
+  home:
+    annotations:
+      - target: 02:00:00:00:00:44          # a MAC address: a client (or a foreign access point)
+        label: office printer
+        owner: Example Owner
+        notes: fixed address set on the printer itself
+        tags: [office]
+        expected: {static_address: true, category: printer}
+      - target: sw-attic/port/5
+        purpose: lab bench, slow on purpose
+        expected: {neighbour: lab-switch}
+      - target: ap-garden
+        expected: {may_be_unreachable: true}   # off in winter
+    acknowledgements:
+      - rule: wifi.pmf                      # every finding of this rule that names the target
+        target: ap-garden/wlan/cafe
+        reason: the old garden camera cannot do PMF
+        until: 2027-06-30                   # counts as a problem again from that day
+      - rule: dhcp.one-server
+        finding: 0123456789abcdef           # exactly one finding (its id, see the API)
+        fingerprint: 5d41402abc4b2a76       # optional: lapses when the message changes
+```
+
+- **Targets** are model ids: a device id, `<device>/port/<name>`, `<site>/segment/<vlan or
+  native>`, `<device>/subnet/<name>`, other `<device>/<kind>/<name>` objects, or a MAC address
+  (stored as `client/<mac>`). One annotation per target across all files.
+- **Expectations** (`expected`) are typed and refused where they do not fit: clients
+  `segment`, `static_address`, `category` (`computer`, `phone`, `tablet`, `iot`, `camera`,
+  `printer`, `media`, `server`, `network`, `other`), `known_neighbour`; ports `neighbour`,
+  `uplink`; devices `role`; devices and clients `may_be_unreachable`. Checks use them to stay
+  silent where you said what is intended.
+- **Acknowledged findings** are still checked and shown under *Acknowledged* on the start page,
+  but they are not problems: not in the error and warning counts, not in Home Assistant's
+  problem sensor, and an acknowledged error does not block a plan. `until` (a date or a time)
+  ends an acknowledgement (`ack.expired` says so); `fingerprint` ends it when the finding's
+  details change.
+- **In the UI** the *Acknowledge* button on a finding and the notes on a device or client page
+  store the same things in the database. Declared entries win per target and are read-only in
+  the UI. `GET /api/annotations/export` gives the stored ones as YAML to paste here.
+- Objects that no longer exist (a renamed port, a removed device, a client not seen for the
+  history period) are reported by `annotations.stale`. Labels, owners and notes are personal
+  data: they stay in Signalbox and are not sent to MQTT.
+
 ## Secrets
 
 Wi-Fi passphrases are not written into the YAML. Store them under *Desired state*, *Secrets*

@@ -7,7 +7,15 @@ from pydantic import SecretStr
 from factories import SITE, MiB, device, health, port, snapshot
 from signalbox.config import MqttConfig
 from signalbox.merge import merge
-from signalbox.model import Client, DeviceRole, DeviceStatus, Firmware, Network, Site
+from signalbox.model import (
+    Acknowledgement,
+    Client,
+    DeviceRole,
+    DeviceStatus,
+    Firmware,
+    Network,
+    Site,
+)
 from signalbox.mqtt import Discovery, MqttBridge, device_state, node_id, site_state
 from signalbox.rules import Finding, Severity
 
@@ -54,6 +62,7 @@ def test_site_and_device_state() -> None:
         "warnings": 1,
         "info": 1,
         "incomplete": 1,
+        "acknowledged": 0,
         "problem": "ON",
         "devices": 3,
         "unreachable": 1,
@@ -70,6 +79,20 @@ def test_site_and_device_state() -> None:
     assert ap["clients"] == 1 and ap["firmware"] == "unknown" and ap["findings"] == 1
     assert device_state(n, FINDINGS, "off")["reachable"] == "OFF"
     assert device_state(n, [], "missing")["status"] == "unreachable"
+
+
+def test_acknowledged_findings_do_not_count_as_problems() -> None:
+    n = net()
+    ack = Acknowledgement(id="a1", rule_id="r", target="gw/port/lan", reason="lab port")
+    acked = [
+        f.model_copy(update={"acknowledged": ack}) if f.id in ("1", "3") else f for f in FINDINGS
+    ]
+    state = site_state(n, acked, "home")
+    assert state["errors"] == 0 and state["problem"] == "OFF"
+    assert state["acknowledged"] == 2 and state["incomplete"] == 0 and state["warnings"] == 1
+    assert device_state(n, acked, "gw")["findings"] == 0
+    configs = Discovery(MqttConfig()).configs(n)
+    assert "homeassistant/sensor/site_home/acknowledged/config" in configs
 
 
 def test_discovery_configs() -> None:

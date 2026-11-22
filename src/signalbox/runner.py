@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from signalbox.adapters import Adapter, AdapterConfig, AdapterContext
+from signalbox.annotate import apply as apply_annotations
 from signalbox.config import Config
 from signalbox.desired import DesiredError, DesiredState, apply_declared, drift_rules
 from signalbox.merge import merge
@@ -116,8 +117,13 @@ class Runner:
     # everything -------------------------------------------------------------------------
 
     def network(self) -> Network:
-        """The merged network with derived links and the purposes the desired state declares."""
-        return apply_declared(self._merged(), self._declared())
+        """The merged network with derived links, the purposes the desired state declares and
+        the user's annotations and acknowledgements (declared and stored, #186)."""
+        state = self._declared()
+        net = apply_declared(self._merged(), state)
+        return apply_annotations(
+            net, state, self.store.annotations(), self.store.acknowledgements()
+        )
 
     def _declared(self) -> DesiredState | None:
         if self.desired_source is None:

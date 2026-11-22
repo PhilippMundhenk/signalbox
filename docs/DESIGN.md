@@ -49,6 +49,7 @@ desired state → planner → deployment → devices, with every step tracked.
 | **Checks** (rules) | `signalbox.rules.*` | find inconsistencies, explain them, suggest a fix; never change anything | `Network` (and `History`) | findings | done (#5–#8, #15) |
 | **Topology** | `signalbox.topology` | links from LLDP, MAC tables and entered cables; the wiring and VLAN view | `Network` | links, topology view | done (#15) |
 | **Desired state** | `signalbox.desired` | what the network should look like; drift against the observed state | YAML, UI | desired model, drift findings | done (#36), [DESIRED.md](DESIRED.md) |
+| **Annotations** | `signalbox.annotate`, `signalbox.store` | the user's own layer: labels, purpose, owner, notes, typed expectations, acknowledged findings; never written to devices | desired-state YAML, UI | `Network.annotations`, `Network.acknowledgements`, acknowledged findings | done (#186), [ADR 0007](adr/0007-annotations-and-acknowledgements.md) |
 | **Planner** | `signalbox.changes` | desired minus observed → typed change set per device, ordered; checks run on the predicted state | desired + observed state | plan | done (#37) |
 | **Deployment** | `signalbox.deploy` | apply an approved plan as one transaction across devices | plan, approval | per-device result | done (#38), [CHANGES.md](CHANGES.md) |
 | **Change tracking** | `signalbox.history` | immutable record of every change: who, why, plan, vendor calls, backups, results | deployments | change log, audit | done (#39) |
@@ -98,6 +99,8 @@ carries its source (adapter and device), the time it was observed and a stable i
 | Firmware | Current, available, end of life |
 | DeviceHealth | Uptime and boot time, last restart reason, CPU load and load average, memory, storage per mount (kind, wear), temperatures with limits, fans, power supplies, monitored UPS |
 | DeviceTime | Device clock and Signalbox's time when it was read (offset, uncertainty), time zone, NTP client (servers, synchronised, stratum), NTP server (segments it serves) |
+| Annotation | User data per object id (device, port, segment, subnet, `client/<mac>`): label, purpose, owner, notes, tags, typed expectations (`static_address`, `category`, `may_be_unreachable`, `known_neighbour`, ...); declared or stored |
+| Acknowledgement | A finding accepted by the user: rule plus finding id or target object, reason, until, optional fingerprint of the message |
 
 `Device.health` and `Device.time` (adapter API 1.2, capabilities `health` and `time`) are value
 objects on the device rather than objects with their own ids: there is one per device, it has no
@@ -185,6 +188,30 @@ A router's uplink port (`Uplink.port_id`) is in no segment of its own router; li
 it as an untagged member of the upstream router's network (`Network.upstream_router()`), and
 where uplinks are not reported, a router port in no segment cabled to another router as an
 uplink. `addr.double-nat` (#60) reports the two routers in a row as information.
+
+### Annotations and acknowledged findings
+
+Annotations (#186, [ADR 0007](adr/0007-annotations-and-acknowledgements.md)) are user data, not
+observations: they live in the desired state (`sites.<site>.annotations` and
+`acknowledgements`, reviewable in git, read-only in the UI) or in the database (set in the UI,
+schema version 4), never in snapshots. Per target a declared annotation replaces a stored one.
+The runner adds both to every network it builds (`signalbox.annotate.apply`, after
+`apply_declared`), so checks, views, plans and MQTT see the same. They attach to model ids,
+which are stable across runs: device ids, `<device>/port/<name>`, `<site>/segment/<key>`
+(`native-<router>` included), `<device>/subnet/<name>` and `client/<mac>` for anything known by
+its MAC address (clients, foreign access points, LLDP neighbours); `target_kind()` derives the
+kind from the id and expectations that do not fit it are refused.
+
+An acknowledgement names a rule and either one finding (its id: a hash of rule, key and
+objects, so the same problem keeps its id) or a target object (every finding of that rule
+naming it). `evaluate()` applies the active ones: the finding keeps its id and history and gets
+`acknowledged`; `Finding.problem` is false for it. Acknowledged findings are listed apart on the
+start page, counted apart in MQTT (the problem sensor ignores them) and never block a plan.
+`until` ends an acknowledgement (the engine reports `ack.expired`), a fingerprint of the message
+ends it when the details change. `annotations.stale` reports annotations and acknowledgements
+whose object is gone, so changed ids never orphan user data silently. Checks read expectations
+through `Network.expected(target)`, `Network.annotation()`, `Network.label()` and
+`Network.knows()`.
 
 Rules for the model:
 
