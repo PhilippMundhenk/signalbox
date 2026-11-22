@@ -753,7 +753,10 @@ class OpnsenseAdapter(_Adapter):
     async def read_dhcp(self) -> Observation:
         layout = await self._layout()
         servers = self._kea(layout, await self._kea_config())
-        servers += await self._isc(layout)
+        # Kea first: ISC only where no enabled Kea server serves the interface (Kea off or not
+        # configured: ISC alone; both: each on its own interfaces).
+        served = {s.segment_id for s in servers if s.enabled}
+        servers += [s for s in await self._isc(layout) if s.segment_id not in served]
         return Observation(dhcp_servers=servers)
 
     def _kea(self, layout: _Layout, root: dict[str, Any] | None) -> list[DhcpServer]:
@@ -858,7 +861,11 @@ class OpnsenseAdapter(_Adapter):
                     reservations=reservations,
                     vendor_extra={
                         "server": "isc",
-                        "note": "the OPNsense API does not expose ISC ranges and options",
+                        "note": (
+                            "the os-isc-dhcp plugin's API has only the lease list and the service "
+                            "state: ranges, options and failover are in config.xml, which "
+                            "Signalbox does not read (it holds every secret)"
+                        ),
                     },
                 )
             )

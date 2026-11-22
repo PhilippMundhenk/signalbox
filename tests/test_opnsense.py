@@ -422,6 +422,23 @@ async def test_isc_disabled_and_stopped(http_url: str, sim: OpnsenseSimulator) -
     assert not next(s for s in snap.dhcp_servers if s.id.endswith("isc-opt2")).enabled
 
 
+async def test_kea_first_isc_fallback(http_url: str, sim: OpnsenseSimulator) -> None:
+    """ISC lists only the interfaces no enabled Kea server serves (#242)."""
+    general = sim.data[KEA]["dhcpv4"]["general"]
+    general["interfaces"] = {**general["interfaces"], "opt2": {"value": "Guest", "selected": 1}}
+    sim.data[KEA]["dhcpv4"]["subnets"]["subnet4"]["s-guest"] = {
+        "subnet": "203.0.113.0/24",
+        "pools": "203.0.113.100-203.0.113.199",
+    }
+    snap = await observe(adapter(http_url))
+    ids = {s.id for s in snap.dhcp_servers}
+    assert "fw/dhcp/kea-opt2" in ids and "fw/dhcp/isc-opt2" not in ids
+    general["enabled"] = "0"
+    snap = await observe(adapter(http_url))
+    isc = next(s for s in snap.dhcp_servers if s.id == "fw/dhcp/isc-opt2")
+    assert isc.enabled and isc.vendor_extra["server"] == "isc"
+
+
 async def test_odd_data_is_tolerated(http_url: str, sim: OpnsenseSimulator) -> None:
     rows = sim.data[INTERFACES]["rows"]
     rows += [

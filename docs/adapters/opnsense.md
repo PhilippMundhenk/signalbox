@@ -177,8 +177,14 @@ these pages, so treat its key like an admin password.
   interface address: OPNsense writes that address into all three on every Kea save
   (`KeaDhcpv4::setNodes`; in CI an empty `ntp_servers` of the LAN subnet was filled in by the
   first deployment). Reservations by subnet.
-- **DHCP (ISC)**: the API does not expose ISC ranges and options (they live on legacy pages).
-  Signalbox reports one server per interface that has leases, enabled when the service runs,
+- **DHCP (ISC)**: researched against opnsense/plugins `net/isc-dhcp` (#242): its API has exactly
+  two controllers, `DHCPv4/Api/Leases` (`search_lease`) and `DHCPv4/Api/Service` (`status`, start,
+  stop, restart). There is no settings or static-map API; ranges, router, DNS, NTP, domain, lease
+  time, options and failover live in `config.xml` (`dhcpd`), edited on legacy pages. The only
+  reader is the configuration backup, whose privilege exposes every secret; Signalbox does not
+  use it for reading, so these stay unknown (no pools, router, DNS) until OPNsense adds an API.
+  Kea is read first; ISC only for interfaces that no enabled Kea server serves (Kea off or not
+  configured: ISC alone; both: each on its own interfaces). Signalbox reports one server per interface that has leases, enabled when the service runs,
   with the static mappings from the lease list as reservations, and no pools.
 - **DNS**: one Unbound service. Listen addresses are the addresses of the selected interfaces
   (all when none is selected). Global forwarders (`dots` entries without a domain) become
