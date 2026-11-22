@@ -166,8 +166,10 @@ these pages, so treat its key like an admin password.
 - **DHCP (Kea)**: one server per Kea subnet, attached to the interface whose network contains it;
   enabled when Kea is enabled and listens on that interface. The lease time is the subnet's own
   `valid_lifetime`, else the general one. Pools from `pools` (ranges or CIDR,
-  one per line). With `option_data_autocollect`, empty router/DNS options become the interface
-  address, as Kea does. Reservations by subnet.
+  one per line). With `option_data_autocollect`, empty router, DNS and NTP options become the
+  interface address: OPNsense writes that address into all three on every Kea save
+  (`KeaDhcpv4::setNodes`; in CI an empty `ntp_servers` of the LAN subnet was filled in by the
+  first deployment). Reservations by subnet.
 - **DHCP (ISC)**: the API does not expose ISC ranges and options (they live on legacy pages).
   Signalbox reports one server per interface that has leases, enabled when the service runs,
   with the static mappings from the lease list as reservations, and no pools.
@@ -346,8 +348,9 @@ In CI, right after boot, only the pools are there:
 ```
 
 `status` `*` is the peer ntpd synchronises with (then in sync, `stratum` its stratum), `+`
-candidates, `__pool` a configured pool. The servers listed are every peer and pool in the
-answer. A 404 (ntpd not there) leaves the NTP client empty.
+candidates, `__pool` a configured pool. Seconds later the servers ntpd took from the pools
+appear as rows of type `u` (status ` `, not yet selected), indistinguishable from configured
+servers; the servers listed are every peer and pool in the answer. A 404 (ntpd not there) leaves the NTP client empty.
 
 ### `/api/diagnostics/interface/get_arp`, `/api/diagnostics/interface/get_ndp` (clients)
 

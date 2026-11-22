@@ -606,8 +606,11 @@ class OpnsenseAdapter(_Adapter):
             options = _sub(s, "option_data")
             routers = _addrs(options.get("routers"))
             dns = _addrs(options.get("domain_name_servers"))
+            ntp = _addrs(options.get("ntp_servers"))
             if _flag(s.get("option_data_autocollect")):
-                routers, dns = routers or [own], dns or [own]
+                # OPNsense fills all three with the interface address on every Kea save
+                # (KeaDhcpv4::setNodes, 26.7); seen in CI after a deployment
+                routers, dns, ntp = routers or [own], dns or [own], ntp or [own]
             pools = [
                 p
                 for t in re.split(r"[\n,]+", _text(s.get("pools")))
@@ -625,7 +628,7 @@ class OpnsenseAdapter(_Adapter):
                     dns_servers=dns,
                     domain=_text(options.get("domain_name")) or None,
                     reservations=reservations.get(uuid, []),
-                    ntp_servers=_addrs(options.get("ntp_servers")),
+                    ntp_servers=ntp,
                     vendor_extra={"server": "kea", "subnet": str(net)},
                 )
             )

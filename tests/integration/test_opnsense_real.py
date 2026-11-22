@@ -184,7 +184,9 @@ async def test_mapping_of_the_preseeded_firewall(fw: dict[str, str]) -> None:
         ("nas.home.example", "192.0.2.10")
     ]
     assert ip_address("192.0.2.1") in dns.listen
-    assert kea.ntp_servers == []  # option_data.ntp_servers is empty
+    # option_data.ntp_servers is empty, but with autocollect OPNsense fills in the interface
+    # address on the next Kea save (seen after a deployment): read as that address
+    assert [str(a) for a in kea.ntp_servers] == ["192.0.2.1"]
 
 
 async def test_health_and_time(fw: dict[str, str]) -> None:

@@ -576,6 +576,8 @@ async def test_time(snap: Snapshot) -> None:
     )
     iot = next(s for s in snap.dhcp_servers if s.segment_id == "home/segment/20")
     assert iot.ntp_servers == [ip_address("198.51.100.1")]
+    lan = next(s for s in snap.dhcp_servers if s.segment_id == "home/segment/native")
+    assert lan.ntp_servers == [ip_address("192.0.2.1")]  # autocollect: the interface address
 
 
 async def test_time_without_ntpd_and_unsynchronised(http_url: str, sim: OpnsenseSimulator) -> None:
