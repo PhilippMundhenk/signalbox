@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- OPNsense: Kea is read first, ISC DHCP only for interfaces no enabled Kea server serves; documents that the ISC plugin API offers no ranges or options (#242)
 - A capability can report what it could not read next to its data (`Observation.incomplete`); OpenWrt routers with an older permission file are told to paste the setup commands again (#210)
 - Project setup: Python package, checks, policies, stack decision (#1)
 - CI: lint, mypy --strict, tests with the 95 % coverage gate on Python 3.11-3.13, secret scan, Dependabot (#2)
