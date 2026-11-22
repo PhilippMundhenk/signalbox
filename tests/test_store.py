@@ -323,3 +323,16 @@ def test_reads_while_another_thread_writes(store: Store) -> None:
     for t in threads:
         t.join(30)
     assert errors == []
+
+
+def test_optional_secret_can_be_removed(store: Store) -> None:
+    """The form's 'Remove the stored …' box: an optional secret is dropped, not kept."""
+    values = {"url": "https://192.0.2.1", "password": "pw", "api_secret": "s"}
+    store.put_device(rec(), values, DevConfig)
+    store.put_device(rec(), {"url": "https://192.0.2.1"}, DevConfig, {"api_secret"})
+    cfg = store.adapter_config("gw", DevConfig)
+    assert isinstance(cfg, DevConfig) and cfg.api_secret is None
+    assert cfg.password.get_secret_value() == "pw"  # the others are kept
+    assert store.device("gw").secrets_set == ["password"]  # type: ignore[union-attr]
+    with pytest.raises(StoreError, match="password"):  # a required one cannot be removed
+        store.put_device(rec(), {"url": "https://192.0.2.1"}, DevConfig, {"password"})

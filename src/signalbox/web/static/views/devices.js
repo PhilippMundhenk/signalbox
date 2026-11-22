@@ -190,13 +190,14 @@ export async function renderDeviceForm(main, ctx, device) {
     const problems = [];
     if (!name.value.trim() && !forTest) problems.push('Give the device a name.');
     if (!site.value) problems.push('Create a site first.');
-    const { config, errors: cfgErrors } = cfg.collect();
+    const { config, errors: cfgErrors, clear: cleared } = cfg.collect();
     problems.push(...cfgErrors);
     if (problems.length) {
       place(errors, h('ul', {}, problems.map((p) => h('li', {}, p))));
       return null;
     }
     const body = { name: name.value.trim() || 'new device', site_id: site.value, role: role.value, adapter: adapter.value, enabled: enabled.checked, allow_writes: allowWrites.checked, config };
+    if (cleared.length) body.clear_secrets = cleared;
     if (trusted) body.trust_fingerprint = trusted;
     return body;
   };

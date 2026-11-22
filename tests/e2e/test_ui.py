@@ -514,3 +514,24 @@ def test_device_form_guides_and_tests_before_saving(app: Any) -> None:
         "data-status", "ok"
     )
     assert api(app, "GET", "/devices/edge")["pinned_fingerprint"] == FINGERPRINT
+
+
+def test_optional_secret_can_be_removed(app: Any) -> None:
+    add_site(app)
+    body = {
+        "name": "Edge",
+        "site_id": "home",
+        "role": "gateway",
+        "adapter": "lab",
+        "config": {"host": "192.0.2.1", "password": "device-secret", "api_token": "t"},
+    }
+    api(app, "POST", "/devices", body)
+    assert api(app, "GET", "/devices/edge")["secrets_set"] == ["api_token", "password"]
+    go(app, "#/device/edge")
+    app.get_by_test_id("tab-settings").click()
+    expect(app.get_by_test_id("cfg-password-clear")).to_have_count(0)  # required: not removable
+    app.get_by_test_id("cfg-api_token-clear").check()
+    expect(app.get_by_test_id("cfg-api_token")).to_be_disabled()
+    app.get_by_test_id("device-save").click()
+    expect(app.get_by_test_id("device-title")).to_have_text("Edge")
+    assert api(app, "GET", "/devices/edge")["secrets_set"] == ["password"]

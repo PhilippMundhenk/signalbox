@@ -75,6 +75,8 @@ class DeviceBody(BaseModel):
     enabled: bool = True
     allow_writes: bool = False
     config: dict[str, Any] = Field(default_factory=dict)
+    #: Stored secret settings to remove (optional ones only; the form's "Remove" box).
+    clear_secrets: list[str] = Field(default_factory=list)
     #: A certificate fingerprint the user trusted while testing the form; pinned on save.
     trust_fingerprint: str | None = Field(None, pattern=r"^[0-9a-f]{64}$")
 
@@ -380,7 +382,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
             if body.trust_fingerprint
             else (old.pending_fingerprint if old else None),
         )
-        return store.put_device(rec, body.config, cls.manifest.config)
+        return store.put_device(rec, body.config, cls.manifest.config, set(body.clear_secrets))
 
     def test_json(snap: Snapshot, presented: str | None) -> dict[str, Any]:
         dev = snap.device
@@ -416,7 +418,12 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
         if body.device_id and old is None:
             return error(404, "not_found", "No such device.")
         try:
-            cfg = store.form_config(old.id if old else None, body.config, cls.manifest.config)
+            cfg = store.form_config(
+                old.id if old else None,
+                body.config,
+                cls.manifest.config,
+                set(body.clear_secrets),
+            )
         except SecretError as exc:  # pragma: no cover - a damaged vault
             return error(422, "invalid", str(exc))
         rec = DeviceRecord(
