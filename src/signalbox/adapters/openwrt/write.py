@@ -258,6 +258,7 @@ def _wifi_values(
         ("ieee80211r", s.get("ieee80211r"), w.roaming_80211r),
         ("ieee80211k", s.get("ieee80211k"), w.roaming_80211k),
         ("bss_transition", s.get("bss_transition", s.get("ieee80211v")), w.roaming_80211v),
+        ("isolate", s.get("isolate"), w.client_isolation),
     )
     for option, current, want in roaming:
         if want is not None and h._flag(current) != want:

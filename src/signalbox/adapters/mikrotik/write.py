@@ -896,6 +896,11 @@ class MikrotikWrites:
                     )
                 cfg.delete(m.WIFI, row, f"remove the Wi-Fi interface {row.get('name')}")
             return
+        if new.client_isolation is not None:
+            raise AdapterError(
+                f"SSID {c.key}: client isolation is not read or changed on RouterOS yet; "
+                "leave client_isolation out of the desired state"
+            )
         if new.security not in _SECURITY_TYPES:
             raise AdapterError(
                 f"SSID {c.key}: {new.security.value} cannot be set through Signalbox on RouterOS "

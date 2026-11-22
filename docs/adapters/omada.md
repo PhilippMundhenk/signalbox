@@ -201,7 +201,9 @@ unknown).
   mixed, 1 (WPA only) = other; anything else (PPSK) is other.
 - `vlanEnable`/`vlanId` gives the segment (only when such a LAN network exists; otherwise the VLAN
   is in `vendor_extra`). `broadcast: false` is hidden. `pmfMode` *(guess)*: 1 required,
-  2 optional, 3 disabled.
+  2 optional, 3 disabled. `guestNetEnable: true` *(guess on the name)* is the Omada guest
+  network: the SSID gets the purpose `guest` (source `reported`), and the guest Wi-Fi check
+  trusts the controller to keep it out of the local networks. Client isolation is not read.
 - The passphrase is normally **not** returned by the Open API, so `passphrase_fingerprint` is
   empty. If an answer carries `pskSetting.securityKey`, only its fingerprint is kept.
 
@@ -252,7 +254,8 @@ like a read (`errorCode` 0), a new object `{"id": …}` or `{"ssidId": …}`.
   revert cannot put an old passphrase back (the backup has none either). Without a new
   passphrase an SSID keeps its key.
 - Security that can be set: open, OWE, WPA2, WPA3, WPA2/WPA3 (`versionPsk` 2, 4, 5); enterprise
-  needs a RADIUS profile and is refused, as are 802.11r/k/v (not read, so not verifiable).
+  needs a RADIUS profile and is refused, as are 802.11r/k/v and client isolation (not read, so
+  not verifiable). The guest network flag is not written.
 - Refused before anything is sent: a network without a name, removing the native network, DHCP
   on a network without a gateway address, more than two DNS servers, lease times that are not
   whole minutes, a port without an untagged network or with VLAN 1 tagged, a VLAN the

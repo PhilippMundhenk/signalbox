@@ -2,10 +2,10 @@
 
 Neutral sample data: an access point with DSA ports ``lan1``..``lan4`` on bridge ``br-lan``,
 VLAN 1 ("lan", untagged on lan1-3) and VLAN 20 ("iot", tagged on lan1), two radios, the SSIDs
-"Example" (WPA2/WPA3, 802.11r) and "Example-IoT" (WPA2, VLAN 20), three stations and DHCP
-switched off (the gateway serves it). Failure switches on :class:`OpenWrtSim` change the
-answers for refused-path tests. Answer shapes follow the OpenWrt documentation and source; see
-``docs/adapters/openwrt.md``.
+"Example" (WPA2/WPA3, 802.11r) and "Example-IoT" (WPA2, VLAN 20, client isolation), three
+stations and DHCP switched off (the gateway serves it). Failure switches on
+:class:`OpenWrtSim` change the answers for refused-path tests. Answer shapes follow the OpenWrt
+documentation and source; see ``docs/adapters/openwrt.md``.
 
 The UCI configs are state: rpcd's ``uci`` object is simulated with per-session staging
 (``set``, ``add``, ``delete``, ``order``, ``revert``), ``apply`` with an optional rollback timer
@@ -284,6 +284,7 @@ def wireless_config() -> dict[str, Any]:
                 "encryption": "psk2+ccmp",
                 "key": "example-iot-passphrase",
                 "hidden": "1",
+                "isolate": "1",
             },
         ),
         (

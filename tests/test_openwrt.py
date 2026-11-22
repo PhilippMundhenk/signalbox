@@ -168,6 +168,9 @@ async def test_wireless(adapter: OpenWrtAdapter) -> None:
     assert iot.security is Security.WPA2 and iot.segment_id == "home/segment/20"
     assert iot.hidden and iot.pmf is None and not iot.roaming_80211r
     assert "example-iot-passphrase" not in iot.model_dump_json()
+    # client isolation: option isolate (default off); a purpose is not reported by OpenWrt
+    assert iot.client_isolation is True and main.client_isolation is False
+    assert iot.purpose is None and main.purpose is None
 
 
 async def test_dhcp_off_on_an_ap(adapter: OpenWrtAdapter) -> None:

@@ -158,7 +158,9 @@ through rpcd with "invalid argument". Signalbox then calls `luci-rpc getWireless
   WPA2-Enterprise, `wpa3*` WPA3-Enterprise. `ieee80211w` `0`/`1`/`2` is PMF disabled/optional/
   required; unset means hostapd's default (required for `sae`, `owe`, `wpa3`; optional for
   `sae-mixed`; otherwise unknown). `ieee80211r`, `ieee80211k`, `bss_transition` (or `ieee80211v`)
-  are the roaming flags, `hidden` the hidden SSID. The segment is that of the first `network`.
+  are the roaming flags, `hidden` the hidden SSID, `isolate` client isolation (unset: off). The
+  segment is that of the first `network`. OpenWrt does not know a network purpose; declare it in
+  the desired state.
 - The `key` is read (rpcd cannot hide single options) but only
   `passphrase_fingerprint(ssid, key)` is kept, and only for personal (PSK/SAE) networks.
 
@@ -311,7 +313,7 @@ Failures:
 | Change | UCI |
 | --- | --- |
 | `port` | The port's entries in the `bridge-vlan` sections of its bridge: `<port>:u*` for the untagged VLAN (untagged and primary VLAN), `<port>:t` for each tagged one. The native network is VLAN 1. A VLAN that has no section yet gets one (`config bridge-vlan` `<bridge>_<vid>`); a section without ports is deleted. Ports of a bridge without `bridge-vlan` sections (no VLAN filtering) are refused. |
-| `wlan` | All `wifi-iface` sections in AP mode with this SSID. New SSID: one section per radio (`<ssid>_<radio>`). Only options that differ are written: `ssid`, `encryption` (open `none`, OWE `owe`, WPA2 `psk2`, WPA3 `sae`, WPA2/WPA3 `sae-mixed`; enterprise is refused, it needs RADIUS settings), `key` from the passphrase secret, `ieee80211w` (PMF 0/1/2), `ieee80211r`, `ieee80211k`, `bss_transition`, `hidden`, `disabled`, `network`. Removed SSID: its sections are deleted. |
+| `wlan` | All `wifi-iface` sections in AP mode with this SSID. New SSID: one section per radio (`<ssid>_<radio>`). Only options that differ are written: `ssid`, `encryption` (open `none`, OWE `owe`, WPA2 `psk2`, WPA3 `sae`, WPA2/WPA3 `sae-mixed`; enterprise is refused, it needs RADIUS settings), `key` from the passphrase secret, `ieee80211w` (PMF 0/1/2), `ieee80211r`, `ieee80211k`, `bss_transition`, `isolate` (client isolation, only when the desired state sets `client_isolation`), `hidden`, `disabled`, `network`. Removed SSID: its sections are deleted. |
 | `wlan` network | The interface on the segment's VLAN (the first by name). If the VLAN is on the bridge but has no interface, Signalbox adds `config interface vlan<vid>` with `device <bridge>.<vid>` and `proto none` (DSA creates the VLAN device itself, no `config device` is needed). If the VLAN is on no port of the access point, the change is refused: tag it on the uplink in the same plan. When a later change removes that VLAN, an unused `proto none` interface on it is deleted too. |
 | `dhcp` | The `dhcp` section of the segment's interface (created if missing): `ignore`, `start` and `limit` from the pool (offsets in the interface's IPv4 subnet), `leasetime`, DNS as `dhcp_option 6,…` (other options kept). The interface must already have an IPv4 address. Enabling without a pool is refused. |
 | `reservation` | The `host` section with that MAC: `ip`, `name`; a new one is `host_<mac>`. A host section shared by several MACs keeps the others. |

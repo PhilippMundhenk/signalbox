@@ -63,9 +63,11 @@ from signalbox.model import (
     Pmf,
     Port,
     PortMembership,
+    PurposeSource,
     Radio,
     Security,
     Segment,
+    SegmentPurpose,
     Subnet,
     Wlan,
     normalise_mac,
@@ -731,6 +733,8 @@ class OmadaAdapter(_Adapter):
                 vlan = _int(s.get("vlanId")) if _flag(s.get("vlanEnable")) else None
                 seg = segment_id(site, vlan) if (vlan or 1) in vlans else None
                 key_text = _text(_sub(s, "pskSetting").get("securityKey"))
+                # "Guest Network": the controller keeps these clients out of the local networks
+                guest = _flag(s.get("guestNetEnable"))
                 psk = sec in (Security.WPA2, Security.WPA3, Security.WPA2_WPA3) and key_text
                 for bit, keys in BAND_BITS:
                     for key in keys:
@@ -752,6 +756,8 @@ class OmadaAdapter(_Adapter):
                                 ),
                                 segment_id=seg,
                                 hidden=not _flag(s.get("broadcast"), default=True),
+                                purpose=SegmentPurpose.GUEST if guest else None,
+                                purpose_source=PurposeSource.REPORTED if guest else None,
                                 vendor_extra=ap.extra(
                                     wlan_group=groups.get(group or ""),
                                     vlan=vlan if seg is None else None,

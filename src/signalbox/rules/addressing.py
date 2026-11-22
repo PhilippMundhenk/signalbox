@@ -19,6 +19,7 @@ from signalbox.model import (
     DhcpServer,
     IPAddress,
     Network,
+    SegmentPurpose,
     Subnet,
 )
 from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
@@ -384,10 +385,15 @@ def _duration(seconds: int) -> str:
 
 
 def _is_guest(net: Network, segment_id: str) -> bool:
+    """A guest network: by purpose (declared, reported or guessed), or one of its SSIDs is."""
     seg = net.segment(segment_id)
-    names = [seg.name if seg else None]
-    names += [w.ssid for w in net.wlans if w.segment_id == segment_id and w.enabled]
-    return any(n and "guest" in n.lower() for n in names)
+    if seg is not None and seg.purpose is not None:
+        return seg.purpose is SegmentPurpose.GUEST
+    return any(
+        w.purpose is SegmentPurpose.GUEST
+        for w in net.wlans
+        if w.segment_id == segment_id and w.enabled
+    )
 
 
 @rule(

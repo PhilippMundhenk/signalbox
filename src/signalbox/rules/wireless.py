@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from itertools import combinations
 
 from signalbox.model import Band, Network, Radio, Wlan
+from signalbox.purpose import device_internal
 from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
 from signalbox.rules._names import device_name, router_subnets, segment_name, site_of_device
 
@@ -21,6 +22,7 @@ _SSID_ATTRIBUTES: list[tuple[str, str, Severity]] = [
     ("roaming_80211r", "fast roaming (802.11r)", Severity.WARNING),
     ("roaming_80211k", "neighbour reports (802.11k)", Severity.WARNING),
     ("roaming_80211v", "BSS transition (802.11v)", Severity.WARNING),
+    ("client_isolation", "client isolation", Severity.WARNING),
 ]
 
 
@@ -189,7 +191,9 @@ def channel_overlap(net: Network) -> Iterator[Result]:
     "Wi-Fi network bound to a network the router does not serve",
     Severity.ERROR,
     "The Wi-Fi network puts its clients into a VLAN for which no router has an address. Clients "
-    "connect but get no IP address and cannot reach anything.",
+    "connect but get no IP address and cannot reach anything. A network a router keeps to "
+    "itself (an isolated guest network without a subnet in the model, such as the Fritz!Box "
+    "guest Wi-Fi) is served by that router and not reported.",
 )
 def segment_at_gateway(net: Network) -> Iterator[Result]:
     at_router = router_subnets(net)
@@ -198,6 +202,8 @@ def segment_at_gateway(net: Network) -> Iterator[Result]:
     unchecked: dict[str, set[str]] = defaultdict(set)
     for wlan in sorted(net.wlans, key=lambda w: w.id):
         if not wlan.enabled or wlan.segment_id is None or wlan.segment_id in routed:
+            continue
+        if device_internal(net, wlan.segment_id):
             continue
         site = site_of_device(net, wlan.device_id)
         if site not in gateways:
