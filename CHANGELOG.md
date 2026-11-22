@@ -74,6 +74,7 @@ All notable changes to this project are documented here. The format follows
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
 
 ### Fixed
+- NETGEAR ProSAFE Plus: an old switch that refuses the full identity read (answering "incorrect password" even without one) is read from its discovery answer; a refused setting is named in the error (#210)
 - NETGEAR ProSAFE Plus switches are read without logging in, as Switchyard does; the password is optional and only checked for changes (an old GS108E v1 refused the check while reading worked) (#210)
 - Two routers in a row (an ISP router and a firewall behind it) are no longer one untagged network: each router's LAN is its own segment, so "two routers" and "two DHCP servers" are not reported for them; the cable to a router's WAN port is not a VLAN mismatch; links to devices that were not fully read are incomplete instead of errors (#205)
 - OPNsense: Kea fills NTP servers (like routers and DNS) with the interface address on every save; an empty value is read that way now (#179)
