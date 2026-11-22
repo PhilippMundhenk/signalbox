@@ -90,11 +90,12 @@ async def network(url: str) -> Network:
 
 
 def shape(net: Network) -> Any:
-    """The network without observation times (to compare two reads)."""
+    """The network without observation times and live values (to compare two reads)."""
 
     def strip(value: Any) -> Any:
         if isinstance(value, dict):
-            return {k: strip(v) for k, v in value.items() if k != "observed_at"}
+            live = ("observed_at", "health", "time")
+            return {k: strip(v) for k, v in value.items() if k not in live}
         if isinstance(value, list):
             return [strip(v) for v in value]
         return value

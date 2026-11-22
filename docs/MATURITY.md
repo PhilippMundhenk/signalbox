@@ -26,5 +26,5 @@ Generated from the adapter manifests by `tools/gen_docs.py`.
 | MikroTik RouterOS (`mikrotik`) | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | router, dhcp, reservation, port, wlan | nothing yet |
 | TP-Link Omada (`omada`) | simulator | simulator | - | simulator | simulator | - | simulator | simulator | router, dhcp, port, wlan | nothing yet |
 | OpenWrt (`openwrt`) | simulator | simulator | - | simulator | simulator | simulator | simulator | simulator | dhcp, reservation, port, wlan | nothing yet |
-| OPNsense (`opnsense`) | simulator | simulator | simulator | - | simulator | - | - | - | router, dhcp, reservation, port | nothing yet |
+| OPNsense (`opnsense`) | simulator | simulator | simulator | - | simulator | - | simulator | simulator | router, dhcp, reservation, port | nothing yet |
 | NETGEAR ProSAFE Plus (`prosafe`) | simulator | - | - | - | - | - | - | - | port | nothing yet |

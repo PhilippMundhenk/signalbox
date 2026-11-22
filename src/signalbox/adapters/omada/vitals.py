@@ -2,11 +2,12 @@
 
 The Open API lists every managed device with ``cpuUtil`` and ``memUtil`` (percent; the device
 details call the latter ``memoryUtil``), the uptime as text (``uptime``, ``"3day(s) 4h 5m
-6s"``) and, in the details, as seconds (``uptimeLong``). Those names are confirmed by the
-controller's own API description (Omada Software Controller 6.3 in CI, #140); the CI site has
-no devices, so the values are not. *Guess*: ``temp``/``temperature`` (°C), ``fanStatus`` and
-``powerStatus`` on switches and gateways that have them, read only when they are plain
-words that leave no doubt (``normal``, ``abnormal``, ...; a number could mean either).
+6s"``) and, in the details, as seconds (``uptimeLong``). ``cpuUtil``, ``memoryUtil`` and
+``uptimeLong`` are in the controller's own API description of the device details (Omada
+Software Controller 6.3 in CI, #140); the list's ``memUtil`` and ``uptime`` text and every
+value are not confirmed (the CI site has no devices). *Guess*: ``temp``/``temperature``
+(°C), ``fanStatus`` and ``powerStatus`` on switches and gateways that have them, read only
+when they are words that leave no doubt (``normal``, ``abnormal``, ...; a number could mean either).
 Memory is only there as a percentage (``memUtil``): without the total there are no bytes to
 report, so it is left out.
 """

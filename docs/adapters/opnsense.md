@@ -52,6 +52,8 @@ meant for the simulator.
    | Services: DHCP: Kea(v4) (if Kea is used) | `/api/kea/dhcpv4/*`, `/api/kea/leases4/*` |
    | Services: Unbound | `/api/unbound/*` (the general settings are only readable with this one; *Services: Unbound DNS: General* and *Edit Host and Domain Override* do not cover `/api/unbound/settings/get`) |
    | Diagnostics: ARP Table, Diagnostics: NDP Table | `/api/diagnostics/interface/get_arp`, `get_ndp` |
+   | Lobby: Dashboard | `/api/diagnostics/system/system_*`, `/api/diagnostics/cpu_usage/*` (health, and the clock for time) |
+   | Status: NTP | `/api/ntpd/service/status` (time: the NTP peers) |
 
    ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
    and are skipped. With the plugin, add its DHCP server and lease pages.
@@ -176,6 +178,16 @@ these pages, so treat its key like an admin password.
 - **Clients**: merged by MAC from ARP, NDP, ISC and Kea leases; the firewall's own MACs, permanent
   and incomplete entries are skipped. Segment and port from the interface the entry was seen on,
   otherwise from the address.
+- **Health** (#178): the dashboard widgets: uptime and load averages (`system_time`), memory
+  (`system_resources`; the ZFS ARC, where there is one, is cache and not counted as used), the
+  file systems (`system_disk`: `/` is `system`, tmpfs `temporary`, other UFS/ZFS mounts `data`),
+  the temperature sensors (`system_temperature`) and the CPU threads (`cpu_usage/get_cpu_type`).
+  The CPU load is only an event stream (`cpu_usage/stream`) and is not read.
+- **Time** (#179): the clock is the `Date` header of the `system_time` answer (the firewall's
+  clock, whole seconds), the UTC offset its local `datetime` against that header; the NTP client
+  is ntpd's peer list (`*` marks the peer in use, with its stratum). The time zone setting and the
+  NTP configuration (servers, interfaces) are legacy pages without an API: no zone name, no NTP
+  server. Kea's `option_data.ntp_servers` (option 42) is `DhcpServer.ntp_servers`.
 
 ## Endpoints and answers
 
@@ -296,6 +308,47 @@ an object by uuid otherwise.
   "rr": "A", "server": "192.0.2.10", "description": "", "isAlias": false}]}
 ```
 
+### `/api/diagnostics/system/system_time`, `system_resources`, `system_disk`, `system_temperature`, `/api/diagnostics/cpu_usage/get_cpu_type` (health, time)
+
+As 26.7.9 answers them to the read user with *Lobby: Dashboard* (QEMU, nano image):
+
+```json
+{"uptime": "00:00:16", "datetime": "Sun Nov 22 16:23:43 UTC 2026",
+ "boottime": "Sun Nov 22 16:23:27 UTC 2026", "config": "Sun Nov 22 16:22:55 UTC 2026",
+ "loadavg": "0.29, 0.06, 0.02"}
+{"memory": {"total": "3176632320", "total_frmt": "3029", "used": 626695725, "used_frmt": "597"}}
+{"devices": [{"device": "/dev/ufs/OPNsense_Nano", "type": "ufs", "total_bytes": 8023601152,
+  "used_bytes": 2369683456, "available_bytes": 5012033536, "used_pct": 32, "mountpoint": "/"},
+ {"device": "tmpfs", "type": "tmpfs", "total_bytes": 1588318208, "used_bytes": 1454080,
+  "mountpoint": "/tmp"}, ...]}
+[]
+["AMD EPYC 7763 64-Core Processor (2 cores, 2 threads)"]
+```
+
+`uptime` is `HH:MM:SS`, after a day `N day(s), HH:MM:SS`. `memory.used` counts everything but
+inactive, cached, laundry and free pages; with ZFS the answer also has `arc` (bytes), which is
+subtracted. QEMU has no temperature sensors (`[]`); on hardware each row is `{"device":
+"dev.cpu.0.temperature", "temperature": "47.0", "type": "cpu", ...}` (*Guess* from the
+controller's source, the sensor name is `device`). `datetime` is PHP's `D M j G:i:s T Y` in the
+firewall's zone; the zone abbreviation (`UTC`, `CET`) is not a usable name, so only the offset
+against the `Date` header (rounded to 15 minutes) is kept.
+
+### `/api/ntpd/service/status` (time)
+
+ntpd's `ntpq` peers as a grid. Requested **without** `?current=1&rowCount=-1`: the pattern of
+*Status: NTP* is the bare path, and 26.7.9 refuses the request with a query string (HTTP 403).
+In CI, right after boot, only the pools are there:
+
+```json
+{"rows": [{"status": "__pool", "server": "0.opnsense.pool.ntp.org", "refid": ".POOL.",
+  "stratum": "16", "type": "p", "when": "-", "poll": "64", "reach": "0", "delay": "0.000",
+  "offset": "+0.000", "jitter": "0.000"}, ...]}
+```
+
+`status` `*` is the peer ntpd synchronises with (then in sync, `stratum` its stratum), `+`
+candidates, `__pool` a configured pool. The servers listed are every peer and pool in the
+answer. A 404 (ntpd not there) leaves the NTP client empty.
+
 ### `/api/diagnostics/interface/get_arp`, `/api/diagnostics/interface/get_ndp` (clients)
 
 ```json
@@ -337,8 +390,8 @@ boots it in QEMU with KVM (tools/integration/opnsense/vm.py):
   secret (auth failed), the read user refused on the configuration history, deployments through
   the Deployer (a new VLAN network with Kea subnet and reservation; changed router address,
   DHCP pool, DNS and lease time, reservation and tagged VLANs on the trunk), each reverted to
-  the original, the restore of a backup through the configuration history, and a validation
-  error of the firewall.
+  the original, the restore of a backup through the configuration history, a validation
+  error of the firewall, and health and time with the read user's privileges.
 
 The test VM is never run locally: without `IT_OPNSENSE_URL` the tests skip.
 
