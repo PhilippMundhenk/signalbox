@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ssl
+import statistics
 import time
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
@@ -362,13 +363,17 @@ async def test_kept_connection_has_no_nagle_delay(
     http = DeviceHttp(https_url, pinned_fingerprint=cert.fingerprint, timeout=5)
     try:
         await http.request("POST", "/ubus", json={}, accept=range(200, 600))
-        start = time.perf_counter()
+        durations = []
         for _ in range(25):
+            start = time.perf_counter()
             await http.request("POST", "/ubus", json={}, accept=range(200, 600))
-        elapsed = time.perf_counter() - start
+            durations.append(time.perf_counter() - start)
     finally:
         await http.close()
-    assert elapsed < 0.6, f"25 requests took {elapsed:.2f} s"
+    # The median, not the total: a loaded CI worker delays single requests by arbitrary amounts, but
+    # the stall hits every request (>= 40 ms each), while a healthy one takes a few ms.
+    median = statistics.median(durations)
+    assert median < 0.03, f"median request took {median * 1000:.0f} ms"
 
 
 async def test_unreachable(sim: OpenWrtSim) -> None:
