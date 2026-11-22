@@ -75,7 +75,7 @@ def _device_name(net: Network, device_id: str) -> str:
 
 def _port_name(net: Network, port: str) -> str:
     p = net.port(port)
-    name = p.name if p else port.split("/port/", 1)[-1]
+    name = p.label() if p else port.split("/port/", 1)[-1]
     return f"{_device_name(net, _device_of(net, port))} port {name}"
 
 
@@ -446,7 +446,8 @@ _SLOW_MBPS = 1000
     "Mbit/s, or a port runs in half duplex. A slow uplink caps every client behind it, which "
     "looks like slow internet or slow Wi-Fi; half duplex causes collisions. Common causes are a "
     "damaged cable or connector that uses only two pairs, an old patch panel, or a port set to "
-    "a fixed speed.",
+    "a fixed speed. A link slower than both ports support (1 Gbit/s on two 2.5 Gbit/s ports) is "
+    "reported as info.",
 )
 def slow(net: Network) -> Iterator[Result]:
     devices = {d.id: d for d in net.devices}
@@ -462,13 +463,27 @@ def slow(net: Network) -> Iterator[Result]:
         if any(p.kind is not PortKind.ETHERNET or p.up is False for p in ports):
             continue  # an end is down, or an aggregate or virtual port
         speeds = [p.speed_mbps for p in ports if p.speed_mbps is not None]
-        if speeds and min(speeds) < _SLOW_MBPS:
+        maxima = [p.max_speed_mbps for p in ports if p.max_speed_mbps is not None]
+        if speeds and maxima and min(speeds) >= min(maxima):
+            pass  # as fast as the slower port can go (a 100 Mbit/s-only device)
+        elif speeds and min(speeds) < _SLOW_MBPS:
             yield found(
                 f"The link {_link_name(net, link)} runs at {min(speeds)} Mbit/s.",
                 [link.id],
                 fix="Replace the cable (it may use only two pairs) or check that both ports are "
                 "set to auto-negotiation.",
                 key="speed",
+            )
+        elif speeds and len(ports) == 2 and len(maxima) == 2 and min(speeds) < min(maxima):
+            yield found(
+                f"The link {_link_name(net, link)} runs at {min(speeds)} Mbit/s, but both "
+                f"ports support {min(maxima)} Mbit/s.",
+                [link.id],
+                fix="Use a cable rated for the higher speed (Cat 5e or better for 2.5 Gbit/s, "
+                "Cat 6a for 10 Gbit/s), check that both ports advertise it in "
+                "auto-negotiation, and replace a damaged cable.",
+                severity=Severity.INFO,
+                key="max-speed",
             )
         half = [p for p in ports if p.full_duplex is False]
         if half:
@@ -494,7 +509,11 @@ def slow(net: Network) -> Iterator[Result]:
                 "replace the cable.",
                 key="duplex",
             )
-        elif p.speed_mbps is not None and p.speed_mbps <= 10:
+        elif (
+            p.speed_mbps is not None
+            and p.speed_mbps <= 10
+            and (p.max_speed_mbps is None or p.max_speed_mbps > p.speed_mbps)
+        ):
             yield found(
                 f"{_port_name(net, p.id)} runs at {p.speed_mbps} Mbit/s.",
                 [p.id],
