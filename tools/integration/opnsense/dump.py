@@ -40,6 +40,14 @@ GROUPS = {
         ("signalbox-read", "/api/diagnostics/interface/getNdp"),
         ("signalbox-read", "/api/diagnostics/interface/get_ndp"),
     ],
+    "kea": [
+        ("signalbox-read", "/api/kea/dhcpv4/search_subnet" + GRID),
+        ("signalbox-read", "/api/kea/dhcpv4/search_reservation" + GRID),
+        ("signalbox-read", "/api/kea/dhcpv4/searchSubnet" + GRID),
+        ("signalbox-read", "/api/kea/leases4/search" + GRID),
+        ("signalbox-read", "/api/interfaces/overview/interfaces_info" + GRID),
+        ("signalbox-write", "/api/interfaces/assignment/search_item" + GRID),
+    ],
     "write": [
         ("signalbox-write", "/api/interfaces/assignment/searchItem" + GRID),
         ("signalbox-write", "/api/interfaces/assignment/search_item" + GRID),
@@ -50,6 +58,24 @@ GROUPS = {
         ("root", "/api/interfaces/overview/interfaces_info" + GRID),
     ],
 }
+
+
+#: the fields worth showing of the long rows (interface overview, assignments)
+SHORT = (
+    "device", "identifier", "description", "descr", "status", "is_physical", "macaddr", "media",
+    "vlan_tag", "ipv4", "ipv6", "if", "lock", "enable", "type4", "ipaddr", "type6", "ipaddrv6",
+)  # fmt: skip
+
+
+def short(body: object) -> object:
+    rows = body.get("rows") if isinstance(body, dict) else None
+    if (
+        not isinstance(rows, list)
+        or not rows
+        or ("device" not in rows[0] and "type4" not in rows[0])
+    ):
+        return body
+    return {"rows": [{k: r[k] for k in SHORT if k in r} for r in rows if isinstance(r, dict)]}
 
 
 def main(d: Path, group: str) -> None:
@@ -65,7 +91,7 @@ def main(d: Path, group: str) -> None:
         except OSError as exc:
             status, body = 0, repr(exc)
         full[f"{user} {path}"] = {"status": status, "body": body}
-        text = body if isinstance(body, str) else json.dumps(body, separators=(",", ":"))
+        text = body if isinstance(body, str) else json.dumps(short(body), separators=(",", ":"))
         notes.append(f"{user} GET {path} -> {status}\n{text[:6000]}")
     (d / f"api-{group}.json").write_text(json.dumps(full, indent=1))
     # ten notices at most: pack the answers into ten messages
