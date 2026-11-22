@@ -20,8 +20,10 @@ How a change is translated (details and open questions in ``docs/adapters/mikrot
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -54,6 +56,10 @@ if TYPE_CHECKING:  # pragma: no cover
     from signalbox.adapters.https import DeviceHttp
     from signalbox.adapters.mikrotik import _Layout
 
+#: How long a DHCP server may stay ``invalid`` after a change ("No IP address on interface":
+#: RouterOS 7.25.1 shows that for about a second after the address of a new VLAN interface).
+SETTLE_SECONDS = 15.0
+
 #: Kinds of change the integration applies (all of them, on the RouterOS 7 ``wifi`` package).
 WRITES = frozenset(ChangeKind)
 
@@ -77,6 +83,7 @@ _SECRET_PROPS = {"security.passphrase", "passphrase", "wpa2-pre-shared-key", "wp
 #: Properties the device computes; never compared or sent when restoring.
 _READ_ONLY = {
     ".id",
+    ".about",
     ".nextid",
     "dynamic",
     "running",
@@ -491,6 +498,28 @@ class MikrotikWrites:
                 ids[str(op.ref)] = _text(created[".id"])
         self._cache.clear()
         self._layout_cache = None
+        from signalbox.adapters import mikrotik as m
+
+        touched = {
+            ids.get(op.ref or "", op.ref or "")
+            for op in ops
+            if op.menu == m.DHCP_SERVER and op.method in ("PUT", "PATCH")
+        }
+        if touched:
+            await self._settle_dhcp(touched)
+
+    async def _settle_dhcp(self, ids: set[str]) -> None:
+        """Wait until the DHCP servers just written are valid again (RouterOS checks the
+        interface's address a moment after the change); the verification judges the rest."""
+        from signalbox.adapters import mikrotik as m
+
+        deadline = time.monotonic() + SETTLE_SECONDS
+        while True:
+            rows = m._rows(await m.get_menu(self.http, m.DHCP_SERVER), m.DHCP_SERVER)
+            waiting = [r for r in rows if r.get(".id") in ids and _flag(r.get("invalid"))]
+            if not waiting or time.monotonic() > deadline:
+                return
+            await asyncio.sleep(0.5)
 
     # ROUTER -------------------------------------------------------------------------------------
 

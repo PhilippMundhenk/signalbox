@@ -666,6 +666,9 @@ class MikrotikSimulator:
     fail: dict[str, int] = field(default_factory=dict)
     #: Paths the user's group may not read: HTTP 500 "not enough permissions (9)".
     no_policy: set[str] = field(default_factory=set)
+    #: New DHCP servers answering ``invalid`` once ("No IP address on interface"), as the
+    #: real RouterOS does for a moment after the change.
+    settling: set[str] = field(default_factory=set)
     #: Installed wireless package: "wifi" (RouterOS 7 wifi), "legacy" (wireless) or "none".
     wireless: str = "wifi"
     data: dict[str, Any] = field(default_factory=sample_data)
@@ -730,6 +733,14 @@ class MikrotikSimulator:
                 )
             if path in self.no_policy:
                 return JSONResponse(NO_POLICY, status_code=500)
+            if path == DHCP_SERVER and self.settling:
+                answer = copy.deepcopy(self.data[DHCP_SERVER])
+                for row in self.data[DHCP_SERVER]:  # valid from the next read on
+                    if row.get(".id") in self.settling:
+                        row["invalid"] = "false"
+                        row.pop(".about", None)
+                self.settling.clear()
+                return JSONResponse(answer)
             data = self.answers()
             if path not in data:
                 return no_such(path)
@@ -795,6 +806,9 @@ class MikrotikSimulator:
                 return _bad(problem)
             if menu == WIFI:
                 row.setdefault("mac-address", _mac(0x0A, len(rows)))
+            if menu == DHCP_SERVER:  # RouterOS checks the interface's address a moment later
+                row.update({"invalid": "true", ".about": "No IP address on interface"})
+                self.settling.add(row[".id"])
             rows.append(row)
             self._settle(menu, row)
             return JSONResponse(row, status_code=201)
