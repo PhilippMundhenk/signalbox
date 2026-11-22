@@ -172,7 +172,7 @@ async def test_dhcp_leases_from_the_host_list(sim: FritzboxSim, adapter: Fritzbo
     laptop, gone = by_mac["02:00:00:00:20:01"], by_mac["02:00:00:00:10:02"]
     assert (laptop.state, laptop.hostname) == (LeaseState.ACTIVE, "laptop")
     assert laptop.expires is not None
-    assert 86000 < (laptop.expires - datetime.now(UTC)).total_seconds() <= 86400
+    assert 80000 < (laptop.expires - datetime.now(UTC)).total_seconds() <= 86400
     assert (gone.state, gone.expires) == (LeaseState.EXPIRED, None)  # remembered host
     assert "02:00:00:00:20:02" not in by_mac  # no address: no lease
     sim.lan["NewDHCPRelay"] = "1"

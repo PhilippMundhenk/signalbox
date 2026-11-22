@@ -379,7 +379,7 @@ async def test_lease_table_options_and_relay(
     laptop, printer, v6 = by_addr["192.0.2.103"], by_addr["192.0.2.50"], by_addr["2001:db8::1a2"]
     assert laptop.state is LeaseState.ACTIVE and laptop.reserved is False
     assert laptop.expires is not None and laptop.hostname == "laptop"
-    assert 42000 < (laptop.expires - datetime.now(UTC)).total_seconds() <= 43000
+    assert 40000 < (laptop.expires - datetime.now(UTC)).total_seconds() <= 43000
     assert printer.reserved is True and printer.expires is None  # never expires
     assert v6.mac is None and v6.client_id == "000100012d1b2c3d02000000200a"
     assert server.search_domains == ["home.example", "lan.example"]

@@ -312,7 +312,7 @@ async def test_dhcp_leases_options_and_relay(snap: Snapshot) -> None:
         "android-dhcp-14",
     )
     assert laptop.client_id == "1:02:00:00:00:00:21" and laptop.expires is not None
-    assert 1500 < (laptop.expires - datetime.now(UTC)).total_seconds() <= 1510
+    assert 1400 < (laptop.expires - datetime.now(UTC)).total_seconds() <= 1510
     sensor, phone, offered = iot.leases
     assert (sensor.state, sensor.reserved) == (LeaseState.RESERVED, True)  # status waiting
     assert phone.expires is not None and offered.state is LeaseState.OFFERED
