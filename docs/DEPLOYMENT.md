@@ -7,7 +7,10 @@ The image `ghcr.io/philippmundhenk/signalbox` is built for amd64 and arm64. Tags
 keeps everything in `/data`, listens on port 8080 and has a healthcheck on `/health`.
 
 Signalbox only makes outgoing HTTPS connections to your devices, so the normal bridged network
-of Docker is enough; no host networking is needed.
+of Docker is enough; no host networking is needed. The exception are small switches managed
+over UDP: TP-Link Easy Smart switches answer by broadcast and need host networking
+(`network_mode: host`), NETGEAR ProSAFE Plus switches may; see
+[adapters/plusswitch.md](adapters/plusswitch.md).
 
 [docker-compose.yml](../docker-compose.yml) is the recommended setup, with the common settings
 commented. All settings: [CONFIGURATION.md](CONFIGURATION.md).
@@ -49,6 +52,9 @@ cannot change anything:
 - Fritz!Box: a user of its own with only the right "FRITZ!Box settings" (TR-064 has no
   read-only right), see [adapters/fritzbox.md](adapters/fritzbox.md)
 - TP-Link Omada: an Open API client with the Viewer role, see [adapters/omada.md](adapters/omada.md)
+- NETGEAR ProSAFE Plus, TP-Link Easy Smart: these switches have one management login only,
+  sent obfuscated, not encrypted; keep Signalbox in the switches' management network, see
+  [adapters/plusswitch.md](adapters/plusswitch.md)
 
 ## Updates
 
@@ -57,5 +63,6 @@ Signalbox refuses to open a database written by a newer one, so restore a backup
 
 ## Without Docker
 
-Python 3.11 or newer: `pip install .`, then `signalbox --data /path/to/data serve`. Run it as an
+Python 3.11 or newer: `pip install .` (with `".[switches]"` for NETGEAR ProSAFE Plus and
+TP-Link Easy Smart switches, which needs git), then `signalbox --data /path/to/data serve`. Run it as an
 unprivileged user, for example as a systemd service.
