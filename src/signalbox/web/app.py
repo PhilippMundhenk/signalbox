@@ -105,7 +105,9 @@ def public_network(net: Network) -> dict[str, Any]:
     """The network as JSON for the UI: passphrase fingerprints never leave the server.
 
     Uplinks get the derived ``nat_class`` and ``upstream_device`` (the known router in front,
-    #148) so that the UI does not repeat the classification.
+    #148), management services the segments that can reach them (``reach_segments``) and
+    whether the internet can (``internet``, ``null``: the firewall decides, #173), so that the
+    UI does not repeat the derivation.
     """
     data = net.model_dump(mode="json")
     for wlan in data["wlans"]:
@@ -115,6 +117,9 @@ def public_network(net: Network) -> dict[str, Any]:
         front = net.upstream_router(uplink)
         raw["nat_class"] = nat.value if nat else None
         raw["upstream_device"] = front.device_id if front else None
+    for service, raw in zip(net.services, data["services"], strict=True):
+        raw["reach_segments"] = net.service_segments(service)
+        raw["internet"] = net.service_from_wan(service)
     return data
 
 
@@ -493,7 +498,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
 
     @api.get("/network")
     def network() -> dict[str, Any]:
-        """The merged network model (no passphrase fingerprints; uplinks with NAT class)."""
+        """The merged network model (no passphrase fingerprints; derived uplink/service values)."""
         return public_network(runner.network())
 
     @api.get("/findings")
