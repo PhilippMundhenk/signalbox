@@ -1,0 +1,10 @@
+# gitleaks configuration: the default rules plus narrow, explained exceptions.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public protocol constants in test fixtures, not secrets"
+# The first 16 bytes of the RC4 keystream of TP-Link's Easy Smart protocol. The key is a fixed,
+# published protocol constant (see docs/adr/0003-switchyard-library.md and Switchyard's
+# docs/PROTOCOL-EASYSMART.md); tests/fixtures/switches/captures.json pins it.
+regexes = ['''5c746a047dbeb0b2fb6b06c314957e95''']

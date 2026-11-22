@@ -547,7 +547,11 @@
       "port_id": "recorded/port/lan",
       "mode": "untagged"
      }
-    ]
+    ],
+    "purpose": null,
+    "purpose_source": null,
+    "reported_purpose": null,
+    "isolated": null
    },
    {
     "id": "home/segment/guest",
@@ -561,7 +565,11 @@
     "site_id": "home",
     "vlan": null,
     "name": "Guest network",
-    "members": []
+    "members": [],
+    "purpose": "guest",
+    "purpose_source": "reported",
+    "reported_purpose": null,
+    "isolated": true
    }
   ],
   "subnets": [
@@ -670,7 +678,11 @@
     "hidden": false,
     "roaming_80211r": null,
     "roaming_80211k": null,
-    "roaming_80211v": null
+    "roaming_80211v": null,
+    "purpose": null,
+    "purpose_source": null,
+    "reported_purpose": null,
+    "client_isolation": null
    },
    {
     "id": "recorded/wlan/2",
@@ -694,7 +706,11 @@
     "hidden": false,
     "roaming_80211r": null,
     "roaming_80211k": null,
-    "roaming_80211v": null
+    "roaming_80211v": null,
+    "purpose": null,
+    "purpose_source": null,
+    "reported_purpose": null,
+    "client_isolation": null
    },
    {
     "id": "recorded/wlan/3",
@@ -719,7 +735,11 @@
     "hidden": false,
     "roaming_80211r": null,
     "roaming_80211k": null,
-    "roaming_80211v": null
+    "roaming_80211v": null,
+    "purpose": "guest",
+    "purpose_source": "reported",
+    "reported_purpose": null,
+    "client_isolation": null
    }
   ],
   "clients": [
