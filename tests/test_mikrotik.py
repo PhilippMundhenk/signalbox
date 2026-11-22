@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 from collections.abc import Iterator
+from datetime import UTC, date, datetime, timedelta
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
@@ -20,15 +21,19 @@ from signalbox.adapters.mikrotik import (
     BRIDGE_HOST,
     BRIDGE_PORT,
     BRIDGE_VLAN,
+    CLOCK,
     DHCP_LEASE,
     DHCP_SERVER,
     DNS,
     DNS_STATIC,
+    HEALTH,
     INTERFACE,
     IP_ADDRESS,
     IPV6_ADDRESS,
     LIST_MEMBER,
     NEIGHBOR,
+    NTP_CLIENT,
+    NTP_SERVER,
     PACKAGE_UPDATE,
     POOL,
     RESOURCE,
@@ -40,10 +45,14 @@ from signalbox.adapters.mikrotik import (
     _int,
     _object,
     band_of,
+    clock_date,
     duration,
     frequency_channel,
+    gmt_offset,
+    health_rows,
     security_of,
     speed,
+    time_of,
     vlan_ids,
     width_of,
 )
@@ -52,6 +61,8 @@ from signalbox.model import (
     DeviceRole,
     DeviceStatus,
     Membership,
+    NtpClient,
+    NtpServer,
     Pmf,
     Security,
     Snapshot,
@@ -712,3 +723,153 @@ async def test_simulator_rejects_odd_auth(http_url: str, header: str) -> None:
     async with httpx.AsyncClient(trust_env=False) as client:
         response = await client.get(http_url + RESOURCE, headers={"Authorization": header})
     assert response.status_code == 401
+
+
+# --- health and time (#178, #179) ------------------------------------------------------------
+
+
+async def test_health(snap: Snapshot) -> None:
+    h = snap.device.health
+    assert h is not None
+    assert (h.uptime_seconds, h.cpu_load_pct, h.cpu_count) == (273906, 3, 4)
+    assert (h.memory_total_bytes, h.memory_used_bytes) == (268435456, 268435456 - 190000000)
+    assert [(s.name, s.kind.value, s.total_bytes, s.used_bytes) for s in h.storage] == [
+        ("hdd", "system", 134217728, 134217728 - 103260160)
+    ]
+    assert [(t.name, t.value_c) for t in h.temperatures] == [("cpu-temperature", 52)]
+    assert h.fans == h.power_supplies == []
+    assert h.boot_time is not None and "health" in snap.device.capabilities
+
+
+async def test_time(snap: Snapshot) -> None:
+    t = snap.device.time
+    assert t is not None and t.clock is not None and t.read_at is not None
+    offset = t.offset_seconds()
+    assert offset is not None and abs(offset) < 2
+    assert t.uncertainty_seconds is not None and 0.5 <= t.uncertainty_seconds < 2
+    assert (t.timezone, t.utc_offset_minutes) == ("Europe/Berlin", 60)
+    assert t.clock.utcoffset() == timedelta(hours=1)
+    assert t.ntp_client == NtpClient(
+        enabled=True,
+        servers=["0.pool.ntp.org", "1.pool.ntp.org"],
+        synchronised=True,
+        stratum=2,
+        current_server="203.0.113.123",
+    )
+    assert t.ntp_server == NtpServer(enabled=True)
+    lan = next(s for s in snap.dhcp_servers if s.id == "rt/dhcp/defconf")
+    iot = next(s for s in snap.dhcp_servers if s.id == "rt/dhcp/iot-dhcp")
+    assert lan.ntp_servers == [ip_address("192.0.2.1")] and iot.ntp_servers == []
+
+
+async def test_health_of_a_switch_with_fans_and_psus(http_url: str, sim: MikrotikSimulator) -> None:
+    """A CRS3xx-like answer: temperatures, fans, PSU states, input voltage, odd rows."""
+    sim.data[HEALTH] = [
+        {".id": "*1", "name": "fan-state", "value": "ok", "type": ""},
+        {".id": "*2", "name": "fan1-speed", "value": "5400", "type": "RPM"},
+        {".id": "*3", "name": "fan2-speed", "value": "0", "type": "RPM"},
+        {".id": "*4", "name": "fan2-state", "value": "fail", "type": ""},
+        {".id": "*5", "name": "psu1-state", "value": "ok", "type": ""},
+        {".id": "*6", "name": "psu2-state", "value": "fail", "type": ""},
+        {".id": "*7", "name": "board-temperature1", "value": "38", "type": "C"},
+        {".id": "*8", "name": "switch-temperature", "value": "61.5", "type": ""},
+        {".id": "*9", "name": "voltage", "value": "24.1", "type": "V"},
+        {".id": "*A", "name": "", "value": "1", "type": "C"},
+        {".id": "*B", "name": "poe-out-status", "value": "on", "type": ""},
+        {".id": "*C", "name": "jitter", "value": "-1", "type": "V"},
+        "not a row",
+    ]
+    snap = await observe(adapter(http_url))
+    h = snap.device.health
+    assert h is not None
+    assert [(f.name, f.rpm, f.ok) for f in h.fans] == [
+        ("fan", None, True),
+        ("fan1", 5400, None),
+        ("fan2", 0, False),
+    ]
+    assert [(p.name, p.ok) for p in h.power_supplies] == [("psu1", True), ("psu2", False)]
+    assert [(t.name, t.value_c) for t in h.temperatures] == [
+        ("board-temperature1", 38),
+        ("switch-temperature", 61.5),
+    ]
+
+
+async def test_health_of_chr_and_old_shapes(http_url: str, sim: MikrotikSimulator) -> None:
+    """CHR answers no sensor rows (RouterOS 7.25.1 in CI): nothing, not an error. A single
+    object (older versions) and a router with voltage and power consumption only."""
+    sim.data[HEALTH] = []
+    sim.data[RESOURCE] = {
+        **sim.data[RESOURCE],
+        "free-memory": "x",
+        "total-hdd-space": "0",
+        "cpu-load": "120",
+    }
+    snap = await observe(adapter(http_url))
+    h = snap.device.health
+    assert h is not None and not snap.errors
+    assert h.temperatures == h.fans == h.power_supplies == h.storage == []
+    assert h.memory_used_bytes is None and h.cpu_load_pct is None
+    sim.data[HEALTH] = {"voltage": "12.2", "power-consumption": "4.5", "temperature": "41"}
+    h = (await observe(adapter(http_url))).device.health
+    assert h is not None
+    assert [(p.name, p.input_voltage, p.watts) for p in h.power_supplies] == [("power", 12.2, 4.5)]
+    assert [t.name for t in h.temperatures] == ["temperature"]
+    del sim.data[HEALTH]  # a device without the menu
+    h = (await observe(adapter(http_url))).device.health
+    assert h is not None and h.temperatures == [] and h.uptime_seconds == 273906
+
+
+async def test_time_without_ntp_and_odd_clock(http_url: str, sim: MikrotikSimulator) -> None:
+    sim.clock_ticks = False
+    sim.data[CLOCK] = {"date": "nov/22/2026", "time": "25:00:00", "gmt-offset": "+05:30"}
+    sim.data[NTP_CLIENT] = {
+        "enabled": "false",
+        "primary-ntp": "192.0.2.1",
+        "secondary-ntp": "0.0.0.0",
+    }
+    del sim.data[NTP_SERVER]
+    snap = await observe(adapter(http_url))
+    t = snap.device.time
+    assert t is not None
+    assert t.read_at is None and t.utc_offset_minutes == 330
+    assert t.ntp_client == NtpClient(enabled=False, servers=["192.0.2.1"])
+    assert t.ntp_server is None and t.timezone is None
+    del sim.data[NTP_CLIENT]
+    sim.data[CLOCK] = {"date": "2026-11-22", "time": "10:00:00", "time-zone-name": "manual"}
+    t = (await observe(adapter(http_url))).device.time
+    assert t is not None and t.ntp_client is None and t.clock is None and t.timezone is None
+
+
+async def test_time_errors_are_partial(http_url: str, sim: MikrotikSimulator) -> None:
+    sim.no_policy = {CLOCK}
+    sim.malformed = {HEALTH}
+    snap = await observe(adapter(http_url))
+    assert snap.status is DeviceStatus.PARTIAL
+    assert set(errors(snap)) == {"time", "health"}
+    assert snap.device.time is None and snap.device.health is None
+
+
+def test_health_and_time_helpers() -> None:
+    assert clock_date("nov/22/2026") == date(2026, 11, 22)
+    assert clock_date("2026-11-22") == date(2026, 11, 22)
+    assert clock_date("smarch/1/2026") is None and clock_date(None) is None
+    assert gmt_offset("+01:00") == 60 and gmt_offset("-05:30") == -330
+    assert gmt_offset(3600) == 60 and gmt_offset("-3600") == -60 and gmt_offset("") is None
+    assert health_rows({".id": "*1", "temperature": "40"}) == [
+        {"name": "temperature", "value": "40"}
+    ]
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    far = time_of(
+        {"date": "2026-01-01", "time": "00:00:00", "gmt-offset": "+20:00"}, None, None, start, start
+    )
+    assert far.utc_offset_minutes is None and far.clock is None
+    ok = time_of(
+        {"date": "2026-01-01", "time": "01:00:00", "gmt-offset": "+01:00"},
+        {"enabled": "true", "servers": "a", "status": "started", "synced-stratum": "99"},
+        {"enabled": "false"},
+        start,
+        start + timedelta(seconds=1),
+    )
+    assert ok.offset_seconds() == 0 and ok.uncertainty_seconds == 1
+    assert ok.ntp_client == NtpClient(enabled=True, servers=["a"], synchronised=False)
+    assert ok.ntp_server == NtpServer(enabled=False)

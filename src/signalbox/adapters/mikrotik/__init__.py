@@ -25,9 +25,11 @@ the interface list ``WAN`` are the uplink: ports only, no segment, no subnets.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import UTC, date, datetime, timedelta, timezone
 from ipaddress import IPv4Interface, ip_address, ip_interface, ip_network
 from typing import Any
 
@@ -49,25 +51,34 @@ from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.model import (
     Band,
     Client,
+    DeviceHealth,
     DeviceRole,
+    DeviceTime,
     DhcpPool,
     DhcpServer,
     DnsService,
+    Fan,
     Firmware,
     HostRecord,
     IPAddress,
     IPInterface,
     Membership,
     Neighbour,
+    NtpClient,
+    NtpServer,
     Pmf,
     Port,
     PortKind,
     PortMembership,
+    PowerSupply,
     Radio,
     Reservation,
     Security,
     Segment,
+    StorageKind,
+    StorageUsage,
     Subnet,
+    TemperatureSensor,
     Wlan,
     normalise_mac,
     object_id,
@@ -108,6 +119,10 @@ WIFI_REGISTRATION = "/rest/interface/wifi/registration-table"
 WIRELESS = "/rest/interface/wireless"
 WIRELESS_SECURITY = "/rest/interface/wireless/security-profiles"
 WIRELESS_REGISTRATION = "/rest/interface/wireless/registration-table"
+HEALTH = "/rest/system/health"
+CLOCK = "/rest/system/clock"
+NTP_CLIENT = "/rest/system/ntp/client"
+NTP_SERVER = "/rest/system/ntp/server"
 
 #: Name of the interface list RouterOS' default configuration puts the uplink into.
 WAN_LIST = "WAN"
@@ -423,7 +438,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         id="mikrotik",
         name="MikroTik RouterOS",
         version="0.2.0",
-        api_version="1.0",
+        api_version="1.2",
         vendor="MikroTik",
         roles=frozenset({DeviceRole.GATEWAY, DeviceRole.SWITCH, DeviceRole.AP}),
         capabilities=frozenset(
@@ -434,6 +449,8 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 Capability.WIRELESS,
                 Capability.CLIENTS,
                 Capability.NEIGHBOURS,
+                Capability.HEALTH,
+                Capability.TIME,
             }
         ),
         config=MikrotikConfig,
@@ -748,6 +765,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     dns_servers=_addrs(net_row.get("dns-server")),
                     domain=_text(net_row.get("domain")) or None,
                     reservations=reservations,
+                    ntp_servers=_addrs(net_row.get("ntp-server")),
                     vendor_extra=_extra(row, "interface", "address-pool")
                     | ({"network": str(net)} if net else {}),
                 )
@@ -1050,6 +1068,29 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             )
         return Observation(neighbours=list(neighbours.values()))
 
+    # --- health and time ----------------------------------------------------------------------
+
+    async def read_health(self) -> Observation:
+        resource = _object(await self._get(RESOURCE), RESOURCE)
+        try:
+            sensors = health_rows(await self._get(HEALTH))
+        except NotFound:  # a device without the menu: no sensors
+            sensors = []
+        value = health_of(resource, sensors)
+        return Observation(health={self.context.device_id: value})
+
+    async def read_time(self) -> Observation:
+        start = datetime.now(UTC)
+        clock = _object(await get_menu(self.http, CLOCK), CLOCK)
+        end = datetime.now(UTC)
+        client = server = None
+        with contextlib.suppress(NotFound):
+            client = _object(await self._get(NTP_CLIENT), NTP_CLIENT)
+        with contextlib.suppress(NotFound):
+            server = _object(await self._get(NTP_SERVER), NTP_SERVER)
+        value = time_of(clock, client, server, start, end)
+        return Observation(time={self.context.device_id: value})
+
 
 def _sort_key(address: IPAddress) -> tuple[int, int]:
     return (address.version, int(address))
@@ -1061,6 +1102,197 @@ def _unique(addresses: Iterable[IPAddress]) -> list[IPAddress]:
         if a not in out:
             out.append(a)
     return out
+
+
+# --- health and time parsing ------------------------------------------------------------------
+
+
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    match = re.match(r"-?\d+(?:\.\d+)?", _text(value))
+    return float(match.group()) if match else None
+
+
+def health_rows(data: Any, endpoint: str = HEALTH) -> list[dict[str, Any]]:
+    """``/system/health``: RouterOS 7 answers rows ``{name, value, type}`` (CHR: none). The
+    single object of older versions (``{"temperature": "45", "voltage": "24.1"}``) is turned
+    into such rows."""
+    if isinstance(data, dict):
+        return [{"name": k, "value": v} for k, v in data.items() if not k.startswith(".")]
+    return _rows(data, endpoint)
+
+
+_FAN = re.compile(r"(fan\d*)-speed")
+_FAN_STATE = re.compile(r"(fan\d*)-state")
+_PSU_STATE = re.compile(r"(psu\d*)-state")
+
+
+def _ok(value: Any) -> bool:
+    return _text(value).lower() == "ok"
+
+
+def health_of(resource: dict[str, Any], sensors: list[dict[str, Any]]) -> DeviceHealth:
+    """``/system/resource`` and the ``/system/health`` rows as :class:`DeviceHealth`.
+
+    Memory used is total minus free (RouterOS counts no page cache as used). The ``hdd`` (the
+    flash of a RouterBOARD, the disk of CHR/x86) holds the configuration and the packages:
+    storage of kind ``system``. Sensors: type ``C`` (or a name with ``temperature``) is a
+    temperature, ``fanN-speed`` (type ``RPM``) and ``fanN-state`` a fan, ``psuN-state`` a power
+    supply; ``voltage`` and ``power-consumption`` without power supply rows describe the one
+    power input.
+    """
+    total, free = _int(resource.get("total-memory")), _int(resource.get("free-memory"))
+    used = None
+    if total and free is not None and 0 <= free <= total:
+        used = total - free
+    storage = []
+    disk, disk_free = _int(resource.get("total-hdd-space")), _int(resource.get("free-hdd-space"))
+    if disk:
+        disk_used = None
+        if disk_free is not None and 0 <= disk_free <= disk:
+            disk_used = disk - disk_free
+        storage.append(
+            StorageUsage(
+                name="hdd", kind=StorageKind.SYSTEM, total_bytes=disk, used_bytes=disk_used
+            )
+        )
+    load = _int(resource.get("cpu-load"))
+    count = _int(resource.get("cpu-count"))
+    temps: list[TemperatureSensor] = []
+    fans: dict[str, Fan] = {}
+    psus: dict[str, PowerSupply] = {}
+    power: dict[str, float] = {}
+    for row in sensors:
+        name, raw = _text(row.get("name")), row.get("value")
+        unit = _text(row.get("type")).upper()
+        number = _number(raw)
+        if not name:
+            continue
+        if (m := _PSU_STATE.fullmatch(name)) is not None:
+            psus[m.group(1)] = PowerSupply(name=m.group(1), ok=_ok(raw))
+        elif (m := _FAN_STATE.fullmatch(name)) is not None:
+            key = m.group(1)
+            fans[key] = fans.get(key, Fan(name=key)).model_copy(update={"ok": _ok(raw)})
+        elif number is None:
+            continue
+        elif (m := _FAN.fullmatch(name)) is not None or unit == "RPM":
+            key = m.group(1) if m else name
+            rpm = max(int(number), 0)
+            fans[key] = fans.get(key, Fan(name=key)).model_copy(update={"rpm": rpm})
+        elif unit == "C" or "temperature" in name:
+            temps.append(TemperatureSensor(name=name, value_c=number))
+        elif name in ("voltage", "power-consumption") and number >= 0:
+            power[name] = number
+    supplies = list(psus.values())
+    if not supplies and power:
+        supplies = [
+            PowerSupply(
+                name="power",
+                input_voltage=power.get("voltage"),
+                watts=power.get("power-consumption"),
+            )
+        ]
+    return DeviceHealth(
+        uptime_seconds=duration(resource.get("uptime")),
+        cpu_load_pct=load if load is not None and 0 <= load <= 100 else None,
+        cpu_count=count if count and count > 0 else None,
+        memory_total_bytes=total or None,
+        memory_used_bytes=used,
+        storage=storage,
+        temperatures=temps,
+        fans=list(fans.values()),
+        power_supplies=supplies,
+    )
+
+
+_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+_OFFSET = re.compile(r"([+-])(\d{1,2}):(\d\d)")
+_CLOCK = re.compile(r"(\d\d?):(\d\d):(\d\d)")
+
+
+def clock_date(value: Any) -> date | None:
+    """``2026-11-22`` (RouterOS 7.10 and later) or ``nov/22/2026`` (older)."""
+    text = _text(value).lower()
+    try:
+        if "/" in text:
+            month, day, year = text.split("/")
+            return date(int(year), _MONTHS.index(month) + 1, int(day))
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def gmt_offset(value: Any) -> int | None:
+    """``+01:00``, ``-05:30`` (or seconds, ``3600``) -> minutes east of UTC."""
+    text = _text(value) if not isinstance(value, int) else str(value)
+    if (m := _OFFSET.fullmatch(text)) is not None:
+        minutes = int(m.group(2)) * 60 + int(m.group(3))
+        return -minutes if m.group(1) == "-" else minutes
+    if re.fullmatch(r"-?\d+", text):
+        return int(text) // 60
+    return None
+
+
+def time_of(
+    clock: dict[str, Any],
+    client: dict[str, Any] | None,
+    server: dict[str, Any] | None,
+    start: datetime,
+    end: datetime,
+) -> DeviceTime:
+    """``/system/clock`` (read between ``start`` and ``end``) and the NTP client and server.
+
+    The clock has whole seconds: the device's time lies within that second, so ``clock`` is its
+    middle and the uncertainty half the round trip plus half a second. ``time-zone-name``
+    ``manual`` is no zone (only the offset). NTP ``status`` ``synchronized`` is in sync, any
+    other status of an enabled client not (yet).
+    """
+    offset = gmt_offset(clock.get("gmt-offset"))
+    if offset is not None and abs(offset) > 1080:
+        offset = None
+    day = clock_date(clock.get("date"))
+    match = _CLOCK.fullmatch(_text(clock.get("time")))
+    stamp = None
+    if day is not None and match is not None and offset is not None:
+        hh, mm, ss = (int(g) for g in match.groups())
+        try:
+            stamp = datetime(
+                day.year, day.month, day.day, hh, mm, ss, tzinfo=timezone(timedelta(minutes=offset))
+            )
+        except ValueError:
+            stamp = None
+    half = (end - start) / 2
+    zone = _text(clock.get("time-zone-name"))
+    ntp_client = None
+    if client is not None:
+        servers = _names(client.get("servers")) or [
+            s
+            for key in ("primary-ntp", "secondary-ntp", "server-dns-names")
+            for s in _names(client.get(key))
+            if s != "0.0.0.0"
+        ]
+        enabled = _flag(client.get("enabled"))
+        status = _text(client.get("status")).lower()
+        stratum = _int(client.get("synced-stratum"))
+        ntp_client = NtpClient(
+            enabled=enabled,
+            servers=servers,
+            synchronised=(status == "synchronized") if enabled and status else None,
+            stratum=stratum if stratum is not None and 0 <= stratum <= 16 else None,
+            current_server=_text(client.get("synced-server")) or None,
+        )
+    return DeviceTime(
+        clock=stamp + timedelta(seconds=0.5) if stamp else None,
+        read_at=start + half if stamp else None,
+        uncertainty_seconds=half.total_seconds() + 0.5 if stamp else None,
+        timezone=zone if zone and zone != "manual" else None,
+        utc_offset_minutes=offset,
+        ntp_client=ntp_client,
+        ntp_server=NtpServer(enabled=_flag(server.get("enabled"))) if server is not None else None,
+    )
 
 
 __all__ = ["MikrotikAdapter", "MikrotikConfig", "get_menu"]
