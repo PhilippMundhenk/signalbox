@@ -569,6 +569,26 @@ async def test_prosafe_old_firmware_refuses_the_identity_read(
     assert sim.switches[0].failed_logins == 0
 
 
+@needs_switchyard
+@pytest.mark.parametrize("refused", ["read_vlan", "read_lag"])
+async def test_prosafe_old_firmware_refuses_vlan_or_lag(
+    nsdp: Start, monkeypatch: pytest.MonkeyPatch, refused: str
+) -> None:
+    """Old firmware answers the VLAN or LAG read with "incorrect password": the ports stay."""
+    from switchyard.nsdp import client as nsdp_client
+
+    async def no(self: Any) -> Any:
+        raise nsdp_client.NsdpError(7)
+
+    monkeypatch.setattr(nsdp_client.SwitchClient, refused, no)
+    sim, port = await nsdp(netgear())
+    snap = await ProsafeAdapter(_context(ProsafeAdapter, port)).observe()
+    assert snap.status is DeviceStatus.PARTIAL
+    assert snap.ports and sim.switches[0].failed_logins == 0
+    [gap] = snap.errors
+    assert gap.capability == "interfaces" and "without a password" in gap.message and gap.fix
+
+
 def test_refused_setting_is_named() -> None:
     from switchyard.drivers import base as errors
     from switchyard.nsdp import client as nsdp_client
@@ -653,10 +673,9 @@ async def test_failed_vlan_read_keeps_the_identity(
     monkeypatch.setattr(SwitchClient, "read_vlan", broken)
     _, port = await nsdp(netgear())
     snap = await ProsafeAdapter(_context(ProsafeAdapter, port)).observe()
-    assert snap.status is DeviceStatus.PARTIAL
-    assert snap.device.model == "GS108E" and snap.ports == []
+    assert snap.status is DeviceStatus.PARTIAL  # the ports are kept, VLANs reported missing
+    assert snap.device.model == "GS108E" and snap.ports
     assert snap.errors[0].capability == "interfaces"
-    assert "does not support" in snap.errors[0].message
 
 
 @needs_switchyard

@@ -43,6 +43,7 @@ from signalbox.adapters import (
     AuthFailed,
     Backup,
     Capability,
+    Gap,
     Manifest,
     Observation,
     SystemInfo,
@@ -117,6 +118,8 @@ class _Reading:
     admin: dict[int, dict[str, Any]] | None = None
     #: why ports/VLANs could not be read (the identity could)
     error: AdapterError | None = None
+    #: optional parts the switch refused to read (old firmware protects some settings)
+    skipped: list[str] = field(default_factory=list)
 
 
 # -- sessions take turns per UDP port; refused passwords are not resent ------------------
@@ -249,6 +252,18 @@ class _PlusSwitch(Adapter):
                 reading.lag,
                 reading.admin,
             )
+            gaps = [
+                Gap(
+                    message=f"{self._host}: the switch did not give its {what} without a "
+                    "password; ports are read, the checks that need them are incomplete",
+                    fix='This firmware answers these reads only with "incorrect password"; '
+                    "Signalbox reads without logging in, as Switchyard does. A newer firmware "
+                    "for the switch may answer them. Until then the VLAN and link checks for "
+                    "this switch are incomplete; acknowledge them if that is fine.",
+                )
+                for what in reading.skipped
+            ]
+            return observed.model_copy(update={"incomplete": gaps}) if gaps else observed
         except (ValueError, TypeError, AttributeError) as exc:
             raise AdapterError(f"{self._host}: unexpected port or VLAN answer: {exc}") from exc
         return observed.model_copy(update={"services": self._services()})
@@ -378,14 +393,38 @@ class _PlusSwitch(Adapter):
     def _device_port(self) -> int:
         raise NotImplementedError
 
-    async def _read_rest(self, reading: _Reading, *reads: Callable[[], Awaitable[Any]]) -> None:
-        """Ports, VLANs and LAGs; a failure here leaves the identity usable."""
+    async def _read_rest(
+        self,
+        reading: _Reading,
+        ports: Callable[[], Awaitable[Any]],
+        vlan: Callable[[], Awaitable[Any]],
+        lag: Callable[[], Awaitable[Any]],
+    ) -> None:
+        """Ports, VLANs and LAGs; a failure here leaves the identity usable.
+
+        VLANs and LAGs are optional: old NETGEAR firmware answers some of these reads with
+        "incorrect password" even when read without one; the ports are kept then.
+        """
+        errors = self._errors
         try:
-            ports, vlan, lag = [await read() for read in reads]
-        except (self._errors.SwitchError, self._errors.Unreachable, *_PARSE_ERRORS) as exc:
-            reading.error = _translate(exc, self._errors, self._host)
+            reading.ports = list(await ports())
+        except (errors.SwitchError, errors.Unreachable, *_PARSE_ERRORS) as exc:
+            reading.error = _translate(exc, errors, self._host)
             return
-        reading.ports, reading.vlan, reading.lag = list(ports), vlan, lag
+        for name, read in (("VLANs", vlan), ("link aggregation", lag)):
+            try:
+                value = await read()
+            except errors.Unreachable as exc:
+                reading.error = _translate(exc, errors, self._host)
+                return
+            except (errors.SwitchError, *_PARSE_ERRORS) as exc:
+                log.info("%s: %s not read: %s", self._host, name, exc)
+                reading.skipped.append(name)
+                continue
+            if name == "VLANs":
+                reading.vlan = value
+            else:
+                reading.lag = value
 
     async def _read_admin(self, reading: _Reading, client: Any) -> None:
         """Port settings (enabled, speed, flow control): optional, the rest stands without."""
