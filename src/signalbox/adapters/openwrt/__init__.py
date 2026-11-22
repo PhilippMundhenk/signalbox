@@ -48,7 +48,12 @@ from signalbox.model import (
     Cipher,
     Client,
     DeviceRole,
+    DhcpBoot,
+    DhcpLease,
+    DhcpOption,
     DhcpPool,
+    DhcpRelay,
+    DhcpRoute,
     DhcpServer,
     DnsForwarder,
     DnsService,
@@ -56,6 +61,7 @@ from signalbox.model import (
     HostRecord,
     IPAddress,
     IPInterface,
+    LeaseState,
     ManagementService,
     Membership,
     Neighbour,
@@ -182,6 +188,75 @@ def _addresses(text: str) -> list[IPAddress]:
 
 def _extra(section: dict[str, Any], *keys: str) -> dict[str, JsonValue]:
     return {k: section[k] for k in keys if isinstance(section.get(k), str | int | bool)}
+
+
+_OPTION_NAMES = {
+    "router": 3,
+    "dns-server": 6,
+    "time-server": 4,
+    "domain-name": 15,
+    "domain": 15,
+    "ntp-server": 42,
+    "tftp-server": 66,
+    "bootfile-name": 67,
+    "domain-search": 119,
+    "classless-static-route": 121,
+    "wpad": 252,
+}
+_TYPED = frozenset({3, 6, 15, 42, 51, 66, 67, 119, 121})
+
+
+def dhcp_options(raw: list[str]) -> dict[int, tuple[str | None, str]]:
+    """``dhcp_option`` entries (``6,192.0.2.1``, ``option:ntp-server,192.0.2.1``, ``121,...``)
+    as code -> (name, value); the first entry of a code wins, ``tag:`` and ``vendor:`` ones and
+    unknown names are left out."""
+    out: dict[int, tuple[str | None, str]] = {}
+    for entry in raw:
+        key, _, value = entry.partition(",")
+        key = key.removeprefix("option:")
+        if not value or ":" in key:
+            continue
+        code = _int(key) if key.isdigit() else _OPTION_NAMES.get(key)
+        if code is not None and 1 <= code <= 254:
+            out.setdefault(code, (None if key.isdigit() else key, value))
+    return out
+
+
+def _routes(text: str) -> list[DhcpRoute]:
+    """``203.0.113.0/24,198.51.100.254,192.0.2.0/24,198.51.100.253``: destination, gateway pairs."""
+    parts = [p for p in text.split(",") if p]
+    out = []
+    for dest, gateway in zip(parts[::2], parts[1::2], strict=False):
+        with contextlib.suppress(ValueError):
+            out.append(
+                DhcpRoute(destination=ip_network(dest, strict=False), gateway=ip_address(gateway))
+            )
+    return out
+
+
+def _boot(dnsmasq: dict[str, Any]) -> tuple[str, str, str] | None:
+    """``dhcp_boot`` of the dnsmasq section: ``file[,servername[,server address]]``."""
+    raw = dnsmasq.get("dhcp_boot")
+    first = raw[0] if isinstance(raw, list) and raw else raw
+    if not isinstance(first, str) or not first:
+        return None
+    file, name, address = (first.split(",") + ["", ""])[:3]
+    return file, name, address
+
+
+def _boot_with(
+    boot: tuple[str, str, str] | None, coded: dict[int, tuple[str | None, str]]
+) -> DhcpBoot | None:
+    file, name, address = boot or ("", "", "")
+    name = name or coded.get(66, (None, ""))[1]
+    file = file or coded.get(67, (None, ""))[1]
+    try:
+        server = ip_address(address) if address else None
+    except ValueError:
+        server = None
+    if not (file or name or server):
+        return None
+    return DhcpBoot(next_server=server, server_name=name or None, filename=file or None)
 
 
 def lease_seconds(text: Any) -> int | None:
@@ -1014,6 +1089,7 @@ class OpenWrtAdapter(Adapter):
         uci = await self._uci("dhcp")
         view = await self._network()
         hosts: list[tuple[str, IPAddress, str | None]] = []
+        reserved: set[tuple[str | None, IPAddress]] = set()
         for _, s in _sections(uci, "host"):
             try:
                 addr = ip_address(str(s.get("ip")))
@@ -1022,6 +1098,11 @@ class OpenWrtAdapter(Adapter):
             for mac in _list(s.get("mac")):
                 if (m := _mac(mac)) is not None:
                     hosts.append((m, addr, str(s["name"]) if s.get("name") else None))
+                    reserved.add((m, addr))
+        table = await self._lease_table()
+        dnsmasq = next((x for _, x in _sections(uci, "dnsmasq")), None)
+        authoritative = _flag(dnsmasq.get("authoritative"), True) if dnsmasq is not None else None
+        boot = _boot(dnsmasq or {})
         servers: list[DhcpServer] = []
         for name, s in _sections(uci, "dhcp"):
             iface = str(s.get("interface", name))
@@ -1039,6 +1120,15 @@ class OpenWrtAdapter(Adapter):
                 last = min(first + limit - 1, net.broadcast_address - 1)
                 pools.append(DhcpPool(start=first, end=last))
             router = options.get("3") or str(v4[0].ip)
+            coded = dhcp_options(_list(s.get("dhcp_option")) + _list(s.get("dhcp_option_force")))
+            nets = [a.network for a in view.addresses(iface)]
+            leases = None
+            if table is not None:
+                leases = [
+                    lease.model_copy(update={"reserved": (lease.mac, lease.address) in reserved})
+                    for lease in table
+                    if any(lease.address in n for n in nets if n.version == lease.address.version)
+                ]
             servers.append(
                 DhcpServer(
                     id=object_id(d, "dhcp", name),
@@ -1055,10 +1145,44 @@ class OpenWrtAdapter(Adapter):
                     reservations=[
                         Reservation(mac=m, address=a, hostname=h) for m, a, h in hosts if a in net
                     ],
+                    leases=leases,
+                    search_domains=[d for d in coded.get(119, (None, ""))[1].split(",") if d],
+                    static_routes=_routes(coded.get(121, (None, ""))[1]),
+                    boot=_boot_with(boot, coded),
+                    options=[
+                        DhcpOption(code=c, name=n, value=v)
+                        for c, (n, v) in sorted(coded.items())
+                        if c not in _TYPED
+                    ],
+                    authoritative=authoritative,
                     vendor_extra=_extra(s, "dhcpv6", "ra", "ra_management"),
                 )
             )
-        return Observation(dhcp_servers=servers)
+        return Observation(dhcp_servers=servers, dhcp_relays=self._relays(uci, view))
+
+    def _relays(self, uci: dict[str, Any], view: NetworkView) -> list[DhcpRelay]:
+        """dnsmasq ``config relay`` sections (``interface``, ``server_addr``)."""
+        d = self.context.device_id
+        relays: list[DhcpRelay] = []
+        for _, s in _sections(uci, "relay"):
+            vid = view.vlan_of_interface(str(s.get("interface", "")))
+            try:
+                server = ip_address(str(s.get("server_addr")))
+            except ValueError:
+                continue
+            key = "lan" if vid == _NATIVE else str(vid)
+            if vid is None or any(r.id.endswith(f"/{key}") for r in relays):
+                continue
+            relays.append(
+                DhcpRelay(
+                    id=object_id(d, "dhcp-relay", key),
+                    device_id=d,
+                    segment_id=self._seg(vid),
+                    servers=[server],
+                    enabled=not _flag(s.get("disabled")),
+                )
+            )
+        return relays
 
     async def read_dns(self) -> Observation:
         """dnsmasq's DNS, one service per ``dnsmasq`` section of ``/etc/config/dhcp`` (#241).
@@ -1161,27 +1285,91 @@ class OpenWrtAdapter(Adapter):
 
     # clients --------------------------------------------------------------------------
 
-    async def _leases(self) -> list[tuple[str, str, str | None]]:
-        """(mac, address, hostname) from luci-rpc, else /tmp/dhcp.leases, else nothing."""
+    async def _lease_rows(self) -> list[dict[str, Any]] | None:
+        """Lease entries from luci-rpc, else /tmp/dhcp.leases, else None (neither readable): ``mac``, ``address``,
+        ``hostname``, ``expires`` (UTC, None: never or unknown), ``client_id``."""
+        now = datetime.now(UTC)
+        out: list[dict[str, Any]] = []
         try:
             data = await self.ubus.call("luci-rpc", "getDHCPLeases")
         except (NotFound, AccessDenied):
             pass
         else:
-            return [
-                (str(x.get("macaddr")), str(x.get("ipaddr")), x.get("hostname") or None)
-                for x in data.get("dhcp_leases") or []
-                if isinstance(x, dict)
-            ]
+            for x in data.get("dhcp_leases") or []:
+                if isinstance(x, dict):
+                    out.append(self._row(x.get("macaddr"), x.get("ipaddr"), x, now))
+            for x in data.get("dhcp6_leases") or []:  # odhcpd; DUID, no MAC
+                if not isinstance(x, dict):
+                    continue
+                for text in _list(x.get("ip6addrs") or x.get("ip6addr")):
+                    row = self._row(None, text.split("/")[0], x, now)
+                    row["client_id"] = str(x["duid"]) if x.get("duid") else None
+                    out.append(row)
+            return out
         try:
             data = await self.ubus.call("file", "read", {"path": "/tmp/dhcp.leases"})
         except (NotFound, AccessDenied):
-            return []
-        out = []
+            return None
         for line in str(data.get("data", "")).splitlines():
             parts = line.split()
             if len(parts) >= 4:
-                out.append((parts[1], parts[2], None if parts[3] == "*" else parts[3]))
+                epoch = _int(parts[0])
+                out.append(
+                    {
+                        "mac": parts[1],
+                        "address": parts[2],
+                        "hostname": None if parts[3] == "*" else parts[3],
+                        "expires": datetime.fromtimestamp(epoch, UTC) if epoch else None,
+                        "client_id": parts[4] if len(parts) > 4 and parts[4] != "*" else None,
+                    }
+                )
+        return out
+
+    @staticmethod
+    def _row(mac: Any, address: Any, x: dict[str, Any], now: datetime) -> dict[str, Any]:
+        """``expires`` is the seconds left (LuCI), ``false`` for a lease that never ends."""
+        left = x.get("expires")
+        seconds = left if isinstance(left, int) and not isinstance(left, bool) else None
+        return {
+            "mac": str(mac) if mac else None,
+            "address": str(address),
+            "hostname": x.get("hostname") or None,
+            "expires": now + timedelta(seconds=seconds) if seconds is not None else None,
+            "client_id": None,
+        }
+
+    async def _leases(self) -> list[tuple[str, str, str | None]]:
+        """(mac, address, hostname) for the clients."""
+        return [
+            (str(r["mac"]), r["address"], r["hostname"])
+            for r in await self._lease_rows() or []
+            if r["mac"]
+        ]
+
+    async def _lease_table(self) -> list[DhcpLease] | None:
+        """The leases as model objects; None when neither source can be read (not ``[]``)."""
+        rows = await self._lease_rows()
+        if rows is None:
+            return None
+        out = []
+        for r in rows:
+            mac = _mac(r["mac"]) if r["mac"] else None
+            try:
+                address = ip_address(r["address"])
+            except ValueError:
+                continue
+            if mac is None and not r["client_id"]:
+                continue
+            out.append(
+                DhcpLease(
+                    address=address,
+                    mac=mac,
+                    client_id=r["client_id"],
+                    hostname=r["hostname"],
+                    state=LeaseState.ACTIVE,  # dnsmasq and odhcpd list leases in use only
+                    expires=r["expires"],
+                )
+            )
         return out
 
     async def read_clients(self) -> Observation:

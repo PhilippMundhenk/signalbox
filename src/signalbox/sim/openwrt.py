@@ -426,6 +426,8 @@ def dhcp_config(router: bool) -> dict[str, Any]:
                     if router
                     else {}
                 ),
+                "authoritative": "1",
+                "dhcp_boot": "pxelinux.0,,192.0.2.5",
             },
         ),
         (
@@ -437,7 +439,15 @@ def dhcp_config(router: bool) -> dict[str, Any]:
                 "limit": "150",
                 "leasetime": "12h",
                 **(
-                    {"dhcp_option": ["6,192.0.2.1,192.0.2.53", "42,192.0.2.1"]}
+                    {
+                        "dhcp_option": [
+                            "6,192.0.2.1,192.0.2.53",
+                            "42,192.0.2.1",
+                            "119,home.example,lan.example",
+                            "121,203.0.113.0/24,192.0.2.254",
+                            "option:wpad,http://192.0.2.1/wpad.dat",
+                        ]
+                    }
                     if router
                     else {"ignore": "1"}
                 ),
@@ -447,6 +457,11 @@ def dhcp_config(router: bool) -> dict[str, Any]:
         ("host", "cfg06fe63", {"name": "printer", "mac": _fixed(1), "ip": "192.0.2.50"}),
         ("host", "cfg07fe63", {"name": "faraway", "mac": _fixed(2), "ip": "203.0.113.9"}),
         ("domain", "cfg08f37c", {"name": "printer.lan", "ip": "192.0.2.50"}),
+        (
+            "relay",
+            "cfg08fe63",
+            {"local_addr": "192.0.2.2", "server_addr": "192.0.2.53", "interface": "iot"},
+        ),
     )
 
 
@@ -930,7 +945,22 @@ class OpenWrtSim:
                 return [3]
             mac, ip, name = LEASE
             lease = {"expires": 43000, "hostname": name, "macaddr": mac, "ipaddr": ip}
-            return [0, {"dhcp_leases": [lease, {"macaddr": "bogus"}], "dhcp6_leases": []}]
+            printer = {
+                "expires": False,  # a lease that never ends
+                "hostname": "printer",
+                "macaddr": FIXED_MAC.format(1),
+                "ipaddr": "192.0.2.50",
+            }
+            v6 = {
+                "duid": "000100012d1b2c3d02000000200a",
+                "ip6addr": "2001:db8::1a2/128",
+                "hostname": "laptop",
+                "expires": 3000,
+            }
+            return [
+                0,
+                {"dhcp_leases": [lease, printer, {"macaddr": "bogus"}], "dhcp6_leases": [v6]},
+            ]
         if obj == "file" and method == "read":
             path = str(args.get("path"))
             if not any(fnmatchcase(path, allowed) for allowed in FILES):
@@ -942,7 +972,7 @@ class OpenWrtSim:
                 kind, milli = self.thermal_zones[int(n)]
                 return [0, {"data": f"{milli}\n" if leaf == "temp" else f"{kind}\n"}]
             mac, ip, name = LEASE
-            text = f"1700043000 {mac} {ip} {name} 01:{mac}\n1700043000 bogus x * *\nshort\n"
+            text = f"4102444800 {mac} {ip} {name} 01:{mac}\n0 bogus x * *\nshort\n"
             return [0, {"data": text}]
         if obj == "luci.lldpd" and self.lldpd:
             return [0, lldp_status()] if method == "getStatus" else [3]

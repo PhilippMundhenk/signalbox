@@ -315,7 +315,7 @@ seen on that WLAN, in its segment. An interface without hostapd object (not up) 
 ```
 
 ```json
-{"data": "1700043000 02:00:00:00:20:03 192.0.2.103 laptop 01:02:…\n"}
+{"data": "4102444800 02:00:00:00:20:03 192.0.2.103 laptop 01:02:…\n"}
 ```
 
 Leases add addresses and host names to the stations (and add wired clients of a DHCP server).
