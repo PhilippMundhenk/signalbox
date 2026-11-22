@@ -56,7 +56,7 @@ jobs:
         with:
           path: .vm/opnsense
           # weekly: the preparation installs the newest 26.7.x packages
-          key: opnsense-26.7-${{ hashFiles('tools/integration/opnsense/**') }}-${{ steps.week.outputs.week }}
+          key: opnsense-26.7-${{ hashFiles('tools/integration/opnsense/vm.py', 'tools/integration/opnsense/preseed.py', 'tools/integration/opnsense/privileges.json') }}-${{ steps.week.outputs.week }}
       - name: Download and verify the official image
         if: steps.cache.outputs.cache-hit != 'true'
         run: python3 tools/integration/opnsense/vm.py fetch "$VM_DIR"
@@ -71,13 +71,17 @@ jobs:
           key: ${{ steps.cache.outputs.cache-primary-key }}
       - name: Boot the test VM
         run: python3 tools/integration/opnsense/vm.py start "$VM_DIR"
+      - name: Record the API answers (read user)
+        run: python3 tools/integration/opnsense/dump.py "$VM_DIR" read
+      - name: Record the API answers (write user)
+        run: python3 tools/integration/opnsense/dump.py "$VM_DIR" write
       - name: Integration tests
         run: |
           set -o pipefail
           pytest tests/integration/test_opnsense_real.py -v -p no:cacheprovider 2>&1 \
             | tee "$VM_DIR/pytest.log" || {
               code=$?
-              summary=$(grep -E '^(FAILED|ERROR)|Error|assert' "$VM_DIR/pytest.log" | tail -n 60)
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest.log" | cut -c1-400 | tail -n 80)
               body=$(printf '%s\n--- last lines ---\n%s' "$summary" "$(tail -n 60 "$VM_DIR/pytest.log")")
               body=${body//'%'/'%25'}
               body=${body//$'\n'/'%0A'}
@@ -100,5 +104,6 @@ jobs:
           name: opnsense-logs
           path: |
             .vm/opnsense/*.log
+            .vm/opnsense/api-*.json
           if-no-files-found: ignore
           retention-days: 7
