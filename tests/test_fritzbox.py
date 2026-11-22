@@ -88,7 +88,7 @@ async def observe(ctx: AdapterContext) -> Any:
 
 async def test_contract_over_pinned_tls(adapter: FritzboxAdapter, sim: FritzboxSim) -> None:
     snap = await assert_contract(adapter)
-    assert (snap.device.vendor, snap.device.model) == ("AVM", "FRITZ!Box Example")
+    assert (snap.device.vendor, snap.device.model) == ("AVM", "FRITZ!Box 7590")
     assert snap.device.firmware is not None and snap.device.firmware.current == "154.07.57"
     assert snap.device.management_address == "127.0.0.1"
     assert adapter.http.secure
@@ -347,9 +347,21 @@ async def test_unknown_control_url_and_bad_request(sim: FritzboxSim, http_url: s
         with pytest.raises(https_mod.NotFound):
             await http.request("POST", "/upnp/control/nothing", content=b"<x/>")
         response = await http.request(
-            "POST", "/upnp/control/hosts", accept={500}, content=b"not xml"
+            "POST",
+            "/upnp/control/hosts",
+            accept={500},
+            content=b"not xml",
+            headers={"SOAPAction": '"urn:dslforum-org:service:Hosts:1#GetHostNumberOfEntries"'},
         )
         assert response.status_code == 500 and b"402" in response.content
+        response = await http.request(  # a known action, but not of this service
+            "POST",
+            "/upnp/control/hosts",
+            accept={500},
+            content=b"<x/>",
+            headers={"SOAPAction": '"urn:dslforum-org:service:DeviceInfo:1#GetInfo"'},
+        )
+        assert response.status_code == 500 and b"401" in response.content
         with pytest.raises(AdapterError, match="403"):
             await http.request("GET", "/devicehostlist.lua?sid=wrong")
     finally:
@@ -395,8 +407,8 @@ async def test_envelope_escapes_arguments(sim: FritzboxSim, http_url: str) -> No
     )
     try:
         # "<" in an argument must not break the envelope: the simulator reads the text "<1>",
-        # which is not a number, and answers "invalid arguments".
-        with pytest.raises(SoapFault, match=r"UPnP error 402 \(Invalid Args\)"):
+        # which is not a number (ui2), and answers "argument value invalid".
+        with pytest.raises(SoapFault, match=r"UPnP error 600 \(Argument Value Invalid\)"):
             await Tr064(http).call("Hosts1", "GetGenericHostEntry", NewIndex="<1>")
     finally:
         await http.close()
@@ -512,3 +524,12 @@ async def test_fewer_wlan_services(sim: FritzboxSim, adapter: FritzboxAdapter) -
     monkey = {"WLANConfiguration#GetInfo": 401}
     sim.faults = monkey
     assert await adapter._wlans() == []
+
+
+async def test_digest_realm_over_https(https_url: str) -> None:
+    import httpx
+
+    async with httpx.AsyncClient(base_url=https_url, verify=False, trust_env=False) as client:
+        challenge = await client.post("/upnp/control/deviceinfo")
+    assert challenge.status_code == 401
+    assert challenge.headers["www-authenticate"].startswith('Digest realm="HTTPS Access",nonce="')

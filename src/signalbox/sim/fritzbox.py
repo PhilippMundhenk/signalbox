@@ -1,17 +1,26 @@
-"""Simulated Fritz!Box speaking TR-064 (SOAP) at ``POST /upnp/control/<service>``.
+"""Simulated Fritz!Box speaking TR-064 (SOAP), built from AVM's service descriptions.
+
+The interface is not hand-written: the simulator loads ``tr64desc.xml`` and the SCPD files of
+one FRITZ!OS version (:mod:`signalbox.sim.tr064`, files in ``tests/fixtures/tr064/``), serves
+them like a box (``GET /tr64desc.xml``, ``GET /wlanconfigSCPD.xml``..., no authentication) and
+answers ``POST <controlURL>`` only for actions that are in the description: an unknown action
+is UPnP fault 401, missing or unknown arguments 402, a value of the wrong data type or not in
+the allowed values 600 (601 out of range). Every answer carries exactly the ``out`` arguments
+of the action, with values of their data types (checked, a simulator bug otherwise).
 
 Neutral sample data: a gateway on 192.0.2.1/24 with DHCP 192.0.2.20-192.0.2.200, two radios
 (2.4 GHz channel 6, 5 GHz channel 36) with the SSID "Example" (WPA2/WPA3), the guest WLAN
 "Example-Guest" (WPA2) as ``WLANConfiguration3``, and four hosts (one of them no longer
-active). Every request needs HTTP Digest authentication (MD5, ``qop=auth``), like the real
-device. The answer shapes follow AVM's TR-064 documentation; see ``docs/adapters/fritzbox.md``.
+active). Model and FRITZ!OS version come from the description. Every SOAP request needs HTTP
+Digest authentication (MD5, ``qop=auth``; realm ``HTTPS Access`` over HTTPS, ``F!Box
+SOAP-Auth`` over plain HTTP).
 
 The settings the adapter can change (DHCP on/off and range; SSID, beacon type, passphrase,
 on/off and beacon advertisement of each WLAN) are state of the :class:`FritzboxSim` instance:
 the ``Set...`` actions change it and the getters report it. Failure switches on the instance
 change the answers for refused-path tests.
 
-Serve it with any ASGI server, for example
+Serve it with any ASGI server from a checkout, for example
 ``uvicorn --factory signalbox.sim.fritzbox:create_app``.
 """
 
@@ -24,6 +33,7 @@ import re
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import cache
 from ipaddress import IPv4Address, IPv4Network
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
@@ -31,22 +41,34 @@ from xml.sax.saxutils import escape
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
-REALM = "HTTPS Access"
+from signalbox.sim import tr064
+from signalbox.sim.tr064 import ArgumentError, Description
+
+#: Digest realm of TR-064 over HTTPS (port 49443) and over plain HTTP (port 49000).
+REALM_HTTPS = "HTTPS Access"
+REALM_HTTP = "F!Box SOAP-Auth"
 SOAP_ENV = "http://schemas.xmlsoap.org/soap/envelope/"
 HOST_LIST = "/devicehostlist.lua"
 MAC = "02:00:00:00:{:02x}:{:02x}"
 _PARAM = re.compile(r'(\w+)=(?:"([^"]*)"|([^\s,]*))')
 
-#: control URL -> service name used in the answers
-CONTROL = {
-    "deviceinfo": "DeviceInfo:1",
-    "lanhostconfigmgm": "LANHostConfigManagement:1",
-    "lanethernetifcfg": "LANEthernetInterfaceConfig:1",
-    "hosts": "Hosts:1",
-    "wlanconfig1": "WLANConfiguration:1",
-    "wlanconfig2": "WLANConfiguration:2",
-    "wlanconfig3": "WLANConfiguration:3",
+#: UPnP error descriptions (UPnP Device Architecture)
+ERRORS = {
+    401: "Invalid Action",
+    402: "Invalid Args",
+    501: "Action Failed",
+    600: "Argument Value Invalid",
+    601: "Argument Value Out of Range",
+    606: "Action Not Authorized",
+    713: "SpecifiedArrayIndexInvalid",
+    714: "NoSuchEntryInArray",
+    820: "Internal Error",
 }
+
+
+@cache
+def description(version: str = tr064.VERSIONS[0]) -> Description:
+    return tr064.load(version)
 
 
 def _mac(a: int, b: int) -> str:
@@ -103,7 +125,15 @@ WLANS: dict[int, dict[str, str]] = {
     },
 }
 PASSPHRASES = {1: "example-passphrase", 2: "example-passphrase", 3: "example-guest-passphrase"}
-POSSIBLE_BEACON_TYPES = "None,11i,WPAand11i,WPA3,11iandWPA3"
+#: Beacon types the sample box offers (spelled as in the description of its FRITZ!OS)
+OFFERED_BEACON_TYPES = ("None", "11i", "WPAand11i", "WPA3", "11iandWPA3")
+#: Limits the sample box reports in WLANConfiguration GetInfo
+SSID_CHARS = (1, 32)
+PSK_CHARS = (8, 63)
+ALLOWED_CHARS = (
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+)
 
 #: WLAN index -> associated stations (MAC, IP)
 STATIONS: dict[int, list[tuple[str, str]]] = {
@@ -148,12 +178,18 @@ def host_list() -> str:
     return f'<?xml version="1.0" encoding="utf-8"?><List>{items}</List>'
 
 
+class NotSimulated(Exception):
+    """An action of the description that the simulator does not implement (fault 501)."""
+
+
 @dataclass
 class FritzboxSim:
     """State and failure switches of the simulator; mutate between requests."""
 
     username: str = "signalbox"
     password: str = "example-password"
+    #: FRITZ!OS whose descriptions are served (a name from ``tr064.VERSIONS``)
+    version: str = tr064.VERSIONS[0]
     #: actions (``GetSecurityKeys``) the user has no right for: UPnP fault 606
     denied: set[str] = field(default_factory=set)
     #: ``action`` or ``service#action`` -> UPnP error code to answer with
@@ -165,9 +201,9 @@ class FritzboxSim:
     #: seconds to wait before answering (``slow`` actions only, or every request if empty)
     delay: float = 0.0
     slow: set[str] = field(default_factory=set)
-    #: report the guest WLAN through X_AVM-DE_GetWLANExtInfo (else: fault 401)
+    #: offer X_AVM-DE_GetWLANExtInfo (else: fault 401, as on a FRITZ!OS without it)
     ext_info: bool = True
-    #: answer X_AVM-DE_GetHostListPath (else: fault 401, the adapter reads entry by entry)
+    #: offer X_AVM-DE_GetHostListPath (else: fault 401, the adapter reads entry by entry)
     host_list: bool = True
     #: path X_AVM-DE_GetHostListPath points to
     host_list_path: str = ""
@@ -181,41 +217,71 @@ class FritzboxSim:
     lan: dict[str, str] = field(default_factory=lambda: dict(LAN))
     wlans: dict[int, dict[str, str]] = field(default_factory=lambda: copy.deepcopy(WLANS))
     passphrases: dict[int, str] = field(default_factory=lambda: dict(PASSPHRASES))
-    #: answer X_AVM-DE_GetBeaconAdvertisement (else: fault 401)
+    #: offer Get/SetBeaconAdvertisement (else: fault 401)
     beacon_advertisement: bool = True
     #: write actions answered with success but not applied (a box that ignores a setting)
     ignore: set[str] = field(default_factory=set)
     #: write actions applied, in order, as ``service#action`` (arguments are not kept)
     writes: list[str] = field(default_factory=list)
+    #: every authenticated SOAP call that named an existing service: (service, action, args)
+    calls: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
 
     def reset(self) -> None:
         fresh = FritzboxSim()
         for name in self.__dataclass_fields__:
-            if name not in ("nonces", "sid"):
+            if name not in ("nonces", "sid", "version"):
                 setattr(self, name, getattr(fresh, name))
+
+    @property
+    def description(self) -> Description:
+        return description(self.version)
+
+    @property
+    def absent(self) -> set[str]:
+        """Actions switched off (an older FRITZ!OS): answered with fault 401."""
+        off = set()
+        if not self.ext_info:
+            off.add("X_AVM-DE_GetWLANExtInfo")
+        if not self.host_list:
+            off.add("X_AVM-DE_GetHostListPath")
+        if not self.beacon_advertisement:
+            off |= {"GetBeaconAdvertisement", "SetBeaconAdvertisement"}
+        return off
+
+    def beacon_spelling(self, beacon: str) -> str:
+        """A beacon type as the description of this FRITZ!OS spells it (``none``/``None``)."""
+        service = self.description.service_by_type("urn:dslforum-org:service:WLANConfiguration:1")
+        assert service is not None
+        [arg] = service.actions["SetBeaconType"].inputs
+        return next((a for a in arg.variable.allowed if a.lower() == beacon.lower()), beacon)
+
+    @property
+    def offered_beacon_types(self) -> list[str]:
+        return [self.beacon_spelling(b) for b in OFFERED_BEACON_TYPES]
 
     # digest -------------------------------------------------------------------------
 
-    def challenge(self) -> Response:
-        nonce = secrets.token_hex(16)
+    def challenge(self, realm: str) -> Response:
+        nonce = secrets.token_hex(8).upper()
         self.nonces.add(nonce)
-        header = f'Digest realm="{REALM}", nonce="{nonce}", algorithm=MD5, qop="auth"'
+        header = f'Digest realm="{realm}",nonce="{nonce}",algorithm=MD5,qop="auth"'
         return Response(
-            "<html><body>401 Unauthorized</body></html>",
+            "<HTML><HEAD><TITLE>401 Unauthorized (ERR_NONE)</TITLE></HEAD>"
+            "<BODY><H1>401 Unauthorized</H1><BR>ERR_NONE<HR><B>Webserver</B></BODY></HTML>",
             status_code=401,
             headers={"WWW-Authenticate": header},
             media_type="text/html",
         )
 
-    def authorised(self, method: str, header: str | None) -> bool:
+    def authorised(self, method: str, header: str | None, realm: str) -> bool:
         if not header or not header.lower().startswith("digest "):
             return False
         params = {k: a or b for k, a, b in _PARAM.findall(header[7:])}
-        if params.get("username") != self.username or params.get("realm") != REALM:
+        if params.get("username") != self.username or params.get("realm") != realm:
             return False
         if params.get("nonce") not in self.nonces or params.get("qop") != "auth":
             return False
-        ha1 = _md5(f"{self.username}:{REALM}:{self.password}")
+        ha1 = _md5(f"{self.username}:{realm}:{self.password}")
         ha2 = _md5(f"{method}:{params.get('uri', '')}")
         expected = _md5(
             f"{ha1}:{params['nonce']}:{params.get('nc', '')}:{params.get('cnonce', '')}:auth:{ha2}"
@@ -225,19 +291,23 @@ class FritzboxSim:
     # SOAP ---------------------------------------------------------------------------
 
     def _data(self, service: str, action: str, args: dict[str, str]) -> dict[str, str] | int:
-        """Output arguments, or a UPnP error code."""
+        """Output arguments, or a UPnP error code; NotSimulated for other described actions."""
         name, _, number = service.partition(":")
         if name == "DeviceInfo" and action == "GetInfo":
+            desc = self.description
             return {
                 "NewManufacturerName": "AVM",
-                "NewModelName": "FRITZ!Box Example",
-                "NewDescription": "FRITZ!Box Example 154.07.57",
+                "NewManufacturerOUI": "00040E",
+                "NewModelName": desc.value("modelName"),
+                "NewDescription": f"{desc.value('modelName')} {desc.value('Display')}",
                 "NewProductClass": "AVMFB",
                 "NewSerialNumber": "000000000000",
-                "NewSoftwareVersion": "154.07.57",
-                "NewHardwareVersion": "FRITZ!Box Example",
+                "NewSoftwareVersion": desc.value("Display"),
+                "NewHardwareVersion": desc.value("modelName"),
                 "NewSpecVersion": "1.0",
+                "NewProvisioningCode": "",
                 "NewUpTime": "86400",
+                "NewDeviceLog": "",
             }
         if name == "LANHostConfigManagement":
             lan = self.lan
@@ -249,6 +319,7 @@ class FritzboxSim:
                     "NewMinAddress": lan["NewMinAddress"],
                     "NewMaxAddress": lan["NewMaxAddress"],
                 },
+                "GetDNSServers": lambda: {"NewDNSServers": lan["NewDNSServers"]},
             }
             if action in getters:
                 return getters[action]()
@@ -269,18 +340,17 @@ class FritzboxSim:
                     "NewPacketsSent": "10",
                     "NewPacketsReceived": "20",
                 }
-            return 401
         if name == "WLANConfiguration":
             return self._wlan(int(number), action, args)
         if name == "Hosts":
             if action == "GetHostNumberOfEntries":
                 return {"NewHostNumberOfEntries": str(len(HOSTS))}
             if action == "GetGenericHostEntry":
-                index = int(args.get("NewIndex", "-1"))
-                return host_entry(index) if 0 <= index < len(HOSTS) else 713
-            if action == "X_AVM-DE_GetHostListPath" and self.host_list:
+                index = int(args["NewIndex"])
+                return host_entry(index) if index < len(HOSTS) else 713
+            if action == "X_AVM-DE_GetHostListPath":
                 return {"NewX_AVM-DE_HostListPath": self.host_list_path or self.list_path}
-        return 401
+        raise NotSimulated(f"{service} {action}")
 
     @property
     def list_path(self) -> str:
@@ -288,14 +358,12 @@ class FritzboxSim:
 
     def _set_lan(self, action: str, args: dict[str, str]) -> dict[str, str] | int:
         if action == "SetDHCPServerEnable":
-            value = args.get("NewDHCPServerEnable")
-            if value not in ("0", "1"):
-                return 402
+            value = _bit(args["NewDHCPServerEnable"])
             return self._write("LANHostConfigManagement", action, {"NewDHCPServerEnable": value})
         if action == "SetAddressRange":
             try:
-                first = IPv4Address(args.get("NewMinAddress", ""))
-                last = IPv4Address(args.get("NewMaxAddress", ""))
+                first = IPv4Address(args["NewMinAddress"])
+                last = IPv4Address(args["NewMaxAddress"])
             except ValueError:
                 return 402
             lan = IPv4Network(
@@ -308,7 +376,7 @@ class FritzboxSim:
                 action,
                 {"NewMinAddress": str(first), "NewMaxAddress": str(last)},
             )
-        return 401
+        raise NotSimulated(f"LANHostConfigManagement {action}")
 
     def _write(
         self, service: str, action: str, values: dict[str, str], index: int | None = None
@@ -327,31 +395,26 @@ class FritzboxSim:
     def _set_wlan(self, index: int, action: str, args: dict[str, str]) -> dict[str, str] | int:
         service = "WLANConfiguration"
         if action == "SetSSID":
-            ssid = args.get("NewSSID", "")
-            if not 1 <= len(ssid.encode()) <= 32:
+            ssid = args["NewSSID"]
+            if not SSID_CHARS[0] <= len(ssid.encode()) <= SSID_CHARS[1]:
                 return 402
             return self._write(service, action, {"NewSSID": ssid}, index)
         if action == "SetBeaconType":
-            beacon = args.get("NewBeaconType", "")
-            if beacon not in POSSIBLE_BEACON_TYPES.split(","):
+            beacon = args["NewBeaconType"]
+            if beacon not in self.offered_beacon_types:
                 return 402
             return self._write(service, action, {"NewBeaconType": beacon}, index)
         if action == "SetSecurityKeys":
-            passphrase = args.get("NewKeyPassphrase", "")
-            if not 8 <= len(passphrase) <= 63:
+            passphrase = args["NewKeyPassphrase"]
+            if not PSK_CHARS[0] <= len(passphrase) <= PSK_CHARS[1]:
                 return 402
             return self._write(service, action, {"NewKeyPassphrase": passphrase}, index)
         if action == "SetEnable":
-            value = args.get("NewEnable")
-            if value not in ("0", "1"):
-                return 402
-            return self._write(service, action, {"NewEnable": value}, index)
-        if action == "X_AVM-DE_SetBeaconAdvertisement" and self.beacon_advertisement:
-            value = args.get("NewBeaconAdvertisementEnabled")
-            if value not in ("0", "1"):
-                return 402
+            return self._write(service, action, {"NewEnable": _bit(args["NewEnable"])}, index)
+        if action == "SetBeaconAdvertisement":
+            value = _bit(args["NewBeaconAdvertisementEnabled"])
             return self._write(service, action, {"NewBeaconAdvertisementEnabled": value}, index)
-        return 401
+        raise NotSimulated(f"{service}:{index} {action}")
 
     def _wlan(self, index: int, action: str, args: dict[str, str]) -> dict[str, str] | int:
         info = {k: v for k, v in self.wlans[index].items() if k != "NewBeaconAdvertisementEnabled"}
@@ -361,30 +424,48 @@ class FritzboxSim:
                 "NewMaxBitRate": "Auto",
                 "NewBasicEncryptionModes": "None",
                 "NewBasicAuthenticationMode": "None",
-                "NewX_AVM-DE_PossibleBeaconTypes": POSSIBLE_BEACON_TYPES,
+                "NewX_AVM-DE_PossibleBeaconTypes": ",".join(self.offered_beacon_types),
                 "NewMACAddressControlEnabled": "0",
+                "NewMinCharsSSID": str(SSID_CHARS[0]),
+                "NewMaxCharsSSID": str(SSID_CHARS[1]),
+                "NewAllowedCharsSSID": ALLOWED_CHARS,
+                "NewMinCharsPSK": str(PSK_CHARS[0]),
+                "NewMaxCharsPSK": str(PSK_CHARS[1]),
+                "NewAllowedCharsPSK": ALLOWED_CHARS,
+                "NewX_AVM-DE_WLANGlobalEnable": "1",
                 **info,
             }
         if action == "GetSecurityKeys":
             return {
                 "NewWEPKey0": "",
+                "NewWEPKey1": "",
+                "NewWEPKey2": "",
+                "NewWEPKey3": "",
                 "NewPreSharedKey": "0" * 64,
                 "NewKeyPassphrase": self.passphrases[index],
             }
-        if action == "X_AVM-DE_GetBeaconAdvertisement" and self.beacon_advertisement:
+        if action == "GetBeaconAdvertisement":
             return {
                 "NewBeaconAdvertisementEnabled": self.wlans[index]["NewBeaconAdvertisementEnabled"]
             }
-        if action == "X_AVM-DE_GetWLANExtInfo" and self.ext_info:
+        if action == "X_AVM-DE_GetWLANExtInfo":
             return {
                 "NewX_AVM-DE_APEnabled": "1",
                 "NewX_AVM-DE_APType": "guest" if index == 3 else "normal",
+                "NewX_AVM-DE_FrequencyBand": info["NewX_AVM-DE_FrequencyBand"],
+                "NewX_AVM-DE_TimeoutActive": "0",
+                "NewX_AVM-DE_Timeout": "0",
+                "NewX_AVM-DE_TimeRemain": "0",
+                "NewX_AVM-DE_NoForcedOff": "0",
+                "NewX_AVM-DE_UserIsolation": "1" if index == 3 else "0",
+                "NewX_AVM-DE_EncryptionMode": "",
+                "NewX_AVM-DE_LastChangedStamp": "0",
             }
         if action == "GetTotalAssociations":
             return {"NewTotalAssociations": str(len(STATIONS[index]))}
         if action == "GetGenericAssociatedDeviceInfo":
-            i = int(args.get("NewAssociatedDeviceIndex", "-1"))
-            if not 0 <= i < len(STATIONS[index]):
+            i = int(args["NewAssociatedDeviceIndex"])
+            if i >= len(STATIONS[index]):
                 return 713
             mac, ip = STATIONS[index][i]
             return {
@@ -393,91 +474,115 @@ class FritzboxSim:
                 "NewAssociatedDeviceAuthState": "1",
                 "NewX_AVM-DE_Speed": "866",
                 "NewX_AVM-DE_SignalStrength": "70",
+                "NewX_AVM-DE_ChannelWidth": "80",
             }
         return self._set_wlan(index, action, args)
 
     async def handle(self, control: str, body: bytes, soap_action: str) -> Response:
-        service = CONTROL.get(control)
+        service = self.description.services.get(control)
         if service is None:
             return Response("<html>404 Not Found</html>", status_code=404)
-        _, _, action = soap_action.strip('"').partition("#")
+        service_type, _, action_name = soap_action.strip().strip('"').partition("#")
+        action = service.actions.get(action_name)
+        if service_type != service.service_type or action is None or action_name in self.absent:
+            return self._fault(401)
         try:
             root = ET.fromstring(body)
-            call = next(e for e in root.iter() if e.tag.rsplit("}", 1)[-1] == action)
-            args = {c.tag: (c.text or "") for c in call}
+            call = next(e for e in root.iter() if e.tag.rsplit("}", 1)[-1] == action_name)
+            args = {c.tag.rsplit("}", 1)[-1]: (c.text or "") for c in call}
         except (ET.ParseError, StopIteration):
-            return self._fault(402, "Invalid Args")
-        if self.delay and (not self.slow or action in self.slow):
+            return self._fault(402)
+        self.calls.append((service.name, action_name, dict(args)))
+        try:
+            action.check_inputs(args)
+        except ArgumentError as exc:
+            return self._fault(exc.code)
+        if self.delay and (not self.slow or action_name in self.slow):
             await asyncio.sleep(self.delay)
-        if "*" in self.malformed or action in self.malformed:
+        if "*" in self.malformed or action_name in self.malformed:
             return Response("<s:Envelope><s:Body><u:", media_type="text/xml")
-        if action in self.doctype:
+        if action_name in self.doctype:
             evil = (
                 '<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol">]>'
-                f'<s:Envelope xmlns:s="{SOAP_ENV}"><s:Body><u:{action}Response>'
-                f"<NewModelName>&lol;</NewModelName></u:{action}Response></s:Body></s:Envelope>"
+                f'<s:Envelope xmlns:s="{SOAP_ENV}"><s:Body><u:{action_name}Response>'
+                f"<NewModelName>&lol;</NewModelName></u:{action_name}Response></s:Body>"
+                "</s:Envelope>"
             )
             return Response(evil, media_type="text/xml")
-        code = self.faults.get(f"{service.split(':')[0]}#{action}", self.faults.get(action))
-        if code is None and action in self.denied:
+        base = service.name.split(":")[0]
+        code = self.faults.get(f"{base}#{action_name}", self.faults.get(action_name))
+        if code is None and action_name in self.denied:
             code = 606
-        if code is None:
-            try:
-                data = self._data(service, action, args)
-            except ValueError:  # an index argument that is not a number
-                data = 402
-            if isinstance(data, int):
-                code = data
-            else:
-                return self._answer(service, action, data)
-        return self._fault(
-            code,
-            {
-                402: "Invalid Args",
-                606: "Action Not Authorized",
-                713: "SpecifiedArrayIndexInvalid",
-            }.get(code, "Invalid Action" if code == 401 else "Action Failed"),
-        )
+        if code is not None:
+            return self._fault(code)
+        try:
+            data = self._data(service.name, action_name, args)
+        except NotSimulated:
+            return self._fault(501)
+        if isinstance(data, int):
+            return self._fault(data)
+        action.check_outputs(data)
+        return self._answer(service.service_type, action_name, data, action)
 
     @staticmethod
-    def _answer(service: str, action: str, data: dict[str, str]) -> Response:
-        inner = "".join(f"<{k}>{escape(v)}</{k}>" for k, v in data.items())
+    def _answer(
+        service_type: str, action: str, data: dict[str, str], described: tr064.Action
+    ) -> Response:
+        inner = "".join(f"<{a.name}>{escape(data[a.name])}</{a.name}>" for a in described.outputs)
         body = (
             '<?xml version="1.0"?>'
             f'<s:Envelope xmlns:s="{SOAP_ENV}" '
             's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>'
-            f'<u:{action}Response xmlns:u="urn:dslforum-org:service:{service}">{inner}'
+            f'<u:{action}Response xmlns:u="{service_type}">{inner}'
             f"</u:{action}Response></s:Body></s:Envelope>"
         )
         return Response(body, media_type='text/xml; charset="utf-8"')
 
     @staticmethod
-    def _fault(code: int, description: str) -> Response:
+    def _fault(code: int) -> Response:
         body = (
             '<?xml version="1.0"?>'
             f'<s:Envelope xmlns:s="{SOAP_ENV}" '
             's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><s:Fault>'
             "<faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail>"
             '<UPnPError xmlns="urn:dslforum-org:control-1-0">'
-            f"<errorCode>{code}</errorCode><errorDescription>{description}</errorDescription>"
+            f"<errorCode>{code}</errorCode>"
+            f"<errorDescription>{ERRORS.get(code, 'Action Failed')}</errorDescription>"
             "</UPnPError></detail></s:Fault></s:Body></s:Envelope>"
         )
         return Response(body, status_code=500, media_type='text/xml; charset="utf-8"')
 
 
+def _bit(value: str) -> str:
+    return "1" if value.strip().lower() in ("1", "true", "yes") else "0"
+
+
 def create_app(sim: FritzboxSim | None = None) -> FastAPI:
     state = sim or FritzboxSim()
+    state.description  # noqa: B018 - fail at start when the descriptions are missing
     app = FastAPI(title="Fritz!Box TR-064 simulator", docs_url=None, redoc_url=None)
     app.state.sim = state
+
+    @app.get("/{name}.xml")
+    async def described(name: str) -> Response:
+        """``tr64desc.xml`` and the SCPD files, without authentication like the box."""
+        state.requests += 1
+        content = state.description.files.get(f"/{name}.xml")
+        if content is None:
+            return Response("<html>404 Not Found</html>", status_code=404)
+        return Response(content, media_type="text/xml")
 
     @app.post("/upnp/control/{control}")
     async def control(control: str, request: Request) -> Response:
         state.requests += 1
-        if not state.authorised("POST", request.headers.get("authorization")):
-            return state.challenge()
+        realm = REALM_HTTPS if request.url.scheme == "https" else REALM_HTTP
+        if not state.authorised("POST", request.headers.get("authorization"), realm):
+            return state.challenge(realm)
         state.authenticated += 1
         return await state.handle(
-            control, await request.body(), request.headers.get("soapaction", "")
+            f"/upnp/control/{control}",
+            await request.body(),
+            request.headers.get("soapaction", ""),
         )
 
     @app.get(HOST_LIST)

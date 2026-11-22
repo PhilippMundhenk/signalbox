@@ -10,12 +10,14 @@ HTTPS port `49443`. It can also change the DHCP server and the existing Wi-Fi ne
 | Roles | `gateway`, `ap` |
 | Capabilities | interfaces, DHCP, wireless, clients |
 | Writes | `dhcp` (LAN), `wlan` (existing SSIDs only) |
-| Simulator | `signalbox.sim.fritzbox` (`uvicorn --factory signalbox.sim.fritzbox:create_app`) |
+| Simulator | `signalbox.sim.fritzbox` (`uvicorn --factory signalbox.sim.fritzbox:create_app`), built from AVM's service descriptions |
 
-> The actions and answer shapes below are taken from AVM's public TR-064 documentation
-> (`tr64desc.xml` and the service descriptions of FRITZ!OS 7). They are implemented by the
-> simulator but still need to be confirmed on a real device (#21). Shapes marked *(guess)* are
-> the least certain.
+> Every action and argument below is checked against AVM's TR-064 descriptions
+> (`tr64desc.xml` and the SCPD files of FRITZ!OS 7.57 and 8.02, in `tests/fixtures/tr064/`,
+> see [Checked against AVM's service descriptions](#checked-against-avms-service-descriptions)).
+> The descriptions fix names, data types and allowed values; what the box *does* with a call
+> (and which fault code it gives for what) still needs confirmation on a real device (#21).
+> Points marked *(guess)* are the least certain.
 
 ## Settings
 
@@ -54,9 +56,14 @@ SHA-256 fingerprint with the pinned one; not pinned yet, or different: the devic
 whose only trust anchor is the pinned certificate. This is the shared helper
 `signalbox.adapters.https.DeviceHttp` (see [ADAPTERS.md](../ADAPTERS.md)).
 
-Authentication is HTTP Digest (MD5, `qop=auth`, realm `HTTPS Access` on FRITZ!OS 7): the first
-request is answered with `401` and a challenge, then every request carries the digest. Wrong
-user or password: `401` again, the device is reported as `auth-failed`.
+Authentication is HTTP Digest (MD5, `qop=auth`): the first request is answered with `401` and a
+challenge such as `Digest realm="HTTPS Access",nonce="0123456789ABCDEF",algorithm=MD5,qop="auth"`,
+then every request carries the digest. The realm is taken from the challenge: `HTTPS Access`
+over HTTPS (port 49443), `F!Box SOAP-Auth` over plain HTTP (port 49000, only used with
+simulators) *(both seen in other TR-064 clients' tests; AVM's "TR-064 First Steps" could not be
+fetched to confirm them, see below)*. Wrong user or password: `401` again, the device is
+reported as `auth-failed`. `tr64desc.xml` and the SCPD files are served without
+authentication.
 
 ## Protocol
 
@@ -87,7 +94,7 @@ fault:
 | --- | --- |
 | `<Action>Response` | the output arguments are used |
 | fault `401` Invalid Action | "action not supported by this FRITZ!OS"; for `WLANConfiguration<n>` the end of the list, for the host list path the entry-by-entry fallback |
-| fault `402` Invalid Args, `501` Action Failed, `713`/`714` no such entry, `820` internal error | "`<service> <action>`: UPnP error ..." for that capability |
+| fault `402` Invalid Args, `501` Action Failed, `600` Argument Value Invalid, `601` Argument Value Out of Range, `713`/`714` no such entry, `820` internal error | "`<service> <action>`: UPnP error ..." for that capability |
 | fault `606` Action Not Authorized | "not authorised: the Fritz!Box user lacks the right for this action" |
 | HTTP 401 / 403 | `auth-failed` |
 | HTTP 404 | "not found" (for `wlanconfig<n>`: no such WLAN) |
@@ -161,7 +168,7 @@ radio, and the guest network last.
 
   | `NewBeaconType` | Security |
   | --- | --- |
-  | `None` | open |
+  | `None` (FRITZ!OS 8), `none` (FRITZ!OS 7.57) | open |
   | `Basic` (WEP), `WPA` | other |
   | `11i` | WPA2 |
   | `WPAand11i` | WPA2 (mixed WPA/WPA2) |
@@ -171,8 +178,8 @@ radio, and the guest network last.
 
 - `GetSecurityKeys` `NewKeyPassphrase` becomes the passphrase fingerprint (personal security
   only).
-- **Hidden**: `X_AVM-DE_GetBeaconAdvertisement` `NewBeaconAdvertisementEnabled` `0` *(guess)*;
-  without the action (fault 401) the SSID counts as broadcast.
+- **Hidden**: `GetBeaconAdvertisement` `NewBeaconAdvertisementEnabled` `0`; without the
+  action (fault 401) the SSID counts as broadcast.
 - PMF and 802.11r/k/v are not read *(not documented for TR-064)*.
 
 ### `Hosts:1` and `WLANConfiguration:<n> GetGenericAssociatedDeviceInfo` (clients)
@@ -199,18 +206,18 @@ radio, and the guest network last.
 ## Writing
 
 What maps cleanly onto TR-064 and is therefore declared in `Manifest.writes`: **`dhcp`** of the
-LAN and **`wlan`** for the SSIDs the box already has. Everything below, action names and
-arguments alike, comes from AVM's documentation and still needs confirmation on a real device
-(#21); the simulator implements exactly this.
+LAN and **`wlan`** for the SSIDs the box already has. The action names, arguments and values
+below are checked against AVM's service descriptions; their effect still needs confirmation on a
+real device (#21). The simulator implements exactly this.
 
 | Change | TR-064 actions |
 | --- | --- |
 | DHCP on/off | `LANHostConfigManagement:1 SetDHCPServerEnable` (`NewDHCPServerEnable` `0`/`1`) |
 | DHCP pool | `LANHostConfigManagement:1 SetAddressRange` (`NewMinAddress`, `NewMaxAddress`) |
 | SSID (rename) | `WLANConfiguration:<n> SetSSID` (`NewSSID`) |
-| security | `WLANConfiguration:<n> SetBeaconType` (`NewBeaconType`: open `None`, WPA2 `11i`, WPA3 `WPA3`, WPA2/WPA3 `11iandWPA3`) |
+| security | `WLANConfiguration:<n> SetBeaconType` (`NewBeaconType`: open `None`, WPA2 `11i`, WPA3 `WPA3`, WPA2/WPA3 `11iandWPA3`, spelled as the box lists them in `NewX_AVM-DE_PossibleBeaconTypes`) |
 | passphrase | `WLANConfiguration:<n> SetSecurityKeys` (`NewWEPKey0`..`3` and `NewPreSharedKey` empty, `NewKeyPassphrase`) *(guess: that empty WEP/PSK arguments are accepted)* |
-| hidden | `WLANConfiguration:<n> X_AVM-DE_SetBeaconAdvertisement` (`NewBeaconAdvertisementEnabled` `0` hides) |
+| hidden | `WLANConfiguration:<n> SetBeaconAdvertisement` (`NewBeaconAdvertisementEnabled` `0` hides) |
 | on/off | `WLANConfiguration:<n> SetEnable` (`NewEnable`) |
 
 - Only what differs from what the box reports now is sent. Switching something on comes last,
@@ -224,7 +231,9 @@ arguments alike, comes from AVM's documentation and still needs confirmation on 
   networks of a Fritz!Box are fixed: one per band and the guest network), removing one (set
   `enabled: false` instead), a VLAN (`segment` other than `native`), PMF and 802.11r/k/v,
   security other than open, WPA2, WPA3 and WPA2/WPA3 (or a beacon type the box does not list in
-  `NewX_AVM-DE_PossibleBeaconTypes`), a passphrase outside 8-63 characters; for DHCP a DHCP
+  `NewX_AVM-DE_PossibleBeaconTypes`), an SSID or passphrase outside the limits the box reports in
+  `GetInfo` (`NewMinCharsSSID`/`NewMaxCharsSSID`, at most 32 bytes; `NewMinCharsPSK`/
+  `NewMaxCharsPSK`, never outside 8-63); for DHCP a DHCP
   server other than the LAN's, removing it, a lease time, other DNS servers (TR-064 cannot set
   what the box announces; it always announces itself), IPv6 pools. `router`, `reservation` and
   `port` changes are not offered (changing the box's own LAN address is not done over TR-064 by
@@ -264,3 +273,34 @@ new passphrase stays (restore the backup to get the old one back).
   forwarders nor local host records, so the adapter has no DNS capability.
 - **Neighbours (LLDP)**: FRITZ!OS does not speak LLDP.
 - **DHCP reservations, lease time, VLANs, per-port LAN state**: not in TR-064 (see above).
+
+## Checked against AVM's service descriptions
+
+`tests/fixtures/tr064/` holds `tr64desc.xml` and the SCPD files of the services used here, as
+FRITZ!OS 7.57 (FRITZ!Box 7590) and 8.02 (FRITZ!Box 7530) serve them; `SOURCES.md` there says
+where they come from (AVM's own download area could not be reached when they were added, so
+they are a public dump of what boxes serve) and what was neutralised. The simulator is built
+from them: it serves them, answers only described actions with exactly their arguments and
+data types, and refuses anything else with the UPnP fault (401, 402, 600, 601).
+`tests/test_fritzbox_scpd.py` runs every read, write, restore and fallback path of the adapter
+for both versions and checks each call against the descriptions, and checks that every action
+and `New...` argument named in the adapter's source is described.
+
+What the descriptions showed to be wrong in the earlier, hand-written version (#141):
+
+| Was | Is |
+| --- | --- |
+| `WLANConfiguration X_AVM-DE_GetBeaconAdvertisement` / `X_AVM-DE_SetBeaconAdvertisement` *(guess)* | `GetBeaconAdvertisement` / `SetBeaconAdvertisement`, without the `X_AVM-DE_` prefix (the old names are fault 401 on a real box: every SSID read as broadcast, and hiding one failed) |
+| open security written as `NewBeaconType` `None` | the allowed values are `none` in FRITZ!OS 7.57 and `None` in 8.02; the adapter now writes the spelling the box lists in `NewX_AVM-DE_PossibleBeaconTypes` |
+| passphrase length fixed at 8-63, SSID length not checked | `GetInfo` reports `NewMinCharsPSK`, `NewMaxCharsPSK`, `NewMinCharsSSID`, `NewMaxCharsSSID`; the adapter uses them (within 8-63 and 32 bytes) |
+| digest realm `HTTPS Access` "on FRITZ!OS 7" | the realm comes from the challenge; over plain HTTP it is `F!Box SOAP-Auth` (simulator: both) |
+| a value of the wrong type answered with 402 | UPnP 600 (not of the data type or not an allowed value) and 601 (out of range) are mapped too |
+| the simulator answered a subset of the output arguments | every answer has all described output arguments (for example `GetInfo` of `DeviceInfo` with `NewManufacturerOUI`, `NewProvisioningCode`, `NewDeviceLog`; `X_AVM-DE_GetWLANExtInfo` with ten values) |
+
+Confirmed by the descriptions: the services, control URLs and SCPD URLs (`LANEthernetInterfaceConfig:1`
+is described by `ethifconfigSCPD.xml`), every other action and argument the adapter uses, that
+`LANHostConfigManagement` has no action to set DNS servers or a lease time, that there is one
+`LANEthernetInterfaceConfig` (no per-port LAN state), and that `SetSecurityKeys` takes all six
+key arguments. Still open (not in the descriptions): the value `guest` of
+`NewX_AVM-DE_APType`, which fault a box gives for which mistake, and whether empty WEP/PSK
+arguments are accepted by `SetSecurityKeys`.
