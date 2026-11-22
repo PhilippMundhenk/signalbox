@@ -40,6 +40,9 @@ All notable changes to this project are documented here. The format follows
 - OPNsense writes: router interfaces (VLAN device and interface assignment, OPNsense 26.7+), Kea DHCP subnets and reservations, tagged VLANs on a port; backup and restore through the configuration history (#42)
 - OpenWrt writes: port VLANs (DSA bridge-vlan), SSIDs (incl. a VLAN interface when needed), DHCP and reservations, staged in UCI and applied with the rpcd rollback timer (#41)
 - TP-Link writes: Omada LAN networks with DHCP, switch port networks and SSIDs of managed devices through the controller; ProSAFE Plus and Easy Smart 802.1Q port VLANs and PVIDs through Switchyard (#44)
+- MikroTik writes over the RouterOS REST API: VLAN router interfaces, DHCP, reservations, bridge port VLANs, wifi (RouterOS 7 wifi package); backup and diff-based restore (#43)
+- 36 new checks from the check catalogue: addressing and DHCP (#53-#59, #62, #63, #65, #66, #68, #69), IPv6 and DNS (#70, #71, #73-#79, #81), clients and Wi-Fi hygiene (#82, #83, #87, #88, #91-#95, #97, #98, #100, #103); see docs/RULES.md
+- Dependabot: newer versions of the GitHub Actions used in CI (#26-#29)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
