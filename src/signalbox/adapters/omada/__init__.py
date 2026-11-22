@@ -48,11 +48,13 @@ from signalbox.adapters import (
     VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.omada import vitals
 from signalbox.changes import Change, ChangeKind
 from signalbox.model import (
     Band,
     Client,
     Device,
+    DeviceHealth,
     DeviceRole,
     DhcpPool,
     DhcpServer,
@@ -348,11 +350,18 @@ class OmadaAdapter(_Adapter):
         id="omada",
         name="TP-Link Omada",
         version="0.2.0",
-        api_version="1.0",
+        api_version="1.2",
         vendor="TP-Link",
         roles=frozenset({DeviceRole.OTHER, DeviceRole.AP, DeviceRole.SWITCH, DeviceRole.GATEWAY}),
         capabilities=frozenset(
-            {Capability.INTERFACES, Capability.DHCP, Capability.WIRELESS, Capability.CLIENTS}
+            {
+                Capability.INTERFACES,
+                Capability.DHCP,
+                Capability.WIRELESS,
+                Capability.CLIENTS,
+                Capability.HEALTH,
+                Capability.TIME,
+            }
         ),
         config=OmadaConfig,
         description="Reads one site of an Omada controller through its Open API and changes "
@@ -373,6 +382,7 @@ class OmadaAdapter(_Adapter):
         )
         self._omadac_id = ""
         self._site_path = ""
+        self._site_zone: Any = None
         self._token: str | None = None
         self._cache: dict[str, Any] = {}
         self._wireless_cache: _Wireless | None = None
@@ -508,6 +518,7 @@ class OmadaAdapter(_Adapter):
             names = ", ".join(sorted(_text(s.get("name")) for s in sites)) or "none"
             raise AdapterError(f"the controller has no site {wanted!r} (sites: {names})")
         self._site_path = f"/openapi/v1/{self._omadac_id}/sites/{site_id}"
+        self._site_zone = site.get("timeZone") if site else None
         version = _text(info.get("controllerVer"))
         return SystemInfo(
             vendor="TP-Link",
@@ -668,6 +679,29 @@ class OmadaAdapter(_Adapter):
             for d in await self._devices()
         ]
         return Observation(ports=ports, segments=segs, subnets=subnets, devices=managed)
+
+    # --- health and time ----------------------------------------------------------------------
+
+    async def read_health(self) -> Observation:
+        """Per managed device from the device list; the controller itself reports nothing (the
+        Open API does not describe its host), so its health is empty."""
+        rows = {
+            mac: row
+            for row in await self._rows(f"{self._site_path}/devices")
+            if (mac := _mac(row.get("mac"))) is not None
+        }
+        values = {self.context.device_id: DeviceHealth()}
+        for d in await self._devices():
+            values[self._prefix(d)] = vitals.health_of(rows.get(d.mac, {}))
+        return Observation(health=values)
+
+    async def read_time(self) -> Observation:
+        """The controller's clock (``Date`` of ``/api/info``) and the site's time zone."""
+        start = datetime.now(UTC)
+        response = await self.http.request("GET", INFO)
+        end = datetime.now(UTC)
+        value = vitals.time_of(response.headers.get("date"), self._site_zone, start, end)
+        return Observation(time={self.context.device_id: value})
 
     # --- DHCP ---------------------------------------------------------------------------------
 

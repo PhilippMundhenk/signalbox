@@ -164,6 +164,24 @@ async def test_read_contract(ctrl: dict[str, str]) -> None:
     assert (snap.device.vendor, snap.device.model) == ("TP-Link", "Omada Controller")
 
 
+async def test_health_and_time_of_the_controller(ctrl: dict[str, str]) -> None:
+    """No managed devices: only the controller, with an empty health (its host is not in the
+    Open API), its clock from the ``Date`` header and the site's time zone (#178, #179)."""
+    a = adapter(ctrl)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    assert snap.extra_devices == []
+    assert snap.device.health is not None and snap.device.health.uptime_seconds is None
+    t = snap.device.time
+    assert t is not None and t.clock is not None, t
+    offset = t.offset_seconds()
+    assert offset is not None and abs(offset) < 600, t  # the container runs on the host clock
+    assert t.timezone == "UTC", t  # the site's timeZone on a new controller
+
+
 async def test_mapping_of_the_test_site(ctrl: dict[str, str]) -> None:
     net = await network(ctrl)
     assert [d.id for d in net.devices] == [DEV]  # no managed devices
