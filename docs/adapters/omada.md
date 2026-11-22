@@ -244,7 +244,9 @@ The SSID list leaves out the security settings; Signalbox reads every SSID's own
   `reported`), and the guest Wi-Fi check trusts the controller to keep it out of the local
   networks. Client isolation is not read.
 - The SSID's answer **has the passphrase** (`pskSetting.securityKey`); only its fingerprint is
-  kept (`passphrase_fingerprint`), so a passphrase in the desired state is verified.
+  kept (`passphrase_fingerprint`), so a passphrase in the desired state is verified. With
+  `hidePwd: true` the key is hidden *(API description)*: then no fingerprint, and a revert
+  trusts only a passphrase Signalbox deployed itself.
 
 ### `GET …/sites/{siteId}/clients` (paged) *(API description)*
 
