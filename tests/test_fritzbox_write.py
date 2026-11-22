@@ -166,8 +166,8 @@ async def test_wlan_same_ssid_on_both_bands(adapter: FritzboxAdapter, sim: Fritz
     c = wlan_change(await network(adapter), "Example", hidden=True)
     calls = await adapter.plan_changes([c], {})
     assert [call.target for call in calls] == [
-        "WLANConfiguration1 X_AVM-DE_SetBeaconAdvertisement",
-        "WLANConfiguration2 X_AVM-DE_SetBeaconAdvertisement",
+        "WLANConfiguration1 SetBeaconAdvertisement",
+        "WLANConfiguration2 SetBeaconAdvertisement",
     ]
     await adapter.apply([c], {}, 60)
     wlans = [w for w in (await network(adapter)).wlans if w.ssid == "Example"]
@@ -264,7 +264,7 @@ async def test_several_changes_at_once(adapter: FritzboxAdapter) -> None:
     a = wlan_change(net, "Example", hidden=True)
     b = wlan_change(net, "Example", hidden=True, enabled=False)
     calls = await adapter.plan_changes([a, b], {})
-    assert [x.target.split()[1] for x in calls].count("X_AVM-DE_SetBeaconAdvertisement") == 2
+    assert [x.target.split()[1] for x in calls].count("SetBeaconAdvertisement") == 2
 
 
 # --- plan without secrets, refusals -------------------------------------------------------
@@ -290,7 +290,7 @@ async def test_plan_changes_without_secrets(adapter: FritzboxAdapter, sim: Fritz
     [
         ({"SetBeaconType": 402}, {"security": Security.WPA2}, "security .*invalid arguments"),
         ({"SetEnable": 606}, {"enabled": False}, "switch off: .*not authorised"),
-        ({"X_AVM-DE_SetBeaconAdvertisement": 401}, {"hidden": True}, "hide .*not supported"),
+        ({"SetBeaconAdvertisement": 401}, {"hidden": True}, "hide .*not supported"),
         ({"SetSSID": 820}, {"ssid": "Other"}, "SSID Other: .*internal error"),
     ],
 )
@@ -360,9 +360,9 @@ async def test_unsupported_wlan_settings_are_refused(adapter: FritzboxAdapter) -
 async def test_beacon_type_the_box_does_not_offer(
     adapter: FritzboxAdapter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(fritz_sim, "POSSIBLE_BEACON_TYPES", "None,11i,11iandWPA3")
+    monkeypatch.setattr(fritz_sim, "OFFERED_BEACON_TYPES", ("None", "11i", "11iandWPA3"))
     c = wlan_change(await network(adapter), "Example", security=Security.WPA3)
-    with pytest.raises(AdapterError, match=r"does not offer wpa3-sae .*it offers None,11i"):
+    with pytest.raises(AdapterError, match=r"does not offer wpa3-sae .*it offers none,11i"):
         await adapter.plan_changes([c], {})
 
 
@@ -411,7 +411,7 @@ async def test_without_beacon_advertisement_action(
     with pytest.raises(AdapterError, match=r"hide the SSID: refused .*not supported"):
         await adapter.apply([c], {}, 60)
     sim.beacon_advertisement = True
-    sim.faults = {"X_AVM-DE_GetBeaconAdvertisement": 820}
+    sim.faults = {"GetBeaconAdvertisement": 820}
     assert (await adapter.observe()).errors  # another fault is an error, not "not hidden"
 
 
@@ -633,20 +633,20 @@ async def test_backup_object_is_plain_data(adapter: FritzboxAdapter) -> None:
 @pytest.mark.parametrize(
     ("service", "action", "args"),
     [
-        ("LANHostConfigManagement1", "SetDHCPServerEnable", {"NewDHCPServerEnable": "yes"}),
+        ("LANHostConfigManagement1", "SetDHCPServerEnable", {"NewDHCPServerEnable": "maybe"}),
         ("LANHostConfigManagement1", "SetAddressRange", {"NewMinAddress": "x"}),
         ("LANHostConfigManagement1", "SetIPRouter", {}),
         ("WLANConfiguration1", "SetSSID", {"NewSSID": "x" * 33}),
         ("WLANConfiguration1", "SetBeaconType", {"NewBeaconType": "WEP"}),
         ("WLANConfiguration1", "SetSecurityKeys", {"NewKeyPassphrase": "short"}),
         ("WLANConfiguration1", "SetEnable", {"NewEnable": "on"}),
-        ("WLANConfiguration1", "X_AVM-DE_SetBeaconAdvertisement", {}),
+        ("WLANConfiguration1", "SetBeaconAdvertisement", {}),
     ],
 )
 async def test_simulator_checks_write_arguments(
     adapter: FritzboxAdapter, sim: FritzboxSim, service: str, action: str, args: dict[str, str]
 ) -> None:
-    with pytest.raises(AdapterError, match=r"UPnP error 40[12]"):
+    with pytest.raises(AdapterError, match=r"UPnP error (40[12]|600)"):
         await adapter.tr064.call(service, action, **args)
     assert sim.writes == [] and sim.lan == fritz_sim.LAN and sim.wlans == fritz_sim.WLANS
 
@@ -662,3 +662,26 @@ async def test_dhcp_without_a_reported_range(
     monkeypatch.setattr(adapter, "_lan_values", no_range)
     calls = await adapter.plan_changes([c], {})
     assert [x.target for x in calls] == ["LANHostConfigManagement1 SetDHCPServerEnable"]
+
+
+def test_limits_from_get_info() -> None:
+    from signalbox.adapters.fritzbox.write import _limits
+
+    assert _limits({"NewMinCharsPSK": "8", "NewMaxCharsPSK": "64"}, "PSK", 8, 63) == (8, 63)
+    assert _limits({"NewMinCharsSSID": "2", "NewMaxCharsSSID": "20"}, "SSID", 1, 32) == (2, 20)
+    assert _limits({"NewMaxCharsPSK": "x"}, "PSK", 8, 63) == (8, 63)
+    assert _limits({"NewMinCharsPSK": "50", "NewMaxCharsPSK": "9"}, "PSK", 8, 63) == (8, 63)
+
+
+async def test_ssid_outside_the_limits_the_box_reports(
+    adapter: FritzboxAdapter, sim: FritzboxSim, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fritz_sim, "SSID_CHARS", (1, 10))
+    c = wlan_change(await network(adapter), "Example", ssid="Example-and-more")
+    with pytest.raises(AdapterError, match="SSID of 1 to 10 characters"):
+        await adapter.plan_changes([c], {})
+    monkeypatch.setattr(fritz_sim, "SSID_CHARS", (1, 32))
+    c = wlan_change(await network(adapter), "Example", ssid="ä" * 17)  # 34 bytes
+    with pytest.raises(AdapterError, match="at most 32 bytes"):
+        await adapter.plan_changes([c], {})
+    assert sim.writes == []

@@ -2,15 +2,16 @@
 
 Pure helpers, no I/O: the adapter reads the current values, these functions turn a change (or
 a backup) into the calls that make the device match, and the adapter sends them. Every action
-name and argument here comes from AVM's TR-064 documentation and still needs confirmation on a
-real device (#21); ``docs/adapters/fritzbox.md`` lists them.
+name, argument and value here is checked against AVM's TR-064 service descriptions
+(``tests/test_fritzbox_scpd.py``); their effect still needs confirmation on a real device
+(#21). ``docs/adapters/fritzbox.md`` lists them.
 
 What maps cleanly, and is therefore the only thing ``Manifest.writes`` declares:
 
 - ``dhcp`` on the LAN: ``SetDHCPServerEnable``, ``SetAddressRange``. The DNS servers and the
   lease time the DHCP server hands out are not settable over TR-064: a change to them is refused.
 - ``wlan`` for an SSID the box already has: ``SetSSID`` (rename), ``SetBeaconType``,
-  ``SetSecurityKeys``, ``SetEnable``, ``X_AVM-DE_SetBeaconAdvertisement`` (hidden). The Wi-Fi
+  ``SetSecurityKeys``, ``SetEnable``, ``SetBeaconAdvertisement`` (hidden). The Wi-Fi
   networks of a Fritz!Box are fixed (one ``WLANConfiguration`` per band plus the guest
   network), so creating or removing one is refused.
 """
@@ -154,14 +155,24 @@ def wlan_wanted(
     if have is new.security:
         beacon = current.get("NewBeaconType", beacon)  # already right: keep the exact type
     possible = [
-        p.strip().lower()
+        p.strip()
         for p in current.get("NewX_AVM-DE_PossibleBeaconTypes", "").split(",")
         if p.strip()
     ]
-    if possible and beacon.lower() not in possible:
+    if possible:
+        # The box's own spelling: FRITZ!OS 7.57 describes "none", 8.02 "None".
+        spelled = next((p for p in possible if p.lower() == beacon.lower()), None)
+        if spelled is None:
+            raise AdapterError(
+                f"SSID {c.key}: this Fritz!Box does not offer {new.security.value} "
+                f"(beacon type {beacon}; it offers {current['NewX_AVM-DE_PossibleBeaconTypes']})"
+            )
+        beacon = spelled
+    low, high = _limits(current, "SSID", 1, 32)
+    if not low <= len(new.ssid) <= high or len(new.ssid.encode()) > 32:
         raise AdapterError(
-            f"SSID {c.key}: this Fritz!Box does not offer {new.security.value} "
-            f"(beacon type {beacon}; it offers {current['NewX_AVM-DE_PossibleBeaconTypes']})"
+            f"SSID {c.key}: the Fritz!Box takes an SSID of {low} to {high} characters "
+            "(at most 32 bytes)"
         )
     wanted = {
         "NewSSID": new.ssid,
@@ -174,12 +185,27 @@ def wlan_wanted(
         value = secrets.get(name)
         if value is None:
             raise AdapterError(f"SSID {c.key}: secret {name!r} was not given")
-        if not 8 <= len(value) <= 63:
+        low, high = _limits(current, "PSK", 8, 63)
+        if not low <= len(value) <= high:
             raise AdapterError(
-                f"SSID {c.key}: the passphrase in secret {name!r} must be 8 to 63 characters"
+                f"SSID {c.key}: the passphrase in secret {name!r} must be {low} to {high} "
+                "characters"
             )
         wanted["NewKeyPassphrase"] = value
     return wanted
+
+
+def _limits(current: Mapping[str, str], what: str, low: int, high: int) -> tuple[int, int]:
+    """``NewMinChars<what>``/``NewMaxChars<what>`` of GetInfo, kept within ``low``..``high``.
+
+    WPA passphrases are 8 to 63 characters whatever the box says (64 would be a hex key).
+    """
+    try:
+        lo = max(low, int(current.get(f"NewMinChars{what}", low)))
+        hi = min(high, int(current.get(f"NewMaxChars{what}", high)))
+    except ValueError:
+        return low, high
+    return (lo, hi) if lo <= hi else (low, high)
 
 
 def check_wlan(c: Change) -> None:
@@ -265,7 +291,7 @@ def wlan_calls(
         calls.append(
             Call(
                 service,
-                "X_AVM-DE_SetBeaconAdvertisement",
+                "SetBeaconAdvertisement",
                 {"NewBeaconAdvertisementEnabled": advertise},
                 f"{service}: " + ("show the SSID" if advertise == "1" else "hide the SSID"),
             )

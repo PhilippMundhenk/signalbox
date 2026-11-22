@@ -56,6 +56,8 @@ SERVICES: dict[str, tuple[str, str]] = {
 FAULTS: dict[int, str] = {
     401: "action not supported by this FRITZ!OS",
     402: "invalid arguments",
+    600: "argument value invalid",
+    601: "argument value out of range",
     501: "action failed",
     606: "not authorised: the Fritz!Box user lacks the right for this action",
     713: "no such entry",

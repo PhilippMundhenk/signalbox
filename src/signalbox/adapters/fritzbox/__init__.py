@@ -3,8 +3,8 @@
 The SOAP side is :mod:`signalbox.adapters.fritzbox.soap`, the HTTPS side (probe, pin, errors)
 :class:`signalbox.adapters.https.DeviceHttp`. Authentication is HTTP Digest with a dedicated
 Fritz!Box user. Every action and the arguments it is assumed to return are listed in
-``docs/adapters/fritzbox.md``; they come from AVM's TR-064 documentation and still need
-confirmation on a real device.
+``docs/adapters/fritzbox.md``; they are checked against AVM's TR-064 service descriptions
+(``tests/fixtures/tr064/``) and still need confirmation of their effect on a real device.
 
 Mapping in short: the LAN is the native segment with one bridge port ``lan`` (TR-064 has no
 per-port view), its subnet from ``IPRouters``/``SubnetMask``; every ``WLANConfiguration<n>`` is
@@ -447,7 +447,7 @@ class FritzboxAdapter(Adapter):
     async def _advertised(self, wlan: WlanService) -> bool | None:
         """Whether the SSID is broadcast; None when the box has no such action."""
         try:
-            answer = await self.tr064.call(wlan.service, "X_AVM-DE_GetBeaconAdvertisement")
+            answer = await self.tr064.call(wlan.service, "GetBeaconAdvertisement")
         except SoapFault as exc:
             if exc.code == 401:
                 return None
