@@ -1,4 +1,4 @@
-"""Small "plus"-managed switches (read): NETGEAR ProSAFE Plus (NSDP), TP-Link Easy Smart.
+"""Small "plus"-managed switches: NETGEAR ProSAFE Plus (NSDP), TP-Link Easy Smart.
 
 Both protocols are spoken by `Switchyard <https://github.com/PhilippMundhenk/switchyard>`_,
 installed with the optional extra ``signalbox-net[switches]`` (docs/adr/0003). Switchyard is
@@ -13,6 +13,9 @@ One observation is one short session: find the switch at its address, check the 
 (a write that changes nothing, as the vendor tools do), read identity, ports, VLANs and link
 aggregation, close the socket. The UDP client ports are fixed by the protocols, so sessions on
 the same port take turns.
+
+Port changes (802.1Q membership and PVIDs, :mod:`signalbox.adapters.plusswitch.writes`) use the
+same kind of session and the same safeguard against resending a refused password.
 """
 
 from __future__ import annotations
@@ -22,10 +25,11 @@ import hashlib
 import struct
 import time
 import weakref
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from ipaddress import IPv4Address
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypeVar
 
 from pydantic import Field, SecretStr, field_validator
 
@@ -34,15 +38,21 @@ from signalbox.adapters import (
     AdapterConfig,
     AdapterContext,
     AdapterError,
+    ApplyResult,
     AuthFailed,
+    Backup,
     Capability,
     Manifest,
     Observation,
     SystemInfo,
     Unreachable,
+    VendorCall,
 )
-from signalbox.adapters.plusswitch import mapping
+from signalbox.adapters.plusswitch import mapping, writes
+from signalbox.changes import Change, ChangeKind
 from signalbox.model import DeviceRole
+
+_T = TypeVar("_T")
 
 __all__ = ["EasySmartAdapter", "EasySmartConfig", "ProsafeAdapter", "ProsafeConfig"]
 
@@ -169,20 +179,28 @@ class _PlusSwitch(Adapter):
         """Per UDP request; several requests (with retries) fit into the read timeout."""
         return max(0.2, min(1.5, self.context.timeout / 8))
 
-    async def read_system(self) -> SystemInfo:
+    def _switchyard(self) -> Any:
         try:
             import switchyard.drivers.base as errors
         except ImportError:
             raise AdapterError(INSTALL_HINT) from None
         self._errors = errors
+        return errors
+
+    async def _with_switch(self, work: Callable[[Any], Awaitable[_T]]) -> _T:
+        """One session: find the switch, check the password, run ``work`` with the client."""
+        errors = self._switchyard()
         client_port = self._client_port()
         async with _port_lock(self.protocol, client_port):
             try:
-                self._reading = await self._session(client_port)
+                return await self._session(client_port, work)
             except (errors.SwitchError, errors.Unreachable, TimeoutError, *_PARSE_ERRORS) as exc:
                 raise _translate(exc, errors, self._host) from exc
             except OSError as exc:
                 raise AdapterError(f"cannot use UDP port {client_port}: {exc}") from exc
+
+    async def read_system(self) -> SystemInfo:
+        self._reading = await self._with_switch(self._read_all)
         return mapping.system_info(self._reading.info, self.vendor, self._host)
 
     async def read_interfaces(self) -> Observation:
@@ -202,11 +220,77 @@ class _PlusSwitch(Adapter):
         except (ValueError, TypeError, AttributeError) as exc:
             raise AdapterError(f"{self._host}: unexpected port or VLAN answer: {exc}") from exc
 
+    # -- writes (802.1Q port membership) -----------------------------------------------------
+
+    async def plan_changes(
+        self, changes: list[Change], secrets: Mapping[str, str]
+    ) -> list[VendorCall]:
+        return writes.plan(self.context.device_id, self._host, changes)
+
+    async def _table(self, client: Any) -> writes.Table:
+        return writes.Table.read(await self._read_vlan(client), self._host)
+
+    async def _write_table(self, client: Any, table: writes.Table) -> None:
+        try:
+            await client.apply_dot1q(table.rows(), table.pvid)
+        except ValueError as exc:  # Switchyard's checks before anything is written
+            raise AdapterError(f"{self._host}: VLAN table refused: {exc}") from exc
+
+    async def backup(self) -> Backup:
+        table = await self._with_switch(self._table)
+        return Backup(
+            device_id=self.context.device_id,
+            taken_at=datetime.now(UTC),
+            format=writes.BACKUP_FORMAT,
+            content=table.to_json(),
+        )
+
+    async def apply(
+        self, changes: list[Change], secrets: Mapping[str, str], rollback_seconds: int
+    ) -> ApplyResult:
+        calls = writes.plan(self.context.device_id, self._host, changes)
+
+        async def work(client: Any) -> None:
+            table = await self._table(client)
+            ports = len(await client.read_ports())
+            target = writes.apply(table, self.context.device_id, changes, ports)
+            if target != table:
+                await self._write_table(client, target)
+
+        await self._with_switch(work)
+        return ApplyResult(calls=calls)
+
+    async def confirm(self) -> None:
+        """Nothing to do: these switches have no rollback timer."""
+
+    async def restore(self, backup: Backup) -> None:
+        if backup.format != writes.BACKUP_FORMAT:
+            raise AdapterError(f"cannot restore a backup in the format {backup.format!r}")
+        wanted = writes.Table.from_json(backup.content)
+
+        async def work(client: Any) -> None:
+            if await self._table(client) != wanted:
+                await self._write_table(client, wanted)
+
+        await self._with_switch(work)
+
     def _client_port(self) -> int:
         raise NotImplementedError
 
-    async def _session(self, client_port: int) -> _Reading:
+    async def _session(self, client_port: int, work: Callable[[Any], Awaitable[_T]]) -> _T:
         raise NotImplementedError
+
+    async def _read_vlan(self, client: Any) -> Any:
+        return await client.read_vlan()
+
+    async def _read_all(self, client: Any) -> _Reading:
+        reading = _Reading(info=await client.read_info())
+
+        async def vlan() -> Any:
+            return await self._read_vlan(client)
+
+        await self._read_rest(reading, client.read_ports, vlan, client.read_lag)
+        return reading
 
     async def _login(self, login: Callable[[], Awaitable[None]]) -> None:
         """Check the password once, but never resend one the switch already refused."""
@@ -249,12 +333,13 @@ class ProsafeAdapter(_PlusSwitch):
     manifest = Manifest(
         id="prosafe",
         name="NETGEAR ProSAFE Plus",
-        version="0.1.0",
+        version="0.2.0",
         api_version="1.0",
         vendor="NETGEAR",
         roles=frozenset({DeviceRole.SWITCH}),
         capabilities=frozenset({Capability.INTERFACES}),
         config=ProsafeConfig,
+        writes=frozenset({ChangeKind.PORT}),
         description="GS105E, GS108E, GS116E and other Plus switches over NSDP (UDP), "
         "through Switchyard",
     )
@@ -269,7 +354,7 @@ class ProsafeAdapter(_PlusSwitch):
 
         return self._option("device_port", DEVICE_PORT)
 
-    async def _session(self, client_port: int) -> _Reading:
+    async def _session(self, client_port: int, work: Callable[[Any], Awaitable[_T]]) -> _T:
         from switchyard.nsdp import SwitchClient, Transport, parse_mac, probe
 
         timeout = self._request_timeout
@@ -286,9 +371,7 @@ class ProsafeAdapter(_PlusSwitch):
                 raise Unreachable(f"{self._host}: no NETGEAR Plus switch answers (NSDP)")
             client = SwitchClient(transport, parse_mac(identity["mac"]), self._host)
             await self._login(lambda: client.login(self._password))
-            reading = _Reading(info=await client.read_info())
-            await self._read_rest(reading, client.read_ports, client.read_vlan, client.read_lag)
-            return reading
+            return await work(client)
         finally:
             await transport.stop()
 
@@ -299,12 +382,13 @@ class EasySmartAdapter(_PlusSwitch):
     manifest = Manifest(
         id="easysmart",
         name="TP-Link Easy Smart",
-        version="0.1.0",
+        version="0.2.0",
         api_version="1.0",
         vendor="TP-Link",
         roles=frozenset({DeviceRole.SWITCH}),
         capabilities=frozenset({Capability.INTERFACES}),
         config=EasySmartConfig,
+        writes=frozenset({ChangeKind.PORT}),
         description="TL-SG105E, TL-SG108E, TL-SG108PE, TL-SG116E and other Easy Smart "
         "switches (UDP), through Switchyard",
     )
@@ -325,7 +409,7 @@ class EasySmartAdapter(_PlusSwitch):
 
         return self._option("device_port", DEVICE_PORT)
 
-    async def _session(self, client_port: int) -> _Reading:
+    async def _session(self, client_port: int, work: Callable[[Any], Awaitable[_T]]) -> _T:
         from switchyard.easysmart.client import EasySmartClient, parse_identity
         from switchyard.easysmart.packet import RSA_MODULUS, Op
         from switchyard.easysmart.transport import EasySmartTransport
@@ -359,17 +443,23 @@ class EasySmartAdapter(_PlusSwitch):
                 rsa_modulus=self._option("rsa_modulus", RSA_MODULUS),
             )
             await self._login(lambda: client.login(self._password, self._username))
-            reading = _Reading(info=await client.read_info())
-
-            async def vlan() -> Any:
-                async with client.lock:
-                    return await client.read_vlan()
-
-            async def lag() -> Any:
-                async with client.lock:
-                    return await client.read_lag()
-
-            await self._read_rest(reading, client.read_ports, vlan, lag)
-            return reading
+            return await work(client)
         finally:
             await transport.stop()
+
+    async def _read_vlan(self, client: Any) -> Any:
+        async with client.lock:
+            return await client.read_vlan()
+
+    async def _read_all(self, client: Any) -> _Reading:
+        reading = _Reading(info=await client.read_info())
+
+        async def vlan() -> Any:
+            return await self._read_vlan(client)
+
+        async def lag() -> Any:
+            async with client.lock:
+                return await client.read_lag()
+
+        await self._read_rest(reading, client.read_ports, vlan, lag)
+        return reading

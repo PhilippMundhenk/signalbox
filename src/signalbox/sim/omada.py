@@ -1,4 +1,4 @@
-"""Simulator of the TP-Link Omada controller Open API endpoints the ``omada`` adapter reads.
+"""Simulator of the TP-Link Omada controller Open API endpoints the ``omada`` adapter uses.
 
 The answers follow the JSON shapes in ``docs/adapters/omada.md`` (best effort from the Omada
 Open API documentation, not yet confirmed on a real controller, issue #21). Every answer is
@@ -20,6 +20,16 @@ Failure switches on :class:`OmadaSimulator`: ``client_secret`` (what the control
 ``error`` (an Omada ``(errorCode, msg)`` per path), ``malformed`` (paths answering broken
 JSON), ``delay`` (seconds before every answer), ``page_limit`` (largest page the controller
 returns). ``data`` can be edited by tests; ``requests`` and ``token_requests`` record traffic.
+
+Writes (issue #44, shapes as guessed in ``docs/adapters/omada.md``): ``POST`` to a list path
+creates a row (LAN networks get an ``id``, SSIDs an ``ssidId``), ``PATCH <list>/<id>`` merges
+the body into the row (a ``null`` value removes the key), ``DELETE <list>/<id>`` removes it;
+switch ports are addressed by their number. The controller checks what a real one would refuse
+(a VLAN used twice, a network still in use, an SSID name used twice in a WLAN group, a WPA
+passphrase that is not 8 to 63 characters, a port pointing at an unknown network). Write
+switches: ``read_only`` (the client has the viewer role: every write is refused with
+``PERMISSION_DENIED``), ``write_error`` (an Omada ``(errorCode, msg)`` per path for writes
+only). ``writes`` records ``(method, path, body)``.
 """
 
 from __future__ import annotations
@@ -51,6 +61,11 @@ SITE = f"/openapi/v1/{OMADAC_ID}/sites/{SITE_ID}"
 TOKEN_EXPIRED = -44112
 TOKEN_INVALID = -44113
 CLIENT_INVALID = -44106
+PERMISSION_DENIED = -1005
+INVALID_PARAMS = -1001
+IN_USE = -33004
+#: Key of the id of a row, per list path suffix.
+ROW_IDS = {"lan-networks": "id", "ssids": "ssidId", "ports": "port", "lan-profiles": "id"}
 
 
 def _port(n: int, profile: str, profile_name: str, **kw: Any) -> dict[str, Any]:
@@ -315,6 +330,12 @@ class OmadaSimulator:
     requests: list[str] = field(default_factory=list)
     token_requests: int = 0
     tokens: set[str] = field(default_factory=set)
+    #: The Open API client has the viewer role: every write is refused.
+    read_only: bool = False
+    #: ``(errorCode, msg)`` to answer per path for POST, PATCH and DELETE only.
+    write_error: dict[str, tuple[int, str]] = field(default_factory=dict)
+    writes: list[tuple[str, str, Any]] = field(default_factory=list)
+    created: int = 0
 
     def _token(self, body: Any) -> JSONResponse:
         self.token_requests += 1
@@ -353,7 +374,7 @@ class OmadaSimulator:
     def app(self) -> FastAPI:
         app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
 
-        @app.api_route("/{path:path}", methods=["GET", "POST"])
+        @app.api_route("/{path:path}", methods=["GET", "POST", "PATCH", "DELETE"])
         async def answer(path: str, request: Request) -> Response:
             path = "/" + path
             self.requests.append(path)
@@ -379,6 +400,12 @@ class OmadaSimulator:
             if path in self.error:
                 code, msg = self.error[path]
                 return _wrap(None, code, msg)
+            if request.method != "GET":
+                try:
+                    body = json.loads(await request.body() or b"null")
+                except ValueError:
+                    return _wrap(None, INVALID_PARAMS, "Invalid JSON.")
+                return self._write(request.method, path, body)
             if path not in self.data:
                 return JSONResponse({"errorCode": -1, "msg": "Not Found"}, status_code=404)
             if path in self.malformed:
@@ -386,6 +413,103 @@ class OmadaSimulator:
             return _wrap(self._page(self.data[path], request))
 
         return app
+
+    # --- writes --------------------------------------------------------------------------
+
+    def _write(self, method: str, path: str, body: Any) -> JSONResponse:
+        self.writes.append((method, path, copy.deepcopy(body)))
+        if self.read_only:
+            return _wrap(None, PERMISSION_DENIED, "Permission denied.")
+        if path in self.write_error:
+            code, msg = self.write_error[path]
+            return _wrap(None, code, msg)
+        if method == "POST":
+            rows = self.data.get(path)
+            kind = path.rsplit("/", 1)[-1]
+            if not isinstance(rows, list) or kind not in ("lan-networks", "ssids"):
+                return JSONResponse({"errorCode": -1, "msg": "Not Found"}, status_code=404)
+            if not isinstance(body, dict):
+                return _wrap(None, INVALID_PARAMS, "Invalid request parameters.")
+            self.created += 1
+            key = ROW_IDS[kind]
+            row = {k: v for k, v in body.items() if v is not None}
+            row[key] = f"{'net' if key == 'id' else 'ssid'}-new{self.created}"
+            problem = self._invalid(path, row, None)
+            if problem:
+                return _wrap(None, *problem)
+            rows.append(row)
+            return _wrap({key: row[key]})
+        list_path, _, item = path.rpartition("/")
+        rows = self.data.get(list_path)
+        kind = list_path.rsplit("/", 1)[-1]
+        if not isinstance(rows, list) or kind not in ROW_IDS:
+            return JSONResponse({"errorCode": -1, "msg": "Not Found"}, status_code=404)
+        key = ROW_IDS[kind]
+        index = next((i for i, r in enumerate(rows) if str(r.get(key)) == item), None)
+        if index is None:
+            return _wrap(None, -33000, "The object does not exist.")
+        if method == "DELETE":
+            if kind == "ports":
+                return _wrap(None, INVALID_PARAMS, "A port cannot be deleted.")
+            if kind == "lan-networks" and self._network_used(item):
+                return _wrap(None, IN_USE, "The network is in use.")
+            del rows[index]
+            return _wrap(None)
+        if not isinstance(body, dict):
+            return _wrap(None, INVALID_PARAMS, "Invalid request parameters.")
+        row = {**rows[index], **body}
+        row = {k: v for k, v in row.items() if v is not None}
+        row[key] = rows[index][key]
+        problem = self._invalid(list_path, row, index)
+        if problem:
+            return _wrap(None, *problem)
+        rows[index] = row
+        return _wrap(None)
+
+    def _rows(self, suffix: str) -> list[dict[str, Any]]:
+        return [r for p, v in self.data.items() if p.endswith(suffix) for r in v]
+
+    def _network_used(self, net_id: str) -> bool:
+        ports = self._rows("/ports") + self._rows("/lan-profiles")
+        return any(
+            r.get("nativeNetworkId") == net_id or net_id in (r.get("tagNetworkIds") or [])
+            for r in ports
+        )
+
+    def _invalid(
+        self, list_path: str, row: dict[str, Any], index: int | None
+    ) -> tuple[int, str] | None:
+        """What a controller would refuse in a new (``index`` None) or changed row."""
+        rows = self.data[list_path]
+        others = [r for i, r in enumerate(rows) if i != index]
+        kind = list_path.rsplit("/", 1)[-1]
+        if kind == "lan-networks":
+            vlan = row.get("vlan")
+            if not isinstance(row.get("name"), str) or not row["name"]:
+                return INVALID_PARAMS, "The network needs a name."
+            if not isinstance(vlan, int) or not 1 <= vlan <= 4094:
+                return INVALID_PARAMS, "The VLAN must be 1-4094."
+            if any(r.get("vlan") == vlan for r in others):
+                return -33101, "The VLAN is already used by another network."
+        elif kind == "ssids":
+            if not isinstance(row.get("name"), str) or not row["name"]:
+                return INVALID_PARAMS, "The SSID needs a name."
+            if any(r.get("name") == row["name"] for r in others):
+                return -33201, "The SSID already exists in this WLAN group."
+            key = (row.get("pskSetting") or {}).get("securityKey")
+            checked = row.get("security") == 3 and (index is None or key is not None)
+            if checked and (not isinstance(key, str) or not 8 <= len(key) <= 63):
+                return INVALID_PARAMS, "The password must be 8-63 characters."
+        elif kind == "ports":
+            nets = {r.get("id") for r in self._rows("/lan-networks")}
+            wanted = [row.get("nativeNetworkId"), *(row.get("tagNetworkIds") or [])]
+            if any(n is not None and n not in nets for n in wanted):
+                return INVALID_PARAMS, "The network does not exist."
+            profiles = {r.get("id"): r for r in self._rows("/lan-profiles")}
+            if row.get("profileId") not in profiles:
+                return INVALID_PARAMS, "The profile does not exist."
+            row["profileName"] = profiles[row["profileId"]].get("name", "")
+        return None
 
 
 def create_app() -> FastAPI:

@@ -5,14 +5,15 @@ configuration utility: NETGEAR's *ProSAFE Plus Utility* (NSDP: GS105E, GS108E, G
 and similar) and TP-Link's *Easy Smart Configuration Utility* (TL-SG105E, TL-SG108E, TL-SG108PE,
 TL-SG116E and similar). Signalbox speaks both through
 [Switchyard](https://github.com/PhilippMundhenk/switchyard), which implements the protocols
-and their simulators ([ADR 0003](../adr/0003-switchyard-library.md)). Read only; nothing on the
-switch is changed.
+and their simulators ([ADR 0003](../adr/0003-switchyard-library.md)). They read the switch and,
+in 802.1Q mode, can change which VLANs a port carries ([Changing ports](#changing-ports)).
 
 | | NETGEAR | TP-Link |
 | --- | --- | --- |
 | Adapter id | `prosafe` | `easysmart` |
 | Roles | `switch` | `switch` |
 | Capabilities | interfaces | interfaces |
+| Writes | port | port |
 | Protocol | NSDP, UDP 63321 (Signalbox) ↔ 63322 (switch) | UDP 29809 (Signalbox) ↔ 29808 (switch) |
 | Simulator | `switchyard.sim` | `switchyard.easysmart.sim` |
 
@@ -56,10 +57,11 @@ these kinds is then reported as *could not be read* with the install hint.
   networks.
 - **Why a password at all?** Reading needs none on these protocols. Signalbox sends it once per
   observation, in a write that changes nothing (as the vendor tools do), so that a wrong
-  password shows up as *authentication failed* now and not when changes arrive (phase 3).
+  password shows up as *authentication failed* now and not only when a change is deployed.
 - **Lock-out.** NETGEAR switches lock the Plus Utility access for 30 minutes after three wrong
   passwords. When a switch refuses a password, Signalbox does not send that password again for
-  30 minutes; entering a different password in the device settings tries it at once.
+  30 minutes, for reads and changes alike; entering a different password in the device settings
+  tries it at once.
 
 ## Network
 
@@ -110,6 +112,42 @@ group a segment of its own would make the other end of every cable look like it 
 different untagged network (`vlan.native-mismatch`) even in the usual setup where the uplink is
 in every group. Checks that understand the groups can be added later on `vendor_extra`.
 
+## Changing ports
+
+With *Allow changes* on the switch and `deploy.enabled` ([CHANGES.md](../CHANGES.md)), the
+desired state's `ports:` entries for the switch are deployed (kind `port`, nothing else):
+
+```yaml
+ports:
+  - {device: office-switch, port: "3", untagged: 20, tagged: [10]}
+  - {device: office-switch, port: "8", untagged: native}
+```
+
+| A port change says | The switch gets |
+| --- | --- |
+| `untagged: 20` | port 3 an untagged member of VLAN 20, and its PVID 20 (untagged frames that arrive go to VLAN 20) |
+| `untagged: native` | the same for VLAN 1, the default VLAN |
+| `tagged: [10]` | port 3 a tagged member of VLAN 10 |
+| no `untagged` | the port only tagged; its PVID stays if the port is still a member of that VLAN, else it moves to the first tagged VLAN (the switch needs a PVID the port is a member of) |
+
+- The port leaves every other VLAN. VLANs that do not exist yet are created; VLANs other than 1
+  that the change leaves without a member are deleted (VLANs that were empty before stay).
+- One session per deployment step: Signalbox reads the 802.1Q table and the PVIDs, computes the
+  new table and hands it to Switchyard's `apply_dot1q`, which writes it in an order the switch
+  accepts (add members, move PVIDs, remove members, delete VLANs) and saves it (Easy Smart).
+- **802.1Q mode only.** A switch in port-based VLAN mode, or with VLANs switched off, is refused
+  with "the switch is in port_basic mode ...; Signalbox changes VLANs only in 802.1Q mode" and
+  nothing is changed. Signalbox never switches the VLAN mode: that resets the whole table.
+- Refused before anything is sent: VLAN 1 tagged, a VLAN both untagged and tagged, a port in no
+  VLAN at all, a port the switch does not have, more VLANs than the switch holds (Switchyard's
+  checks: "VLAN table refused: ...").
+- **Backup** (`switchyard-dot1q-json`): the 802.1Q table (VLAN id, members, tagged members,
+  name) and every port's PVID. **Restore** writes that table back the same way. No secrets in
+  it.
+- No confirm timer: the switches cannot roll back by themselves. A change is verified by
+  reading the switch again; when it does not read back as planned, the backup is restored.
+- Not changed: VLAN names, the VLAN mode, link aggregation, anything outside VLANs.
+
 ## Errors
 
 | Situation | Status |
@@ -132,6 +170,10 @@ answers Switchyard.
 ports: the contract checks for several models (password schemes, unsupported settings, both
 Easy Smart generations), 802.1Q and port-based VLANs, link aggregation, wrong password and
 user, no answer, datagrams that are not switch replies, garbled setting values, two switches
-answering for one address, a busy client port and two switches read at once. Without the extra
+answering for one address, a busy client port and two switches read at once.
+`tests/test_plusswitch_write.py` changes ports on both simulators and reads them back (and the
+inverse), backs up and restores the VLAN table, refuses port-based and switched-off VLAN modes,
+a write the switch refuses and a password the switch refused (not resent), and deploys a desired
+state through the deployment component and reverts it. Without the extra
 these tests are skipped; CI sets `REQUIRE_SWITCH_TESTS=1`, so they can never be skipped
 there.

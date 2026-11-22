@@ -17,6 +17,8 @@ Signalbox reads by default. Deploying changes needs three things:
 3. **Record** the change with a reason. Each integration lists the exact calls it will make.
 4. **Approve**, then **Deploy**. Per device, one after another:
    - read the device again; if what the plan changes is no longer as it was planned, stop
+     (unless it is already as the plan wants it: an object several devices share, such as an
+     SSID of a controller's WLAN group, changed through an earlier device of this deployment)
    - back up the whole configuration (kept encrypted with the change)
    - apply; devices that can roll back by themselves (a confirm timer) get
      `deploy.confirm_seconds`
