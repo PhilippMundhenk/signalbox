@@ -29,7 +29,7 @@ from pydantic import SecretStr
 
 from factories import SITE
 from integration.conftest import Target
-from signalbox.adapters import AdapterContext, AuthFailed
+from signalbox.adapters import AdapterContext, AdapterError, AuthFailed
 from signalbox.adapters.https import NotFound, fingerprint, peer_certificate
 from signalbox.adapters.mikrotik import (
     ROUTERBOARD,
@@ -39,7 +39,7 @@ from signalbox.adapters.mikrotik import (
     MikrotikConfig,
     get_menu,
 )
-from signalbox.adapters.mikrotik.write import _label, _writable
+from signalbox.adapters.mikrotik.write import _label, _Op, _writable
 from signalbox.changes import Change, ChangeKind, ReservationValue, plan
 from signalbox.deploy import Deployer
 from signalbox.desired import parse
@@ -296,6 +296,27 @@ async def test_read_user_cannot_write(rt: dict[str, str]) -> None:
     finally:
         await a.close()
     assert menus(rt, "/rest/ip/dhcp-server/lease") == before
+
+
+async def test_refused_change_shows_the_routers_detail(rt: dict[str, str]) -> None:
+    """RouterOS refuses a request with HTTP 400 and a ``detail``; the error shows it."""
+    a = adapter(rt, write=True)
+    try:
+        op = _Op(
+            "PUT",
+            "/rest/ip/address",
+            "new-1",
+            {"address": "203.0.113.1/24", "interface": "nothere"},
+            "add 203.0.113.1/24 to nothere",
+        )
+        with pytest.raises(
+            AdapterError,
+            match=r"^add 203\.0\.113\.1/24 to nothere: the router refused the change: "
+            r"input does not match any value of interface$",
+        ):
+            await a._send([op], {})
+    finally:
+        await a.close()
 
 
 async def test_backup_of_the_write_user_has_the_export(rt: dict[str, str]) -> None:

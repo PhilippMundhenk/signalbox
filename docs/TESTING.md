@@ -74,6 +74,11 @@ the serial console and the pytest errors as annotations on the check run.
 What the real OpenWrt showed that the simulator had wrong is listed in
 [adapters/openwrt.md](adapters/openwrt.md#verified-against-the-real-openwrt).
 
+### MikroTik (RouterOS CHR in QEMU)
+
+`tools/integration/mikrotik/`, job `Integration / MikroTik`; see
+[adapters/mikrotik.md](adapters/mikrotik.md#integration-tests).
+
 ### OPNsense (nano image in QEMU)
 
 `tools/integration/opnsense/`, job `Integration / OPNsense`; see
