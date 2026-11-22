@@ -64,6 +64,7 @@ All notable changes to this project are documented here. The format follows
 - WAN checks: carrier-grade NAT, uplink down, a leftover DNS server on the uplink network, a delegated IPv6 prefix no network uses (#148)
 - Stored optional secrets can be removed in the device settings (#210)
 - Device discovery: *Find devices* on the devices page finds supported devices on the known networks and among the routers' clients (no credentials sent) and opens the device form prefilled (#203)
+- Annotations: acknowledge a finding with a reason and an optional end date (shown apart, not counted as a problem, also in Home Assistant), labels, owner, purpose and notes on devices, ports and clients, declared in the desired state or set in the UI; `annotations.stale` and `ack.expired` (#186)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
