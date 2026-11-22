@@ -39,6 +39,7 @@ All notable changes to this project are documented here. The format follows
 - Out-of-process adapters: an integration can run as a separate program that only gets the settings of its device (JSON over stdin/stdout, `serve()` for Python adapters); exporter plugins (`signalbox.exporters`); docs/PLUGINS.md (#25)
 - OPNsense writes: router interfaces (VLAN device and interface assignment, OPNsense 26.7+), Kea DHCP subnets and reservations, tagged VLANs on a port; backup and restore through the configuration history (#42)
 - OpenWrt writes: port VLANs (DSA bridge-vlan), SSIDs (incl. a VLAN interface when needed), DHCP and reservations, staged in UCI and applied with the rpcd rollback timer (#41)
+- TP-Link writes: Omada LAN networks with DHCP, switch port networks and SSIDs of managed devices through the controller; ProSAFE Plus and Easy Smart 802.1Q port VLANs and PVIDs through Switchyard (#44)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
