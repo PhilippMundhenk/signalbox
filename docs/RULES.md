@@ -96,6 +96,13 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`ipv6.prefix-64`](rules/ipv6.md#ipv6prefix-64)
 - [`ipv6.partial`](rules/ipv6.md#ipv6partial)
 
+## [DHCP leases, options and relays](rules/leases.md)
+
+- [`dhcp.static-in-pool`](rules/leases.md#dhcpstatic-in-pool)
+- [`dhcp.declined`](rules/leases.md#dhcpdeclined)
+- [`dhcp.option-121-without-router`](rules/leases.md#dhcpoption-121-without-router)
+- [`dhcp.relay-target-missing`](rules/leases.md#dhcprelay-target-missing)
+
 ## [Management services](rules/management.md)
 
 - [`security.insecure-services`](rules/management.md#securityinsecure-services)

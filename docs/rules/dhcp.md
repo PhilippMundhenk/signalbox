@@ -11,7 +11,8 @@ a device with the gateway role.
 - **Checks:** every network (VLAN) with an IPv4 router address has exactly one enabled DHCP
   server. Networks with only IPv6 are skipped (they often use SLAAC). If no device at the site
   can report DHCP servers (or every one that can failed to), the rule reports the network as
-  incomplete rather than as missing a server.
+  incomplete rather than as missing a server. A network with an enabled DHCP relay needs no
+  server of its own and is not reported as missing one.
 - **Fix:** keep the DHCP server on the router of the network and disable the others; enable one
   if there is none, unless every device on that network has a fixed address on purpose.
 
