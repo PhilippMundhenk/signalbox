@@ -98,7 +98,7 @@ addopts = "-ra"
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
 markers = [
   "e2e: drives the real UI in a browser",
-  "integration: runs against the real device software (tests/integration, #136)",
+  "integration: against the real device software (tests/integration, docs/TESTING.md)",
 ]
 
 [tool.coverage.run]

@@ -12,7 +12,7 @@ Deployer), so the tests can run in any order against one VM.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
@@ -22,7 +22,7 @@ import pytest
 from pydantic import SecretStr
 
 from factories import SITE
-from integration.conftest import env_target
+from integration.conftest import Target
 from signalbox.adapters import AdapterContext, AdapterError
 from signalbox.adapters.https import fingerprint, peer_certificate
 from signalbox.adapters.opnsense import OpnsenseAdapter, OpnsenseConfig
@@ -42,21 +42,30 @@ LAN, IOT, LAB = "home/segment/native", "home/segment/20", "home/segment/60"
 TIMEOUT = 60.0  # interface and Kea reconfigure calls take seconds on the real firewall
 
 
-@pytest.fixture(scope="module")
-def target() -> dict[str, str]:
-    return env_target(
-        "OPNSENSE", "URL", "FINGERPRINT", "KEY", "SECRET", "WRITE_KEY", "WRITE_SECRET"
-    )
+@pytest.fixture(scope="session")
+def fw(target: Callable[[str], Target]) -> dict[str, str]:
+    """The OPNsense VM: IT_OPNSENSE_USER/PASSWORD are the read user's API key and secret,
+    WRITE_USER/WRITE_PASSWORD the write user's, PIN the web interface's certificate."""
+    t = target("opnsense")
+    assert t.write_username and t.write_password and t.pin, "IT_OPNSENSE_WRITE_* and PIN"
+    return {
+        "URL": t.url,
+        "FINGERPRINT": t.pin,
+        "KEY": t.username,
+        "SECRET": t.password,
+        "WRITE_KEY": t.write_username,
+        "WRITE_SECRET": t.write_password,
+    }
 
 
 def adapter(
-    target: dict[str, str], write: bool = False, pin: str | None = "", secret: str | None = None
+    fw: dict[str, str], write: bool = False, pin: str | None = "", secret: str | None = None
 ) -> OpnsenseAdapter:
     prefix = "WRITE_" if write else ""
     config = OpnsenseConfig(
-        url=target["URL"],
-        api_key=SecretStr(target[f"{prefix}KEY"]),
-        api_secret=SecretStr(secret if secret is not None else target[f"{prefix}SECRET"]),
+        url=fw["URL"],
+        api_key=SecretStr(fw[f"{prefix}KEY"]),
+        api_secret=SecretStr(secret if secret is not None else fw[f"{prefix}SECRET"]),
     )
     ctx = AdapterContext(
         site_id="home",
@@ -64,14 +73,14 @@ def adapter(
         device_name="fw",
         role=DeviceRole.GATEWAY,
         config=config,
-        pinned_fingerprint=target["FINGERPRINT"] if pin == "" else pin,
+        pinned_fingerprint=fw["FINGERPRINT"] if pin == "" else pin,
         timeout=TIMEOUT,
     )
     return OpnsenseAdapter(ctx)
 
 
-async def network(target: dict[str, str]) -> Network:
-    a = adapter(target)
+async def network(fw: dict[str, str]) -> Network:
+    a = adapter(fw)
     try:
         return merge([SITE], [await a.observe()])
     finally:
@@ -118,13 +127,13 @@ def assert_unchanged(before: Any, after: Any) -> None:
 # --- reading -------------------------------------------------------------------------------
 
 
-async def test_certificate_pinning_with_the_real_certificate(target: dict[str, str]) -> None:
-    host = target["URL"].split("://", 1)[1]
+async def test_certificate_pinning_with_the_real_certificate(fw: dict[str, str]) -> None:
+    host = fw["URL"].split("://", 1)[1]
     name, port = host.rsplit(":", 1)
     seen = fingerprint(await peer_certificate(name, int(port), TIMEOUT))
-    assert seen == target["FINGERPRINT"]
+    assert seen == fw["FINGERPRINT"]
     for pin in (None, "00" * 32):
-        a = adapter(target, pin=pin)
+        a = adapter(fw, pin=pin)
         try:
             snap = await a.observe()
         finally:
@@ -133,8 +142,8 @@ async def test_certificate_pinning_with_the_real_certificate(target: dict[str, s
         assert seen in snap.errors[0].message
 
 
-async def test_read_contract(target: dict[str, str]) -> None:
-    a = adapter(target)
+async def test_read_contract(fw: dict[str, str]) -> None:
+    a = adapter(fw)
     try:
         snap = await assert_contract(a)
     finally:
@@ -143,8 +152,8 @@ async def test_read_contract(target: dict[str, str]) -> None:
     assert snap.device.firmware.current.startswith("26.7"), snap.device.firmware
 
 
-async def test_mapping_of_the_preseeded_firewall(target: dict[str, str]) -> None:
-    net = await network(target)
+async def test_mapping_of_the_preseeded_firewall(fw: dict[str, str]) -> None:
+    net = await network(fw)
     ports = {p.name: p for p in net.ports}
     assert {"vtnet0", "vtnet1", "vtnet2"} <= set(ports), sorted(ports)
     assert ports["vtnet0"].mac == "02:00:00:00:01:00"
@@ -177,8 +186,8 @@ async def test_mapping_of_the_preseeded_firewall(target: dict[str, str]) -> None
     assert ip_address("192.0.2.1") in dns.listen
 
 
-async def test_refused_api_key_is_auth_failed(target: dict[str, str]) -> None:
-    a = adapter(target, secret="not-the-secret")
+async def test_refused_api_key_is_auth_failed(fw: dict[str, str]) -> None:
+    a = adapter(fw, secret="not-the-secret")
     try:
         snap = await a.observe()
     finally:
@@ -186,9 +195,9 @@ async def test_refused_api_key_is_auth_failed(target: dict[str, str]) -> None:
     assert snap.status is ReadStatus.AUTH_FAILED, snap.errors
 
 
-async def test_read_user_has_no_write_privileges(target: dict[str, str]) -> None:
+async def test_read_user_has_no_write_privileges(fw: dict[str, str]) -> None:
     """The documented read privileges do not include the configuration history."""
-    a = adapter(target)
+    a = adapter(fw)
     try:
         with pytest.raises(AdapterError, match="HTTP 403"):
             await a.backup()
@@ -200,7 +209,7 @@ async def test_read_user_has_no_write_privileges(target: dict[str, str]) -> None
 
 
 @pytest.fixture
-def svc(tmp_path: Path, target: dict[str, str]) -> Iterator[Services]:
+def svc(tmp_path: Path, fw: dict[str, str]) -> Iterator[Services]:
     env = {
         "SIGNALBOX_AUTH_PASSWORD": "x" * 12,
         "SIGNALBOX_DEPLOY_ENABLED": "true",
@@ -217,10 +226,10 @@ def svc(tmp_path: Path, target: dict[str, str]) -> Iterator[Services]:
         role=DeviceRole.GATEWAY,
         adapter="opnsense",
         allow_writes=True,
-        pinned_fingerprint=target["FINGERPRINT"],
+        pinned_fingerprint=fw["FINGERPRINT"],
     )
-    cfg = {"url": target["URL"], "api_key": target["WRITE_KEY"]}
-    cfg["api_secret"] = target["WRITE_SECRET"]
+    cfg = {"url": fw["URL"], "api_key": fw["WRITE_KEY"]}
+    cfg["api_secret"] = fw["WRITE_SECRET"]
     s.store.put_device(rec, cfg, OpnsenseConfig)
     yield s
     s.close()
@@ -269,12 +278,12 @@ sites:
 
 
 async def test_new_network_with_dhcp_and_reservation_then_revert(
-    svc: Services, target: dict[str, str]
+    svc: Services, fw: dict[str, str]
 ) -> None:
-    before = configuration(await network(target))
+    before = configuration(await network(fw))
     kinds = {ChangeKind.ROUTER, ChangeKind.DHCP, ChangeKind.RESERVATION}
     d, cid = await deploy(svc, NEW_NETWORK, kinds)
-    after = await network(target)
+    after = await network(fw)
     seg = after.segment(LAB)
     assert seg is not None and seg.name == "Lab6"
     assert [(m.port_id, m.mode.value) for m in seg.members] == [("fw/port/vtnet0", "tagged")]
@@ -284,7 +293,7 @@ async def test_new_network_with_dhcp_and_reservation_then_revert(
         ("02:00:00:00:00:60", "203.0.113.60")
     ]
     await revert(svc, d, cid)
-    assert_unchanged(before, configuration(await network(target)))
+    assert_unchanged(before, configuration(await network(fw)))
 
 
 CHANGE_EXISTING = """
@@ -308,12 +317,12 @@ sites:
 
 
 async def test_change_router_dhcp_reservation_and_port_then_revert(
-    svc: Services, target: dict[str, str]
+    svc: Services, fw: dict[str, str]
 ) -> None:
-    before = configuration(await network(target))
+    before = configuration(await network(fw))
     kinds = {ChangeKind.ROUTER, ChangeKind.DHCP, ChangeKind.RESERVATION, ChangeKind.PORT}
     d, cid = await deploy(svc, CHANGE_EXISTING, kinds)
-    after = await network(target)
+    after = await network(fw)
     assert (IOT, "198.51.100.2/24") in {(s.segment_id, str(s.interface)) for s in after.subnets}
     assert any(str(s.interface) == "2001:db8:1::1/64" for s in after.subnets)  # IPv6 kept
     trunk = {
@@ -324,13 +333,13 @@ async def test_change_router_dhcp_reservation_and_port_then_revert(
     }
     assert trunk == {20, 70}
     await revert(svc, d, cid)
-    assert_unchanged(before, configuration(await network(target)))
+    assert_unchanged(before, configuration(await network(fw)))
 
 
 async def test_backup_and_restore_through_the_configuration_history(
-    svc: Services, target: dict[str, str]
+    svc: Services, fw: dict[str, str]
 ) -> None:
-    before = configuration(await network(target))
+    before = configuration(await network(fw))
     want = "sites:\n  home:\n    ports:\n      - {device: fw, port: vtnet2, tagged: [20, 80]}\n"
     _, cid = await deploy(svc, want, {ChangeKind.PORT})
     rec = svc.store.change(cid)
@@ -343,10 +352,10 @@ async def test_backup_and_restore_through_the_configuration_history(
     d.approve(restore.id, "ci")
     done = await d.deploy(restore.id)
     assert done.status is ChangeStatus.APPLIED, events(svc, restore.id)
-    assert_unchanged(before, configuration(await network(target)))
+    assert_unchanged(before, configuration(await network(fw)))
 
 
-async def test_validation_error_of_the_firewall_names_the_field(target: dict[str, str]) -> None:
+async def test_validation_error_of_the_firewall_names_the_field(fw: dict[str, str]) -> None:
     """A reservation outside its subnet: the planner sends it, Kea's model refuses it."""
     c = Change(
         kind=ChangeKind.RESERVATION,
@@ -356,22 +365,22 @@ async def test_validation_error_of_the_firewall_names_the_field(target: dict[str
         old=None,
         new=ReservationValue(mac="02:00:00:00:00:99", address=ip_address("198.51.100.99")),
     )
-    a = adapter(target, write=True)
+    a = adapter(fw, write=True)
     try:
         with pytest.raises(AdapterError, match=r"the firewall refused the change \(reservation\."):
             await a.apply([c], {}, 60)
     finally:
         await a.close()
-    after = await network(target)
+    after = await network(fw)
     lan = next(s for s in after.dhcp_servers if s.segment_id == LAN)
     assert "02:00:00:00:00:99" not in {r.mac for r in lan.reservations}
 
 
-def test_vm_still_answers(target: dict[str, str]) -> None:
+def test_vm_still_answers(fw: dict[str, str]) -> None:
     """Last: the firewall survived the suite (no lock-out through a write)."""
     r = httpx.get(
-        target["URL"] + "/api/core/firmware/status",
-        auth=(target["KEY"], target["SECRET"]),
+        fw["URL"] + "/api/core/firmware/status",
+        auth=(fw["KEY"], fw["SECRET"]),
         verify=False,
         timeout=TIMEOUT,
         trust_env=False,
