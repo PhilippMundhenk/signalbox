@@ -629,7 +629,10 @@ class MikrotikWrites:
         for row in cfg.static(m.VLAN):
             if layout.l3.get(_text(row.get("name"))) == key:
                 sources.append((m.VLAN, row))
-        for menu, row in sources:
+        # The read side takes the first comment in this order: a name goes to the first source
+        # only (the others stay as they are, so undoing it leaves the device as it was); no
+        # name clears them all.
+        for menu, row in sources[:1] if name else sources:
             if name:
                 cfg.patch(menu, row, {"comment": name}, f"{what}: {name}")
             else:

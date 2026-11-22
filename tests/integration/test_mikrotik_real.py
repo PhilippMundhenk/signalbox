@@ -383,6 +383,41 @@ sites:
 """
 
 
+async def test_adapter_apply_read_back_and_restore(rt: dict[str, str]) -> None:
+    """The adapter alone (no Deployer): apply, read every value back, restore the backup."""
+    raw = menus(rt, *WRITTEN)
+    net = await network(rt)
+    changes = plan(parse(NEW_NETWORK), net, RULES).changes
+    a = adapter(rt, write=True)
+    try:
+        backup = await a.backup()
+        try:
+            await a.apply(changes, {}, 60)
+            after = merge([SITE], [await a.observe()])
+            dhcp = [s for s in after.dhcp_servers if s.segment_id == LAB]
+            seen = {
+                "dhcp": [s.model_dump(mode="json") for s in dhcp],
+                "menus": menus(
+                    rt, "/rest/ip/dhcp-server", "/rest/ip/pool", "/rest/ip/dhcp-server/network"
+                ),
+            }
+            assert len(dhcp) == 1, seen
+            (s,) = dhcp
+            assert s.enabled and s.lease_seconds == 3600, seen
+            assert [(str(p.start), str(p.end)) for p in s.pools] == [
+                ("203.0.113.100", "203.0.113.199")
+            ], seen
+            assert [str(x) for x in s.dns_servers] == ["203.0.113.1"], seen
+            assert [(r.mac, str(r.address)) for r in s.reservations] == [
+                ("02:00:00:00:00:60", "203.0.113.60")
+            ], seen
+        finally:
+            await a.restore(backup)
+    finally:
+        await a.close()
+    assert_same_menus(raw, menus(rt, *WRITTEN))
+
+
 async def test_new_network_with_dhcp_and_reservation_then_revert(
     svc: Services, rt: dict[str, str]
 ) -> None:
