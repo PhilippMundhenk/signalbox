@@ -1,0 +1,120 @@
+#!/bin/sh
+# Signalbox integration test image (#137): first-boot setup, run once by /etc/init.d/boot
+# after config_generate and "wifi config" and before any service starts.
+#
+#   eth0  management: 10.0.2.15/24 on QEMU's user-mode network (host port forward to 443)
+#   eth1, eth2  ports of br-lan with VLAN filtering:
+#         VLAN 1  "lan"  eth1 + eth2 untagged, 192.0.2.1/24, dnsmasq DHCP .100-.149
+#         VLAN 20 "iot"  eth2 tagged, 198.51.100.1/24, no DHCP
+#   radio0 (2.4 GHz) and radio1 (5 GHz): SSID "Example-IT" (WPA2) on lan
+#   radio2 (2.4 GHz): a station associated to that SSID (network "wwan", DHCP client), so
+#         hostapd has a client and dnsmasq a lease
+#   rpcd logins "signalbox" (read ACL) and "signalbox-write" (read + write ACL)
+
+# --- network --------------------------------------------------------------------------------
+uci -q delete network.wan
+uci -q delete network.wan6
+uci -q delete network.lan
+while uci -q delete network.@device[0]; do :; done
+while uci -q delete network.@bridge-vlan[0]; do :; done
+
+uci add network device >/dev/null
+uci set network.@device[-1].name='br-lan'
+uci set network.@device[-1].type='bridge'
+uci add_list network.@device[-1].ports='eth1'
+uci add_list network.@device[-1].ports='eth2'
+
+uci add network bridge-vlan >/dev/null
+uci set network.@bridge-vlan[-1].device='br-lan'
+uci set network.@bridge-vlan[-1].vlan='1'
+uci add_list network.@bridge-vlan[-1].ports='eth1:u*'
+uci add_list network.@bridge-vlan[-1].ports='eth2:u*'
+
+uci add network bridge-vlan >/dev/null
+uci set network.@bridge-vlan[-1].device='br-lan'
+uci set network.@bridge-vlan[-1].vlan='20'
+uci add_list network.@bridge-vlan[-1].ports='eth2:t'
+
+uci batch <<'EOF'
+set network.mgmt=interface
+set network.mgmt.device='eth0'
+set network.mgmt.proto='static'
+set network.mgmt.ipaddr='10.0.2.15'
+set network.mgmt.netmask='255.255.255.0'
+set network.mgmt.gateway='10.0.2.2'
+add_list network.mgmt.dns='10.0.2.3'
+set network.lan=interface
+set network.lan.device='br-lan.1'
+set network.lan.proto='static'
+set network.lan.ipaddr='192.0.2.1'
+set network.lan.netmask='255.255.255.0'
+set network.iot=interface
+set network.iot.device='br-lan.20'
+set network.iot.proto='static'
+set network.iot.ipaddr='198.51.100.1'
+set network.iot.netmask='255.255.255.0'
+set network.wwan=interface
+set network.wwan.proto='dhcp'
+set network.wwan.defaultroute='0'
+set network.wwan.peerdns='0'
+EOF
+
+# --- firewall: everything in the lan zone (the test only needs HTTPS on eth0) ----------------
+for net in mgmt iot wwan; do uci add_list firewall.@zone[0].network="$net"; done
+
+# --- DHCP -----------------------------------------------------------------------------------
+uci -q delete dhcp.wan
+uci set dhcp.lan.start='100'
+uci set dhcp.lan.limit='50'
+uci set dhcp.lan.leasetime='12h'
+
+# --- wireless (radios detected by "wifi config" from mac80211_hwsim, see /etc/modules.conf) --
+for r in 0 1 2; do uci -q delete wireless.default_radio$r; done
+for r in 0 1 2; do
+  uci set wireless.radio$r.disabled='0'
+  uci set wireless.radio$r.country='DE'
+  uci set wireless.radio$r.htmode='HT20'
+  uci set wireless.radio$r.band='2g'
+  uci set wireless.radio$r.channel='1'
+done
+uci set wireless.radio1.band='5g'
+uci set wireless.radio1.channel='36'
+for r in 0 1; do
+  uci batch <<EOF
+set wireless.default_radio$r=wifi-iface
+set wireless.default_radio$r.device='radio$r'
+set wireless.default_radio$r.mode='ap'
+set wireless.default_radio$r.network='lan'
+set wireless.default_radio$r.ssid='Example-IT'
+set wireless.default_radio$r.encryption='psk2'
+set wireless.default_radio$r.key='example-it-passphrase'
+set wireless.default_radio$r.ieee80211k='1'
+set wireless.default_radio$r.bss_transition='1'
+EOF
+done
+uci batch <<'EOF'
+set wireless.station=wifi-iface
+set wireless.station.device='radio2'
+set wireless.station.mode='sta'
+set wireless.station.network='wwan'
+set wireless.station.ssid='Example-IT'
+set wireless.station.encryption='psk2'
+set wireless.station.key='example-it-passphrase'
+EOF
+
+# --- uhttpd: HTTPS with the px5g certificate made at first start, ubus at /ubus -------------
+uci set uhttpd.main.ubus_prefix='/ubus'
+
+# --- rpcd logins (ACL /usr/share/rpcd/acl.d/signalbox.json, from docs/adapters/openwrt.md) --
+uci add rpcd login >/dev/null
+uci set rpcd.@login[-1].username='signalbox'
+uci set rpcd.@login[-1].password="$(uhttpd -m '@READ_PASSWORD@')"
+uci add_list rpcd.@login[-1].read='signalbox'
+uci add rpcd login >/dev/null
+uci set rpcd.@login[-1].username='signalbox-write'
+uci set rpcd.@login[-1].password="$(uhttpd -m '@WRITE_PASSWORD@')"
+uci add_list rpcd.@login[-1].read='signalbox'
+uci add_list rpcd.@login[-1].write='signalbox'
+
+uci commit
+exit 0

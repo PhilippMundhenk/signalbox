@@ -10,13 +10,17 @@ Python 3.11 or newer.
 
     make install   # virtualenv in .venv with the dev dependencies
     make lint      # ruff check, ruff format --check, mypy --strict
-    make test      # unit and integration tests, 95 % line coverage gate
+    make test      # unit and simulator tests, 95 % line coverage gate
     make e2e       # browser tests (Playwright) against the device simulators
     make smoke     # builds the container and drives it
+    make integration  # against the real device software (QEMU/containers; CI runs these)
 
-Tests never talk to real devices: every adapter ships a simulator, and the tests run the real
-adapter code against it. Add tests with the code, not after. Run `make lint` as the last step
-before every commit.
+`make test` never talks to real devices: every adapter ships a simulator, and the tests run the
+real adapter code against it. The integration tests run the same adapters against the real
+device software (official images in QEMU, vendor containers) in GitHub Actions; when the two
+disagree, fix the adapter and make the simulator answer like the real software
+([docs/TESTING.md](docs/TESTING.md)). Add tests with the code, not after. Run `make lint` as the
+last step before every commit.
 
 ## Pull requests
 

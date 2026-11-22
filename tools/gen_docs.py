@@ -82,6 +82,13 @@ def configuration() -> str:
     return "\n".join(lines)
 
 
+#: Adapters verified against the real software by the integration tests (#136).
+EMULATED = {
+    "openwrt": "OpenWrt: 24.10.8 and 25.12.6, official x86-64 images in QEMU "
+    "([details](adapters/openwrt.md#verified-against-the-real-openwrt))",
+}
+
+
 def maturity() -> str:
     reports: dict[str, Any] = json.loads(REPORTS.read_text()) if REPORTS.exists() else {}
     adapters = load_adapters()
@@ -96,7 +103,12 @@ def maturity() -> str:
         "device in [#21](https://github.com/PhilippMundhenk/signalbox/issues/21).",
         "",
         "*writes* lists the kinds of change an adapter can deploy ([CHANGES.md](CHANGES.md));",
-        "they are tested against the simulators only.",
+        "they are tested against the simulators.",
+        "",
+        "*Emulated*: verified against the real device software in CI, reads and writes",
+        "([TESTING.md](TESTING.md)):",
+        "",
+        *[f"- {what}" for _, what in sorted(EMULATED.items())],
         "",
         "Generated from the adapter manifests by `tools/gen_docs.py`.",
         "",

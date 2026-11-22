@@ -350,7 +350,7 @@ async def test_timeout(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
 
 
 async def test_slow_capability_is_partial(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
-    sim.delay, sim.slow = 3.0, {"lldpd"}
+    sim.delay, sim.slow = 3.0, {"luci.lldpd"}
     object.__setattr__(adapter.context, "timeout", 1.0)
     snap = await adapter.observe()
     assert snap.status is DeviceStatus.PARTIAL
@@ -363,7 +363,7 @@ async def test_slow_capability_is_partial(sim: OpenWrtSim, adapter: OpenWrtAdapt
         ("malformed", {"*"}, DeviceStatus.UNREACHABLE, "not valid JSON"),
         ("odd", {"system"}, DeviceStatus.UNREACHABLE, "unexpected answer to system.board"),
         ("malformed", {"network.wireless"}, DeviceStatus.PARTIAL, "not valid JSON"),
-        ("odd", {"lldpd"}, DeviceStatus.PARTIAL, "unexpected answer to lldpd"),
+        ("odd", {"luci.lldpd"}, DeviceStatus.PARTIAL, "unexpected answer to luci.lldpd"),
     ],
 )
 async def test_malformed_answers(
@@ -380,11 +380,28 @@ async def test_malformed_answers(
     assert any(message in e.message for e in snap.errors), snap.errors
 
 
+async def test_wireless_status_through_luci_rpc_on_25_12(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    before = await adapter.observe()
+    sim.wireless_ucode = True  # netifd's ucode object refuses calls through rpcd
+    snap = await adapter.observe()
+
+    def wlans(s: Any) -> list[tuple[str, bool]]:
+        return [(w.id, w.enabled) for w in s.wlans]
+
+    assert not snap.errors and wlans(snap) == wlans(before) and snap.clients
+    sim.luci_rpc = False
+    snap = await adapter.observe()
+    assert {e.capability for e in snap.errors} == {"wireless", "clients"}
+    assert "install rpcd-mod-luci" in snap.errors[0].message
+
+
 async def test_lldpd_missing(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
     sim.lldpd = False
     snap = await adapter.observe()
     assert [(e.capability, e.message) for e in snap.errors] == [
-        ("neighbours", "lldpd not installed (no ubus object lldpd)")
+        ("neighbours", "luci-app-lldpd not installed (no ubus object luci.lldpd)")
     ]
 
 

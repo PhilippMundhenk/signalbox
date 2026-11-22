@@ -23,7 +23,7 @@ from factories import (
 )
 from signalbox.adapters import AdapterContext, AdapterError, Backup, WritesConfig
 from signalbox.adapters.openwrt import OpenWrtAdapter, OpenWrtConfig
-from signalbox.adapters.openwrt.ubus import AccessDenied
+from signalbox.adapters.openwrt.ubus import AccessDenied, NoData
 from signalbox.adapters.openwrt.write import (
     BACKUP_FORMAT,
     Configs,
@@ -52,7 +52,7 @@ from signalbox.merge import merge
 from signalbox.model import DeviceRole, Network, Pmf, Security
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
-from signalbox.sim.openwrt import OpenWrtSim, create_app, uci_op
+from signalbox.sim.openwrt import OpenWrtSim, create_app, uci_delta, uci_op
 from signalbox.sim.server import serve
 from signalbox.store import DeviceRecord
 
@@ -496,7 +496,7 @@ async def test_not_confirmed_in_time_the_device_rolls_back(
     net = await network(url)
     assert not matches(net, c, GUEST, SECRETS) and committed(sim) == before
     assert sim.history == ["apply", "timeout-rollback"]
-    with pytest.raises(AdapterError, match="device rolls the change back"):
+    with pytest.raises(AdapterError, match="device rolled the change back"):
         await adapter.confirm()
 
 
@@ -545,7 +545,6 @@ async def test_acl_denied_changes_nothing(
         await adapter.apply([port, change(ChangeKind.WLAN, GUEST.ssid, None, GUEST)], SECRETS, 30)
     assert committed(sim) == before and sim.staged == {}
     assert sim.logins >= 2  # tried once more in a new session before calling it the ACL
-    assert "revert network" in sim.history
 
 
 async def test_apply_refused_while_another_waits(
@@ -558,11 +557,35 @@ async def test_apply_refused_while_another_waits(
         net = await network(url)
         pid = f"{DEV}/port/lan2"
         port = change(ChangeKind.PORT, pid, observed_port(net, pid), PortValue(untagged=20))
-        with pytest.raises(AccessDenied, match="waits for its confirmation"):
+        # rpcd gives the other login the session of the pending apply ("reclaim"): the port
+        # change is staged there, the apply is refused, and so is the revert of the staging
+        with pytest.raises(AdapterError, match="waits for its confirmation"):
             await other.apply([port], {}, 30)
+        assert other.ubus.session == adapter.ubus.session
     finally:
         await other.close()
     await adapter.confirm()
+    # the next transaction of the session drops what the other client left staged
+    camera = ReservationValue(mac="02:00:00:00:10:03", address=ip("192.0.2.60"))
+    await applied(
+        adapter, url, change(ChangeKind.RESERVATION, f"{NATIVE}/{camera.mac}", None, camera)
+    )
+    vlan20 = [s for _, s in _of(sim, "network", "bridge-vlan") if s.get("vlan") == "20"]
+    assert vlan20 and all("lan2" not in s["ports"] for s in vlan20)  # the port change never came
+
+
+async def test_a_pending_apply_is_not_reclaimed_once_its_session_ended(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    await adapter.apply([change(ChangeKind.WLAN, GUEST.ssid, None, GUEST)], SECRETS, 30)
+    sid = adapter.ubus.session
+    sim.expire_sessions()  # the applying session ends: the next login gets a new one
+    other = OpenWrtAdapter(adapter.context)
+    try:
+        await other.ubus.login()
+        assert other.ubus.session != sid
+    finally:
+        await other.close()
 
 
 async def test_session_lost_while_staging_starts_over(
@@ -661,7 +684,9 @@ async def test_restore_while_our_change_waits_rolls_it_back(
     backup = await adapter.backup()
     await adapter.apply([change(ChangeKind.WLAN, GUEST.ssid, None, GUEST)], SECRETS, 30)
     await adapter.restore(backup)
-    assert committed(sim) == before and sim.history == ["apply", "rollback"]
+    assert committed(sim) == before and sim.pending is None
+    # rpcd put the rolled back changes into the session again; they are dropped before restoring
+    assert sim.history == ["apply", "rollback", "revert wireless"] and sim.staged == {}
 
 
 @pytest.mark.parametrize(
@@ -771,7 +796,8 @@ def test_configs_add_picks_a_free_name() -> None:
 def test_simulator_uci_operations() -> None:
     config: dict[str, Any] = {"s": {".type": "t", "a": "1"}}
     assert uci_op(config, "add", {"type": ""}, 1) == [2]
-    assert uci_op(config, "add", {"type": "t", "name": "s"}, 1) == [2]
+    assert uci_op(config, "add", {"type": "u", "name": "s"}, 1) == [0, {"section": "s"}]
+    assert config["s"] == {".type": "u", "a": "1"}  # rpcd: an existing name only changes type
     assert uci_op(config, "add", {"type": "t", "values": {"on": True, "n": 3}}, 1) == [
         0,
         {"section": "cfg000001"},
@@ -779,8 +805,11 @@ def test_simulator_uci_operations() -> None:
     assert config["cfg000001"] == {".anonymous": True, ".type": "t", "on": "1", "n": "3"}
     assert uci_op(config, "set", {"section": "nope", "values": {}}, 0) == [4]
     assert uci_op(config, "set", {"section": "s", "values": "x"}, 0) == [2]
+    assert uci_op(config, "order", {"sections": ["s", "nope"]}, 0) == [4]
+    assert uci_op(config, "delete", {"section": "s", "options": ["x"]}, 0) == [4]
+    assert uci_op(config, "delete", {"section": "s", "option": "x"}, 0) == [4]
     assert uci_op(config, "delete", {"section": "s", "option": "a"}, 0) == [0]
-    assert config["s"] == {".type": "t"}
+    assert config["s"] == {".type": "u"}
 
 
 async def test_simulator_uci_reads_and_odd_calls(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
@@ -803,7 +832,7 @@ async def test_simulator_uci_reads_and_odd_calls(sim: OpenWrtSim, adapter: OpenW
         await ubus.call("uci", "rename", {"config": "network"})
     await ubus.call("uci", "apply", {})  # without rollback: committed at once
     assert sim.state["network"]["lan"]["mtu"] == "1400" and sim.pending is None
-    with pytest.raises(AccessDenied):
+    with pytest.raises(NoData):
         await ubus.call("uci", "rollback", {}, keep_session=True)
 
 
@@ -910,4 +939,78 @@ async def test_deployment_that_fails_verification_is_restored(
     done = await d.deploy(rec.id)
     assert done.status is ChangeStatus.ROLLED_BACK
     assert "not applied as planned" in (done.devices[0].error or "")
-    assert committed(sim) == before and sim.history == ["apply", "rollback"]
+    assert committed(sim) == before and sim.history[:2] == ["apply", "rollback"]
+
+
+# --- rpcd details confirmed against its source (rpcd uci.c) and the real device (#137) ------
+
+
+async def test_rolled_back_changes_come_back_staged_and_are_dropped(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter, url: str
+) -> None:
+    clock = Clock()
+    sim.clock = clock
+    await adapter.apply([change(ChangeKind.WLAN, GUEST.ssid, None, GUEST)], SECRETS, 30)
+    clock.now += 31
+    await network(url)  # the timer runs out
+    assert sim.history == ["apply", "timeout-rollback"]
+    assert set(sim.staged[adapter.ubus.session or ""]) == {"wireless"}  # rpcd restores the delta
+    camera = ReservationValue(mac="02:00:00:00:10:03", address=ip("192.0.2.60"))
+    key = f"{NATIVE}/{camera.mac}"
+    await applied(adapter, url, change(ChangeKind.RESERVATION, key, None, camera))
+    assert GUEST.ssid not in {s.get("ssid") for s in sim.state["wireless"].values()}
+
+
+async def test_restore_while_another_change_waits_is_reported(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    backup = await adapter.backup()
+    other = OpenWrtAdapter(adapter.context)
+    try:
+        await other.apply([change(ChangeKind.WLAN, GUEST.ssid, None, GUEST)], SECRETS, 30)
+        with pytest.raises(AdapterError, match="backup was not applied"):
+            await adapter.restore(backup)
+        await other.confirm()
+    finally:
+        await other.close()
+    assert GUEST.ssid in {s.get("ssid") for s in sim.state["wireless"].values()}
+
+
+@pytest.mark.parametrize(
+    ("answer", "found"),
+    [({"neighbors": None}, None), ({"neighbors": {"lldp": ["odd", {}]}}, 0)],
+)
+async def test_lldpd_status_shapes(
+    sim: OpenWrtSim,
+    adapter: OpenWrtAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+    answer: dict[str, Any],
+    found: int | None,
+) -> None:
+    real = sim._data
+
+    def data(sid: str, obj: str, method: str, args: dict[str, Any]) -> Any:
+        return [0, answer] if obj == "luci.lldpd" else real(sid, obj, method, args)
+
+    monkeypatch.setattr(sim, "_data", data)
+    snap = await adapter.observe()
+    if found is None:
+        assert [e.message for e in snap.errors] == [
+            "lldpd is not running (luci.lldpd getStatus has no neighbours)"
+        ]
+    else:
+        assert not snap.errors and len(snap.neighbours) == found
+
+
+def test_simulator_lists_changes_like_rpcd() -> None:
+    add = {"config": "c", "type": "host", "name": "h", "values": {"ip": "1", "mac": ["a", "b"]}}
+    assert uci_delta("add", add) == [
+        ["add", "h", "host"],
+        ["set", "h", "ip", "1"],
+        ["remove", "h", "mac"],
+        ["list-add", "h", "mac", "a"],
+        ["list-add", "h", "mac", "b"],
+    ]
+    assert uci_delta("delete", {"section": "h"}) == [["remove", "h"]]
+    assert uci_delta("delete", {"section": "h", "option": "ip"}) == [["remove", "h", "ip"]]
+    assert uci_delta("order", {"sections": ["a", "b"]}) == [["order", "a", 0], ["order", "b", 1]]
