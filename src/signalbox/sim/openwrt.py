@@ -408,7 +408,22 @@ def wireless_status(wireless: Sections) -> dict[str, Any]:
 
 def dhcp_config(router: bool) -> dict[str, Any]:
     return _uci(
-        ("dnsmasq", "cfg01411c", {"domainneeded": "1", "localise_queries": "1"}),
+        (
+            "dnsmasq",
+            "cfg01411c",
+            {
+                "domainneeded": "1",
+                "localise_queries": "1",
+                **(
+                    {
+                        "noresolv": "1",
+                        "server": ["192.0.2.53", "/corp.example/198.51.100.53"],
+                    }
+                    if router
+                    else {}
+                ),
+            },
+        ),
         (
             "dhcp",
             "lan",
@@ -427,6 +442,7 @@ def dhcp_config(router: bool) -> dict[str, Any]:
         ("dhcp", "wan", {"interface": "wan", "ignore": "1"}),
         ("host", "cfg06fe63", {"name": "printer", "mac": _fixed(1), "ip": "192.0.2.50"}),
         ("host", "cfg07fe63", {"name": "faraway", "mac": _fixed(2), "ip": "203.0.113.9"}),
+        ("domain", "cfg08f37c", {"name": "printer.lan", "ip": "192.0.2.50"}),
     )
 
 

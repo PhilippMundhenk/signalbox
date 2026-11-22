@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 from ipaddress import ip_address
 
 from signalbox.adapters import Capability
-from signalbox.model import DnsService, HostRecord, IPAddress, Network
-from signalbox.rules import Result, Rule, Severity, found, rule
+from signalbox.model import DnsForwarder, DnsService, HostRecord, IPAddress, Network
+from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
 from signalbox.rules._names import device_name, segment_name, site_of_device
 
 
@@ -46,7 +46,9 @@ class _Index:
     """Who uses which address: devices (subnets, management), DNS services and clients."""
 
     device_of: dict[str, str] = field(default_factory=dict)
-    service_of: dict[str, list[DnsService]] = field(default_factory=dict)
+    #: (address, port) -> the enabled DNS services answering there.
+    service_at: dict[tuple[str, int], list[DnsService]] = field(default_factory=dict)
+    services: list[DnsService] = field(default_factory=list)
     clients: set[str] = field(default_factory=set)
     reserved: set[str] = field(default_factory=set)
     #: Sites and IP versions for which clients were reported, so an unused address means something.
@@ -60,15 +62,16 @@ class _Index:
         for dev in net.devices:
             if (address := _parse(dev.management_address)) is not None:
                 idx.device_of.setdefault(str(address), dev.id)
-        service_of: dict[str, list[DnsService]] = defaultdict(list)
-        for dns in _services(net):
+        service_at: dict[tuple[str, int], list[DnsService]] = defaultdict(list)
+        idx.services = _services(net)
+        for dns in idx.services:
             listen = [str(a) for a in dns.listen] or [
                 a for a, d in idx.device_of.items() if d == dns.device_id
             ]
             for a in listen:
-                service_of[a].append(dns)
+                service_at[(a, dns.port)].append(dns)
                 idx.device_of.setdefault(a, dns.device_id)
-        idx.service_of = dict(service_of)
+        idx.service_at = dict(service_at)
         for client in net.clients:
             seg = net.segment(client.segment_id) if client.segment_id else None
             for address in client.addresses:
@@ -91,6 +94,30 @@ class _Index:
     def target(self, address: IPAddress) -> str:
         """The device behind an address, or the address itself if no device is known."""
         return self.device_of.get(str(address), str(address))
+
+    def forward_target(self, dns: DnsService, fwd: DnsForwarder) -> str:
+        """The device a forwarder of ``dns`` leads to (loopback: its own device), or the address
+        itself if no device is known."""
+        return dns.device_id if fwd.address.is_loopback else self.target(fwd.address)
+
+    def reached(self, dns: DnsService, fwd: DnsForwarder) -> tuple[list[DnsService], bool]:
+        """(the services a forwarder of ``dns`` leads to, whether it leads to a DNS service
+        whose forwarders are unknown).
+
+        A forwarder leads to a service only if address and port match; a loopback address is
+        the forwarding device itself. A forward to a device that runs a known DNS service, on
+        a port none of them listens on, goes to another DNS server Signalbox does not read
+        (AdGuard Home next to Unbound): unknown, not a loop.
+        """
+        if fwd.address.is_loopback:
+            hits = [s for s in self.services if s.device_id == dns.device_id and s.port == fwd.port]
+        else:
+            hits = self.service_at.get((str(fwd.address), fwd.port), [])
+        device = self.forward_target(dns, fwd)
+        unknown = any(not s.config_read for s in hits) or (
+            not hits and any(s.device_id == device for s in self.services)
+        )
+        return hits, unknown
 
 
 def _local_segment(net: Network, site: str | None, address: IPAddress) -> str | None:
@@ -237,23 +264,28 @@ def host_record_dynamic(net: Network) -> Iterator[Result]:
             )
 
 
-def _edges(net: Network, idx: _Index) -> dict[str, list[tuple[IPAddress, str]]]:
+def _edges(idx: _Index) -> dict[str, list[tuple[DnsForwarder, str]]]:
     """Service id -> (forwarder, service id) for each forwarder that is a known DNS service."""
-    out: dict[str, list[tuple[IPAddress, str]]] = {}
-    for dns in _services(net):
-        out[dns.id] = [
-            (fwd, target.id)
-            for fwd in dns.forwarders
-            for target in idx.service_of.get(str(fwd), [])
-        ]
-    return out
+    return {
+        dns.id: [(fwd, t.id) for fwd in dns.forwarders for t in idx.reached(dns, fwd)[0]]
+        for dns in idx.services
+    }
+
+
+def _label(net: Network, dns: DnsService) -> str:
+    """The device's name, plus the service's name when the device runs several."""
+    name = device_name(net, dns.device_id)
+    several = sum(1 for d in _services(net) if d.device_id == dns.device_id) > 1
+    if several:
+        return f"{name} ({dns.name or f'port {dns.port}'})"
+    return name
 
 
 def _cycle(
-    edges: dict[str, list[tuple[IPAddress, str]]], start: str
-) -> list[tuple[str, IPAddress]]:
+    edges: dict[str, list[tuple[DnsForwarder, str]]], start: str
+) -> list[tuple[str, DnsForwarder]]:
     """Shortest path from ``start`` back to itself as (service, forwarder) steps, or []."""
-    queue: deque[tuple[str, list[tuple[str, IPAddress]]]] = deque([(start, [])])
+    queue: deque[tuple[str, list[tuple[str, DnsForwarder]]]] = deque([(start, [])])
     seen: set[str] = set()
     while queue:
         node, path = queue.popleft()
@@ -274,12 +306,13 @@ def _cycle(
     "DNS resolvers forward to each other in a circle (or one forwards to itself). Every lookup "
     "that is not cached goes round until it times out, often only after a reboot cleared the "
     "caches. Typical when a local filter (Pi-hole, AdGuard) forwards to the router and the "
-    "router was set to forward to the filter.",
+    "router was set to forward to the filter. Two DNS servers on one device (AdGuard Home on "
+    "port 53, Unbound on another port) are not a loop.",
 )
 def forwarder_loop(net: Network) -> Iterator[Result]:
     idx = _Index.of(net)
-    edges = _edges(net, idx)
-    names = {d.id: device_name(net, d.device_id) for d in _services(net)}
+    edges = _edges(idx)
+    names = {d.id: _label(net, d) for d in idx.services}
     reported: set[frozenset[str]] = set()
     for start in sorted(edges):
         steps = _cycle(edges, start)
@@ -302,6 +335,29 @@ def forwarder_loop(net: Network) -> Iterator[Result]:
             fix="Let one of them forward to an upstream resolver (or resolve recursively) "
             "instead of to the other.",
         )
+    in_loop = set().union(*reported) if reported else set()
+    for dns in sorted(idx.services, key=lambda d: d.id):
+        if dns.id in in_loop or not dns.config_read:
+            continue
+        for fwd in dns.forwarders:
+            hits, unknown = idx.reached(dns, fwd)
+            if not unknown:
+                continue
+            device = device_name(net, idx.forward_target(dns, fwd))
+            if hits:
+                services = ", ".join(names[h.id] for h in hits)
+                what = f"the DNS service {services} that Signalbox does not read"
+            else:
+                what = (
+                    f"port {fwd.port} of {device}, where another DNS server that Signalbox "
+                    "does not read listens"
+                )
+            yield incomplete(
+                f"{names[dns.id]} forwards DNS to {fwd}, {what}: whether lookups come back "
+                "in a loop cannot be checked",
+                sorted({dns.id, *(h.id for h in hits)}),
+                key=str(fwd),
+            )
 
 
 @rule(
@@ -316,7 +372,9 @@ def forwarder_missing(net: Network) -> Iterator[Result]:
     idx = _Index.of(net)
     users: list[tuple[str, str, str, list[IPAddress]]] = []
     for dns in _services(net):
-        users.append((dns.id, dns.device_id, "forwards DNS to", dns.forwarders))
+        users.append(
+            (dns.id, dns.device_id, "forwards DNS to", [f.address for f in dns.forwarders])
+        )
     for srv in net.dhcp_servers:
         if srv.enabled:
             users.append((srv.id, srv.device_id, "hands out the DNS server", srv.dns_servers))
@@ -344,12 +402,17 @@ def forwarder_missing(net: Network) -> Iterator[Result]:
 def _redundant(net: Network, idx: _Index, dns: DnsService, seen: frozenset[str]) -> bool:
     """True if the resolver has more than one upstream, resolves itself or loops (reported
     elsewhere)."""
-    if not dns.forwarders or dns.id in seen:
+    if not dns.config_read or not dns.forwarders or dns.id in seen:
         return True
-    targets = {idx.target(f) for f in dns.forwarders}
+    targets = {idx.forward_target(dns, f) for f in dns.forwarders}
     if len(targets) > 1:
         return True
-    nxt = [s for f in dns.forwarders for s in idx.service_of.get(str(f), [])]
+    nxt: list[DnsService] = []
+    for f in dns.forwarders:
+        hits, unknown = idx.reached(dns, f)
+        if unknown:
+            return True  # the next service's upstreams are not known
+        nxt += hits
     return any(_redundant(net, idx, s, seen | {dns.id}) for s in nxt)
 
 
@@ -368,7 +431,8 @@ def single_forwarder(net: Network) -> Iterator[Result]:
         if _redundant(net, idx, dns, frozenset()):
             continue
         addresses = ", ".join(str(f) for f in dns.forwarders)
-        dev = idx.device_of.get(str(dns.forwarders[0]))
+        target = idx.forward_target(dns, dns.forwarders[0])
+        dev = target if target != str(dns.forwarders[0].address) else None
         upstream = f"{device_name(net, dev)} ({addresses})" if dev else addresses
         yield found(
             f"{device_name(net, dns.device_id)} forwards DNS only to {upstream}",

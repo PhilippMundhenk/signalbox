@@ -196,8 +196,9 @@ async def test_mapping_of_the_preseeded_firewall(fw: dict[str, str]) -> None:
     assert [(r.mac, str(r.address), r.hostname) for r in kea.reservations] == [
         ("02:00:00:00:00:10", "192.0.2.10", "printer")
     ]
-    (dns,) = net.dns_services
-    assert dns.enabled
+    dns = next(d for d in net.dns_services if d.id.endswith("/dns/unbound"))
+    assert dns.enabled and dns.port == 53  # #241: Unbound's port is read
+    assert all(d.config_read for d in net.dns_services)  # Unbound answers on 53 itself
     assert [(h.name, str(h.address)) for h in dns.host_records] == [
         ("nas.home.example", "192.0.2.10")
     ]

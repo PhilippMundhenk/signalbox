@@ -40,6 +40,7 @@ from signalbox.adapters.openwrt.ubus import AccessDenied, InvalidArgument, NoDat
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
+    DNS_PORT,
     SERVICE_PORTS,
     AddressSource,
     Band,
@@ -47,7 +48,10 @@ from signalbox.model import (
     DeviceRole,
     DhcpPool,
     DhcpServer,
+    DnsForwarder,
+    DnsService,
     Firmware,
+    HostRecord,
     IPAddress,
     IPInterface,
     ManagementService,
@@ -467,6 +471,7 @@ class OpenWrtAdapter(Adapter):
                 Capability.INTERFACES,
                 Capability.WIRELESS,
                 Capability.DHCP,
+                Capability.DNS,
                 Capability.CLIENTS,
                 Capability.NEIGHBOURS,
                 Capability.HEALTH,
@@ -905,6 +910,65 @@ class OpenWrtAdapter(Adapter):
                 )
             )
         return Observation(dhcp_servers=servers)
+
+    async def read_dns(self) -> Observation:
+        """dnsmasq's DNS, one service per ``dnsmasq`` section of ``/etc/config/dhcp`` (#241).
+
+        ``port`` 0 turns DNS off. ``server`` entries are forwarders (``192.0.2.53``,
+        ``192.0.2.53#5353``, an ``@interface`` suffix is dropped); domain-specific ones
+        (``/corp.example/192.0.2.53``) are not counted. Without ``noresolv`` dnsmasq also
+        forwards to the servers of ``resolvfile`` (the WAN's), which are not read. ``domain``
+        sections are host records.
+        """
+        d = self.context.device_id
+        uci = await self._uci("dhcp")
+        view = await self._network()
+        records = []
+        for _, sec in _sections(uci, "domain"):
+            try:
+                address = ip_address(str(sec.get("ip")))
+            except ValueError:
+                continue
+            if sec.get("name"):
+                records.append(HostRecord(name=str(sec["name"]), address=address))
+        services = []
+        instances = _sections(uci, "dnsmasq")
+        for name, sec in instances:
+            port = _int(sec.get("port", DNS_PORT))
+            forwarders: list[DnsForwarder] = []
+            for text in _list(sec.get("server")):
+                if text.startswith("/"):
+                    continue  # domain-specific
+                try:
+                    fwd = DnsForwarder.model_validate(text.split("@")[0])
+                except ValueError:
+                    continue
+                if fwd not in forwarders:
+                    forwarders.append(fwd)
+            listen: list[IPAddress] = []
+            for text in _list(sec.get("listen_address")):
+                with contextlib.suppress(ValueError):
+                    listen.append(ip_address(text))
+            if not listen:
+                for iface in _list(sec.get("interface")):
+                    listen += [a.ip for a in view.addresses(iface) if a.ip not in listen]
+            extra: dict[str, Any] = {}
+            if not _flag(sec.get("noresolv")):
+                extra["upstream"] = "also the servers of resolvfile (not read)"
+            services.append(
+                DnsService(
+                    id=object_id(d, "dns", "dnsmasq" if len(instances) == 1 else name),
+                    device_id=d,
+                    name="dnsmasq",
+                    enabled=port != 0,
+                    listen=listen,
+                    port=port if port and 0 < port <= 65535 else DNS_PORT,
+                    forwarders=forwarders,
+                    host_records=records if len(instances) == 1 else [],
+                    vendor_extra=extra,
+                )
+            )
+        return Observation(dns_services=services)
 
     # health and time --------------------------------------------------------------------
 

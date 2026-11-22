@@ -11,6 +11,8 @@ from signalbox.merge import merge
 from signalbox.model import (
     Client,
     DeviceRole,
+    DnsForwarder,
+    DnsService,
     Link,
     LinkOrigin,
     Membership,
@@ -175,3 +177,31 @@ def test_schema_command(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["schema"]) == 0
     schema = json.loads(capsys.readouterr().out)
     assert "Snapshot" in schema["$defs"] and "Network" in schema["$defs"]
+
+
+def test_dns_forwarder_parses_addresses_with_ports() -> None:
+    """#241: forwarders are address and port; older snapshots stored bare addresses."""
+
+    cases = {
+        "192.0.2.1": ("192.0.2.1", 53, "192.0.2.1"),
+        "192.0.2.1:5353": ("192.0.2.1", 5353, "192.0.2.1:5353"),
+        "192.0.2.1#5353": ("192.0.2.1", 5353, "192.0.2.1:5353"),
+        "2001:db8::1": ("2001:db8::1", 53, "2001:db8::1"),
+        "[2001:db8::1]:5353": ("2001:db8::1", 5353, "[2001:db8::1]:5353"),
+        "[2001:db8::1]": ("2001:db8::1", 53, "2001:db8::1"),
+        "2001:db8::1#5353": ("2001:db8::1", 5353, "[2001:db8::1]:5353"),
+    }
+    for text, (address, number, shown) in cases.items():
+        f = DnsForwarder.model_validate(text)
+        assert (str(f.address), f.port, str(f)) == (address, number, shown), text
+        assert DnsForwarder.model_validate(str(f)) == f
+    assert DnsForwarder.model_validate(ip("192.0.2.1")).port == 53
+    old = DnsService.model_validate_json(
+        '{"id": "gw/dns/dns", "device_id": "gw", "forwarders": ["192.0.2.53"]}'
+    )
+    assert old.port == 53 and old.config_read and old.forwarders[0].port == 53
+    again = DnsService.model_validate_json(old.model_dump_json())
+    assert again == old
+    for bad in ("[2001:db8::1", "[2001:db8::1]x", "192.0.2.1:x", "192.0.2.1:0", "nas:53"):
+        with pytest.raises(ValidationError):
+            DnsForwarder.model_validate(bad)

@@ -1111,12 +1111,76 @@ class HostRecord(Model):
     address: IPAddress
 
 
+DNS_PORT = 53
+
+
+def _split_host_port(text: str) -> tuple[str, int | None]:
+    """``192.0.2.1``, ``192.0.2.1:5353``, ``192.0.2.1#5353`` (dnsmasq), ``[2001:db8::1]:5353``,
+    ``2001:db8::1#5353``, ``2001:db8::1`` -> (address, port or None)."""
+    text = text.strip()
+    if text.startswith("["):
+        host, sep, rest = text[1:].partition("]")
+        if not sep or (rest and not rest.startswith(":")):
+            raise ValueError(f"not an address with port: {text!r}")
+        return host, int(rest[1:]) if rest else None
+    if "#" in text:
+        host, _, port = text.partition("#")
+        return host, int(port)
+    if text.count(":") == 1:
+        host, _, port = text.partition(":")
+        return host, int(port)
+    return text, None
+
+
+class DnsForwarder(Model):
+    """Where a DNS service forwards lookups to: an address and a port (#241).
+
+    Accepts a bare address (port 53), ``address:port``, ``[IPv6]:port`` or dnsmasq's
+    ``address#port``; older snapshots stored bare addresses.
+    """
+
+    address: IPAddress
+    port: Annotated[int, Field(ge=1, le=65535)] = DNS_PORT
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_text(cls, data: Any) -> Any:
+        if isinstance(data, IPv4Address | IPv6Address):
+            return {"address": data}
+        if isinstance(data, str):
+            host, port = _split_host_port(data)
+            return {"address": host} if port is None else {"address": host, "port": port}
+        return data
+
+    def __str__(self) -> str:
+        if self.port == DNS_PORT:
+            return str(self.address)
+        if self.address.version == 6:
+            return f"[{self.address}]:{self.port}"
+        return f"{self.address}:{self.port}"
+
+
 class DnsService(Observed):
+    """A DNS server on a device, ``object_id(device, "dns", <name>)``.
+
+    A device may run several (#241): Unbound on another port next to AdGuard Home, dnsmasq next
+    to Unbound. Each has its own id and port.
+    """
+
     device_id: str
+    #: The software or the device's name for it (``unbound``, ``dnsmasq``); None: not known.
+    name: str | None = None
     enabled: bool = True
+    #: Addresses it listens on (empty: every address of the device).
     listen: list[IPAddress] = Field(default_factory=list)
-    forwarders: list[IPAddress] = Field(default_factory=list)
+    #: Port it listens on (#241).
+    port: Annotated[int, Field(ge=1, le=65535)] = DNS_PORT
+    forwarders: list[DnsForwarder] = Field(default_factory=list)
     host_records: list[HostRecord] = Field(default_factory=list)
+    #: False: the service is only known to exist (something answers on the port, its own API
+    #: needs its own login, like AdGuard Home on OPNsense); its forwarders and host records
+    #: were not read, so empty lists mean "unknown", not "none".
+    config_read: bool = True
 
 
 class Band(StrEnum):

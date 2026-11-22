@@ -9,7 +9,7 @@ Signalbox can deploy port VLANs, SSIDs, DHCP pools and reservations ([Writing](#
 | --- | --- |
 | Adapter id | `openwrt` |
 | Roles | `ap`, `switch`, `gateway` |
-| Capabilities | interfaces, wireless, DHCP, clients, neighbours (LLDP) |
+| Capabilities | interfaces, wireless, DHCP, DNS (dnsmasq), clients, neighbours (LLDP) |
 | Writes | `port`, `wlan`, `dhcp`, `reservation` (not `router`, see [Writing](#writing)) |
 | Simulator | `signalbox.sim.openwrt` (`uvicorn --factory signalbox.sim.openwrt:create_app`) |
 
@@ -269,6 +269,14 @@ One DHCP server per `dhcp` section whose interface maps to a segment and has an 
 `<network> + start` for `limit` addresses (defaults 100 and 150), the lease time `12h`/`30m`/
 `3600`/`infinite`, router and DNS from `dhcp_option` `3,…` and `6,…` (else the interface address).
 `host` sections inside the subnet are reservations. odhcpd (DHCPv6, RA) is not modelled yet.
+
+DNS (#241, the same answer): one service per `dnsmasq` section (`<device>/dns/dnsmasq`, or the
+section name when there are several). `port` (default 53; 0 turns DNS off: disabled),
+`listen_address`, else the addresses of `interface` (empty: all). `server` entries are the
+forwarders, `192.0.2.53#5353` with its port, an `@interface` suffix dropped; domain-specific
+ones (`/corp.example/192.0.2.53`) are not counted. Without `noresolv` dnsmasq also uses the
+servers of `resolvfile` (the WAN's), which are not read (`vendor_extra.upstream`). `domain`
+sections (`name`, `ip`) are host records. *Guess*: not yet checked against the CI VMs.
 
 ### `hostapd.<ifname> get_clients` (associated stations)
 

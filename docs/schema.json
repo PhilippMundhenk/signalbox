@@ -1395,9 +1395,46 @@
       "title": "DhcpServer",
       "type": "object"
     },
+    "DnsForwarder": {
+      "additionalProperties": false,
+      "description": "Where a DNS service forwards lookups to: an address and a port (#241).\n\nAccepts a bare address (port 53), ``address:port``, ``[IPv6]:port`` or dnsmasq's\n``address#port``; older snapshots stored bare addresses.",
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            }
+          ],
+          "title": "Address"
+        },
+        "port": {
+          "default": 53,
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "address"
+      ],
+      "title": "DnsForwarder",
+      "type": "object"
+    },
     "DnsService": {
       "additionalProperties": false,
+      "description": "A DNS server on a device, ``object_id(device, \"dns\", <name>)``.\n\nA device may run several (#241): Unbound on another port next to AdGuard Home, dnsmasq next\nto Unbound. Each has its own id and port.",
       "properties": {
+        "config_read": {
+          "default": true,
+          "title": "Config Read",
+          "type": "boolean"
+        },
         "device_id": {
           "title": "Device Id",
           "type": "string"
@@ -1409,16 +1446,7 @@
         },
         "forwarders": {
           "items": {
-            "anyOf": [
-              {
-                "format": "ipv4",
-                "type": "string"
-              },
-              {
-                "format": "ipv6",
-                "type": "string"
-              }
-            ]
+            "$ref": "#/$defs/DnsForwarder"
           },
           "title": "Forwarders",
           "type": "array"
@@ -1450,6 +1478,18 @@
           "title": "Listen",
           "type": "array"
         },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
         "observed_at": {
           "anyOf": [
             {
@@ -1462,6 +1502,13 @@
           ],
           "default": null,
           "title": "Observed At"
+        },
+        "port": {
+          "default": 53,
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
         },
         "source": {
           "anyOf": [

@@ -33,6 +33,7 @@ from signalbox.model import (
     DhcpLease,
     DhcpPool,
     DhcpServer,
+    DnsForwarder,
     DnsService,
     Firmware,
     HostRecord,
@@ -329,9 +330,14 @@ class Lab(Adapter):
                     id=f"{d}/dns",
                     device_id=d,
                     listen=[ip_address("192.0.2.1"), ip_address("198.51.100.1")],
-                    forwarders=[ip_address("203.0.113.53")],
+                    forwarders=[
+                        DnsForwarder(address=ip_address("203.0.113.53")),
+                        DnsForwarder(address=ip_address("2001:db8::53"), port=5353),
+                    ],
                     host_records=[HostRecord(name="printer.lan", address=ip_address("192.0.2.10"))],
-                )
+                ),
+                # AdGuard Home next to it (#241): known to answer, not read
+                DnsService(id=f"{d}/dns/port-5353", device_id=d, port=5353, config_read=False),
             ]
         )
 
