@@ -740,7 +740,8 @@ not report (automatic channel, width or power).
 
 These checks use the observation history (issue #185): after every observation round Signalbox
 records when each device, client and port was first and last seen, the device status and the
-link state, and the network of each client. Changes are kept as events. Everything is deleted
+link state, the network of each client, and per device its boot time (rounded to the minute,
+with the reboot reason) and whether its CPU load was high. Changes are kept as events. Everything is deleted
 after `history.days` (default 30, see [CONFIGURATION.md](CONFIGURATION.md)); client sightings
 are a presence log and are never exported over MQTT. The checks stay silent while the history
 is too short, and on the desired or the predicted state of a plan (which have no history).
@@ -793,6 +794,171 @@ is too short, and on the desired or the predicted state of a plan (which have no
   into and that port's VLAN.
 
 <!-- end of history rules -->
+
+<!-- Device health rules (src/signalbox/rules/health.py) -->
+
+## Device health
+
+These checks read the health values a device reports (uptime, CPU, memory, storage, sensors,
+fans, power supplies, UPS; capability `health`). Devices report very different subsets: a check
+stays silent for a device that does not report its value. The thresholds are fixed for now
+(configurable rule parameters are issue #187):
+
+| Value | Threshold |
+| --- | --- |
+| Memory in use (programs, without page cache) | 90 % |
+| CPU load | 90 % in two consecutive observations |
+| Temperature | the sensor's own limit, else 85 °C |
+| Storage (system and data) | 90 % (error from 98 %) |
+| UPS runtime | 10 minutes |
+| UPS self-test | older than 180 days |
+| Uptime | 365 days |
+| Restarts | in the last 24 hours; 3 or more is a warning |
+
+### `device.resources`
+
+- **Severity:** warning
+- **Checks:** a device's memory in use (total minus available: page cache and buffers do not
+  count) is below 90 %; its CPU load is not 90 % or more in this and the previous observation
+  (a single spike is ignored; needs the history); every temperature sensor is below its own
+  limit, or below 85 °C where the device reports no limit. One finding per value.
+- **Fix:** memory: restart the device, remove unused packages or features, look for a firmware
+  update; CPU: find what keeps it busy (inspection, VPN, logging) or use hardware offloading;
+  temperature: give it air, clean its vents, check its fans.
+
+### `health.storage-full`
+
+- **Severity:** warning from 90 %, error from 98 %
+- **Checks:** system storage (root, overlay, flash) and data disks are less than 90 % full.
+  RAM-backed storage (tmpfs) and storage of unknown kind are not checked.
+- **Fix:** remove unused packages, old logs or firmware images, or move logs to another disk.
+
+### `health.fan-failed`
+
+- **Severity:** warning
+- **Checks:** no fan is reported as failed by the device. A fan at 0 rpm without the device's
+  verdict is not reported: it may be off on purpose.
+- **Fix:** clean or replace the fan; keep the device cool until then.
+
+### `health.psu-failed`
+
+- **Severity:** warning
+- **Checks:** no power supply is reported as failed (no input or broken). Matters most for
+  redundant power supplies, where the device keeps running on the other one.
+- **Fix:** check the power cable and the outlet or UPS; replace the power supply if it has power.
+
+### `health.ups-on-battery`
+
+- **Severity:** warning
+- **Checks:** a UPS monitored by a device (NUT on OPNsense, MikroTik `/system/ups`) does not run
+  on battery.
+- **Fix:** check the mains power and the UPS input; shut down devices that are not needed.
+
+### `health.ups-runtime-low`
+
+- **Severity:** warning
+- **Checks:** the runtime a UPS reports at its present load is at least 10 minutes.
+- **Fix:** replace the battery, or move devices that do not need the UPS to another outlet.
+
+### `health.ups-not-tested`
+
+- **Severity:** info
+- **Checks:** the last self-test a UPS reports is not older than 180 days. Silent when it
+  reports none, and without a history (no reference time).
+- **Fix:** run a self-test and schedule one regularly.
+
+### `health.uptime-very-long`
+
+- **Severity:** info
+- **Checks:** a device has restarted within the last 365 days. Firmware updates restart the
+  device, so a longer uptime means it has not been updated either.
+- **Fix:** check for a firmware update and install it in a quiet hour.
+
+### `device.reboot`
+
+- **Severity:** info for a restart in the last 24 hours, warning for 3 or more
+- **Checks:** a device restarted when its boot time (reported, or derived from its uptime)
+  moved between two observation rounds. The boot time is recorded rounded to the minute, and a
+  move of less than 3 minutes is ignored, so the jitter of a derived boot time is not a restart.
+  Restarts the device reports as a firmware update (`upgrade`) or as started by a user (`user`)
+  are planned and not counted; power loss, watchdog, crash, other or unknown reasons are. A
+  device seen for the first time, and the desired or predicted state of a plan, are not checked.
+  Restarts by a Signalbox deployment are not matched yet: the integrations report them as
+  `user` or `upgrade` where the device says so.
+- **Fix:** if nobody restarted it, check its power supply or PoE budget, its temperature and
+  memory use, and look for a firmware update if it crashes.
+
+<!-- end of device health rules -->
+
+<!-- Time rules (src/signalbox/rules/time_checks.py) -->
+
+## Time and NTP
+
+These checks read the clock, time zone and NTP settings a device reports (capability `time`)
+and the NTP servers a DHCP server hands out (option 42). A check stays silent for a device that
+does not report the value. An NTP server is *local* when its address lies in a known network or
+a private range (RFC 1918, CGNAT, link-local, ULA); it is *public* when it is any other address
+or the name of a well-known public service (`*.ntp.org`, `time.google.com`,
+`time.cloudflare.com`, `time.apple.com`, `time.windows.com`, `time.facebook.com`,
+`time.aws.com`, `*.nist.gov`, `*.ptb.de`, `ntp.ubuntu.com`). Other names may be local
+(`router.lan`) and are not counted as public.
+
+### `time.offset`
+
+- **Severity:** warning
+- **Checks:** a device's clock differs from Signalbox's by at most 60 seconds, plus the
+  uncertainty of the reading (half the request's round trip). Signalbox's own clock is the
+  reference: keep the host that runs it synchronised.
+- **Fix:** configure NTP on the device (the finding names a device of the site that serves
+  time) and check that it reaches the server.
+
+### `time.not-synchronised`
+
+- **Severity:** warning when NTP is configured but not synchronised; info when the NTP client is
+  off or has no server
+- **Checks:** a device's NTP client is on, has a server and is synchronised. An unknown sync
+  state is not reported.
+- **Fix:** turn on the NTP client with a server (preferably the gateway); for a client that does
+  not synchronise, check the server address, the firewall and DNS.
+
+### `time.ntp-unreachable`
+
+- **Severity:** warning
+- **Checks:** an NTP server address of a device that lies in a known network is used by a known
+  device or client (checked only where clients are reported for that network), and when it is a
+  known device that reports its NTP server, that device serves time on that network. Names and
+  addresses outside the known networks are not checked.
+- **Fix:** point the device to a device that serves time, or turn on that device's NTP server
+  for the network.
+
+### `time.dhcp-ntp-mismatch`
+
+- **Severity:** warning
+- **Checks:** the same as `time.ntp-unreachable` for the NTP servers an enabled DHCP server
+  hands out.
+- **Fix:** hand out the address of a device that serves time (usually the gateway), or turn on
+  its NTP server for that network.
+
+### `time.no-local-ntp`
+
+- **Severity:** info
+- **Checks:** per site, devices other than gateways that do not serve time themselves use at
+  least one local NTP server. Reported when only public servers are configured and either a
+  device of the site serves time (the finding names it) or a gateway of the site reports that it
+  does not. Silent when nothing is known about the gateway's NTP server.
+- **Fix:** point the devices (and DHCP option 42) to the gateway, after turning on its NTP
+  server.
+
+### `time.timezone`
+
+- **Severity:** info
+- **Checks:** all devices of a site use the same offset from UTC. The offset is the one the
+  device reports, or is derived from an IANA zone name (`Europe/Berlin`) at the time of
+  reading; POSIX TZ strings without a reported offset are not compared. Zones with different
+  names but the same offset are not reported.
+- **Fix:** set the same time zone on every device of the site.
+
+<!-- end of time rules -->
 
 <!-- Network purpose rules (src/signalbox/rules/networks.py) -->
 

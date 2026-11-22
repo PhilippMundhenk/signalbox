@@ -21,9 +21,12 @@ from signalbox.rules import Finding
 from signalbox.secrets import SecretError, Vault
 from signalbox.sightings import (
     ANSWERED,
+    BOOT,
     CLIENT,
     CLIENT_SEGMENT,
+    CPU,
     DEVICE,
+    DEVICE_KINDS,
     PORT,
     ClientHistory,
     DeviceHistory,
@@ -33,6 +36,8 @@ from signalbox.sightings import (
     SegmentChange,
     SegmentSighting,
     StatusChange,
+    ValueChange,
+    ValueHistory,
     observed_values,
 )
 
@@ -438,9 +443,9 @@ class Store:
             # its history, its ports' and that of the devices it manages (``<id>/...``)
             for table in ("sightings", "sighting_changes"):
                 db.execute(
-                    f"DELETE FROM {table} WHERE kind IN (?, ?) "
+                    f"DELETE FROM {table} WHERE kind IN ({', '.join('?' * len(DEVICE_KINDS))}) "
                     "AND (key = ? OR substr(key, 1, ?) = ?)",
-                    (DEVICE, PORT, device_id, len(device_id) + 1, f"{device_id}/"),
+                    (*DEVICE_KINDS, device_id, len(device_id) + 1, f"{device_id}/"),
                 )
 
     def set_pending_fingerprint(self, device_id: str, fingerprint: str | None) -> None:
@@ -709,6 +714,7 @@ class Store:
         devices: dict[str, DeviceHistory] = {}
         clients: dict[str, ClientHistory] = {}
         ports: dict[str, PortHistory] = {}
+        values: dict[str, dict[str, ValueHistory]] = {BOOT: {}, CPU: {}}
         segments: dict[str, list[SegmentSighting]] = {}
         for r in self._all("SELECT * FROM sightings ORDER BY kind, key"):
             kind, key = r["kind"], str(r["key"])
@@ -738,6 +744,14 @@ class Store:
                     segment_id=r["value"],
                     moves=[SegmentChange(at=c["at"], old=c["old"], new=c["new"]) for c in own],
                 )
+            elif kind in values:
+                values[kind][key] = ValueHistory(
+                    first_seen=r["first_seen"],
+                    last_seen=r["last_seen"],
+                    value=r["value"],
+                    since=r["value_since"],
+                    changes=[ValueChange(at=c["at"], old=c["old"], new=c["new"]) for c in own],
+                )
             elif kind == CLIENT_SEGMENT:
                 mac, _, seg = key.partition(" ")
                 segments.setdefault(mac, []).append(
@@ -757,4 +771,6 @@ class Store:
             devices=devices,
             clients=clients,
             ports=ports,
+            boots=values[BOOT],
+            cpu=values[CPU],
         )
