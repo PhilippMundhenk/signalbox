@@ -78,6 +78,8 @@ from signalbox.model import (
     Segment,
     SegmentPurpose,
     Subnet,
+    Uplink,
+    UplinkKind,
     Wlan,
     normalise_mac,
     object_id,
@@ -192,6 +194,64 @@ def _v4(value: str | None) -> IPv4Address | None:
 def _v4_list(value: str | None) -> list[IPv4Address]:
     """``"192.0.2.1, 192.0.2.53"`` -> addresses; anything unreadable is dropped."""
     return [a for part in str(value or "").split(",") if (a := _v4(part)) is not None]
+
+
+#: ``NewWANAccessType`` of WANCommonInterfaceConfig that are a mobile connection
+_MOBILE = {"X_AVM-DE_UMTS", "X_AVM-DE_LTE"}
+
+
+def _kbps(value: str | None) -> int | None:
+    """A rate in bit/s (``NewLayer1DownstreamMaxBitRate``) in kbit/s; 0 is not known."""
+    bits = _int(value)
+    return bits // 1000 if bits else None
+
+
+def wan_uplink(
+    device_id: str,
+    ppp: dict[str, str] | None,
+    ip: dict[str, str] | None,
+    link: dict[str, str],
+    now: datetime,
+) -> Uplink | None:
+    """The internet connection from ``WANPPPConnection:1``/``WANIPConnection:1`` ``GetInfo``.
+
+    The enabled one of the two is the connection (PPP first); neither enabled (the box reaches
+    the internet over LAN 1 as an IP client, or has no access configured): no uplink.
+    """
+    info = next((i for i in (ppp, ip) if i and _flag(i.get("NewEnable"))), None)
+    if info is None:
+        return None
+    is_ppp = info is ppp
+    access = link.get("NewWANAccessType", "").strip()
+    bridged = info.get("NewConnectionType", "").strip() == "IP_Bridged"
+    if bridged:
+        kind = UplinkKind.BRIDGE
+    elif access in _MOBILE:
+        kind = UplinkKind.LTE
+    else:
+        # WANIPConnection does not say whether the address is from DHCP or fixed
+        kind = UplinkKind.PPPOE if is_ppp else UplinkKind.OTHER
+    up = info.get("NewConnectionStatus", "").strip() == "Connected"
+    uptime = _int(info.get("NewUptime"))
+    own = None if bridged else _v4(info.get("NewExternalIPAddress"))
+    remote = _v4(info.get("NewRemoteIPAddress")) if is_ppp and not bridged else None
+    return Uplink(
+        id=object_id(device_id, "uplink", "internet"),
+        device_id=device_id,
+        name=info.get("NewName", "").strip() or None,
+        kind=kind,
+        up=up,
+        since=now - timedelta(seconds=uptime) if up and uptime else None,
+        addresses=[IPv4Interface(own)] if own else [],
+        upstream_gateway=remote,
+        dns_servers=[] if bridged else list(_v4_list(info.get("NewDNSServers"))),
+        downstream_kbps=_kbps(link.get("NewLayer1DownstreamMaxBitRate")),
+        upstream_kbps=_kbps(link.get("NewLayer1UpstreamMaxBitRate")),
+        vendor_extra=_extra(
+            info | link, "NewConnectionType", "NewWANAccessType", "NewPhysicalLinkStatus"
+        )
+        | ({"service": "WANPPPConnection:1" if is_ppp else "WANIPConnection:1"}),
+    )
 
 
 def band(info: dict[str, str], index: int, count: int) -> Band:
@@ -497,7 +557,24 @@ class FritzboxAdapter(Adapter):
                     gateway=self.context.role is DeviceRole.GATEWAY,
                 )
             )
-        return Observation(ports=[port], segments=segments, subnets=subnets)
+        return Observation(
+            ports=[port], segments=segments, subnets=subnets, uplinks=await self._uplinks()
+        )
+
+    async def _uplinks(self) -> list[Uplink]:
+        """The internet connection (#148); a box without these services reports none."""
+        if self.context.role is not DeviceRole.GATEWAY:
+            return []
+        ppp = ip = link = None
+        with contextlib.suppress(SoapFault, NotFound):
+            ppp = await self.tr064.call("WANPPPConnection1", "GetInfo")
+        with contextlib.suppress(SoapFault, NotFound):
+            ip = await self.tr064.call("WANIPConnection1", "GetInfo")
+        with contextlib.suppress(SoapFault, NotFound):
+            link = await self.tr064.call("WANCommonInterfaceConfig1", "GetCommonLinkProperties")
+        now = datetime.now(UTC).replace(microsecond=0)
+        uplink = wan_uplink(self.context.device_id, ppp, ip, link or {}, now)
+        return [uplink] if uplink else []
 
     # dhcp -----------------------------------------------------------------------------
 

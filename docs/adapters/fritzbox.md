@@ -185,6 +185,42 @@ NewDomainName fritz.box         NewDHCPRelay 0                NewReservedAddress
 - **Reservations** ("always assign this IPv4 address") are not exposed by TR-064, so the DHCP
   server never lists any. The lease time is not exposed either.
 
+### `WANPPPConnection:1 GetInfo`, `WANIPConnection:1 GetInfo`, `WANCommonInterfaceConfig:1 GetCommonLinkProperties` (interfaces: the uplink)
+
+```
+WANPPPConnection:1 GetInfo   NewEnable 1   NewConnectionStatus Connected   NewUptime 7200
+  NewConnectionType IP_Routed   NewName internet   NewExternalIPAddress 203.0.113.45
+  NewRemoteIPAddress 203.0.113.1   NewDNSServers 203.0.113.53, 203.0.113.54   (and more)
+WANCommonInterfaceConfig:1 GetCommonLinkProperties   NewWANAccessType DSL
+  NewLayer1DownstreamMaxBitRate 116790000   NewLayer1UpstreamMaxBitRate 46719000
+  NewPhysicalLinkStatus Up
+```
+
+With role `gateway` the internet connection is one uplink `<device>/uplink/internet` (#148),
+from the service whose `NewEnable` is `1`, PPP first; neither enabled (the box is an IP client
+on LAN 1, or has no access configured): no uplink. The three actions are read with the same
+right; a fault or a missing service leaves the uplink (or its line rate) out, the rest is read.
+
+- **Kind**: `pppoe` on `WANPPPConnection`; on `WANIPConnection` `other`, because TR-064 does
+  not say whether the address is from DHCP or fixed; `lte` for the access types
+  `X_AVM-DE_LTE`/`X_AVM-DE_UMTS`; `bridge` for `NewConnectionType` `IP_Bridged` (no address).
+- **State**: up when `NewConnectionStatus` is `Connected`; `since` is the read time minus
+  `NewUptime` (seconds).
+- **Addresses**: `NewExternalIPAddress` as /32 (TR-064 gives no prefix length); the PPP peer
+  `NewRemoteIPAddress` is the upstream gateway (`WANIPConnection` has none); `NewDNSServers` the
+  provider's resolvers. The PPP user name in the same answer is not kept.
+- **Line rate**: `NewLayer1DownstreamMaxBitRate`/`NewLayer1UpstreamMaxBitRate` in bit/s, reported
+  in kbit/s (0: not known). `NewWANAccessType`, `NewConnectionType` and `NewPhysicalLinkStatus`
+  go into `vendor_extra`.
+- **Not read**: IPv6 (addresses, delegated prefix) and DS-Lite are only in the IGD services of
+  `/igdupnp/` (`X_AVM_DE_GetExternalIPv6Address`, `X_AVM_DE_GetIPv6Prefix`,
+  `X_AVM_DE_GetDsliteStatus`), which answer only with "status information over UPnP" switched on
+  and whose descriptions are not in the fixtures yet; a DS-Lite line therefore shows as kind
+  `other` without an IPv4 address. `X_AVM-DE_WANMobileConnection:1` (signal, provider) is not read.
+- *To confirm on a real box (#21)*: the format of `NewDNSServers` on a WAN connection (read as
+  a comma-separated list like the LAN one), `NewEnable` of the connection a box does not use,
+  and what `NewExternalIPAddress` holds on a DS-Lite line.
+
 ### `WLANConfiguration:<n> GetInfo`, `X_AVM-DE_GetWLANExtInfo`, `GetSecurityKeys` (wireless)
 
 Services `WLANConfiguration:1` to `:4` are tried in order until one answers 404 or fault 401.
@@ -315,13 +351,16 @@ new passphrase stays (restore the backup to get the old one back).
   forwarders nor local host records, so the adapter has no DNS capability.
 - **Neighbours (LLDP)**: FRITZ!OS does not speak LLDP.
 - **DHCP reservations, lease time, VLANs, per-port LAN state**: not in TR-064 (see above).
+- **IPv6 and DS-Lite of the uplink**: only over the IGD services (see the uplink above).
 
 ## Checked against AVM's service descriptions
 
 `tests/fixtures/tr064/` holds `tr64desc.xml` and the SCPD files of the services used here, as
 FRITZ!OS 7.57 (FRITZ!Box 7590) and 8.02 (FRITZ!Box 7530) serve them; `SOURCES.md` there says
 where they come from (AVM's own download area could not be reached when they were added, so
-they are a public dump of what boxes serve) and what was neutralised. The simulator is built
+they are a public dump of what boxes serve) and what was neutralised. The two WAN connection
+descriptions are from a FRITZ!OS 8.25 box (the dump of 7.57 and 8.02 does not include them);
+their actions and arguments are the same in a FRITZ!OS 7.29 dump. The simulator is built
 from them: it serves them, answers only described actions with exactly their arguments and
 data types, and refuses anything else with the UPnP fault (401, 402, 600, 601).
 `tests/test_fritzbox_scpd.py` runs every read, write, restore and fallback path of the adapter

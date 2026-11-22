@@ -15,7 +15,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from ipaddress import IPv4Interface, ip_address, ip_interface
+from ipaddress import IPv4Interface, IPv6Network, ip_address, ip_interface, ip_network
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -58,6 +58,8 @@ from signalbox.model import (
     Segment,
     Subnet,
     TemperatureSensor,
+    Uplink,
+    UplinkKind,
     Wlan,
     normalise_mac,
     object_id,
@@ -342,6 +344,50 @@ class NetworkView:
         )
 
 
+#: netifd protocol -> uplink kind (``qmi``, ``mbim``, ``ncm``, ``3g``, ``modemmanager``: mobile)
+_PROTO_KINDS = {
+    "dhcp": UplinkKind.DHCP,
+    "static": UplinkKind.STATIC,
+    "pppoe": UplinkKind.PPPOE,
+    "pppoa": UplinkKind.PPPOE,
+    "dslite": UplinkKind.DSLITE,
+    "map": UplinkKind.MAP_E,
+    "qmi": UplinkKind.LTE,
+    "mbim": UplinkKind.LTE,
+    "ncm": UplinkKind.LTE,
+    "3g": UplinkKind.LTE,
+    "modemmanager": UplinkKind.LTE,
+}
+#: protocols that only ever connect a router to its provider
+_WAN_PROTOS = frozenset(_PROTO_KINDS) - {"dhcp", "static"} | {"dhcpv6", "464xlat"}
+
+
+def _is_wan(name: str, entry: dict[str, Any]) -> bool:
+    """A netifd interface of the uplink: named ``wan``/``wan6``/``wan2``..., or a WAN protocol."""
+    named = re.fullmatch(r"wan\d*(_\w+)?", name) is not None
+    return named or entry.get("proto") in _WAN_PROTOS
+
+
+def _default_nexthop(entry: dict[str, Any]) -> IPAddress | None:
+    for r in entry.get("route") or []:
+        if isinstance(r, dict) and r.get("mask") == 0 and r.get("target") in ("0.0.0.0", "::"):
+            with contextlib.suppress(ValueError):
+                return ip_address(str(r.get("nexthop")))
+    return None
+
+
+def _delegated(entry: dict[str, Any]) -> list[IPv6Network]:
+    out: list[IPv6Network] = []
+    for p in entry.get("ipv6-prefix") or []:
+        try:
+            net = ip_network(f"{p['address']}/{p['mask']}", strict=False)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if isinstance(net, IPv6Network) and net not in out:
+            out.append(net)
+    return out
+
+
 def _speed(text: Any) -> tuple[int | None, bool | None]:
     match = re.fullmatch(r"(-?\d+)([FH])", str(text or ""))
     if not match or int(match.group(1)) <= 0:
@@ -560,7 +606,72 @@ class OpenWrtAdapter(Adapter):
             if (svid := view.vlan_of_interface(name)) is not None
             for n, addr in enumerate(view.addresses(name))
         ]
-        return Observation(ports=list(ports.values()), segments=segments, subnets=subnets)
+        uplinks = self._uplinks(view, ports) if router else []
+        return Observation(
+            ports=list(ports.values()), segments=segments, subnets=subnets, uplinks=uplinks
+        )
+
+    def _uplinks(self, view: NetworkView, ports: dict[str, Port]) -> list[Uplink]:
+        """The WAN interfaces of ``network.interface dump``; ``wan6`` joins ``wan`` (#148).
+
+        A WAN interface is named ``wan``/``wan6``/``wan2``..., has a protocol only uplinks use,
+        or carries a default route without being a network of the site.
+        """
+        d = self.context.device_id
+        wans = {
+            n: e
+            for n, e in sorted(view.running.items())
+            if _is_wan(n, e) or (view.has_default_route(n) and view.vlan_of_interface(n) is None)
+        }
+        groups: dict[str, list[str]] = {}
+        for name in wans:
+            base = name[:-1] if name.endswith("6") and name[:-1] in wans else name
+            groups.setdefault(base, []).append(name)
+        now = datetime.now(UTC).replace(microsecond=0)
+        out: list[Uplink] = []
+        for base, names in groups.items():
+            entries = [wans[n] for n in names]
+            main = entries[0]
+            addresses: list[IPInterface] = []
+            dns: list[IPAddress] = []
+            prefixes: list[IPv6Network] = []
+            gateways: list[IPAddress] = []
+            for n, e in zip(names, entries, strict=True):
+                addresses += [a for a in view.addresses(n) if a not in addresses]
+                for text in e.get("dns-server") or []:
+                    with contextlib.suppress(ValueError):
+                        a = ip_address(str(text))
+                        if a not in dns:
+                            dns.append(a)
+                prefixes += [p for p in _delegated(e) if p not in prefixes]
+                hop = _default_nexthop(e)
+                if hop is not None:
+                    gateways.append(hop)
+            up = main.get("up")
+            uptime = _int(main.get("uptime"))
+            dev = next((x for x in (main.get("device"), main.get("l3_device")) if x in ports), None)
+            out.append(
+                Uplink(
+                    id=object_id(d, "uplink", base),
+                    device_id=d,
+                    port_id=port_id(d, dev) if dev else None,
+                    name=base,
+                    kind=_PROTO_KINDS.get(str(main.get("proto")), UplinkKind.OTHER),
+                    up=up if isinstance(up, bool) else None,
+                    since=now - timedelta(seconds=uptime)
+                    if up is True and uptime is not None
+                    else None,
+                    addresses=addresses,
+                    delegated_prefixes=prefixes,
+                    upstream_gateway=gateways[0] if gateways else None,
+                    dns_servers=dns,
+                    vendor_extra={
+                        "proto": [str(e.get("proto")) for e in entries],
+                        "interfaces": list(names),
+                    },
+                )
+            )
+        return out
 
     # wireless -------------------------------------------------------------------------
 

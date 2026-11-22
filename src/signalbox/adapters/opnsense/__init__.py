@@ -26,7 +26,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from ipaddress import ip_address, ip_interface, ip_network
+from ipaddress import IPv6Network, ip_address, ip_interface, ip_network
 from typing import Any
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -66,6 +66,8 @@ from signalbox.model import (
     Reservation,
     Segment,
     Subnet,
+    Uplink,
+    UplinkKind,
     normalise_mac,
     object_id,
     port_id,
@@ -311,6 +313,57 @@ def _pool(text: str) -> DhcpPool | None:
     if net.num_addresses > 2:  # without network and broadcast address
         return DhcpPool(start=net[1], end=net[-2])
     return DhcpPool(start=net[0], end=net[-1])
+
+
+#: ``link_type`` of the interface overview (the IPv4 type of config.xml) -> uplink kind
+_LINK_KINDS = {"dhcp": UplinkKind.DHCP, "static": UplinkKind.STATIC, "pppoe": UplinkKind.PPPOE}
+
+
+def _ifctl(row: dict[str, Any], key: str) -> list[str]:
+    """Values the WAN received (``ifctl.nameserver``...): file contents, one value per line."""
+    value = row.get(f"ifctl.{key}")
+    lines = value if isinstance(value, list) else [value]
+    return [part for text in lines for part in _text(text).split()]
+
+
+def _prefixes(values: Iterable[str]) -> list[IPv6Network]:
+    out: list[IPv6Network] = []
+    for text in values:
+        try:
+            net = ip_network(text, strict=False)
+        except ValueError:
+            continue
+        if isinstance(net, IPv6Network) and net not in out:
+            out.append(net)
+    return out
+
+
+def wan_uplink(row: dict[str, Any], device_id: str, port: str | None) -> Uplink:
+    """The ``wan`` row of the interface overview as an uplink (OPNsense reports no uptime)."""
+    addresses = _iface_addresses(row)
+    gateways = _addrs(row.get("gateways")) or _addrs(_ifctl(row, "router"))
+    status = _text(row.get("status")).lower()
+    link = _text(row.get("link_type")).lower()
+    kind = _LINK_KINDS.get(link, UplinkKind.OTHER)
+    dns: list[IPAddress] = []
+    for a in _addrs(_ifctl(row, "nameserver")):
+        if a not in dns:
+            dns.append(a)
+    return Uplink(
+        id=object_id(device_id, "uplink", "wan"),
+        device_id=device_id,
+        port_id=port,
+        name=_text(row.get("description")) or "WAN",
+        kind=kind,
+        up=(status == "up" and bool(addresses)) if status else None,
+        addresses=addresses,
+        delegated_prefixes=_prefixes(_ifctl(row, "prefix")),
+        upstream_gateway=gateways[0] if gateways else None,
+        dns_servers=dns,
+        vendor_extra={
+            k: _text(row.get(k)) for k in ("link_type", "link_typev6") if _text(row.get(k))
+        },
+    )
 
 
 # --- interface layout, shared by every capability --------------------------------------------
@@ -579,8 +632,21 @@ class OpnsenseAdapter(_Adapter):
             if i.segment is not None
             for a in i.addresses
         ]
+        wan = layout.by_identifier("wan")
+        row = next(
+            (
+                r
+                for r in _rows(await self._get(INTERFACES, grid=True), INTERFACES)
+                if _text(r.get("identifier")) == "wan"
+            ),
+            None,
+        )
+        uplinks = [] if wan is None or row is None else [wan_uplink(row, dev, wan.port)]
         return Observation(
-            ports=layout.ports, segments=list(layout.segments.values()), subnets=subnets
+            ports=layout.ports,
+            segments=list(layout.segments.values()),
+            subnets=subnets,
+            uplinks=uplinks,
         )
 
     # --- DHCP ---------------------------------------------------------------------------------

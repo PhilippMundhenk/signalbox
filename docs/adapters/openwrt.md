@@ -195,6 +195,31 @@ Each address of an interface that maps to a segment becomes a subnet. The device
 gateway only when its role is `gateway` and the interface has no default route of its own (an
 interface with a default route leads upstream).
 
+**Uplinks** (#148, role `gateway` only): the interfaces named `wan`, `wan6`, `wan2`, ...,
+those with a protocol only uplinks use (`pppoe`, `pppoa`, `dslite`, `map`, `464xlat`, `dhcpv6`,
+and the mobile `qmi`, `mbim`, `ncm`, `3g`, `modemmanager`), and any other interface with a
+default route that is not a network of the site. `<name>6` joins `<name>` as one uplink
+`<device>/uplink/<name>` (`wan6` into `wan`):
+
+```json
+{"interface": "wan", "up": true, "uptime": 5400, "proto": "dhcp", "device": "eth0",
+ "l3_device": "eth0", "ipv4-address": [{"address": "203.0.113.45", "mask": 24}],
+ "route": [{"target": "0.0.0.0", "mask": 0, "nexthop": "203.0.113.1"}],
+ "dns-server": ["203.0.113.53"]}
+{"interface": "wan6", "up": true, "proto": "dhcpv6", "device": "eth0", "l3_device": "eth0",
+ "ipv6-address": [{"address": "2001:db8:ffff::45", "mask": 64}],
+ "ipv6-prefix": [{"address": "2001:db8:1::", "mask": 56, "class": "wan6"}],
+ "route": [{"target": "::", "mask": 0, "nexthop": "fe80::1"}],
+ "dns-server": ["2001:db8:ffff::53"]}
+```
+
+Kind from `proto` of the first one (`dhcp`, `static`, `pppoe`/`pppoa`, `dslite`, `map` as
+MAP-E, the mobile protocols as `lte`, anything else `other`); `up` and `uptime` (seconds; `since`
+is the read time minus it); the addresses, `ipv6-prefix` (delegated prefixes), the `nexthop`
+of the first default route and `dns-server` of both. The port is `device` (else `l3_device`)
+where it is one of the ports; a PPPoE session's `pppoe-wan` is not. netifd reports no line rate
+and no public address. `network.interface dump` is read already, so the ACL needs nothing more.
+
 ### `uci get {"config": "wireless"}` and `network.wireless status` (radios, WLANs)
 
 ```json

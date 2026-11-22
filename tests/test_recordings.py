@@ -352,6 +352,9 @@ def test_fields_secrets_names_and_logs() -> None:
     )
     assert n.url("/cgi-bin/luci/10.0.0.9") == "/cgi-bin/luci/192.0.2.9"
     assert n.secret("") == "" and n.name("lan") == "lan"
+    # the password rules of a PPP login are no secret (and "0" must not become one)
+    rules = "<r><NewMinCharsPassword>0</NewMinCharsPassword><NewIndex>0</NewIndex></r>"
+    assert n.document(rules) == rules
 
 
 def test_neutralising_twice_changes_nothing() -> None:

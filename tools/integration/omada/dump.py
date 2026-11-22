@@ -69,6 +69,8 @@ def spec() -> dict[str, Any]:
     )
     out: dict[str, Any] = {}
     paths = doc.get("paths", {}) if isinstance(doc, dict) else {}
+    # the gateway's WAN ports (#148): the path parameter's name is the description's own
+    wanted += tuple(p for p in paths if p.startswith("/openapi/v1/") and p.endswith("/wan-status"))
     for path in wanted:
         op = paths.get(path, {}).get("get", {})
         content = op.get("responses", {}).get("200", {}).get("content", {})

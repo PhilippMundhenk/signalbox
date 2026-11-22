@@ -78,7 +78,10 @@ clear text and is only meant for the simulator.
   every changing request is refused by the router itself (verified on RouterOS 7.25.1 CHR: the group is
   accepted with the `!` entries as written, every menu of the read side answers, a `PUT` is
   refused with HTTP 500 `not enough permissions (9)`). `api` is listed for RouterOS
-  versions before the separate `rest-api` policy existed.
+  versions before the separate `rest-api` policy existed. The uplinks need no further policy:
+  the DHCP, PPPoE and cloud menus are read with `read`, and the PPPoE monitor is a read
+  command *(guess, #21: a group without the right for it only loses the session's uptime and
+  addresses)*.
 - Without `sensitive` RouterOS hides secrets in its answers, Wi-Fi passphrases included. Then
   SSIDs are read without a passphrase fingerprint, and the "same SSID, different passphrase"
   check has nothing to compare. Adding `sensitive` lets the user read every secret of the
@@ -118,7 +121,18 @@ clear text and is only meant for the simulator.
   nothing); the native segment is named after the bridge's comment.
 - **Uplink**: members of the interface list `WAN` (RouterOS' default configuration) are ports
   only: no segment, no subnets, and their ARP neighbours are not clients. Without that list the
-  uplink port with its address becomes a network of its own.
+  uplink port with its address becomes a network of its own, and no uplink is reported.
+- **Uplinks** (#148): each member of the list `WAN` is `<device>/uplink/<interface>`, except a
+  port that only carries a PPPoE client of the list. A member with a `/ip/dhcp-client` is kind
+  `dhcp`, up when `status` is `bound`, with the lease `address`, `gateway` and
+  `primary-dns`/`secondary-dns`; a `/interface/pppoe-client` is kind `pppoe` on the port of its
+  `interface`, with `status` (`connected`), `uptime` (`since`), `local-address` and
+  `remote-address` (the upstream gateway) from its monitor, else `running`; type `lte` is `lte`;
+  a member with an address of its own is `static`, without one `other`. Addresses are those of
+  `/ip/address` and `/ipv6/address` on the interface, the delegated prefix is the `prefix` of
+  `/ipv6/dhcp-client`. `public-address` of `/ip/cloud` is the `public_ipv4` of the first
+  connected uplink when it is a public address and not the uplink's own (it is only there after
+  the router's own cloud update). No line rate: `/interface/lte monitor` is not read.
 - **Subnets**: every enabled, non-link-local address from `/ip/address` and `/ipv6/address` on a
   bridge, VLAN interface or routed port, with `gateway: true` when the device's role is
   `gateway`.
@@ -305,6 +319,33 @@ carries the spanning tree state and counters (`rx-bpdu`, `forward-transitions`, 
 
 IPv6 link-local addresses (`fe80::/64`, dynamic) are skipped by their address; only some of
 them carry `link-local: true`. Without IPv6 `/ipv6/address` is a missing menu (optional).
+
+### `/rest/ip/dhcp-client`, `/rest/ipv6/dhcp-client`, `/rest/interface/pppoe-client`, `/rest/ip/cloud` *(optional)* (interfaces: uplinks)
+
+Read only when the list `WAN` has members.
+
+```json
+[{".id": "*1", "interface": "ether1", "status": "bound", "address": "203.0.113.2/24",
+  "gateway": "203.0.113.1", "primary-dns": "203.0.113.53", "secondary-dns": "203.0.113.54",
+  "expires-after": "23h12m5s", "disabled": "false", "invalid": "false"}]
+[{".id": "*1", "interface": "ether1", "status": "bound", "prefix": "2001:db8:1::/56, 2d23h50m10s"}]
+[{".id": "*1", "name": "pppoe-out1", "interface": "ether1", "running": "true", "disabled": "false"}]
+{"public-address": "203.0.113.2", "ddns-enabled": "false", "status": "updated"}
+```
+
+*Guess* (#21): the shapes are from the RouterOS documentation (the CHR in CI has the DHCP
+client on its uplink; tools/integration/mikrotik/dump.py `uplink` records all four), the
+lifetime after the prefix included. For a PPPoE client the adapter runs its monitor once,
+`POST /rest/interface/pppoe-client/monitor` with `{"numbers": "pppoe-out1", "once": ""}`, a read
+command of the `read` policy *(guess: not tried on a device with a PPPoE session)*:
+
+```json
+[{"status": "connected", "uptime": "1d2h3m4s", "local-address": "203.0.113.77",
+  "remote-address": "203.0.113.1", "service-name": "", "ac-name": "isp-bras", "mtu": "1492"}]
+```
+
+A refused monitor leaves the uplink with the client's `running` flag and without addresses or
+uptime; a refused `/ip/cloud` without a public address.
 
 ### `/rest/ip/dhcp-server`, `/rest/ip/dhcp-server/network`, `/rest/ip/pool`, `/rest/ip/dhcp-server/lease` (dhcp, clients)
 
@@ -514,7 +555,9 @@ CHR has no radios, so the Wi-Fi writes are tested against the simulator only
 ## Simulator
 
 `signalbox.sim.mikrotik.MikrotikSimulator` answers these endpoints with neutral sample data (a
-hEX-like router with Wi-Fi and bridge VLAN filtering, documentation addresses, `02:` MACs). Its
+hEX-like router with Wi-Fi and bridge VLAN filtering, a DHCP client on the uplink `ether1`,
+documentation addresses, `02:` MACs). A PPPoE client added to `/interface/pppoe-client`
+answers its monitor with `pppoe_session` (`read_only_monitor`: refused). Its
 switches simulate a wrong password (401), a disabled REST API (404 everywhere), slow answers,
 malformed JSON per path, a status code per path, a menu the group has no policy for
 (`no_policy`: HTTP 500 `not enough permissions (9)`), and the wireless package installed

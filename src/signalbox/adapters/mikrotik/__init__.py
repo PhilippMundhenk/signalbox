@@ -30,7 +30,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
-from ipaddress import IPv4Interface, ip_address, ip_interface, ip_network
+from ipaddress import IPv4Address, IPv4Interface, IPv6Network, ip_address, ip_interface, ip_network
 from typing import Any
 
 from pydantic import Field, JsonValue, SecretStr, field_validator, model_validator
@@ -64,6 +64,7 @@ from signalbox.model import (
     IPAddress,
     IPInterface,
     Membership,
+    NatClass,
     Neighbour,
     NtpClient,
     NtpServer,
@@ -80,7 +81,10 @@ from signalbox.model import (
     StorageUsage,
     Subnet,
     TemperatureSensor,
+    Uplink,
+    UplinkKind,
     Wlan,
+    address_nat_class,
     normalise_mac,
     object_id,
     passphrase_fingerprint,
@@ -99,6 +103,11 @@ BRIDGE_VLAN = "/rest/interface/bridge/vlan"
 BRIDGE_HOST = "/rest/interface/bridge/host"
 VLAN = "/rest/interface/vlan"
 LIST_MEMBER = "/rest/interface/list/member"
+DHCP_CLIENT = "/rest/ip/dhcp-client"
+IPV6_DHCP_CLIENT = "/rest/ipv6/dhcp-client"
+PPPOE_CLIENT = "/rest/interface/pppoe-client"
+PPPOE_MONITOR = "/rest/interface/pppoe-client/monitor"
+CLOUD = "/rest/ip/cloud"
 IP_ADDRESS = "/rest/ip/address"
 IPV6_ADDRESS = "/rest/ipv6/address"
 DHCP_SERVER = "/rest/ip/dhcp-server"
@@ -424,6 +433,15 @@ async def get_menu(http: DeviceHttp, endpoint: str) -> Any:
         return response.json()
     except ValueError as exc:
         raise AdapterError(f"{endpoint}: answer is not valid JSON") from exc
+
+
+def _prefix(value: Any) -> IPv6Network | None:
+    """``prefix`` of an IPv6 DHCP client: ``"2001:db8:1::/56, 2d23h59m"`` (with lifetime)."""
+    try:
+        net = ip_network(_text(value).split(",")[0].strip(), strict=False)
+    except ValueError:
+        return None
+    return net if isinstance(net, IPv6Network) else None
 
 
 # --- interface layout, shared by every capability --------------------------------------------
@@ -755,7 +773,129 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             ports=list(layout.ports.values()),
             segments=list(layout.segments.values()),
             subnets=subnets,
+            uplinks=await self._uplinks(layout),
         )
+
+    async def _monitor(self, name: str) -> dict[str, Any]:
+        """``/interface/pppoe-client/monitor <name> once``; empty when RouterOS refuses it."""
+        try:
+            answer = await self.http.post_json(PPPOE_MONITOR, {"numbers": name, "once": ""})
+        except AdapterError:
+            return {}
+        if isinstance(answer, list):
+            answer = answer[0] if answer else {}
+        return answer if isinstance(answer, dict) else {}
+
+    async def _uplinks(self, layout: _Layout) -> list[Uplink]:
+        """Members of the interface list ``WAN``, with their DHCP or PPPoE client (#148)."""
+        if not layout.wan:
+            return []
+        dev = self.context.device_id
+        types = {_text(r.get("name")): _text(r.get("type")) for r in await self._rows(INTERFACE)}
+        dhcp = {
+            _text(r.get("interface")): r
+            for r in await self._optional_rows(DHCP_CLIENT)
+            if _active(r)
+        }
+        dhcp6 = {
+            _text(r.get("interface")): r
+            for r in await self._optional_rows(IPV6_DHCP_CLIENT)
+            if _active(r)
+        }
+        pppoe = {
+            _text(r.get("name")): r for r in await self._optional_rows(PPPOE_CLIENT) if _active(r)
+        }
+        # the port under a PPPoE client of the WAN list is not an uplink of its own
+        carriers = {_text(r.get("interface")) for n, r in pppoe.items() if n in layout.wan}
+        now = datetime.now(UTC).replace(microsecond=0)
+        out: list[Uplink] = []
+        for name in sorted(layout.wan):
+            if name in carriers and name not in dhcp:
+                continue
+            own = [a for n, a in layout.addresses if n == name]
+            since: datetime | None = None
+            gateway: IPAddress | None = None
+            dns: list[IPAddress] = []
+            extra: dict[str, JsonValue] = {}
+            port = layout.port(name)
+            if name in pppoe:
+                kind = UplinkKind.PPPOE
+                carrier = _text(pppoe[name].get("interface"))
+                port = layout.port(carrier) or port
+                monitor = await self._monitor(name)
+                status = _text(monitor.get("status"))
+                up = status == "connected" if status else _flag(pppoe[name].get("running"))
+                uptime = duration(monitor.get("uptime"))
+                if up and uptime is not None:
+                    since = now - timedelta(seconds=uptime)
+                gateway = _addr(monitor.get("remote-address"))
+                local = _addr(monitor.get("local-address"))
+                if isinstance(local, IPv4Address) and all(a.ip != local for a in own):
+                    own.append(IPv4Interface(local))
+                extra = _extra(monitor, "status", "service-name", "ac-name", "mtu")
+            elif name in dhcp:
+                row = dhcp[name]
+                kind = UplinkKind.DHCP
+                status = _text(row.get("status"))
+                up = status == "bound"
+                try:
+                    lease = ip_interface(_text(row.get("address")))
+                except ValueError:
+                    lease = None
+                if lease is not None and lease not in own:
+                    own.insert(0, lease)
+                gateway = _addr(row.get("gateway"))
+                dns = [
+                    a
+                    for a in (_addr(row.get(k)) for k in ("primary-dns", "secondary-dns"))
+                    if a is not None
+                ]
+                extra = {"status": status} if status else {}
+            else:
+                kind = UplinkKind.LTE if types.get(name) == "lte" else UplinkKind.STATIC
+                if kind is UplinkKind.STATIC and not own:
+                    kind = UplinkKind.OTHER
+                running = layout.ports.get(name)
+                up = bool(own) and (running.up is not False if running else True)
+            prefixes: list[IPv6Network] = []
+            v6 = dhcp6.get(name)
+            if v6 is not None:
+                net = _prefix(v6.get("prefix"))
+                if net is not None:
+                    prefixes.append(net)
+            out.append(
+                Uplink(
+                    id=object_id(dev, "uplink", name),
+                    device_id=dev,
+                    port_id=port,
+                    name=name,
+                    kind=kind,
+                    up=up,
+                    since=since,
+                    addresses=own,
+                    delegated_prefixes=prefixes,
+                    upstream_gateway=gateway,
+                    dns_servers=_unique(dns),
+                    vendor_extra=extra,
+                )
+            )
+        return await self._public_address(out)
+
+    async def _public_address(self, uplinks: list[Uplink]) -> list[Uplink]:
+        """``/ip/cloud`` ``public-address`` on the first connected uplink, if not its own."""
+        try:
+            cloud = _object(await self._get(CLOUD), CLOUD)
+        except AdapterError:
+            return uplinks
+        public = _addr(cloud.get("public-address"))
+        if not isinstance(public, IPv4Address) or address_nat_class(public) is not NatClass.PUBLIC:
+            return uplinks
+        for i, uplink in enumerate(uplinks):
+            if uplink.up:
+                if all(a.ip != public for a in uplink.ipv4()):
+                    uplinks[i] = uplink.model_copy(update={"public_ipv4": public})
+                break
+        return uplinks
 
     # --- DHCP ---------------------------------------------------------------------------------
 

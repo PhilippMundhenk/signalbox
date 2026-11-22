@@ -161,6 +161,13 @@ these pages, so treat its key like an admin password.
   VLANs that are defined but not assigned also appear. The untagged LAN (`lan`) is the native
   segment. Any other untagged assigned interface (for example a DMZ on its own port) is
   `<site>/segment/<identifier>`. The WAN (`wan`) is the uplink and only appears as a port.
+- **Uplink** (#148): the `wan` row is `<device>/uplink/wan` on its port. Kind from `link_type`
+  (`dhcp`, `static`, `pppoe`; anything else, such as `l2tp` or `ppp`, is `other`), up when
+  `status` is `up` and the interface has an address (`no carrier`: down), addresses from
+  `ipv4`/`ipv6` (link-local left out), the upstream gateway from `gateways` (else
+  `ifctl.router`), the provider's resolvers from `ifctl.nameserver` and the delegated prefix from
+  `ifctl.prefix`. The API reports no connection uptime, line rate or public address; the
+  gateway monitor (`/api/routes/gateway/status`) is not read, so no privilege is added.
 - **Subnets**: each global address of an assigned, non-WAN interface, with `gateway: true`.
   Link-local and loopback addresses are skipped.
 - **DHCP (Kea)**: one server per Kea subnet, attached to the interface whose network contains it;
@@ -221,7 +228,18 @@ revision (`_3`), `product_latest` does not: the same release is no update.
 ```
 
 Each row also has flags, capabilities, routes and the interface's `config`. `identifier` is
-empty for unassigned devices; `pfsync0` is never listed.
+empty for unassigned devices; `pfsync0` is never listed. The `wan` row also carries what the
+interface received, as OPNsense's interface overview builds it (`OverviewController.php`, the
+`/tmp/<device>_<key>[v6]` files of `Autoconf`): one string per address family, the file's
+content with one value per line *(the shape of the values on a WAN with DHCPv6 still to be seen
+in CI, #21)*:
+
+```json
+{"device": "vtnet1", "identifier": "wan", "status": "up", "link_type": "dhcp",
+ "link_typev6": "dhcp6", "ipv4": [{"ipaddr": "100.64.23.45/22"}],
+ "gateways": ["100.64.20.1"], "ifctl.nameserver": ["100.64.0.53"],
+ "ifctl.router": ["100.64.20.1"], "ifctl.prefix": ["2001:db8:1::/56"]}
+```
 
 Port details (#156) from the same rows: `description` and `enabled` of an assigned interface
 (an unassigned device, such as a VLAN trunk, has neither; a disabled interface whose device is
@@ -417,8 +435,9 @@ The test VM is never run locally: without `IT_OPNSENSE_URL` the tests skip.
 
 `signalbox.sim.opnsense.OpnsenseSimulator` answers all of these endpoints with neutral sample
 data (documentation prefixes, `02:` MACs): LAN untagged with IPv4 and IPv6, VLAN 20 "IoT" and
-VLAN 30 "Guest", an unassigned VLAN 40, Kea on LAN and IoT, ISC on Guest, Unbound overrides,
-ARP and NDP entries. Switches: wrong key or secret (401), `api_enabled=False` (404 everywhere),
+VLAN 30 "Guest", an unassigned VLAN 40, a DHCP WAN behind the provider's carrier-grade NAT
+(100.64.23.45/22, a delegated 2001:db8:1::/56), Kea on LAN and IoT, ISC on Guest, Unbound
+overrides, ARP and NDP entries. Switches: wrong key or secret (401), `api_enabled=False` (404 everywhere),
 `delay`, `malformed` (broken JSON per endpoint) and `fail` (a status code per endpoint or
 endpoint prefix).
 
