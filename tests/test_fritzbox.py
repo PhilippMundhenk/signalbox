@@ -596,6 +596,7 @@ async def test_box_without_users_logs_in_with_password_only(
     )
     assert snap.status is DeviceStatus.OK, snap.errors
 
+
 # --- health and time (#178, #179) ------------------------------------------------------------
 
 
