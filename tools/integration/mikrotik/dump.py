@@ -52,6 +52,8 @@ GROUPS: dict[str, list[tuple[str, str, str, object]]] = {
     ],
     "write": [
         (W, "POST", "/rest/export", {}),
+        (W, "POST", "/rest/execute", {"script": "/export", "as-string": ""}),
+        (W, "POST", "/rest/execute", {"script": "/export terse", "as-string": ""}),
         (W, "PUT", "/rest/ip/address", {"address": "not-an-address", "interface": "bridge"}),
         (W, "PUT", "/rest/ip/address", {"address": "203.0.113.1/24", "interface": "nothere"}),
         (W, "PATCH", "/rest/ip/pool/*999", {"ranges": "192.0.2.100-192.0.2.110"}),
@@ -67,7 +69,7 @@ GROUPS: dict[str, list[tuple[str, str, str, object]]] = {
         (R, "GET", "/rest/interface/wireless/registration-table", None),
         (R, "GET", "/rest/no/such/menu", None),
         (R, "PUT", "/rest/ip/dns/static", {"name": "x.home.example", "address": "192.0.2.99"}),
-        (R, "POST", "/rest/export", {}),
+        (R, "POST", "/rest/execute", {"script": "/export", "as-string": ""}),
         ("bad-password", "GET", "/rest/system/resource", None),
     ],
 }

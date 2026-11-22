@@ -8,7 +8,7 @@ interface ``iot`` (VLAN 20, "IoT"), addresses 192.0.2.1/24 + 2001:db8:1::1/64 on
 gateway and DNS 192.0.2.1, domain home.example, static lease 02:00:00:00:00:10 -> 192.0.2.10
 "printer"), DNS with remote requests (forwarder 192.0.2.53, static nas.home.example A and
 AAAA), and the users ``signalbox`` (group signalbox-read) and ``signalbox-write`` (group
-signalbox-write) with the policies of docs/adapters/mikrotik.md. CHR has no wireless package.
+signalbox-write) with the policies of docs/adapters/mikrotik.md. CHR has no radios.
 
 Every write test ends with the router as it started (revert or restore through the Deployer),
 so the tests can run in any order against one VM.
@@ -28,9 +28,16 @@ from pydantic import SecretStr
 
 from factories import SITE
 from integration.conftest import Target
-from signalbox.adapters import AdapterContext, AdapterError
-from signalbox.adapters.https import fingerprint, peer_certificate
-from signalbox.adapters.mikrotik import MikrotikAdapter, MikrotikConfig
+from signalbox.adapters import AdapterContext, AuthFailed
+from signalbox.adapters.https import NotFound, fingerprint, peer_certificate
+from signalbox.adapters.mikrotik import (
+    ROUTERBOARD,
+    WIFI,
+    WIRELESS,
+    MikrotikAdapter,
+    MikrotikConfig,
+    get_menu,
+)
 from signalbox.changes import Change, ChangeKind, ReservationValue, plan
 from signalbox.deploy import Deployer
 from signalbox.desired import parse
@@ -197,20 +204,24 @@ async def test_read_contract(rt: dict[str, str]) -> None:
     assert snap.device.firmware is not None
     assert snap.device.firmware.current.startswith("7."), snap.device.firmware
     assert rt["VERSION"].startswith(snap.device.firmware.current), rt["VERSION"]
-    assert snap.device.model == "CHR", snap.device.model
+    # no /system/routerboard on CHR (HTTP 400): the model is the board name
+    assert (snap.device.model or "").startswith("CHR"), snap.device.model
 
 
-async def test_no_wireless_package_on_chr(rt: dict[str, str]) -> None:
-    """CHR has neither the wifi nor the wireless package: one finding, the rest is read."""
+async def test_wireless_on_chr(rt: dict[str, str]) -> None:
+    """RouterOS 7.25 CHR has the ``wifi`` menu without radios (an empty list, no finding);
+    the legacy ``wireless`` package and the routerboard menu are missing (HTTP 400 "no such
+    command or directory"), which the adapter reads as "not on this device"."""
     a = adapter(rt)
     try:
         snap = await a.observe()
+        for menu in (WIRELESS, ROUTERBOARD):
+            with pytest.raises(NotFound, match="no such command or directory"):
+                await get_menu(a.http, menu)
+        assert await get_menu(a.http, WIFI) == []
     finally:
         await a.close()
-    assert snap.status is ReadStatus.PARTIAL, snap.errors
-    assert [(e.capability, e.message.split(":")[0]) for e in snap.errors] == [
-        ("wireless", "no wireless package")
-    ], snap.errors
+    assert snap.status is ReadStatus.OK, snap.errors
     assert snap.radios == [] and snap.wlans == []
     assert snap.subnets and snap.dhcp_servers and snap.dns_services
 
@@ -282,7 +293,7 @@ async def test_read_user_cannot_write(rt: dict[str, str]) -> None:
     )
     a = adapter(rt)
     try:
-        with pytest.raises(AdapterError, match=r"HTTP 403|denied"):
+        with pytest.raises(AuthFailed, match=r"access denied \(not enough permissions"):
             await a.apply([c], {}, 60)
     finally:
         await a.close()
@@ -297,7 +308,7 @@ async def test_backup_of_the_write_user_has_the_export(rt: dict[str, str]) -> No
         await a.close()
     content = json.loads(backup.content)
     assert backup.format == "routeros-export"
-    assert content["menus"]["/rest/interface/wifi"] is None  # no package: nothing to restore
+    assert content["menus"]["/rest/interface/wifi"] == []  # the menu exists, no radios
     assert isinstance(content["menus"]["/rest/ip/dhcp-server/lease"], list)
     export = content["export"]
     assert isinstance(export, str) and "/interface bridge" in export, export
