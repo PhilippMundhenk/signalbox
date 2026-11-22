@@ -28,7 +28,14 @@ from datetime import UTC, datetime
 from ipaddress import IPv4Interface, ip_address, ip_interface
 from typing import TYPE_CHECKING, Any
 
-from signalbox.adapters import AdapterError, ApplyResult, Backup, Unreachable, VendorCall
+from signalbox.adapters import (
+    AdapterError,
+    ApplyResult,
+    AuthFailed,
+    Backup,
+    Unreachable,
+    VendorCall,
+)
 from signalbox.adapters.https import NotFound
 from signalbox.changes import (
     Change,
@@ -51,7 +58,10 @@ if TYPE_CHECKING:  # pragma: no cover
 WRITES = frozenset(ChangeKind)
 
 BACKUP_FORMAT = "routeros-export"
-EXPORT = "/rest/export"
+#: ``POST /rest/export`` answers ``[]`` (the text goes to a terminal that REST does not have);
+#: ``/execute`` with ``as-string`` returns the output of the script as ``{"ret": ...}``.
+EXECUTE = "/rest/execute"
+EXPORT_SCRIPT = {"script": "/export", "as-string": ""}
 
 _TRUE, _FALSE = "true", "false"
 _SECURITY_TYPES = {
@@ -103,6 +113,34 @@ _READ_ONLY = {
     "sending-rstp",
     "external-fdb-status",
     "class-id",
+    # read-only state RouterOS 7.25.1 CHR lists in these menus (seen in CI, #139)
+    "actual-path-cost",
+    "designated-bridge-id",
+    "designated-cost",
+    "designated-port-id",
+    "discard-transitions",
+    "edge-port-discovery",
+    "forward-transitions",
+    "mvrp-applicant-state",
+    "mvrp-registrar-state",
+    "root-path-cost",
+    "rx-bpdu",
+    "rx-tc",
+    "topology-changes",
+    "tx-bpdu",
+    "tx-tc",
+    "port-id",
+    "l2mtu",
+    "loop-protect-status",
+    "hw-offloaded",
+    "managed",
+    "available",
+    "total",
+    "used",
+    "active-agent-circuit-id",
+    "active-agent-remote-id",
+    "agent-circuit-id",
+    "agent-remote-id",
 }
 
 
@@ -238,7 +276,8 @@ def _v4(row: dict[str, Any]) -> IPv4Interface | None:
 
 
 def _refused(description: str, response: Any, scrub: Callable[[str], str]) -> AdapterError:
-    """RouterOS answers a refused change with ``{"error": 400, "message", "detail"}``."""
+    """RouterOS answers a refused change with ``{"error": 400, "message", "detail"}``, and a
+    user without the ``write`` policy with HTTP 500 ``not enough permissions (9)``."""
     try:
         data = response.json()
     except ValueError:
@@ -247,6 +286,10 @@ def _refused(description: str, response: Any, scrub: Callable[[str], str]) -> Ad
     if isinstance(data, dict):
         detail = _text(data.get("detail")) or _text(data.get("message"))
     detail = detail or f"HTTP {response.status_code}"
+    if "not enough permissions" in detail:
+        return AuthFailed(
+            scrub(f"{description}: access denied ({detail}); the user's group needs write")
+        )
     return AdapterError(scrub(f"{description}: the router refused the change: {detail}"))
 
 
@@ -289,7 +332,7 @@ class MikrotikWrites:
             )
         ):
             try:
-                menus[menu] = m._rows(await self.http.get_json(menu), menu)
+                menus[menu] = m._rows(await m.get_menu(self.http, menu), menu)
             except NotFound:
                 menus[menu] = []
                 wifi = wifi and menu != m.WIFI
@@ -354,15 +397,17 @@ class MikrotikWrites:
         return None
 
     async def backup(self) -> Backup:
+        from signalbox.adapters import mikrotik as m
+
         menus: dict[str, Any] = {}
         for menu in _menus():
             try:
-                menus[menu] = await self.http.get_json(menu)
+                menus[menu] = await m.get_menu(self.http, menu)
             except NotFound:
                 menus[menu] = None  # package not installed: nothing to restore
         export: str | None
         try:
-            response = await self.http.request("POST", EXPORT, json={})
+            response = await self.http.request("POST", EXECUTE, json=EXPORT_SCRIPT)
             export = _export_text(response)
         except Unreachable:
             raise
@@ -1087,7 +1132,7 @@ def _writable(menu: str, row: dict[str, Any]) -> dict[str, str]:
 
 
 def _export_text(response: Any) -> str:
-    """``POST /rest/export``: a JSON string, ``{"ret": ...}`` or plain text (unconfirmed)."""
+    """The export: ``{"ret": ...}`` (a JSON string or plain text are accepted too)."""
     try:
         data = response.json()
     except ValueError:

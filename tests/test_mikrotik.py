@@ -268,7 +268,7 @@ async def test_dns(snap: Snapshot) -> None:
         ("nas.home.example", "192.0.2.10"),
         ("nas.home.example", "2001:db8:1::10"),
     ]  # not disabled, CNAME or regexp entries
-    assert dns.vendor_extra == {"dynamic-servers": "203.0.113.1", "cache-size": "2048KiB"}
+    assert dns.vendor_extra == {"dynamic-servers": "203.0.113.1", "cache-size": "2048"}
 
 
 async def test_dns_without_remote_requests(http_url: str, sim: MikrotikSimulator) -> None:
@@ -626,6 +626,16 @@ async def test_malformed_interfaces_hit_every_capability(
     snap = await observe(adapter(http_url))
     assert snap.status is DeviceStatus.PARTIAL
     assert set(errors(snap)) == {"interfaces", "dhcp", "dns", "wireless", "clients", "neighbours"}
+
+
+async def test_menu_without_the_policy(http_url: str, sim: MikrotikSimulator) -> None:
+    """RouterOS answers a menu the group may not read with HTTP 500 (seen on 7.25.1 CHR)."""
+    sim.no_policy = {DNS_STATIC}
+    snap = await observe(adapter(http_url))
+    assert errors(snap) == {
+        "dns": f"{DNS_STATIC}: access denied (not enough permissions (9)); "
+        "check the user's group policies"
+    }
 
 
 async def test_missing_policy(http_url: str, sim: MikrotikSimulator) -> None:

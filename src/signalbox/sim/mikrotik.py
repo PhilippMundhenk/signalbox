@@ -18,14 +18,17 @@ Failure switches on :class:`MikrotikSimulator`: ``rest_enabled=False`` (404 on e
 package is installed); a wrong user or password is answered with 401. ``data`` can be edited.
 
 Writes change ``data``: ``PUT /rest/<menu>`` creates, ``PATCH``/``DELETE /rest/<menu>/<.id>``
-change and remove, ``POST /rest/<menu>/unset`` clears a property, ``POST /rest/export`` answers
-an export text. The simulator refuses what RouterOS would (missing properties, unknown
-interfaces, pools or servers, duplicate names, bad addresses, dynamic entries) with HTTP 400 and
-a ``detail``, and afterwards settles what RouterOS computes itself: VLAN and Wi-Fi interfaces in
-``/interface``, the dynamic bridge port of a Wi-Fi interface with ``datapath.bridge``, and the
-``current-*`` lists and dynamic entries of the bridge VLAN table. Write switches: ``read_only``
-(403, a group without ``write``), ``fail_write`` (a status per menu), ``ignore_writes`` (answer
-success, change nothing).
+change and remove, ``POST /rest/<menu>/unset`` clears a property, ``POST /rest/execute`` with
+``{"script": "/export", "as-string": ""}`` answers an export text (``POST /rest/export`` answers
+``[]``, as the real one does). A menu the device does not have is HTTP 400 ``no such command or
+directory (<name>)``, as RouterOS 7.25.1 CHR answers in CI (#139). The simulator refuses what
+RouterOS would (missing properties, unknown interfaces, pools or servers, duplicate names, bad
+addresses, dynamic entries) with HTTP 400 and a ``detail``, and afterwards settles what RouterOS
+computes itself: VLAN and Wi-Fi interfaces in ``/interface``, the dynamic bridge port of a Wi-Fi
+interface with ``datapath.bridge``, and the ``current-*`` lists and dynamic entries of the
+bridge VLAN table ("added by pvid"). Write switches: ``read_only`` (HTTP 500 ``not enough
+permissions (9)``, a group without ``write``), ``fail_write`` (a status per menu),
+``ignore_writes`` (answer success, change nothing).
 """
 
 from __future__ import annotations
@@ -170,9 +173,10 @@ def sample_data() -> dict[str, Any]:
                 "bridge": "bridge",
                 "vlan-ids": "1",
                 "tagged": "",
-                "untagged": "",
+                "untagged": "bridge,ether2,ether3,wifi1,wifi2",
                 "current-tagged": "",
                 "current-untagged": "bridge,ether2,ether3,wifi1,wifi2",
+                "comment": "added by pvid",
                 "dynamic": "true",
                 "disabled": "false",
             },
@@ -351,11 +355,17 @@ def sample_data() -> dict[str, Any]:
             "servers": "192.0.2.53,2001:db8:53::53",
             "dynamic-servers": "203.0.113.1",
             "allow-remote-requests": "true",
-            "cache-size": "2048KiB",
+            "cache-size": "2048",
             "cache-max-ttl": "1w",
         },
         "/rest/ip/dns/static": _ids(
-            {"name": "nas.home.example", "address": "192.0.2.10", "ttl": "1d", "disabled": "false"},
+            {
+                "name": "nas.home.example",
+                "type": "A",
+                "address": "192.0.2.10",
+                "ttl": "1d",
+                "disabled": "false",
+            },
             {
                 "name": "nas.home.example",
                 "type": "AAAA",
@@ -654,6 +664,8 @@ class MikrotikSimulator:
     malformed: set[str] = field(default_factory=set)
     #: Status code to answer per path instead of the data (403, 500, ...).
     fail: dict[str, int] = field(default_factory=dict)
+    #: Paths the user's group may not read: HTTP 500 "not enough permissions (9)".
+    no_policy: set[str] = field(default_factory=set)
     #: Installed wireless package: "wifi" (RouterOS 7 wifi), "legacy" (wireless) or "none".
     wireless: str = "wifi"
     data: dict[str, Any] = field(default_factory=sample_data)
@@ -692,6 +704,11 @@ class MikrotikSimulator:
         app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
         not_found = {"error": 404, "message": "Not Found"}
 
+        def no_such(path: str) -> JSONResponse:
+            """A menu this device does not have: HTTP 400, as RouterOS 7.25 answers it."""
+            name = path.rstrip("/").rsplit("/", 1)[-1]
+            return _bad(f"no such command or directory ({name})")
+
         @app.api_route("/{path:path}", methods=["GET"])
         async def answer(path: str, request: Request) -> Response:
             path = "/" + path
@@ -711,9 +728,11 @@ class MikrotikSimulator:
                     {"error": self.fail[path], "message": "simulated failure"},
                     status_code=self.fail[path],
                 )
+            if path in self.no_policy:
+                return JSONResponse(NO_POLICY, status_code=500)
             data = self.answers()
             if path not in data:
-                return JSONResponse(not_found, status_code=404)
+                return no_such(path)
             if path in self.malformed:
                 return Response('[{".id": "*1", ', media_type="application/json")
             return JSONResponse(data[path])
@@ -742,27 +761,28 @@ class MikrotikSimulator:
 
     def write(self, method: str, path: str, body: dict[str, Any]) -> Response:
         """One write request (the HTTP layer already checked the credentials)."""
-        if method == "POST" and path == EXPORT:
-            menu, ref = EXPORT, ""
+        if method == "POST" and path in (EXPORT, EXECUTE):
+            menu, ref = path, ""
         elif method == "POST" and path.endswith("/unset"):
             menu, ref = path.removesuffix("/unset"), str(body.get("numbers", ""))
         elif method == "PUT":
             menu, ref = path, ""
         else:
             menu, _, ref = path.rpartition("/")
-        if menu != EXPORT and (
+        if menu not in (EXPORT, EXECUTE) and (
             menu not in WRITABLE or not isinstance(self.answers().get(menu), list)
         ):
-            return JSONResponse({"error": 404, "message": "Not Found"}, status_code=404)
-        if self.read_only:
-            return JSONResponse(
-                {"error": 403, "message": "Forbidden", "detail": "not enough permissions (9)"},
-                status_code=403,
-            )
+            return _bad(f"no such command or directory ({menu.rsplit('/', 1)[-1]})")
+        if self.read_only and menu != EXPORT:
+            return JSONResponse(NO_POLICY, status_code=500)
         if menu in self.fail_write:
             code = self.fail_write[menu]
             return JSONResponse({"error": code, "message": "simulated failure"}, status_code=code)
-        if menu == EXPORT:
+        if menu == EXPORT:  # the text goes to a terminal, which REST does not have
+            return JSONResponse([])
+        if menu == EXECUTE:
+            if body.get("script") != "/export" or "as-string" not in body:
+                return _bad("only /export with as-string is simulated")
             return JSONResponse({"ret": self.export()})
         if self.ignore_writes:
             return JSONResponse({".id": "*FFFF"} if method == "PUT" else [])
@@ -927,9 +947,10 @@ class MikrotikSimulator:
                             "bridge": b,
                             "vlan-ids": vid,
                             "tagged": "",
-                            "untagged": "",
+                            "untagged": ",".join(members),
                             "current-tagged": "",
                             "current-untagged": ",".join(members),
+                            "comment": "added by pvid",
                             "dynamic": "true",
                             "disabled": "false",
                         }
@@ -958,6 +979,13 @@ def _bad(detail: str) -> JSONResponse:
 
 
 EXPORT = "/rest/export"
+EXECUTE = "/rest/execute"
+#: The answer of RouterOS 7.25.1 to a request the user's group has no policy for.
+NO_POLICY = {
+    "error": 500,
+    "message": "Internal Server Error",
+    "detail": "not enough permissions (9)",
+}
 INTERFACE = "/rest/interface"
 BRIDGE = "/rest/interface/bridge"
 VLAN = "/rest/interface/vlan"
