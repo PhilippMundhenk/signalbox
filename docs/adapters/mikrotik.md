@@ -211,11 +211,10 @@ clear text and is only meant for the simulator.
   decoded from their hex value (RFC 1035 labels, RFC 3442 routes), 66 and 67 fill `boot`, other
   codes are `DhcpOption`s with the value as RouterOS shows it. The network's `next-server` and
   `boot-file-name` are `boot` too. `authoritative` of the server is true for `yes`,
-  `after-2sec-delay` and `after-10sec-delay`, false for `no`. No failover.
+  `after-2sec-delay` and `after-10sec-delay`, false for `no`; RouterOS 7.25.1 (CI) has no such property on `/ip/dhcp-server`, so it is unknown there. No failover.
 - **Relays**: `/rest/ip/dhcp-relay` (`interface`, `dhcp-server` comma list, `disabled`).
 - The read user needs nothing more (`read` covers all three menus). The CI router has a static
-  lease and no relay: the integration test checks the static lease (`reserved`) and
-  `authoritative`.
+  lease and no relay: the integration test checks the static lease (`reserved`, status `waiting`), that `authoritative` is absent, the empty option and relay menus (both exist on 7.25.1).
 
 ## Endpoints and answers
 

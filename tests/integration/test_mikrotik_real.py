@@ -287,12 +287,12 @@ async def test_mapping_of_the_configured_router(rt: dict[str, str]) -> None:
     assert ip_address("192.0.2.1") in dns.listen
     assert ip_address("198.51.100.1") in dns.listen
     assert dhcp.ntp_servers == []  # "ntp-server": "" on the network
-    # leases (#183): the static lease nobody uses is `waiting`; authoritative defaults to yes
+    # leases (#183): the static lease nobody uses is `waiting`; 7.25.1 has no `authoritative`
     assert dhcp.leases is not None
     static = next(x for x in dhcp.leases if str(x.address) == "192.0.2.10")
     assert (static.reserved, static.mac) == (True, "02:00:00:00:00:10"), static
     assert static.state in (LeaseState.RESERVED, LeaseState.ACTIVE), static
-    assert dhcp.authoritative is True, dhcp.vendor_extra
+    assert dhcp.authoritative is None  # RouterOS 7.25.1 has no `authoritative` on the server
     assert net.dhcp_relays == []
 
 

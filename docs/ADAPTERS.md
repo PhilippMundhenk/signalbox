@@ -452,7 +452,7 @@ with 119/121 decoded, `authoritative`, `/ip/dhcp-relay`), Fritz!Box (leases from
 is read (#21): the Kea option key names, route format and peer fields, the dhcrelay field names,
 the OpenWrt relay sections and `false` for an endless lease, MikroTik `busy`/`conflict`, the
 Fritz!Box countdown and its expired entries. CI-confirmed: see the integration notes of
-OPNsense, OpenWrt and MikroTik (the lease table is read, MikroTik's static lease and `authoritative`).
+OPNsense, OpenWrt and MikroTik (the lease table is read, MikroTik's static lease; MikroTik 7.25.1 has no `authoritative` property).
 
 ## Health and time (adapter API 1.2)
 
