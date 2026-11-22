@@ -2,7 +2,8 @@
 
 The runner records, after every observation round, what it saw: per device its status (and when
 it last answered), per client MAC address its network, per client and network when it was seen
-there, and per port whether the link was up. Value changes are kept as events. The store keeps
+there, per port whether the link was up, and per device its boot time and whether its CPU load
+was high (issues #130, #131). Value changes are kept as events. The store keeps
 this for ``history.days`` and gives rules a read-only :class:`History`.
 
 Rules that need the past are written with :func:`signalbox.rules.history_rule` and receive the
@@ -13,7 +14,7 @@ household: they are never exported (MQTT) and are deleted after ``history.days``
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from pydantic import Field
 
@@ -24,6 +25,13 @@ ANSWERED = frozenset({DeviceStatus.OK, DeviceStatus.PARTIAL})
 
 #: Sighting kinds in the store.
 DEVICE, CLIENT, CLIENT_SEGMENT, PORT = "device", "client", "client-segment", "port"
+#: Per device: its boot time rounded to the minute and the reboot reason (``BOOT``), and
+#: whether its CPU load was high (``CPU``, see :data:`CPU_HIGH_PCT`).
+BOOT, CPU = "boot", "cpu"
+#: Kinds whose key is a device id (deleted with the device).
+DEVICE_KINDS = (DEVICE, PORT, BOOT, CPU)
+#: CPU load (percent) from which an observation counts as high for ``device.resources``.
+CPU_HIGH_PCT = 90.0
 
 
 class StatusChange(Model):
@@ -90,6 +98,39 @@ class PortHistory(Model):
         return sum(1 for c in self.changes if c.at >= since and not c.up)
 
 
+class ValueChange(Model):
+    at: datetime
+    old: str
+    new: str
+
+
+class ValueHistory(Model):
+    """A value recorded per round (a boot time, a CPU state) and its changes."""
+
+    first_seen: datetime
+    last_seen: datetime
+    value: str | None = None
+    #: When the value was first seen with its current value.
+    since: datetime
+    changes: list[ValueChange] = Field(default_factory=list)
+
+
+def boot_value(boot_time: datetime, reason: str | None) -> str:
+    """``2026-01-12T12:00:00+00:00 power``: the boot time rounded to the minute and the reason.
+
+    A boot time derived from the uptime jitters by about a second per round; rounding keeps it
+    stable (a change of one minute at a rounding boundary is ignored by ``device.reboot``).
+    """
+    minute = (boot_time.astimezone(UTC) + timedelta(seconds=30)).replace(second=0, microsecond=0)
+    return f"{minute.isoformat()} {reason or '-'}"
+
+
+def parse_boot(value: str) -> tuple[datetime, str | None]:
+    """The boot time and the reason (None: not reported) of :func:`boot_value`."""
+    stamp, _, reason = value.partition(" ")
+    return datetime.fromisoformat(stamp), None if reason in ("", "-") else reason
+
+
 class History(Model):
     """What Signalbox observed before, as far back as the retention allows."""
 
@@ -105,6 +146,9 @@ class History(Model):
     #: By MAC address.
     clients: dict[str, ClientHistory] = Field(default_factory=dict)
     ports: dict[str, PortHistory] = Field(default_factory=dict)
+    #: By device id: boot times (``boot_value``) and whether the CPU load was high.
+    boots: dict[str, ValueHistory] = Field(default_factory=dict)
+    cpu: dict[str, ValueHistory] = Field(default_factory=dict)
 
     @classmethod
     def empty(cls) -> History:
@@ -144,4 +188,13 @@ def observed_values(net: Network) -> dict[tuple[str, str], str | None]:
     for port in net.ports:
         if port.up is not None and port.kind in (PortKind.ETHERNET, PortKind.LAG):
             out[(PORT, port.id)] = "up" if port.up else "down"
+    for dev in net.devices:
+        h = dev.health
+        if h is None or net.statuses.get(dev.id, DeviceStatus.OK) not in ANSWERED:
+            continue
+        if h.boot_time is not None:
+            reason = h.last_reboot_reason.value if h.last_reboot_reason else None
+            out[(BOOT, dev.id)] = boot_value(h.boot_time, reason)
+        if h.cpu_load_pct is not None:
+            out[(CPU, dev.id)] = "high" if h.cpu_load_pct >= CPU_HIGH_PCT else "ok"
     return out
