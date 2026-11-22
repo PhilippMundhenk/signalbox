@@ -45,12 +45,14 @@ All notable changes to this project are documented here. The format follows
 - Dependabot: newer versions of the GitHub Actions used in CI (#26-#29)
 - VLAN, topology and inventory checks: trunk scope, link aggregation, slow links, hidden devices, unknown LLDP neighbours, management network (opt-in), duplicate devices, single points of failure (#105, #107-#109, #113, #117-#119); rules can be opt-in
 - Fritz!Box writes over TR-064: LAN DHCP on/off and range; existing SSIDs (name, security, passphrase, on/off, hidden); backup and restore of the touched values (#24)
+- Integration tests against the real OPNsense 26.7 in QEMU, in GitHub CI (nightly and on adapter changes): read contract, pinning, refusals, every write kind through the Deployer with revert, backup/restore via the configuration history (#138)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
 
 ### Fixed
+- OPNsense, found by testing against the real software: snake_case API paths (camelCase was refused for least-privilege users), assigned VLAN names with a description suffix, Kea subnets and reservations from their search endpoints, firmware version with package revision, assignment API detection from 26.7.6, stale VLAN devices after a restore, corrected privilege list (#138)
 - A failing confirm on a device with a rollback timer now restores the device instead of leaving the change in "deploying"; integration errors while planning are shown instead of an internal error (#41)
 - Reads of the database could see a half-written device while the runner wrote it (#14)
 - "Read all devices now" during a running round started the next round only after the interval (#12)
