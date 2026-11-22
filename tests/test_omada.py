@@ -720,3 +720,47 @@ def test_time_and_uptime_helpers() -> None:
         assert vitals.time_of(bad, "UTC", start, start).clock is None
     assert vitals.uptime({"uptime": "1d 2h"}) == 93600 and vitals.uptime({"uptime": True}) is None
     assert vitals.uptime({}) is None
+
+
+# --- management services (#173) --------------------------------------------------------------
+
+
+async def test_services_of_every_managed_device(snap: Snapshot) -> None:
+    ids = {d.id for d in snap.extra_devices}
+    by = {s.id: s for s in snap.services}
+    assert {s.device_id for s in snap.services} == ids
+    assert len(by) == 2 * len(ids)
+    for device in ids:
+        ssh, snmp = by[f"{device}/service/ssh"], by[f"{device}/service/snmp"]
+        assert (ssh.kind.value, ssh.enabled, ssh.port, ssh.encrypted) == ("ssh", True, 22, True)
+        assert snmp.enabled and snmp.port == 161 and snmp.snmp is not None
+        assert snmp.snmp.default_community and snmp.snmp.v3_privacy
+        assert [v.value for v in snmp.snmp.versions] == ["2c", "3"]
+        assert snmp.encrypted is False  # v2c answers too
+    assert snap.device.transport_encrypted is False  # the plain-HTTP simulator
+
+
+async def test_services_follow_the_site_settings(http_url: str, sim: OmadaSimulator) -> None:
+    sim.data[f"{SITE}/ssh"] = {"sshEnable": False, "sshServerPort": 2222}
+    sim.data[f"{SITE}/setting/service/snmp"] = {
+        "snmpV1V2CEnable": False,
+        "snmpV3Enable": True,
+        "securityLevel": 1,
+        "communityString": "public",
+    }
+    snap = await observe(adapter(http_url))
+    ssh = next(s for s in snap.services if s.kind.value == "ssh")
+    assert (ssh.enabled, ssh.port) == (False, 2222)
+    snmp = next(s for s in snap.services if s.kind.value == "snmp")
+    assert snmp.snmp is not None
+    assert [v.value for v in snmp.snmp.versions] == ["3"] and snmp.snmp.v3_privacy is False
+    assert snmp.snmp.default_community is None  # v1/v2c is off: the community is not used
+
+
+async def test_services_not_read_when_the_controller_has_no_such_setting(
+    http_url: str, sim: OmadaSimulator
+) -> None:
+    del sim.data[f"{SITE}/ssh"]
+    del sim.data[f"{SITE}/setting/service/snmp"]
+    snap = await observe(adapter(http_url))
+    assert snap.services == [] and not snap.errors

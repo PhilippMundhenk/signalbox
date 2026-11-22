@@ -61,6 +61,8 @@ from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.changes import Change, ChangeKind, WlanValue
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
+    SERVICE_PORTS,
+    AddressSource,
     Band,
     Cipher,
     Client,
@@ -70,6 +72,7 @@ from signalbox.model import (
     DhcpPool,
     DhcpServer,
     Firmware,
+    ManagementService,
     Membership,
     NtpClient,
     Port,
@@ -80,6 +83,7 @@ from signalbox.model import (
     Security,
     Segment,
     SegmentPurpose,
+    ServiceKind,
     Subnet,
     Uplink,
     UplinkKind,
@@ -241,6 +245,12 @@ def _v4_list(value: str | None) -> list[IPv4Address]:
 
 #: ``NewWANAccessType`` of WANCommonInterfaceConfig that are a mobile connection
 _MOBILE = {"X_AVM-DE_UMTS", "X_AVM-DE_LTE"}
+#: Hosts ``NewAddressSource`` (TR-064 Hosts:1: DHCP, Static, AutoIP) per client address (#183).
+_ADDRESS_SOURCE = {
+    "dhcp": AddressSource.DHCP,
+    "static": AddressSource.STATIC,
+    "autoip": AddressSource.LINK_LOCAL,
+}
 
 
 def _kbps(value: str | None) -> int | None:
@@ -454,6 +464,7 @@ class FritzboxAdapter(Adapter):
             model=info.get("NewModelName") or None,
             firmware=Firmware(current=version) if version else None,
             management_address=self.http.host,
+            transport_encrypted=self.http.secure,
         )
 
     async def _no_tr064(self, exc: AdapterError) -> AdapterError:
@@ -606,8 +617,86 @@ class FritzboxAdapter(Adapter):
                 )
             )
         return Observation(
-            ports=[port], segments=segments, subnets=subnets, uplinks=await self._uplinks()
+            ports=[port],
+            segments=segments,
+            subnets=subnets,
+            uplinks=await self._uplinks(),
+            services=await self._services(),
         )
+
+    async def _try(self, service: str, action: str) -> dict[str, str] | None:
+        """An optional read: None when this FRITZ!OS lacks it or the user may not call it."""
+        try:
+            return await self.tr064.call(service, action)
+        except (SoapFault, NotFound):
+            return None
+
+    async def _services(self) -> list[ManagementService]:
+        """Management services (#173) from TR-064: the box says itself what the internet can
+        reach (remote access, MyFRITZ!, FTP from the internet). The web interface in the LAN
+        (HTTP 80, HTTPS 443) is not reported by any action: adapter knowledge."""
+        d = self.context.device_id
+
+        def service(
+            name: str, kind: ServiceKind, port: int | None, enabled: bool, **kw: Any
+        ) -> ManagementService:
+            return ManagementService(
+                id=object_id(d, "service", name),
+                device_id=d,
+                kind=kind,
+                name=name,
+                enabled=enabled,
+                port=port if port and 0 < port < 65536 else None,
+                **kw,
+            )
+
+        out = [
+            service("http", ServiceKind.HTTP, 80, True),
+            service("https", ServiceKind.HTTPS, 443, True),
+        ]
+        sec = await self._try("DeviceInfo1", "GetSecurityPort") or {}
+        if port := _int(sec.get("NewSecurityPort")):
+            out.append(service("tr-064", ServiceKind.TR064, port, True, encrypted=True))
+        if (upnp := await self._try("X_AVM-DE_UPnP1", "GetInfo")) is not None:
+            out.append(service("upnp", ServiceKind.UPNP, None, _flag(upnp.get("NewEnable"))))
+        if (remote := await self._try("X_AVM-DE_RemoteAccess1", "GetInfo")) is not None:
+            on = _flag(remote.get("NewEnabled"))
+            out.append(
+                service(
+                    "remote-access",
+                    ServiceKind.HTTPS,
+                    _int(remote.get("NewPort")),
+                    on,
+                    from_wan=on,
+                )
+            )
+        if (my := await self._try("X_AVM-DE_MyFritz1", "GetInfo")) is not None:
+            on = _flag(my.get("NewEnabled"))
+            out.append(
+                service("myfritz", ServiceKind.HTTPS, _int(my.get("NewPort")), on, from_wan=on)
+            )
+        if (storage := await self._try("X_AVM-DE_Storage1", "GetInfo")) is not None:
+            out.append(
+                service(
+                    "ftp",
+                    ServiceKind.FTP,
+                    SERVICE_PORTS[ServiceKind.FTP],
+                    _flag(storage.get("NewFTPEnable")),
+                    from_wan=False,
+                )
+            )
+            wan = _flag(storage.get("NewFTPWANEnable"))
+            out.append(
+                service(
+                    "ftp-internet",
+                    ServiceKind.FTP,
+                    _int(storage.get("NewFTPWANPort")),
+                    wan,
+                    from_wan=wan,
+                    encrypted=True if _flag(storage.get("NewFTPWANSSLOnly")) else None,
+                )
+            )
+        return out
 
     async def _uplinks(self) -> list[Uplink]:
         """The internet connection (#148); a box without these services reports none."""
@@ -831,8 +920,10 @@ class FritzboxAdapter(Adapter):
             entry.setdefault("vendor_extra", {})
             if kind:
                 entry["vendor_extra"]["interface_type"] = kind
-            if host.get("NewAddressSource"):
-                entry["vendor_extra"]["address_source"] = host["NewAddressSource"]
+            if a is not None and host.get("NewAddressSource"):
+                entry.setdefault("address_sources", {})[a] = _ADDRESS_SOURCE.get(
+                    str(host["NewAddressSource"]).strip().lower(), AddressSource.UNKNOWN
+                )
         return Observation(
             clients=[
                 Client(id=object_id(d, "client", m), mac=m, **fields)

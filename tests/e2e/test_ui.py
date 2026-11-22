@@ -210,10 +210,16 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(app.get_by_test_id("dhcp-server")).to_have_count(2)
     expect(app.get_by_test_id("reservation")).to_contain_text("printer")
     expect(app.get_by_test_id("host-record")).to_contain_text("printer.lan")
+    expect(app.get_by_test_id("dhcp-leases")).to_have_text("1 active, 1 expired")  # #183
 
     go(app, "#/clients")
     expect(app.get_by_test_id("client-row")).to_have_count(2)
     expect(app.get_by_test_id("client-first-seen")).to_have_count(2)  # observation history
+    # address sources (#183): the printer says, the laptop's comes from its lease
+    rows = app.get_by_test_id("client-row")
+    expect(rows.filter(has_text="printer")).to_contain_text("192.0.2.10 (DHCP reservation)")
+    expect(rows.filter(has_text="laptop")).to_contain_text("192.0.2.123 (DHCP)")
+    expect(app.get_by_test_id("client-lease")).to_have_count(1)
     app.get_by_test_id("client-filter").fill("laptop")
     expect(app.get_by_test_id("client-row")).to_have_count(1)
     expect(app.get_by_test_id("client-row")).to_contain_text("Router · SSID Home")
@@ -380,7 +386,7 @@ def test_phone_has_no_horizontal_scroll(page: Any, server: Any, hash_: str) -> N
     page.goto(server.url)
     page.get_by_test_id("login-password").fill(PASSWORD)
     page.get_by_test_id("login-submit").click()
-    page.get_by_test_id("logout").wait_for()
+    page.get_by_test_id("logout").wait_for(state="attached")
     page.server = server
     add_site(page)
     add_lab(page, "Router")
@@ -694,3 +700,188 @@ def test_acknowledge_a_finding_and_annotate_objects(app: Any) -> None:
     app.get_by_test_id("client-notes").click()
     app.get_by_test_id("note-remove").click()
     expect(app.get_by_test_id("client-label")).to_have_count(0)
+
+
+def _login(page: Any, server: Any, width: int, height: int) -> None:
+    page.set_viewport_size({"width": width, "height": height})
+    page.set_default_timeout(15000)
+    page.goto(server.url)
+    page.get_by_test_id("login-password").fill(PASSWORD)
+    page.get_by_test_id("login-submit").click()
+    page.get_by_test_id("nav-findings").wait_for(state="attached")
+    page.server = server
+
+
+def _too_wide(page: Any) -> list[str]:
+    result: list[str] = page.evaluate(
+        """() => [...document.querySelectorAll('body *')]
+          .filter((e) => { const r = e.getBoundingClientRect();
+            return r.width > 0 && getComputedStyle(e).visibility !== 'hidden'
+              && !e.closest('.table-wrap, .topo-wrap, pre, svg')
+              && r.right > window.innerWidth + 1; })
+          .map((e) => e.tagName + '.' + e.className)"""
+    )
+    return result
+
+
+def _no_wrapped_labels(page: Any) -> None:
+    heights = page.evaluate(
+        "[...document.querySelectorAll('.nav a')].map((a) => a.getBoundingClientRect().height)"
+    )
+    assert max(heights) - min(heights) < 2, heights
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("size", [(390, 844), (320, 640), (820, 1180)])
+def test_narrow_screens_use_a_drawer(
+    page: Any, server: Any, size: tuple[int, int], theme: str
+) -> None:
+    _login(page, server, *size)
+    page.evaluate(f"localStorage.setItem('theme', '{theme}')")
+    page.reload()
+    menu = page.get_by_test_id("nav-menu")
+    expect(menu).to_be_visible()
+    expect(menu).to_have_attribute("aria-expanded", "false")
+    expect(page.get_by_test_id("logout")).to_be_hidden()
+    expect(page.get_by_test_id("nav-current")).to_have_text("Findings")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    assert page.locator("header.topbar").bounding_box()["height"] < 70  # one row
+
+    menu.click()
+    expect(menu).to_have_attribute("aria-expanded", "true")
+    expect(page.locator("nav[aria-label=Main]")).to_be_visible()
+    expect(page.get_by_test_id("nav-findings")).to_be_focused()
+    expect(page.get_by_test_id("theme")).to_be_visible()
+    expect(page.get_by_test_id("logout")).to_be_visible()
+    _no_wrapped_labels(page)
+    assert _too_wide(page) == []
+    expect(page.get_by_test_id("theme")).to_have_text(f"Theme: {theme}")
+    page.get_by_test_id("theme").click()
+    expect(page.get_by_test_id("theme")).not_to_have_text(f"Theme: {theme}")
+
+    page.keyboard.press("Escape")  # Esc closes and gives the focus back
+    expect(menu).to_have_attribute("aria-expanded", "false")
+    expect(menu).to_be_focused()
+    expect(page.get_by_test_id("logout")).to_be_hidden()
+
+    menu.click()  # a tap outside closes
+    page.get_by_test_id("nav-scrim").click(position={"x": size[0] - 5, "y": 300})
+    expect(menu).to_have_attribute("aria-expanded", "false")
+
+    menu.click()  # focus stays inside the drawer
+    for _ in range(14):
+        page.keyboard.press("Tab")
+        assert page.evaluate("!!document.activeElement.closest('.sidebar')")
+
+    page.get_by_test_id("nav-services").click()  # closes on navigation
+    expect(page.get_by_test_id("nav-current")).to_have_text("DHCP & DNS")
+    expect(menu).to_have_attribute("aria-expanded", "false")
+    expect(page.get_by_test_id("logout")).to_be_hidden()
+    menu.click()
+    expect(page.get_by_test_id("nav-services")).to_have_attribute("aria-current", "page")
+    page.get_by_test_id("nav-services").click()  # same page: still closes
+    expect(menu).to_have_attribute("aria-expanded", "false")
+    menu.click()
+    page.get_by_test_id("logout").click()
+    expect(page.get_by_test_id("login-submit")).to_be_visible()
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("size", [(1280, 800), (1440, 900), (1100, 700)])
+def test_wide_screens_have_a_side_bar(
+    page: Any, server: Any, size: tuple[int, int], theme: str
+) -> None:
+    _login(page, server, *size)
+    page.evaluate(f"localStorage.setItem('theme', '{theme}')")
+    page.reload()
+    expect(page.get_by_test_id("nav-menu")).to_be_hidden()
+    for key in [
+        "findings", "devices", "topology", "segments", "wireless",
+        "services", "clients", "desired", "changes", "settings",
+    ]:  # fmt: skip
+        expect(page.get_by_test_id(f"nav-{key}")).to_be_visible()
+    expect(page.get_by_test_id("theme")).to_be_visible()
+    expect(page.get_by_test_id("logout")).to_be_visible()
+    _no_wrapped_labels(page)
+    assert _too_wide(page) == []
+    box = page.locator(".sidebar").bounding_box()
+    main = page.locator("main").bounding_box()
+    assert box["x"] == 0 and main["x"] >= box["width"]
+    page.get_by_test_id("nav-services").click()
+    expect(page.get_by_test_id("nav-services")).to_have_attribute("aria-current", "page")
+    expect(page.get_by_test_id("nav-findings")).not_to_have_attribute("aria-current", "page")
+    page.get_by_test_id("logout").click()
+    expect(page.get_by_test_id("login-submit")).to_be_visible()
+
+
+def test_drawer_closes_when_the_screen_gets_wide(page: Any, server: Any) -> None:
+    _login(page, server, 800, 900)
+    page.get_by_test_id("nav-menu").click()
+    page.set_viewport_size({"width": 1280, "height": 900})
+    expect(page.get_by_test_id("nav-menu")).to_be_hidden()
+    expect(page.get_by_test_id("logout")).to_be_visible()
+    page.get_by_test_id("nav-devices").click()
+    expect(page.get_by_test_id("nav-devices")).to_have_attribute("aria-current", "page")
+
+
+def test_link_to_the_device_web_interface(app: Any) -> None:
+    add_site(app)
+    add_lab(app, "Router")
+    observe(app)
+    go(app, "#/devices")
+    link = app.get_by_test_id("device-manage-link")
+    expect(link).to_have_attribute("href", "https://192.0.2.1")
+    expect(link).to_have_attribute("target", "_blank")
+    expect(link).to_have_attribute("rel", "noopener noreferrer")
+    app.get_by_test_id("device-link").click()
+    page_link = app.get_by_test_id("manage-link")
+    expect(page_link).to_have_text("Open web interface")
+    expect(page_link).to_have_attribute("href", "https://192.0.2.1")
+    expect(page_link).to_have_attribute("rel", "noopener noreferrer")
+
+
+def _recheck(page: Any) -> None:
+    """What the tab does when it becomes visible again."""
+    page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+
+
+def test_ended_session_shows_login_in_place_and_returns_to_the_page(app: Any) -> None:
+    go(app, "#/devices")
+    app.context.clear_cookies()  # expired, or the server restarted with a new secret
+    _recheck(app)
+    expect(app.get_by_test_id("login-submit")).to_be_visible()
+    expect(app.get_by_test_id("login-error")).to_have_text("Your session ended; log in again")
+    assert app.url.endswith("#/devices")
+    app.get_by_test_id("login-password").fill(PASSWORD)
+    app.get_by_test_id("login-submit").click()
+    expect(app.get_by_test_id("nav-devices")).to_have_attribute("aria-current", "page")
+    expect(app.locator("main h1").first).to_be_visible()
+
+
+def test_a_401_from_any_call_ends_the_session(app: Any) -> None:
+    go(app, "#/clients")
+    app.context.clear_cookies()
+    app.evaluate("import('/api.js').then((m) => m.get('/devices').catch(() => null))")
+    expect(app.get_by_test_id("login-submit")).to_be_visible()
+
+
+def test_logout_in_a_second_page_logs_out_the_first(app: Any) -> None:
+    second = app.context.new_page()
+    second.goto(app.server.url)
+    second.get_by_test_id("logout").wait_for()
+    second.get_by_test_id("logout").click()
+    expect(second.get_by_test_id("login-submit")).to_be_visible()
+    expect(app.get_by_test_id("login-submit")).to_be_visible()
+
+
+def test_unreachable_server_shows_a_banner_not_the_login(app: Any) -> None:
+    go(app, "#/devices")
+    app.route("**/api/**", lambda route: route.abort())
+    _recheck(app)
+    expect(app.get_by_test_id("offline")).to_be_visible()
+    expect(app.get_by_test_id("offline")).to_contain_text("not reachable")
+    expect(app.get_by_test_id("login-submit")).to_have_count(0)
+    expect(app.get_by_test_id("logout")).to_be_visible()  # the page stays
+    app.unroute("**/api/**")
+    expect(app.get_by_test_id("offline")).to_be_hidden()  # retried with backoff
+    expect(app.get_by_test_id("login-submit")).to_have_count(0)

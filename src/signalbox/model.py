@@ -916,11 +916,137 @@ class DhcpPool(Model):
     start: IPAddress
     end: IPAddress
 
+    def contains(self, address: IPAddress) -> bool:
+        """The address lies in the range (both ends included; another family never does)."""
+        if address.version != self.start.version or address.version != self.end.version:
+            return False
+        return self.start <= address <= self.end  # type: ignore[operator]
+
 
 class Reservation(Model):
     mac: Mac
     address: IPAddress
     hostname: str | None = None
+
+
+class AddressSource(StrEnum):
+    """How a client got one of its addresses (#183)."""
+
+    #: A dynamic lease from a DHCP server.
+    DHCP = "dhcp"
+    #: A lease for a reservation (static lease, host entry): the server always hands out this one.
+    DHCP_RESERVED = "dhcp-reserved"
+    #: Configured on the client itself.
+    STATIC = "static"
+    #: IPv6 stateless autoconfiguration from the MAC address or a stable secret.
+    SLAAC = "slaac"
+    #: SLAAC temporary (privacy) address, RFC 8981.
+    SLAAC_PRIVACY = "slaac-privacy"
+    DHCPV6 = "dhcpv6"
+    #: 169.254.0.0/16 (Auto-IP after DHCP failed) or fe80::/10.
+    LINK_LOCAL = "link-local"
+    #: The device lists the address without saying where it came from.
+    UNKNOWN = "unknown"
+
+
+#: Address sources that mean "a DHCP server handed it out".
+LEASED_SOURCES = frozenset({AddressSource.DHCP, AddressSource.DHCP_RESERVED, AddressSource.DHCPV6})
+#: Address sources that only exist for one address family.
+_V4_ONLY_SOURCES = frozenset({AddressSource.DHCP, AddressSource.DHCP_RESERVED})
+_V6_ONLY_SOURCES = frozenset(
+    {AddressSource.SLAAC, AddressSource.SLAAC_PRIVACY, AddressSource.DHCPV6}
+)
+
+
+def source_fits(address: IPAddress, source: AddressSource) -> bool:
+    """False when the source cannot apply to an address of this family (SLAAC for IPv4)."""
+    if address.version == 4:
+        return source not in _V6_ONLY_SOURCES
+    return source not in _V4_ONLY_SOURCES
+
+
+class LeaseState(StrEnum):
+    ACTIVE = "active"
+    EXPIRED = "expired"
+    #: The client said the address is in use by someone else (DHCPDECLINE): an address conflict.
+    DECLINED = "declined"
+    #: Offered, not yet acknowledged.
+    OFFERED = "offered"
+    #: A reservation the client does not use right now (MikroTik ``waiting`` static lease).
+    RESERVED = "reserved"
+
+
+class DhcpLease(Model):
+    """One entry of a DHCP server's lease table (#183).
+
+    Lease host names, client ids and vendor classes identify devices and people: they are client
+    data like :attr:`Client.hostname` (kept in the store, shown to signed-in users, neutralised
+    in recordings).
+    """
+
+    address: IPAddress
+    #: Hardware address; DHCPv6 leases may have a DUID only (``client_id``).
+    mac: Mac | None = None
+    #: DHCP option 61 (client identifier) or the DHCPv6 DUID, as the server shows it.
+    client_id: str | None = None
+    hostname: str | None = None
+    state: LeaseState = LeaseState.ACTIVE
+    #: The lease is for a reservation (static lease, host entry). None: not known.
+    reserved: bool | None = None
+    starts: datetime | None = None
+    #: When the lease ends; None for leases that never expire or when not known.
+    expires: datetime | None = None
+    #: DHCP option 60 (``android-dhcp-14``, ``MSFT 5.0``, ``udhcp 1.36.1``): a device-type hint.
+    vendor_class: str | None = None
+
+    @field_validator("starts", "expires")
+    @classmethod
+    def _aware(cls, value: datetime | None) -> datetime | None:
+        return _utc(value)
+
+    def active(self, at: datetime | None = None) -> bool:
+        """In use: state active and, when *at* and the expiry are known, not expired at *at*."""
+        if self.state is not LeaseState.ACTIVE:
+            return False
+        return at is None or self.expires is None or self.expires > _utc(at)  # type: ignore[operator]
+
+    def source(self) -> AddressSource:
+        """The address source this lease gives its address."""
+        if self.address.version == 6:
+            return AddressSource.DHCPV6
+        return AddressSource.DHCP_RESERVED if self.reserved else AddressSource.DHCP
+
+
+class DhcpOption(Model):
+    """A DHCP option the server hands out that has no typed field (#183)."""
+
+    code: Annotated[int, Field(ge=1, le=254)]
+    #: The device's name for it (``wpad``, ``tftp-server``).
+    name: str | None = None
+    #: The value as the device shows it (text, address list or hex).
+    value: str
+
+
+#: Option codes with a typed field on :class:`DhcpServer` (router 3, DNS 6, domain 15, NTP 42,
+#: lease time 51, TFTP server and boot file 66/67, search list 119, classless routes 121);
+#: :attr:`DhcpServer.options` never repeats them.
+TYPED_OPTION_CODES = frozenset({3, 6, 15, 42, 51, 66, 67, 119, 121})
+
+
+class DhcpBoot(Model):
+    """Network boot (PXE): ``next-server`` / ``siaddr``, option 66 and 67."""
+
+    next_server: IPAddress | None = None
+    #: Option 66 (TFTP server name), when it is a name rather than ``next_server``.
+    server_name: str | None = None
+    filename: str | None = None
+
+
+class DhcpRoute(Model):
+    """A classless static route (option 121, RFC 3442)."""
+
+    destination: IPv4Network
+    gateway: IPv4Address
 
 
 class DhcpServer(Observed):
@@ -935,6 +1061,49 @@ class DhcpServer(Observed):
     reservations: list[Reservation] = Field(default_factory=list)
     #: NTP servers handed out (DHCP option 42; API 1.2).
     ntp_servers: list[IPAddress] = Field(default_factory=list)
+    #: The lease table (#183). ``None``: not read; ``[]``: read, and no leases. Every state the
+    #: server reports (expired and declined too); an adapter may cap a very long table.
+    leases: list[DhcpLease] | None = None
+    #: Domain search list (option 119).
+    search_domains: list[str] = Field(default_factory=list)
+    #: Classless static routes (option 121). When set, clients ignore ``router`` (option 3).
+    static_routes: list[DhcpRoute] = Field(default_factory=list)
+    boot: DhcpBoot | None = None
+    #: Further options (NTP, WPAD, vendor options): never the ones in :data:`TYPED_OPTION_CODES`.
+    options: list[DhcpOption] = Field(default_factory=list)
+    #: Answers clients with addresses it does not know with a NAK (ISC/Kea ``authoritative``,
+    #: dnsmasq ``dhcp-authoritative``, MikroTik ``authoritative``). None: not known.
+    authoritative: bool | None = None
+    #: Name or address of the failover / HA peer (ISC failover, Kea HA). None: none or not known.
+    failover_peer: str | None = None
+
+    def in_pool(self, address: IPAddress) -> bool:
+        """The address lies in one of the dynamic pools."""
+        return any(p.contains(address) for p in self.pools)
+
+    def leases_of(self, mac: str) -> list[DhcpLease]:
+        """Leases (any state) of one MAC address; empty when the table was not read."""
+        return [lease for lease in self.leases or [] if lease.mac == mac]
+
+    def lease_for(self, address: IPAddress, at: datetime | None = None) -> DhcpLease | None:
+        """The active lease of an address, if the server has one (see :meth:`DhcpLease.active`)."""
+        return next((x for x in self.leases or [] if x.address == address and x.active(at)), None)
+
+    def active_leases(self, at: datetime | None = None) -> list[DhcpLease]:
+        return [x for x in self.leases or [] if x.active(at)]
+
+
+class DhcpRelay(Observed):
+    """A DHCP relay on a segment (#183), ``object_id(device, "dhcp-relay", <segment key>)``.
+
+    Read with the ``dhcp`` capability: a segment with a relay needs no DHCP server of its own.
+    """
+
+    device_id: str
+    segment_id: str
+    #: Where requests are forwarded to.
+    servers: list[IPAddress] = Field(default_factory=list)
+    enabled: bool = True
 
 
 class HostRecord(Model):
@@ -1085,6 +1254,9 @@ class Client(Observed):
     #: Port or WLAN where the client was seen.
     seen_on: str | None = None
     last_seen: datetime | None = None
+    #: Where each address came from (#183), for the addresses in ``addresses`` the device can
+    #: say it of; an address left out: not known (see :meth:`Network.address_source`).
+    address_sources: dict[IPAddress, AddressSource] = Field(default_factory=dict)
 
 
 class Neighbour(Observed):
@@ -1398,6 +1570,8 @@ class Snapshot(Model):
     #: Management services of the devices (#173; part of ``interfaces``).
     services: list[ManagementService] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
+    #: DHCP relays (#183; part of ``dhcp``).
+    dhcp_relays: list[DhcpRelay] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)
     wlans: list[Wlan] = Field(default_factory=list)
@@ -1425,6 +1599,8 @@ class Network(Model):
     #: Management services of the devices (#173; part of ``interfaces``).
     services: list[ManagementService] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
+    #: DHCP relays (#183; part of ``dhcp``).
+    dhcp_relays: list[DhcpRelay] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)
     wlans: list[Wlan] = Field(default_factory=list)
@@ -1466,6 +1642,7 @@ class Network(Model):
             self.subnets,
             self.uplinks,
             self.dhcp_servers,
+            self.dhcp_relays,
             self.dns_services,
             self.radios,
             self.wlans,
@@ -1532,6 +1709,53 @@ class Network(Model):
             if sub.segment_id in ids and addr in sub.interface.network:
                 return sub.segment_id
         return main
+
+    def dhcp_servers_on(self, segment_id: str) -> list[DhcpServer]:
+        return [s for s in self.dhcp_servers if s.segment_id == segment_id]
+
+    def dhcp_relays_on(self, segment_id: str) -> list[DhcpRelay]:
+        """Enabled DHCP relays on a segment (#183): it needs no DHCP server of its own."""
+        return [r for r in self.dhcp_relays if r.segment_id == segment_id and r.enabled]
+
+    def leases_read(self, segment_id: str) -> bool:
+        """The segment has an enabled DHCP server, and every one of them reported its leases.
+
+        Only then does "no lease" mean something (#67): a server whose table was not read may
+        have leased any address.
+        """
+        servers = [s for s in self.dhcp_servers_on(segment_id) if s.enabled]
+        return bool(servers) and all(s.leases is not None for s in servers)
+
+    def lease_of(
+        self, mac: str, address: IPAddress, at: datetime | None = None
+    ) -> tuple[DhcpServer, DhcpLease] | None:
+        """The active lease of this MAC address and address on any known DHCP server."""
+        for server in sorted(self.dhcp_servers, key=lambda s: s.id):
+            lease = server.lease_for(address, at)
+            if lease is not None and lease.mac == mac:
+                return server, lease
+        return None
+
+    def address_source(
+        self, client: Client, address: IPAddress, at: datetime | None = None
+    ) -> AddressSource | None:
+        """Where one of a client's addresses came from (#183); ``None``: not known.
+
+        The client's own answer (:attr:`Client.address_sources`) wins unless it is
+        ``unknown``. Otherwise an active lease of that MAC and address on a known DHCP server
+        gives ``dhcp``, ``dhcp-reserved`` or ``dhcpv6``, and a link-local address is
+        ``link-local``. Never ``static`` by elimination: whether a missing lease means a fixed
+        address needs :meth:`leases_read` and a grace period, which the checks decide.
+        """
+        own = client.address_sources.get(address)
+        if own is not None and own is not AddressSource.UNKNOWN:
+            return own
+        found = self.lease_of(client.mac, address, at)
+        if found is not None:
+            return found[1].source()
+        if address.is_link_local:
+            return AddressSource.LINK_LOCAL
+        return own
 
     def uplinks_of(self, device_id: str) -> list[Uplink]:
         return [u for u in self.uplinks if u.device_id == device_id]

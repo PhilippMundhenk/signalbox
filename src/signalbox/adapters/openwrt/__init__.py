@@ -28,6 +28,7 @@ from signalbox.adapters import (
     ApplyResult,
     Backup,
     Capability,
+    Gap,
     Manifest,
     Observation,
     SystemInfo,
@@ -40,6 +41,8 @@ from signalbox.adapters.openwrt.ubus import AccessDenied, InvalidArgument, NoDat
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
+    SERVICE_PORTS,
+    AddressSource,
     Band,
     Cipher,
     Client,
@@ -49,6 +52,7 @@ from signalbox.model import (
     Firmware,
     IPAddress,
     IPInterface,
+    ManagementService,
     Membership,
     Neighbour,
     Pmf,
@@ -61,6 +65,7 @@ from signalbox.model import (
     SaeSettings,
     Security,
     Segment,
+    ServiceKind,
     Subnet,
     TemperatureSensor,
     Uplink,
@@ -127,6 +132,19 @@ def _int(value: Any) -> int | None:
         return int(str(value))
     except (TypeError, ValueError):
         return None
+
+
+def _listen(text: str) -> tuple[IPAddress | None, int] | None:
+    """``uhttpd`` ``listen_http``: ``0.0.0.0:80``, ``[::]:443``, ``192.0.2.1:80``."""
+    host, _, port = text.rpartition(":")
+    try:
+        number = int(port)
+    except ValueError:
+        return None
+    try:
+        return ip_address(host.strip("[]")), number
+    except ValueError:
+        return None, number
 
 
 def _mac(value: Any) -> str | None:
@@ -647,6 +665,7 @@ class OpenWrtAdapter(Adapter):
             model=model if isinstance(model, str) else None,
             firmware=Firmware(current=str(version)) if version else None,
             management_address=self.ubus.http.host,
+            transport_encrypted=self.ubus.http.secure,
         )
 
     # interfaces -----------------------------------------------------------------------
@@ -724,9 +743,87 @@ class OpenWrtAdapter(Adapter):
             for n, addr in enumerate(view.addresses(name))
         ]
         uplinks = self._uplinks(view, ports) if router else []
+        gaps: list[Gap] = []
+        try:
+            services = await self._services(view, ports, {s.id for s in segments})
+        except AccessDenied as exc:  # set up with an older ACL: the rest is read
+            services = []
+            gaps.append(Gap(message=f"management services: {exc}", fix=exc.fix))
         return Observation(
-            ports=list(ports.values()), segments=segments, subnets=subnets, uplinks=uplinks
+            ports=list(ports.values()),
+            segments=segments,
+            subnets=subnets,
+            uplinks=uplinks,
+            services=services,
+            incomplete=gaps,
         )
+
+    async def _services(
+        self, view: NetworkView, ports: dict[str, Port], segment_ids: set[str]
+    ) -> list[ManagementService]:
+        """SSH (dropbear) and the web UI (uhttpd) from their UCI configs (#173). A router set
+        up with an older ACL refuses ``uci get`` of both (AccessDenied): the caller reports that
+        as a gap with the fix, the rest of the observation is unaffected."""
+        d = self.context.device_id
+        dropbear = _sections(await self._uci("dropbear"), "dropbear")
+        uhttpd = _sections(await self._uci("uhttpd"), "uhttpd")
+        out: list[ManagementService] = []
+        taken: set[str] = set()
+
+        def key(name: str) -> str:
+            unique = name
+            while unique in taken:
+                unique += "-2"
+            taken.add(unique)
+            return unique
+
+        for _, s in dropbear:
+            port = _int(s.get("Port")) or 22
+            name = key("dropbear" if not taken else f"dropbear-{port}")
+            segments = [
+                seg
+                for n in _list(s.get("Interface"))
+                if (vid := view.vlan_of_interface(n)) is not None
+                and (seg := self._seg(vid)) in segment_ids
+            ]
+            out.append(
+                ManagementService(
+                    id=object_id(d, "service", name),
+                    device_id=d,
+                    kind=ServiceKind.SSH,
+                    name=name,
+                    enabled=_flag(s.get("enable"), default=True),
+                    port=port,
+                    segments=segments,
+                    interfaces=[
+                        port_id(d, n) for n in _list(s.get("DirectInterface")) if n in ports
+                    ],
+                    password_login=_flag(s.get("PasswordAuth"), default=True),
+                    root_login=_flag(s.get("RootLogin"), default=True),
+                    root_password_login=_flag(s.get("RootPasswordAuth"), default=True),
+                )
+            )
+        for _, s in uhttpd[:1]:  # ``main``: the instance LuCI runs on
+            for kind, option, name in (
+                (ServiceKind.HTTP, "listen_http", "uhttpd"),
+                (ServiceKind.HTTPS, "listen_https", "uhttpd-ssl"),
+            ):
+                listens = [x for x in map(_listen, _list(s.get(option))) if x is not None]
+                out.append(
+                    ManagementService(
+                        id=object_id(d, "service", key(name)),
+                        device_id=d,
+                        kind=kind,
+                        name=name,
+                        enabled=bool(listens),
+                        port=listens[0][1] if listens else SERVICE_PORTS[kind],
+                        listen=[a for a, _ in listens if a is not None],
+                        redirects_to_https=_flag(s.get("redirect_https"))
+                        if kind is ServiceKind.HTTP
+                        else None,
+                    )
+                )
+        return out
 
     def _uplinks(self, view: NetworkView, ports: dict[str, Port]) -> list[Uplink]:
         """The WAN interfaces of ``network.interface dump``; ``wan6`` joins ``wan`` (#148).
@@ -802,6 +899,8 @@ class OpenWrtAdapter(Adapter):
         """
         try:
             status = await self.ubus.call("network.wireless", "status")
+        except NotFound:  # no Wi-Fi at all (a switch, or wireless packages removed): no radios
+            return {}
         except InvalidArgument:
             try:
                 status = await self.ubus.call("luci-rpc", "getWirelessDevices")
@@ -1052,7 +1151,10 @@ class OpenWrtAdapter(Adapter):
                 continue
             entry = clients.setdefault(m, {"addresses": []})
             with contextlib.suppress(ValueError):
-                entry["addresses"].append(ip_address(addr))
+                a = ip_address(addr)
+                entry["addresses"].append(a)
+                if a.version == 4:  # dnsmasq leases: IPv4 only
+                    entry.setdefault("address_sources", {})[a] = AddressSource.DHCP
             if hostname:
                 entry["hostname"] = hostname
         return Observation(

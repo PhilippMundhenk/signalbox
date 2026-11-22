@@ -35,6 +35,7 @@ from signalbox.model import (
     DeviceRole,
     DeviceStatus,
     DeviceTime,
+    DhcpRelay,
     DhcpServer,
     DnsService,
     Firmware,
@@ -59,7 +60,7 @@ API_VERSION = "1.2"
 
 class Capability(StrEnum):
     INTERFACES = "interfaces"  # ports, segments (VLANs), subnets, uplinks, management services
-    DHCP = "dhcp"
+    DHCP = "dhcp"  # DHCP servers (pools, options, leases) and relays
     DNS = "dns"
     WIRELESS = "wireless"  # radios and WLANs
     CLIENTS = "clients"
@@ -222,6 +223,16 @@ class SystemInfo(BaseModel):
     vendor_extra: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+class Gap(BaseModel):
+    """Part of a capability the device would not give while the rest was read (old firmware
+    protecting a setting, a missing package): reported like a read error, the data is kept."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    message: str
+    fix: str | None = None
+
+
 class Observation(BaseModel):
     """What one capability read returns."""
 
@@ -236,6 +247,8 @@ class Observation(BaseModel):
     #: every service the device has, disabled ones too, or none (not read).
     services: list[ManagementService] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
+    #: DHCP relays (#183), read with ``dhcp``; no API version needed.
+    dhcp_relays: list[DhcpRelay] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)
     wlans: list[Wlan] = Field(default_factory=list)
@@ -250,6 +263,9 @@ class Observation(BaseModel):
     health: dict[str, DeviceHealth] = Field(default_factory=dict)
     #: Clock and NTP per device id: the observed device or one of ``devices`` (API 1.2).
     time: dict[str, DeviceTime] = Field(default_factory=dict)
+    #: What this read could not get although the rest was read: the device counts as partly
+    #: read for this capability, so checks needing the missing part report incomplete.
+    incomplete: list[Gap] = Field(default_factory=list)
 
 
 @runtime_checkable
@@ -431,6 +447,15 @@ class Adapter(ABC):
                         f"{type(result).__name__}, not Observation"
                     )
                 reads.append(result)
+                errors.extend(
+                    ReadError(
+                        device_id=ctx.device_id,
+                        capability=cap.value,
+                        message=gap.message,
+                        fix=gap.fix,
+                    )
+                    for gap in result.incomplete
+                )
                 end = datetime.now(UTC)
                 for key, value in result.health.items():
                     health[key] = _complete_health(value, now)
@@ -453,7 +478,7 @@ class Adapter(ABC):
             health=health.get(ctx.device_id),
             time=times.get(ctx.device_id),
         )
-        skip = {"devices", "device_status", "health", "time"}
+        skip = {"devices", "device_status", "health", "time", "incomplete"}
         lists: dict[str, list[Any]] = {n: [] for n in Observation.model_fields if n not in skip}
         extra: dict[str, Device] = {}
         extra_status: dict[str, DeviceStatus] = {}

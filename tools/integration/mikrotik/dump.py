@@ -9,9 +9,9 @@ answers go to DIR/api-<GROUP>.json (uploaded as an artifact). Only the throw-awa
 in there (documentation prefixes, the 02: MACs of the test setup). GROUP is ``read`` (the
 read user, every menu the read side uses), ``more`` (the rest of them), ``health`` (resource,
 sensors, clock, NTP and UPS, #178 and #179), ``uplink`` (the WAN client menus and the PPPoE
-monitor, #148), ``write`` (the write user: the export, refused changes, the menus of the
-backup) or ``refused`` (a wrong password, the read user writing, unknown menus). At most ten
-notices per call (the limit of one step).
+monitor, #148), ``services`` (management services, #173), ``write`` (the write user: the
+export, refused changes, the menus of the backup) or ``refused`` (a wrong password, the read
+user writing, unknown menus). At most ten notices per call (the limit of one step).
 """
 
 from __future__ import annotations
@@ -66,6 +66,17 @@ GROUPS: dict[str, list[tuple[str, str, str, object]]] = {
         (R, "GET", "/rest/interface/pppoe-client", None),
         (R, "POST", "/rest/interface/pppoe-client/monitor", {"numbers": "nothere", "once": ""}),
         (R, "GET", "/rest/ip/cloud", None),
+    ],
+    "services": [
+        (R, "GET", "/rest/ip/service", None),
+        (R, "GET", "/rest/tool/mac-server", None),
+        (R, "GET", "/rest/tool/mac-server/mac-winbox", None),
+        (R, "GET", "/rest/tool/romon", None),
+        (R, "GET", "/rest/ip/ssh", None),
+        (R, "GET", "/rest/snmp", None),
+        (R, "GET", "/rest/snmp/community", None),
+        (W, "GET", "/rest/snmp/community", None),
+        (R, "GET", "/rest/ip/upnp", None),
     ],
     "write": [
         (W, "POST", "/rest/export", {}),

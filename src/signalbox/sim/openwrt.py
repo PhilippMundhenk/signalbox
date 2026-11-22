@@ -45,8 +45,8 @@ MAC = "02:00:00:00:{:02x}:{:02x}"
 FIXED_MAC = "00:00:5e:00:53:{:02x}"
 #: UCI configs the simulator knows (and can write)
 CONFIGS = ("network", "wireless", "dhcp")
-#: UCI configs it only reads (time zone and NTP, #179)
-READ_ONLY = ("system",)
+#: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173)
+READ_ONLY = ("system", "dropbear", "uhttpd")
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
     "/tmp/dhcp.leases",
@@ -434,6 +434,48 @@ def dhcp_config(router: bool) -> dict[str, Any]:
     )
 
 
+def dropbear_config() -> dict[str, Any]:
+    """``/etc/config/dropbear`` as OpenWrt ships it (one instance, SSH in the LAN)."""
+    return _uci(
+        (
+            "dropbear",
+            "cfg029944",
+            {
+                "PasswordAuth": "on",
+                "RootPasswordAuth": "on",
+                "Port": "22",
+                "Interface": "lan",
+            },
+        )
+    )
+
+
+def uhttpd_config() -> dict[str, Any]:
+    """``/etc/config/uhttpd`` as OpenWrt ships it (LuCI on 80 and 443, redirect off)."""
+    return _uci(
+        (
+            "uhttpd",
+            "main",
+            {
+                "listen_http": ["0.0.0.0:80", "[::]:80"],
+                "listen_https": ["0.0.0.0:443", "[::]:443"],
+                "redirect_https": "0",
+                "home": "/www",
+                "rfc1918_filter": "1",
+                "max_requests": "3",
+                "cert": "/etc/uhttpd.crt",
+                "key": "/etc/uhttpd.key",
+                "cgi_prefix": "/cgi-bin",
+                "script_timeout": "60",
+                "network_timeout": "30",
+                "http_keepalive": "20",
+                "tcp_keepalive": "1",
+            },
+        ),
+        ("cert", "defaults", {"days": "730", "key_type": "ec", "country": "ZZ"}),
+    )
+
+
 def system_config(router: bool) -> dict[str, Any]:
     """``/etc/config/system`` as OpenWrt writes it for Europe/Berlin (LuCI's zone table)."""
     ntp: dict[str, Any] = {"enabled": "1", "enable_server": "0", "server": ["192.0.2.1"]}
@@ -639,6 +681,8 @@ class OpenWrtSim:
     denied: set[str] = field(default_factory=set)
     #: UCI configs that do not exist (a router without Wi-Fi has no ``wireless``)
     missing: set[str] = field(default_factory=set)
+    #: no ``network.wireless`` ubus object (a device without Wi-Fi)
+    no_wireless_object: bool = False
     #: UCI configs the ACL lets the user change (``write`` → ``uci`` in the rpcd ACL)
     writable: set[str] = field(default_factory=lambda: set(CONFIGS))
     #: objects answered with broken JSON (``*``: every request)
@@ -699,6 +743,8 @@ class OpenWrtSim:
                 "wireless": _sections(wireless_config()),
                 "dhcp": _sections(dhcp_config(self.router)),
                 "system": _sections(system_config(self.router)),
+                "dropbear": _sections(dropbear_config()),
+                "uhttpd": _sections(uhttpd_config()),
             }
         return self.configs
 
@@ -839,6 +885,8 @@ class OpenWrtSim:
         if obj == "network.interface" and method == "dump":
             return [0, interface_dump(self.state["network"])]
         if obj == "network.wireless" and method == "status":
+            if self.no_wireless_object:  # no Wi-Fi hardware/packages (an OpenWrt switch)
+                return [NOT_FOUND]
             if self.wireless_ucode:
                 return [INVALID_ARGUMENT]
             return [0, wireless_status(self.state["wireless"])]

@@ -28,8 +28,8 @@ from signalbox.sim.server import serve
 from signalbox.sim.tr064 import ArgumentError, Description, StateVariable
 
 ADAPTER = Path(__file__).parents[1] / "src" / "signalbox" / "adapters" / "fritzbox"
-#: ``.call(service, "Action"`` in the adapter, ``Call(service, "Action"`` in write.py
-_CALL = re.compile(r'(?:\.call\(|Call\()\s*[\w.\[\]"]+,\s*"([\w-]+)"', re.S)
+#: ``.call(service, "Action"`` and ``._try(...)`` in the adapter, ``Call(...)`` in write.py
+_CALL = re.compile(r'(?:\.call\(|Call\(|\._try\()\s*[\w.\[\]"-]+,\s*"([\w-]+)"', re.S)
 #: Output argument names the adapter reads (``"NewSSID"``...)
 _NEW = re.compile(r'"(New[\w-]+)"')
 
@@ -157,6 +157,11 @@ async def test_every_call_of_the_adapter_is_described(
     await adapter.observe()
     assert problems(desc, sim.calls) == []
     called = {action for _, action, _ in sim.calls}
+    served = {service for service, _, _ in sim.calls}  # management services (#173)
+    for name in ("RemoteAccess", "MyFritz", "Storage", "UPnP"):
+        assert f"urn:dslforum-org:service:X_AVM-DE_{name}:1" in served or any(
+            name in x for x in served
+        ), served
     assert source_actions() <= called, "an action of the adapter was not exercised"
 
 

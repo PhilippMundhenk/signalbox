@@ -314,6 +314,41 @@ async def test_health_and_time_of_chr(rt: dict[str, str]) -> None:
     assert t.ntp_client is not None and t.ntp_server is not None, t
 
 
+async def test_management_services_of_chr(rt: dict[str, str]) -> None:
+    """``/ip/service``, MAC server, RoMON, SSH, UPnP and SNMP as the read user sees them (#173;
+    the field names were confirmed from the ``services`` dump group of the CHR 7.25.1)."""
+    a = adapter(rt)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    by = {s.name: s for s in snap.services}
+    assert set(by) == {
+        *("telnet", "ftp", "www", "ssh", "www-ssl", "api", "winbox", "api-ssl"),
+        *("mac-telnet", "mac-winbox", "romon", "upnp", "snmp"),
+    }, sorted(by)  # no dynamic rows (resolver, connections), no reverse-proxy
+    assert (by["ssh"].kind.value, by["ssh"].port, by["ssh"].enabled) == ("ssh", 22, True)
+    assert by["ssh"].password_login is None  # password-authentication=yes-if-no-key
+    assert (by["www-ssl"].kind.value, by["www-ssl"].enabled) == ("https", True)
+    assert by["www-ssl"].port == 443 and by["www"].port == 80 and by["api-ssl"].port == 8729
+    assert by["telnet"].port == 23 and by["winbox"].port == 8291 and by["api"].port == 8728
+    # the setup limits www-ssl with available-from=10.0.2.0/24
+    assert [str(n) for n in by["www-ssl"].allowed_from] == ["10.0.2.0/24"]
+    assert by["ssh"].allowed_from == []
+    for name in ("mac-telnet", "mac-winbox", "romon"):
+        assert by[name].port is None and by[name].transport.value == "layer2", by[name]
+    # RouterOS default: MAC server on every interface, RoMON and UPnP off
+    assert by["mac-telnet"].enabled and by["mac-telnet"].interfaces == []
+    assert by["mac-winbox"].enabled and not by["romon"].enabled and not by["upnp"].enabled
+    snmp = by["snmp"]  # off, with the default community "public" (read-only, v1/v2c)
+    assert (snmp.enabled, snmp.port) == (False, 161), snmp
+    assert snmp.snmp is not None and snmp.snmp.default_community is True, snmp
+    assert [v.value for v in snmp.snmp.versions] == ["2c"] and not snmp.snmp.write_access
+    assert "public" not in snmp.model_dump_json()  # the community string is never kept
+    assert snap.device.transport_encrypted is True
+
+
 async def test_refused_password_is_auth_failed(rt: dict[str, str]) -> None:
     a = adapter(rt, password="not-the-password")
     try:

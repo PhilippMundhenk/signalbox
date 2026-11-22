@@ -54,6 +54,7 @@ from signalbox.adapters.opnsense import (
     vitals,
 )
 from signalbox.model import (
+    AddressSource,
     DeviceRole,
     DeviceStatus,
     Membership,
@@ -259,6 +260,9 @@ async def test_clients(snap: Snapshot) -> None:
     assert printer.segment_id == "home/segment/native" and printer.seen_on == port_id("fw", "igb0")
     assert by_mac["00:00:5e:00:53:20"].segment_id == "home/segment/20"
     assert by_mac["02:00:00:00:00:21"].hostname == "laptop"  # from the Kea lease
+    laptop = by_mac["02:00:00:00:00:21"]
+    assert set(laptop.address_sources.values()) == {AddressSource.DHCP}  # #183
+    assert set(laptop.address_sources) <= set(laptop.addresses)
     assert by_mac["02:00:00:00:00:31"].segment_id == "home/segment/30"
 
 
@@ -416,6 +420,23 @@ async def test_isc_disabled_and_stopped(http_url: str, sim: OpnsenseSimulator) -
     sim.data[ISC_STATUS] = {"status": "stopped"}
     snap = await observe(adapter(http_url))
     assert not next(s for s in snap.dhcp_servers if s.id.endswith("isc-opt2")).enabled
+
+
+async def test_kea_first_isc_fallback(http_url: str, sim: OpnsenseSimulator) -> None:
+    """ISC lists only the interfaces no enabled Kea server serves (#242)."""
+    general = sim.data[KEA]["dhcpv4"]["general"]
+    general["interfaces"] = {**general["interfaces"], "opt2": {"value": "Guest", "selected": 1}}
+    sim.data[KEA]["dhcpv4"]["subnets"]["subnet4"]["s-guest"] = {
+        "subnet": "203.0.113.0/24",
+        "pools": "203.0.113.100-203.0.113.199",
+    }
+    snap = await observe(adapter(http_url))
+    ids = {s.id for s in snap.dhcp_servers}
+    assert "fw/dhcp/kea-opt2" in ids and "fw/dhcp/isc-opt2" not in ids
+    general["enabled"] = "0"
+    snap = await observe(adapter(http_url))
+    isc = next(s for s in snap.dhcp_servers if s.id == "fw/dhcp/isc-opt2")
+    assert isc.enabled and isc.vendor_extra["server"] == "isc"
 
 
 async def test_odd_data_is_tolerated(http_url: str, sim: OpnsenseSimulator) -> None:
@@ -701,3 +722,39 @@ def test_health_and_time_helpers() -> None:
         .used_bytes
         is None
     )
+
+
+# --- management services (#173) --------------------------------------------------------------
+
+
+async def test_services(snap: Snapshot) -> None:
+    by = {s.id: s for s in snap.services}
+    assert sorted(by) == ["fw/service/snmp", "fw/service/webgui"]
+    web = by["fw/service/webgui"]  # the plain-HTTP simulator
+    assert (web.kind.value, web.enabled, web.encrypted) == ("http", True, False)
+    snmp = by["fw/service/snmp"]
+    assert snmp.enabled and snmp.port == 161 and snmp.name == "net-snmp"
+    assert [str(a) for a in snmp.listen] == ["192.0.2.1"]  # the unselected one is not listened on
+    assert snmp.snmp is not None and snmp.snmp.default_community
+    assert [v.value for v in snmp.snmp.versions] == ["2c"]
+    assert snap.device.transport_encrypted is False
+
+
+async def test_services_without_the_plugin_or_privilege(http_url: str, sim: Any) -> None:
+    del sim.data["/api/netsnmp/general/get"]  # os-net-snmp not installed
+    snap = await observe(adapter(http_url))
+    assert [s.name for s in snap.services] == ["webgui"]
+    sim.fail["/api/netsnmp/general/get"] = 403
+    snap = await observe(adapter(http_url))
+    assert [s.name for s in snap.services] == ["webgui"] and not snap.errors
+
+
+async def test_never_downloads_the_backup(http_url: str, sim: Any) -> None:
+    await observe(adapter(http_url))
+    assert not [p for p in sim.requests if "backup" in p], sim.requests
+
+
+async def test_tls_web_interface(https_url: str, tls: TlsFiles) -> None:
+    snap = await observe(adapter(https_url, pin=tls.fingerprint))
+    web = next(s for s in snap.services if s.name == "webgui")
+    assert (web.kind.value, web.encrypted) == ("https", True)

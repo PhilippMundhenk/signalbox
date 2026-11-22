@@ -371,6 +371,66 @@
   },
   {
    "method": "POST",
+   "path": "/upnp/control/deviceinfo",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:DeviceInfo:1#GetSecurityPort\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetSecurityPort xmlns:u=\"urn:dslforum-org:service:DeviceInfo:1\"></u:GetSecurityPort></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetSecurityPortResponse xmlns:u=\"urn:dslforum-org:service:DeviceInfo:1\"><NewSecurityPort>49443</NewSecurityPort></u:GetSecurityPortResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/x_upnp",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:X_AVM-DE_UPnP:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:X_AVM-DE_UPnP:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:X_AVM-DE_UPnP:1\"><NewEnable>1</NewEnable><NewUPnPMediaServer>0</NewUPnPMediaServer></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/x_remote",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:X_AVM-DE_RemoteAccess:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:X_AVM-DE_RemoteAccess:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:X_AVM-DE_RemoteAccess:1\"><NewEnabled>0</NewEnabled><NewPort>443</NewPort><NewUsername></NewUsername><NewLetsEncryptEnabled>0</NewLetsEncryptEnabled><NewLetsEncryptState></NewLetsEncryptState></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/x_myfritz",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:X_AVM-DE_MyFritz:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:X_AVM-DE_MyFritz:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:X_AVM-DE_MyFritz:1\"><NewEnabled>1</NewEnabled><NewDeviceRegistered>1</NewDeviceRegistered><NewDynDNSName>example.myfritz.example</NewDynDNSName><NewPort>443</NewPort><NewState>ok</NewState><NewEmail></NewEmail></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/x_storage",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:X_AVM-DE_Storage:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:X_AVM-DE_Storage:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:X_AVM-DE_Storage:1\"><NewFTPEnable>1</NewFTPEnable><NewFTPStatus>Started</NewFTPStatus><NewSMBEnable>0</NewSMBEnable><NewFTPWANEnable>0</NewFTPWANEnable><NewFTPWANSSLOnly>1</NewFTPWANSSLOnly><NewFTPWANPort>21</NewFTPWANPort></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
    "path": "/upnp/control/time",
    "headers": {
     "soapaction": "\"urn:dslforum-org:service:Time:1#GetInfo\"",
@@ -379,7 +439,7 @@
    "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:Time:1\"></u:GetInfo></s:Body></s:Envelope>",
    "status": 200,
    "content_type": "text/xml; charset=\"utf-8\"",
-   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:Time:1\"><NewNTPServer1>ntp.example.net</NewNTPServer1><NewNTPServer2></NewNTPServer2><NewCurrentLocalTime>2026-11-22T22:45:16+01:00</NewCurrentLocalTime><NewLocalTimeZone>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZone><NewLocalTimeZoneName>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZoneName><NewDaylightSavingsUsed>1</NewDaylightSavingsUsed><NewDaylightSavingsStart>0001-01-01T00:00:00</NewDaylightSavingsStart><NewDaylightSavingsEnd>0001-01-01T00:00:00</NewDaylightSavingsEnd></u:GetInfoResponse></s:Body></s:Envelope>"
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:Time:1\"><NewNTPServer1>ntp.example.net</NewNTPServer1><NewNTPServer2></NewNTPServer2><NewCurrentLocalTime>2026-11-22T23:35:02+01:00</NewCurrentLocalTime><NewLocalTimeZone>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZone><NewLocalTimeZoneName>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZoneName><NewDaylightSavingsUsed>1</NewDaylightSavingsUsed><NewDaylightSavingsStart>0001-01-01T00:00:00</NewDaylightSavingsStart><NewDaylightSavingsEnd>0001-01-01T00:00:00</NewDaylightSavingsEnd></u:GetInfoResponse></s:Body></s:Envelope>"
   },
   {
    "method": "POST",
@@ -618,7 +678,7 @@
     "ups": []
    },
    "time": {
-    "clock": "2026-11-22T22:45:16.500000+01:00",
+    "clock": "2026-11-22T23:35:02.500000+01:00",
     "timezone": "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00",
     "utc_offset_minutes": 60,
     "ntp_client": {
@@ -633,7 +693,7 @@
     },
     "ntp_server": null
    },
-   "transport_encrypted": null
+   "transport_encrypted": true
   },
   "status": "ok",
   "ports": [
@@ -762,7 +822,208 @@
     "upstream_kbps": 46719
    }
   ],
-  "services": [],
+  "services": [
+   {
+    "id": "recorded/service/http",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "kind": "http",
+    "name": "http",
+    "enabled": true,
+    "port": 80,
+    "transport": "tcp",
+    "encrypted": false,
+    "listen": [],
+    "interfaces": [],
+    "segments": [],
+    "allowed_from": [],
+    "from_wan": null,
+    "password_login": null,
+    "root_login": null,
+    "root_password_login": null,
+    "redirects_to_https": null,
+    "snmp": null
+   },
+   {
+    "id": "recorded/service/https",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "kind": "https",
+    "name": "https",
+    "enabled": true,
+    "port": 443,
+    "transport": "tcp",
+    "encrypted": true,
+    "listen": [],
+    "interfaces": [],
+    "segments": [],
+    "allowed_from": [],
+    "from_wan": null,
+    "password_login": null,
+    "root_login": null,
+    "root_password_login": null,
+    "redirects_to_https": null,
+    "snmp": null
+   },
+   {
+    "id": "recorded/service/tr-064",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "kind": "tr-064",
+    "name": "tr-064",
+    "enabled": true,
+    "port": 49443,
+    "transport": "tcp",
+    "encrypted": true,
+    "listen": [],
+    "interfaces": [],
+    "segments": [],
+    "allowed_from": [],
+    "from_wan": null,
+    "password_login": null,
+    "root_login": null,
+    "root_password_login": null,
+    "redirects_to_https": null,
+    "snmp": null
+   },
+   {
+    "id": "recorded/service/upnp",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "kind": "upnp",
+    "name": "upnp",
+    "enabled": true,
+    "port": null,
+    "transport": null,
+    "encrypted": false,
+    "listen": [],
+    "interfaces": [],
+    "segments": [],
+    "allowed_from": [],
+    "from_wan": null,
+    "password_login": null,
+    "root_login": null,
+    "root_password_login": null,
+    "redirects_to_https": null,
+    "snmp": null
+   },
+   {
+    "id": "recorded/service/remote-access",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "kind": "https",
+    "name": "remote-access",
+    "enabled": false,
+    "port": 443,
+    "transport": "tcp",
+    "encrypted": true,
+    "listen": [],
+    "interfaces": [],
+    "segments": [],
+    "allowed_from": [],
+    "from_wan": false,
+    "password_login": null,
+    "root_login": null,
+    "root_password_login": null,
+    "redirects_to_https": null,
+    "snmp": null
+   },
+   {
+    "id": "recorded/service/myfritz",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "kind": "https",
+    "name": "myfritz",
+    "enabled": true,
+    "port": 443,
+    "transport": "tcp",
+    "encrypted": true,
+    "listen": [],
+    "interfaces": [],
+    "segments": [],
+    "allowed_from": [],
+    "from_wan": true,
+    "password_login": null,
+    "root_login": null,
+    "root_password_login": null,
+    "redirects_to_https": null,
+    "snmp": null
+   },
+   {
+    "id": "recorded/service/ftp",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "kind": "ftp",
+    "name": "ftp",
+    "enabled": true,
+    "port": 21,
+    "transport": "tcp",
+    "encrypted": false,
+    "listen": [],
+    "interfaces": [],
+    "segments": [],
+    "allowed_from": [],
+    "from_wan": false,
+    "password_login": null,
+    "root_login": null,
+    "root_password_login": null,
+    "redirects_to_https": null,
+    "snmp": null
+   },
+   {
+    "id": "recorded/service/ftp-internet",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "kind": "ftp",
+    "name": "ftp-internet",
+    "enabled": false,
+    "port": 21,
+    "transport": "tcp",
+    "encrypted": true,
+    "listen": [],
+    "interfaces": [],
+    "segments": [],
+    "allowed_from": [],
+    "from_wan": false,
+    "password_login": null,
+    "root_login": null,
+    "root_password_login": null,
+    "redirects_to_https": null,
+    "snmp": null
+   }
+  ],
   "dhcp_servers": [
    {
     "id": "recorded/dhcp/lan",
@@ -789,9 +1050,17 @@
     ],
     "domain": "fritz.box",
     "reservations": [],
-    "ntp_servers": []
+    "ntp_servers": [],
+    "leases": null,
+    "search_domains": [],
+    "static_routes": [],
+    "boot": null,
+    "options": [],
+    "authoritative": null,
+    "failover_peer": null
    }
   ],
+  "dhcp_relays": [],
   "dns_services": [],
   "radios": [
    {
@@ -977,8 +1246,7 @@
      "device_id": "recorded"
     },
     "vendor_extra": {
-     "interface_type": "802.11",
-     "address_source": "DHCP"
+     "interface_type": "802.11"
     },
     "mac": "00:00:5e:00:53:03",
     "addresses": [
@@ -987,7 +1255,10 @@
     "hostname": "name-5",
     "segment_id": "home/segment/native",
     "seen_on": "recorded/wlan/2",
-    "last_seen": null
+    "last_seen": null,
+    "address_sources": {
+     "192.0.2.101": "dhcp"
+    }
    },
    {
     "id": "recorded/client/00:00:5e:00:53:04",
@@ -996,15 +1267,15 @@
      "device_id": "recorded"
     },
     "vendor_extra": {
-     "interface_type": "802.11",
-     "address_source": "DHCP"
+     "interface_type": "802.11"
     },
     "mac": "00:00:5e:00:53:04",
     "addresses": [],
     "hostname": "name-6",
     "segment_id": "home/segment/guest",
     "seen_on": "recorded/wlan/3",
-    "last_seen": null
+    "last_seen": null,
+    "address_sources": {}
    },
    {
     "id": "recorded/client/00:00:5e:00:53:05",
@@ -1013,8 +1284,7 @@
      "device_id": "recorded"
     },
     "vendor_extra": {
-     "interface_type": "Ethernet",
-     "address_source": "DHCP"
+     "interface_type": "Ethernet"
     },
     "mac": "00:00:5e:00:53:05",
     "addresses": [
@@ -1023,7 +1293,10 @@
     "hostname": "name-7",
     "segment_id": "home/segment/native",
     "seen_on": "recorded/port/lan",
-    "last_seen": null
+    "last_seen": null,
+    "address_sources": {
+     "192.0.2.50": "dhcp"
+    }
    }
   ],
   "neighbours": [],

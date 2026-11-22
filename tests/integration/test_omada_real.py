@@ -182,6 +182,28 @@ async def test_health_and_time_of_the_controller(ctrl: dict[str, str]) -> None:
     assert t.timezone == "UTC", t  # the site's timeZone on a new controller
 
 
+async def test_site_services_shape(ctrl: dict[str, str]) -> None:
+    """The site's SSH and SNMP settings (#173), as the controller answers them to the viewer.
+    The test site has no managed device, so the adapter reports no service; the settings
+    themselves are read with the adapter's own call, and the mapping runs on them."""
+    a = adapter(ctrl)
+    try:
+        snap = await a.observe()
+        assert snap.status is ReadStatus.OK, snap.errors
+        ssh = await a._object(f"{a._site_path}/ssh")
+        snmp = await a._object(f"{a._site_path}/setting/service/snmp")
+        mapped = await a._services(["ctrl/switch-1"])
+    finally:
+        await a.close()
+    assert ssh is not None and isinstance(ssh.get("sshEnable"), bool), ssh
+    assert isinstance(ssh.get("sshServerPort"), int), ssh
+    assert snmp is not None, snmp
+    assert isinstance(snmp.get("snmpV1V2CEnable"), bool), snmp
+    assert isinstance(snmp.get("snmpV3Enable"), bool), snmp
+    assert {s.kind.value for s in mapped} == {"ssh", "snmp"}, mapped
+    assert snap.device.transport_encrypted is True
+
+
 async def test_mapping_of_the_test_site(ctrl: dict[str, str]) -> None:
     net = await network(ctrl)
     assert [d.id for d in net.devices] == [DEV]  # no managed devices

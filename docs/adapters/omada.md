@@ -433,3 +433,23 @@ refuses what the controller does, with its codes (a missing field, a VLAN used t
 overlapping subnet, an interface network without LAN interfaces, an SSID name used twice, a bad
 passphrase, an unknown network or profile on a port); failure switches for writes:
 `read_only` (a viewer-role application) and an error code per path.
+
+
+## Management services (#173)
+
+Read with the `interfaces` capability, from two site settings that the controller applies to
+every device it manages; each managed device (`Observation.devices`) gets the same two services:
+
+- `GET /openapi/v1/{omadacId}/sites/{siteId}/ssh`: `sshEnable`, `sshServerPort`. `layer3Access`
+  (off: SSH only from the management network) is not mapped, the management VLAN is not read.
+- `GET /openapi/v1/{omadacId}/sites/{siteId}/setting/service/snmp`: `snmpV1V2CEnable`,
+  `snmpV3Enable`, `securityLevel` (2 is authPriv: `v3_privacy`) and `communityString`, which is
+  only compared with `public`/`private` and never stored.
+
+*Verified against Omada 6.3 in CI*: both paths and all fields are in the controller's own
+`/v3/api-docs` and answer to the viewer application (`securityLevel`: 0 NoAuthNoPriv, 1
+AuthNoPriv, 2 AuthPriv; a site with both versions off answers only `snmpV1V2CEnable`,
+`snmpV3Enable`, `location`, `contact`). The test site has no managed device, so which devices
+apply the settings is a *guess* until a real site is read (#21). A site setting the controller
+refuses or does not have leaves its service out; the controller's own web interface and cloud
+access are not read (no Open API call). `transport_encrypted` is true for https.

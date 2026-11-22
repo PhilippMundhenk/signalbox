@@ -14,6 +14,18 @@ export function onUnauthorized(fn) {
   unauthorized.push(fn);
 }
 
+// Reachability: any API call that gets no answer reports "down", any answer reports "up".
+const reachability = [];
+export function onReachability(fn) {
+  reachability.push(fn);
+}
+let reachable = true;
+function setReachable(up) {
+  if (up === reachable) return;
+  reachable = up;
+  reachability.forEach((fn) => fn(up));
+}
+
 export async function api(method, path, body) {
   let response;
   try {
@@ -24,8 +36,10 @@ export async function api(method, path, body) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (err) {
+    setReachable(false);
     throw new ApiError(0, { error: 'network', message: 'Cannot reach the Signalbox server.' });
   }
+  setReachable(true);
   let data = {};
   if (response.status !== 204) {
     try {
@@ -47,3 +61,48 @@ export const post = (path, body = {}) => api('POST', path, body);
 export const put = (path, body) => api('PUT', path, body);
 export const del = (path) => api('DELETE', path);
 export const enc = encodeURIComponent;
+
+// Session watch: a cheap GET /api/session on a timer while the tab is visible and when it becomes
+// visible again. A 401 from any call (see above) ends the session in place; an unreachable server
+// is not a logout: it is reported through onReachability and retried with backoff (2 s, doubling,
+// at most 60 s) instead of at the normal period. Logout in one tab is announced to the others.
+const PERIOD = 60000;
+const MAX_BACKOFF = 60000;
+const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('signalbox-session') : null;
+
+export function announceLogout() {
+  if (channel) channel.postMessage('logout');
+}
+
+export function watchSession({ onEnded, period = PERIOD }) {
+  let timer = null;
+  let delay = 0;
+  let busy = false;
+  const schedule = () => {
+    clearTimeout(timer);
+    timer = null;
+    if (document.visibilityState === 'hidden') return; // resumed by visibilitychange
+    timer = setTimeout(check, delay || period);
+  };
+  async function check() {
+    if (busy) return;
+    busy = true;
+    try {
+      const session = await get('/session');
+      delay = 0;
+      if (!session.authenticated) onEnded();
+    } catch (err) {
+      delay = Math.min(delay ? delay * 2 : 2000, MAX_BACKOFF);
+    } finally {
+      busy = false;
+      schedule();
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') check();
+    else schedule();
+  });
+  if (channel) channel.addEventListener('message', (e) => e.data === 'logout' && onEnded());
+  schedule();
+  return check;
+}

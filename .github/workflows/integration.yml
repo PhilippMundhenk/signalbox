@@ -3,20 +3,15 @@ name: Integration
 # The adapters against the real device software (#136): one job per target, each boots the
 # official software (QEMU with KVM, or a container) and runs tests/integration against it.
 # Locally these tests skip; here REQUIRE_INTEGRATION=1 makes a missing target a failure.
+# Pull requests start only the targets their changed paths belong to (tools/ci_changes.py, #245);
+# main, the schedule and manual runs start all. Require the check `integration-ok`, not the
+# per-target jobs: it passes when targets are skipped.
 
 on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
   pull_request:
-    paths:
-      - "src/signalbox/adapters/**"
-      - "src/signalbox/sim/**"
-      - "src/signalbox/deploy.py"
-      - "tests/integration/**"
-      - "tools/integration/**"
-      - "docs/adapters/**"
-      - ".github/workflows/integration.yml"
 
 permissions:
   contents: read
@@ -26,7 +21,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Which targets does the change need
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      opnsense: ${{ steps.sel.outputs.opnsense }}
+      openwrt: ${{ steps.sel.outputs.openwrt }}
+      mikrotik: ${{ steps.sel.outputs.mikrotik }}
+      omada: ${{ steps.sel.outputs.omada }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - id: sel
+        run: >
+          python3 tools/ci_changes.py integration
+          --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.event.pull_request.head.sha }}"
+          >> "$GITHUB_OUTPUT"
+
   opnsense:
+    needs: changes
+    if: needs.changes.outputs.opnsense == 'true'
     name: OPNsense 26.7 (official nano image in QEMU)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -114,6 +129,8 @@ jobs:
           retention-days: 7
 
   openwrt:
+    needs: changes
+    if: needs.changes.outputs.openwrt == 'true'
     name: OpenWrt ${{ matrix.version }} (x86-64 in QEMU)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -201,6 +218,8 @@ jobs:
           retention-days: 7
 
   mikrotik:
+    needs: changes
+    if: needs.changes.outputs.mikrotik == 'true'
     name: MikroTik RouterOS CHR (official image in QEMU)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -251,6 +270,8 @@ jobs:
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" health
       - name: Record the REST answers (read user, uplink)
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" uplink
+      - name: Record the REST answers (read user, management services)
+        run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" services
       - name: Record the REST answers (write user)
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" write
       - name: Record the REST answers (refused and missing)
@@ -296,6 +317,8 @@ jobs:
           retention-days: 7
 
   omada:
+    needs: changes
+    if: needs.changes.outputs.omada == 'true'
     name: Omada Software Controller 6.3 (official package in Docker)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -323,10 +346,14 @@ jobs:
         run: python3 tools/integration/omada/dump.py "$CTRL_DIR" detail 1
       - name: Record the API answers (refusals)
         run: python3 tools/integration/omada/dump.py "$CTRL_DIR" auth 0
+      - name: Record the site services (SSH, SNMP)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" services 0
       - name: Record the spec of the managed devices (1)
         run: python3 tools/integration/omada/dump.py "$CTRL_DIR" spec 0
       - name: Record the spec of the managed devices (2)
         run: python3 tools/integration/omada/dump.py "$CTRL_DIR" spec 1
+      - name: Record the spec of the managed devices (3)
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" spec 2
       - name: Integration tests
         run: |
           set -o pipefail
@@ -352,3 +379,17 @@ jobs:
             .ctrl/omada/api-*.json
           if-no-files-found: ignore
           retention-days: 7
+
+  integration-ok:
+    name: Integration (all needed targets passed)
+    if: always()
+    needs: [changes, opnsense, openwrt, mikrotik, omada]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail if a needed job failed or was cancelled (skipped is fine)
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -Eq 'failure|cancelled'; then exit 1; fi

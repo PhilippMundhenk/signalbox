@@ -71,6 +71,18 @@ def test_api_requires_login(client: TestClient) -> None:
     assert client.get("/api/session").json()["authenticated"] is False
 
 
+def test_session_endpoint_is_open_cheap_and_has_no_secrets(client: TestClient) -> None:
+    r = client.get("/api/session")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert set(r.json()) == {"authenticated", "password_fixed", "version"}
+    assert r.json()["authenticated"] is False
+    client.post("/api/login", json={"password": PW})
+    assert client.get("/api/session").json()["authenticated"] is True
+    client.post("/api/logout")
+    body = client.get("/api/session")
+    assert body.json()["authenticated"] is False and PW not in body.text
+
+
 def test_login_logout(client: TestClient) -> None:
     assert client.post("/api/login", json={"password": "nope"}).status_code == 401
     r = client.post("/api/login", json={"password": PW})
@@ -424,3 +436,9 @@ def test_form_test_while_editing_keeps_stored_secrets(logged_in: TestClient) -> 
     assert res["status"] == "ok" and Dev.seen[-1] == "stored-pw"
     # the stored device is unchanged by the test
     assert logged_in.get("/api/devices/main-gateway").json()["name"] == "Main Gateway"
+
+
+def test_devices_carry_manage_url_key(logged_in: TestClient) -> None:
+    logged_in.post("/api/devices", json=device_body())
+    assert logged_in.get("/api/devices").json()[0]["manage_url"] is None  # unknown adapter
+    assert logged_in.get("/api/devices/main-gateway").json()["manage_url"] is None

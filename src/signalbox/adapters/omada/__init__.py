@@ -53,6 +53,7 @@ from signalbox.adapters.omada import vitals
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
+    SERVICE_PORTS,
     Band,
     Cipher,
     Client,
@@ -64,6 +65,7 @@ from signalbox.model import (
     Firmware,
     IPAddress,
     IPInterface,
+    ManagementService,
     Membership,
     Pmf,
     Port,
@@ -73,6 +75,9 @@ from signalbox.model import (
     Security,
     Segment,
     SegmentPurpose,
+    ServiceKind,
+    SnmpSettings,
+    SnmpVersion,
     Subnet,
     Uplink,
     UplinkKind,
@@ -653,6 +658,7 @@ class OmadaAdapter(_Adapter):
             model="Omada Controller",
             firmware=Firmware(current=version) if version else None,
             management_address=self.http.host,
+            transport_encrypted=self.http.secure,
         )
 
     # --- shared views -------------------------------------------------------------------------
@@ -817,8 +823,60 @@ class OmadaAdapter(_Adapter):
                 if uplink is not None:
                     uplinks.append(uplink)
         return Observation(
-            ports=ports, segments=segs, subnets=subnets, devices=managed, uplinks=uplinks
+            ports=ports,
+            segments=segs,
+            subnets=subnets,
+            devices=managed,
+            uplinks=uplinks,
+            services=await self._services([m.id for m in managed]),
         )
+
+    async def _services(self, device_ids: list[str]) -> list[ManagementService]:
+        """SSH and SNMP of the site (#173). The controller applies both to every device it
+        manages, so each managed device gets the same two services; the controller's own web
+        interface and cloud access are not read (the Open API has no call for them). A site
+        setting the controller refuses or does not have is left out."""
+        ssh = await self._object(f"{self._site_path}/ssh")
+        snmp = await self._object(f"{self._site_path}/setting/service/snmp")
+        out: list[ManagementService] = []
+        for device in device_ids:
+            if ssh is not None and isinstance(ssh.get("sshEnable"), bool):
+                out.append(
+                    ManagementService(
+                        id=object_id(device, "service", "ssh"),
+                        device_id=device,
+                        kind=ServiceKind.SSH,
+                        name="ssh",
+                        enabled=ssh["sshEnable"],
+                        port=_int(ssh.get("sshServerPort")) or SERVICE_PORTS[ServiceKind.SSH],
+                    )
+                )
+            if snmp is not None:
+                v12 = snmp.get("snmpV1V2CEnable") is True
+                v3 = snmp.get("snmpV3Enable") is True
+                community = _text(snmp.get("communityString"))
+                level = _int(snmp.get("securityLevel"))
+                out.append(
+                    ManagementService(
+                        id=object_id(device, "service", "snmp"),
+                        device_id=device,
+                        kind=ServiceKind.SNMP,
+                        name="snmp",
+                        enabled=v12 or v3,
+                        port=SERVICE_PORTS[ServiceKind.SNMP],
+                        snmp=SnmpSettings(
+                            versions=[
+                                *([SnmpVersion.V2C] if v12 else []),
+                                *([SnmpVersion.V3] if v3 else []),
+                            ],
+                            default_community=community.lower() in ("public", "private")
+                            if v12 and community
+                            else None,
+                            v3_privacy=level == 2 if v3 and level is not None else None,
+                        ),
+                    )
+                )
+        return out
 
     # --- health and time ----------------------------------------------------------------------
 

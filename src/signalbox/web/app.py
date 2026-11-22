@@ -42,6 +42,7 @@ from signalbox.web.auth import COOKIE, Auth, Locked
 from signalbox.web.changes_api import router as changes_router
 from signalbox.web.desired_api import router as desired_router
 from signalbox.web.discovery_api import router as discovery_router
+from signalbox.web.manage_url import manage_url
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -106,8 +107,10 @@ def public_network(net: Network) -> dict[str, Any]:
 
     Uplinks get the derived ``nat_class`` and ``upstream_device`` (the known router in front,
     #148), management services the segments that can reach them (``reach_segments``) and
-    whether the internet can (``internet``, ``null``: the firewall decides, #173), so that the
-    UI does not repeat the derivation.
+    whether the internet can (``internet``, ``null``: the firewall decides, #173), clients the
+    source of each address (``sources``, from leases where the client does not say) and the
+    end of their active leases (``lease_expires``, #183), so that the UI does not repeat the
+    derivation.
     """
     data = net.model_dump(mode="json")
     for wlan in data["wlans"]:
@@ -121,6 +124,16 @@ def public_network(net: Network) -> dict[str, Any]:
     for service, raw in zip(net.services, data["services"], strict=True):
         raw["reach_segments"] = net.service_segments(service)
         raw["internet"] = net.service_from_wan(service)
+    for client, raw in zip(net.clients, data["clients"], strict=True):
+        sources = {str(a): net.address_source(client, a) for a in client.addresses}
+        raw["sources"] = {a: s.value for a, s in sources.items() if s is not None}
+        ends = [
+            lease.expires
+            for srv in net.dhcp_servers
+            for lease in srv.leases_of(client.mac)
+            if lease.active() and lease.expires is not None
+        ]
+        raw["lease_expires"] = max(ends).isoformat() if ends else None
     return data
 
 
@@ -353,11 +366,21 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
 
     # devices ----------------------------------------------------------------------------
 
-    def device_json(rec: DeviceRecord, past: History | None = None) -> dict[str, Any]:
+    def device_json(
+        rec: DeviceRecord, past: History | None = None, net: Network | None = None
+    ) -> dict[str, Any]:
         net_status = runner_status().get(rec.id)
         seen = (past or runner.history()).devices.get(rec.id)
+        net = net or runner.network()
+        dev = net.device(rec.id)
         return {
             **rec.model_dump(mode="json"),
+            "manage_url": manage_url(
+                rec.adapter,
+                rec.config,
+                net.services_of(rec.id),
+                dev.management_address if dev else None,
+            ),
             "status": net_status,
             "first_seen": seen.first_seen.isoformat() if seen else None,
             "last_seen": seen.last_seen.isoformat() if seen else None,
@@ -371,7 +394,8 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     def devices() -> list[dict[str, Any]]:
         """List devices with their last status and when they were first seen and last read."""
         past = runner.history()
-        return [device_json(d, past) for d in store.devices()]
+        net = runner.network()
+        return [device_json(d, past, net) for d in store.devices()]
 
     def save_device(device_id: str, body: DeviceBody) -> DeviceRecord | JSONResponse:
         cls = services.adapters.get(body.adapter)

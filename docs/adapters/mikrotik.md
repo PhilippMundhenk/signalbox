@@ -623,3 +623,34 @@ download in CI). tools/integration/mikrotik/vm.py boots it in QEMU with KVM:
   interface). After every round trip the menus are compared entry by entry.
 
 The test VM is never run locally: without `IT_MIKROTIK_URL` the tests skip.
+
+
+## Management services (#173)
+
+Read with the `interfaces` capability; every service is reported, disabled ones too.
+*Verified on the RouterOS 7.25.1 CHR in CI* (`test_management_services_of_chr`; the raw answers
+are the `services` dump group), as the read-only user of this page.
+
+- `GET /rest/ip/service`: one row per service (`telnet`, `ftp`, `www` as `http`, `ssh`,
+  `www-ssl` as `https`, `api`, `winbox`, `api-ssl`) with `port`, `disabled`, `proto`, `vrf` and
+  `available-from` (comma-separated prefixes: `allowed_from`; `address` before 7.25).
+  Dynamic rows (the `resolver`, one per open connection) and names the adapter does not know
+  (`reverse-proxy`) are skipped.
+- `GET /rest/tool/mac-server` and `/rest/tool/mac-server/mac-winbox` (`mac-telnet`,
+  `mac-winbox`; layer 2, no port): `allowed-interface-list` `none` is off, `all` is every
+  interface, another list name is resolved with `/rest/interface/list/member` to the ports
+  *(guess: not tried with a custom list)*. `GET /rest/tool/romon` and `GET /rest/ip/upnp`:
+  `enabled`.
+- `GET /rest/ip/ssh`: `password-authentication` `yes` or `no` is `password_login`;
+  `yes-if-no-key` (a password only while the user has no key) is left unknown.
+  `always-allow-password-login` is read when the router has no such field.
+- `GET /rest/snmp` (`enabled`) and `/rest/snmp/community`: whether a community named `public`
+  exists, whether any community has `write-access`, and the versions: `security` `none` is
+  v1/v2c, `authorized` is authNoPriv and `private` is authPriv (`v3_privacy`). The protocol
+  fields are filled whatever the level (`DES` on `public`). The community string itself is
+  never stored. The read user sees the community names without the `sensitive` policy (the
+  passwords are `*****`).
+- A menu the read group may not read (or `/ip/service` itself) leaves out its services; when
+  `/ip/service` fails the list stays empty (not read) and the rest of the read is unaffected.
+- `transport_encrypted` is true for the https URL, false for `allow_insecure_http`.
+- `from_wan` stays unknown: the firewall is not read (#135).

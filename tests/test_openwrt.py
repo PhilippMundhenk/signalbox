@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ssl
+import statistics
 import time
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
@@ -40,6 +41,7 @@ from signalbox.adapters.openwrt import (
 )
 from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
 from signalbox.model import (
+    AddressSource,
     Band,
     Cipher,
     DeviceRole,
@@ -310,6 +312,7 @@ async def test_clients(adapter: OpenWrtAdapter) -> None:
     laptop = clients["02:00:00:00:20:03"]
     assert laptop.seen_on == "ap1/wlan/default_radio1" and laptop.hostname == "laptop"
     assert laptop.addresses == [ip_address("192.0.2.103")]
+    assert laptop.address_sources == {ip_address("192.0.2.103"): AddressSource.DHCP}  # #183
 
 
 async def test_leases_from_file_without_luci_rpc(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
@@ -445,13 +448,17 @@ async def test_kept_connection_has_no_nagle_delay(
     http = DeviceHttp(https_url, pinned_fingerprint=cert.fingerprint, timeout=5)
     try:
         await http.request("POST", "/ubus", json={}, accept=range(200, 600))
-        start = time.perf_counter()
+        durations = []
         for _ in range(25):
+            start = time.perf_counter()
             await http.request("POST", "/ubus", json={}, accept=range(200, 600))
-        elapsed = time.perf_counter() - start
+            durations.append(time.perf_counter() - start)
     finally:
         await http.close()
-    assert elapsed < 0.6, f"25 requests took {elapsed:.2f} s"
+    # The median, not the total: a loaded CI worker delays single requests by arbitrary amounts, but
+    # the stall hits every request (>= 40 ms each), while a healthy one takes a few ms.
+    median = statistics.median(durations)
+    assert median < 0.03, f"median request took {median * 1000:.0f} ms"
 
 
 async def test_unreachable(sim: OpenWrtSim) -> None:
@@ -978,3 +985,68 @@ def test_posix_offset_agrees_with_zoneinfo(zone: str) -> None:
         assert expected is not None
         assert vitals.posix_offset(posix, when) == expected.total_seconds() // 60, when
         when += timedelta(hours=7)
+
+
+# --- management services (#173) --------------------------------------------------------------
+
+
+async def test_services(adapter: OpenWrtAdapter, sim: OpenWrtSim) -> None:
+    obs = await adapter.read_interfaces()
+    by = {s.id: s for s in obs.services}
+    assert sorted(by) == ["ap1/service/dropbear", "ap1/service/uhttpd", "ap1/service/uhttpd-ssl"]
+    ssh = by["ap1/service/dropbear"]
+    assert (ssh.kind.value, ssh.port, ssh.enabled, ssh.encrypted) == ("ssh", 22, True, True)
+    assert ssh.segments == ["home/segment/native"]  # Interface lan
+    assert ssh.password_login and ssh.root_login and ssh.root_password_login
+    http, https = by["ap1/service/uhttpd"], by["ap1/service/uhttpd-ssl"]
+    assert (http.port, http.enabled, http.redirects_to_https) == (80, True, False)
+    assert (https.port, https.enabled, https.redirects_to_https) == (443, True, None)
+    assert http.listen == [ip_address("0.0.0.0"), ip_address("::")]
+    assert (await adapter.read_system()).transport_encrypted is True
+
+
+async def test_services_follow_the_config(adapter: OpenWrtAdapter, sim: OpenWrtSim) -> None:
+    sim.state["dropbear"] = {
+        "cfg1": {".type": "dropbear", "enable": "0", "RootPasswordAuth": "off", "Port": "2222"},
+        "cfg2": {".type": "dropbear", "DirectInterface": "lan1", "RootLogin": "0"},
+    }
+    sim.state["uhttpd"]["main"].update(
+        {"listen_http": [], "listen_https": ["192.0.2.2:8443"], "redirect_https": "1"}
+    )
+    by = {s.id: s for s in (await adapter.read_interfaces()).services}
+    off, second = by["ap1/service/dropbear"], by["ap1/service/dropbear-22"]
+    assert (off.enabled, off.port, off.root_password_login, off.segments) == (
+        False,
+        2222,
+        False,
+        [],
+    )
+    assert second.interfaces == ["ap1/port/lan1"] and second.root_login is False
+    assert not by["ap1/service/uhttpd"].enabled and by["ap1/service/uhttpd"].redirects_to_https
+    assert by["ap1/service/uhttpd-ssl"].port == 8443
+    assert by["ap1/service/uhttpd-ssl"].listen == [ip_address("192.0.2.2")]
+
+
+async def test_old_acl_leaves_services_unread(adapter: OpenWrtAdapter, sim: OpenWrtSim) -> None:
+    sim.denied = {"uci:dropbear", "uci:uhttpd"}
+    snap = await adapter.observe()
+    # the rest is read; the missing permission is reported with what to paste (gap)
+    assert snap.status is DeviceStatus.PARTIAL and snap.ports and snap.services == []
+    [gap] = snap.errors
+    assert gap.capability == "interfaces" and "management services" in gap.message
+    assert gap.fix and "Prepare the router" in gap.fix
+
+
+async def test_router_without_dropbear_config(adapter: OpenWrtAdapter, sim: OpenWrtSim) -> None:
+    sim.missing = {"dropbear"}  # not installed: only the web UI
+    names = {s.name for s in (await adapter.read_interfaces()).services}
+    assert names == {"uhttpd", "uhttpd-ssl"}
+
+
+async def test_device_without_wifi_has_no_radios(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    """A switch running OpenWrt: no network.wireless object and no wireless config."""
+    sim.missing = {"wireless"}
+    sim.no_wireless_object = True
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.OK, snap.errors
+    assert snap.radios == [] and snap.wlans == [] and snap.ports

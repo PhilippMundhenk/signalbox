@@ -328,7 +328,14 @@ def _usage(net: Network, srv: DhcpServer) -> _Usage | None:
             a.version in spans and _usable(a) for a in c.addresses
         ):
             seen.add(c.mac)
-    return _Usage(size - len(in_pool), len(used), len(seen))
+    # The lease table says what is taken right now (#183); clients seen are the fallback and a
+    # table an adapter capped may hold fewer leases than there are clients.
+    leased = {
+        x.address
+        for x in srv.active_leases(srv.observed_at)
+        if x.address not in in_pool and any(_in_pool(x.address, p) for p in srv.pools)
+    }
+    return _Usage(size - len(in_pool), max(len(used), len(leased)), len(seen))
 
 
 @rule(

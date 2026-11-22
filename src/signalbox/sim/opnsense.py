@@ -443,6 +443,23 @@ def sample_data() -> dict[str, Any]:
             },
         ],
         "/api/diagnostics/cpu_usage/get_cpu_type": ["AMD GX-412TC SOC (4 cores, 4 threads)"],
+        # os-net-snmp (not part of the base system): general settings, v2c community "public"
+        "/api/netsnmp/general/get": {
+            "general": {
+                "enabled": "1",
+                "community": "public",
+                "syslocation": "",
+                "syscontact": "",
+                "l3visibility": "0",
+                "versionoid": "0",
+                "enableagentx": "0",
+                "enableobservium": "0",
+                "listen": {
+                    "192.0.2.1": {"value": "192.0.2.1", "selected": 1},
+                    "198.51.100.1": {"value": "198.51.100.1", "selected": 0},
+                },
+            }
+        },
         "/api/ntpd/service/status": {
             "total": 3,
             "rowCount": 3,

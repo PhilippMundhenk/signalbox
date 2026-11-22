@@ -2,7 +2,7 @@
 import { del, enc, get, post } from '../api.js';
 import { loadNetwork } from '../net.js';
 import { clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, place, portDetails, portSpeed, yesNo } from '../util.js';
-import { card, confirmDialog, empty, kv, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
+import { card, confirmDialog, empty, kv, manageLink, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
 import { readErrors, testResult, trustPanel } from './devicetest.js';
 import { notesCard } from '../annotations.js';
@@ -318,7 +318,7 @@ export async function renderDevice(main, ctx, route) {
   }
   const base = `#/device/${enc(device.id)}`;
   place(main, 
-    pageHead(device.name),
+    pageHead(device.name, manageLink(device, 'Open web interface', 'manage-link', 'btn')),
     tabs(
       [
         ['overview', 'Overview', base],

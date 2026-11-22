@@ -16,11 +16,16 @@ from contextlib import contextmanager
 
 from signalbox.adapters import Adapter, Capability, check_manifest
 from signalbox.model import (
+    TYPED_OPTION_CODES,
     Cipher,
+    Client,
     Device,
     DeviceHealth,
     DeviceStatus,
     DeviceTime,
+    DhcpRelay,
+    DhcpServer,
+    LeaseState,
     ManagementService,
     Membership,
     NatClass,
@@ -36,6 +41,7 @@ from signalbox.model import (
     Wlan,
     address_nat_class,
     set_passphrase_digest_key,
+    source_fits,
 )
 
 #: Key of :func:`passphrase_digest_key` unless a test passes its own.
@@ -210,6 +216,52 @@ def service_problems(
     return out
 
 
+def dhcp_problems(server: DhcpServer) -> list[str]:
+    """Inconsistent DHCP server data (#183): leases without an owner or with impossible times,
+    one address leased to two clients, options that repeat a typed field."""
+    out: list[str] = []
+    sid = server.id
+    active: dict[str, str] = {}
+    for lease in server.leases or []:
+        what = f"{sid} lease {lease.address}"
+        if lease.mac is None and not lease.client_id:
+            out.append(f"{what} has neither a MAC address nor a client id")
+        if lease.starts and lease.expires and lease.expires < lease.starts:
+            out.append(f"{what} expires before it starts")
+        if lease.state is LeaseState.RESERVED and lease.reserved is False:
+            out.append(f"{what}: state reserved but not a reservation")
+        owner = lease.mac or lease.client_id or ""
+        if lease.state is LeaseState.ACTIVE:
+            other = active.setdefault(str(lease.address), owner)
+            if other != owner:
+                out.append(f"{what} is active for both {other} and {owner}")
+    codes = [o.code for o in server.options]
+    for code in sorted(set(codes)):
+        if code in TYPED_OPTION_CODES:
+            out.append(f"{sid}: option {code} belongs in its typed field")
+        if codes.count(code) > 1:
+            out.append(f"{sid}: option {code} listed twice")
+    return out
+
+
+def relay_problems(relay: DhcpRelay) -> list[str]:
+    prefix = f"{relay.device_id}/dhcp-relay/"
+    if not relay.id.startswith(prefix) or relay.id == prefix:
+        return [f"dhcp relay id {relay.id} is not {prefix}<segment key>"]
+    return []
+
+
+def client_problems(client: Client) -> list[str]:
+    """Address sources (#183) only for listed addresses, and of the right family."""
+    out: list[str] = []
+    for addr, src in client.address_sources.items():
+        if addr not in client.addresses:
+            out.append(f"client {client.id}: source for {addr}, which it does not list")
+        elif not source_fits(addr, src):
+            out.append(f"client {client.id}: {src.value} cannot apply to {addr}")
+    return out
+
+
 def time_problems(device_id: str, value: DeviceTime, segment_prefix: str) -> list[str]:
     """Inconsistent clock and NTP values."""
     out: list[str] = []
@@ -244,6 +296,8 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
     for kind in ("uplinks", "services"):
         if getattr(snapshot, kind) and Capability.INTERFACES.value not in caps:
             out.append(f"{kind} reported without declaring {Capability.INTERFACES.value}")
+    if snapshot.dhcp_relays and Capability.DHCP.value not in caps:
+        out.append(f"dhcp_relays reported without declaring {Capability.DHCP.value}")
     for d in devices:
         if d.health is not None:
             out += health_problems(d.id, d.health)
@@ -279,7 +333,15 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
     radio_ids = {r.id for r in snapshot.radios}
     segment_ids = {s.id for s in snapshot.segments}
 
-    owned = ("ports", "subnets", "uplinks", "services", "dhcp_servers", "dns_services")
+    owned = (
+        "ports",
+        "subnets",
+        "uplinks",
+        "services",
+        "dhcp_servers",
+        "dhcp_relays",
+        "dns_services",
+    )
     for kind in (*owned, "radios", "wlans"):
         for obj in getattr(snapshot, kind):
             if not obj.id.startswith(own):
@@ -311,7 +373,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         untagged = [x for x in seg.members if x.mode is Membership.UNTAGGED]
         if len({x.port_id for x in untagged}) != len(untagged):
             out.append(f"segment {seg.id} lists a port twice")
-    for refs in (snapshot.subnets, snapshot.dhcp_servers):
+    for refs in (snapshot.subnets, snapshot.dhcp_servers, snapshot.dhcp_relays):
         for obj in refs:
             if obj.segment_id not in segment_ids:
                 out.append(f"{obj.id} references unknown segment {obj.segment_id}")
@@ -334,6 +396,16 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
             out.append(f"service {service.id} reported twice")
         seen.add(service.id)
         out += service_problems(service, port_ids, segment_ids)
+    for server in snapshot.dhcp_servers:
+        out += dhcp_problems(server)
+    relays: set[str] = set()
+    for relay in snapshot.dhcp_relays:
+        if relay.id in relays:
+            out.append(f"dhcp relay {relay.id} reported twice")
+        relays.add(relay.id)
+        out += relay_problems(relay)
+    for client in snapshot.clients:
+        out += client_problems(client)
     for nb in snapshot.neighbours:
         if nb.local_port_id not in port_ids:
             out.append(f"neighbour {nb.id} on unknown port {nb.local_port_id}")

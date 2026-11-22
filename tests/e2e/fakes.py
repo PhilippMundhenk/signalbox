@@ -23,17 +23,20 @@ from signalbox.adapters import (
 )
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
+    AddressSource,
     Band,
     Cipher,
     Client,
     DeviceHealth,
     DeviceRole,
     DeviceTime,
+    DhcpLease,
     DhcpPool,
     DhcpServer,
     DnsService,
     Firmware,
     HostRecord,
+    LeaseState,
     ManagementService,
     Membership,
     Network,
@@ -280,6 +283,22 @@ class Lab(Adapter):
                             hostname="printer",
                         )
                     ],
+                    leases=[
+                        DhcpLease(
+                            address=ip_address("192.0.2.123"),
+                            mac="02:00:00:00:aa:02",
+                            hostname="laptop",
+                            expires=datetime.now(UTC) + timedelta(hours=12),
+                            vendor_class="MSFT 5.0",
+                        ),
+                        DhcpLease(
+                            address=ip_address("192.0.2.150"),
+                            mac="02:00:00:00:aa:09",
+                            state=LeaseState.EXPIRED,
+                        ),
+                    ],
+                    search_domains=["lan"],
+                    authoritative=True,
                 ),
                 DhcpServer(
                     id=f"{d}/dhcp/guests",
@@ -397,6 +416,7 @@ class Lab(Adapter):
                     hostname="printer",
                     segment_id=self._seg(10),
                     seen_on=port_id(d, "lan1"),
+                    address_sources={ip_address("192.0.2.10"): AddressSource.DHCP_RESERVED},
                     last_seen=now,
                 ),
                 Client(

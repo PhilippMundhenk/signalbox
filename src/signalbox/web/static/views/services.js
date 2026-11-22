@@ -3,6 +3,15 @@ import { loadNetwork, noData } from '../net.js';
 import { by, h, place, yesNo } from '../util.js';
 import { card, kv, pageHead, table, tag } from '../ui.js';
 
+// "12 active, 3 expired, 1 declined" (#183).
+function leaseCount(leases) {
+  const n = {};
+  for (const l of leases) n[l.state] = (n[l.state] || 0) + 1;
+  const order = ['active', 'offered', 'reserved', 'expired', 'declined'];
+  const text = order.filter((s) => n[s]).map((s) => `${n[s]} ${s}`).join(', ');
+  return h('span', { 'data-testid': 'dhcp-leases' }, text || 'none');
+}
+
 function dhcpCard(ix, d) {
   return h(
     'section',
@@ -14,6 +23,11 @@ function dhcpCard(ix, d) {
       ['Router', d.router],
       ['DNS servers', d.dns_servers.length ? d.dns_servers.join(', ') : null],
       ['Domain', d.domain],
+      ['Search domains', d.search_domains.length ? d.search_domains.join(', ') : undefined],
+      ['NTP servers', d.ntp_servers.length ? d.ntp_servers.join(', ') : undefined],
+      ['Leases', d.leases ? leaseCount(d.leases) : undefined],
+      ['Authoritative', d.authoritative === null ? undefined : yesNo(d.authoritative)],
+      ['Failover peer', d.failover_peer || undefined],
     ]),
     d.reservations.length
       ? h(

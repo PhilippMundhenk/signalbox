@@ -17,9 +17,11 @@ from collections.abc import Iterable
 from ipaddress import IPv4Network, IPv6Network, ip_address
 
 from signalbox.model import (
+    AddressSource,
     Client,
     Device,
     DeviceRole,
+    IPAddress,
     Link,
     Membership,
     Network,
@@ -239,6 +241,10 @@ def _split_snapshot(snap: Snapshot, native: dict[str, str]) -> Snapshot:
                 s.model_copy(update={"segment_id": of(s.device_id, s.segment_id)})
                 for s in snap.dhcp_servers
             ],
+            "dhcp_relays": [
+                r.model_copy(update={"segment_id": of(r.device_id, r.segment_id)})
+                for r in snap.dhcp_relays
+            ],
             "wlans": [
                 w.model_copy(update={"segment_id": of(w.device_id, w.segment_id)})
                 for w in snap.wlans
@@ -310,6 +316,15 @@ def _merge_segments(snaps: list[Snapshot]) -> list[Segment]:
     return result
 
 
+def _merge_sources(old: Client, new: Client) -> dict[IPAddress, AddressSource]:
+    """Address sources of both; the more specific device's wins unless it says ``unknown``."""
+    out = dict(new.address_sources)
+    for addr, src in old.address_sources.items():
+        if src is not AddressSource.UNKNOWN or addr not in out:
+            out[addr] = src
+    return out
+
+
 def _merge_clients(snapshots: list[Snapshot]) -> list[Client]:
     """One client per MAC address.
 
@@ -336,6 +351,7 @@ def _merge_clients(snapshots: list[Snapshot]) -> list[Client]:
                     "segment_id": old.segment_id or c.segment_id,
                     "seen_on": old.seen_on or c.seen_on,
                     "last_seen": last_seen,
+                    "address_sources": _merge_sources(old, c),
                 }
             )
     return sorted(merged.values(), key=lambda c: c.mac)
@@ -379,6 +395,7 @@ def merge(
             "uplinks": every("uplinks"),
             "services": every("services"),
             "dhcp_servers": every("dhcp_servers"),
+            "dhcp_relays": every("dhcp_relays"),
             "dns_services": every("dns_services"),
             "radios": every("radios"),
             "wlans": every("wlans"),

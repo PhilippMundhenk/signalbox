@@ -21,6 +21,7 @@ segment of the site: it appears as a port only.
 
 from __future__ import annotations
 
+import contextlib
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Iterator, Mapping
@@ -51,6 +52,8 @@ from signalbox.adapters.opnsense import write as w
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
+    SERVICE_PORTS,
+    AddressSource,
     Client,
     DeviceRole,
     DhcpPool,
@@ -60,6 +63,7 @@ from signalbox.model import (
     HostRecord,
     IPAddress,
     IPInterface,
+    ManagementService,
     Membership,
     Port,
     PortKind,
@@ -67,6 +71,9 @@ from signalbox.model import (
     PortMembership,
     Reservation,
     Segment,
+    ServiceKind,
+    SnmpSettings,
+    SnmpVersion,
     Subnet,
     Uplink,
     UplinkKind,
@@ -75,6 +82,16 @@ from signalbox.model import (
     port_id,
     segment_id,
 )
+
+
+def _listen_values(value: Any) -> list[str]:
+    """A list field of the model API: ``"a,b"``, or ``{"a": {"value": "a", "selected": 1}}``."""
+    if isinstance(value, str):
+        return [v.strip() for v in value.split(",") if v.strip()]
+    if isinstance(value, dict):
+        return [str(k) for k, v in value.items() if not isinstance(v, dict) or v.get("selected")]
+    return []
+
 
 FIRMWARE = "/api/core/firmware/status"
 INTERFACES = "/api/interfaces/overview/interfaces_info"
@@ -95,6 +112,7 @@ SYSTEM_DISK = "/api/diagnostics/system/system_disk"
 SYSTEM_TEMPERATURE = "/api/diagnostics/system/system_temperature"
 CPU_TYPE = "/api/diagnostics/cpu_usage/get_cpu_type"
 NTP_STATUS = "/api/ntpd/service/status"
+NETSNMP = "/api/netsnmp/general/get"
 
 #: Grid endpoints page their answer; ask for everything at once.
 ALL_ROWS = {"current": 1, "rowCount": -1}
@@ -512,6 +530,7 @@ class OpnsenseAdapter(_Adapter):
             model=_text(product.get("product_name")) or "OPNsense",
             firmware=Firmware(current=current, available=latest if newer else None),
             management_address=self.http.host,
+            transport_encrypted=self.http.secure,
         )
 
     # --- interfaces ---------------------------------------------------------------------------
@@ -654,7 +673,60 @@ class OpnsenseAdapter(_Adapter):
             segments=list(layout.segments.values()),
             subnets=subnets,
             uplinks=uplinks,
+            services=await self._services(),
         )
+
+    async def _services(self) -> list[ManagementService]:
+        """Management services (#173), as far as a narrow API tells.
+
+        The web interface and SSH settings (``system/webgui``, ``system/ssh``) have no API of
+        their own, and the configuration backup that holds them also holds every secret of the
+        firewall: it is not downloaded. What is read: the web interface Signalbox itself talks
+        to (scheme and port of the address it uses) and, when the ``os-net-snmp`` plugin is
+        installed, ``/api/netsnmp/general/get``.
+        """
+        dev = self.context.device_id
+        https = self.http.secure
+        out = [
+            ManagementService(
+                id=object_id(dev, "service", "webgui"),
+                device_id=dev,
+                kind=ServiceKind.HTTPS if https else ServiceKind.HTTP,
+                name="webgui",
+                enabled=True,
+                port=self.http.port,
+            )
+        ]
+        try:
+            data = await self._optional(NETSNMP)
+        except AdapterError:  # no privilege for the plugin's page: not read
+            return out
+        general = _dict(data, NETSNMP, "the answer").get("general") if data is not None else None
+        if not isinstance(general, dict):
+            return out
+        community = _text(general.get("community"))
+        listen: list[IPAddress] = []
+        for part in _listen_values(general.get("listen")):
+            with contextlib.suppress(ValueError):
+                listen.append(ip_address(part))
+        out.append(
+            ManagementService(
+                id=object_id(dev, "service", "snmp"),
+                device_id=dev,
+                kind=ServiceKind.SNMP,
+                name="net-snmp",
+                enabled=_text(general.get("enabled")) == "1",
+                port=SERVICE_PORTS[ServiceKind.SNMP],
+                listen=listen,
+                snmp=SnmpSettings(
+                    versions=[SnmpVersion.V2C] if community else [],
+                    default_community=community.lower() in ("public", "private")
+                    if community
+                    else None,
+                ),
+            )
+        )
+        return out
 
     # --- DHCP ---------------------------------------------------------------------------------
 
@@ -681,7 +753,10 @@ class OpnsenseAdapter(_Adapter):
     async def read_dhcp(self) -> Observation:
         layout = await self._layout()
         servers = self._kea(layout, await self._kea_config())
-        servers += await self._isc(layout)
+        # Kea first: ISC only where no enabled Kea server serves the interface (Kea off or not
+        # configured: ISC alone; both: each on its own interfaces).
+        served = {s.segment_id for s in servers if s.enabled}
+        servers += [s for s in await self._isc(layout) if s.segment_id not in served]
         return Observation(dhcp_servers=servers)
 
     def _kea(self, layout: _Layout, root: dict[str, Any] | None) -> list[DhcpServer]:
@@ -786,7 +861,11 @@ class OpnsenseAdapter(_Adapter):
                     reservations=reservations,
                     vendor_extra={
                         "server": "isc",
-                        "note": "the OPNsense API does not expose ISC ranges and options",
+                        "note": (
+                            "the os-isc-dhcp plugin's API has only the lease list and the service "
+                            "state: ranges, options and failover are in config.xml, which "
+                            "Signalbox does not read (it holds every secret)"
+                        ),
                     },
                 )
             )
@@ -846,13 +925,23 @@ class OpnsenseAdapter(_Adapter):
         own = layout.own_macs()
         seen: dict[str, dict[str, Any]] = {}
 
-        def add(mac: str | None, address: Any, iface: _Iface | None, hostname: Any) -> None:
+        def add(
+            mac: str | None,
+            address: Any,
+            iface: _Iface | None,
+            hostname: Any,
+            source: AddressSource | None = None,
+        ) -> None:
             if mac is None or mac in own:
                 return
-            entry = seen.setdefault(mac, {"addresses": [], "hostname": None, "iface": None})
+            entry = seen.setdefault(
+                mac, {"addresses": [], "hostname": None, "iface": None, "sources": {}}
+            )
             addr = _addr(address)
             if addr is not None and not addr.is_link_local and addr not in entry["addresses"]:
                 entry["addresses"].append(addr)
+            if addr is not None and addr in entry["addresses"] and source is not None:
+                entry["sources"][addr] = source
             entry["hostname"] = entry["hostname"] or _text(hostname) or None
             entry["iface"] = entry["iface"] or iface
 
@@ -865,11 +954,19 @@ class OpnsenseAdapter(_Adapter):
         isc = await self._optional(ISC_LEASES, grid=True)
         for row in _rows(isc, ISC_LEASES) if isc is not None else []:
             iface = layout.by_identifier(_text(row.get("if")))
-            add(_mac(row.get("mac")), row.get("address"), iface, row.get("hostname"))
+            static = _text(row.get("type")) == "static"
+            src = AddressSource.DHCP_RESERVED if static else AddressSource.DHCP
+            add(_mac(row.get("mac")), row.get("address"), iface, row.get("hostname"), src)
         kea = await self._optional(KEA_LEASES, grid=True)
         for row in _rows(kea, KEA_LEASES) if kea is not None else []:
             iface = layout.by_identifier(_text(row.get("if_name") or row.get("if")))
-            add(_mac(row.get("hwaddr")), row.get("address"), iface, row.get("hostname"))
+            add(
+                _mac(row.get("hwaddr")),
+                row.get("address"),
+                iface,
+                row.get("hostname"),
+                AddressSource.DHCP,
+            )
 
         for entry in seen.values():  # a lease or neighbour without an interface: by address
             if entry["iface"] is None:
@@ -885,6 +982,7 @@ class OpnsenseAdapter(_Adapter):
                 hostname=e["hostname"],
                 segment_id=e["iface"].segment if e["iface"] else None,
                 seen_on=e["iface"].port if e["iface"] else None,
+                address_sources=e["sources"],
             )
             for mac, e in sorted(seen.items())
         ]

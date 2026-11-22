@@ -298,6 +298,16 @@ def sample_data() -> dict[str, Any]:
             },
             {"siteId": "5f0000000000000000000002", "name": "Branch", "region": "Germany"},
         ],
+        # site-wide device services (field names from a third-party SDK of the Open API; the
+        # controller's /v3/api-docs is checked in CI)
+        f"{SITE}/ssh": {"sshEnable": True, "sshServerPort": 22, "layer3Access": False},
+        f"{SITE}/setting/service/snmp": {
+            "snmpV1V2CEnable": True,
+            "snmpV3Enable": True,
+            "securityLevel": 2,
+            "communityString": "public",
+            "snmpPort": 161,
+        },
         f"{SITE}/gateways/{GATEWAY}/wan-status": [
             _wan(1, "SFP WAN", "DHCP", connected=True),
             _wan(2, "WAN2", "PPPoE", connected=False, kind=1),

@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- OPNsense: Kea is read first, ISC DHCP only for interfaces no enabled Kea server serves; documents that the ISC plugin API offers no ranges or options (#242)
+- A capability can report what it could not read next to its data (`Observation.incomplete`); OpenWrt routers with an older permission file are told to paste the setup commands again (#210)
 - Project setup: Python package, checks, policies, stack decision (#1)
 - CI: lint, mypy --strict, tests with the 95 % coverage gate on Python 3.11-3.13, secret scan, Dependabot (#2)
 - Network model: typed, vendor-neutral objects, snapshot merging, JSON Schema export (`signalbox schema`, docs/schema.json) (#3)
@@ -67,15 +69,23 @@ All notable changes to this project are documented here. The format follows
 - Annotations: acknowledge a finding with a reason and an optional end date (shown apart, not counted as a problem, also in Home Assistant), labels, owner, purpose and notes on devices, ports and clients, declared in the desired state or set in the UI; `annotations.stale` and `ack.expired` (#186)
 - Rules use annotations: `clients.unexpected-network` and `clients.category-network`; known neighbours, `may_be_unreachable` devices and clients and expected networks quieten `inventory.unknown-neighbour`, `device.down-long`, `dhcp.stale-reservation` and `clients.network-changed` (#84, #85, #113, #128, #64)
 - Management services in the model (SSH, telnet, HTTP/HTTPS, API, SNMP, FTP, Winbox, MAC access, TR-064, UPnP): port, encryption, where they listen, allowed sources, reachable networks and internet exposure, SSH root password login; whether Signalbox reads a device encrypted; shown on the device page (#173, model stage)
+- Management services read by the integrations (#173): MikroTik (`/ip/service`, MAC server, RoMON, UPnP, SSH, SNMP), OpenWrt (dropbear, uhttpd; the rpcd read ACL now also lists `dropbear` and `uhttpd`, an older ACL leaves services unread), OPNsense (web interface, `os-net-snmp`; SSH and the web interface settings are not readable without the secret-bearing backup), Fritz!Box (remote access, MyFRITZ!, FTP, UPnP, TR-064 port), Omada (site SSH and SNMP per managed device), ProSAFE / Easy Smart (fixed protocol and web UI); simulators serve them
 - Wi-Fi security details in the model: WEP, WPA1 and mixed modes, WPA3-Enterprise 192-bit, ciphers, SAE settings, WPS, group rekey, beacon protection, the security modes a radio supports, and a keyed SSID-independent passphrase digest that never leaves the server; shown on the wireless page (#167, model stage)
 - Management service rules: `security.insecure-services`, `security.wan-management`, `security.service-exposure` (guest/IoT networks, level 1) and `security.plaintext-read` (#122, #123, #120, #127)
 - Wi-Fi security rules: open, WEP, WPA1 and TKIP networks, WPA3 available, passphrase reuse across networks, WPS, hash-to-element on 6 GHz (#86, #89, #101, #104)
+- DHCP leases in the model: lease table per DHCP server (state, expiry, client id, vendor class), source per client address (DHCP, reservation, static, SLAAC, link-local), search domains, option 121 routes, network boot, further options, authoritative, failover peer, DHCP relays; lease addresses marked as DHCP by OPNsense, OpenWrt, MikroTik and Fritz!Box; shown on the clients and DHCP pages (#183, model stage)
+- DHCP lease checks: static address inside the DHCP pool, declined leases (address conflicts), classless static routes without a default route, relays pointing to no known DHCP server; pool usage counts active leases; `dhcp.one-server` is quiet where a relay serves the network (#67, #183)
 
 ### Changed
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
+- Each device links to its own web interface: an icon on the devices list and an "Open web interface" button on the device page, derived from a reported https/http service or the adapter settings (#214)
 
 ### Fixed
+- Web UI: a session that ended (expired, logged out in another tab, server restarted) is noticed automatically: the login appears in place and the same page returns after login; an unreachable server shows a banner instead (#238)
+- NETGEAR ProSAFE Plus: requests go out from the host's interfaces with a real MAC, as Switchyard does on a real network (old firmware answered requests with the broadcast MAC as sender with "incorrect password"); a VLAN or LAG read the switch refuses is reported as a gap and the ports are kept (#210)
+- OpenWrt without Wi-Fi (a switch): no wireless object means no radios, not a read error (#216)
+- Navigation: the top bar no longer wraps on phones and tablets; side bar on wide screens, menu drawer on narrow ones (#230)
 - Finding devices lists a device that answers on several addresses once (same certificate, MAC, serial number or controller id), with all its addresses and the one in a known network offered, and marks it as added when any of its addresses or its identity belongs to a device you already added (#224).
 - NETGEAR ProSAFE Plus: an old switch that refuses the full identity read (answering "incorrect password" even without one) is read from its discovery answer; a refused setting is named in the error (#210)
 - NETGEAR ProSAFE Plus switches are read without logging in, as Switchyard does; the password is optional and only checked for changes (an old GS108E v1 refused the check while reading worked) (#210)

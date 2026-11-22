@@ -50,7 +50,9 @@ role. IPv6 link-local and IPv4 169.254.0.0/16 addresses are ignored unless a rul
   than the pool has addresses), error (pool full)
 - **Checks:** the free addresses of each enabled DHCP server (all its pools together, overlaps
   counted once, minus reserved addresses inside the pools) against the clients without a
-  reservation that hold an address in the pool. Clients without an address do not count.
+  reservation that hold an address in the pool. Clients without an address do not count. When
+  the server reported its lease table, its active leases in the pool count as well (the larger
+  number wins), so a pool that is full right now is found even if not every client is known.
 - **Incomplete:** a server that did not report its pool.
 - **Fix:** enlarge the pool (and the subnet if needed) or shorten the lease time.
 

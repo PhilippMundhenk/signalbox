@@ -91,12 +91,13 @@ carries its source (adapter and device), the time it was observed and a stable i
 | Subnet | Prefix, gateway address, segment, IPv4/IPv6 |
 | Uplink | A gateway's WAN connection: kind (`dhcp`, `static`, `pppoe`, `dslite`, `map-e`, `lte`, `bridge`, `other`), port, connected and since when, own addresses, delegated IPv6 prefixes, upstream gateway, provider DNS, public IPv4 where the device knows it, line rates; NAT class derived |
 | ManagementService | A way to manage a device (SSH, telnet, HTTP/HTTPS, API, SNMP, FTP/TFTP, Winbox, MAC telnet/Winbox, RoMON, TR-064, UPnP, the vendor's own protocol): enabled, port, transport, encrypted, listen addresses / ports / segments, allowed source networks, reachable from the internet as the device says, SSH password and root login, HTTP-to-HTTPS redirect, SNMP versions and default community; reachable segments and internet exposure derived |
-| DhcpServer | Device, segment, enabled, pool, lease time, options (router, DNS, NTP), static reservations |
+| DhcpServer | Device, segment, enabled, pool, lease time, options (router, DNS, NTP, search domains, classless routes, network boot, further options by code), static reservations, authoritative, failover peer, lease table (address, MAC, client id, host name, state, reserved, start and end, vendor class) |
+| DhcpRelay | Device, segment, servers it forwards to, enabled |
 | DnsService | Resolver, host overrides, forwarders, split-DNS domains |
 | Wlan | SSID, security (open, OWE, WEP, WPA/WPA2/WPA3 Personal and Enterprise incl. mixed and 192-bit modes; PMF), passphrase fingerprint and SSID-independent digest, segment, bands, hidden, roaming (802.11r/k/v), purpose and its source, client isolation; security details: pairwise and group ciphers, SAE (PWE, SAE-PK, anti-clogging), WPS (on, methods, AP PIN lock), group rekey interval, beacon protection |
 | Radio | Band, channel, width, transmit power, country code, security modes the hardware and firmware can offer |
 | Firewall | Zones, rules, NAT; read-only at first |
-| Client | MAC, IP, hostname, segment, where it was seen (port or access point), last seen |
+| Client | MAC, IP, hostname, segment, where it was seen (port or access point), last seen, source per address (`dhcp`, `dhcp-reserved`, `static`, `slaac`, `slaac-privacy`, `dhcpv6`, `link-local`, `unknown`) |
 | Firmware | Current, available, end of life |
 | DeviceHealth | Uptime and boot time, last restart reason, CPU load and load average, memory, storage per mount (kind, wear), temperatures with limits, fans, power supplies, monitored UPS |
 | DeviceTime | Device clock and Signalbox's time when it was read (offset, uncertainty), time zone, NTP client (servers, synchronised, stratum), NTP server (segments it serves) |
@@ -238,6 +239,31 @@ reads the device (`false` for NSDP, Easy Smart UDP, plain HTTP), set by the adap
 Desired state (design, not built yet): `devices[].services: {telnet: off, http: redirect, ssh:
 {password: false}}`. Turning a service off must be refused when it is the one the integration
 itself uses (MikroTik `www-ssl`/`api-ssl`, OpenWrt `uhttpd` for ubus).
+
+DHCP leases (#183) are part of the server that handed them out: `DhcpServer.leases`, read with
+the `dhcp` capability like pools and reservations, so a lease always names its server and
+segment without a lookup and no top-level list keyed by server id is needed. `None` means the
+table was not read, `[]` that it was read and is empty: only then may a check conclude that an
+address has no lease (`Network.leases_read(segment)`). A lease keeps every state the server
+reports (`active`, `expired`, `declined`, `offered`, `reserved`), its start and end, whether it
+belongs to a reservation, the client id (option 61 or DUID: a DHCPv6 lease may have no MAC)
+and the vendor class (option 60). Where an address came from is a second, independent fact on
+the client, `Client.address_sources` (address → source), filled by the integration that knows
+it from the client side (Fritz!Box `AddressSource`) or from the lease it merged into the client
+(OPNsense, OpenWrt, MikroTik). `Network.address_source()` combines both: the client's own
+answer, else an active lease of that MAC and address on any known server, else `link-local`
+for such an address, else `None`; it never answers `static` by elimination, because whether a
+missing lease means a fixed address needs a complete table and a grace period, which is the
+check's decision (#67). DHCP relays are objects of their own (`<device>/dhcp-relay/<segment
+key>`, `Snapshot.dhcp_relays`): a segment with an enabled relay needs no server of its own
+(`Network.dhcp_relays_on()`). Options beyond router, DNS and domain are typed where checks
+need them (NTP 42, search list 119, classless routes 121, network boot 66/67) and otherwise
+kept by code in `options`, which never repeats a typed one. All of it is additive: no new
+capability, no adapter API change (still 1.2). Lease host names, client ids and vendor classes
+are client data like `Client.hostname`: stored, shown to signed-in users, neutralised in
+recordings (`hostname`, `host-name`, `client_id` are name or secret fields there). Leases are
+runtime state, never desired; options and relays could become declarable
+(`segments[].dhcp.options`, design only).
 
 ### Untagged networks of several routers
 

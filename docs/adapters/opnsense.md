@@ -177,8 +177,14 @@ these pages, so treat its key like an admin password.
   interface address: OPNsense writes that address into all three on every Kea save
   (`KeaDhcpv4::setNodes`; in CI an empty `ntp_servers` of the LAN subnet was filled in by the
   first deployment). Reservations by subnet.
-- **DHCP (ISC)**: the API does not expose ISC ranges and options (they live on legacy pages).
-  Signalbox reports one server per interface that has leases, enabled when the service runs,
+- **DHCP (ISC)**: researched against opnsense/plugins `net/isc-dhcp` (#242): its API has exactly
+  two controllers, `DHCPv4/Api/Leases` (`search_lease`) and `DHCPv4/Api/Service` (`status`, start,
+  stop, restart). There is no settings or static-map API; ranges, router, DNS, NTP, domain, lease
+  time, options and failover live in `config.xml` (`dhcpd`), edited on legacy pages. The only
+  reader is the configuration backup, whose privilege exposes every secret; Signalbox does not
+  use it for reading, so these stay unknown (no pools, router, DNS) until OPNsense adds an API.
+  Kea is read first; ISC only for interfaces that no enabled Kea server serves (Kea off or not
+  configured: ISC alone; both: each on its own interfaces). Signalbox reports one server per interface that has leases, enabled when the service runs,
   with the static mappings from the lease list as reservations, and no pools.
 - **DNS**: one Unbound service. Listen addresses are the addresses of the selected interfaces
   (all when none is selected). Global forwarders (`dots` entries without a domain) become
@@ -459,3 +465,28 @@ the package revision in `product_version`, assignment rows with address fields
 revert (`leftovers`).
 `signalbox.sim.server.serve()` runs it on a free local port, over TLS with a certificate from
 `self_signed_certificate()`.
+
+
+## Management services (#173)
+
+Signalbox reads only two things, because OPNsense has no narrow API for the rest:
+
+- The **web interface** Signalbox itself uses (*verified on 26.7.9 in CI*): `https` (or `http` with `allow_insecure_http`)
+  on the port of the configured address, always enabled (it answers). `transport_encrypted`
+  follows the scheme.
+- **SNMP**, when the `os-net-snmp` plugin is installed: `GET /api/netsnmp/general/get`
+  (`general.enabled`, `listen`, and whether `general.community` is `public` or `private`; the
+  string itself is never stored; the plugin's general settings are SNMP v2c only). Without the
+  plugin the endpoint does not exist and no SNMP service is reported. The user needs the
+  *Services: Net-SNMP* privilege for it (*guess: privilege name from the plugin's ACL, not tried
+  in CI, where the plugin is not installed*); without it SNMP is left out.
+
+**Not readable, and why.** The SSH daemon (enabled, port, listen interfaces, password and
+root login), the web interface's own settings (listen interfaces, protocol, redirect from HTTP,
+other ports) and the plugin's SNMPv3 users are only in the system configuration. The
+administration page is a legacy PHP page with no API (`core/Api` has no controller for it),
+and the only way to the values is the configuration backup (`/api/core/backup/download/this`),
+which needs a privilege that exposes every secret of the firewall: certificates' private keys,
+VPN and RADIUS secrets, password hashes. Signalbox does not download it for reading; the
+backup privilege stays with the write user that needs it for changes. A rule that needs to know
+whether SSH is on therefore has no answer for OPNsense.
