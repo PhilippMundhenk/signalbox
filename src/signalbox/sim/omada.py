@@ -561,7 +561,13 @@ class OmadaSimulator:
         rows = self.data.get(parent)
         if parent.endswith("/ssids") and isinstance(rows, list):
             row = next((r for r in rows if r.get("ssidId") == item), None)
-            return _wrap(row) if row else _wrap(None, -33200, "This SSID does not exist.")
+            if row is None:
+                return _wrap(None, -33200, "This SSID does not exist.")
+            if row.get("hidePwd") and isinstance(row.get("pskSetting"), dict):
+                # "the SSID password will be hidden" (API description; not tried on 6.3)
+                psk = {k: v for k, v in row["pskSetting"].items() if k != "securityKey"}
+                row = {**row, "pskSetting": psk}
+            return _wrap(row)
         if parent.endswith("/lan-networks") and isinstance(rows, list):
             row = next((r for r in rows if r.get("id") == item), None)
             if row is None:
@@ -776,7 +782,8 @@ class OmadaSimulator:
         else:  # an open SSID: the controller keeps neither the WPA settings nor the PMF mode
             row.pop("pskSetting", None)
             row.pop("pmfMode", None)
-        row.pop("hidePwd", None)  # taken, never answered
+        if not row.get("hidePwd"):
+            row.pop("hidePwd", None)  # taken, answered only when set
         if row.get("vlanEnable"):
             vlan = row.get("vlanId")
             row["vlanSetting"] = {

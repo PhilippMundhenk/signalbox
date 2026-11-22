@@ -901,7 +901,8 @@ async def test_revert_restores_the_replaced_passphrase(svc: Services, sim: Omada
 async def test_revert_without_a_readable_key_uses_what_signalbox_set(
     svc: Services, sim: OmadaSimulator
 ) -> None:
-    # Home does not report its key: only the passphrase Signalbox deployed itself is trusted
+    # Home hides its key (hidePwd): only the passphrase Signalbox deployed itself is trusted
+    next(s for s in sim.data[SSIDS] if s["name"] == "Home")["hidePwd"] = True
     await svc.runner.observe_all()
     assert fingerprints(svc.runner.network(), "Home") == {None}
     d = Deployer(svc.runner)
