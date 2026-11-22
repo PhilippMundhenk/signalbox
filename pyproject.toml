@@ -37,6 +37,7 @@ dev = [
 signalbox = "signalbox.__main__:main"
 
 [project.entry-points."signalbox.adapters"]
+fritzbox = "signalbox.adapters.fritzbox:FritzboxAdapter"
 openwrt = "signalbox.adapters.openwrt:OpenWrtAdapter"
 opnsense = "signalbox.adapters.opnsense:OpnsenseAdapter"
 

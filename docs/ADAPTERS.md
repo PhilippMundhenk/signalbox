@@ -98,6 +98,10 @@ class MyAdapter(Adapter):
   credential leaves the machine for a certificate that is not pinned.
 - The requests then use a TLS context whose only trust anchor is the pinned certificate (host
   name and dates are not checked), so a certificate swapped after the check fails the handshake.
+- Not JSON (SOAP, XML, text)? `await self.http.request(method, path, accept={500}, ...)` returns
+  the `httpx.Response` with the same error mapping; statuses in `accept` are returned instead of
+  raised (SOAP faults come with HTTP 500). Authentication can be any `httpx.Auth`, for example
+  `httpx.DigestAuth(user, password)` (the Fritz!Box adapter).
 - Errors are already mapped: connection problems and timeouts raise `Unreachable`, HTTP 401/403
   `AuthFailed`, 404 `signalbox.adapters.https.NotFound`, other statuses and invalid JSON
   `AdapterError`. Each message names the path.
