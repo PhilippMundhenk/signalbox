@@ -295,6 +295,21 @@ credentials, and returns no settings. Keep the `fix` text: the manual way is alw
 `load_adapters` refuses remedies without `admin_login` or without both methods. With
 `setup.enabled: false` or `setup.fixes: false` they are never called.
 
+## Path traces (optional, #253)
+
+An integration whose devices can run a traceroute declares `Manifest.traces`
+(`TraceSupport`: the permission the login needs and how it runs, in plain words; shown on the
+topology page) and implements `Adapter.trace(target, max_hops, wait) -> TraceAnswer`. No adapter
+API version is needed; `load_adapters` refuses `traces` without the method. It is called only
+while `traces.enabled` is on, on a stored device with its stored login, with the whole trace's
+timeout as the context timeout: send nothing but the traceroute, one probe per hop, numeric
+output, and return the raw hops (`TraceHop`: TTL, address or None for no answer, RTT) and
+whether the target answered. Core matches hops to devices. A login that may not trace raises
+`AuthFailed` with a `fix` (and a `remedy` where *Fix it* can add the permission). The automatic
+setup and remedies get `SetupRequest.traces` / `RemedyRequest.traces`: add the permission only
+when it is true. Built in: OPNsense, MikroTik, Linux; [TRACES.md](TRACES.md) lists what each
+needs and why OpenWrt and the others cannot.
+
 ## Writing to devices
 
 An integration that can change a device declares the kinds of change it supports in

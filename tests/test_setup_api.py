@@ -320,3 +320,41 @@ def test_switched_off(tmp_path: Path, ssh: tuple[int, str], https_url: str) -> N
                 assert "setup.enabled" in r.json()["message"]
     finally:
         svc.close()
+
+
+def test_password_comes_last(
+    client: TestClient, ssh: tuple[int, str], https_url: str, device: OpenWrtSsh
+) -> None:
+    """#279: the plan's identity step works without the admin password; nothing is sent."""
+    port, fingerprint = ssh
+    anon = body(https_url, port, trust=fingerprint)
+    del anon["admin"]["secret"]
+    r = client.post("/api/devices/setup", json=anon)
+    assert r.status_code == 200 and r.json()["trusted"] is False  # even with a trust given
+    assert r.json()["fingerprint"] == fingerprint and r.json()["steps"] == []
+    assert device.scripts == []  # not a single command, no login
+    # apply takes the password once
+    assert client.post("/api/devices/setup/apply", json=anon).status_code == 422
+    assert device.scripts == []
+    # the plan the user saw: nothing unexpected, runs
+    info = {a["id"]: a for a in client.get("/api/adapters").json()}
+    preview = {s["id"] for s in info["openwrt"]["admin_login"]["preview"] if not s["remove"]}
+    device.installed.discard("rpcd-mod-luci")
+    ok = client.post(
+        "/api/devices/setup/apply",
+        json=body(https_url, port, trust=fingerprint, plan_ids=sorted(preview)),
+    )
+    assert ok.status_code == 200 and ok.json()["ok"], ok.text
+    # a step that was not in the plan the user saw: nothing runs, the plan comes back
+    device.installed.discard("rpcd-mod-luci")
+    before = len(device.scripts)
+    changed = client.post(
+        "/api/devices/setup/apply",
+        json=body(https_url, port, trust=fingerprint, plan_ids=["acl"]),
+    )
+    assert changed.status_code == 409 and changed.json()["error"] == "plan_changed"
+    assert {s["id"] for s in changed.json()["plan"]["steps"] if s["state"] == "todo"} >= {
+        "packages"
+    }
+    assert "rpcd-mod-luci" not in device.installed
+    assert not [x for x in device.scripts[before:] if "apk add" in x]  # only inspection ran

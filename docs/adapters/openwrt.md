@@ -397,6 +397,13 @@ transfer); with a read ACL from before this method was added the read fails with
 denied" for the `vpn` capability only. ACL entry: `"luci.wireguard": ["getWgInstances"]`, the
 only addition.
 
+## Path traces: not supported (#253)
+
+rpcd has no traceroute method. LuCI's *Network > Diagnostics* runs `/usr/bin/traceroute`
+through `file exec` with an ACL of its own (`luci-mod-network-diagnostics`), an exec right on
+the router that Signalbox does not ask for, so the integration declares no traces. An OpenWrt
+router is still a destination of the other routers' traces ([TRACES.md](../TRACES.md)).
+
 ## Automatic setup
 
 *Set up automatically* in the device form (#231, [ADR 0009](../adr/0009-automatic-setup-with-an-admin-login.md))
@@ -407,10 +414,13 @@ changed on the device unless you start it for that device and confirm the plan (
 configuration turns it off completely (the API refuses it, the form does not show it).
 
 
-1. Enter the router's address, the login to create (`signalbox` by default) and root's password
-   (and the SSH port, 22). *Show what it does* connects to dropbear and shows the router's SSH
-   host key (`SHA256:…`); nothing is sent before you trust it. Compare it on the router:
+1. Enter the router's address and the login to create (`signalbox` by default), and the SSH port
+   (22). *Show what it does* lists what the setup normally does, without any password.
+   *Continue* connects to dropbear and shows the router's SSH host key (`SHA256:…`); nothing is
+   sent before you trust it. Compare it on the router:
    `dropbearkey -y -f /etc/dropbear/dropbear_ed25519_host_key` (or the `_rsa_` key) prints it.
+   Only then root's password is asked for, in a small field right before *Run* (used once,
+   never saved, cleared after the request).
 2. Signalbox lists the steps, each *will be done* or *already as needed*: the missing packages
    (`apk add` on 25.12 and later, `opkg install` before; the router needs internet access only
    then), `/usr/share/rpcd/acl.d/signalbox.json` (the read-only ACL below, or the ACL with write

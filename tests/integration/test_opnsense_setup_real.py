@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Callable
+from ipaddress import ip_address
 from typing import Any
 
 import pytest
@@ -258,3 +259,31 @@ async def test_fix_adds_a_missing_privilege(fw: Target, clean: None) -> None:
     assert after.status is DeviceStatus.OK, (after.errors, await root_answers(fw))
     again = await OpnsenseAdapter.plan_remedy(fix)
     assert again.steps[0].state is StepState.UNCHANGED
+
+
+async def test_setup_with_path_traces_and_trace(fw: Target, clean: None) -> None:
+    """Path traces (#253): with traces on, the setup adds Diagnostics: Traceroute, and the new
+    key runs a traceroute to the firewall's own LAN address through the diagnostics API."""
+    result = await OpnsenseAdapter.apply_setup(request(fw, fw.pin, traces=True))
+    check(result, await root_answers(fw))
+    a = OpnsenseAdapter(
+        AdapterContext(
+            site_id="home",
+            device_id="fw",
+            device_name="fw",
+            role=DeviceRole.GATEWAY,
+            config=OpnsenseConfig(
+                url=str(result.settings["url"]),
+                api_key=result.secrets["api_key"],
+                api_secret=result.secrets["api_secret"],
+            ),
+            pinned_fingerprint=result.certificate,
+            timeout=TIMEOUT,
+        )
+    )
+    try:
+        answer = await a.trace(ip_address("192.0.2.1"), 4, 1)
+    finally:
+        await a.close()
+    assert answer.hops and answer.hops[-1].address == ip_address("192.0.2.1"), answer
+    assert answer.reached, answer

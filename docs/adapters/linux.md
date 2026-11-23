@@ -118,6 +118,14 @@ first and sends nothing before. Then, over that pinned connection (a sudo user's
 A re-run repairs and sets a new key. *Remove* deletes `/etc/sudoers.d/<login>` and the user with
 its home directory. Root, `pi`, `admin` and other system accounts are never set up.
 
+## Path traces (optional, #253)
+
+Only while `traces.enabled` is on ([TRACES.md](../TRACES.md)): one script over the same SSH
+login runs `tracepath -n -m <hops> <address>` (Debian package `iputils-tracepath`), or
+`traceroute -n -q 1 -w 1 -m <hops> <address>` where `tracepath` is missing. Both send
+unprivileged UDP: no sudo rule, no root, nothing to set up. With neither installed the trace
+says so.
+
 ## Integration tests
 
 CI starts a Debian 12 container with OpenSSH, iproute2, dnsmasq, chrony, nftables and wireguard-tools

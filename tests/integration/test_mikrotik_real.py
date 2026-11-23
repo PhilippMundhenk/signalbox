@@ -714,3 +714,13 @@ async def test_wireguard_interface_and_peer(rt: dict[str, str]) -> None:
     net = await network(rt)
     assert [t.id for t, _ in net.remote_sites()] == ["rt/tunnel/wg0"]
     assert not any("wg0" in s.id for s in net.segments)
+
+
+async def test_trace_refused_without_the_policy_test(rt: dict[str, str]) -> None:
+    """Path traces (#253): the documented read group has no policy test."""
+    a = adapter(rt)
+    try:
+        with pytest.raises(AuthFailed, match="policy test"):
+            await a.trace(ip_address("192.0.2.1"), 4, 1)
+    finally:
+        await a.close()

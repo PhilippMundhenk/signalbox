@@ -2734,6 +2734,13 @@
           "title": "Subnets",
           "type": "array"
         },
+        "traces": {
+          "items": {
+            "$ref": "#/$defs/PathTrace"
+          },
+          "title": "Traces",
+          "type": "array"
+        },
         "tunnels": {
           "items": {
             "$ref": "#/$defs/Tunnel"
@@ -2850,6 +2857,129 @@
         "enabled"
       ],
       "title": "NtpServer",
+      "type": "object"
+    },
+    "PathTrace": {
+      "additionalProperties": false,
+      "description": "A traceroute from a device (or Signalbox's host) to an address (#253).\n\n``id`` is ``trace/<source>/<target>``. ``reached``: the target answered; a trace that did\nnot get there (unanswered hops at the end, the hop limit) is partial, and checks stay quiet\nabout it. ``error``: the trace could not run at all (unsupported, refused, timeout); its\n``fix`` and ``remedy`` as for a read error.",
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix"
+        },
+        "hops": {
+          "items": {
+            "$ref": "#/$defs/TraceHop"
+          },
+          "title": "Hops",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "purpose": {
+          "default": "address",
+          "enum": [
+            "gateway",
+            "internet",
+            "address"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "reached": {
+          "default": false,
+          "title": "Reached",
+          "type": "boolean"
+        },
+        "remedy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remedy"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            }
+          ],
+          "title": "Target"
+        },
+        "target_device": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Device"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "target",
+        "started_at"
+      ],
+      "title": "PathTrace",
       "type": "object"
     },
     "Pmf": {
@@ -4378,6 +4508,77 @@
         "value_c"
       ],
       "title": "TemperatureSensor",
+      "type": "object"
+    },
+    "TraceHop": {
+      "additionalProperties": false,
+      "description": "One hop of a trace: the router that answered for this TTL.",
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Address"
+        },
+        "device_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device Id"
+        },
+        "interface_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interface Id"
+        },
+        "rtt_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rtt Ms"
+        },
+        "ttl": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Ttl",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ttl"
+      ],
+      "title": "TraceHop",
       "type": "object"
     },
     "Tunnel": {

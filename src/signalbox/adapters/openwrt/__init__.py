@@ -32,6 +32,7 @@ from signalbox.adapters import (
     Gap,
     Manifest,
     Observation,
+    PreviewStep,
     RemedyRequest,
     SetupExtra,
     SetupPlan,
@@ -696,6 +697,26 @@ class OpenWrtAdapter(Adapter):
             port_default=22,
             note="The router's SSH server (dropbear) must allow a password login for root, as "
             "OpenWrt does by default. The router needs internet access if packages are missing.",
+            preview=[
+                PreviewStep(id="packages", title="Install the packages Signalbox reads through"),
+                PreviewStep(id="acl", title="Write Signalbox's permission file"),
+                PreviewStep(id="login", title="Create the rpcd login with a generated password"),
+                PreviewStep(id="restart", title="Restart rpcd"),
+                PreviewStep(id="certificate", title="Trust the web server's certificate"),
+                PreviewStep(
+                    id="lldp-packages", title="Install lldpd and luci-app-lldpd", extra="lldp"
+                ),
+                PreviewStep(id="lldpd", title="Enable and start lldpd", extra="lldp"),
+                PreviewStep(id="login", title="Delete the rpcd login", remove=True),
+                PreviewStep(id="acl", title="Delete Signalbox's permission file", remove=True),
+                PreviewStep(id="restart", title="Restart rpcd", remove=True),
+                PreviewStep(
+                    id="lldp-remove",
+                    title="Remove lldpd and its package",
+                    remove=True,
+                    extra="lldp",
+                ),
+            ],
             extras=[
                 SetupExtra(
                     id="lldp",

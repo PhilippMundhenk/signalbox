@@ -458,6 +458,34 @@ class LinuxSim:
     visudo: bool = True
     scripts: list[str] = field(default_factory=list)
     commands: list[tuple[str, str]] = field(default_factory=list)
+    #: Traceroutes (#253): ``tracepath``, ``traceroute`` or ``none`` installed; target -> hops
+    #: (address or None, RTT in ms); a target not listed answers through one router
+    #: (198.51.100.1, the uplink's) and then itself.
+    trace_tool: str = "tracepath"
+    routes: dict[str, list[tuple[str | None, float | None]]] = field(default_factory=dict)
+
+    def trace(self, script: str) -> str:
+        """``tracepath -n`` / ``traceroute -n`` output for the target of a trace script."""
+        found = re.search(r"-m (\d+) (\S+) 2>&1", script)
+        if self.trace_tool == "none" or found is None:
+            return "@@none\n@@end\n"
+        limit, target = int(found.group(1)), found.group(2)
+        hops = self.routes.get(target, [("198.51.100.1", 0.6), (target, 1.4)])[:limit]
+        out = [f"@@{self.trace_tool}"]
+        if self.trace_tool == "tracepath":
+            out.append(" 1?: [LOCALHOST]                      pmtu 1500")
+        else:
+            out.append(f"traceroute to {target} ({target}), {limit} hops max, 60 byte packets")
+        for ttl, (addr, rtt) in enumerate(hops, start=1):
+            last = addr == target
+            if self.trace_tool == "tracepath":
+                text = f"{addr:<40} {rtt:.3f}ms{' reached' if last else ''}" if addr else "no reply"
+                out.append(f"{ttl:2d}:  {text}")
+            else:
+                out.append(f"{ttl:2d}  {addr}  {rtt:.3f} ms" if addr else f"{ttl:2d}  *")
+        if self.trace_tool == "tracepath":
+            out.append(f"     Resume: pmtu 1500 hops {len(hops)} back {len(hops)}")
+        return "\n".join([*out, "@@end"]) + "\n"
 
     # reading -------------------------------------------------------------------------------
 
@@ -531,6 +559,8 @@ class LinuxSim:
         self.scripts.append(script)
         if script.startswith(("# signalbox-read", "# signalbox-time")):
             return 0, self.read(user, script).encode(), ""
+        if script.startswith("# signalbox-trace"):
+            return 0, self.trace(script).encode(), ""
         if not script.startswith("# signalbox-setup:"):
             return 127, b"", "sh: unknown script"
         if not as_root:

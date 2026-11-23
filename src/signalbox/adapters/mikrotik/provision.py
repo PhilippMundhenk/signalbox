@@ -81,6 +81,8 @@ class MikrotikSetup:
                 "own, for example signalbox"
             )
         self.group, self.policy = GROUPS[request.allow_writes]
+        if request.traces:  # path traces (#253): traceroute needs the policy test
+            self.policy = self.policy.replace("!test", "test")
         self.password = new_password()
         self.redact.add(self.password)
 
@@ -376,7 +378,11 @@ class MikrotikFix:
                 fix="Give the group the policies read, api and rest-api by hand, as the setup "
                 "guide shows.",
             )
-        wanted = {*FIX_READ, *(FIX_WRITE if self.fix.allow_writes else ())}
+        wanted = {
+            *FIX_READ,
+            *(FIX_WRITE if self.fix.allow_writes else ()),
+            *(("test",) if self.fix.traces else ()),  # path traces (#253)
+        }
         have = granted(group.get("policy"))
         missing = [p for p in ALL_POLICIES if p in wanted and p not in have]
         policy = policy_string(have | wanted)

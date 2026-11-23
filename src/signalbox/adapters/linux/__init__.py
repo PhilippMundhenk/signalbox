@@ -29,14 +29,18 @@ from signalbox.adapters import (
     Gap,
     Manifest,
     Observation,
+    PreviewStep,
     SetupPlan,
     SetupRequest,
     SetupResult,
     SystemInfo,
+    TraceAnswer,
+    TraceSupport,
     UntrustedCertificate,
     UntrustedHostKey,
 )
 from signalbox.adapters.linux import clock, collect, dhcp, nftables, parse, setup, wireguard
+from signalbox.adapters.linux import trace as _trace
 from signalbox.adapters.linux.collect import Answer
 from signalbox.adapters.ssh import PinnedSsh, load_private_key
 from signalbox.discovery import Candidate, HostProbe
@@ -172,6 +176,22 @@ class LinuxAdapter(Adapter):
             note="A login that may use sudo (Raspberry Pi OS: the first user) or root, with "
             "a password over SSH. Signalbox creates the user signalbox with a key of its own, "
             "and the sudoers rule for wg show and nft if they are installed.",
+            preview=[
+                PreviewStep(id="user", title="Create the user signalbox (no password, no sudo)"),
+                PreviewStep(id="key", title="Authorize a new SSH key for it (public key only)"),
+                PreviewStep(
+                    id="sudoers", title="Allow it the read-only wg show and nft list commands"
+                ),
+                PreviewStep(
+                    id="host-key", title="Trust the SSH host key you confirmed, for reading"
+                ),
+                PreviewStep(id="sudoers", title="Delete the sudoers rule", remove=True),
+                PreviewStep(id="user", title="Delete the user signalbox", remove=True),
+            ],
+        ),
+        traces=TraceSupport(
+            permission="none: tracepath (or traceroute) as the read user, no root",
+            method="tracepath -n over SSH (iputils-tracepath)",
         ),
     )
 
@@ -252,6 +272,15 @@ class LinuxAdapter(Adapter):
     def answer(self) -> Answer:
         assert self._answer is not None, "read_system first"
         return self._answer
+
+    async def trace(self, target: Any, max_hops: int, wait: float) -> TraceAnswer:
+        """``tracepath -n`` (else ``traceroute -n``) as the read user (#253)."""
+        if self._ssh is None:
+            self._ssh = await self._connect()
+        res = await self._ssh.run(
+            _trace.script(target, max_hops, wait), timeout=self.context.timeout
+        )
+        return _trace.parse(res.text, target, max_hops)
 
     # system -----------------------------------------------------------------------------
 

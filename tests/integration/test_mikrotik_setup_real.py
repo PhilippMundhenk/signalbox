@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
+from ipaddress import ip_address
 from typing import Any
 
 import pytest
@@ -134,3 +135,24 @@ async def test_setup_read_write_remove(chr_: Target, clean: None) -> None:
     assert "signalbox" in states["group-signalbox-read"].message
     # RouterOS may still accept the login of a deleted user for a moment
     assert await refused(chr_, write), "the deleted user can still log in"
+
+
+async def test_setup_with_path_traces_and_trace(chr_: Target, clean: None) -> None:
+    """Path traces (#253): with traces on the setup gives the group the policy test, and the
+    new login runs /tool/traceroute through REST; without traces the next setup takes it away."""
+    result = await MikrotikAdapter.apply_setup(request(chr_, chr_.pin, traces=True))
+    check(result)
+    a = MikrotikAdapter(context(chr_, result))
+    try:
+        answer = await a.trace(ip_address("192.0.2.1"), 4, 1)
+    finally:
+        await a.close()
+    assert answer.hops and answer.hops[-1].address == ip_address("192.0.2.1"), answer
+    back = await MikrotikAdapter.apply_setup(request(chr_, chr_.pin))
+    check(back)
+    a = MikrotikAdapter(context(chr_, back))
+    try:
+        with pytest.raises(AuthFailed):
+            await a.trace(ip_address("192.0.2.1"), 4, 1)
+    finally:
+        await a.close()

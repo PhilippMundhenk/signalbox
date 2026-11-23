@@ -42,21 +42,26 @@ from signalbox.adapters import (
     AdapterError,
     AdminLogin,
     ApplyResult,
+    AuthFailed,
     Backup,
     Capability,
     Manifest,
     Observation,
+    PreviewStep,
     RemedyRequest,
     SetupPlan,
     SetupRequest,
     SetupResult,
     SshOption,
     SystemInfo,
+    TraceAnswer,
+    TraceSupport,
     VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.opnsense import discovery as _discovery
 from signalbox.adapters.opnsense import provision, vitals
+from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import write as w
 from signalbox.adapters.ssh import PinnedSsh
 from signalbox.changes import Change, ChangeKind
@@ -748,8 +753,32 @@ class OpnsenseAdapter(_Adapter):
                 "else. Needs SSH on the firewall (System > Settings > Administration, "
                 "root login). Off unless you tick it; Remove deletes both.",
             ),
+            preview=[
+                PreviewStep(id="user", title="Create the user signalbox (scrambled password)"),
+                PreviewStep(id="privileges", title="Give it the privileges of the setup guide"),
+                PreviewStep(id="key", title="Create a new API key for it"),
+                PreviewStep(
+                    id="isc-script", title="Install the read-only DHCP script", extra="ssh"
+                ),
+                PreviewStep(
+                    id="isc-key", title="Authorize an SSH key that can run only it", extra="ssh"
+                ),
+                PreviewStep(
+                    id="user", title="Delete the user signalbox and its API keys", remove=True
+                ),
+                PreviewStep(
+                    id="isc-script", title="Delete the DHCP script", remove=True, extra="ssh"
+                ),
+                PreviewStep(
+                    id="isc-key", title="Delete Signalbox's SSH key", remove=True, extra="ssh"
+                ),
+            ],
         ),
         remedies=provision.REMEDIES,
+        traces=TraceSupport(
+            permission="the privilege Diagnostics: Traceroute (page-diagnostics-traceroute)",
+            method="the diagnostics API (traceroute, one ICMP probe per hop)",
+        ),
     )
 
     @classmethod
@@ -1580,6 +1609,23 @@ class OpnsenseAdapter(_Adapter):
         interfaces = {_text(r.get("device")): r for r in overview if _text(r.get("device"))}
         tunnels = wireguard_tunnels(rows, self.context.device_id, interfaces)
         return Observation(tunnels=tunnels)
+
+    async def trace(self, target: Any, max_hops: int, wait: float) -> TraceAnswer:
+        """Traceroute through Diagnostics: Traceroute (#253); the firewall waits 2 s per hop
+        and stops after 20 s, whatever ``wait`` says."""
+        try:
+            answer = await self.http.post_json(_trace.TRACEROUTE, _trace.request_body(target))
+        except AuthFailed as exc:
+            if "403" not in str(exc):
+                raise
+            raise AuthFailed(
+                f"{_trace.TRACEROUTE}: the API user may not run traceroutes (HTTP 403)",
+                fix="Give the API user the privilege Diagnostics: Traceroute "
+                f"({_trace.PRIVILEGE}), or use Fix it on the device page while path traces "
+                "are on.",
+                remedy="privileges",
+            ) from None
+        return _trace.parse(answer, target, max_hops)
 
     async def read_time(self) -> Observation:
         start = datetime.now(UTC)

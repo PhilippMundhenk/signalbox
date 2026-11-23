@@ -15,5 +15,6 @@
 | [0011](0011-vpn-tunnels-and-site-links.md) | VPN tunnels belong to their device, site links come from matching public keys, keys never enter the model (#239) |
 | [0012](0012-fix-it-for-read-problems.md) | Fix it: known remedies for read problems, run like the automatic setup (#215) |
 | [0013](0013-firewall-zones-rules-and-reachability.md) | Firewall: zones, ordered rules, zone pair policies, NAT and a conservative allowed / denied / unknown answer (#135) |
+| [0014](0014-path-traces.md) | Path traces: traceroutes run on the devices, an optional active observation stored apart from snapshots (#253) |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.

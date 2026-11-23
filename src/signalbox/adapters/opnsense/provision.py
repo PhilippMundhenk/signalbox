@@ -32,6 +32,7 @@ from pydantic import SecretStr
 
 from signalbox.adapters import (
     AdapterError,
+    PreviewStep,
     Remedy,
     RemedyRequest,
     SetupPlan,
@@ -59,6 +60,8 @@ READ_PRIVILEGES: tuple[str, ...] = (
     "page-status-ntp",
     "page-wireguard-diagnostics",
 )
+#: Added while path traces are on (#253, docs: "Path traces").
+TRACE_PRIVILEGES: tuple[str, ...] = ("page-diagnostics-traceroute",)
 #: Added for writing (docs: "A separate API user for writing").
 WRITE_PRIVILEGES: tuple[str, ...] = (
     *READ_PRIVILEGES,
@@ -146,6 +149,7 @@ REMEDIES = (
     Remedy(
         id="privileges",
         read_side=True,
+        preview=[PreviewStep(id="privileges", title="Add the missing privileges to the user")],
         title="Add the missing privileges",
         description="Through the API with root's key: adds the privileges of the setup guide "
         "that the user of the stored API key lacks (with those for writing when changes are "
@@ -197,7 +201,12 @@ class OpnsenseSetup:
             raise AdapterError(str(exc)) from None
         if not self.url.startswith("https://"):
             raise AdapterError("the automatic setup sends root's API key only over https")
-        self.privileges = sorted(WRITE_PRIVILEGES if request.allow_writes else READ_PRIVILEGES)
+        self.privileges = sorted(
+            {
+                *(WRITE_PRIVILEGES if request.allow_writes else READ_PRIVILEGES),
+                *(TRACE_PRIVILEGES if request.traces else ()),
+            }
+        )
         self.key: dict[str, str] = {}
         self.ssh_step = request.ssh_step
         self.host = urlsplit(self.url).hostname or ""
@@ -521,6 +530,7 @@ class OpnsenseFix(OpnsenseSetup):
                 allow_writes=request.allow_writes,
                 trust=request.trust,
                 timeout=request.timeout,
+                traces=request.traces,
             )
         )
         stored = request.secrets.get("api_key")

@@ -159,6 +159,11 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`inventory.duplicate-device`](rules/topology_checks.md#inventoryduplicate-device)
 - [`redundancy.single-point`](rules/topology_checks.md#redundancysingle-point)
 
+## [Path traces](rules/traces.md)
+
+- [`trace.not-via-tunnel`](rules/traces.md#tracenot-via-tunnel)
+- [`trace.extra-nat`](rules/traces.md#traceextra-nat)
+
 ## [VLANs and links](rules/vlan.md)
 
 - [`vlan.path-to-gateway`](rules/vlan.md#vlanpath-to-gateway)

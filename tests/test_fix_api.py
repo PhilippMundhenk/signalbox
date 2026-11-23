@@ -35,7 +35,7 @@ from signalbox.model import DeviceRole, Network, ReadError
 from signalbox.rules import READ_ERRORS, evaluate
 from signalbox.service import Services, build
 from signalbox.sim.openwrt import OpenWrtSim, create_app
-from signalbox.sim.openwrt_ssh import ROOT_PASSWORD, OpenWrtSsh, serve_ssh_in_thread
+from signalbox.sim.openwrt_ssh import LLDP_PACKAGES, ROOT_PASSWORD, OpenWrtSsh, serve_ssh_in_thread
 from signalbox.sim.server import TlsFiles, self_signed_certificate, serve
 from signalbox.web.app import create_app as web_app
 from test_runner import Dev
@@ -329,3 +329,40 @@ async def test_default_remedy_hooks_raise() -> None:
         await Dev.plan_remedy(req)
     with pytest.raises(NotImplementedError):
         await Dev.apply_remedy(req)
+
+
+def test_fix_password_comes_last(
+    client: TestClient,
+    ssh: tuple[int, str],
+    https_url: str,
+    device: OpenWrtSsh,
+    http: OpenWrtSim,
+) -> None:
+    """#279: the identity is fetched without the password; apply takes it once and refuses a
+    plan with steps the user did not see."""
+    port, fingerprint = ssh
+    set_up(client, https_url, port, fingerprint, writes=True)
+    device.installed -= LLDP_PACKAGES
+    device.lldpd_running = False
+    http.lldpd = False
+    anon = fix(port, fingerprint, remedy="lldp")
+    del anon["admin"]["secret"]
+    scripts = len(device.scripts)
+    r = client.post("/api/devices/access-point/fix", json=anon)
+    assert r.status_code == 200 and r.json()["trusted"] is False and r.json()["steps"] == []
+    assert len(device.scripts) == scripts  # nothing sent
+    assert client.post("/api/devices/access-point/fix/apply", json=anon).status_code == 422
+    changed = client.post(
+        "/api/devices/access-point/fix/apply",
+        json={**fix(port, fingerprint, remedy="lldp"), "plan_ids": ["acl"]},
+    )
+    assert changed.status_code == 409 and changed.json()["error"] == "plan_changed"
+    assert not device.installed >= LLDP_PACKAGES
+    info = {a["id"]: a for a in client.get("/api/adapters").json()}
+    lldp = next(r for r in info["openwrt"]["remedies"] if r["id"] == "lldp")
+    seen = [s["id"] for s in lldp["preview"]]
+    done = client.post(
+        "/api/devices/access-point/fix/apply",
+        json={**fix(port, fingerprint, remedy="lldp"), "plan_ids": seen},
+    )
+    assert done.status_code == 200 and done.json()["ok"], done.text

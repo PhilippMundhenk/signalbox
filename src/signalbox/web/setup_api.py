@@ -21,6 +21,7 @@ from signalbox.adapters import (
     AuthFailed,
     SetupRequest,
     SetupResult,
+    StepState,
     Unreachable,
     UntrustedCertificate,
     UntrustedHostKey,
@@ -39,10 +40,17 @@ _PLACEHOLDER = "generated-by-the-automatic-setup"
 FINGERPRINT = r"^(SHA256:[A-Za-z0-9+/]{43}=?|[0-9a-fA-F:]{64,95})$"
 
 
+#: Stands in for the admin secret while none is given (#279): nothing may be sent with it, so
+#: a request without a secret is only ever answered with the device's fingerprint.
+NO_SECRET = SecretStr("-")
+
+
 class AdminBody(BaseModel):
     user: str = Field(max_length=200)
-    #: Never stored, logged or sent back.
-    secret: SecretStr = Field(min_length=1, max_length=500)
+    #: Never stored, logged or sent back. Missing: only the device's fingerprint is fetched,
+    #: no credential is sent (the plan is shown and the identity confirmed before the password
+    #: is asked for, #279); *apply* needs it.
+    secret: SecretStr | None = Field(None, min_length=1, max_length=500)
     port: int | None = Field(None, ge=1, le=65535)
 
 
@@ -50,7 +58,7 @@ class SshBody(BaseModel):
     """The optional SSH step of an integration (``AdminLogin.ssh_option``, #242)."""
 
     #: Never stored, logged or sent back.
-    secret: SecretStr = Field(min_length=1, max_length=500)
+    secret: SecretStr | None = Field(None, min_length=1, max_length=500)
     port: int | None = Field(None, ge=1, le=65535)
     #: The SSH host key (``SHA256:...``) the user confirmed for it.
     trust: str | None = Field(None, pattern=FINGERPRINT)
@@ -69,6 +77,10 @@ class SetupBody(BaseModel):
     ssh: SshBody | None = None
     #: Ids of the optional extras the user ticked (``AdminLogin.extras``, #278).
     extras: list[str] = Field(default_factory=list, max_length=20)
+    #: *Apply* only: the ids of the steps the user saw in the plan before the login. If the
+    #: real plan needs a step that is not among them, nothing runs and the plan is returned
+    #: (409 ``plan_changed``) to be confirmed again (#279). Missing: no check (API clients).
+    plan_ids: list[str] | None = Field(None, max_length=100)
 
 
 def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, Any]]) -> APIRouter:
@@ -112,20 +124,26 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
         ssh = body.ssh
         secret_names = _secret_fields(cls.manifest.config)
         plain = {k: v for k, v in form.config.items() if k not in secret_names}
+        anonymous = body.admin.secret is None
+        if ssh is not None and ssh.secret is None and not anonymous:
+            return error(422, "invalid", "give the SSH password, or untick the SSH step")
         request = SetupRequest(
             config=plain,
             admin_user=body.admin.user.strip(),
-            admin_secret=body.admin.secret,
+            admin_secret=body.admin.secret or NO_SECRET,
             port=body.admin.port,
             allow_writes=form.allow_writes,
             remove=body.remove,
             extras=sorted(set(body.extras)),
-            trust=body.trust,
-            ssh_step=ssh is not None,
-            ssh_secret=ssh.secret if ssh else None,
+            # without the password only the fingerprint is fetched: nothing is sent, nothing
+            # is trusted yet (#279)
+            trust=None if anonymous else body.trust,
+            ssh_step=ssh is not None and not anonymous,
+            ssh_secret=ssh.secret if ssh and not anonymous else None,
             ssh_port=ssh.port if ssh else None,
-            ssh_trust=ssh.trust if ssh else None,
+            ssh_trust=ssh.trust if ssh and not anonymous else None,
             timeout=max(30.0, services.config.observe.timeout_seconds),
+            traces=services.config.traces.enabled,
         )
         return cls, form, request
 
@@ -181,6 +199,8 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
         if isinstance(ready, JSONResponse):
             return ready
         cls, form, request = ready
+        if body.admin.secret is None:
+            return error(422, "invalid", "give the admin password for this step")
         if not request.trust:
             return error(422, "invalid", "confirm the device's fingerprint first")
         device_id = form.device_id or slug(form.name, [d.id for d in store.devices()])
@@ -196,6 +216,30 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             except (StoreError, SecretError) as exc:
                 return error(422, "invalid", str(exc))
         redact = redactor(request)
+        if body.plan_ids is not None:
+            try:
+                planned = await cls.plan_setup(request)
+            except AdapterError as exc:
+                return failure(exc, redact)
+            if not planned.trusted:
+                return failure(UntrustedHostKey(planned.fingerprint, None), redact)
+            if planned.ssh_trusted is False:
+                return error(
+                    409,
+                    "untrusted_ssh",
+                    "Confirm the SSH host key first; the SSH password has not been sent.",
+                    fingerprint=planned.ssh_fingerprint,
+                    compare=planned.ssh_compare,
+                )
+            new = [s.id for s in planned.steps if s.state is StepState.TODO]
+            if set(new) - set(body.plan_ids):
+                return error(
+                    409,
+                    "plan_changed",
+                    "The device needs steps that were not in the plan you saw. Check the plan "
+                    "and run it again; nothing was changed.",
+                    plan=planned.model_dump(mode="json"),
+                )
         try:
             result: SetupResult = await cls.apply_setup(request)
         except AdapterError as exc:

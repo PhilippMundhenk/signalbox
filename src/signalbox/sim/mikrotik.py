@@ -1019,6 +1019,11 @@ class MikrotikSimulator:
     #: monitor refused (HTTP 500 ``not enough permissions``), as for a group without the policy
     read_only_monitor: bool = False
     next_id: int = 0x100
+    #: Traceroutes (#253): target -> hops (address or None, RTT in ms); a target not listed
+    #: answers through one router (192.0.2.254) and then itself.
+    routes: dict[str, list[tuple[str | None, float | None]]] = field(default_factory=dict)
+    #: Traceroute requests received (bodies).
+    traces: list[dict[str, Any]] = field(default_factory=list)
     #: passwords of the users in ``/rest/user`` other than ``username`` (set through REST)
     logins: dict[str, str] = field(default_factory=dict)
 
@@ -1107,10 +1112,37 @@ class MikrotikSimulator:
                 return _bad("expected an object")
             if request.method == "POST" and path == PPPOE_MONITOR:
                 return self.monitor(body)
+            if request.method == "POST" and path == TRACEROUTE:
+                return self.traceroute(path, body)
             self.writes.append((request.method, path, body))
             return self.write(request.method, path, body)
 
         return app
+
+    def traceroute(self, path: str, body: dict[str, Any]) -> Response:
+        """``/tool/traceroute`` once (#253): one row per hop, ``.section`` 0; refused like
+        RouterOS 7.25 without the policy test when ``path`` is in ``no_policy``."""
+        if path in self.no_policy:
+            return JSONResponse(NO_POLICY, status_code=500)
+        self.traces.append(dict(body))
+        host = str(body.get("address", ""))
+        if not host:
+            return _bad("missing address")
+        hops = self.routes.get(host, [("192.0.2.254", 0.4), (host, 1.2)])
+        hops = hops[: int(str(body.get("max-hops", "30")) or 30)]
+        rows = [
+            {
+                ".section": "0",
+                "address": addr or "",
+                "loss": "0%" if addr else "100%",
+                "sent": "1",
+                "last": f"{rtt}ms" if rtt is not None else "timeout",
+                "avg": f"{rtt}" if rtt is not None else "",
+                "status": "" if addr else "timeout",
+            }
+            for addr, rtt in hops
+        ]
+        return JSONResponse(rows)
 
     def monitor(self, body: dict[str, Any]) -> Response:
         """``/interface/pppoe-client/monitor <numbers> once``: the session of one client."""
@@ -1371,6 +1403,7 @@ def _bad(detail: str) -> JSONResponse:
 EXPORT = "/rest/export"
 PPPOE_CLIENT = "/rest/interface/pppoe-client"
 PPPOE_MONITOR = "/rest/interface/pppoe-client/monitor"
+TRACEROUTE = "/rest/tool/traceroute"
 DHCP_CLIENT = "/rest/ip/dhcp-client"
 LIST_MEMBER = "/rest/interface/list/member"
 EXECUTE = "/rest/execute"
