@@ -505,3 +505,15 @@ def test_firewall_needs_api_1_4() -> None:
         AdapterContractError, match=r"declares firewall, which needs adapter API 1\.4"
     ):
         check_manifest(old)
+
+
+def test_forwards_to_the_device_itself_or_another_address_do_not_take_it_away() -> None:
+    rule = fw_rule("accept", "wan", port=22, proto="tcp", chain=FirewallChain.INPUT)
+    ssh = service("gw", "ssh")
+    own = port_forward("192.168.1.1", 22, target_port=2222)
+    other_ip = port_forward("192.168.1.10", 22, external_address=ip("203.0.113.99"))
+    n = with_fw(home(), rules=[rule], port_forwards=[own, other_ip])
+    assert service_from_internet(n, ssh).verdict is A
+    v6 = uplink("gw", addresses=[iface("2001:db8:5::2/64")])
+    up = home().model_copy(update={"uplinks": [v6]})
+    assert reach(up, WAN, "2001:db8:5::2", 22, TCP).verdict is D

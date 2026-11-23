@@ -197,7 +197,12 @@ def _name(net: Network, device_id: str) -> str:
 
 
 def _forwards_elsewhere(
-    fw: Firewall, zones: set[str] | None, protocol: FirewallProtocol | None, port: int | None
+    fw: Firewall,
+    zones: set[str] | None,
+    protocol: FirewallProtocol | None,
+    port: int | None,
+    destination: IPAddress | None,
+    own: set[IPAddress],
 ) -> FirewallVerdict | None:
     """A port forward that takes a connection to the device's own address on *port* away to
     another host: then the device's own service is not reached (``denied``), or may not be
@@ -206,6 +211,10 @@ def _forwards_elsewhere(
     maybe = None
     for pf in fw.port_forwards:
         if not pf.zones and zones is not None and not (zones & uplink_zones):
+            continue
+        if pf.target_address in own:
+            continue  # to the device itself (another port of its own)
+        if pf.external_address is not None and destination not in (None, pf.external_address):
             continue
         m = pf.matches(zones, protocol, port)
         if m is Match.YES:
@@ -258,7 +267,8 @@ def device_input(
     verdict = any_of(results)
     uplink = _is_uplink(net, zones_from or source)
     if uplink is not None and uplink.device_id == device_id:
-        away = _forwards_elsewhere(fw, zones, protocol, port)
+        own = set(own_addresses(net, device_id))
+        away = _forwards_elsewhere(fw, zones, protocol, port, destination, own)
         if away is not None:
             verdict = in_series([verdict, away]) if away.verdict is Verdict.UNKNOWN else away
         elif not fw.port_forwards_complete and verdict.verdict is Verdict.ALLOWED:
@@ -283,10 +293,11 @@ def _upstream(
     front = net.upstream_router(uplink)
     if front is None or depth >= _MAX_UPSTREAM:
         return _v(Verdict.ALLOWED, "no known router in front", uplink.device_id)
-    targets = [a.ip for a in uplink.ipv4() if destination is None or a.ip == destination]
-    targets = targets or [a.ip for a in uplink.ipv4()]
+    family = destination.version if destination is not None else 4
+    own = [a.ip for a in uplink.addresses if a.version == family and not a.ip.is_link_local]
+    targets = [a for a in own if a == destination] or own
     if not targets:
-        return _v(Verdict.ALLOWED, "no IPv4 address behind the router in front", uplink.device_id)
+        return _v(Verdict.ALLOWED, "no address behind the router in front", uplink.device_id)
     outer = net.uplinks_of(front.device_id)
     if not outer:
         return _v(
