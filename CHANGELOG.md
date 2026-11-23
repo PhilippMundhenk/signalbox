@@ -93,6 +93,7 @@ All notable changes to this project are documented here. The format follows
 - DHCP lease checks: static address inside the DHCP pool, declined leases (address conflicts), classless static routes without a default route, relays pointing to no known DHCP server; pool usage counts active leases; `dhcp.one-server` is quiet where a relay serves the network (#67, #183)
 
 ### Changed
+- Setup preview: a test per integration (Linux, OpenWrt, MikroTik, OPNsense with its ISC SSH script, every *Fix it* remedy) checks that the credential-free preview lists every step the real plan can contain (fixing three missing ones); OPNsense with the optional SSH step now fetches the HTTPS certificate and the SSH host key together before any password, so the passwords are asked once (#290)
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
 - Each device links to its own web interface: an icon on the devices list and an "Open web interface" button on the device page, derived from a reported https/http service or the adapter settings (#214)
