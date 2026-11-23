@@ -751,6 +751,7 @@ MIKROTIK_STEPS = (
 REMEDIES = (
     Remedy(
         id="policies",
+        read_side=True,
         title="Add the missing policies",
         description="Through the REST API with the admin login: adds the policies of the setup "
         "guide (read, api, rest-api; write and sensitive too when changes are allowed) that the "
