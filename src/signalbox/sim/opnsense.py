@@ -142,7 +142,7 @@ def firewall_data() -> dict[str, Any]:
     """The packet filter of the sample firewall (#135), as OPNsense 26.7 answers: rules of all
     three kinds in evaluation order, aliases, an interface group, a port forward, outbound NAT
     and a one-to-one mapping (documentation addresses)."""
-    legacy = {"legacy": True, "%protocol": "ANY"}
+    legacy: dict[str, Any] = {"legacy": True, "%protocol": "ANY"}
     rules = [
         _fw_rule(
             "deny-all",

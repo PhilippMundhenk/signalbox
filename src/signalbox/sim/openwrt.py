@@ -576,7 +576,7 @@ def firewall_config(router: bool = False, wireguard: bool = False) -> dict[str, 
     """``/etc/config/firewall`` as OpenWrt 24.10 ships it (zones ``lan`` and ``wan``, one
     forwarding, the ``Allow-*`` rules), plus an ``iot`` zone, a port forward and a rule of the
     owner's (documentation addresses). Without ``router`` (an access point): LAN only."""
-    zones = [
+    zones: list[tuple[str, str, dict[str, Any]]] = [
         ("defaults", "cfg01e63d", {"input": "REJECT", "output": "ACCEPT", "forward": "REJECT"}),
         (
             "zone",

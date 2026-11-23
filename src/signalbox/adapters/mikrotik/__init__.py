@@ -58,6 +58,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import trace as _trace
+from signalbox.adapters.mikrotik import firewall as _firewall
 from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
@@ -184,6 +185,15 @@ IP_SSH = "/rest/ip/ssh"
 UPNP = "/rest/ip/upnp"
 SNMP = "/rest/snmp"
 SNMP_COMMUNITY = "/rest/snmp/community"
+#: The packet filter (#135): filter rules, NAT, raw rules, interface and address lists.
+FW_FILTER = "/rest/ip/firewall/filter"
+FW_FILTER6 = "/rest/ipv6/firewall/filter"
+FW_NAT = "/rest/ip/firewall/nat"
+FW_RAW = "/rest/ip/firewall/raw"
+IPSEC_POLICY = "/rest/ip/ipsec/policy"
+FW_ADDRESS_LIST = "/rest/ip/firewall/address-list"
+FW_ADDRESS_LIST6 = "/rest/ipv6/firewall/address-list"
+INTERFACE_LIST = "/rest/interface/list"
 
 #: ``/ip/service`` names -> kind of service.
 _IP_SERVICES = {
@@ -791,7 +801,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         id="mikrotik",
         name="MikroTik RouterOS",
         version="0.2.0",
-        api_version="1.3",
+        api_version="1.4",
         vendor="MikroTik",
         roles=frozenset({DeviceRole.GATEWAY, DeviceRole.SWITCH, DeviceRole.AP}),
         capabilities=frozenset(
@@ -805,6 +815,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 Capability.HEALTH,
                 Capability.TIME,
                 Capability.VPN,
+                Capability.FIREWALL,
             }
         ),
         config=MikrotikConfig,
@@ -1985,6 +1996,51 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         except ValueError as e:
             raise AdapterError(f"{_trace.TRACEROUTE}: answer is not valid JSON") from e
         return _trace.parse(answer, target, max_hops)
+
+    async def read_firewall(self) -> Observation:
+        """Packet filter and NAT (#135): ``/ip/firewall/filter`` and ``nat``,
+        ``/ipv6/firewall/filter``, ``raw`` (a drop there makes the list incomplete), interface
+        lists as zones and address lists, with the read-only group of the setup guide."""
+        layout = await self._layout()
+        dev = self.context.device_id
+        filter4 = await self._rows(FW_FILTER)
+        filter6 = await self._optional_rows(FW_FILTER6)  # no ipv6 package
+        nat_rows = await self._optional_rows(FW_NAT)
+        raw = await self._optional_rows(FW_RAW)
+        entries = [
+            *await self._optional_rows(FW_ADDRESS_LIST),
+            *await self._optional_rows(FW_ADDRESS_LIST6),
+        ]
+        lists = _firewall.Lists.build(
+            await self._optional_rows(INTERFACE_LIST),
+            await self._optional_rows(LIST_MEMBER),
+            entries,
+        )
+        # a template policy is no IPsec traffic; without a real one ``ipsec-policy`` rules
+        # (the defaults of RouterOS have some) can never match
+        policies = await self._optional_rows(IPSEC_POLICY)
+        lists.ipsec = any(
+            _active(p) and not _flag(p.get("template")) and not _flag(p.get("dynamic"))
+            for p in policies
+        )
+        uplinks = {u.name: u.id for u in await self._uplinks(layout) if u.name}
+
+        def mapper(name: str) -> _firewall.Mapped | None:
+            seg = layout.l3.get(name) or layout.port_segment.get(name)
+            port = layout.ports.get(name)
+            tunnel = (
+                [object_id(dev, "tunnel", name)]
+                if port is not None and port.vendor_extra.get("type") in ("wg", "wireguard")
+                else []
+            )
+            up = [uplinks[name]] if name in uplinks else []
+            bare = [port.id] if port is not None and not (seg or up or tunnel) else []
+            if not (seg or up or tunnel or bare):
+                return None
+            return ([seg] if seg else []), up, tunnel, bare
+
+        built = _firewall.build(dev, lists, mapper, filter4, filter6, nat_rows, raw)
+        return Observation(firewalls=[built])
 
     async def read_time(self) -> Observation:
         start = datetime.now(UTC)

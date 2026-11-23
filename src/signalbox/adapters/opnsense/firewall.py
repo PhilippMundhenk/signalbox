@@ -194,12 +194,12 @@ class Context:
         out: list[IPNetwork] = []
         exact = _flag(alias.get("enabled", "1"))
         for item in _csv(alias.get("content")):
-            nets, ok = (
+            found, ok = (
                 self._network(item, depth + 1) if kind == "networkgroup" else self._literal(item)
             )
-            if nets is None:
+            if found is None:
                 return None, False
-            out += nets
+            out += found
             exact = exact and ok
         return out, exact
 

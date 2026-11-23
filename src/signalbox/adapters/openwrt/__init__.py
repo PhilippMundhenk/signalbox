@@ -1741,9 +1741,12 @@ class OpenWrtAdapter(Adapter):
             )
         d = self.context.device_id
         view = await self._network()
+        router = (
+            self.context.role is DeviceRole.GATEWAY
+        )  # as read_interfaces: only a router has uplinks
         uplinks = {
             n: u.id
-            for u in self._uplinks(view, {})
+            for u in (self._uplinks(view, {}) if router else [])
             for n in (u.vendor_extra.get("interfaces") or [])  # type: ignore[union-attr]
         }
         tunnels = {n for n, _ in wireguard.interfaces(view.uci)}
