@@ -51,7 +51,7 @@ desired state → planner → deployment → devices, with every step tracked.
 | **Observation** | `signalbox.runner` | read every device on an interval, merge into one network | inventory, integrations | `Network`, findings history | done (#12) |
 | **History** | `signalbox.sightings`, `signalbox.store` | after every round: first/last seen of devices, clients (per network) and ports, device status, link state, client network; changes as events; pruned after `history.days` | `Network` per round | read-only `History` for rules (`history_rule`), first/last seen in API and UI | done (#185) |
 | **Checks** (rules) | `signalbox.rules.*` | find inconsistencies, explain them, suggest a fix; never change anything | `Network` (and `History`) | findings | done (#5–#8, #15) |
-| **Topology** | `signalbox.topology` | links from LLDP, MAC tables and entered cables; the wiring and VLAN view | `Network` | links, topology view | done (#15) |
+| **Topology** | `signalbox.topology` | links from LLDP, MAC tables (`signalbox.fdb`: uplinks, client placement, links through unread switches, #160) and entered cables; the wiring and VLAN view | `Network` | links, topology view | done (#15) |
 | **Desired state** | `signalbox.desired` | what the network should look like; drift against the observed state | YAML, UI | desired model, drift findings | done (#36), [DESIRED.md](DESIRED.md) |
 | **Annotations** | `signalbox.annotate`, `signalbox.store` | the user's own layer: labels, purpose, owner, notes, typed expectations, acknowledged findings; never written to devices | desired-state YAML, UI | `Network.annotations`, `Network.acknowledgements`, acknowledged findings | done (#186), [ADR 0007](adr/0007-annotations-and-acknowledgements.md) |
 | **Planner** | `signalbox.changes` | desired minus observed → typed change set per device, ordered; checks run on the predicted state | desired + observed state | plan | done (#37) |
@@ -90,6 +90,7 @@ carries its source (adapter and device), the time it was observed and a stable i
 | Site | One network domain; a second location over a VPN is a second site |
 | Device | Vendor, model, firmware, role (`gateway`, `switch`, `ap`, `other`), management address, adapter, capabilities, health, time, whether Signalbox reads it encrypted |
 | Port | Physical or logical port, link state, speed, PoE, LAG membership, neighbour (LLDP where available); configuration details: description, admin state, PVID, frame types, ingress filter, MTU / L2 MTU / jumbo flag, maximum and advertised speeds, auto-negotiation, medium, port profile, flow control, EEE; internal structure (#252, ADR 0008): role (jack, CPU port, switch port, bridge, VLAN / Wi-Fi interface, LAG, tunnel, virtual) and the ports it runs on, a cable can end there (`external`) derived |
+| FdbEntry | One entry of a device's MAC address table (#160, ADR 0016): port, MAC, VLAN and segment, `dynamic` / `static` / `self`, age; at most 2048 per device, not in `GET /api/network` |
 | Link | A cable or wireless uplink between two ports; observed (LLDP, MAC tables) or entered by hand; a `vpn` link between two tunnels whose peers name each other's public keys |
 | Segment | Layer-2 network: VLAN id, name, purpose and its source, isolated by the device; membership per port `untagged` / `tagged` / `none` |
 | Subnet | Prefix, gateway address, segment, IPv4/IPv6 |

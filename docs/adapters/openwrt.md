@@ -718,3 +718,11 @@ reports a gap with the usual fix (update the ACL file, `service rpcd restart`), 
   config (zones lan and wan, the lan to wan forwarding, the `Allow-*` rules); the lab has no
   `wan` interface, so that zone is incomplete. *Guess*: redirect and `nat` sections on a real
   router (the simulator has them), fw3 releases.
+
+## MAC address table (#160)
+
+Not read. No rpcd method exposes the bridge forwarding database (`network.device status`,
+`luci-rpc getHostHints` and `getNetworkDevices` have no per-port MACs);
+`/sys/class/net/<bridge>/brforward` is a binary file without VLANs whose port numbers need
+`brif/*/port_no` reads and a wider ACL. The read ACL stays as it is; Wi-Fi clients still come
+from `hostapd.* get_clients`.

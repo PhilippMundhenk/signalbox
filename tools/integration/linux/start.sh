@@ -10,6 +10,8 @@ ip link set lan1 master br0
 ip link set lan2 master br0
 ip link add link lan0 name lan0.30 type vlan id 30
 for n in lan1 lan2 lan0 br0 lan0.30; do ip link set "$n" up; done
+# a static MAC address table entry (#160), read as the read user with bridge -j fdb show
+bridge fdb add 02:00:00:00:53:01 dev lan1 master static
 ip addr add 192.0.2.1/25 dev br0
 ip addr add 2001:db8:1::1/64 dev br0 nodad
 ip addr add 192.0.2.129/26 dev lan0.30

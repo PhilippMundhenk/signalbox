@@ -196,3 +196,9 @@ Fixed by the product line, nothing is read from the switch: a `vendor` service (
 interface `http` on port 80 (most models have no HTTPS *(guess per model)*), both always on,
 unencrypted and listening everywhere. `transport_encrypted` is false: both protocols send the
 password only obfuscated.
+
+## MAC address table (#160)
+
+Not read: NSDP (NETGEAR) and the Easy Smart protocol (TP-Link) have no MAC address table on
+the supported models, and Switchyard reads none. Links to these switches come from their port
+MACs in the tables of the devices around them.

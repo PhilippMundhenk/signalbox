@@ -31,6 +31,11 @@ export function indexNetwork(net, devices = [], sites = []) {
     return m ? `${ix.deviceName(m[1])} · ${m[2]}` : id;
   };
   ix.label = (id) => objectLabel(ix, id);
+  // Where a client is (#160): "port 5 of Switch" for a port, the usual label otherwise.
+  ix.placeName = (id) => {
+    const p = ix.ports.get(id);
+    return p ? `port ${p.name} of ${ix.deviceName(p.device_id)}` : objectLabel(ix, id);
+  };
   ix.siteOf = (id) => siteOf(ix, id);
   return ix;
 }
@@ -96,4 +101,10 @@ export function noData(what) {
     h('p', { class: 'muted' }, `Signalbox shows ${what} once a device that reports them has been read.`),
     h('p', {}, h('a', { href: '#/devices', class: 'btn' }, 'Devices')),
   );
+}
+
+// A MAC address table entry (#160) in words: "dynamic, VLAN 20, 30 s old".
+export function fdbText(e, fmtDuration) {
+  const kind = { dynamic: 'learned', static: 'static', self: 'own address' }[e.kind] || e.kind;
+  return [kind, e.vlan ? `VLAN ${e.vlan}` : null, e.age_seconds !== null && e.age_seconds !== undefined ? `${fmtDuration(e.age_seconds)} old` : null].filter(Boolean).join(', ');
 }

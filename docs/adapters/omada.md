@@ -507,3 +507,10 @@ AuthNoPriv, 2 AuthPriv; a site with both versions off answers only `snmpV1V2CEna
 apply the settings is a *guess* until a real site is read (#21). A site setting the controller
 refuses or does not have leaves its service out; the controller's own web interface and cloud
 access are not read (no Open API call). `transport_encrypted` is true for https.
+
+## MAC address table (#160)
+
+The controller's client list is its view of the switches' tables: every wired client with
+`switchMac` and `port` becomes a `dynamic` entry on that managed switch's port (`vid` as the
+VLAN), under the switch's device id. The per-switch MAC table endpoint is not used *(guess:
+not in the Open API)*. Simulator only (#21).
