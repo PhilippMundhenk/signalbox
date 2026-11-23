@@ -22,6 +22,8 @@ segment of the site: it appears as a port only.
 from __future__ import annotations
 
 import contextlib
+import json
+import logging
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Iterator, Mapping
@@ -29,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv6Network, ip_address, ip_interface, ip_network
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 
@@ -46,6 +49,7 @@ from signalbox.adapters import (
     SetupPlan,
     SetupRequest,
     SetupResult,
+    SshOption,
     SystemInfo,
     VendorCall,
 )
@@ -53,6 +57,7 @@ from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.opnsense import discovery as _discovery
 from signalbox.adapters.opnsense import provision, vitals
 from signalbox.adapters.opnsense import write as w
+from signalbox.adapters.ssh import PinnedSsh
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
@@ -96,6 +101,8 @@ from signalbox.model import (
     segment_id,
 )
 
+log = logging.getLogger(__name__)
+
 
 def _listen_values(value: Any) -> list[str]:
     """A list field of the model API: ``"a,b"``, or ``{"a": {"value": "a", "selected": 1}}``."""
@@ -118,6 +125,8 @@ DHCRELAY = "/api/dhcrelay/settings/search_relay"
 DHCRELAY_DEST = "/api/dhcrelay/settings/search_dest"
 ISC_STATUS = "/api/dhcpv4/service/status"
 ISC_LEASES = "/api/dhcpv4/leases/search_lease"
+#: The helper script of #242 (docs/adapters/opnsense.md, "ISC DHCP settings") and its path.
+ISC_SCRIPT = "/usr/local/sbin/signalbox-isc-dhcp"
 UNBOUND = "/api/unbound/settings/get"
 HOST_OVERRIDES = "/api/unbound/settings/search_host_override"
 DNSMASQ = "/api/dnsmasq/settings/get"
@@ -178,6 +187,45 @@ class OpnsenseConfig(AdapterConfig):
         default=False,
         description="Allow plain http:// (simulators and tests only: sends the key unencrypted)",
     )
+    isc_ssh_key: SecretStr | None = Field(
+        json_schema_extra={"advanced": True},
+        default=None,
+        description="Optional: private SSH key whose authorized_keys entry on the firewall forces "
+        "the helper script signalbox-isc-dhcp (ISC DHCP settings have no API; see the setup "
+        "guide). Without it only the ISC leases are read.",
+    )
+    isc_ssh_host_key: str | None = Field(
+        json_schema_extra={"advanced": True},
+        default=None,
+        description="SSH host key fingerprint of the firewall (SHA256:...): the key is only used "
+        "for a firewall that presents it (without it nothing is read over SSH)",
+    )
+    isc_ssh_port: int = Field(
+        json_schema_extra={"advanced": True}, default=22, ge=1, le=65535, description="SSH port"
+    )
+    isc_ssh_user: str = Field(
+        json_schema_extra={"advanced": True},
+        default="root",
+        pattern=r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$",
+        description="User whose authorized_keys holds the forced command",
+    )
+
+    @field_validator("isc_ssh_key")
+    @classmethod
+    def _key_text(cls, value: SecretStr | None) -> SecretStr | None:
+        """A PEM key pasted into a one-line field has lost its line breaks: restore them."""
+        if value is None or not value.get_secret_value().strip():
+            return None
+        m = re.match(
+            r"^\s*(-----BEGIN [A-Z ]+-----)(.*?)(-----END [A-Z ]+-----)\s*$",
+            value.get_secret_value(),
+            re.S,
+        )
+        if m is None:  # not checked here (the setup validates the form with a placeholder)
+            return value
+        body = "".join(m.group(2).split())
+        lines = [body[i : i + 70] for i in range(0, len(body), 70)]
+        return SecretStr("\n".join([m.group(1), *lines, m.group(3)]) + "\n")
 
     @field_validator("url")
     @classmethod
@@ -591,6 +639,14 @@ class OpnsenseAdapter(_Adapter):
             secret_label="API secret",
             note="System > Access > Users > root > API keys: + downloads a file with key and "
             "secret. Signalbox uses them once and keeps neither; delete that key afterwards.",
+            ssh_option=SshOption(
+                label="Also read the ISC DHCP settings (optional)",
+                note="The ISC DHCP plugin's API has only leases. This installs a small "
+                "read-only script, /usr/local/sbin/signalbox-isc-dhcp, that prints only the "
+                "DHCP sections of config.xml (no secrets), and an SSH key that can run nothing "
+                "else. Needs SSH on the firewall (System > Settings > Administration, "
+                "root login). Off unless you tick it; Remove deletes both.",
+            ),
         ),
     )
 
@@ -1071,6 +1127,44 @@ class OpnsenseAdapter(_Adapter):
             )
         return servers
 
+    def _ssh(self) -> PinnedSsh:
+        cfg = self.config
+        assert cfg.isc_ssh_key is not None
+        return PinnedSsh(
+            urlsplit(cfg.url).hostname or "",
+            cfg.isc_ssh_port,
+            cfg.isc_ssh_user,
+            "",
+            cfg.isc_ssh_host_key,
+            self.context.timeout,
+            private_key=cfg.isc_ssh_key.get_secret_value(),
+        )
+
+    async def _isc_settings(self) -> tuple[dict[str, Any], str]:
+        """Per-interface ISC settings from the helper script (#242), or ``({}, why not)``.
+
+        Only with an SSH key and its host key configured. The script's output is untrusted
+        input like any answer: a failure never breaks the observation, the leases are read
+        as before and the reason is shown on the server.
+        """
+        if self.config.isc_ssh_key is None:
+            return {}, ""
+        try:
+            async with self._ssh() as ssh:
+                res = await ssh.command(ISC_SCRIPT)
+            if res.code != 0:
+                raise AdapterError(f"the script exited with status {res.code}: {res.err[:200]}")
+            data = json.loads(res.text)
+            if not isinstance(data, dict) or data.get("version") != 1:
+                raise AdapterError("unexpected output (version)")
+            section = data.get("dhcpd")
+            if not isinstance(section, dict):
+                raise AdapterError("unexpected output (no dhcpd section)")
+        except (AdapterError, ValueError) as exc:
+            log.warning("%s: ISC settings not read: %s", self.context.device_id, exc)
+            return {}, f"the ISC settings could not be read over SSH: {exc}"[:300]
+        return {k: v for k, v in section.items() if isinstance(v, dict)}, ""
+
     async def _isc(self, layout: _Layout) -> list[DhcpServer]:
         status = await self._optional(ISC_STATUS)
         if status is None:
@@ -1082,6 +1176,13 @@ class OpnsenseAdapter(_Adapter):
         by_iface: dict[str, list[dict[str, Any]]] = {}
         for lease in leases:
             by_iface.setdefault(_text(lease.get("if")), []).append(lease)
+        settings, problem = await self._isc_settings()
+        # an interface the script reports as not served has no ISC server, whatever leases remain
+        for identifier, conf in settings.items():
+            if conf.get("enable"):
+                by_iface.setdefault(identifier, [])
+            else:
+                by_iface.pop(identifier, None)
         servers = []
         for identifier, rows in by_iface.items():
             iface = layout.by_identifier(identifier)
@@ -1094,6 +1195,19 @@ class OpnsenseAdapter(_Adapter):
                 and (mac := _mac(r.get("mac"))) is not None
                 and (address := _addr(r.get("address"))) is not None
             ]
+            extra: dict[str, Any] = {"server": "isc"}
+            fields: dict[str, Any] = {}
+            conf = settings.get(identifier)
+            if conf is not None:
+                fields, reservations = self._isc_fields(conf), self._isc_maps(conf)
+                extra["settings"] = "signalbox-isc-dhcp"
+            else:
+                extra["note"] = problem or (
+                    "the os-isc-dhcp plugin's API has only the lease list and the service "
+                    "state: ranges, options and failover are in config.xml, which Signalbox "
+                    "reads only through the optional helper script (docs/adapters/opnsense.md, "
+                    "ISC DHCP settings)"
+                )
             servers.append(
                 DhcpServer(
                     id=object_id(self.context.device_id, "dhcp", f"isc-{identifier}"),
@@ -1102,17 +1216,47 @@ class OpnsenseAdapter(_Adapter):
                     enabled=state == "running",
                     reservations=reservations,
                     leases=[x for r in rows if (x := _isc_lease(r)) is not None],
-                    vendor_extra={
-                        "server": "isc",
-                        "note": (
-                            "the os-isc-dhcp plugin's API has only the lease list and the service "
-                            "state: ranges, options and failover are in config.xml, which "
-                            "Signalbox does not read (it holds every secret)"
-                        ),
-                    },
+                    vendor_extra=extra,
+                    **fields,
                 )
             )
         return servers
+
+    @staticmethod
+    def _isc_fields(conf: dict[str, Any]) -> dict[str, Any]:
+        """Pool, router, DNS, NTP, domain, lease time and failover peer of the script's output."""
+
+        def addrs(value: Any) -> list[IPAddress]:
+            return [a for v in value if (a := _addr(v))] if isinstance(value, list) else []
+
+        rng = conf.get("range")
+        pool = (
+            _pool(f"{rng.get('from')}-{rng.get('to')}")
+            if isinstance(rng, dict) and rng.get("from") and rng.get("to")
+            else None
+        )
+        lease = _int(conf.get("defaultleasetime"))
+        return {
+            "pools": [pool] if pool else [],
+            "router": _addr(conf.get("gateway")),
+            "dns_servers": addrs(conf.get("dnsserver")),
+            "ntp_servers": addrs(conf.get("ntpserver")),
+            "domain": _text(conf.get("domain")) or None,
+            # ISC's own default is 7200 s when the interface sets none
+            "lease_seconds": lease if lease else 7200,
+            "failover_peer": _text(conf.get("failover_peerip")) or None,
+        }
+
+    @staticmethod
+    def _isc_maps(conf: dict[str, Any]) -> list[Reservation]:
+        rows = conf.get("staticmap")
+        return [
+            Reservation(mac=mac, address=address, hostname=_text(r.get("hostname")) or None)
+            for r in (rows if isinstance(rows, list) else [])
+            if isinstance(r, dict)
+            and (mac := _mac(r.get("mac"))) is not None
+            and (address := _addr(r.get("ipaddr"))) is not None
+        ]
 
     # --- DNS ----------------------------------------------------------------------------------
 

@@ -66,10 +66,116 @@ The calls are those of the web interface's user manager (OPNsense 24.7 and later
 `POST /api/auth/user/del/<uuid>`. A user `signalbox` with scope `system` is left alone.
 Running it again puts the privileges back as documented and replaces the key.
 
+The plan also offers *Also read the ISC DHCP settings* (off by default): the script and SSH key
+of [ISC DHCP settings](#isc-dhcp-settings-optional-242), over SSH as root with a second pinned
+host key.
+
 Verified in CI on 26.7 (`tests/integration/test_opnsense_setup_real.py`): pinning and a refused
 root secret; the user created, the firewall read with its key (contract, every capability);
 a second run with nothing to change but the key; with writes the privileges updated and the
 old key refused afterwards; the new key refused by the user manager (403); the removal.
+
+## ISC DHCP settings (optional, #242)
+
+The ISC DHCP plugin (`os-isc-dhcp`) has an API for leases and the service state only. Ranges,
+gateway, DNS and NTP servers, domain, lease times, static maps and the failover peer are in the
+`<dhcpd>` and `<dhcpdv6>` sections of `/conf/config.xml`, and the only API that returns that
+file is the backup, which also returns every password hash, API secret and VPN key of the
+firewall. Signalbox does not read it. Instead it can read those settings through **one small
+script that you install on the firewall** and that prints nothing else.
+
+**Fully optional and off by default.** Without it Signalbox reads the ISC leases as before
+(the server shows lease table and static leases, no pool or options, with a note saying why).
+Nothing is installed unless you tick *Also read the ISC DHCP settings* in the plan of *Set up
+automatically* and confirm it; `setup.enabled: false` turns the installation off completely
+(the form does not offer it, the API refuses it). *Remove* in the same form deletes the script
+and the key again. Kea comes first: ISC settings are read only for interfaces no enabled Kea
+server serves.
+
+### What is installed
+
+- `/usr/local/sbin/signalbox-isc-dhcp`, owner root, mode 0755: the file
+  [`isc_script.py`](../../src/signalbox/adapters/opnsense/isc_script.py) of this repository,
+  verbatim (about 150 lines of Python 3 standard library, OPNsense ships `python3`). It takes no
+  argument and no input, reads `/conf/config.xml` and prints JSON. Per interface of `<dhcpd>`
+  and `<dhcpdv6>` it prints only: `enable`, `range` (from, to), `gateway`, `dnsserver`,
+  `ntpserver`, `domain`, `defaultleasetime`, `maxleasetime`, `failover_peerip` and per static map
+  the MAC (DUID), address and host name. Each value is checked against its format (an address, a
+  MAC, a host name, a number) and dropped if it is not one; nothing else is ever printed (no
+  other section, no `ddnsdomainkey`, no descriptions), whatever the file contains. A test feeds it
+  a `config.xml` full of secrets and compares.
+- One line in root's `/root/.ssh/authorized_keys`: a new ed25519 key made by Signalbox, whose
+  private half is stored encrypted in Signalbox (`isc_ssh_key`):
+
+  ```
+  command="/usr/local/sbin/signalbox-isc-dhcp",restrict ssh-ed25519 AAAA... signalbox-isc-dhcp
+  ```
+
+  `command=` makes sshd run the script whatever the client asks for, `restrict` turns off
+  forwarding, a terminal and everything else. The key can do exactly one thing: print that JSON.
+
+### Why root with a forced command
+
+The script has to read `/conf/config.xml`, which is readable by root only (0640 root:wheel).
+The options OPNsense offers, and why this one was chosen:
+
+- A non-root user with `sudo` or `doas` limited to the script: neither is part of the base
+  system (`os-sudo` is an extra plugin), and the user would need a shell login, which the
+  user manager only gives to members of the administrators group, a much wider access than one
+  script.
+- A non-root user in the group that may read the file: the file is root:wheel and OPNsense
+  accounts cannot be put into `wheel`.
+- A root key with a forced command and `restrict`: no extra package, nothing but one script
+  can run, and the key is useless for a shell, a file copy or a tunnel even if it leaks. The
+  price is that root login over SSH must be allowed (*System > Settings > Administration >
+  Secure Shell*: *Permit root user login*). Leave *Permit password authentication* off if you
+  can: a key is enough for this.
+
+The SSH host key is pinned like the certificate: the setup shows its fingerprint, nothing
+(not even the SSH password of root) is sent before you confirm it, and the confirmed
+fingerprint is stored as `isc_ssh_host_key`; Signalbox only uses the key for a firewall that
+presents it. The root SSH password given to the setup is used for that one request only and is
+never stored or logged. To install, the setup needs root's SSH password (or key login is not
+supported: use the manual way).
+
+### Install it yourself
+
+1. Copy `src/signalbox/adapters/opnsense/isc_script.py` to
+   `/usr/local/sbin/signalbox-isc-dhcp`; `chown root:wheel` it and `chmod 0755` it.
+   Read it first: it is short.
+2. Make a key pair on the machine that runs Signalbox: `ssh-keygen -t ed25519 -N "" -C
+   signalbox-isc-dhcp -f signalbox-isc`.
+3. Add the line shown above (with the content of `signalbox-isc.pub`) to
+   `/root/.ssh/authorized_keys` on the firewall. (Check after a reboot that it is still there; if
+   the web interface rewrites the file, add the key under *System > Access > Users > root >
+   Authorized keys* instead and prefix it with the same `command=...,restrict` options.)
+4. Find the host key fingerprint on the firewall: `ssh-keygen -lf
+   /etc/ssh/ssh_host_ed25519_key.pub` (`SHA256:...`).
+5. In the device's settings (*Advanced*): `isc_ssh_key` = the private key file's content,
+   `isc_ssh_host_key` = the fingerprint, optionally `isc_ssh_port` (default 22). Or in YAML:
+   `isc_ssh_key: "-----BEGIN OPENSSH PRIVATE KEY-----..."`.
+6. Check on the firewall: `/usr/local/sbin/signalbox-isc-dhcp | python3 -m json.tool`.
+
+Removing it: delete the script, the `authorized_keys` line and the two settings.
+
+### What Signalbox does with the output
+
+For every interface the script reports as `enable`d (the ISC server runs and the plugin's status
+is not `disabled`): the DHCP server gets the pool (`range`), router (`gateway`), DNS and NTP
+servers, domain, lease time (`defaultleasetime`, ISC's default 7200 s when empty), the static
+maps as reservations and the failover peer. An empty `gateway` or `dnsserver` means ISC hands out
+the interface address or the firewall's own resolver; Signalbox shows what is configured, so
+the field stays empty. IPv6 (`dhcpdv6`) is printed by the script for completeness and not read
+yet. If the script cannot be run (key refused, host key changed, python missing, bad output) the
+leases are read as before and the server's `vendor_extra.note` says why; the device does not
+fail.
+
+Not verified on a real firewall (#21): the `authorized_keys` handling by the web interface
+(whether root's key file is kept), that root key login with a forced command is accepted with
+the default sshd settings of OPNsense 26.7, and the layout of `<dhcpd>` of every plugin version.
+The integration test image has no `os-isc-dhcp`, so CI covers the script, the adapter and the
+setup against the simulator only (`signalbox.sim.opnsense_ssh`: an SSH server that runs the
+installed script against a `config.xml` with planted secrets).
 
 ## A least-privilege API user
 
@@ -397,6 +503,8 @@ the plugin's source:
 ```
 
 `running`, `stopped` or `disabled` (then the leases are not read for DHCP).
+Ranges, options and static maps are not in this API: see
+[ISC DHCP settings](#isc-dhcp-settings-optional-242).
 
 ```json
 {"rows": [{"address": "203.0.113.10", "mac": "00:00:5e:00:53:30", "hostname": "kiosk",

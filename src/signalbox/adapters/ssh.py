@@ -59,10 +59,19 @@ class PinnedSsh:
     """``async with PinnedSsh(host, port, user, password, pin) as ssh: await ssh.run(...)``."""
 
     def __init__(
-        self, host: str, port: int, user: str, password: str, pin: str | None, timeout: float
+        self,
+        host: str,
+        port: int,
+        user: str,
+        password: str,
+        pin: str | None,
+        timeout: float,
+        private_key: str | None = None,
     ) -> None:
         self.host, self.port, self.user = host, port, user
         self._password = password
+        #: An OpenSSH private key (PEM text): log in with it instead of the password (#242).
+        self._private_key = private_key
         self.pin = pin
         self.timeout = timeout
         self._conn: asyncssh.SSHClientConnection | None = None
@@ -72,18 +81,19 @@ class PinnedSsh:
         client = _Pinned(self.pin)
         where = f"{self.host}:{self.port}"
         try:
+            key = asyncssh.import_private_key(self._private_key) if self._private_key else None
             self._conn, _ = await asyncio.wait_for(
                 asyncssh.create_connection(
                     lambda: client,
                     self.host,
                     self.port,
                     username=self.user,
-                    password=self._password,
+                    password=None if key else self._password,
                     known_hosts=([], [], []),  # only validate_host_public_key decides
                     config=None,
                     agent_path=None,
-                    client_keys=None,
-                    preferred_auth="password,keyboard-interactive",
+                    client_keys=[key] if key else None,
+                    preferred_auth="publickey" if key else "password,keyboard-interactive",
                     connect_timeout=self.timeout,
                     login_timeout=self.timeout,
                     keepalive_interval=0,
@@ -104,7 +114,7 @@ class PinnedSsh:
                 fix="Check the user name and password, and that the device allows a password "
                 "login over SSH for it.",
             ) from None
-        except (TimeoutError, OSError, asyncssh.Error) as exc:
+        except (TimeoutError, OSError, asyncssh.Error, ValueError) as exc:
             raise Unreachable(
                 f"cannot open an SSH connection to {where}: {_reason(exc)}", fix=REACH_FIX
             ) from None
@@ -125,11 +135,18 @@ class PinnedSsh:
 
     async def run(self, script: str, timeout: float | None = None) -> ShellResult:
         """Run a shell script (``sh -s``, script on standard input) and return its output."""
+        return await self._exec("sh -s", script.encode(), timeout)
+
+    async def command(self, command: str, timeout: float | None = None) -> ShellResult:
+        """Run one command without input (a key with a forced command runs its own, #242)."""
+        return await self._exec(command, None, timeout)
+
+    async def _exec(self, command: str, stdin: bytes | None, timeout: float | None) -> ShellResult:
         assert self._conn is not None, "use PinnedSsh as an async context manager"
         limit = timeout or self.timeout
         try:
             proc: Any = await asyncio.wait_for(
-                self._conn.run("sh -s", input=script.encode(), encoding=None, check=False),
+                self._conn.run(command, input=stdin, encoding=None, check=False),
                 timeout=limit,
             )
         except TimeoutError:
