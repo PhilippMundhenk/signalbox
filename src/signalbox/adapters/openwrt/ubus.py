@@ -185,4 +185,5 @@ class Ubus:
         raise AccessDenied(
             f"access denied for {what}: the login {self.username!r} is not allowed to call it",
             fix=acl_fix(self.username),
+            remedy="access",
         )

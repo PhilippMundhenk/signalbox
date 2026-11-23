@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import json
 import re
 import shlex
 import threading
@@ -32,6 +33,8 @@ from signalbox.sim.openwrt import OpenWrtSim
 
 ROOT_PASSWORD = "example-root-password"
 ALL_PACKAGES = {"uhttpd", "uhttpd-mod-ubus", "rpcd", "rpcd-mod-file", "rpcd-mod-luci"}
+#: Optional packages *Fix it* installs (#215).
+LLDP_PACKAGES = {"lldpd", "luci-app-lldpd"}
 
 
 def _root_section() -> dict[str, Any]:
@@ -48,7 +51,7 @@ class OpenWrtSsh:
     root_password: str = ROOT_PASSWORD
     #: "apk" (25.12 and later) or "opkg"
     manager: str = "apk"
-    installed: set[str] = field(default_factory=lambda: set(ALL_PACKAGES))
+    installed: set[str] = field(default_factory=lambda: ALL_PACKAGES | LLDP_PACKAGES)
     #: the package feeds cannot be reached
     offline: bool = False
     files: dict[str, bytes] = field(default_factory=dict)
@@ -61,6 +64,8 @@ class OpenWrtSsh:
     http: OpenWrtSim | None = None
     #: the web server certificate (DER), as px5g writes /etc/uhttpd.crt
     certificate: bytes | None = None
+    #: lldpd runs (it is started by *Fix it*, or at install)
+    lldpd_running: bool = True
     _next: int = 0x10
 
     # what the scripts see ---------------------------------------------------------------
@@ -68,7 +73,7 @@ class OpenWrtSsh:
     def inspect(self) -> str:
         out = ["@@pm", self.manager]
         if self.manager == "apk":
-            out += sorted(self.installed & ALL_PACKAGES)
+            out += sorted(self.installed & (ALL_PACKAGES | LLDP_PACKAGES))
         else:
             out += sorted(self.installed)
         out.append("@@acl")
@@ -79,13 +84,26 @@ class OpenWrtSsh:
             out.append(f"rpcd.{name}={sec['type']}")
             for opt, values in sec["options"].items():
                 out.append(f"rpcd.{name}.{opt}=" + " ".join(shlex.quote(v) for v in values))
+        out.append("@@lldpd")
+        if self.lldpd_running:
+            out.append("running")
         out.append("@@end")
         return "\n".join(out) + "\n"
 
     def sync(self) -> None:
-        """rpcd restarted: the HTTP side learns the logins of the Signalbox ACL."""
+        """rpcd restarted: the HTTP side learns the logins of the Signalbox ACL, and whether
+        ``luci.lldpd`` answers (luci-app-lldpd installed, lldpd running)."""
         if self.http is None:
             return
+        self.http.lldpd = self.installed >= LLDP_PACKAGES and self.lldpd_running
+        # calls the ACL file now allows are no longer denied (Fix it, #215)
+        try:
+            read = json.loads(self.files.get(ACL_PATH, b"{}"))["signalbox"]["read"]
+        except (ValueError, KeyError, TypeError):
+            read = {}
+        for obj, methods in (read.get("ubus") or {}).items():
+            self.http.denied -= {obj, *(f"{obj}.{m}" for m in methods)}
+        self.http.denied -= {f"uci:{c}" for c in read.get("uci") or []}
         self.http.login_hashes = {
             sec["options"]["username"][0]: sec["options"].get("password", [""])[0]
             for sec in self.rpcd.values()
@@ -151,6 +169,11 @@ class OpenWrtSsh:
             return 0, ""
         if words[:2] == ["rm", "-f"]:
             self.files.pop(words[2], None)
+            return 0, ""
+        if words[:1] == ["/etc/init.d/lldpd"] and words[1:] in (["enable"], ["start"]):
+            if "lldpd" not in self.installed:
+                return 127, "sh: /etc/init.d/lldpd: not found"
+            self.lldpd_running = self.lldpd_running or words[1] == "start"
             return 0, ""
         if len(words) == 2 and words[0].startswith("/etc/init.d/") and words[1] == "restart":
             service = words[0].rsplit("/", 1)[1]

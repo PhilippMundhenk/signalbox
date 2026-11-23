@@ -1527,6 +1527,8 @@ class ReadError(Model):
     message: str
     #: What the user can do about it, in plain words, where the adapter knows.
     fix: str | None = None
+    #: Id of a remedy of the device's integration that repairs this with *Fix it* (#215).
+    remedy: str | None = None
 
 
 # annotations (#186) -------------------------------------------------------------------------

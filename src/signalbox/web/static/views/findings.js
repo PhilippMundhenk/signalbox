@@ -69,7 +69,8 @@ function ackLine(f, onDone) {
   );
 }
 
-function findingCard(ix, rec, onDone) {
+// fixable(f): the device's integration offers the finding's remedy (Fix it, #215).
+function findingCard(ix, rec, onDone, fixable = () => false) {
   const f = rec.finding;
   const resolved = Boolean(rec.resolved_at);
   let ackButton = null;
@@ -84,6 +85,7 @@ function findingCard(ix, rec, onDone) {
     h('p', { 'data-testid': 'finding-message' }, f.message),
     f.objects.length ? h('p', { class: 'objects' }, h('span', { class: 'muted' }, 'Affects: '), f.objects.map((id, i) => [i ? ', ' : '', objectRef(ix, id)])) : null,
     f.fix ? h('p', { class: 'fix', 'data-testid': 'finding-fix' }, h('strong', {}, 'How to fix: '), f.fix) : null,
+    !resolved && fixable(f) ? h('p', {}, h('a', { class: 'btn small', href: `#/device/${encodeURIComponent(f.objects[0])}`, 'data-testid': 'finding-fix-it' }, 'Fix it on the device page')) : null,
     f.acknowledged ? ackLine(f, onDone) : null,
     h(
       'p',
@@ -107,7 +109,13 @@ export async function renderFindings(main, ctx) {
   const id = ctx.renderId;
   let ix = await loadNetwork();
   let records = await get(`/findings${filters.resolved ? '?resolved=true' : ''}`);
+  const adapters = records.some((r) => r.finding.remedy) ? await get('/adapters') : [];
   if (!ctx.alive(id)) return;
+  const fixable = (f) => {
+    const dev = f.remedy && f.objects.length ? ix.devices.get(f.objects[0]) : null;
+    const a = dev && adapters.find((x) => x.id === dev.adapter);
+    return Boolean(a && (a.remedies || []).some((r) => r.id === f.remedy));
+  };
   const list = h('div', { 'data-testid': 'findings' });
 
   const draw = () => {
@@ -127,7 +135,7 @@ export async function renderFindings(main, ctx) {
     const acknowledged = shown.filter((r) => r.finding.acknowledged);
     const problems = shown.filter((r) => !r.finding.incomplete && !r.finding.acknowledged);
     const unchecked = shown.filter((r) => r.finding.incomplete && !r.finding.acknowledged);
-    const card = (r) => findingCard(ix, r, reload);
+    const card = (r) => findingCard(ix, r, reload, fixable);
     if (!ix.net.devices.length) {
       place(list, 
         h(

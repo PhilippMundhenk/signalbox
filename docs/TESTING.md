@@ -126,6 +126,8 @@ run as a separate step (OPNsense, MikroTik: right after the boot, so its failure
 first 50 annotations of the check run; OpenWrt: after the other tests, as it rewrites the ACL
 file): it creates a login the image does not
 have (`signalbox-auto`, or `signalbox` on OPNsense), reads the device with it and removes it.
+The same modules test *Fix it* (#215): OpenWrt with an outdated ACL file and a stopped lldpd,
+OPNsense with a privilege taken from the user; package installs are simulator only (#21).
 
 ### OpenWrt (x86-64 in QEMU)
 

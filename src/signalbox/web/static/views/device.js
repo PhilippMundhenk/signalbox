@@ -4,6 +4,7 @@ import { loadNetwork } from '../net.js';
 import { PORT_ROLE, clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, place, portDetails, portSpeed, yesNo } from '../util.js';
 import { card, confirmDialog, empty, kv, manageLink, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
+import { fixPanel, remedyOf } from './devicefix.js';
 import { readErrors, testResult, trustPanel } from './devicetest.js';
 import { notesCard } from '../annotations.js';
 
@@ -326,6 +327,20 @@ async function overview(main, ctx, device, adapters, sites) {
     }),
   );
 
+  // Fix it (#215): next to a read error the integration can repair; only on request
+  const fixBox = h('div', { 'data-testid': 'fix-box' });
+  const fixFor = (e) => {
+    const remedy = remedyOf(adapter, e.remedy);
+    if (!remedy) return null;
+    if (!device.allow_writes) return h('p', { class: 'muted small', 'data-testid': 'fix-needs-writes' }, `Signalbox can do this for you (“${remedy.title}”) on a device with “Allow changes”.`);
+    const btn = h('button', { class: 'btn small', type: 'button', 'data-testid': 'fix-it', 'data-remedy': remedy.id }, 'Fix it');
+    btn.addEventListener('click', () => {
+      place(clear(fixBox), fixPanel(device, adapter, remedy, (reading) => reading && place(clear(statusBox), statusBadge(reading.status))));
+      fixBox.scrollIntoView({ block: 'nearest' });
+    });
+    return h('p', {}, btn);
+  };
+
   const fw = observed && observed.firmware;
   place(main, 
     card(
@@ -343,7 +358,8 @@ async function overview(main, ctx, device, adapters, sites) {
         ['Enabled', yesNo(device.enabled)],
         ['Changes allowed', yesNo(device.allow_writes)],
       ]),
-      readErrors(errors, 'device-errors'),
+      readErrors(errors, 'device-errors', fixFor),
+      fixBox,
     ),
     notesCard(ix, device.id, 'device', `Notes on ${device.name}`, () => ctx.refresh()),
     internetCard(ix, device.id),

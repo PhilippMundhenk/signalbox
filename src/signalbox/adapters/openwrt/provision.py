@@ -10,6 +10,11 @@ same pinned SSH connection, so it can be pinned for reading without a second con
 
 Removal deletes the login, and the ACL file unless another login still lists it; packages are
 kept (LuCI needs most of them).
+
+*Fix it* (#215, docs/adr/0012) uses the same connection and inspection for two remedies:
+``access`` (missing packages, the ACL file, the ACL group in the stored login's section, rpcd
+restarted; the password is left alone) and ``lldp`` (lldpd and luci-app-lldpd, lldpd started,
+then the same permission steps). Nothing else on the router is touched.
 """
 
 from __future__ import annotations
@@ -28,13 +33,15 @@ from pydantic import SecretStr
 
 from signalbox.adapters import (
     AdapterError,
+    Remedy,
+    RemedyRequest,
     SetupPlan,
     SetupRequest,
     SetupResult,
     UntrustedHostKey,
 )
 from signalbox.adapters.https import device_url
-from signalbox.adapters.openwrt.setup import PACKAGES, READ_ACL, WRITE_ACL
+from signalbox.adapters.openwrt.setup import LLDP_PACKAGES, PACKAGES, READ_ACL, WRITE_ACL
 from signalbox.adapters.provision import Redactor, Step, new_password, plan_steps, run_steps
 from signalbox.adapters.ssh import PinnedSsh
 
@@ -124,18 +131,40 @@ class DeviceState:
     acl: Any  # the parsed ACL file; None: missing, "": not JSON
     logins: list[Login]
     certificate: str | None  # SHA-256 of the web server certificate
+    lldpd_running: bool = False
 
 
 INSPECT = f"""# signalbox-setup: inspect
 echo @@pm
-if command -v apk >/dev/null 2>&1; then echo apk; apk info -e {PACKAGES} 2>/dev/null
+if command -v apk >/dev/null 2>&1; then echo apk; apk info -e {PACKAGES} {LLDP_PACKAGES} 2>/dev/null
 else echo opkg; opkg list-installed 2>/dev/null | cut -d' ' -f1; fi
 echo @@acl
 cat {ACL_PATH} 2>/dev/null
 echo @@rpcd
 uci -q -X show rpcd
+echo @@lldpd
+pidof lldpd >/dev/null 2>&1 && echo running
 echo @@end
 """
+
+#: The remedies of *Fix it* (#215); the read errors name them with ``remedy=``.
+REMEDIES = (
+    Remedy(
+        id="access",
+        title="Repair Signalbox's access",
+        description="Over SSH as root: installs the packages Signalbox reads through that are "
+        "missing, writes its permission file as in the setup guide (with the write part when "
+        "changes are allowed), adds that permission to the stored login (its password stays) "
+        "and restarts rpcd. Network settings are not touched.",
+    ),
+    Remedy(
+        id="lldp",
+        title="Install LLDP",
+        description="Over SSH as root: installs lldpd and luci-app-lldpd if missing, starts "
+        "lldpd (it then sends and receives LLDP on the router's ports), checks Signalbox's "
+        "permissions and restarts rpcd. Network settings are not touched.",
+    ),
+)
 
 CERTIFICATE = """# signalbox-setup: certificate
 cat "$(uci -q get uhttpd.main.cert || echo /etc/uhttpd.crt)" 2>/dev/null
@@ -266,6 +295,7 @@ class OpenWrtSetup:
             acl=acl,
             logins=parse_logins(parts["rpcd"]),
             certificate=cert,
+            lldpd_running="running" in parts.get("lldpd", ""),
         )
 
     def steps(self, ssh: PinnedSsh, state: DeviceState) -> list[Step]:
@@ -456,3 +486,143 @@ class OpenWrtSetup:
             secrets={"password": SecretStr(self.password)},
             certificate=state.certificate,
         )
+
+
+# --- fix it (#215) ------------------------------------------------------------------------------
+
+
+def install_script(manager: str, packages: list[str]) -> str:
+    if manager == "apk":
+        return f"apk update && apk add {' '.join(packages)}\n"
+    return f"opkg update && opkg install {' '.join(packages)}\n"
+
+
+def acl_script(acl: Any) -> str:
+    return (
+        f"mkdir -p {ACL_PATH.rsplit('/', 1)[0]}\n"
+        f"cat > {ACL_PATH} <<'SIGNALBOX_ACL'\n{json.dumps(acl, indent=2)}\n"
+        "SIGNALBOX_ACL\n"
+    )
+
+
+class OpenWrtFix(OpenWrtSetup):
+    """*Fix it* on a stored router: the steps of one remedy, with the stored login kept."""
+
+    def __init__(self, request: RemedyRequest) -> None:
+        if request.remedy not in {r.id for r in REMEDIES}:
+            raise AdapterError(f"OpenWrt has no remedy {request.remedy!r}")
+        self.fix = request
+        super().__init__(
+            SetupRequest(
+                config={"url": request.config.get("url"), "username": "signalbox-fix"},
+                admin_user=request.admin_user,
+                admin_secret=request.admin_secret,
+                port=request.port,
+                allow_writes=request.allow_writes,
+                trust=request.trust,
+                timeout=request.timeout,
+            )
+        )
+        # the stored login may be root (it has every permission already)
+        self.login = str(request.config.get("username") or "root").strip()
+        for secret in request.secrets.values():
+            self.redact.add(secret.get_secret_value())
+
+    def steps(self, ssh: PinnedSsh, state: DeviceState) -> list[Step]:
+        writes = self.fix.allow_writes
+        wanted_acl = WRITE_ACL if writes else READ_ACL
+        what = "with write access" if writes else "read-only"
+        steps: list[Step] = []
+        restart_web = False
+        if self.fix.remedy == "lldp":
+            missing = [p for p in LLDP_PACKAGES.split() if p not in state.installed]
+            install = install_script(state.manager, missing)
+            steps.append(
+                Step(
+                    "lldp-packages",
+                    f"Install the LLDP packages ({state.manager})",
+                    install if missing else LLDP_PACKAGES,
+                    needed=bool(missing),
+                    action=self._run(ssh, install, timeout=max(300.0, self.fix.timeout)),
+                    note="" if missing else "all installed",
+                )
+            )
+            start = "/etc/init.d/lldpd enable\n/etc/init.d/lldpd start\n"
+            running = state.lldpd_running and not missing
+            steps.append(
+                Step(
+                    "lldpd",
+                    "Start lldpd (and at every boot)",
+                    start,
+                    needed=not running,
+                    action=self._run(ssh, start),
+                    note="already running" if running else "",
+                )
+            )
+        else:
+            missing = [p for p in PACKAGES.split() if p not in state.installed]
+            install = install_script(state.manager, missing)
+            restart_web = bool(missing)
+            steps.append(
+                Step(
+                    "packages",
+                    f"Install the packages Signalbox reads through ({state.manager})",
+                    install if missing else PACKAGES,
+                    needed=bool(missing),
+                    action=self._run(ssh, install, timeout=max(300.0, self.fix.timeout)),
+                    note="" if missing else "all installed",
+                )
+            )
+        script = acl_script(wanted_acl)
+        steps.append(
+            Step(
+                "acl",
+                f"Permissions {ACL_PATH} ({what}, as in the setup guide)",
+                script,
+                needed=state.acl != wanted_acl,
+                action=self._run(ssh, script),
+                note="" if state.acl != wanted_acl else "already as in the setup guide",
+            )
+        )
+        steps.append(self._login_step(ssh, state, writes))
+        restart = RESTART + ("/etc/init.d/uhttpd restart\n" if restart_web else "")
+        steps.append(
+            Step(
+                "restart",
+                "Restart rpcd so that it loads the permissions",
+                restart,
+                action=self._run(ssh, restart),
+            )
+        )
+        return steps
+
+    def _login_step(self, ssh: PinnedSsh, state: DeviceState, writes: bool) -> Step:
+        title = f"Permission {ACL_GROUP!r} for the stored login {self.login}"
+        if self.login == "root":
+            return Step("login", title, "", needed=False, note="root may use every permission")
+        mine = [x for x in state.logins if x.username == self.login]
+        if not mine:
+            raise AdapterError(
+                f"there is no rpcd login {self.login!r} on the router",
+                fix="Set the device up again (device settings: Set up automatically, or the "
+                "setup guide): Fix it only repairs the permissions of an existing login.",
+            )
+        login = mine[0]
+        lines = []
+        if ACL_GROUP not in login.read:
+            lines.append(f"uci add_list rpcd.{login.section}.read={_q(ACL_GROUP)}")
+        if writes and ACL_GROUP not in login.write:
+            lines.append(f"uci add_list rpcd.{login.section}.write={_q(ACL_GROUP)}")
+        script = "set -e\n" + "".join(x + "\n" for x in lines) + "uci commit rpcd\n"
+        return Step(
+            "login",
+            title + " (the password stays)",
+            script if lines else "",
+            needed=bool(lines),
+            action=self._run(ssh, script),
+            note="" if lines else "already listed",
+        )
+
+    async def apply(self) -> SetupResult:
+        result = await super().apply()
+        return SetupResult(ok=result.ok, steps=result.steps)

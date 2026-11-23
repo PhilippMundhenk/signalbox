@@ -261,6 +261,33 @@ the user confirmed. Rules, checked by the tests of the built-in integrations:
 `load_adapters` refuses an integration that declares `admin_login` without both methods.
 With `setup.enabled: false` the hooks are never called.
 
+### Fix it: remedies for read problems
+
+An integration with `admin_login` can also repair what its setup owns (#215,
+[ADR 0012](adr/0012-fix-it-for-read-problems.md)): declare the remedies and name one where a read
+fails; the device page then offers *Fix it* next to that error on a device with *Allow changes*.
+
+```python
+manifest = Manifest(..., remedies=(Remedy(id="lldp", title="Install LLDP", description="..."),))
+
+raise AdapterError("LLDP is not installed", fix="Install lldpd ...", remedy="lldp")
+Gap(message="...", fix="...", remedy="access")  # in Observation.incomplete
+
+
+@classmethod
+async def plan_remedy(cls, request: RemedyRequest) -> SetupPlan: ...
+@classmethod
+async def apply_remedy(cls, request: RemedyRequest) -> SetupResult: ...
+```
+
+`RemedyRequest` has the remedy id, the stored settings without secrets (`config`), the stored
+secrets (`secrets`, to identify the device's login; redact them), the admin login, `allow_writes`
+and `trust`. The rules of the setup apply; in addition a remedy changes only the packages and
+permissions Signalbox reads through (never network settings), keeps the stored login's
+credentials, and returns no settings. Keep the `fix` text: the manual way is always shown.
+`load_adapters` refuses remedies without `admin_login` or without both methods. With
+`setup.enabled: false` or `setup.fixes: false` they are never called.
+
 ## Writing to devices
 
 An integration that can change a device declares the kinds of change it supports in

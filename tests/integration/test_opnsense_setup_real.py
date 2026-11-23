@@ -20,6 +20,7 @@ from integration.conftest import Target
 from signalbox.adapters import (
     AdapterContext,
     AuthFailed,
+    RemedyRequest,
     SetupRequest,
     SetupResult,
     StepState,
@@ -202,3 +203,58 @@ async def test_the_key_of_the_new_user_cannot_manage_users(fw: Target, clean: No
             await http.post_json("/api/auth/user/search", {})
     finally:
         await http.close()
+
+
+async def test_fix_adds_a_missing_privilege(fw: Target, clean: None) -> None:
+    """Fix it (#215): the user signalbox loses page-status-ntp, the read names the remedy, the
+    fix adds the privilege back (nothing else changes) and the next read is complete."""
+    result = await OpnsenseAdapter.apply_setup(request(fw, fw.pin))
+    check(result, await root_answers(fw))
+    root = DeviceHttp(
+        fw.url,
+        pinned_fingerprint=fw.pin,
+        timeout=TIMEOUT,
+        auth=(fw.extra["ROOT_KEY"], fw.extra["ROOT_SECRET"]),
+    )
+    try:
+        users = await root.post_json(
+            "/api/auth/user/search", {"current": 1, "rowCount": -1, "searchPhrase": ""}
+        )
+        uuid = next(r["uuid"] for r in users["rows"] if r.get("name") == "signalbox")
+        fewer = [p for p in READ_PRIVILEGES if p != "page-status-ntp"]
+        body = {
+            "user": {
+                "name": "signalbox",
+                "descr": "Signalbox (set up automatically)",
+                "scrambled_password": "1",
+                "priv": ",".join(fewer),
+                "group_memberships": "",
+            }
+        }
+        await root.post_json(f"/api/auth/user/set/{uuid}", body)
+    finally:
+        await root.close()
+    before = await read_with(fw, result)
+    assert any(e.remedy == "privileges" for e in before.errors), (
+        before.errors,
+        await root_answers(fw),
+    )
+
+    fix = RemedyRequest(
+        remedy="privileges",
+        config={"url": fw.url},
+        secrets=dict(result.secrets),
+        admin_user=fw.extra["ROOT_KEY"],
+        admin_secret=SecretStr(fw.extra["ROOT_SECRET"]),
+        trust=fw.pin,
+        timeout=TIMEOUT,
+    )
+    plan = await OpnsenseAdapter.plan_remedy(fix)
+    assert plan.steps[0].state is StepState.TODO, (plan.steps, await root_answers(fw))
+    assert plan.steps[0].detail.splitlines()[1:] == ["+ page-status-ntp"]
+    done = await OpnsenseAdapter.apply_remedy(fix)
+    check(done, await root_answers(fw))
+    after = await read_with(fw, result)  # the same key still works
+    assert after.status is DeviceStatus.OK, (after.errors, await root_answers(fw))
+    again = await OpnsenseAdapter.plan_remedy(fix)
+    assert again.steps[0].state is StepState.UNCHANGED

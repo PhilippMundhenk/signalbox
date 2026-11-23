@@ -88,6 +88,8 @@ Adapters are plugins: other devices can be added as separate packages, see
    of a Linux gateway), shows what it will
    create, creates exactly that least-privilege login and saves the device with it. The admin
    login is not stored ([docs/adr/0009](docs/adr/0009-automatic-setup-with-an-admin-login.md)).
+   Later, a read problem the setup can repair (a missing package or permission) shows *Fix it*
+   on devices with *Allow changes* ([docs/adr/0012](docs/adr/0012-fix-it-for-read-problems.md)).
 4. Add the devices under *Devices*, by hand or with *Find devices*: Signalbox looks for the
    supported devices in the networks of the routers you added (and at addresses you enter),
    without credentials, and opens the form prefilled; you enter the login

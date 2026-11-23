@@ -15,6 +15,9 @@ Optionally (``SetupRequest.ssh_step``, off by default, #242) the setup also inst
 script that reads the ISC DHCP settings (:mod:`signalbox.adapters.opnsense.isc_script`) and an
 SSH key that can run nothing else, over SSH as root with a pinned host key; "Remove" takes both
 away again.
+*Fix it* (#215, docs/adr/0012): the remedy ``privileges`` finds the user the stored API key
+belongs to (``search_api_key``) and adds the documented privileges it lacks; its other
+privileges, groups, password and keys stay as they are.
 """
 
 from __future__ import annotations
@@ -29,6 +32,8 @@ from pydantic import SecretStr
 
 from signalbox.adapters import (
     AdapterError,
+    Remedy,
+    RemedyRequest,
     SetupPlan,
     SetupRequest,
     SetupResult,
@@ -135,6 +140,17 @@ def _parts(text: str) -> dict[str, str]:
         elif name:
             parts[name] += line + "\n"
     return parts
+
+
+REMEDIES = (
+    Remedy(
+        id="privileges",
+        title="Add the missing privileges",
+        description="Through the API with root's key: adds the privileges of the setup guide "
+        "that the user of the stored API key lacks (with those for writing when changes are "
+        "allowed). Its other privileges, groups, password and keys stay; nothing else changes.",
+    ),
+)
 
 
 def _selected(value: Any) -> list[str]:
@@ -488,3 +504,97 @@ class OpnsenseSetup:
             secrets=secrets,
             certificate=http.fingerprint,
         )
+
+
+class OpnsenseFix(OpnsenseSetup):
+    """*Fix it* on a stored firewall: the documented privileges for the stored key's user."""
+
+    def __init__(self, request: RemedyRequest) -> None:
+        if request.remedy not in {r.id for r in REMEDIES}:
+            raise AdapterError(f"OPNsense has no remedy {request.remedy!r}")
+        super().__init__(
+            SetupRequest(
+                config={"url": request.config.get("url")},
+                admin_user=request.admin_user,
+                admin_secret=request.admin_secret,
+                allow_writes=request.allow_writes,
+                trust=request.trust,
+                timeout=request.timeout,
+            )
+        )
+        stored = request.secrets.get("api_key")
+        self.stored_key = stored.get_secret_value() if stored else ""
+        for secret in request.secrets.values():
+            self.redact.add(secret.get_secret_value())
+
+    async def inspect(self, http: DeviceHttp) -> tuple[str | None, dict[str, Any]]:
+        """The uuid and settings of the user the stored API key belongs to."""
+        await http.get_json("/api/core/firmware/status")
+        if not self.stored_key:
+            raise AdapterError("the device has no stored API key")
+        owner = next(
+            (
+                str(r.get("username") or r.get("user") or r.get("name") or "")
+                for r in _rows(await http.post_json(KEYS, ALL))
+                if self.stored_key in (r.get("key"), r.get("id"))
+            ),
+            "",
+        )
+        if not owner:
+            raise AdapterError(
+                "the firewall knows no user with the stored API key",
+                fix="Set the device up again (device settings: Set up automatically, or the "
+                "setup guide): Fix it only adds privileges to the user of the stored key.",
+            )
+        for row in _rows(await http.post_json(USERS, ALL)):
+            if row.get("name") == owner:
+                uuid = str(row.get("uuid", ""))
+                answer = await http.get_json(f"/api/auth/user/get/{quote(uuid)}")
+                user = answer.get("user") if isinstance(answer, dict) else None
+                if not isinstance(user, dict):
+                    raise AdapterError(f"/api/auth/user/get/{uuid}: unexpected answer")
+                return uuid, {**user, "name": user.get("name") or owner}
+        raise AdapterError(f"the firewall lists no user {owner!r}")
+
+    def steps(self, http: DeviceHttp, uuid: str | None, user: dict[str, Any]) -> list[Step]:
+        name = str(user.get("name", ""))
+        if name == "root" or str(user.get("scope", "user")) == "system":
+            raise AdapterError(
+                f"the stored API key belongs to {name or 'a system user'}; Signalbox changes "
+                "only a user of its own"
+            )
+        privs = _selected(user.get("priv"))
+        missing = [p for p in self.privileges if p not in privs]
+        groups = _selected(user.get("group_memberships"))
+        body = {
+            "user": {
+                "name": name,
+                "descr": str(user.get("descr") or ""),
+                "priv": ",".join(sorted({*privs, *self.privileges})),
+                "group_memberships": ",".join(groups),
+            }
+        }
+        what = "with write access" if self.request.allow_writes else "read-only"
+        return [
+            Step(
+                "privileges",
+                f"Add the missing privileges of the setup guide to the user {name} ({what})",
+                f"POST /api/auth/user/set/{uuid}\n" + "\n".join(f"+ {p}" for p in missing),
+                needed=bool(missing),
+                action=self._save(http, f"/api/auth/user/set/{quote(uuid or '')}", body),
+                note="" if missing else "it has every documented privilege",
+            )
+        ]
+
+    async def apply(self) -> SetupResult:
+        http = self.http()
+        try:
+            uuid, user = await self.inspect(http)
+            ok, steps = await run_steps(self.steps(http, uuid, user), self.redact)
+        except UntrustedCertificate:
+            raise
+        except AdapterError as exc:
+            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+        finally:
+            await http.close()
+        return SetupResult(ok=ok, steps=steps)

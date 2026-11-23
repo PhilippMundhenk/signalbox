@@ -146,6 +146,7 @@ class DeviceHttp:
         auth: httpx.Auth | tuple[str, str] | None = None,
         headers: dict[str, str] | None = None,
         allow_insecure_http: bool = False,
+        denied_remedy: str | None = None,
     ) -> None:
         parts = urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.hostname:
@@ -164,6 +165,8 @@ class DeviceHttp:
         self._auth = auth
         self._headers = headers or {}
         self._client: httpx.AsyncClient | None = None
+        #: Remedy (#215) named by an HTTP 403: the integration can add missing privileges.
+        self.denied_remedy = denied_remedy
         #: Fingerprint seen at the last probe (also when it was refused).
         self.fingerprint: str | None = None
 
@@ -243,6 +246,7 @@ class DeviceHttp:
                 f"{path}: access denied (HTTP 403); check the user's privileges",
                 fix="The login works but may not read this. Give the user the privileges the "
                 "setup guide of this integration lists (the link is in the device settings).",
+                remedy=self.denied_remedy,
             )
         if code == 404:
             raise NotFound(

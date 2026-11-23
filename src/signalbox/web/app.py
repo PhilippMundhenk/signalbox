@@ -148,8 +148,9 @@ def public_network(net: Network) -> dict[str, Any]:
     return data
 
 
-def adapter_info(cls: type[Adapter], setup: bool = True) -> dict[str, Any]:
-    """An integration for the UI; ``setup``: the automatic setup is on (``setup.enabled``)."""
+def adapter_info(cls: type[Adapter], setup: bool = True, fixes: bool = True) -> dict[str, Any]:
+    """An integration for the UI; ``setup``: the automatic setup is on (``setup.enabled``),
+    ``fixes``: *Fix it* is on too (``setup.fixes``, #215)."""
     m = cls.manifest
     schema = m.config.model_json_schema()
     secret = sorted(
@@ -167,6 +168,7 @@ def adapter_info(cls: type[Adapter], setup: bool = True) -> dict[str, Any]:
         "setup_commands": m.setup_commands,
         "setup_steps": list(m.setup_steps),
         "admin_login": m.admin_login.model_dump() if m.admin_login and setup else None,
+        "remedies": [r.model_dump() for r in m.remedies] if setup and fixes else [],
         "roles": sorted(r.value for r in m.roles),
         "capabilities": sorted(c.value for c in m.capabilities),
         "config_schema": schema,
@@ -331,7 +333,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     def adapters() -> list[dict[str, Any]]:
         """Installed adapters with their settings form (JSON Schema)."""
         return [
-            adapter_info(services.adapters[k], config.setup.enabled)
+            adapter_info(services.adapters[k], config.setup.enabled, config.setup.fixes)
             for k in sorted(services.adapters)
         ]
 
@@ -603,6 +605,9 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     from signalbox.web.setup_api import router as setup_router  # it imports the form models
 
     app.include_router(setup_router(services, device_json))
+    from signalbox.web.fix_api import router as fix_router
+
+    app.include_router(fix_router(services, test_json))
     if STATIC.is_dir():
         app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")
     return app

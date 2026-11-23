@@ -84,11 +84,13 @@ class AdapterError(Exception):
     """A device could not be read; the message is shown to the user.
 
     ``fix``: what the user can do about it, in plain words (shown as "What to do").
+    ``remedy``: the id of a :class:`Remedy` of the integration that repairs it (#215), if any.
     """
 
-    def __init__(self, *args: object, fix: str | None = None) -> None:
+    def __init__(self, *args: object, fix: str | None = None, remedy: str | None = None) -> None:
         super().__init__(*args)
         self.fix = fix
+        self.remedy = remedy
 
 
 class Unreachable(AdapterError):
@@ -288,6 +290,44 @@ class SetupResult(BaseModel):
     certificate: str | None = None
 
 
+class Remedy(BaseModel):
+    """A repair the integration can make on a device with the admin login (#215, ADR 0012).
+
+    Only what Signalbox's own setup owns: the packages and permissions it reads through, never
+    the network configuration. Declared in ``Manifest.remedies``; a read gap or error names it
+    with ``remedy=<id>``, and the UI offers *Fix it* next to it.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]*$")
+    #: What it does, in a few words ("Install LLDP").
+    title: str
+    #: What it changes on the device, in plain words (shown before the plan).
+    description: str = ""
+
+
+class RemedyRequest(BaseModel):
+    """A *Fix it* for one stored device: the remedy, its settings and the admin login."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    remedy: str
+    #: The device's stored settings without secrets (address, user name, ...).
+    config: Mapping[str, JsonValue] = Field(default_factory=dict)
+    #: The device's stored secrets, for identifying its login (never sent to the UI).
+    secrets: Mapping[str, SecretStr] = Field(default_factory=dict)
+    admin_user: str
+    #: Used for this request only: never stored, logged, or put into a step or an error.
+    admin_secret: SecretStr
+    port: int | None = Field(None, ge=1, le=65535)
+    #: The device has *Allow changes*: permissions include the write part of the setup guide.
+    allow_writes: bool = False
+    #: The fingerprint (SSH host key or certificate) the user confirmed; None: not yet.
+    trust: str | None = None
+    timeout: float = 30.0
+
+
 class UntrustedHostKey(AdapterError):
     """The device presented an SSH host key the user has not confirmed (setup, #231)."""
 
@@ -330,6 +370,9 @@ class Manifest(BaseModel):
     #: The integration can set up its own login with the device's admin login (#231):
     #: implements :meth:`Adapter.plan_setup` and :meth:`Adapter.apply_setup`.
     admin_login: AdminLogin | None = None
+    #: Repairs the integration can make with the admin login (#215): implements
+    #: :meth:`Adapter.plan_remedy` and :meth:`Adapter.apply_remedy`; needs ``admin_login``.
+    remedies: tuple[Remedy, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -368,6 +411,8 @@ class Gap(BaseModel):
 
     message: str
     fix: str | None = None
+    #: Id of a :class:`Remedy` of the integration that repairs this (#215).
+    remedy: str | None = None
 
 
 class Observation(BaseModel):
@@ -581,6 +626,24 @@ class Adapter(ABC):
         """
         raise NotImplementedError
 
+    # fix it (#215): optional, needs admin_login ------------------------------------------
+
+    @classmethod
+    async def plan_remedy(cls, request: RemedyRequest) -> SetupPlan:
+        """Optional: what *Fix it* with ``request.remedy`` would do; nothing is changed.
+
+        The same rules as :meth:`plan_setup`: pinned channel first, no secret in any text.
+        Only what Signalbox's own setup owns (packages, permissions), never network settings.
+        """
+        raise NotImplementedError
+
+    @classmethod
+    async def apply_remedy(cls, request: RemedyRequest) -> SetupResult:
+        """Optional: run the remedy; steps that are already as needed are ``unchanged``.
+
+        Returns no settings: the device keeps its login."""
+        raise NotImplementedError
+
     async def _call(self, fn: Callable[[], Any]) -> Any:
         return await asyncio.wait_for(fn(), timeout=self.context.timeout)
 
@@ -624,6 +687,7 @@ class Adapter(ABC):
                         capability=cap.value,
                         message=gap.message,
                         fix=gap.fix,
+                        remedy=gap.remedy,
                     )
                     for gap in result.incomplete
                 )
@@ -691,6 +755,7 @@ class Adapter(ABC):
             capability=capability,
             message=message,
             fix=getattr(exc, "fix", None),
+            remedy=getattr(exc, "remedy", None),
         )
 
 
@@ -708,6 +773,11 @@ def probes_broadcast(cls: type[Adapter]) -> bool:
 def provisions(cls: type[Adapter]) -> bool:
     """The integration can set itself up with an admin login (#231)."""
     return cls.manifest.admin_login is not None
+
+
+def remedies(cls: type[Adapter]) -> dict[str, Remedy]:
+    """The integration's *Fix it* remedies by id (#215)."""
+    return {r.id: r for r in cls.manifest.remedies}
 
 
 def _overrides(cls: type[Adapter], name: str) -> bool:
@@ -744,6 +814,16 @@ def check_setup(cls: type[Adapter]) -> None:
             f"{cls.manifest.id} declares admin_login but does not implement plan_setup and "
             "apply_setup"
         )
+    if cls.manifest.remedies:
+        if not provisions(cls):
+            raise AdapterContractError(f"{cls.manifest.id} declares remedies but no admin_login")
+        if not (_overrides(cls, "plan_remedy") and _overrides(cls, "apply_remedy")):
+            raise AdapterContractError(
+                f"{cls.manifest.id} declares remedies but does not implement plan_remedy and "
+                "apply_remedy"
+            )
+        if len(remedies(cls)) != len(cls.manifest.remedies):
+            raise AdapterContractError(f"{cls.manifest.id} declares a remedy id twice")
 
 
 def load_adapters(group: str = "signalbox.adapters") -> dict[str, type[Adapter]]:

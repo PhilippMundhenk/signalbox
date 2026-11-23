@@ -10,12 +10,13 @@ export function linked(text) {
 }
 
 // Read errors: what failed, and what to do about it where the adapter knows (#fix).
-export function readErrors(errors, testid) {
+// extra(e): more to show with an error (the Fix it button, #215), or null.
+export function readErrors(errors, testid, extra = null) {
   if (!errors.length) return null;
   return h(
     'ul',
     { class: 'error read-errors', 'data-testid': testid },
-    errors.map((e) => h('li', {}, h('span', {}, `${e.capability}: ${e.message}`), e.fix ? h('p', { class: 'fix', 'data-testid': 'error-fix' }, 'What to do: ', ...linked(e.fix)) : null)),
+    errors.map((e) => h('li', {}, h('span', {}, `${e.capability}: ${e.message}`), e.fix ? h('p', { class: 'fix', 'data-testid': 'error-fix' }, 'What to do: ', ...linked(e.fix)) : null, extra ? extra(e) : null)),
   );
 }
 

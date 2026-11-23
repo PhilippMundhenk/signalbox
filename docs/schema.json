@@ -3002,6 +3002,18 @@
         "message": {
           "title": "Message",
           "type": "string"
+        },
+        "remedy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remedy"
         }
       },
       "required": [
