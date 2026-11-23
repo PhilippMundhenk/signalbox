@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM python:3.13-slim AS build
+FROM python:3.15-slim AS build
 WORKDIR /src
 # git: the switches extra pins Switchyard by commit (docs/adr/0003-switchyard-library.md)
 RUN apt-get update && apt-get install -y --no-install-recommends git \
@@ -9,7 +9,7 @@ COPY src ./src
 RUN python -m build --wheel --outdir /build \
     && pip wheel --no-cache-dir --wheel-dir /dist "$(ls /build/*.whl)[switches]"
 
-FROM python:3.13-slim
+FROM python:3.15-slim
 ARG VERSION=dev
 ARG EXTRA_PACKAGES=""
 LABEL org.opencontainers.image.title="Signalbox" \
