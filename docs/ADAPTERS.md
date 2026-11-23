@@ -599,7 +599,7 @@ class MyAdapter(Adapter):
 
 ## VPN tunnels (adapter API 1.3)
 
-The `vpn` capability (#239, [ADR 0008](adr/0008-vpn-tunnels-and-site-links.md)) reports every
+The `vpn` capability (#239, [ADR 0010](adr/0010-vpn-tunnels-and-site-links.md)) reports every
 VPN interface of the device with its peers. Declare `api_version="1.3"` and implement
 `ReadsVpn`:
 

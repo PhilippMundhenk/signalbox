@@ -338,6 +338,8 @@ def test_port_structure_on_device_page_and_topology(app: Any) -> None:
     expect(node.get_by_test_id("topo-port")).to_have_count(7)
     app.locator('[data-testid="topo-port"][data-id="router/port/eth0"]').click()
     expect(app.get_by_test_id("port-role")).to_have_text("CPU port (internal)")
+
+
 def test_site_to_site_tunnel_on_topology_and_device_page(app: Any) -> None:
     """Two gateways at two sites whose WireGuard peers name each other (#239), and a peer of an
     unmanaged office: a VPN arc between the sites, a remote-site box, the tunnel card."""

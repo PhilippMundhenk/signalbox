@@ -1,4 +1,4 @@
-# 0008. VPN tunnels and site links
+# 0010. VPN tunnels and site links
 
 Date: 2026-11-22 · Status: accepted
 
