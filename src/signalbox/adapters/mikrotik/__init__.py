@@ -57,8 +57,8 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
-from signalbox.adapters.mikrotik import trace as _trace
 from signalbox.adapters.mikrotik import firewall as _firewall
+from signalbox.adapters.mikrotik import trace as _trace
 from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
