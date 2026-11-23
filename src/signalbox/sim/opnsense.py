@@ -107,6 +107,224 @@ def _iface(device: str, ident: str, descr: str, **kw: Any) -> dict[str, Any]:
     }
 
 
+def _rows_of(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"total": len(rows), "rowCount": len(rows), "current": 1, "rows": rows}
+
+
+def _fw_rule(
+    uuid: str, description: str, interface: str, action: str = "pass", **kw: Any
+) -> dict[str, Any]:
+    """A row of ``filter/search_rule``: a rule of the MVC model (interface identifiers,
+    ``quick``) or, with ``legacy``, one of the legacy pages or an automatic one (the interface
+    is the description, as the controller translates it)."""
+    return {
+        "uuid": uuid,
+        "enabled": "1",
+        "action": action,
+        "quick": "1",
+        "interface": interface,
+        "interfacenot": "0",
+        "direction": "in",
+        "ipprotocol": "inet",
+        "protocol": "any",
+        "source_net": "any",
+        "source_not": "0",
+        "source_port": "",
+        "destination_net": "any",
+        "destination_not": "0",
+        "destination_port": "",
+        "description": description,
+        **kw,
+    }
+
+
+def firewall_data() -> dict[str, Any]:
+    """The packet filter of the sample firewall (#135), as OPNsense 26.7 answers: rules of all
+    three kinds in evaluation order, aliases, an interface group, a port forward, outbound NAT
+    and a one-to-one mapping (documentation addresses)."""
+    legacy = {"legacy": True, "%protocol": "ANY"}
+    rules = [
+        _fw_rule(
+            "deny-all",
+            "Default deny / state violation rule",
+            "",
+            "block",
+            quick="0",
+            ipprotocol="",
+            sort_order="000000.0000001",
+            is_automatic=True,
+            **legacy,
+        ),
+        _fw_rule(
+            "automatic_anti_lockout",
+            "Anti-Lockout Rule",
+            "LAN",
+            destination_net="(self)",
+            destination_port="22 80 443",
+            protocol="tcp",
+            is_automatic=True,
+            sort_order="000000.1000001",
+            **legacy,
+        ),
+        _fw_rule(
+            "iot-dns",
+            "IoT: DNS to the firewall",
+            "opt1",
+            protocol="tcp/udp",
+            destination_net="(self)",
+            destination_port="53",
+            sort_order="300000.0000001",
+            sequence="1",
+        ),
+        _fw_rule(
+            "iot-block",
+            "IoT: nothing to the LAN",
+            "opt1",
+            "block",
+            destination_net="lan",
+            sort_order="300000.0000002",
+            sequence="2",
+        ),
+        _fw_rule(
+            "iot-any",
+            "IoT: the internet",
+            "opt1",
+            source_net="opt1",
+            sort_order="300000.0000003",
+            sequence="3",
+        ),
+        _fw_rule(
+            "guest-blocklist",
+            "Guest: block list",
+            "opt2",
+            "reject",
+            destination_net="blocklist",
+            sort_order="300000.0000004",
+            sequence="4",
+        ),
+        _fw_rule(
+            "float-ssh",
+            "Floating: SSH from the NAS",
+            "",
+            protocol="tcp",
+            quick="0",
+            source_net="nas",
+            destination_port="22",
+            sort_order="300000.0000005",
+            sequence="5",
+        ),
+        _fw_rule(
+            "lan-any",
+            "Default allow LAN to any rule",
+            "LAN",
+            source_net="lan",
+            sort_order="000001.1000002",
+            **legacy,
+        ),
+        _fw_rule(
+            "lan-any-v6",
+            "Default allow LAN IPv6 to any rule",
+            "LAN",
+            ipprotocol="inet6",
+            source_net="lan",
+            sort_order="000001.1000003",
+            **legacy,
+        ),
+    ]
+    return {
+        "/api/firewall/filter/search_rule": _rows_of(rules),
+        "/api/firewall/alias/search_item": _rows_of(
+            [
+                {
+                    "uuid": "a1",
+                    "enabled": "1",
+                    "name": "nas",
+                    "type": "host",
+                    "content": "192.0.2.10",
+                },
+                {
+                    "uuid": "a2",
+                    "enabled": "1",
+                    "name": "blocklist",
+                    "type": "urltable",
+                    "content": "",
+                },
+                {
+                    "uuid": "a3",
+                    "enabled": "1",
+                    "name": "mgmt_ports",
+                    "type": "port",
+                    "content": "22,8443",
+                },
+            ]
+        ),
+        "/api/firewall/group/search_item": _rows_of(
+            [{"uuid": "g1", "ifname": "internal", "members": "lan,opt1", "descr": "Internal"}]
+        ),
+        "/api/firewall/d_nat/search_rule": _rows_of(
+            [
+                {
+                    "uuid": "d1",
+                    "disabled": "0",
+                    "nordr": "0",
+                    "interface": "wan",
+                    "ipprotocol": "inet",
+                    "protocol": "tcp",
+                    "source.network": "any",
+                    "source.port": "",
+                    "source.not": "0",
+                    "destination.network": "wanip",
+                    "destination.port": "8443",
+                    "destination.not": "0",
+                    "target": "nas",
+                    "local-port": "443",
+                    "pass": "pass",
+                    "natreflection": "",
+                    "descr": "NAS web interface",
+                    "sort_order": "400000.0000001",
+                },
+                {
+                    "uuid": "automatic_ftp_1",
+                    "interface": "lan",
+                    "protocol": "tcp",
+                    "destination.port": "21",
+                    "target": "127.0.0.1",
+                    "is_automatic": True,
+                },
+            ]
+        ),
+        "/api/firewall/source_nat/search_rule": _rows_of(
+            [
+                {
+                    "uuid": "automatic_lan",
+                    "enabled": "1",
+                    "interface": "wan",
+                    "ipprotocol": "inet",
+                    "protocol": "any",
+                    "source_net": "192.0.2.0/24,198.51.100.0/24",
+                    "target": "",
+                    "description": "Auto created rule",
+                    "is_automatic": True,
+                }
+            ]
+        ),
+        "/api/firewall/one_to_one/search_rule": _rows_of(
+            [
+                {
+                    "uuid": "o1",
+                    "enabled": "1",
+                    "interface": "wan",
+                    "type": "binat",
+                    "source_net": "198.51.100.50",
+                    "destination_net": "any",
+                    "external": "100.64.23.46",
+                    "description": "Lab host",
+                }
+            ]
+        ),
+    }
+
+
 def sample_data() -> dict[str, Any]:
     """Answers by endpoint path (a fresh copy every call)."""
     lan_ifaces = {"lan": ("LAN", True), "opt1": ("IoT", True), "opt2": ("Guest", False)}
@@ -621,6 +839,7 @@ def sample_data() -> dict[str, Any]:
                 },
             ],
         },
+        **firewall_data(),
     }
     return copy.deepcopy(data)
 

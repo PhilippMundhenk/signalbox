@@ -507,7 +507,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "luci.lldpd": ["getStatus"],
         "luci.wireguard": ["getWgInstances"]
       },
-      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd"],
+      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -609,7 +609,7 @@ only allows the `uci` methods of a transaction on the three configs:
         "luci.lldpd": ["getStatus"],
         "luci.wireguard": ["getWgInstances"]
       },
-      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd"],
+      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],

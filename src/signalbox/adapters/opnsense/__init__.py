@@ -60,6 +60,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.opnsense import discovery as _discovery
+from signalbox.adapters.opnsense import firewall as fw
 from signalbox.adapters.opnsense import provision, vitals
 from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import write as w
@@ -152,6 +153,14 @@ NETSNMP = "/api/netsnmp/general/get"
 #: ``wg show all dump`` as records, private and pre-shared keys left out by OPNsense itself
 #: (privilege *VPN: WireGuard: Status*). No query string: the grid takes paging from POST only.
 WG_SHOW = "/api/wireguard/service/show"
+#: The packet filter (#135): rules (MVC, legacy and automatic ones in evaluation order),
+#: aliases, interface groups, destination NAT, source NAT and one-to-one NAT.
+FILTER_RULES = "/api/firewall/filter/search_rule"
+ALIASES = "/api/firewall/alias/search_item"
+IFACE_GROUPS = "/api/firewall/group/search_item"
+DNAT_RULES = "/api/firewall/d_nat/search_rule"
+SNAT_RULES = "/api/firewall/source_nat/search_rule"
+ONE_TO_ONE = "/api/firewall/one_to_one/search_rule"
 
 #: Grid endpoints page their answer; ask for everything at once.
 ALL_ROWS = {"current": 1, "rowCount": -1}
@@ -716,7 +725,7 @@ class OpnsenseAdapter(_Adapter):
         id="opnsense",
         name="OPNsense",
         version="0.2.0",
-        api_version="1.3",
+        api_version="1.4",
         vendor="Deciso",
         roles=frozenset({DeviceRole.GATEWAY}),
         capabilities=frozenset(
@@ -728,6 +737,7 @@ class OpnsenseAdapter(_Adapter):
                 Capability.HEALTH,
                 Capability.TIME,
                 Capability.VPN,
+                Capability.FIREWALL,
             }
         ),
         config=OpnsenseConfig,
@@ -1626,6 +1636,57 @@ class OpnsenseAdapter(_Adapter):
                 remedy="privileges",
             ) from None
         return _trace.parse(answer, target, max_hops)
+
+    async def read_firewall(self) -> Observation:
+        """Packet filter and NAT (#135): ``filter/search_rule`` with aliases and interface
+        groups, ``d_nat``, ``source_nat`` and ``one_to_one``. Each page needs its own privilege
+        (docs/adapters/opnsense.md); a refused one is an error with the fix. A release without
+        the MVC NAT pages (404) leaves the port forwards unread."""
+        layout = await self._layout()
+        dev = self.context.device_id
+        rows = _rows(await self._get(FILTER_RULES, grid=True), FILTER_RULES)
+        aliases = _rows(await self._get(ALIASES, grid=True), ALIASES)
+        groups = _rows(await self._get(IFACE_GROUPS, grid=True), IFACE_GROUPS)
+
+        async def grid(endpoint: str) -> list[dict[str, Any]] | None:
+            data = await self._optional(endpoint, grid=True)
+            return None if data is None else _rows(data, endpoint)
+
+        forwards = await grid(DNAT_RULES)
+        snat = await grid(SNAT_RULES)
+        binat = await grid(ONE_TO_ONE)
+        try:
+            wg = _rows(await self._get(WG_SHOW), WG_SHOW)
+        except AdapterError:  # no privilege for WireGuard: its zones carry no tunnel
+            wg = []
+        tunnels = {_text(r.get("if")) for r in wg if _text(r.get("type")) == "interface"}
+        ifaces: list[fw.Iface] = []
+        for i in layout.ifaces:
+            tunnel = [object_id(dev, "tunnel", i.device)] if i.device in tunnels else []
+            uplink = [object_id(dev, "uplink", "wan")] if i.identifier == "wan" else []
+            ifaces.append(
+                fw.Iface(
+                    identifier=i.identifier,
+                    description=i.description,
+                    segments=[i.segment] if i.segment else [],
+                    uplinks=uplink,
+                    tunnels=tunnel,
+                    addresses=i.addresses,
+                    mapped=bool(i.segment or uplink or tunnel),
+                )
+            )
+        if "wireguard" not in {i.identifier for i in ifaces} and tunnels:
+            # the interface group every WireGuard instance belongs to (Firewall: Rules: WireGuard)
+            ifaces.append(
+                fw.Iface(
+                    identifier="wireguard",
+                    description="WireGuard (Group)",
+                    tunnels=[object_id(dev, "tunnel", t) for t in sorted(tunnels)],
+                    mapped=True,
+                )
+            )
+        ctx = fw.Context(ifaces, groups, aliases)
+        return Observation(firewalls=[fw.build(dev, ctx, rows, forwards, snat, binat)])
 
     async def read_time(self) -> Observation:
         start = datetime.now(UTC)
