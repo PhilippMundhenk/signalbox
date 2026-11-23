@@ -88,7 +88,18 @@ jobs:
         with: { python-version: "${{ matrix.python }}", cache: pip }
       - run: pip install -e ".[dev,switches]"
       - name: Tests with the 95 % coverage gate
-        run: pytest -m "not e2e and not integration" -n auto --cov --cov-report=term-missing --cov-report=xml
+        # failures as an annotation: the logs cannot always be read
+        run: |
+          set -o pipefail
+          pytest -m "not e2e and not integration" -n auto --cov --cov-report=term-missing \
+            --cov-report=xml 2>&1 | tee pytest.log || {
+              code=$?
+              body=$(grep -E '^(FAILED|ERROR)|^E  |Coverage failure|^TOTAL' pytest.log | cut -c1-600 | tail -n 40)
+              body=${body//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=Tests failed::$body"
+              exit $code
+            }
       - uses: actions/upload-artifact@v7
         if: always()
         with:

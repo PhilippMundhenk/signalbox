@@ -9,6 +9,7 @@ step of its own right after the boot, before the other MikroTik tests (it leaves
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -73,6 +74,15 @@ async def observe(t: Target, result: SetupResult) -> Any:
         await a.close()
 
 
+async def refused(t: Target, result: SetupResult, seconds: int = 30) -> bool:
+    """The login of ``result`` is refused (within ``seconds``)."""
+    for _ in range(seconds):
+        if (await observe(t, result)).status is DeviceStatus.AUTH_FAILED:
+            return True
+        await asyncio.sleep(1)
+    return False
+
+
 def check(result: SetupResult) -> None:
     assert result.ok, [(s.id, s.message) for s in result.steps if s.state is StepState.FAILED]
 
@@ -122,4 +132,5 @@ async def test_setup_read_write_remove(chr_: Target, clean: None) -> None:
     assert states["user"].state is StepState.DONE
     assert states["group-signalbox-read"].state is StepState.UNCHANGED
     assert "signalbox" in states["group-signalbox-read"].message
-    assert (await observe(chr_, write)).status is DeviceStatus.AUTH_FAILED
+    # RouterOS may still accept the login of a deleted user for a moment
+    assert await refused(chr_, write), "the deleted user can still log in"
