@@ -35,6 +35,8 @@ from signalbox.model import (
     DeviceStatus,
     Membership,
     Pmf,
+    PortKind,
+    PortRole,
     Security,
     Snapshot,
     passphrase_digest,
@@ -179,7 +181,12 @@ async def test_no_controller_id(http_url: str, sim: OmadaSimulator) -> None:
 
 async def test_ports_and_segments(snap: Snapshot) -> None:
     ports = {p.id: p for p in snap.ports}
-    assert sorted(ports) == [f"{SW}/port/{n}" for n in range(1, 9)]
+    assert sorted(ports) == [f"{SW}/port/{n}" for n in [*range(1, 9), "lag1"]]
+    # #252: switch ports are jacks, a link aggregation group a port of role lag over its members
+    assert all(p.role is PortRole.JACK for p in snap.ports if "lag" not in p.id)
+    lag = ports[f"{SW}/port/lag1"]
+    assert (lag.role, lag.kind, lag.external) == (PortRole.LAG, PortKind.LAG, True)
+    assert lag.lower == [f"{SW}/port/2", f"{SW}/port/3"]
     p1 = ports[f"{SW}/port/1"]
     assert (p1.name, p1.up, p1.speed_mbps, p1.full_duplex, p1.poe) == (
         "Switch Port1",
@@ -359,7 +366,7 @@ async def test_clients(snap: Snapshot) -> None:
 async def test_paging(http_url: str, sim: OmadaSimulator) -> None:
     sim.page_limit = 2  # the controller returns smaller pages than asked for
     snap = await observe(adapter(http_url))
-    assert snap.status is DeviceStatus.OK and len(snap.clients) == 5 and len(snap.ports) == 8
+    assert snap.status is DeviceStatus.OK and len(snap.clients) == 5 and len(snap.ports) == 9
     assert sim.requests.count(CLIENTS) == 3
 
 
@@ -385,7 +392,7 @@ async def test_plain_list_and_missing_total(http_url: str) -> None:
     with serve(Plain().app()) as url:
         snap = await observe(adapter(url))
     assert snap.status is DeviceStatus.OK, snap.errors
-    assert len(snap.ports) == 8 and len(snap.clients) == 5
+    assert len(snap.ports) == 9 and len(snap.clients) == 5
 
 
 # --- refused paths ---------------------------------------------------------------------------

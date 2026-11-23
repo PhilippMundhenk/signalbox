@@ -69,7 +69,9 @@ from signalbox.model import (
     Membership,
     Pmf,
     Port,
+    PortKind,
     PortMembership,
+    PortRole,
     PurposeSource,
     Radio,
     Security,
@@ -224,6 +226,13 @@ def _sub(parent: dict[str, Any], key: str) -> dict[str, Any]:
 
 def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _lag_id(value: Any) -> str | None:
+    """Id of the link aggregation group of a port: text or number; 0 and empty: none."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value) if value > 0 else None
+    return _text(value) or None
 
 
 def _int(value: Any) -> int | None:
@@ -730,6 +739,7 @@ class OmadaAdapter(_Adapter):
 
         ports: list[Port] = []
         for sw in (d for d in await self._devices() if d.kind == "switch"):
+            first = len(ports)
             jumbo = jumbo_of(await self._switch(sw.raw_mac))
             for row in await self._ports(sw.raw_mac):
                 number = _int(row.get("port"))
@@ -757,7 +767,8 @@ class OmadaAdapter(_Adapter):
                         speed_mbps=None if link == 0 else LINK_SPEEDS.get(speed or 0),
                         full_duplex=None if link == 0 else {1: False, 2: True}.get(duplex or 0),
                         poe=row["poe"] if isinstance(row.get("poe"), bool) else None,
-                        lag=_text(row.get("lagId")) or None,
+                        lag=_lag_id(row.get("lagId")),
+                        role=PortRole.JACK,
                         admin_up=not disable if isinstance(disable, bool) else None,
                         profile=_text(row.get("profileName")) or None,
                         pvid=nets[native].vlan if native in nets else None,
@@ -772,6 +783,7 @@ class OmadaAdapter(_Adapter):
                     net = nets.get(_text(net_id))
                     if net is not None and pid not in members[net.segment]:
                         members[net.segment][pid] = Membership.TAGGED
+            ports.extend(self._lags(sw, ports[first:]))
         segs = [
             s.model_copy(
                 update={
@@ -966,6 +978,26 @@ class OmadaAdapter(_Adapter):
         if path not in self._cache:
             self._cache[path] = _dict(await self._api(path), path, "result")
         return dict(self._cache[path])
+
+    def _lags(self, sw: _Managed, switch_ports: list[Port]) -> list[Port]:
+        """A port of role ``lag`` for every link aggregation group of the switch (#252): its
+        members are the ports that name the group in ``lagId``."""
+        groups: dict[str, list[Port]] = {}
+        for p in switch_ports:
+            if p.lag and p.lag != "0":
+                groups.setdefault(p.lag, []).append(p)
+        return [
+            Port(
+                id=f"{self._prefix(sw)}/port/lag{lag}",
+                device_id=self._prefix(sw),
+                name=f"{sw.name} LAG{lag}",
+                kind=PortKind.LAG,
+                role=PortRole.LAG,
+                lower=[m.id for m in members],
+                vendor_extra=sw.extra(lag=lag),
+            )
+            for lag, members in sorted(groups.items())
+        ]
 
     async def _ports(self, raw_mac: str) -> list[dict[str, Any]]:
         """A switch's ports: ``portList`` of ``GET …/switches/{mac}`` (there is no port list

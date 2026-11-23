@@ -305,11 +305,16 @@ or LAG role with another kind, and a VLAN interface on several ports.
 | Integration | Fills | Where |
 | --- | --- | --- |
 | OpenWrt | every role: netifd bridges and VLAN devices, DSA conduit and user ports (`luci-rpc getNetworkDevices`), swconfig CPU port (UCI `switch_vlan`); `Wlan.port_id` | `openwrt/structure.py`, `read_interfaces()`, `read_wireless()` |
-| MikroTik *(follow-up)* | `/interface/ethernet` jacks, `/interface/ethernet/switch` CPU port (`switch1-cpu`), `/interface/bridge` + `/interface/bridge/port` members, `/interface/vlan` (`interface` = parent), `/interface/bonding` (`slaves`), `/interface/wireless` or `/interface/wifi` (`master-interface` for virtual APs; `Wlan.port_id`), EoIP/WireGuard/PPPoE tunnels | `mikrotik/__init__.py` |
-| OPNsense *(follow-up)* | assigned NICs as jacks, VLANs (`if` = parent), `lagg` (`members`), bridges (`members`), `wg`/`ovpn`/`pppoe` tunnels | `opnsense/__init__.py` |
-| Omada *(follow-up)* | switch ports as jacks, LAGs with members; EAP radios and SSIDs need no ports | `omada/__init__.py` |
-| ProSAFE / Easy Smart *(follow-up)* | every port a jack, LAG members where read | `plusswitch/mapping.py` |
-| Fritz!Box *(follow-up)* | LAN ports as jacks, the LAN bridge over them and the WLAN (if TR-064 names it) | `fritzbox/__init__.py` |
+| MikroTik | `/interface` types: `ether` jacks, `bridge` over `/interface/bridge/port`, `vlan` on its parent, `bond` over `/interface/bonding` slaves, `wifi`/`wlan` Wi-Fi interfaces (virtual APs on their `master-interface`; `Wlan.port_id`), tunnels (`wg`, `eoip`, `gre`, ...); switch CPU port from `/interface/ethernet/switch/port` | `mikrotik/__init__.py` |
+| OPNsense | NICs (`is_physical`) as jacks, VLAN devices (`vlan_settings`, `if` = parent), `lagg*`/`bridge*` with `members` where the row has them, `wg*`/`ovpn*`/... tunnels; read with the existing privileges | `opnsense/__init__.py` |
+| Omada | switch ports as jacks, link aggregation groups (`lagId`) as `lag` ports; EAP radios and SSIDs need no ports | `omada/__init__.py` |
+| ProSAFE / Easy Smart | every port a jack, enabled LAGs as `lag` ports over their members | `plusswitch/mapping.py` |
+| Fritz!Box | nothing: TR-064 has one LAN interface and names no jack, bridge or WLAN interface (no role is better than a guessed one) | `fritzbox/__init__.py` |
+
+What CI confirmed (real software, #252): OpenWrt (QEMU: NICs, bridge, VLAN interfaces), MikroTik
+(CHR: jacks, bridge members, VLAN parent, WireGuard tunnel) and OPNsense (jacks, VLAN parent).
+Simulator only: DSA, the MikroTik switch CPU port, bonding and virtual APs, laggs and bridges of
+OPNsense, Omada and ProSAFE/Easy Smart LAGs.
 
 ## Wi-Fi security details
 

@@ -150,6 +150,7 @@ def sample_data() -> dict[str, Any]:
                     mtu="9000",
                     physical=True,
                 ),
+                _iface("wg0", "", "", mac="", status="up"),  # WireGuard tunnel, no assignment
                 _iface("lo0", "lo0", "Loopback", mac="", v4=["127.0.0.1/8"], v6=["::1/128"]),
             ],
         },

@@ -169,6 +169,14 @@ async def test_mapping_of_the_preseeded_firewall(fw: dict[str, str]) -> None:
     lan_port = ports["vtnet0"]
     assert (lan_port.description, lan_port.admin_up, lan_port.mtu) == ("LAN", True, 1500), lan_port
     assert ports["vtnet2"].description is None  # the trunk is not assigned itself
+    # port structure (#252): NICs are jacks, a VLAN device runs on its parent NIC
+    assert [
+        ports[n].role.value if ports[n].role else None for n in ("vtnet0", "vtnet1", "vtnet2")
+    ] == ["jack"] * 3, [ports[n].role for n in ("vtnet0", "vtnet1", "vtnet2")]
+    vlan_ports = [p for p in ports.values() if p.role and p.role.value == "vlan"]
+    assert vlan_ports and all(p.lower == ["fw/port/vtnet2"] for p in vlan_ports), vlan_ports
+    assert all(p.external is False for p in vlan_ports)
+    assert {p.name for p in net.external_ports("fw")} >= {"vtnet0", "vtnet1", "vtnet2"}
     lan = net.segment(LAN)
     assert lan is not None and lan.name == "LAN"
     assert [(m.port_id, m.mode.value) for m in lan.members] == [("fw/port/vtnet0", "untagged")]

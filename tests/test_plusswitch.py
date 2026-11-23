@@ -32,7 +32,7 @@ from signalbox.adapters.plusswitch import (
     ProsafeConfig,
 )
 from signalbox.adapters.plusswitch.mapping import interfaces, system_info
-from signalbox.model import DeviceRole, DeviceStatus, Membership
+from signalbox.model import DeviceRole, DeviceStatus, Membership, PortRole
 from signalbox.sim.server import free_port
 from signalbox.testing import assert_contract
 
@@ -153,8 +153,12 @@ def test_lag_and_odd_port_rows() -> None:
     rows = [*_ports(2), {"port": 0}, {"port": "3"}, "junk", {"port": 3, "up": "yes"}]
     lag = {"lags": [{"id": 1, "enabled": True, "members": [1, 2]}, {"id": 2, "enabled": False}]}
     ports, _ = _by(interfaces("sw", "home", rows, None, lag))  # type: ignore[arg-type]
-    assert set(ports) == {"1", "2", "3"}
+    assert set(ports) == {"1", "2", "3", "lag1"}
     assert ports["1"].lag == ports["2"].lag == "lag1"
+    # #252: every port is a jack, an enabled group is a port of role lag over its members
+    assert ports["1"].role is PortRole.JACK and ports["3"].role is PortRole.JACK
+    assert ports["lag1"].role is PortRole.LAG and ports["lag1"].lower == ["sw/port/1", "sw/port/2"]
+    assert "lag2" not in ports and ports["lag1"].external is True
     assert ports["3"].lag is None and ports["3"].up is None
     assert interfaces("sw", "home", rows, None, {"lags": None}).ports  # type: ignore[arg-type]
 

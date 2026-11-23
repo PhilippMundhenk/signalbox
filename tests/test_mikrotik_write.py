@@ -246,6 +246,7 @@ async def test_router_update_address_and_name(url: str, sim: MikrotikSimulator) 
 async def test_router_add_address_to_a_tagged_vlan(url: str, sim: MikrotikSimulator) -> None:
     # VLAN 20 without the router's interface: only the bridge VLAN entry is left
     sim.data["/rest/interface/vlan"] = []
+    sim.data["/rest/interface"] = [r for r in sim.data["/rest/interface"] if r["name"] != "iot"]
     sim.data[IP_ADDRESS] = [r for r in sim.data[IP_ADDRESS] if r["interface"] != "iot"]
     sim.data[BRIDGE_VLAN][1]["tagged"] = "ether2"
     sim.data[BRIDGE_VLAN][1]["comment"] = ""

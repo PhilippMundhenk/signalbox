@@ -69,7 +69,7 @@ from signalbox.model import (
 )
 from signalbox.rules import evaluate
 from signalbox.rules.dns import forwarder_loop, single_forwarder
-from signalbox.sim.opnsense import KEY, SECRET, OpnsenseSimulator
+from signalbox.sim.opnsense import KEY, SECRET, OpnsenseSimulator, _iface
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
 from signalbox.testing import assert_contract
 
@@ -169,8 +169,33 @@ async def test_package_revision_is_not_an_update(http_url: str, sim: OpnsenseSim
     assert (snap.device.firmware.current, snap.device.firmware.available) == ("26.7.9_3", None)
 
 
+async def test_port_structure(http_url: str, sim: OpnsenseSimulator) -> None:
+    """NICs are jacks, VLAN devices run on their parent, laggs and bridges list members (#252)."""
+    sim.data[INTERFACES]["rows"] += [
+        {**_iface("lagg0", "", ""), "members": ["igb1", "igb2"]},
+        {**_iface("bridge0", "", ""), "members": "igb0, lagg0"},
+    ]
+    snap = await observe(adapter(http_url))
+    ports = {p.name: p for p in snap.ports}
+    ids = {n: p.id for n, p in ports.items()}
+    assert {n: p.role.value for n, p in ports.items() if p.role} == {
+        "igb0": "jack",
+        "igb1": "jack",
+        "igb2": "jack",
+        "vlan01": "vlan",
+        "vlan02": "vlan",
+        "lagg0": "lag",
+        "bridge0": "bridge",
+        "wg0": "tunnel",
+    }
+    assert ports["vlan01"].lower == [ids["igb0"]] and ports["igb0"].lower == []
+    assert ports["lagg0"].lower == [ids["igb1"], ids["igb2"]]
+    assert ports["bridge0"].lower == [ids["igb0"], ids["lagg0"]]
+    assert ports["wg0"].kind.value == "virtual" and ports["vlan01"].external is False
+
+
 async def test_ports_and_segments(snap: Snapshot) -> None:
-    assert sorted(p.name for p in snap.ports) == ["igb0", "igb1", "igb2"]  # no lo0, no VLANs
+    assert sorted(p.name for p in snap.ports) == ["igb0", "igb1", "igb2", "vlan01", "vlan02", "wg0"]
     igb0 = next(p for p in snap.ports if p.name == "igb0")
     assert (igb0.up, igb0.speed_mbps, igb0.full_duplex) == (True, 1000, True)
     assert igb0.mac == "02:00:00:00:01:00" and igb0.vendor_extra["identifier"] == "lan"

@@ -161,6 +161,11 @@ TR-064, so the NTP server stays unknown.
 link rate for the LAN side). Before #156 it was reported as the link speed. *To confirm on a
 real box*: what FRITZ!OS answers here (a number or `Auto`).
 
+Port structure (#252): TR-064 names no LAN jack and no bridge. The one `LANEthernetInterfaceConfig`
+is the LAN side as a whole, so it keeps no role (reporting it as a jack or a bridge would be a
+guess, and a role would take it out of the link checks); the WLAN services name no interface
+either, so `Wlan.port_id` stays empty. Jacks and the LAN bridge are not filled.
+
 TR-064 describes the LAN side as one interface: the switch ports LAN 1-4 are not listed
 individually in AVM's documentation *(to confirm: some FRITZ!OS versions may offer an
 `X_AVM-DE_` action per port)*. The adapter therefore reports one bridge port `lan`, the only

@@ -330,6 +330,14 @@ is in anything checked yet. The integration dump now records the controller's ow
 so the fields of options 60/66/138 and the relay mode can be confirmed from the next CI run;
 until then `DhcpServer.options` and `DhcpRelay` stay empty for Omada.
 
+## Port structure (#252)
+
+Switch ports are `jack`s (a cable ends there). A link aggregation group is a port of role
+`lag` (id `<switch>/port/lag<N>`, name `<switch name> LAG<N>`) over the ports whose `lagId`
+names it (a number or text; 0 or empty: none). Gateways and EAPs report no ports, and the EAP
+radios and SSIDs need none. *Guess*: `lagId` of a switch port, from the API description
+(the integration test's controller has no switch); the simulator serves it.
+
 ## Changing the site
 
 The gateway, switches and EAPs are devices of their own in Signalbox, so the desired state names

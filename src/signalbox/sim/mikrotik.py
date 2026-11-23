@@ -200,8 +200,18 @@ def sample_data() -> dict[str, Any]:
             _iface("wifi3", "wifi", _mac(0, 8)),
             _iface("bridge", "bridge", bridge_mac),
             _iface("iot", "vlan", bridge_mac),
+            _iface("wg0", "wg", "00:00:00:00:00:00"),
             _iface("lo", "loopback", "00:00:00:00:00:00"),
         ),
+        # the switch chip behind ether2-ether5: its CPU port is not an interface (#252)
+        "/rest/interface/ethernet/switch/port": _ids(
+            {"name": "ether2", "switch": "switch1"},
+            {"name": "ether3", "switch": "switch1"},
+            {"name": "ether4", "switch": "switch1"},
+            {"name": "ether5", "switch": "switch1"},
+            {"name": "switch1-cpu", "switch": "switch1"},
+        ),
+        "/rest/interface/bonding": [],
         "/rest/interface/ethernet": _ids(
             _ether("ether1", "1G-baseT-full"),
             _ether("ether2", "1Gbps"),
