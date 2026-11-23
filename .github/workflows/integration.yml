@@ -87,6 +87,22 @@ jobs:
           key: ${{ steps.cache.outputs.cache-primary-key }}
       - name: Boot the test VM
         run: python3 tools/integration/opnsense/vm.py start "$VM_DIR"
+      - name: Automatic setup tests (root's API key, #231)
+        # first after the boot: a check run keeps only 50 annotations, and the recording
+        # steps fill them; the result is checked at the end of the job
+        id: setup
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_opnsense_setup_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$VM_DIR/pytest-setup.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest-setup.log" | cut -c1-3000 | tail -n 80)
+              body=${summary//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=OPNsense automatic setup tests failed::$body"
+              exit $code
+            }
       - name: Record the API answers (read user)
         run: python3 tools/integration/opnsense/dump.py "$VM_DIR" read
       - name: Record the API answers (write user)
@@ -115,6 +131,9 @@ jobs:
           body=${body//'%'/'%25'}
           body=${body//$'\n'/'%0A'}
           echo "::error title=OPNsense serial console::$body"
+      - name: Automatic setup tests passed
+        if: always() && steps.setup.outcome == 'failure'
+        run: echo "::error title=OPNsense automatic setup::see the first annotations"; exit 1
       - name: Power off
         if: always()
         run: python3 tools/integration/opnsense/vm.py stop "$VM_DIR" || true
@@ -146,6 +165,8 @@ jobs:
       IT_OPENWRT_PASSWORD: it-read-password
       IT_OPENWRT_WRITE_USER: signalbox-write
       IT_OPENWRT_WRITE_PASSWORD: it-write-password
+      IT_OPENWRT_ROOT_PASSWORD: it-root-password
+      IT_OPENWRT_SSH_PORT: "8022"
       IT_OPENWRT_VERSION: ${{ matrix.version }}
       IMAGE_DIR: ${{ github.workspace }}/.it/openwrt-image
       RUN_DIR: ${{ github.workspace }}/.it/openwrt-run
@@ -182,13 +203,20 @@ jobs:
             | tee .it/build.log
           rm -rf "$IMAGE_DIR/downloads"
       - name: Boot OpenWrt
-        run: bash tools/integration/openwrt/start-vm.sh "$IMAGE_DIR/openwrt.img" "$RUN_DIR" 8443
+        run: bash tools/integration/openwrt/start-vm.sh "$IMAGE_DIR/openwrt.img" "$RUN_DIR" 8443 8022
       - name: Integration tests
         id: tests
         run: |
           set -o pipefail
           pytest -m integration tests/integration/test_openwrt_real.py -ra --tb=short -p no:cacheprovider \
             -o junit_family=xunit2 --junitxml=.it/openwrt-junit.xml 2>&1 | tee .it/pytest.log
+      - name: Automatic setup tests (root over SSH, #231)
+        id: setup
+        if: success() || steps.tests.outcome == 'failure'
+        run: |
+          set -o pipefail
+          pytest -m integration tests/integration/test_openwrt_setup_real.py -ra --tb=short \
+            -p no:cacheprovider 2>&1 | tee .it/pytest-setup.log
       # one step per log: GitHub keeps at most 10 error annotations per step
       - name: "Explain a failure: image build"
         if: failure() && steps.build.outcome == 'failure'
@@ -202,6 +230,11 @@ jobs:
           grep -E '^(FAILED|ERROR)|^E |^tests/.*Error' .it/pytest.log > .it/pytest-errors.log || true
           python3 tools/integration/annotate.py .it/pytest-errors.log "pytest errors" 280
           python3 tools/integration/annotate.py .it/pytest.log "pytest summary" 80
+      - name: "Explain a failure: automatic setup"
+        if: failure() && steps.setup.outcome == 'failure'
+        run: |
+          grep -E '^(FAILED|ERROR)|^E |^tests/.*Error' .it/pytest-setup.log > .it/setup-errors.log || true
+          python3 tools/integration/annotate.py .it/setup-errors.log "setup errors" 280
       - name: Stop OpenWrt
         if: always()
         run: |
@@ -262,6 +295,22 @@ jobs:
           key: ${{ steps.cache.outputs.cache-primary-key }}
       - name: Boot the test VM
         run: python3 tools/integration/mikrotik/vm.py start "$VM_DIR"
+      - name: Automatic setup tests (admin over REST, #231)
+        # first after the boot: a check run keeps only 50 annotations, and the recording
+        # steps fill them; the result is checked at the end of the job
+        id: setup
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_mikrotik_setup_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$VM_DIR/pytest-setup.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest-setup.log" | cut -c1-3000 | tail -n 80)
+              body=${summary//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=MikroTik automatic setup tests failed::$body"
+              exit $code
+            }
       - name: Record the REST answers (read user)
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" read
       - name: Record the REST answers (read user, DHCP, DNS, clients)
@@ -303,6 +352,9 @@ jobs:
           body=${body//'%'/'%25'}
           body=${body//$'\n'/'%0A'}
           echo "::error title=MikroTik serial console::$body"
+      - name: Automatic setup tests passed
+        if: always() && steps.setup.outcome == 'failure'
+        run: echo "::error title=MikroTik automatic setup::see the first annotations"; exit 1
       - name: Power off
         if: always()
         run: python3 tools/integration/mikrotik/vm.py stop "$VM_DIR" || true

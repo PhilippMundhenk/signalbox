@@ -17,8 +17,8 @@
 # interface when bss_transition is set ("unknown configuration item").
 #
 # Writes <output-dir>/openwrt.img (raw disk). Runs on a Linux x86-64 host (GitHub Actions).
-# Passwords: IT_OPENWRT_PASSWORD, IT_OPENWRT_WRITE_PASSWORD (throwaway; the VM is only reachable
-# through a port forward on 127.0.0.1).
+# Passwords: IT_OPENWRT_PASSWORD, IT_OPENWRT_WRITE_PASSWORD, IT_OPENWRT_ROOT_PASSWORD (root over
+# SSH; throwaway, the VM is only reachable through port forwards on 127.0.0.1).
 set -euo pipefail
 
 VERSION=${1:?usage: build-image.sh <version> <output-dir>}
@@ -27,7 +27,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
 READ_PASSWORD=${IT_OPENWRT_PASSWORD:?set IT_OPENWRT_PASSWORD}
 WRITE_PASSWORD=${IT_OPENWRT_WRITE_PASSWORD:?set IT_OPENWRT_WRITE_PASSWORD}
-for pw in "$READ_PASSWORD" "$WRITE_PASSWORD"; do
+ROOT_PASSWORD=${IT_OPENWRT_ROOT_PASSWORD:?set IT_OPENWRT_ROOT_PASSWORD}
+for pw in "$READ_PASSWORD" "$WRITE_PASSWORD" "$ROOT_PASSWORD"; do
   [[ $pw =~ ^[A-Za-z0-9._-]{8,64}$ ]] || { echo "passwords: 8-64 of A-Z a-z 0-9 . _ -" >&2; exit 2; }
 done
 
@@ -80,8 +81,10 @@ FILES=$WORK/files
 cp -a "$HERE/files" "$FILES"
 mkdir -p "$FILES/usr/share/rpcd/acl.d"
 python3 "$HERE/acl_from_docs.py" "$ROOT/docs/adapters/openwrt.md" > "$FILES/usr/share/rpcd/acl.d/signalbox.json"
+# root's password for SSH (the automatic setup, #231), as the md5-crypt hash /etc/shadow holds
+ROOT_HASH=$(openssl passwd -1 "$ROOT_PASSWORD")
 sed -i -e "s/@READ_PASSWORD@/$READ_PASSWORD/" -e "s/@WRITE_PASSWORD@/$WRITE_PASSWORD/" \
-  "$FILES/etc/uci-defaults/99-signalbox-it"
+  -e "s|@ROOT_HASH@|$ROOT_HASH|" "$FILES/etc/uci-defaults/99-signalbox-it"
 chmod 0755 "$FILES/etc/uci-defaults/99-signalbox-it" "$FILES/usr/bin/signalbox-it-ready" "$FILES/etc/rc.local"
 
 echo "== image"

@@ -47,8 +47,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
+from signalbox.sim.opnsense_users import Users
+
 KEY = "sim-key"
 SECRET = "sim-secret"
+USERS = "/api/auth/user/"
 
 
 def _opt(selected: dict[str, tuple[str, bool]]) -> dict[str, dict[str, Any]]:
@@ -1130,6 +1133,8 @@ class OpnsenseSimulator(_Writes):
     posts: list[tuple[str, Any]] = field(default_factory=list)
     #: Time zone of the firewall (System: Settings: General), for ``system_time``'s datetime.
     timezone: str = "Europe/Berlin"
+    #: The user manager (``/api/auth/user/*``); ``api_key`` is root's key.
+    accounts: Users = field(default_factory=Users)
 
     def local_time(self) -> str:
         """``Sun Nov 22 17:12:00 CET 2026``, PHP's ``date("D M j G:i:s T Y")``."""
@@ -1140,15 +1145,21 @@ class OpnsenseSimulator(_Writes):
         return f"{now:%a %b} {now.day} {now.hour}:{now:%M:%S} {now.tzname()} {now.year}"
 
     def authorised(self, header: str | None) -> bool:
+        return self.caller(header) is not None
+
+    def caller(self, header: str | None) -> str | None:
+        """The user a request's key belongs to (``root`` for ``api_key``), None: refused."""
         if not header or not header.startswith("Basic "):
-            return False
+            return None
         try:
             user, _, password = base64.b64decode(header[6:]).decode().partition(":")
         except (binascii.Error, UnicodeDecodeError):
-            return False
-        return secrets.compare_digest(user, self.api_key) and secrets.compare_digest(
+            return None
+        if secrets.compare_digest(user, self.api_key) and secrets.compare_digest(
             password, self.api_secret
-        )
+        ):
+            return "root"
+        return self.accounts.user_of(user, password)
 
     def app(self) -> FastAPI:
         app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
@@ -1163,12 +1174,15 @@ class OpnsenseSimulator(_Writes):
                 return Response(LOGIN_PAGE, media_type="text/html")
             if not self.api_enabled:
                 return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
-            if not self.authorised(request.headers.get("authorization")):
+            caller = self.caller(request.headers.get("authorization"))
+            if caller is None:
                 return JSONResponse(
                     {"status": 401, "message": "Authentication Failed"},
                     status_code=401,
                     headers={"WWW-Authenticate": 'Basic realm="api"'},
                 )
+            if path.startswith(USERS) and caller != "root":
+                return JSONResponse({"status": 403, "message": "Forbidden"}, status_code=403)
             if self.delay:
                 await asyncio.sleep(self.delay)
             status = _prefixed(self.fail, path)
@@ -1177,6 +1191,12 @@ class OpnsenseSimulator(_Writes):
             invalid = _prefixed(self.invalid, path)
             if invalid is not None:
                 return JSONResponse({"result": "failed", "validations": invalid})
+            if path.startswith(USERS):
+                body = await request.json() if await request.body() else {}
+                users = self.accounts.answer(path, body)
+                if users is None:
+                    return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
+                return JSONResponse(users)
             if path == BACKUPS:
                 return JSONResponse(self.backups())
             if path == DOWNLOAD or path.startswith(DOWNLOAD + "/"):

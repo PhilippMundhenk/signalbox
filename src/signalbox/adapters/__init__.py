@@ -22,9 +22,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from importlib.metadata import entry_points
-from typing import Any, ClassVar, Protocol, runtime_checkable
+from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr
 
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import BroadcastResult, Candidate, HostProbe, NetworkProbe
@@ -164,6 +164,109 @@ class WritesConfig(Protocol):
     async def restore(self, backup: Backup) -> None: ...
 
 
+class AdminLogin(BaseModel):
+    """What an integration that sets itself up (#231) asks for: the device's admin login.
+
+    Declared as ``Manifest.admin_login``; the integration then implements
+    :meth:`Adapter.plan_setup` and :meth:`Adapter.apply_setup`. Shown in the device form under
+    *Set up automatically*. The login is used for that one request and never stored.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: How Signalbox reaches the device with it, in plain words ("SSH as root").
+    transport: str
+    user_label: str = "Admin user"
+    user_default: str = "root"
+    secret_label: str = "Password"
+    #: A port field is shown when set (SSH: 22); None: the address of the settings is used.
+    port_default: int | None = None
+    #: What must be possible on the device first (shown above the fields).
+    note: str = ""
+
+
+class StepState(StrEnum):
+    TODO = "todo"  # plan: will be done
+    UNCHANGED = "unchanged"  # already as needed, nothing to do
+    DONE = "done"
+    FAILED = "failed"
+    SKIPPED = "skipped"  # not run because an earlier step failed
+
+
+class SetupStep(BaseModel):
+    """One step of an automatic setup, as the plan and the result show it.
+
+    ``detail`` shows what is sent (commands, files, settings) with every secret as ``***``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str
+    detail: str = ""
+    state: StepState = StepState.TODO
+    message: str = ""
+
+
+class SetupRequest(BaseModel):
+    """An automatic setup (or its removal) as the device form asks for it."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: The device form's settings without secrets (address, user name, ...), not validated.
+    config: Mapping[str, JsonValue] = Field(default_factory=dict)
+    admin_user: str
+    #: Used for this request only: never stored, logged, or put into a step or an error.
+    admin_secret: SecretStr
+    port: int | None = Field(None, ge=1, le=65535)
+    #: Give the new login the write permissions of the setup guide (*Allow changes*).
+    allow_writes: bool = False
+    #: Remove what the automatic setup created instead.
+    remove: bool = False
+    #: The fingerprint (SSH host key or certificate) the user confirmed; None: not yet.
+    trust: str | None = None
+    timeout: float = 30.0
+
+
+class SetupPlan(BaseModel):
+    """What an automatic setup would do; with an untrusted fingerprint only that."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: What the device presented: SSH host key ``SHA256:...`` or certificate SHA-256 (hex).
+    fingerprint: str
+    fingerprint_kind: Literal["ssh-host-key", "certificate"]
+    trusted: bool
+    #: How to compare the fingerprint on the device itself.
+    compare: str = ""
+    steps: list[SetupStep] = Field(default_factory=list)
+
+
+class SetupResult(BaseModel):
+    """The steps as run, and the device settings for the login that was set up."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    steps: list[SetupStep]
+    #: Settings to store (non-secret: address, user name). Empty after a removal.
+    settings: dict[str, JsonValue] = Field(default_factory=dict)
+    #: Secret settings to store encrypted (generated password, API key); never sent to the UI.
+    secrets: dict[str, SecretStr] = Field(default_factory=dict)
+    #: Certificate fingerprint to pin for reading, learnt over the pinned setup connection.
+    certificate: str | None = None
+
+
+class UntrustedHostKey(AdapterError):
+    """The device presented an SSH host key the user has not confirmed (setup, #231)."""
+
+    def __init__(self, fingerprint: str, pinned: str | None) -> None:
+        self.fingerprint = fingerprint
+        self.pinned = pinned
+        what = "a different SSH host key" if pinned else "an SSH host key not yet trusted"
+        super().__init__(f"device presented {what} ({fingerprint})")
+
+
 class AdapterConfig(BaseModel):
     """Base class of an adapter's connection settings; the UI renders a form from its schema.
 
@@ -193,6 +296,9 @@ class Manifest(BaseModel):
     setup_steps: tuple[str, ...] = ()
     #: Kinds of change the integration can apply (empty: read only).
     writes: frozenset[ChangeKind] = frozenset()
+    #: The integration can set up its own login with the device's admin login (#231):
+    #: implements :meth:`Adapter.plan_setup` and :meth:`Adapter.apply_setup`.
+    admin_login: AdminLogin | None = None
 
 
 @dataclass(frozen=True)
@@ -410,6 +516,29 @@ class Adapter(ABC):
         run (the UDP protocols of small switches). None: the integration has none."""
         return None
 
+    # automatic setup (#231): optional, no adapter API version needed -------------------
+
+    @classmethod
+    async def plan_setup(cls, request: SetupRequest) -> SetupPlan:
+        """Optional: what an automatic setup with the admin login would do (docs/ADAPTERS.md).
+
+        Connect with the admin login only over a pinned channel: without ``request.trust``,
+        or when it differs, return the presented fingerprint with ``trusted=False`` and send
+        no credential. Change nothing on the device. Never put ``request.admin_secret`` or a
+        generated secret into a step, a log line or an error.
+        """
+        raise NotImplementedError
+
+    @classmethod
+    async def apply_setup(cls, request: SetupRequest) -> SetupResult:
+        """Optional: run the plan (or the removal) and return the settings of the new login.
+
+        Idempotent: steps that are already as needed are ``unchanged``. Raise
+        :class:`UntrustedHostKey` / :class:`UntrustedCertificate` when the presented
+        fingerprint is not ``request.trust``.
+        """
+        raise NotImplementedError
+
     async def _call(self, fn: Callable[[], Any]) -> Any:
         return await asyncio.wait_for(fn(), timeout=self.context.timeout)
 
@@ -534,6 +663,16 @@ def probes_broadcast(cls: type[Adapter]) -> bool:
     return own is not Adapter.discover_broadcast.__func__  # type: ignore[attr-defined]
 
 
+def provisions(cls: type[Adapter]) -> bool:
+    """The integration can set itself up with an admin login (#231)."""
+    return cls.manifest.admin_login is not None
+
+
+def _overrides(cls: type[Adapter], name: str) -> bool:
+    own = getattr(cls, name).__func__
+    return bool(own is not getattr(Adapter, name).__func__)
+
+
 def _version(text: str) -> tuple[int, ...]:
     try:
         return tuple(int(part) for part in text.split("."))
@@ -556,6 +695,15 @@ def check_manifest(manifest: Manifest) -> None:
             )
 
 
+def check_setup(cls: type[Adapter]) -> None:
+    """An integration that declares ``admin_login`` implements both setup hooks."""
+    if provisions(cls) and not (_overrides(cls, "plan_setup") and _overrides(cls, "apply_setup")):
+        raise AdapterContractError(
+            f"{cls.manifest.id} declares admin_login but does not implement plan_setup and "
+            "apply_setup"
+        )
+
+
 def load_adapters(group: str = "signalbox.adapters") -> dict[str, type[Adapter]]:
     """All installed adapters by id. Broken or incompatible ones raise, loudly."""
     found: dict[str, type[Adapter]] = {}
@@ -564,6 +712,7 @@ def load_adapters(group: str = "signalbox.adapters") -> dict[str, type[Adapter]]
         if not (isinstance(cls, type) and issubclass(cls, Adapter)):
             raise AdapterContractError(f"entry point {ep.name} is not an Adapter subclass")
         check_manifest(cls.manifest)
+        check_setup(cls)
         if cls.manifest.id in found:
             raise AdapterContractError(f"two adapters with id {cls.manifest.id}")
         found[cls.manifest.id] = cls

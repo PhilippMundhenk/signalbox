@@ -214,6 +214,53 @@ class MyAdapter(Adapter):
   limiter=RateLimiter(1000), extra={"ports": {"mydevice.https": port}})`, and check that it
   does not mistake the other simulators for its device (`tests/test_discovery.py`).
 
+## Automatic setup with an admin login
+
+An integration can set up its own least-privilege login when the user gives the admin login
+once (#231, [ADR 0009](adr/0009-automatic-setup-with-an-admin-login.md)); the device form then
+offers *Set up automatically*. Optional, no adapter API version needed:
+
+```python
+manifest = Manifest(
+    ...,
+    admin_login=AdminLogin(
+        transport="SSH as root",
+        user_default="root",
+        secret_label="root password",
+        port_default=22,
+        note="What must be possible on the device first.",
+    ),
+)
+
+
+@classmethod
+async def plan_setup(cls, request: SetupRequest) -> SetupPlan: ...
+@classmethod
+async def apply_setup(cls, request: SetupRequest) -> SetupResult: ...
+```
+
+`SetupRequest` carries the form's settings without secrets (`config`), the admin login
+(`admin_user`, `admin_secret`, `port`), `allow_writes`, `remove` and `trust`, the fingerprint
+the user confirmed. Rules, checked by the tests of the built-in integrations:
+
+- Send the admin login only over a pinned channel: `DeviceHttp` with `trust` as the pin, or
+  `signalbox.adapters.ssh.PinnedSsh`. Without `trust`, or with another fingerprint, the plan
+  returns the presented one (`trusted=False`, `fingerprint_kind` `certificate` or
+  `ssh-host-key`, and `compare`: how to check it on the device) and sends nothing else.
+- The plan changes nothing. Build `signalbox.adapters.provision.Step`s (title, what is sent
+  as `detail`, `needed`, the action) and report them with `plan_steps`; run them with
+  `run_steps`, which stops at the first failure. Steps that are already right are `unchanged`.
+- Create exactly the access the setup guide documents, write access only with `allow_writes`,
+  and refuse to set up the admin login itself. A re-run repairs and upgrades; `remove` deletes
+  what the setup creates and keeps what something else still uses.
+- Generate secrets with `new_password()` and return them in `SetupResult.secrets` (stored
+  encrypted, never sent to the UI), the other settings in `settings`, and a certificate learnt
+  over the pinned channel in `certificate`. Add the admin secret and every generated secret to a
+  `Redactor` and pass every text you return or raise through it.
+
+`load_adapters` refuses an integration that declares `admin_login` without both methods.
+With `setup.enabled: false` the hooks are never called.
+
 ## Writing to devices
 
 An integration that can change a device declares the kinds of change it supports in

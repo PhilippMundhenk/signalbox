@@ -784,6 +784,8 @@ class OpenWrtSim:
     #: thermal zones (``type``, milli-degrees Celsius) under /sys/class/thermal
     thermal_zones: list[tuple[str, int]] = field(default_factory=lambda: [("cpu-thermal", 47823)])
     sessions: dict[str, float] = field(default_factory=dict)
+    #: more logins, username -> md5-crypt hash (set by the SSH side, ``openwrt_ssh``)
+    login_hashes: dict[str, str] = field(default_factory=dict)
     logins: int = 0
     requests: int = 0
     #: committed UCI configs (built on first use, so ``router`` can be set after ``reset``)
@@ -846,8 +848,18 @@ class OpenWrtSim:
 
     # ubus ---------------------------------------------------------------------------
 
+    def _known(self, username: Any, password: Any) -> bool:
+        if username == self.username and password == self.password:
+            return True
+        stored = self.login_hashes.get(str(username), "")
+        if not stored.startswith("$1$") or not isinstance(password, str):
+            return False
+        from signalbox.adapters.openwrt.provision import md5_crypt
+
+        return md5_crypt(password, stored.split("$")[2]) == stored
+
     def _login(self, args: dict[str, Any]) -> list[Any]:
-        if args.get("username") != self.username or args.get("password") != self.password:
+        if not self._known(args.get("username"), args.get("password")):
             return [6]
         self.logins += 1
         sid = secrets.token_hex(16)
@@ -862,7 +874,7 @@ class OpenWrtSim:
                 "timeout": ttl,
                 "expires": ttl,
                 "acls": {},
-                "data": {"username": self.username},
+                "data": {"username": args.get("username")},
             },
         ]
 

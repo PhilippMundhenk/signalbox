@@ -120,7 +120,12 @@ deployment round trips; `tools/integration/annotate.py`: failure output as CI an
 shared by all targets. Each target has a directory `tools/integration/<target>/` that builds and
 starts it, a test module `tests/integration/test_<target>_real.py` and a job in
 `.github/workflows/integration.yml`, which runs nightly, on demand and on pull requests that
-touch adapters, simulators or the integration setup.
+touch adapters, simulators or the integration setup. The automatic setup with an admin login
+(#231) has a module of its own per target, `tests/integration/test_<target>_setup_real.py`,
+run as a separate step (OPNsense, MikroTik: right after the boot, so its failure is among the
+first 50 annotations of the check run; OpenWrt: after the other tests, as it rewrites the ACL
+file): it creates a login the image does not
+have (`signalbox-auto`, or `signalbox` on OPNsense), reads the device with it and removes it.
 
 ### OpenWrt (x86-64 in QEMU)
 
@@ -137,10 +142,13 @@ official feeds (`uhttpd-mod-ubus`, `rpcd-mod-*`, `luci-app-lldpd`, `kmod-mac8021
 - `br-lan` with VLAN filtering over `eth1` and `eth2`: VLAN 1 `lan` (192.0.2.1/24, untagged on
   both, dnsmasq DHCP) and VLAN 20 `iot` (198.51.100.1/24, tagged on `eth2`);
 - three `mac80211_hwsim` radios: SSID `Example-IT` on radio0 (2.4 GHz) and radio1 (5 GHz),
-  radio2 a station associated to it, so hostapd has a client and dnsmasq a lease.
+  radio2 a station associated to it, so hostapd has a client and dnsmasq a lease;
+- root's password (`IT_OPENWRT_ROOT_PASSWORD`, as the md5-crypt hash in `/etc/shadow`) and
+  dropbear on every interface, for the automatic setup over SSH (#231).
 
 `tools/integration/openwrt/start-vm.sh <image> <run-dir>` boots it with KVM: `eth0` on QEMU's
-user-mode network with `127.0.0.1:8443` forwarded to the guest's HTTPS, the serial console in
+user-mode network with `127.0.0.1:8443` forwarded to the guest's HTTPS and `127.0.0.1:8022`
+to its SSH, the serial console in
 `<run-dir>/console.log`, and waits for `SIGNALBOX-IT-READY` there. Then:
 
 ```sh

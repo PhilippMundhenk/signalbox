@@ -25,18 +25,22 @@ from signalbox.adapters import (
     Adapter,
     AdapterConfig,
     AdapterError,
+    AdminLogin,
     ApplyResult,
     Backup,
     Capability,
     Gap,
     Manifest,
     Observation,
+    SetupPlan,
+    SetupRequest,
+    SetupResult,
     SystemInfo,
     VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.openwrt import discovery as _discovery
-from signalbox.adapters.openwrt import setup, vitals
+from signalbox.adapters.openwrt import provision, setup, vitals
 from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import AccessDenied, InvalidArgument, NoData, NotFound, Ubus
 from signalbox.changes import Change, ChangeKind
@@ -675,12 +679,29 @@ class OpenWrtAdapter(Adapter):
         writes=frozenset(
             {ChangeKind.PORT, ChangeKind.WLAN, ChangeKind.DHCP, ChangeKind.RESERVATION}
         ),
+        admin_login=AdminLogin(
+            transport="SSH as root",
+            user_default="root",
+            secret_label="root password",
+            port_default=22,
+            note="The router's SSH server (dropbear) must allow a password login for root, as "
+            "OpenWrt does by default. The router needs internet access if packages are missing.",
+        ),
     )
 
     @classmethod
     async def discover(cls, probe: HostProbe) -> Candidate | None:
         """ubus JSON-RPC (null session) or the LuCI page, without credentials."""
         return await _discovery.discover(probe)
+
+    @classmethod
+    async def plan_setup(cls, request: SetupRequest) -> SetupPlan:
+        """Packages, ACL file and rpcd login over SSH as root (docs: Automatic setup)."""
+        return await provision.OpenWrtSetup(request).plan()
+
+    @classmethod
+    async def apply_setup(cls, request: SetupRequest) -> SetupResult:
+        return await provision.OpenWrtSetup(request).apply()
 
     _ubus: Ubus | None = None
     #: ``uci apply`` with rollback was called and not yet confirmed or rolled back

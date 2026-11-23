@@ -378,6 +378,43 @@ Without the object the neighbours read fails with "LLDP is not installed on the 
 errors say what to install or start. Either shows as an incomplete
 device; the other capabilities are unaffected.
 
+## Automatic setup
+
+*Set up automatically* in the device form (#231, [ADR 0009](../adr/0009-automatic-setup-with-an-admin-login.md))
+does the steps of the next section for you, over SSH as root.
+It is optional: the manual setup below is the same result and always works. Nothing is
+changed on the device unless you start it for that device and confirm the plan (never from
+*Find devices*, a read or in the background), and `setup.enabled: false` in the
+configuration turns it off completely (the API refuses it, the form does not show it).
+
+
+1. Enter the router's address, the login to create (`signalbox` by default) and root's password
+   (and the SSH port, 22). *Show what it does* connects to dropbear and shows the router's SSH
+   host key (`SHA256:…`); nothing is sent before you trust it. Compare it on the router:
+   `dropbearkey -y -f /etc/dropbear/dropbear_ed25519_host_key` (or the `_rsa_` key) prints it.
+2. Signalbox lists the steps, each *will be done* or *already as needed*: the missing packages
+   (`apk add` on 25.12 and later, `opkg install` before; the router needs internet access only
+   then), `/usr/share/rpcd/acl.d/signalbox.json` (the read-only ACL below, or the ACL with write
+   access when *Allow changes* is on), the rpcd login with a new generated password (only the
+   md5-crypt hash is sent), `/etc/init.d/rpcd restart`, and the web server's certificate,
+   read over this SSH connection (`uci get uhttpd.main.cert`, DER or PEM) to pin it for reading.
+3. *Set up the device* runs them and saves the device with the new login. The password is stored
+   encrypted like any other and never shown; root's password is not stored or logged.
+
+Running it again repairs a partial setup and updates the ACL file after an update of Signalbox;
+without *Allow changes* it takes write access away again. *Remove what Signalbox set up* deletes
+the login, and the ACL file unless another login lists `signalbox`; packages stay. Every script
+goes over standard input of `sh -s`, so no secret appears in a process list on the router.
+Needs dropbear with password login for root (OpenWrt's default).
+
+Verified in CI on 24.10 and 25.12 (`tests/integration/test_openwrt_setup_real.py`): host key
+pinning and a refused root password; a login `signalbox-auto` created with the image's packages
+and ACL already in place, the router read with it (contract) over the certificate read through
+SSH; again read-only (the ACL file loses its write part, the old password stops working); the
+removal keeps the ACL file the image's other logins use. *Not verified*: installing packages
+(the CI router has no internet access, the simulator covers it) and dropbear builds without
+password authentication.
+
 ## Read-only user on the device
 
 The device form shows these steps as commands to paste on the router (`ssh root@<router>`):

@@ -791,6 +791,12 @@ def sample_data() -> dict[str, Any]:
             }
         ),
         "/rest/interface/wifi/channel": [],
+        # users and groups (#231: the automatic setup creates its own); no passwords shown
+        "/rest/user": _ids({"name": "admin", "group": "full", "disabled": "false"}),
+        "/rest/user/group": _ids(
+            {"name": "read", "policy": "local,telnet,ssh,reboot,read,test,winbox,web,sniff,api"},
+            {"name": "full", "policy": "local,telnet,ssh,read,write,policy,api,rest-api"},
+        ),
         "/rest/interface/wifi/registration-table": _ids(
             {
                 "interface": "wifi3",
@@ -936,6 +942,8 @@ class MikrotikSimulator:
     #: monitor refused (HTTP 500 ``not enough permissions``), as for a group without the policy
     read_only_monitor: bool = False
     next_id: int = 0x100
+    #: passwords of the users in ``/rest/user`` other than ``username`` (set through REST)
+    logins: dict[str, str] = field(default_factory=dict)
 
     def authorised(self, header: str | None) -> bool:
         if not header or not header.startswith("Basic "):
@@ -944,6 +952,8 @@ class MikrotikSimulator:
             user, _, password = base64.b64decode(header[6:]).decode().partition(":")
         except (binascii.Error, UnicodeDecodeError):
             return False
+        if user in self.logins and secrets.compare_digest(password, self.logins[user]):
+            return True
         return secrets.compare_digest(user, self.username) and secrets.compare_digest(
             password, self.password
         )
@@ -1069,6 +1079,7 @@ class MikrotikSimulator:
             return JSONResponse({".id": "*FFFF"} if method == "PUT" else [])
         rows: list[dict[str, Any]] = self.data[menu]
         values = {k: str(v) for k, v in body.items() if k not in (".id", "numbers")}
+        password = values.pop("password", None) if menu == USER_MENU else None
         if method == "PUT":
             row = {".id": self._id(), **DEFAULTS.get(menu, {}), **values}
             problem = self._check(menu, row, rows)
@@ -1080,6 +1091,8 @@ class MikrotikSimulator:
                 row.update({"invalid": "true", ".about": "No IP address on interface"})
                 self.settling.add(row[".id"])
             rows.append(row)
+            if password is not None:
+                self.logins[row["name"]] = password
             self._settle(menu, row)
             return JSONResponse(row, status_code=201)
         found: dict[str, Any] | None = next((r for r in rows if r.get(".id") == ref), None)
@@ -1092,6 +1105,7 @@ class MikrotikSimulator:
             return _bad("cannot change dynamic entry")
         if method == "DELETE":
             rows.remove(row)
+            self.logins.pop(str(row.get("name")), None)
             self._settle(menu, None)
             return Response(status_code=204)
         if method == "POST":
@@ -1103,6 +1117,8 @@ class MikrotikSimulator:
             return _bad(problem)
         row.clear()
         row.update(changed)
+        if password is not None:
+            self.logins[row["name"]] = password
         self._settle(menu, row)
         return JSONResponse(row if method == "PATCH" else [])
 
@@ -1299,6 +1315,8 @@ DHCP_NETWORK = "/rest/ip/dhcp-server/network"
 CLOCK = "/rest/system/clock"
 DHCP_LEASE = "/rest/ip/dhcp-server/lease"
 WIFI = "/rest/interface/wifi"
+USER_MENU = "/rest/user"
+USER_GROUP = "/rest/user/group"
 #: Menus the simulator accepts writes for.
 WRITABLE = (
     VLAN,
@@ -1311,6 +1329,8 @@ WRITABLE = (
     DHCP_SERVER,
     DHCP_LEASE,
     WIFI,
+    USER_MENU,
+    USER_GROUP,
 )
 REQUIRED = {
     VLAN: ("name", "vlan-id", "interface"),
@@ -1322,6 +1342,8 @@ REQUIRED = {
     DHCP_SERVER: ("name", "interface"),
     DHCP_LEASE: ("address", "mac-address"),
     WIFI: ("name",),
+    USER_MENU: ("name", "group"),
+    USER_GROUP: ("name", "policy"),
 }
 #: Properties that name interfaces (checked against ``/interface``).
 REFERENCES = {

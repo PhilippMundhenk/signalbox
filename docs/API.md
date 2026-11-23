@@ -62,3 +62,5 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | GET | `/api/discovery` | Progress of the last search and the devices it found (marked when already added). |
 | POST | `/api/discovery` | Search for devices now (known networks and the given ranges), without credentials. |
 | POST | `/api/discovery/ignore` | Hide a found device from the list (or show it again with `ignored: false`). |
+| POST | `/api/devices/setup` | What the automatic setup would do with this admin login; nothing is changed. |
+| POST | `/api/devices/setup/apply` | Run the automatic setup (or its removal) and save the device with the new login. |

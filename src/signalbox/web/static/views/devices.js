@@ -5,6 +5,7 @@ import { clear, fmtAgo, fmtTime, h, place } from '../util.js';
 import { checkField, empty, field, manageLink, pageHead, run, select, statusBadge, table, toast } from '../ui.js';
 import { linked, testResult, trustPanel } from './devicetest.js';
 import { discoveryPanel, findButton, takePrefill } from './discovery.js';
+import { autoSetup } from './devicesetup.js';
 
 // What to prepare on the device before adding it (steps, commands to paste, setup guide).
 function setupGuide(a, open) {
@@ -175,7 +176,16 @@ export async function renderDeviceForm(main, ctx, device) {
     const a = adapters.find((x) => x.id === adapter.value);
     adapterHelp.textContent = a.description || '';
     clear(setupBox);
-    place(setupBox, setupGuide(a, !editing));
+    place(setupBox, setupGuide(a, !editing && !a.admin_login));
+    if (a.admin_login) {
+      place(
+        setupBox,
+        autoSetup(a, () => collect(true, true), (saved) => {
+          testOnOpen.add(saved.id);
+          ctx.navigate(`#/device/${enc(saved.id)}`);
+        }),
+      );
+    }
     const wanted = role.value || (device && device.role) || (prefill && prefill.role);
     clear(role);
     const roles = [...a.roles].sort((x, y) => ROLE_ORDER.indexOf(x) - ROLE_ORDER.indexOf(y));
@@ -194,12 +204,13 @@ export async function renderDeviceForm(main, ctx, device) {
   };
 
   // The form's values, or null after showing what is missing.
-  const collect = (forTest) => {
+  // forSetup: the automatic setup fills in the secret settings itself
+  const collect = (forTest, forSetup = false) => {
     clear(errors);
     const problems = [];
     if (!name.value.trim() && !forTest) problems.push('Give the device a name.');
     if (!site.value) problems.push('Create a site first.');
-    const { config, errors: cfgErrors, clear: cleared } = cfg.collect();
+    const { config, errors: cfgErrors, clear: cleared } = cfg.collect({ noSecrets: forSetup });
     problems.push(...cfgErrors);
     if (problems.length) {
       place(errors, h('ul', {}, problems.map((p) => h('li', {}, p))));
@@ -208,6 +219,7 @@ export async function renderDeviceForm(main, ctx, device) {
     const body = { name: name.value.trim() || 'new device', site_id: site.value, role: role.value, adapter: adapter.value, enabled: enabled.checked, allow_writes: allowWrites.checked, config };
     if (cleared.length) body.clear_secrets = cleared;
     if (trusted) body.trust_fingerprint = trusted;
+    if (forSetup && editing) body.device_id = device.id;
     return body;
   };
 

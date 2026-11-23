@@ -35,11 +35,11 @@ def _free_port() -> int:
 
 
 class LiveServer:
-    def __init__(self, data: Path) -> None:
+    def __init__(self, data: Path, adapters: dict[str, Any] | None = None) -> None:
         self.services: Services = build(
             data,
             env={"SIGNALBOX_AUTH_PASSWORD": PASSWORD, "SIGNALBOX_DEPLOY_ENABLED": "true"},
-            adapters={"lab": Lab, "labswitch": Switch, "w": Writable},
+            adapters=adapters or {"lab": Lab, "labswitch": Switch, "w": Writable},
             rules=[*load_rules(), open_wifi],
         )
         self.port = _free_port()
