@@ -475,7 +475,9 @@ class MikrotikFix:
         off = (await self._cli(ssh, get("disabled"))).lower()
         state: dict[str, Any] = {
             "disabled": off in ("true", "yes"),
-            "address": [a for a in _word(await self._available(ssh, get)).split(",") if a],
+            "address": [
+                a for a in re.split(r"[,;\s]+", _word(await self._available(ssh, get))) if a
+            ],
             "certificate": _word(await self._cli(ssh, get("certificate"))),
         }
         for key, name in (("ca", CA), ("server", SERVER)):

@@ -52,7 +52,7 @@ class MikrotikSsh:
             if prop == "available-from" and self.legacy:
                 return 0, "failure: no such property"
             if prop in ("address", "available-from"):
-                return 0, ",".join(self.address)
+                return 0, ";".join(self.address)  # RouterOS prints a list with ;
             if prop == "certificate":
                 return 0, self.certificate or "none"
             return 0, "failure: no such property"
