@@ -12,6 +12,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from ipaddress import IPv4Interface, ip_address
 
+from signalbox.firewall import forward_target_ports, port_ranges_overlap
 from signalbox.model import (
     Client,
     DeviceRole,
@@ -23,6 +24,7 @@ from signalbox.model import (
     Network,
     SegmentPurpose,
     Subnet,
+    Uplink,
 )
 from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
 from signalbox.rules._names import device_name, router_subnets, segment_name, site_of_device
@@ -621,6 +623,48 @@ def _cable_between(net: Network, port: str | None, device_id: str) -> str:
     return ""
 
 
+def _forwards_on_inner_only(net: Network, u: Uplink, upstream: Subnet) -> Iterator[Result]:
+    """Port forwards of the inner router that the outer router does not pass on (#60, #135):
+    from the internet they never arrive. Quiet unless both forward lists were read."""
+    inner, outer = net.firewall_of(u.device_id), net.firewall_of(upstream.device_id)
+    if inner is None or outer is None:
+        return
+    if not (inner.port_forwards_complete and outer.port_forwards_complete):
+        return
+    mine = {a.ip for a in u.addresses}
+    passed = [f for f in outer.port_forwards if f.enabled and f.target_address in mine]
+    dead = []
+    for pf in inner.port_forwards:
+        if not pf.enabled or not pf.external_ports:
+            continue
+        if pf.zones and not inner.zones_of(u.id) & set(pf.zones):
+            continue  # listens on another interface
+        if not any(
+            (not o.protocols or not pf.protocols or set(o.protocols) & set(pf.protocols))
+            and port_ranges_overlap(forward_target_ports(o), pf.external_ports)
+            for o in passed
+        ):
+            dead.append(pf)
+    if not dead:
+        return
+    inner_name, outer_name = device_name(net, u.device_id), device_name(net, upstream.device_id)
+    ports = ", ".join(
+        f"{'/'.join(p.value.upper() for p in pf.protocols) or 'all'} "
+        f"{', '.join(str(r) for r in pf.external_ports)}"
+        for pf in dead
+    )
+    yield found(
+        f"{inner_name} forwards {ports} to devices behind it, but {outer_name} in front of it "
+        f"does not forward them to {inner_name}: from the internet these ports never arrive.",
+        [u.device_id, upstream.device_id, u.id],
+        severity=Severity.WARNING,
+        fix=f"Forward the same ports on {outer_name} to {inner_name}'s WAN address, make "
+        f"{inner_name} the exposed host (DMZ) of {outer_name}, or put {outer_name} into "
+        "bridge (modem) mode.",
+        key=f"{u.id}/forwards",
+    )
+
+
 @rule(
     "addr.double-nat",
     "Router behind another router (double NAT)",
@@ -630,7 +674,9 @@ def _cable_between(net: Network, port: str | None, device_id: str) -> str:
     "works, but port forwards, VPN servers, many games and VoIP calls fail or need settings on "
     "both routers, IPv6 prefix delegation often stops at the first router, and it is unclear "
     "which device is the router. Reported as information: it is often intended (a firewall "
-    "behind the provider's router), and Signalbox cannot see an exposed-host (DMZ) setting.",
+    "behind the provider's router). With the firewalls of both routers read (#135), port "
+    "forwards on the inner router that the outer router does not pass on are reported "
+    "separately as a warning: from the internet they cannot work.",
 )
 def double_nat(net: Network) -> Iterator[Result]:
     gateways = {d.id for d in net.devices if d.role is DeviceRole.GATEWAY}
@@ -649,6 +695,7 @@ def double_nat(net: Network) -> Iterator[Result]:
                 fix=_DOUBLE_NAT_FIX.format(inner=inner, outer=outer),
                 key=f"{u.id}/router",
             )
+            yield from _forwards_on_inner_only(net, u, upstream)
             continue
         nat = u.nat_class()
         if nat is NatClass.PRIVATE:

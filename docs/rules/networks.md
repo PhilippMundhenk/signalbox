@@ -42,9 +42,14 @@ What a network is for (`main`, `guest`, `iot`, `management`, `servers`, `lab`, `
 - **Checks (level 1, without firewall data):** the management address of a switch or access
   point lies in a guest, IoT or camera network, or such a device has an address there (a
   subnet interface that is not the gateway). A router has an address in every network it
-  serves; whether its management interface is reachable from there depends on its firewall,
-  which Signalbox does not read yet, so each such router address is reported as not checked.
-  Level 2 (firewall rules, issue #135) is not implemented.
+  serves; whether its management interface is reachable from there depends on its firewall:
+  where that is not read, each such router address is reported as not checked, otherwise
+  `security.service-exposure` decides.
+- **Checks (level 2, with the firewall, #135):** a management service of a switch, access point
+  or router that is managed in another network, and that a guest, IoT or camera network reaches
+  through the firewall of the router in between (`signalbox.firewall.reach`). Reported only
+  where the rules and policies surely allow it; unknown firewalls, inexact rules, services that
+  limit their sources themselves and layer-2 services stay quiet.
 - **Fix:** move the management address to the LAN or a management VLAN, or block access from
   that network to the device.
 
