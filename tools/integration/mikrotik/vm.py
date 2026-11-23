@@ -467,6 +467,15 @@ def rest_setup(d: Path, keys: dict[str, str]) -> None:
         },
     )
     admin.add(
+        "ip/firewall/filter",
+        {
+            "chain": "input",
+            "action": "accept",
+            "in-interface-list": "LAN",
+            "comment": "Signalbox CI: LAN to the router",
+        },
+    )
+    admin.add(
         "ip/firewall/nat",
         {
             "chain": "srcnat",

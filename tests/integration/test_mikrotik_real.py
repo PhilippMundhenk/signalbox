@@ -333,6 +333,8 @@ async def test_firewall_rules_and_nat(rt: dict[str, str]) -> None:
     zones = {z.name: z for z in fwl.zones}
     assert zones["WAN"].uplinks == ["rt/uplink/ether1"] and zones["WAN"].complete, zones
     assert zones["LAN"].segments == [LAN], zones
+    lan_in = next(r for r in fwl.rules if r.name == "Signalbox CI: LAN to the router")
+    assert lan_in.chain is FirewallChain.INPUT and lan_in.source.zones == ["LAN"], lan_in
     assert fwl.input_policy is FirewallAction.ACCEPT, fwl
     ours = next(r for r in fwl.rules if r.name == "Signalbox CI: NAS")
     assert ours.chain is FirewallChain.FORWARD and ours.action is FirewallAction.ACCEPT, ours
