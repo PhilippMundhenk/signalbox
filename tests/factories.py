@@ -25,13 +25,22 @@ from signalbox.model import (
     DhcpRelay,
     DhcpServer,
     Fan,
+    Firewall,
+    FirewallAction,
+    FirewallChain,
+    FirewallMatch,
+    FirewallProtocol,
+    FirewallRule,
+    FirewallZone,
     LeaseState,
     ManagementService,
     Network,
     NtpClient,
     NtpServer,
     Port,
+    PortForward,
     PortMedia,
+    PortRange,
     PowerSupply,
     Radio,
     SaePwe,
@@ -54,6 +63,8 @@ from signalbox.model import (
     Wlan,
     Wps,
     WpsMethod,
+    ZonePolicy,
+    firewall_id,
     object_id,
     passphrase_digest,
     port_id,
@@ -467,3 +478,106 @@ def wps(*methods: WpsMethod, **kw: Any) -> Wps:
     if enabled and not methods:
         methods = (WpsMethod.PUSH_BUTTON,)
     return Wps(enabled=enabled, methods=list(methods), **kw)
+
+
+# --- firewall (#135) -------------------------------------------------------------------------
+
+
+def zone(name: str, *members: str, **kw: Any) -> FirewallZone:
+    """A zone; members are sorted by their id: ``/segment/``, ``/uplink/``, ``/tunnel/``,
+    anything else is a port."""
+    kinds: dict[str, list[str]] = {"segments": [], "uplinks": [], "tunnels": [], "ports": []}
+    for m in members:
+        key = next((k for k in ("segment", "uplink", "tunnel") if f"/{k}/" in m), "port")
+        kinds[f"{key}s"].append(m)
+    return FirewallZone(name=name, **kinds, **kw)
+
+
+def ports(*items: int | tuple[int, int]) -> list[PortRange]:
+    return [
+        PortRange(start=i[0], end=i[1]) if isinstance(i, tuple) else PortRange(start=i)
+        for i in items
+    ]
+
+
+def fw_rule(
+    action: FirewallAction | str = "accept",
+    src: str | None = None,
+    dest: str | None = None,
+    port: int | None = None,
+    proto: str | None = None,
+    **kw: Any,
+) -> FirewallRule:
+    """A filter rule: ``fw_rule("drop", "guest", "lan")`` (forward), ``fw_rule("accept",
+    "wan", port=22, proto="tcp", chain="input")``. ``source``/``destination`` take a
+    :class:`FirewallMatch` for networks and negation."""
+    source = kw.pop("source", FirewallMatch(zones=[src] if src else []))
+    destination = kw.pop(
+        "destination",
+        FirewallMatch(zones=[dest] if dest else [], ports=ports(port) if port else []),
+    )
+    if proto and "protocols" not in kw:
+        kw["protocols"] = [FirewallProtocol(proto)]
+    if dest and "chain" not in kw:
+        kw["chain"] = FirewallChain.FORWARD
+    return FirewallRule(action=FirewallAction(action), source=source, destination=destination, **kw)
+
+
+def port_forward(target: str, port: int, **kw: Any) -> PortForward:
+    """TCP *port* on the uplink zones to *target* (same port), let through by itself."""
+    kw.setdefault("protocols", [FirewallProtocol.TCP])
+    kw.setdefault("passes_filter", True)
+    return PortForward(
+        name=kw.pop("name", f"fwd-{port}"),
+        external_ports=kw.pop("external_ports", None) or ports(port),
+        target_address=ip_address(target),
+        **kw,
+    )
+
+
+def policy(source: str, destination: str | None, action: str) -> ZonePolicy:
+    return ZonePolicy(source=source, destination=destination, action=FirewallAction(action))
+
+
+def firewall(device_id: str, *zones: FirewallZone, **kw: Any) -> Firewall:
+    """A firewall with these zones; ``policies=[policy(...)]``, ``rules=[fw_rule(...)]``."""
+    return Firewall(
+        id=firewall_id(device_id),
+        device_id=device_id,
+        zones=list(zones),
+        source=Source(adapter=kw.pop("adapter", "test"), device_id=device_id),
+        **kw,
+    )
+
+
+def home_firewall(device_id: str = "gw", guest: str | None = None) -> Firewall:
+    """OpenWrt's defaults: ``lan`` (the native segment) may go anywhere and reach the router,
+    ``wan`` (uplink ``<device>/uplink/wan``) is rejected; with *guest* (a segment id) a guest
+    zone that reaches the internet only, and the router for DNS and DHCP."""
+    lan = segment_id(SITE.id, None)
+    zones = [zone("lan", lan), zone("wan", object_id(device_id, "uplink", "wan"), masquerade=True)]
+    policies = [
+        policy("lan", None, "accept"),
+        policy("lan", "lan", "accept"),
+        policy("lan", "wan", "accept"),
+        policy("wan", None, "reject"),
+        policy("wan", "wan", "reject"),
+    ]
+    rules = [fw_rule("accept", "wan", proto="icmp", chain=FirewallChain.INPUT, name="Allow-Ping")]
+    if guest:
+        zones.append(zone("guest", guest))
+        policies += [policy("guest", None, "reject"), policy("guest", "wan", "accept")]
+        rules += [
+            fw_rule("accept", "guest", port=53, proto="udp", chain=FirewallChain.INPUT, name="DNS"),
+            fw_rule(
+                "accept", "guest", port=67, proto="udp", chain=FirewallChain.INPUT, name="DHCP"
+            ),
+        ]
+    return firewall(
+        device_id,
+        *zones,
+        policies=policies,
+        rules=rules,
+        input_policy=FirewallAction.ACCEPT,
+        forward_policy=FirewallAction.REJECT,
+    )

@@ -253,6 +253,19 @@ def _split_snapshot(snap: Snapshot, native: dict[str, str]) -> Snapshot:
                 s.model_copy(update={"segments": [of(s.device_id, x) or x for x in s.segments]})
                 for s in snap.services
             ],
+            "firewalls": [
+                f.model_copy(
+                    update={
+                        "zones": [
+                            z.model_copy(
+                                update={"segments": [of(f.device_id, x) or x for x in z.segments]}
+                            )
+                            for z in f.zones
+                        ]
+                    }
+                )
+                for f in snap.firewalls
+            ],
             "clients": [client(c) for c in snap.clients],
         }
     )
@@ -402,6 +415,7 @@ def merge(
             "clients": _merge_clients(snaps),
             "neighbours": every("neighbours"),
             "tunnels": every("tunnels"),
+            "firewalls": every("firewalls"),
             "links": sorted(links, key=lambda link: link.id),
             "errors": every("errors"),
         }

@@ -45,7 +45,8 @@ class MyAdapter(Adapter):
   `UntrustedCertificate` when the device cannot be read at all. Device details the model has
   no field for (MAC, serial, protocol version) go into `SystemInfo.vendor_extra`.
 - Every declared capability must be implemented (`ReadsInterfaces`, `ReadsDhcp`, `ReadsDns`,
-  `ReadsWireless`, `ReadsClients`, `ReadsNeighbours`, `ReadsHealth`, `ReadsTime`); a missing one
+  `ReadsWireless`, `ReadsClients`, `ReadsNeighbours`, `ReadsHealth`, `ReadsTime`, `ReadsVpn`,
+  `ReadsFirewall`); a missing one
   is an error when the adapter is constructed, not a silent gap.
 - A capability that fails at run time raises `AdapterError` with a message for the user. Signalbox
   turns it into a "could not read" finding and keeps the rest of the snapshot. Pass
@@ -694,3 +695,121 @@ source):
 | Linux gateway (#240) | `wireguard` links of `ip -j -d link` (port, up, MTU) and `ip -j addr`; `wg show all public-key` / `listen-port` (never `dump`, `private-key`) (done) | `wg show all peers`, `endpoints`, `allowed-ips`, `persistent-keepalive` (`off` is 0); no names, `preshared_key` not read (only `preshared-keys` would say, and it prints the keys) (done) | `latest-handshakes` (epoch, 0: none), `transfer` (done; **CI**: Debian 12 container) |
 | Fritz!Box | WireGuard since FRITZ!OS 7.50; no TR-064 service known *(guess)* | — | — |
 | Omada, ProSAFE / Easy Smart | none | none | none |
+
+## Firewall and NAT (adapter API 1.4)
+
+The `firewall` capability (#135, [ADR 0013](adr/0013-firewall-zones-rules-and-reachability.md))
+reports the device's packet filter and NAT as one `Firewall`. Declare `api_version="1.4"` and
+implement `ReadsFirewall`:
+
+```python
+from signalbox.model import (
+    Firewall,
+    FirewallAction,
+    FirewallChain,
+    FirewallMatch,
+    FirewallProtocol,
+    FirewallRule,
+    FirewallZone,
+    PortForward,
+    PortRange,
+    ZonePolicy,
+    firewall_id,
+    object_id,
+    segment_id,
+)
+
+ACCEPT, REJECT = FirewallAction.ACCEPT, FirewallAction.REJECT
+
+
+async def read_firewall(self) -> Observation:  # Capability.FIREWALL, ReadsFirewall
+    d, site = self.context.device_id, self.context.site_id
+    return Observation(
+        firewalls=[
+            Firewall(
+                id=firewall_id(d),
+                device_id=d,
+                zones=[
+                    FirewallZone(name="lan", segments=[segment_id(site, None)]),
+                    FirewallZone(name="guest", segments=[segment_id(site, 30)]),
+                    FirewallZone(
+                        name="wan", uplinks=[object_id(d, "uplink", "wan")], masquerade=True
+                    ),
+                ],
+                policies=[
+                    ZonePolicy(source="lan", destination=None, action=ACCEPT),  # to the device
+                    ZonePolicy(source="lan", destination="wan", action=ACCEPT),  # a forwarding
+                    ZonePolicy(source="guest", destination=None, action=REJECT),
+                    ZonePolicy(source="wan", destination=None, action=REJECT),
+                ],
+                input_policy=ACCEPT,  # defaults.input
+                forward_policy=REJECT,  # defaults.forward
+                rules=[  # in evaluation order: the first match decides
+                    FirewallRule(
+                        name="Allow-DNS-Guest",
+                        chain=FirewallChain.INPUT,
+                        protocols=[FirewallProtocol.UDP],
+                        source=FirewallMatch(zones=["guest"]),
+                        destination=FirewallMatch(ports=[PortRange(start=53)]),
+                        action=ACCEPT,
+                    ),
+                ],
+                port_forwards=[
+                    PortForward(
+                        name="nas",
+                        protocols=[FirewallProtocol.TCP],
+                        zones=["wan"],
+                        external_ports=[PortRange(start=8443)],
+                        target_address=ip_address("192.0.2.10"),
+                        target_port=443,
+                        passes_filter=True,  # an OpenWrt redirect needs no rule
+                    )
+                ],
+            )
+        ]
+    )
+```
+
+- **Zones** are the names the device's rules use; map their interfaces to the model's
+  segments, uplinks, tunnels or ports. An interface that maps to nothing known makes the zone
+  `complete=False` (do not drop it silently). A rule that names a single interface (MikroTik
+  `in-interface=ether1`, nftables `iifname "eth0"`) gets a zone of its own named after it.
+- **Policies** are what happens when no rule decides, per pair of zones (`destination=None`:
+  the device itself). Put the vendor's built-in behaviour here, not as rules: OPNsense's
+  default block on every interface, RouterOS' default `accept`, OpenWrt forwardings and zone
+  `input`/`forward` (intra-zone) policies, the Fritz!Box's guest isolation.
+- **Rules** in the order the device evaluates them, the first match decides. Flatten what you
+  can (OPNsense floating, then group, then interface rules; jumps to chains without loops).
+  Leave out rules that do not filter new connections (`established,related` accept,
+  `invalid` drop, `log`, `mark`, `fasttrack`). Set `exact=False` for a rule with a condition the
+  model cannot express (schedule, GeoIP, connection mark, limit, user, an alias you cannot
+  resolve, a non-`quick` pf rule you cannot place) and `rules_complete=False` when you know
+  rules exist that you cannot read. Resolve aliases and address lists into `networks`.
+- **Port forwards** with the external side (zones, address, ports) and the target; an exposed
+  host (DMZ) is one without `external_ports`. `passes_filter=True` where the device lets a
+  forward through by itself; else the filter rules decide (`forwarded=True` on a rule matches
+  only such connections). Source NAT as `NatRule`, or `masquerade` on an OpenWrt zone.
+- Keep `vendor_extra` small: no raw rule dumps (descriptions may hold host names and
+  addresses the user typed; they go into `name` only).
+
+Core answers reachability (`signalbox.firewall.reach`, `service_reach`,
+`service_from_internet`); adapters never compute it. The contract checks report an id other
+than `<device>/firewall`, two firewalls for one device, a zone listed twice, a zone member that
+is not in the snapshot, two policies for one zone pair, rules, policies, forwards or NAT that
+name an unknown zone, ports on a rule without TCP or UDP, an input rule with a destination
+zone, a NAT rule without masquerade or address, and firewalls without the `firewall`
+capability.
+
+What each integration can read, and the privilege it needs (nothing is implemented yet: all
+of it is to be confirmed against the real software in CI; *(guess)*: not checked against a
+device or the vendor's documentation):
+
+| Integration | Zones | Filter rules and policies | NAT and port forwards | Privilege |
+| --- | --- | --- | --- | --- |
+| OPNsense | Every assigned interface (`lan`, `wan`, `opt1`, ...) is a zone; members from `/api/interfaces/overview/interfaces_info` (already read for subnets and uplinks); interface groups from `/api/interfaces/group_settings/...` *(guess)* are zones too, with the members' objects; WireGuard instances (`wg0`) to their tunnel | MVC rules `GET /api/firewall/filter/search_rule` (`sequence`, `enabled`, `action` pass/block/reject, `quick`, `interface`, `direction`, `ipprotocol`, `protocol`, `source_net`/`_not`/`_port`, `destination_net`/`_not`/`_port`, `description`), aliases via `/api/firewall/alias/search_item` and `/api/firewall/alias_util/list/<name>`; order: floating, group, interface; `direction out` and non-`quick` rules inexact unless placed. Rules on the legacy *Firewall: Rules* pages that the API does not list: detect (rule count from `/api/diagnostics/firewall/stats` or the pf rule list, *(guess)*) and set `rules_complete=False`. Policies: every interface → device and → other zones `drop` (pf default block), `lan` → device accept for the anti-lockout ports unless disabled, outbound pass | Destination NAT `GET /api/firewall/d_nat/search_rule` (26.x, *(guess)* for older releases: legacy port forwards then `port_forwards_complete=False`), `filter rule association` to `passes_filter`; source NAT `GET /api/firewall/source_nat/search_rule` and the outbound mode (automatic: masquerade per WAN); one-to-one NAT `/api/firewall/one_to_one/search_rule` as forwards without ports | A group with *Firewall: Rules* (API, read only), *Firewall: Aliases*, *Firewall: NAT* pages for the API user *(guess: exact privilege names per release)*; GET only, nothing that exposes the configuration backup |
+| OpenWrt | `uci get firewall`: `zone` (`name`, `network` → the interfaces already mapped to segments/uplinks, `device`/`subnet` options make the zone `complete=False`, `masq`) | `defaults` (`input`, `forward` as fallbacks), zone `input` (zone → device) and `forward` (intra-zone), `forwarding` (`src` → `dest` accept), `rule` in section order (`src`, `dest`, `proto`, `src_ip`, `dest_ip`, `dest_port`, `family`, `target` ACCEPT/DROP/REJECT, `enabled`; `start_time`/`weekdays`/`ipset`/`mark` inexact; other targets skipped); `include` sections and `/etc/nftables.d` set `rules_complete=False` | `redirect` (`target DNAT`: `src`, `src_dport`, `dest_ip`, `dest_port`, `proto`, `src_ip`, `reflection`, `enabled`; `passes_filter=True`), `nat` sections and zone `masq` | `firewall` in the **read** `uci` list of the rpcd ACL (`/usr/share/rpcd/acl.d/signalbox.json`); the write ACL keeps leaving `firewall` out until writes are built |
+| MikroTik | `/rest/interface/list` and `/rest/interface/list/member` (lists are zones), single interfaces named by rules as zones of their own; bridge/VLAN interfaces to segments, WAN interface to the uplink | `/rest/ip/firewall/filter` and `/rest/ipv6/firewall/filter` in list order: `chain` input/forward, `action` accept/drop/reject (`jump` flattened, `passthrough`, `log`, `fasttrack-connection` skipped), `in-interface(-list)`/`out-interface(-list)` with `!`, `src-address`, `dst-address`, `src-address-list`/`dst-address-list` (via `/rest/ip/firewall/address-list`), `protocol`, `dst-port`, `connection-state` (rules only for established/related/invalid skipped), `connection-nat-state=dstnat` to `forwarded`, `disabled`, `comment`; chain policy accept; `/ip/firewall/raw` drops make rules inexact | `/rest/ip/firewall/nat`: `srcnat` masquerade/`src-nat` to `NatRule`, `dstnat` with `dst-port`, `to-addresses`, `to-ports`, `in-interface(-list)`, `dst-address-type=local` to `PortForward` (the filter decides: `passes_filter=False`) | The existing read-only group (`read`, `api`/`rest-api`) |
+| Linux gateway | One zone per interface named in `iifname`/`oifname` (and per named set), mapped like the subnets; `wg0` to its tunnel | `nft -j list ruleset`: base chains with hook `input`/`forward` (their `policy` as fallback), rules in order with `iifname`/`oifname`, `ip(6) saddr/daddr`, `tcp/udp dport`, `meta l4proto`, verdicts accept/drop/reject; `ct state established,related accept` skipped; `jump`/`goto` to regular chains flattened, Docker/Kubernetes chains or several base chains on one hook make it incomplete; `iptables-legacy` setups (no nft) `rules_complete=False` | `nat` table: `dnat to` in prerouting to `PortForward` (filter decides), `masquerade`/`snat` in postrouting to `NatRule` | `nft list ruleset` needs `CAP_NET_ADMIN`: a sudoers line for the read user, exactly `/usr/sbin/nft -j list ruleset` with `NOPASSWD` (optional, offered like the automatic setup; without it the capability reports a read error with that fix) |
+| Fritz!Box | Fixed: `lan` (the home network), `guest` (guest LAN/Wi-Fi segment where present), `wan` (the uplink) | No readable filter: policies from the box's fixed behaviour: `lan` → device and → `wan` accept; `guest` → `wan` accept, → `lan` and → device drop (DNS and DHCP accepted, *(guess)*); `wan` → device drop (services the box reports with `from_wan` stay as they are), `wan` → `lan` drop. IPv6 port sharing (pinholes) is not in TR-064 *(guess)*: `rules_complete=False` when the uplink has IPv6 | TR-064 `WANIPConnection:1` / `WANPPPConnection:1` `GetPortMappingNumberOfEntries` and `GetGenericPortMappingEntry` (index loop: `NewRemoteHost`, `NewExternalPort`, `NewProtocol`, `NewInternalPort`, `NewInternalClient`, `NewEnabled`, `NewPortMappingDescription`), `passes_filter=True`; UPnP-created mappings appear there too *(guess)*; `X_AVM-DE_HostFilter` (`GetWANAccessByIP`) only blocks a host's internet access (a `lan` → `wan` drop rule for that address), not port sharing; exposed host *(guess: not in TR-064)* | The TR-064 user the integration already uses (*FRITZ!Box settings* right) |
+| Omada | Gateway networks (LAN interfaces / VLANs, already mapped to segments) and the WAN ports as zones | Gateway ACLs `GET /openapi/v1/{omadacId}/sites/{siteId}/acls` with `type` gateway (`policy` permit/deny, `protocols`, source and destination network / IP group / IP-port group, `direction` LAN→WAN, LAN→LAN, WAN IN, `status`, `index` for the order) *(guess: path and field names)*; default inter-VLAN routing allowed, WAN in denied; switch and EAP ACLs belong to the managed devices' own `Firewall` (`complete=False` for EAP ACLs, which filter by SSID) | Port forwarding `.../nat/port-forwardings` (`externalPort`, `forwardIp`, `forwardPort`, `protocol`, `status`) *(guess)*, `passes_filter=True` | The viewer role of the OpenAPI client already used |
+| ProSAFE / Easy Smart | none: switches without a packet filter (no `Firewall`; core treats them as not filtering) | — | — | — |

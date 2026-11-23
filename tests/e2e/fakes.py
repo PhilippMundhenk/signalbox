@@ -36,6 +36,10 @@ from signalbox.model import (
     DhcpServer,
     DnsForwarder,
     DnsService,
+    Firewall,
+    FirewallAction,
+    FirewallProtocol,
+    FirewallZone,
     Firmware,
     HostRecord,
     LeaseState,
@@ -45,8 +49,10 @@ from signalbox.model import (
     NtpClient,
     Pmf,
     Port,
+    PortForward,
     PortKind,
     PortMembership,
+    PortRange,
     PortRole,
     PurposeSource,
     Radio,
@@ -70,6 +76,8 @@ from signalbox.model import (
     Wlan,
     Wps,
     WpsMethod,
+    ZonePolicy,
+    firewall_id,
     object_id,
     port_id,
     segment_id,
@@ -573,10 +581,10 @@ class Gate(Adapter):
         id="labvpn",
         name="Lab VPN gateway",
         version="1",
-        api_version="1.3",
+        api_version="1.4",
         vendor="Example",
         roles=frozenset({DeviceRole.GATEWAY}),
-        capabilities=frozenset({Capability.VPN}),
+        capabilities=frozenset({Capability.VPN, Capability.FIREWALL}),
         config=GateConfig,
     )
 
@@ -623,6 +631,31 @@ class Gate(Adapter):
             peers=peers,
         )
         return Observation(tunnels=[tunnel])
+
+    async def read_firewall(self) -> Observation:
+        """Zones ``vpn`` (the tunnel) and ``wan``; the tunnel may reach the gateway, the
+        internet may not; HTTPS is forwarded to a server (#135)."""
+        d = self.context.device_id
+        accept, drop = FirewallAction.ACCEPT, FirewallAction.DROP
+        fw = Firewall(
+            id=firewall_id(d),
+            device_id=d,
+            zones=[FirewallZone(name="vpn", tunnels=[f"{d}/tunnel/wg0"]), FirewallZone(name="wan")],
+            policies=[
+                ZonePolicy(source="vpn", destination=None, action=accept),
+                ZonePolicy(source="wan", destination=None, action=drop),
+            ],
+            forward_policy=drop,
+            port_forwards=[
+                PortForward(
+                    name="web",
+                    protocols=[FirewallProtocol.TCP],
+                    external_ports=[PortRange(start=443)],
+                    target_address=ip_address("192.0.2.10"),
+                )
+            ],
+        )
+        return Observation(firewalls=[fw])
 
 
 @rule(

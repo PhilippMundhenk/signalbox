@@ -1679,6 +1679,386 @@
       "title": "Fan",
       "type": "object"
     },
+    "Firewall": {
+      "additionalProperties": false,
+      "description": "The packet filter and NAT of one device (#135), ``<device>/firewall``.\n\nRead with the ``firewall`` capability (adapter API 1.4). A device without a ``Firewall``\nis \"not read\", never \"filters nothing\": that is ``enabled = False``.",
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "forward_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FirewallAction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "input_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FirewallAction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "nat": {
+          "items": {
+            "$ref": "#/$defs/NatRule"
+          },
+          "title": "Nat",
+          "type": "array"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "policies": {
+          "items": {
+            "$ref": "#/$defs/ZonePolicy"
+          },
+          "title": "Policies",
+          "type": "array"
+        },
+        "port_forwards": {
+          "items": {
+            "$ref": "#/$defs/PortForward"
+          },
+          "title": "Port Forwards",
+          "type": "array"
+        },
+        "port_forwards_complete": {
+          "default": true,
+          "title": "Port Forwards Complete",
+          "type": "boolean"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/FirewallRule"
+          },
+          "title": "Rules",
+          "type": "array"
+        },
+        "rules_complete": {
+          "default": true,
+          "title": "Rules Complete",
+          "type": "boolean"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "stateful": {
+          "default": true,
+          "title": "Stateful",
+          "type": "boolean"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        },
+        "zones": {
+          "items": {
+            "$ref": "#/$defs/FirewallZone"
+          },
+          "title": "Zones",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "device_id"
+      ],
+      "title": "Firewall",
+      "type": "object"
+    },
+    "FirewallAction": {
+      "enum": [
+        "accept",
+        "drop",
+        "reject"
+      ],
+      "title": "FirewallAction",
+      "type": "string"
+    },
+    "FirewallChain": {
+      "description": "Which traffic a rule sees, in netfilter terms.",
+      "enum": [
+        "input",
+        "forward",
+        "output"
+      ],
+      "title": "FirewallChain",
+      "type": "string"
+    },
+    "FirewallMatch": {
+      "additionalProperties": false,
+      "description": "Source or destination of a rule: every given part must match; empty parts match all.",
+      "properties": {
+        "networks": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Networks",
+          "type": "array"
+        },
+        "networks_not": {
+          "default": false,
+          "title": "Networks Not",
+          "type": "boolean"
+        },
+        "ports": {
+          "items": {
+            "$ref": "#/$defs/PortRange"
+          },
+          "title": "Ports",
+          "type": "array"
+        },
+        "zones": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Zones",
+          "type": "array"
+        },
+        "zones_not": {
+          "default": false,
+          "title": "Zones Not",
+          "type": "boolean"
+        }
+      },
+      "title": "FirewallMatch",
+      "type": "object"
+    },
+    "FirewallProtocol": {
+      "enum": [
+        "tcp",
+        "udp",
+        "icmp",
+        "esp",
+        "gre",
+        "other"
+      ],
+      "title": "FirewallProtocol",
+      "type": "string"
+    },
+    "FirewallRule": {
+      "additionalProperties": false,
+      "description": "One filter rule. The list order on :class:`Firewall` is the evaluation order: the first\nrule that matches decides (adapters put OPNsense floating, group and interface rules, or\nnftables jumps they can flatten, into that order).",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/FirewallAction"
+        },
+        "chain": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FirewallChain"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "destination": {
+          "$ref": "#/$defs/FirewallMatch"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "exact": {
+          "default": true,
+          "title": "Exact",
+          "type": "boolean"
+        },
+        "family": {
+          "anyOf": [
+            {
+              "enum": [
+                4,
+                6
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family"
+        },
+        "forwarded": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forwarded"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "order": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order"
+        },
+        "protocols": {
+          "items": {
+            "$ref": "#/$defs/FirewallProtocol"
+          },
+          "title": "Protocols",
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/FirewallMatch"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "FirewallRule",
+      "type": "object"
+    },
+    "FirewallZone": {
+      "additionalProperties": false,
+      "description": "A group of interfaces the rules refer to by name.\n\nOpenWrt ``zone``, an OPNsense interface (``lan``, ``opt2``) or interface group, a MikroTik\ninterface list (or a single interface a rule names), an nftables ``iifname`` set, a\nFritz!Box network (LAN, guest, internet). The adapter maps the vendor's interfaces to model\nobjects; an interface it cannot map stays out (and ``complete`` is false).",
+      "properties": {
+        "complete": {
+          "default": true,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "masquerade": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Masquerade"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "ports": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Ports",
+          "type": "array"
+        },
+        "segments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "tunnels": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tunnels",
+          "type": "array"
+        },
+        "uplinks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Uplinks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "FirewallZone",
+      "type": "object"
+    },
     "Firmware": {
       "additionalProperties": false,
       "properties": {
@@ -2057,6 +2437,81 @@
       "title": "Membership",
       "type": "string"
     },
+    "NatRule": {
+      "additionalProperties": false,
+      "description": "Source NAT: traffic leaving through ``zones`` gets the device's address (masquerade) or\n``to_address``. OpenWrt zone ``masq`` is :attr:`FirewallZone.masquerade` instead.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "exact": {
+          "default": true,
+          "title": "Exact",
+          "type": "boolean"
+        },
+        "masquerade": {
+          "default": true,
+          "title": "Masquerade",
+          "type": "boolean"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "sources": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "to_address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Address"
+        },
+        "zones": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Zones",
+          "type": "array"
+        }
+      },
+      "title": "NatRule",
+      "type": "object"
+    },
     "Neighbour": {
       "additionalProperties": false,
       "description": "A device seen on a port by LLDP (or a similar protocol).",
@@ -2207,6 +2662,13 @@
             "$ref": "#/$defs/ReadError"
           },
           "title": "Errors",
+          "type": "array"
+        },
+        "firewalls": {
+          "items": {
+            "$ref": "#/$defs/Firewall"
+          },
+          "title": "Firewalls",
           "type": "array"
         },
         "links": {
@@ -2731,6 +3193,144 @@
       "title": "Port",
       "type": "object"
     },
+    "PortForward": {
+      "additionalProperties": false,
+      "description": "Destination NAT: connections to an external port go to an internal address.\n\nOPNsense NAT port forward, OpenWrt ``redirect`` (DNAT), MikroTik ``dstnat``, Fritz!Box port\nsharing; an exposed host (DMZ) is a forward without ``external_ports``.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "exact": {
+          "default": true,
+          "title": "Exact",
+          "type": "boolean"
+        },
+        "external_address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "External Address"
+        },
+        "external_ports": {
+          "items": {
+            "$ref": "#/$defs/PortRange"
+          },
+          "title": "External Ports",
+          "type": "array"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "passes_filter": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Passes Filter"
+        },
+        "protocols": {
+          "items": {
+            "$ref": "#/$defs/FirewallProtocol"
+          },
+          "title": "Protocols",
+          "type": "array"
+        },
+        "reflection": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reflection"
+        },
+        "sources": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "target_address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            }
+          ],
+          "title": "Target Address"
+        },
+        "target_port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Port"
+        },
+        "zones": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Zones",
+          "type": "array"
+        }
+      },
+      "required": [
+        "target_address"
+      ],
+      "title": "PortForward",
+      "type": "object"
+    },
     "PortKind": {
       "enum": [
         "ethernet",
@@ -2769,6 +3369,37 @@
         "mode"
       ],
       "title": "PortMembership",
+      "type": "object"
+    },
+    "PortRange": {
+      "additionalProperties": false,
+      "description": "A port or an inclusive range of ports.",
+      "properties": {
+        "end": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "start": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start"
+      ],
+      "title": "PortRange",
       "type": "object"
     },
     "PortRole": {
@@ -3403,6 +4034,13 @@
           },
           "title": "Extra Status",
           "type": "object"
+        },
+        "firewalls": {
+          "items": {
+            "$ref": "#/$defs/Firewall"
+          },
+          "title": "Firewalls",
+          "type": "array"
         },
         "neighbours": {
           "items": {
@@ -4700,6 +5338,38 @@
       ],
       "title": "WpsMethod",
       "type": "string"
+    },
+    "ZonePolicy": {
+      "additionalProperties": false,
+      "description": "Default action for traffic from one zone to another (or to the device itself) that no\nrule decides: OpenWrt ``forwarding`` (accept) and zone policies, OPNsense's implicit\n\"block in, allow out\", a Fritz!Box's fixed isolation of the guest network.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/FirewallAction"
+        },
+        "destination": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Destination"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "action"
+      ],
+      "title": "ZonePolicy",
+      "type": "object"
     }
   },
   "title": "Signalbox network model"

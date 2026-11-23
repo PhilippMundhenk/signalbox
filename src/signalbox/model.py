@@ -1074,6 +1074,504 @@ class ManagementService(Observed):
         return None
 
 
+# Firewall and forwarding (#135, ADR 0013) ---------------------------------------------------
+#
+# One :class:`Firewall` per device that filters or translates traffic: its zones (the vendor's
+# grouping of interfaces, mapped to segments, uplinks, tunnels and ports), the default action
+# per pair of zones, the ordered filter rules, source NAT and port forwards. It is a
+# deliberately small common denominator: :meth:`Firewall.evaluate` decides a flow exactly
+# where every rule on the way is expressed by these fields, and says ``unknown`` otherwise.
+# What a device can do beyond that (schedules, GeoIP, marks, user chains it cannot flatten)
+# makes the rule ``exact = False``; see docs/DESIGN.md and ADR 0013.
+
+
+class FirewallAction(StrEnum):
+    ACCEPT = "accept"
+    DROP = "drop"
+    #: Dropped with an answer (TCP reset, ICMP unreachable); denied like ``drop``.
+    REJECT = "reject"
+
+
+class FirewallChain(StrEnum):
+    """Which traffic a rule sees, in netfilter terms."""
+
+    #: Traffic to the device itself (its web interface, SSH, DNS).
+    INPUT = "input"
+    #: Traffic the device routes from one network to another.
+    FORWARD = "forward"
+    #: Traffic the device itself sends.
+    OUTPUT = "output"
+
+
+class FirewallProtocol(StrEnum):
+    TCP = "tcp"
+    UDP = "udp"
+    #: ICMP and ICMPv6.
+    ICMP = "icmp"
+    ESP = "esp"
+    GRE = "gre"
+    #: Any other IP protocol; a flow of another protocol never matches it exactly.
+    OTHER = "other"
+
+
+#: Protocols that have ports.
+PORT_PROTOCOLS = (FirewallProtocol.TCP, FirewallProtocol.UDP)
+
+
+class Verdict(StrEnum):
+    """Answer of the reachability helper (:mod:`signalbox.firewall`)."""
+
+    ALLOWED = "allowed"
+    DENIED = "denied"
+    #: The rules cannot be evaluated exactly (not read, inexact rules, several outcomes).
+    UNKNOWN = "unknown"
+
+
+class Match(StrEnum):
+    """How a rule (or port forward) matches a flow (:meth:`FirewallRule.matches`)."""
+
+    YES = "yes"
+    NO = "no"
+    #: It may match: the flow is broader than the rule (a whole network, any port) or the rule
+    #: has conditions the model does not express.
+    MAYBE = "maybe"
+
+
+def _all(*parts: Match) -> Match:
+    if Match.NO in parts:
+        return Match.NO
+    return Match.MAYBE if Match.MAYBE in parts else Match.YES
+
+
+def _negate(m: Match, negate: bool) -> Match:
+    if not negate or m is Match.MAYBE:
+        return m
+    return Match.NO if m is Match.YES else Match.YES
+
+
+class PortRange(Model):
+    """A port or an inclusive range of ports."""
+
+    start: Annotated[int, Field(ge=1, le=65535)]
+    #: Last port of the range (``None``: the single port ``start``).
+    end: Annotated[int, Field(ge=1, le=65535)] | None = None
+
+    @model_validator(mode="after")
+    def _ordered(self) -> PortRange:
+        if self.end is not None and self.end < self.start:
+            raise ValueError(f"port range {self.start}-{self.end} ends before it starts")
+        return self
+
+    @property
+    def last(self) -> int:
+        return self.end if self.end is not None else self.start
+
+    def __contains__(self, port: object) -> bool:
+        return isinstance(port, int) and self.start <= port <= self.last
+
+    def __str__(self) -> str:
+        return str(self.start) if self.last == self.start else f"{self.start}-{self.last}"
+
+
+class FirewallZone(Model):
+    """A group of interfaces the rules refer to by name.
+
+    OpenWrt ``zone``, an OPNsense interface (``lan``, ``opt2``) or interface group, a MikroTik
+    interface list (or a single interface a rule names), an nftables ``iifname`` set, a
+    Fritz!Box network (LAN, guest, internet). The adapter maps the vendor's interfaces to model
+    objects; an interface it cannot map stays out (and ``complete`` is false).
+    """
+
+    name: str = Field(min_length=1)
+    #: The device's own label, where it has one apart from the name.
+    description: str | None = None
+    #: Segments (``<site>/segment/<vlan>``) in the zone.
+    segments: list[str] = Field(default_factory=list)
+    #: Uplinks (``<device>/uplink/<name>``): a zone with an uplink is the internet side.
+    uplinks: list[str] = Field(default_factory=list)
+    #: Tunnels (``<device>/tunnel/<name>``).
+    tunnels: list[str] = Field(default_factory=list)
+    #: Ports that are none of the above (a bare interface), ``<device>/port/<name>``.
+    ports: list[str] = Field(default_factory=list)
+    #: Source NAT (masquerade) of traffic leaving through this zone (OpenWrt ``masq``).
+    masquerade: bool | None = None
+    #: Every interface of the zone was mapped to a model object.
+    complete: bool = True
+
+    def members(self) -> set[str]:
+        return {*self.segments, *self.uplinks, *self.tunnels, *self.ports}
+
+
+class ZonePolicy(Model):
+    """Default action for traffic from one zone to another (or to the device itself) that no
+    rule decides: OpenWrt ``forwarding`` (accept) and zone policies, OPNsense's implicit
+    "block in, allow out", a Fritz!Box's fixed isolation of the guest network."""
+
+    source: str = Field(min_length=1)
+    #: Destination zone; ``None``: the device itself (the input policy of the zone).
+    destination: str | None = None
+    action: FirewallAction
+
+
+class FirewallMatch(Model):
+    """Source or destination of a rule: every given part must match; empty parts match all."""
+
+    #: Zone names (OpenWrt ``src``/``dest``, OPNsense interface, MikroTik interface list).
+    zones: list[str] = Field(default_factory=list)
+    #: Match everything except ``zones`` (MikroTik ``!LAN``).
+    zones_not: bool = False
+    #: Address networks (single addresses as /32, /128; aliases resolved by the adapter).
+    networks: list[IPNetwork] = Field(default_factory=list)
+    #: Match everything except ``networks`` (OPNsense "invert").
+    networks_not: bool = False
+    #: Ports (TCP and UDP only).
+    ports: list[PortRange] = Field(default_factory=list)
+
+    def match_zones(self, zones: set[str] | None) -> Match:
+        """*zones*: the zones the flow's end is in (``None``: not known)."""
+        if not self.zones:
+            return Match.YES
+        if zones is None:
+            return Match.MAYBE
+        return _negate(Match.YES if zones & set(self.zones) else Match.NO, self.zones_not)
+
+    def match_network(self, net: IPNetwork | None) -> Match:
+        """*net*: the flow's addresses (one address as /32 or /128; ``None``: any)."""
+        if not self.networks:
+            return Match.YES
+        if net is None:
+            return Match.MAYBE
+        same = [n for n in self.networks if n.version == net.version]
+        if any(net.subnet_of(n) for n in same):  # type: ignore[arg-type]
+            m = Match.YES
+        elif any(net.overlaps(n) for n in same):
+            m = Match.MAYBE
+        else:
+            m = Match.NO
+        return _negate(m, self.networks_not)
+
+    def match_port(self, port: int | None) -> Match:
+        if not self.ports:
+            return Match.YES
+        if port is None:
+            return Match.MAYBE
+        return Match.YES if any(port in r for r in self.ports) else Match.NO
+
+
+class Flow(Model):
+    """A connection attempt, as :meth:`Firewall.evaluate` sees it on one device."""
+
+    chain: FirewallChain
+    #: Zones the source is in on this device (``None``: not known; empty: none of them).
+    source_zones: set[str] | None = None
+    #: Zones of the destination (forward chain only).
+    destination_zones: set[str] | None = None
+    #: Source addresses (a network for "anyone in that segment"; ``None``: any, the internet).
+    source: IPNetwork | None = None
+    #: Destination address (as /32 or /128; ``None``: any address of the destination).
+    destination: IPNetwork | None = None
+    #: 4 or 6 (``None``: either).
+    family: Literal[4, 6] | None = None
+    protocol: FirewallProtocol | None = None
+    #: Destination port (``None``: any port).
+    port: Annotated[int, Field(ge=1, le=65535)] | None = None
+    #: The connection came in through a port forward (destination NAT).
+    forwarded: bool = False
+
+
+class FirewallRule(Model):
+    """One filter rule. The list order on :class:`Firewall` is the evaluation order: the first
+    rule that matches decides (adapters put OPNsense floating, group and interface rules, or
+    nftables jumps they can flatten, into that order)."""
+
+    #: The device's description or name of the rule.
+    name: str | None = None
+    #: The device's own position or sequence number, for display.
+    order: int | None = None
+    enabled: bool = True
+    #: ``None``: input and forward alike (an OPNsense interface rule; the destination address
+    #: tells whether the device itself is meant).
+    chain: FirewallChain | None = None
+    family: Literal[4, 6] | None = None
+    #: Empty: every protocol.
+    protocols: list[FirewallProtocol] = Field(default_factory=list)
+    source: FirewallMatch = Field(default_factory=FirewallMatch)
+    destination: FirewallMatch = Field(default_factory=FirewallMatch)
+    action: FirewallAction
+    #: Only port-forwarded connections (``True``, MikroTik ``connection-nat-state=dstnat``),
+    #: only others (``False``), or both (``None``).
+    forwarded: bool | None = None
+    #: Every condition of the rule is expressed above. ``False``: the device has more
+    #: (schedule, GeoIP, connection mark or limit, an alias or user chain the adapter could not
+    #: resolve), so the rule can only ever "maybe" match.
+    exact: bool = True
+
+    def matches(self, flow: Flow) -> Match:
+        if not self.enabled:
+            return Match.NO
+        if self.chain is not None and self.chain is not flow.chain:
+            return Match.NO
+        if self.family is not None and flow.family is not None and self.family != flow.family:
+            return Match.NO
+        m = _all(
+            self._match_protocol(flow),
+            self.source.match_zones(flow.source_zones),
+            self.source.match_network(flow.source),
+            # source ports of a client are not known in advance
+            Match.MAYBE if self.source.ports else Match.YES,
+            self._match_destination_zones(flow),
+            self.destination.match_network(flow.destination),
+            self._match_ports(flow),
+            Match.NO
+            if self.forwarded is not None and self.forwarded != flow.forwarded
+            else Match.YES,
+        )
+        return Match.MAYBE if m is Match.YES and not self.exact else m
+
+    def _match_protocol(self, flow: Flow) -> Match:
+        if not self.protocols:
+            return Match.YES
+        if flow.protocol is None:
+            return Match.MAYBE
+        if flow.protocol in self.protocols:
+            return Match.YES
+        return Match.MAYBE if FirewallProtocol.OTHER in self.protocols else Match.NO
+
+    def _match_destination_zones(self, flow: Flow) -> Match:
+        if not self.destination.zones:
+            return Match.YES
+        if flow.chain is FirewallChain.INPUT:
+            return Match.NO  # zones are networks behind the device, not the device itself
+        return self.destination.match_zones(flow.destination_zones)
+
+    def _match_ports(self, flow: Flow) -> Match:
+        if not self.destination.ports:
+            return Match.YES
+        if flow.protocol is not None and flow.protocol not in PORT_PROTOCOLS:
+            return Match.NO
+        return _all(
+            Match.MAYBE if flow.protocol is None else Match.YES,
+            self.destination.match_port(flow.port),
+        )
+
+    def label(self) -> str:
+        return f"rule {self.name!r}" if self.name else f"rule {self.order}"
+
+
+class PortForward(Model):
+    """Destination NAT: connections to an external port go to an internal address.
+
+    OPNsense NAT port forward, OpenWrt ``redirect`` (DNAT), MikroTik ``dstnat``, Fritz!Box port
+    sharing; an exposed host (DMZ) is a forward without ``external_ports``.
+    """
+
+    name: str | None = None
+    enabled: bool = True
+    #: Empty: every protocol (an exposed host).
+    protocols: list[FirewallProtocol] = Field(default_factory=list)
+    #: Zones it listens on (empty: every zone that has an uplink).
+    zones: list[str] = Field(default_factory=list)
+    #: The external address it listens on (``None``: the device's addresses on those zones).
+    external_address: IPAddress | None = None
+    #: Empty: every port.
+    external_ports: list[PortRange] = Field(default_factory=list)
+    #: Source networks it accepts (empty: any).
+    sources: list[IPNetwork] = Field(default_factory=list)
+    target_address: IPAddress
+    #: First target port (``None``: the external port); a range maps onto a range.
+    target_port: Annotated[int, Field(ge=1, le=65535)] | None = None
+    #: The forward is let through by itself (OpenWrt redirect, Fritz!Box, an OPNsense
+    #: "pass" filter association); ``False``/``None``: the filter rules decide.
+    passes_filter: bool | None = None
+    #: NAT reflection (hairpin): reachable at the external address from inside too.
+    reflection: bool | None = None
+    exact: bool = True
+
+    def matches(
+        self, zones: set[str] | None, protocol: FirewallProtocol | None, port: int | None
+    ) -> Match:
+        """Whether a connection from *zones* to the device's external address on *port* is
+        forwarded (the caller checks ``zones`` against the uplink zones when it is empty)."""
+        if not self.enabled:
+            return Match.NO
+        m = _all(
+            FirewallMatch(zones=self.zones).match_zones(zones),
+            Match.YES
+            if not self.protocols
+            else (
+                Match.MAYBE
+                if protocol is None
+                else Match.YES
+                if protocol in self.protocols
+                else Match.NO
+            ),
+            FirewallMatch(ports=self.external_ports).match_port(port)
+            if protocol is None or protocol in PORT_PROTOCOLS or not self.external_ports
+            else Match.NO,
+            Match.MAYBE if self.sources else Match.YES,
+        )
+        return Match.MAYBE if m is Match.YES and not self.exact else m
+
+    def target(self, port: int | None) -> int | None:
+        """The internal port a connection to external *port* ends on."""
+        if port is None or self.target_port is None or not self.external_ports:
+            return port
+        r = next((r for r in self.external_ports if port in r), None)
+        return self.target_port + (port - r.start) if r else self.target_port
+
+
+class NatRule(Model):
+    """Source NAT: traffic leaving through ``zones`` gets the device's address (masquerade) or
+    ``to_address``. OpenWrt zone ``masq`` is :attr:`FirewallZone.masquerade` instead."""
+
+    name: str | None = None
+    enabled: bool = True
+    #: Outgoing zones (empty: all).
+    zones: list[str] = Field(default_factory=list)
+    #: Source networks translated (empty: all).
+    sources: list[IPNetwork] = Field(default_factory=list)
+    #: The device's own address on the way out; ``False`` with ``to_address``: fixed SNAT.
+    masquerade: bool = True
+    to_address: IPAddress | None = None
+    exact: bool = True
+
+
+class FirewallVerdict(Model):
+    """Result of :meth:`Firewall.evaluate` and of the helpers in :mod:`signalbox.firewall`."""
+
+    verdict: Verdict
+    #: Why, in words: the deciding rule or policy, or what is missing.
+    reason: str
+    #: The device whose firewall decided (``None``: none was found).
+    device_id: str | None = None
+
+
+def firewall_id(device_id: str) -> str:
+    return f"{device_id}/firewall"
+
+
+class Firewall(Observed):
+    """The packet filter and NAT of one device (#135), ``<device>/firewall``.
+
+    Read with the ``firewall`` capability (adapter API 1.4). A device without a ``Firewall``
+    is "not read", never "filters nothing": that is ``enabled = False``.
+    """
+
+    device_id: str
+    #: The device filters at all (``False``: OPNsense "disable all packet filtering", no
+    #: nftables table, a switch's management stack): everything is accepted.
+    enabled: bool = True
+    #: Replies to accepted connections pass without a rule of their own (every supported
+    #: vendor's default; only new connections are evaluated).
+    stateful: bool = True
+    zones: list[FirewallZone] = Field(default_factory=list)
+    #: Defaults per zone pair, applied when no rule decides.
+    policies: list[ZonePolicy] = Field(default_factory=list)
+    #: Fallback for traffic to the device without a zone policy (OpenWrt ``defaults.input``,
+    #: the RouterOS chain default ``accept``; ``None``: not known).
+    input_policy: FirewallAction | None = None
+    #: Fallback for routed traffic without a zone pair policy.
+    forward_policy: FirewallAction | None = None
+    #: Filter rules in evaluation order.
+    rules: list[FirewallRule] = Field(default_factory=list)
+    #: Every rule that applies was read. ``False`` (OPNsense rules from the legacy pages the
+    #: API does not show, chains the adapter could not follow): no ``allowed`` or ``denied``
+    #: answer, only ``unknown``.
+    rules_complete: bool = True
+    nat: list[NatRule] = Field(default_factory=list)
+    port_forwards: list[PortForward] = Field(default_factory=list)
+    #: Every port forward was read.
+    port_forwards_complete: bool = True
+
+    def zone(self, name: str) -> FirewallZone | None:
+        return next((z for z in self.zones if z.name == name), None)
+
+    def zones_of(self, object_id: str) -> set[str]:
+        """Names of the zones a segment, uplink, tunnel or port is in."""
+        return {z.name for z in self.zones if object_id in z.members()}
+
+    def uplink_zones(self) -> set[str]:
+        return {z.name for z in self.zones if z.uplinks}
+
+    def policy(self, source: str, destination: str | None) -> FirewallAction | None:
+        for p in self.policies:
+            if p.source == source and p.destination == destination:
+                return p.action
+        return None
+
+    def evaluate(self, flow: Flow) -> FirewallVerdict:
+        """Allowed, denied or unknown for one flow on this device.
+
+        Rules in order: the first that surely matches decides; one that may match adds its
+        action to the possible outcomes and evaluation goes on. After the rules, the zone pair
+        policies (every pair of a source and a destination zone), else ``input_policy`` or
+        ``forward_policy``. One possible outcome (accept, or drop/reject) is the answer;
+        several, or a missing policy, give ``unknown``. So does ``rules_complete = False``.
+        """
+        dev = self.device_id
+        if not self.enabled:
+            return FirewallVerdict(
+                verdict=Verdict.ALLOWED, reason="no packet filter", device_id=dev
+            )
+        if not self.rules_complete:
+            return FirewallVerdict(
+                verdict=Verdict.UNKNOWN,
+                reason="not every firewall rule could be read",
+                device_id=dev,
+            )
+        outcomes: list[tuple[FirewallAction | None, str]] = []
+        for rule in self.rules:
+            m = rule.matches(flow)
+            if m is Match.NO:
+                continue
+            outcomes.append((rule.action, rule.label()))
+            if m is Match.YES:
+                break
+        else:
+            outcomes += self._policies(flow)
+        return _decide(outcomes, dev)
+
+    def _policies(self, flow: Flow) -> list[tuple[FirewallAction | None, str]]:
+        fallback = self.input_policy if flow.chain is FirewallChain.INPUT else self.forward_policy
+        default = (
+            fallback,
+            f"default {flow.chain.value} policy"
+            if fallback
+            else f"no zone policy and no default {flow.chain.value} policy known",
+        )
+        sources = sorted(flow.source_zones or ())
+        if flow.chain is FirewallChain.INPUT:
+            pairs: list[tuple[str, str | None]] = [(s, None) for s in sources]
+        else:
+            pairs = [(s, d) for s in sources for d in sorted(flow.destination_zones or ())]
+        if flow.source_zones is None or (
+            flow.chain is FirewallChain.FORWARD and flow.destination_zones is None
+        ):
+            return [(None, "the zones of the traffic are not known")]
+        out: list[tuple[FirewallAction | None, str]] = []
+        for s, d in pairs:
+            action = self.policy(s, d)
+            if action is None:
+                out.append(default)
+            else:
+                out.append((action, f"policy {s} → {d or 'device'}"))
+        return out or [default]
+
+
+def _decide(outcomes: list[tuple[FirewallAction | None, str]], dev: str | None) -> FirewallVerdict:
+    if any(a is None for a, _ in outcomes):
+        missing = next(why for a, why in outcomes if a is None)
+        return FirewallVerdict(verdict=Verdict.UNKNOWN, reason=missing, device_id=dev)
+    accepted = {a is FirewallAction.ACCEPT for a, _ in outcomes}
+    if len(accepted) > 1:
+        names = ", ".join(dict.fromkeys(why for _, why in outcomes))
+        return FirewallVerdict(verdict=Verdict.UNKNOWN, reason=f"depends on {names}", device_id=dev)
+    action, why = outcomes[-1]
+    assert action is not None
+    verdict = Verdict.ALLOWED if action is FirewallAction.ACCEPT else Verdict.DENIED
+    return FirewallVerdict(verdict=verdict, reason=f"{why} ({action.value})", device_id=dev)
+
+
 class DhcpPool(Model):
     start: IPAddress
     end: IPAddress
@@ -1816,6 +2314,8 @@ class Snapshot(Model):
     neighbours: list[Neighbour] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
     tunnels: list[Tunnel] = Field(default_factory=list)
+    #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).
+    firewalls: list[Firewall] = Field(default_factory=list)
     errors: list[ReadError] = Field(default_factory=list)
     #: Devices reported through this one (a controller's managed devices). Their ids start with
     #: ``<device id>/`` and their ``managed_by`` is the observed device.
@@ -1887,6 +2387,8 @@ class Network(Model):
     neighbours: list[Neighbour] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
     tunnels: list[Tunnel] = Field(default_factory=list)
+    #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).
+    firewalls: list[Firewall] = Field(default_factory=list)
     links: list[Link] = Field(default_factory=list)
     errors: list[ReadError] = Field(default_factory=list)
     #: User annotations, one per target (#186), set by the runner; read-only for rules.
@@ -1930,6 +2432,7 @@ class Network(Model):
             self.clients,
             self.neighbours,
             self.tunnels,
+            self.firewalls,
             self.links,
         ]
         return any(o.id == object_id for objs in groups for o in objs)
@@ -2076,6 +2579,10 @@ class Network(Model):
             for p in t.site_peers()
             if self.tunnel_end(t, p) is None
         ]
+
+    def firewall_of(self, device_id: str) -> Firewall | None:
+        """The device's firewall (#135); ``None``: not read (not "no firewall")."""
+        return next((f for f in self.firewalls if f.device_id == device_id), None)
 
     def uplinks_of(self, device_id: str) -> list[Uplink]:
         return [u for u in self.uplinks if u.device_id == device_id]

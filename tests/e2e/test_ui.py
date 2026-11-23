@@ -363,6 +363,13 @@ def test_site_to_site_tunnel_on_topology_and_device_page(app: Any) -> None:
     expect(app.get_by_test_id("link-delete")).to_have_count(0)
 
     go(app, "#/device/gate-a")
+    wall = app.get_by_test_id("device-firewall")
+    expect(wall).to_contain_text("tunnel wg0")
+    expect(wall.get_by_test_id("fw-policy")).to_have_text(
+        ["accept", "drop", "drop", "drop", "drop", "drop"]
+    )
+    expect(wall.get_by_test_id("fw-forwards")).to_contain_text("TCP 443")
+    expect(wall.get_by_test_id("fw-forwards")).to_contain_text("192.0.2.10 (web)")
     card = app.get_by_test_id("device-tunnels")
     expect(card).to_contain_text("wg0 (s2s)")
     expect(card).to_contain_text("UDP 51820")

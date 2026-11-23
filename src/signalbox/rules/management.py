@@ -2,8 +2,9 @@
 networks, and devices read without encryption (issues #122, #123, #120 level 1, #127).
 
 They read :class:`~signalbox.model.ManagementService` (#173). A device that reported no services
-has none here: an empty list means "not read", so these rules stay quiet for it. Firewall rules
-are not read yet (#135); where they would decide, a rule says "not checked" instead.
+has none here: an empty list means "not read", so these rules stay quiet for it. Where the
+device's firewall decides (#135), :mod:`signalbox.firewall` answers; where it is not read or
+cannot be evaluated exactly, a rule says "not checked" instead.
 """
 
 from __future__ import annotations
@@ -11,12 +12,15 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterator
 
+from signalbox.firewall import service_from_internet, service_reach
 from signalbox.model import (
     DeviceRole,
+    FirewallVerdict,
     ManagementService,
     Network,
     ServiceKind,
     SnmpVersion,
+    Verdict,
 )
 from signalbox.purpose import untrusted
 from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
@@ -114,9 +118,9 @@ def insecure_services(net: Network) -> Iterator[Result]:
     "A gateway that offers its web interface, SSH, API or another management service on the "
     "internet side is the main way home routers get compromised; remote access is often turned "
     "on once for a fix and forgotten. The device says it (Fritz!Box remote access) or the "
-    "service listens on the uplink without an address filter. Whether the firewall blocks it is "
-    "not read yet, so that case is reported as not checked. Only gateways with a reported "
-    "uplink are checked.",
+    "service listens on the uplink without an address filter and its firewall lets the internet "
+    "in. Where the firewall is not read or does not decide exactly, the case is reported as not "
+    "checked. Only gateways with a reported uplink are checked.",
 )
 def wan_management(net: Network) -> Iterator[Result]:
     for dev, items in _by_device(net):
@@ -124,8 +128,9 @@ def wan_management(net: Network) -> Iterator[Result]:
         if device is None or device.role is not DeviceRole.GATEWAY or not net.uplinks_of(dev):
             continue
         name = device_name(net, dev)
-        exposed = [s for s in items if net.service_from_wan(s) is True]
-        unknown = [s for s in items if net.service_from_wan(s) is None]
+        verdicts = {s.id: service_from_internet(net, s) for s in items}
+        exposed = [s for s in items if verdicts[s.id].verdict is Verdict.ALLOWED]
+        unknown = [s for s in items if verdicts[s.id].verdict is Verdict.UNKNOWN]
         if exposed:
             yield found(
                 f"{name} accepts {_join([_with_port(s) for s in exposed])} from the internet",
@@ -137,11 +142,18 @@ def wan_management(net: Network) -> Iterator[Result]:
         if unknown:
             yield incomplete(
                 f"{name} offers {_join([_with_port(s) for s in unknown])} on its internet "
-                "connection; without its firewall rules (not read yet) it is not known "
+                f"connection; {_why_unknown(net, dev, [verdicts[s.id] for s in unknown])} "
                 "whether they are blocked from the internet",
                 [dev, *(s.id for s in unknown)],
                 key="unknown",
             )
+
+
+def _why_unknown(net: Network, dev: str, verdicts: list[FirewallVerdict]) -> str:
+    if net.firewall_of(dev) is None:
+        return "without its firewall rules (not read) it is not known"
+    reasons = list(dict.fromkeys(v.reason for v in verdicts))
+    return f"its firewall does not decide it exactly ({'; '.join(reasons)}), so it is not known"
 
 
 def _with_port(s: ManagementService) -> str:
@@ -158,12 +170,14 @@ def _with_port(s: ManagementService) -> str:
     "A management service (web interface, SSH, telnet, API, SNMP) is offered in a guest, IoT "
     "or camera network, so guests or a compromised smart plug can try to log in. Complements "
     "security.management-exposure, which looks at addresses: this one looks at where the "
-    "device says it listens. A router serves every network it has an address in; whether its "
-    "firewall blocks the services there is not read yet, so that case is reported as not "
-    "checked, unless the device says it offers the service in that network.",
+    "device says it listens. A router serves every network it has an address in unless its "
+    "firewall blocks the services there; where the firewall is not read or does not decide "
+    "exactly, that case is reported as not checked.",
 )
 def service_exposure(net: Network) -> Iterator[Result]:
-    groups: dict[tuple[str, str], list[tuple[ManagementService, bool]]] = defaultdict(list)
+    groups: dict[tuple[str, str], list[tuple[ManagementService, FirewallVerdict | None]]] = (
+        defaultdict(list)
+    )
     for s in sorted(net.services, key=lambda s: s.id):
         device = net.device(s.device_id)
         if device is None or not s.enabled:
@@ -175,11 +189,15 @@ def service_exposure(net: Network) -> Iterator[Result]:
             seg = net.segment(sid)
             if seg is None or seg.isolated or not untrusted(seg.purpose):
                 continue
-            groups[(s.device_id, sid)].append((s, explicit))
+            verdict = service_reach(net, s, sid)
+            if verdict.verdict is Verdict.DENIED:
+                continue
+            decided = explicit or verdict.verdict is Verdict.ALLOWED
+            groups[(s.device_id, sid)].append((s, None if decided else verdict))
     for (dev, sid), items in sorted(groups.items()):
         name, where = device_name(net, dev), segment_name(net, sid)
-        sure = [s for s, explicit in items if explicit]
-        unsure = [s for s, explicit in items if not explicit]
+        sure = [s for s, v in items if v is None]
+        unsure = [s for s, v in items if v is not None]
         if sure:
             yield found(
                 f"{name} offers {_join([s.label() for s in sure])} in {where}",
@@ -189,10 +207,11 @@ def service_exposure(net: Network) -> Iterator[Result]:
                 key=f"{sid}/offered",
             )
         if unsure:
+            why = _why_unknown(net, dev, [v for _, v in items if v is not None])
             yield incomplete(
                 f"{name} has an address in {where} and offers "
-                f"{_join([s.label() for s in unsure])} on it; without firewall rules (not read "
-                "yet) it is not known whether they are blocked from there",
+                f"{_join([s.label() for s in unsure])} on it; {why} whether they are blocked "
+                "from there",
                 [dev, sid, *(s.id for s in unsure)],
                 key=f"{sid}/unknown",
             )

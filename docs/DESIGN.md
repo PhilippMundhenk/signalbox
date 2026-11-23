@@ -99,7 +99,7 @@ carries its source (adapter and device), the time it was observed and a stable i
 | Tunnel | A VPN interface of a device (`wireguard`): name, description, port, up, enabled, listen port, own public key, addresses, MTU; peers with public key, name, endpoint, allowed IPs, last handshake, transfer counters, keepalive, whether a pre-shared key is set. Never a private or pre-shared key ([ADR 0011](adr/0011-vpn-tunnels-and-site-links.md)) |
 | Wlan | SSID, security (open, OWE, WEP, WPA/WPA2/WPA3 Personal and Enterprise incl. mixed and 192-bit modes; PMF), passphrase fingerprint and SSID-independent digest, segment, bands, hidden, roaming (802.11r/k/v), purpose and its source, client isolation; security details: pairwise and group ciphers, SAE (PWE, SAE-PK, anti-clogging), WPS (on, methods, AP PIN lock), group rekey interval, beacon protection |
 | Radio | Band, channel, width, transmit power, country code, security modes the hardware and firmware can offer |
-| Firewall | Zones, rules, NAT; read-only at first |
+| Firewall | One per device (#135, [ADR 0013](adr/0013-firewall-zones-rules-and-reachability.md)): enabled, zones (segments, uplinks, tunnels, ports in them), default action per zone pair and per chain, ordered filter rules (chain, family, protocols, source and destination zones / networks / ports with negation, action, forwarded-only, exact), source NAT, port forwards (external ports → target address and port, passes the filter, reflection), whether rules and forwards were read completely; reachability derived |
 | Client | MAC, IP, hostname, segment, where it was seen (port or access point), last seen, source per address (`dhcp`, `dhcp-reserved`, `static`, `slaac`, `slaac-privacy`, `dhcpv6`, `link-local`, `unknown`) |
 | Firmware | Current, available, end of life |
 | DeviceHealth | Uptime and boot time, last restart reason, CPU load and load average, memory, storage per mount (kind, wear), temperatures with limits, fans, power supplies, monitored UPS |
@@ -233,9 +233,10 @@ management address; for layer-2 services the networks on its ports), narrowed by
 restrictions. `Network.service_from_wan()` answers the device's own `from_wan` (Fritz!Box
 internet access, FTP from the internet) where there is one; otherwise `false` for a device
 without an uplink, a service bound away from the uplink or one restricted to private source
-networks, and `null` ("the firewall decides") for a service that listens on the uplink. With
-#135 the same two helpers will also take the input rules into account; the checks call them
-and need not change. `Device.transport_encrypted` is separate: it is how Signalbox itself
+networks, and `null` ("the firewall decides") for a service that listens on the uplink. The
+firewall itself is applied on top by `signalbox.firewall.service_reach()` and
+`service_from_internet()` (#135, see "Firewall and forwarding"), which the checks call.
+`Device.transport_encrypted` is separate: it is how Signalbox itself
 reads the device (`false` for NSDP, Easy Smart UDP, plain HTTP), set by the adapter through
 `SystemInfo`.
 
@@ -314,6 +315,53 @@ device leaves the keys out (OPNsense `wireguard/service/show`). The peer endpoin
 site's public address: shown behind a click, never exported. Handshake times are absolute;
 their age is taken against the time of the reading. See
 [ADR 0011](adr/0011-vpn-tunnels-and-site-links.md).
+
+### Firewall and forwarding
+
+A device's packet filter and NAT are one `Firewall` object, read with the `firewall`
+capability (adapter API 1.4, #135, [ADR 0013](adr/0013-firewall-zones-rules-and-reachability.md)).
+It is a small common denominator of OpenWrt fw4, OPNsense pf, RouterOS, nftables and the
+Fritz!Box, chosen so that core can answer one question exactly where the data allows it: *can
+traffic from segment, uplink or tunnel A reach address X on port P?*
+
+- **Zones** name groups of interfaces and map them to model objects (segments, uplinks,
+  tunnels, ports). The merge moves native segment ids like for every other object.
+- **Policies** give the default action per zone pair (`destination = None`: the device
+  itself); `input_policy` and `forward_policy` are the fallbacks.
+- **Rules** are in evaluation order, first match wins. Source and destination match zones,
+  networks and ports, each optionally negated; `forwarded` restricts a rule to port-forwarded
+  connections; `exact = False` marks a rule with conditions the model does not express.
+- **Port forwards** and **source NAT** as reported; `passes_filter` says the forward needs no
+  filter rule (OpenWrt redirects, Fritz!Box port sharing).
+- `rules_complete` / `port_forwards_complete` are false where the device has rules the adapter
+  cannot see (OPNsense rules outside the API, nftables includes it cannot follow).
+
+`Firewall.evaluate(flow)` checks the rules with three-valued matching (`yes`, `no`, `maybe`: the
+flow is broader than the rule, for example a whole segment against a host rule, or the rule
+is inexact). A `maybe` adds its action to the possible outcomes, the first `yes` decides,
+otherwise the zone pair policies and the fallback. One outcome (accept, or drop/reject) is the
+answer; anything else is `unknown`.
+
+`signalbox.firewall.reach()` builds the flows. To a device's own address it has towards the
+source: that device's input chain. Otherwise the router present in both networks decides
+(forward chain), followed by the target's own firewall where read; same segment means no
+router. From the internet a private IPv4 address is reached only through a port forward, and a
+router in front (double NAT) is followed when it is known. `service_reach()` and
+`service_from_internet()` apply this to `ManagementService` objects.
+
+Approximations, all documented as "not checked" rather than guessed: no routing tables or
+policy routing, no path over two routers inside a site (a tunnel's far end is a separate
+evaluation), connection state other than "new", rate limits, schedules, GeoIP and marks (the
+rule becomes inexact), pf's last-match for non-`quick` rules (the adapter orders them or marks
+them inexact), client isolation on access points, and several nftables base chains on one hook
+(incomplete unless the others accept everything). A switch or access point without a read
+firewall is taken as not filtering; a gateway without one is `unknown`.
+
+The device page shows a firewall card: zones and what is in them, the default action per zone
+pair as a matrix (`/api/network` adds it as `matrix`), the number of rules, the port forwards.
+Desired state and writes come later: declare per segment what it may reach (`allow:
+[internet]`, `isolate: true`), plan zone, forwarding and rule changes with the other changes,
+OpenWrt first (which then enables its router writes, #41), then OPNsense.
 
 ### Annotations and acknowledged findings
 

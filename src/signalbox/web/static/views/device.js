@@ -166,6 +166,48 @@ function tunnelsCard(ix, deviceId) {
   );
 }
 
+// Firewall (#135): zones and what is in them, the default action per zone pair, port forwards.
+function zoneMembers(ix, z) {
+  const tail = (id, key) => id.split(`/${key}/`).pop();
+  return [
+    ...z.segments.map((id) => ix.segmentName(id)),
+    ...z.uplinks.map((id) => `internet (${tail(id, 'uplink')})`),
+    ...z.tunnels.map((id) => `tunnel ${tail(id, 'tunnel')}`),
+    ...z.ports.map((id) => tail(id, 'port')),
+  ].join(', ');
+}
+
+function policyMatrix(fw) {
+  const names = fw.zones.map((z) => z.name);
+  const cell = (a) => h('td', { class: a === 'accept' ? 'ok-text' : a ? 'warn-text' : 'muted', 'data-testid': 'fw-policy' }, a || '?');
+  return h(
+    'table',
+    { class: 'fw-matrix', 'data-testid': 'fw-matrix' },
+    h('thead', {}, h('tr', {}, h('th', {}, 'from / to'), h('th', {}, 'device'), names.map((n) => h('th', {}, n)))),
+    h('tbody', {}, names.map((src, i) => h('tr', {}, h('th', {}, src), (fw.matrix[i] || []).map(cell)))),
+  );
+}
+
+function firewallCard(ix, deviceId) {
+  const fw = (ix.net.firewalls || []).find((f) => f.device_id === deviceId);
+  if (!fw) return null;
+  const forwards = fw.port_forwards.map((p) => [
+    `${p.protocols.length ? p.protocols.join('/').toUpperCase() : 'all'} ${p.external_ports.length ? p.external_ports.map((r) => (r.end && r.end !== r.start ? `${r.start}-${r.end}` : `${r.start}`)).join(', ') : 'all ports'}`,
+    `→ ${p.target_address}${p.target_port ? `:${p.target_port}` : ''}${p.name ? ` (${p.name})` : ''}${p.enabled ? '' : ', off'}`,
+  ]);
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-firewall' },
+    h('h2', {}, 'Firewall'),
+    fw.enabled ? null : h('p', { class: 'muted' }, 'Packet filtering is off: everything is let through.'),
+    fw.rules_complete ? null : h('p', { class: 'muted', 'data-testid': 'fw-incomplete' }, 'Not every rule could be read: reachability is not checked exactly.'),
+    kv(fw.zones.map((z) => [z.name, zoneMembers(ix, z) || '–'])),
+    fw.zones.length ? policyMatrix(fw) : null,
+    h('p', { class: 'muted' }, `${fw.rules.filter((r) => r.enabled).length} filter rules decide before these defaults.`),
+    forwards.length ? h('div', { 'data-testid': 'fw-forwards' }, h('h3', {}, 'Port forwards'), kv(forwards)) : null,
+  );
+}
+
 const SERVICE_LABEL = {
   ssh: 'SSH', telnet: 'Telnet', http: 'HTTP', https: 'HTTPS', api: 'API', 'api-ssl': 'API (TLS)', snmp: 'SNMP', ftp: 'FTP', tftp: 'TFTP',
   winbox: 'Winbox', 'mac-telnet': 'MAC telnet', 'mac-winbox': 'MAC Winbox', romon: 'RoMON', 'tr-064': 'TR-064', upnp: 'UPnP', vendor: 'configuration protocol', other: 'service',
@@ -365,6 +407,7 @@ async function overview(main, ctx, device, adapters, sites) {
     internetCard(ix, device.id),
     portsCard(ix, tree),
     tunnelsCard(ix, device.id),
+    firewallCard(ix, device.id),
     observed ? managementCard(ix, observed) : null,
     observed ? healthCard(observed.health) : null,
     observed ? timeCard(observed.time) : null,
@@ -391,6 +434,7 @@ function rawObjects(net, deviceId) {
     clients: net.clients.filter(mine),
     neighbours: net.neighbours.filter((n) => (n.source && n.source.device_id === deviceId) || n.local_port_id.startsWith(`${deviceId}/`)),
     tunnels: (net.tunnels || []).filter(mine),
+    firewalls: (net.firewalls || []).filter(mine),
   };
 }
 

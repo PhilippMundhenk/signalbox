@@ -83,7 +83,7 @@ class Healthy(Fake):
 
 
 def test_health_and_time_need_api_1_2() -> None:
-    assert API_VERSION == "1.3"  # 1.3: vpn (#239)
+    assert API_VERSION == "1.4"  # 1.3: vpn (#239), 1.4: firewall (#135)
     assert SINCE[Capability.HEALTH] == SINCE[Capability.TIME] == "1.2"
     check_manifest(Healthy.manifest)
     check_manifest(Fake.manifest)  # a 1.0 adapter keeps working
