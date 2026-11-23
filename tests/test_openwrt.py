@@ -645,9 +645,24 @@ async def test_wireless_status_through_luci_rpc_on_25_12(
 async def test_lldpd_missing(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
     sim.lldpd = False
     snap = await adapter.observe()
-    assert [(e.capability, e.message) for e in snap.errors] == [
-        ("neighbours", "LLDP is not installed on the router (no ubus object luci.lldpd)")
+    assert [(e.capability, e.message, e.optional) for e in snap.errors] == [
+        ("neighbours", "LLDP is not installed on the router (no ubus object luci.lldpd)", True)
     ]
+    # an optional feature does not make the device "partly read" (#278)
+    assert snap.status is DeviceStatus.OK
+    assert snap.errors[0].remedy == "lldp" and snap.errors[0].fix
+
+
+async def test_lldpd_not_running_is_optional(
+    adapter: OpenWrtAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def not_running(obj: str, method: str, *args: Any, **kw: Any) -> Any:
+        return {"statistics": {}}  # luci.lldpd answers without a neighbours section
+
+    monkeypatch.setattr(adapter.ubus, "call", not_running)
+    obs = await adapter.read_neighbours()
+    assert not obs.neighbours and [g.optional for g in obs.incomplete] == [True]
+    assert "not running" in obs.incomplete[0].message
 
 
 async def test_wrong_path_is_reported(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:

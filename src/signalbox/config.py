@@ -117,7 +117,7 @@ class SetupConfig(Section):
     fixes: bool = Field(
         True,
         description="Offer 'Fix it' next to a read problem Signalbox's own setup can repair "
-        "(a missing package or permission it reads through), on devices with 'Allow changes': "
+        "(a missing package or permission it reads through; no 'Allow changes' needed for these), "
         "with the admin login, only when you start it and confirm the plan (docs/adr/0012). "
         "Never changes network settings. Off when this or setup.enabled is false.",
     )
@@ -225,7 +225,7 @@ setup:
   # (the manual setup guides always work). Details: docs/adr/0009.
   enabled: true
   # "Fix it" next to a read problem the setup can repair (a missing package or permission
-  # Signalbox reads through), on devices with "Allow changes", with the admin login and only
+  # Signalbox reads through), (no "Allow changes" needed for these), with the admin login and only
   # after you confirmed the plan. Never changes network settings. Details: docs/adr/0012.
   fixes: true
 

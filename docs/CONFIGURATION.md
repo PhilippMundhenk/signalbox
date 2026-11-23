@@ -76,7 +76,7 @@ Generated from the code by `tools/gen_docs.py`.
 | Setting | Environment variable | Default | Meaning |
 | --- | --- | --- | --- |
 | `setup.enabled` | `SIGNALBOX_SETUP_ENABLED` | true | Offer 'Set up automatically' in the device form: with the admin login you give once, Signalbox creates its own least-privilege login on that device (only when you start it and confirm the plan; docs/adr/0009). false: the API refuses it and the form does not show it; the manual setup guides always work. |
-| `setup.fixes` | `SIGNALBOX_SETUP_FIXES` | true | Offer 'Fix it' next to a read problem Signalbox's own setup can repair (a missing package or permission it reads through), on devices with 'Allow changes': with the admin login, only when you start it and confirm the plan (docs/adr/0012). Never changes network settings. Off when this or setup.enabled is false. |
+| `setup.fixes` | `SIGNALBOX_SETUP_FIXES` | true | Offer 'Fix it' next to a read problem Signalbox's own setup can repair (a missing package or permission it reads through; no 'Allow changes' needed for these), with the admin login, only when you start it and confirm the plan (docs/adr/0012). Never changes network settings. Off when this or setup.enabled is false. |
 
 ## `plugins`
 

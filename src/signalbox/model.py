@@ -2031,6 +2031,8 @@ class ReadError(Model):
     fix: str | None = None
     #: Id of a remedy of the device's integration that repairs this with *Fix it* (#215).
     remedy: str | None = None
+    #: A missing optional feature (#278): does not make the device "partly read"; an info at most.
+    optional: bool = False
 
 
 # annotations (#186) -------------------------------------------------------------------------

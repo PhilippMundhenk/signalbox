@@ -249,7 +249,10 @@ def _read_findings(net: Network, severity: Severity) -> list[Finding]:
             fix = None
         fix = err.fix or fix
         res = Result(message, (err.device_id,), fix, None, False, err.capability)
-        finding = _finding(READ_ERRORS, res, severity)
+        if err.optional:
+            message = f"{name}: optional feature not available ({err.capability}): {err.message}"
+            res = Result(message, (err.device_id,), fix, None, False, err.capability)
+        finding = _finding(READ_ERRORS, res, Severity.INFO if err.optional else severity)
         out.append(finding.model_copy(update={"remedy": err.remedy}) if err.remedy else finding)
     return out
 

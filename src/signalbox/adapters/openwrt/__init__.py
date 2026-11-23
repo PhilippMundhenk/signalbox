@@ -33,6 +33,7 @@ from signalbox.adapters import (
     Manifest,
     Observation,
     RemedyRequest,
+    SetupExtra,
     SetupPlan,
     SetupRequest,
     SetupResult,
@@ -688,6 +689,15 @@ class OpenWrtAdapter(Adapter):
             port_default=22,
             note="The router's SSH server (dropbear) must allow a password login for root, as "
             "OpenWrt does by default. The router needs internet access if packages are missing.",
+            extras=[
+                SetupExtra(
+                    id="lldp",
+                    label="Also install LLDP (lldpd and luci-app-lldpd)",
+                    note="Optional: shows which device is plugged into which port. Installs the "
+                    "packages, enables and starts lldpd; the router then sends and receives LLDP.",
+                    remove_label="Also remove LLDP (stop lldpd, remove lldpd and luci-app-lldpd)",
+                )
+            ],
         ),
         remedies=provision.REMEDIES,
     )
@@ -1692,20 +1702,18 @@ class OpenWrtAdapter(Adapter):
         try:
             status = await self.ubus.call("luci.lldpd", "getStatus")
         except NotFound:
-            raise AdapterError(
+            return self._lldp_gap(
                 "LLDP is not installed on the router (no ubus object luci.lldpd)",
-                fix="Optional: without LLDP Signalbox cannot see which device is plugged into "
+                "Optional: without LLDP Signalbox cannot see which device is plugged into "
                 "which port; everything else works. To add it, install the packages lldpd and "
                 "luci-app-lldpd (LuCI: System, Software), run service rpcd restart and test again.",
-                remedy="lldp",
-            ) from None
+            )
         data = status.get("neighbors")
         if not isinstance(data, dict):
-            raise AdapterError(
+            return self._lldp_gap(
                 "lldpd is installed but not running (luci.lldpd getStatus has no neighbours)",
-                fix="Start it on the router with service lldpd enable && service lldpd start "
-                "(LuCI: System, Startup), then test again.",
-                remedy="lldp",
+                "Optional: start it on the router with service lldpd enable && service lldpd "
+                "start (LuCI: System, Startup), then test again.",
             )
         neighbours: list[Neighbour] = []
         for lldp in data.get("lldp") or []:
@@ -1729,6 +1737,10 @@ class OpenWrtAdapter(Adapter):
                     )
                 )
         return Observation(neighbours=neighbours)
+
+    @staticmethod
+    def _lldp_gap(message: str, fix: str) -> Observation:
+        return Observation(incomplete=[Gap(message=message, fix=fix, remedy="lldp", optional=True)])
 
 
 def _first(values: Any) -> str | None:

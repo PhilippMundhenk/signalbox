@@ -2,8 +2,9 @@
 
 ``POST /api/devices/{id}/fix`` asks the integration what the remedy would do (nothing is
 changed); ``POST /api/devices/{id}/fix/apply`` runs it with the admin login, then reads the
-device again and returns that reading. Only on a device with *Allow changes*, only for a remedy
-the integration declares, never in the background, and off with ``setup.enabled: false`` or
+device again and returns that reading. Only on a device with *Allow changes* (not needed for a
+remedy that only adds what Signalbox reads through, #278), only for a remedy the integration
+declares, never in the background, and off with ``setup.enabled: false`` or
 ``setup.fixes: false``. The admin login is used for that request only, as in the setup.
 """
 
@@ -71,7 +72,7 @@ def router(
             return error(422, "invalid", f"adapter {rec.adapter!r} is not installed")
         if body.remedy not in remedies(cls):
             return error(422, "not_supported", f"{cls.manifest.name} cannot fix this automatically")
-        if not rec.allow_writes:
+        if not rec.allow_writes and not remedies(cls)[body.remedy].read_side:
             return error(
                 422,
                 "not_allowed",

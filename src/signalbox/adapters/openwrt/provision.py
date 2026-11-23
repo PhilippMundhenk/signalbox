@@ -151,6 +151,7 @@ echo @@end
 REMEDIES = (
     Remedy(
         id="access",
+        read_side=True,
         title="Repair Signalbox's access",
         description="Over SSH as root: installs the packages Signalbox reads through that are "
         "missing, writes its permission file as in the setup guide (with the write part when "
@@ -159,6 +160,7 @@ REMEDIES = (
     ),
     Remedy(
         id="lldp",
+        read_side=True,
         title="Install LLDP",
         description="Over SSH as root: installs lldpd and luci-app-lldpd if missing, starts "
         "lldpd (it then sends and receives LLDP on the router's ports), checks Signalbox's "
@@ -298,7 +300,63 @@ class OpenWrtSetup:
             lldpd_running="running" in parts.get("lldpd", ""),
         )
 
+    def lldp_steps(self, ssh: PinnedSsh, state: DeviceState, timeout: float) -> list[Step]:
+        missing = [p for p in LLDP_PACKAGES.split() if p not in state.installed]
+        install = install_script(state.manager, missing)
+        start = "/etc/init.d/lldpd enable\n/etc/init.d/lldpd start\n"
+        running = state.lldpd_running and not missing
+        return [
+            Step(
+                "lldp-packages",
+                f"Install the LLDP packages ({state.manager})",
+                install if missing else LLDP_PACKAGES,
+                needed=bool(missing),
+                action=self._run(ssh, install, timeout=max(300.0, timeout)),
+                note="" if missing else "all installed",
+            ),
+            Step(
+                "lldpd",
+                "Start lldpd (and at every boot)",
+                start,
+                needed=not running,
+                action=self._run(ssh, start),
+                note="already running" if running else "",
+            ),
+        ]
+
+    def lldp_removal(self, ssh: PinnedSsh, state: DeviceState) -> list[Step]:
+        present = [p for p in LLDP_PACKAGES.split() if p in state.installed]
+        verb = "apk del" if state.manager == "apk" else "opkg remove"
+        script = (
+            "/etc/init.d/lldpd stop || true\n"
+            "/etc/init.d/lldpd disable || true\n"
+            f"{verb} {' '.join(present)}\n"
+        )
+        return [
+            Step(
+                "lldp-remove",
+                "Stop lldpd and remove the LLDP packages (you ticked this)",
+                script if present else "",
+                needed=bool(present),
+                action=self._run(ssh, script),
+                note="" if present else "the LLDP packages are not installed",
+            )
+        ]
+
     def steps(self, ssh: PinnedSsh, state: DeviceState) -> list[Step]:
+        steps = self._base_steps(ssh, state)
+        if "lldp" not in self.request.extras:
+            return steps
+        extra = (
+            self.lldp_removal(ssh, state)
+            if self.request.remove
+            else self.lldp_steps(ssh, state, self.request.timeout)
+        )
+        # before the final rpcd restart, so that luci.lldpd is registered
+        last = next(i for i, s in enumerate(steps) if s.id == "restart")
+        return [*steps[:last], *extra, *steps[last:]]
+
+    def _base_steps(self, ssh: PinnedSsh, state: DeviceState) -> list[Step]:
         if self.request.remove:
             return self.removal(ssh, state)
         writes = self.request.allow_writes
@@ -529,36 +587,16 @@ class OpenWrtFix(OpenWrtSetup):
             self.redact.add(secret.get_secret_value())
 
     def steps(self, ssh: PinnedSsh, state: DeviceState) -> list[Step]:
+        return self._fix_steps(ssh, state)
+
+    def _fix_steps(self, ssh: PinnedSsh, state: DeviceState) -> list[Step]:
         writes = self.fix.allow_writes
         wanted_acl = WRITE_ACL if writes else READ_ACL
         what = "with write access" if writes else "read-only"
         steps: list[Step] = []
         restart_web = False
         if self.fix.remedy == "lldp":
-            missing = [p for p in LLDP_PACKAGES.split() if p not in state.installed]
-            install = install_script(state.manager, missing)
-            steps.append(
-                Step(
-                    "lldp-packages",
-                    f"Install the LLDP packages ({state.manager})",
-                    install if missing else LLDP_PACKAGES,
-                    needed=bool(missing),
-                    action=self._run(ssh, install, timeout=max(300.0, self.fix.timeout)),
-                    note="" if missing else "all installed",
-                )
-            )
-            start = "/etc/init.d/lldpd enable\n/etc/init.d/lldpd start\n"
-            running = state.lldpd_running and not missing
-            steps.append(
-                Step(
-                    "lldpd",
-                    "Start lldpd (and at every boot)",
-                    start,
-                    needed=not running,
-                    action=self._run(ssh, start),
-                    note="already running" if running else "",
-                )
-            )
+            steps += self.lldp_steps(ssh, state, self.fix.timeout)
         else:
             missing = [p for p in PACKAGES.split() if p not in state.installed]
             install = install_script(state.manager, missing)

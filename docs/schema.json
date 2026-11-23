@@ -3634,6 +3634,11 @@
           "title": "Message",
           "type": "string"
         },
+        "optional": {
+          "default": false,
+          "title": "Optional",
+          "type": "boolean"
+        },
         "remedy": {
           "anyOf": [
             {

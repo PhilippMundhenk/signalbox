@@ -181,12 +181,23 @@ def test_refusals(
     services: Services,
     ssh: tuple[int, str],
     https_url: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     port, fingerprint = ssh
     assert client.post("/api/devices/ghost/fix", json=fix(port)).status_code == 404
     set_up(client, https_url, port, fingerprint, writes=False)
+    # a read-side remedy needs the admin login and the confirmation, not Allow changes (#278)
     r = client.post("/api/devices/access-point/fix", json=fix(port, fingerprint))
+    assert r.status_code == 200, r.text
+    # a remedy that is not read-side does
+    manifest = OpenWrtAdapter.manifest
+    plain = Remedy(id="lldp", title="Install LLDP")
+    monkeypatch.setattr(
+        OpenWrtAdapter, "manifest", manifest.model_copy(update={"remedies": (plain,)})
+    )
+    r = client.post("/api/devices/access-point/fix", json=fix(port, fingerprint, remedy="lldp"))
     assert r.status_code == 422 and r.json()["error"] == "not_allowed"
+    monkeypatch.setattr(OpenWrtAdapter, "manifest", manifest)
     rec = services.store.device("access-point")
     assert rec is not None
     services.store.put_device(

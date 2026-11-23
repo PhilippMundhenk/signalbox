@@ -48,6 +48,10 @@ export function autoSetup(a, collect, onDone) {
   const sshFields = opt ? h('div', { class: 'ssh-option-fields', hidden: true, 'data-testid': 'setup-ssh-fields' }, field(`${opt.secret_label} (${opt.user})`, sshSecret), field('SSH port', sshPort)) : null;
   if (opt) sshOn.addEventListener('change', () => { sshFields.hidden = !sshOn.checked; trustedSsh = null; });
   let trustedSsh = null;
+  // optional extras (OpenWrt: LLDP, #278): unticked; on Remove they mean "remove it too"
+  const extras = (login.extras || []).map((x) => ({ x, box: h('input', { type: 'checkbox', 'data-testid': `setup-extra-${x.id}`, 'data-extra': x.id }), text: h('span', {}, x.label) }));
+  const extraFields = extras.map(({ x, box, text }) => h('div', { class: 'field' }, h('label', { class: 'check' }, box, ' ', text), x.note ? h('small', { class: 'muted' }, x.note) : null));
+  remove.addEventListener('change', () => extras.forEach(({ x, text }) => { text.textContent = remove.checked && x.remove_label ? x.remove_label : x.label; }));
 
   const request = () => {
     const device = collect();
@@ -58,7 +62,7 @@ export function autoSetup(a, collect, onDone) {
     }
     const admin = { user: user.value.trim(), secret: secret.value };
     if (port && port.value) admin.port = Number(port.value);
-    const body = { device, admin, remove: remove.checked, trust: trusted };
+    const body = { device, admin, remove: remove.checked, trust: trusted, extras: extras.filter((e) => e.box.checked).map((e) => e.x.id) };
     if (opt && sshOn.checked) {
       if (!sshSecret.value) {
         place(clear(out), h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, `Enter the ${opt.secret_label} (${opt.user}), or untick “${opt.label}”.`));
@@ -176,6 +180,7 @@ export function autoSetup(a, collect, onDone) {
     opt ? checkField(opt.label, sshOn, opt.note) : null,
     sshFields,
     checkField('Remove what Signalbox set up instead', remove, null),
+    ...extraFields,
     h('div', { class: 'row' }, planBtn),
     out,
   );

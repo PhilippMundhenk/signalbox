@@ -64,8 +64,11 @@ def test_fix_it_installs_lldp(app: Any, router: tuple[str, int, str, OpenWrtSsh]
     add_site(app)
     set_up(app, url, port, key, writes=True)
     without_lldp(device)
-    assert api(app, "POST", "/devices/access-point/test")["status"] == "partial"
+    # LLDP is optional: the device stays ok and the note is muted (#278)
+    assert api(app, "POST", "/devices/access-point/test")["status"] == "ok"
     app.goto(app.server.url + "/#/device/access-point")
+    expect(app.get_by_test_id("device-errors-optional")).to_contain_text("Optional, not available")
+    expect(app.get_by_test_id("device-errors").locator("ul.error")).to_have_count(0)
     errors = app.get_by_test_id("device-errors")
     expect(errors).to_contain_text("LLDP is not installed")
     expect(errors.get_by_test_id("error-fix")).to_contain_text("lldpd")  # manual way stays
@@ -97,12 +100,14 @@ def test_fix_it_installs_lldp(app: Any, router: tuple[str, int, str, OpenWrtSsh]
     assert ROOT_PASSWORD not in app.content()
 
 
-def test_fix_it_needs_allow_changes(app: Any, router: tuple[str, int, str, OpenWrtSsh]) -> None:
+def test_fix_it_for_read_side_remedies_needs_no_allow_changes(
+    app: Any, router: tuple[str, int, str, OpenWrtSsh]
+) -> None:
     url, port, key, device = router
     add_site(app)
     set_up(app, url, port, key, writes=False)
     without_lldp(device)
     api(app, "POST", "/devices/access-point/test")
     app.goto(app.server.url + "/#/device/access-point")
-    expect(app.get_by_test_id("fix-needs-writes")).to_contain_text("Allow changes")
-    expect(app.get_by_test_id("fix-it")).to_have_count(0)
+    expect(app.get_by_test_id("fix-needs-writes")).to_have_count(0)
+    expect(app.get_by_test_id("fix-it")).to_have_count(1)

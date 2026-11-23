@@ -281,3 +281,35 @@ def test_sim_shell_does_not_expand_variables_inside_single_quotes() -> None:
     assert _expand("uci set a.$S.p='$1$Sabcdefg$x' && echo $S", {"S": "cfg01"}) == (
         "uci set a.cfg01.p='$1$Sabcdefg$x' && echo cfg01"
     )
+
+
+async def test_lldp_extra_is_optional_and_removal_keeps_packages(
+    ssh: tuple[int, str], device: OpenWrtSsh
+) -> None:
+    port, fingerprint = ssh
+    both = {"lldpd", "luci-app-lldpd"}
+    device.installed -= both
+    device.lldpd_running = False
+    # unticked: no LLDP step (#278)
+    plan = await OpenWrtAdapter.plan_setup(local(request(port, fingerprint)))
+    assert not [s for s in plan.steps if s.id.startswith("lldp")]
+    # ticked: installed and started before rpcd restarts
+    ticked = local(request(port, fingerprint, extras=["lldp"]))
+    plan = await OpenWrtAdapter.plan_setup(ticked)
+    ids = [s.id for s in plan.steps]
+    assert ids.index("lldp-packages") < ids.index("lldpd") < ids.index("restart")
+    assert not device.installed & both  # a plan changes nothing
+    result = await OpenWrtAdapter.apply_setup(ticked)
+    assert result.ok and device.installed >= both and device.lldpd_running
+    # removal without the tick leaves the packages
+    gone = await OpenWrtAdapter.apply_setup(local(request(port, fingerprint, remove=True)))
+    assert gone.ok and device.installed >= both
+    assert not [s for s in gone.steps if s.id.startswith("lldp")]
+    # ticked: removed
+    rm = local(request(port, fingerprint, remove=True, extras=["lldp"]))
+    plan = await OpenWrtAdapter.plan_setup(rm)
+    assert [s.state for s in plan.steps if s.id == "lldp-remove"] == [StepState.TODO]
+    gone = await OpenWrtAdapter.apply_setup(rm)
+    assert gone.ok and not device.installed & both and not device.lldpd_running
+    again = await OpenWrtAdapter.plan_setup(rm)
+    assert [s.state for s in again.steps if s.id == "lldp-remove"] == [StepState.UNCHANGED]

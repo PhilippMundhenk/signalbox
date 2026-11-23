@@ -11,12 +11,17 @@ export function linked(text) {
 
 // Read errors: what failed, and what to do about it where the adapter knows (#fix).
 // extra(e): more to show with an error (the Fix it button, #215), or null.
+// Optional features that are missing (#278) are a muted note, not an error.
 export function readErrors(errors, testid, extra = null) {
   if (!errors.length) return null;
+  const item = (e) => h('li', { 'data-optional': e.optional ? 'true' : null }, h('span', {}, e.optional ? `Optional, not available: ${e.capability}: ${e.message}` : `${e.capability}: ${e.message}`), e.fix ? h('p', { class: 'fix', 'data-testid': 'error-fix' }, 'What to do: ', ...linked(e.fix)) : null, extra ? extra(e) : null);
+  const real = errors.filter((e) => !e.optional);
+  const optional = errors.filter((e) => e.optional);
   return h(
-    'ul',
-    { class: 'error read-errors', 'data-testid': testid },
-    errors.map((e) => h('li', {}, h('span', {}, `${e.capability}: ${e.message}`), e.fix ? h('p', { class: 'fix', 'data-testid': 'error-fix' }, 'What to do: ', ...linked(e.fix)) : null, extra ? extra(e) : null)),
+    'div',
+    { 'data-testid': testid },
+    real.length ? h('ul', { class: 'error read-errors' }, real.map(item)) : null,
+    optional.length ? h('ul', { class: 'muted read-errors optional-notes', 'data-testid': `${testid}-optional` }, optional.map(item)) : null,
   );
 }
 

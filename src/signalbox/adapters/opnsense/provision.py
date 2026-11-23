@@ -145,6 +145,7 @@ def _parts(text: str) -> dict[str, str]:
 REMEDIES = (
     Remedy(
         id="privileges",
+        read_side=True,
         title="Add the missing privileges",
         description="Through the API with root's key: adds the privileges of the setup guide "
         "that the user of the stored API key lacks (with those for writing when changes are "

@@ -417,12 +417,16 @@ configuration turns it off completely (the API refuses it, the form does not sho
    access when *Allow changes* is on), the rpcd login with a new generated password (only the
    md5-crypt hash is sent), `/etc/init.d/rpcd restart`, and the web server's certificate,
    read over this SSH connection (`uci get uhttpd.main.cert`, DER or PEM) to pin it for reading.
+   Optional extras are unticked checkboxes: *Also install LLDP* adds installing `lldpd` and
+   `luci-app-lldpd`, enabling and starting lldpd (before the rpcd restart). Without it the device
+   stays *ok*; the missing LLDP is only shown as an optional note (#278).
 3. *Set up the device* runs them and saves the device with the new login. The password is stored
    encrypted like any other and never shown; root's password is not stored or logged.
 
 Running it again repairs a partial setup and updates the ACL file after an update of Signalbox;
 without *Allow changes* it takes write access away again. *Remove what Signalbox set up* deletes
-the login, and the ACL file unless another login lists `signalbox`; packages stay. Every script
+the login, and the ACL file unless another login lists `signalbox`; packages stay (ticking
+*Also remove LLDP* stops lldpd and removes its two packages). Every script
 goes over standard input of `sh -s`, so no secret appears in a process list on the router.
 Needs dropbear with password login for root (OpenWrt's default).
 
@@ -437,7 +441,8 @@ password authentication.
 ### Fix it
 
 Some read problems name a remedy (#215, [ADR 0012](../adr/0012-fix-it-for-read-problems.md)):
-on a device with *Allow changes* the device page shows *Fix it* next to the error, below its
+the device page shows *Fix it* next to the error (it does not need *Allow changes*: it only adds
+packages and permissions Signalbox reads through, #278), below its
 "What to do", which stays the manual way. *Fix it* asks for root's password (and the SSH port),
 shows the host key to trust, then the exact steps; *Fix it on the device* asks once more and
 runs them, then reads the router again. It is optional like the setup: never in the background,

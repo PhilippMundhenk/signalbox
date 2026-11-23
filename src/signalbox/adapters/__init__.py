@@ -175,6 +175,24 @@ class WritesConfig(Protocol):
     async def restore(self, backup: Backup) -> None: ...
 
 
+class SetupExtra(BaseModel):
+    """An optional extra of the automatic setup, an unticked checkbox in the plan (#278).
+
+    Ticked, it is part of the plan and runs only after the same confirmation as the rest; on
+    *Remove* the same checkbox means removing it again (what is not ticked stays installed).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]*$")
+    #: "Also install LLDP (lldpd, luci-app-lldpd)".
+    label: str
+    #: What it is for and what it changes, shown next to the checkbox.
+    note: str = ""
+    #: Label when removing ("Also remove the LLDP packages").
+    remove_label: str = ""
+
+
 class AdminLogin(BaseModel):
     """What an integration that sets itself up (#231) asks for: the device's admin login.
 
@@ -196,6 +214,8 @@ class AdminLogin(BaseModel):
     note: str = ""
     #: An optional second step over SSH that is off unless the user ticks it (#242).
     ssh_option: SshOption | None = None
+    #: Optional extras, offered unticked next to the plan (#278).
+    extras: list[SetupExtra] = Field(default_factory=list)
 
 
 class SshOption(BaseModel):
@@ -258,6 +278,8 @@ class SetupRequest(BaseModel):
     ssh_secret: SecretStr | None = None
     ssh_port: int | None = Field(None, ge=1, le=65535)
     ssh_trust: str | None = None
+    #: Ids of the :class:`SetupExtra` the user ticked (#278); with ``remove``: remove them too.
+    extras: list[str] = Field(default_factory=list)
 
 
 class SetupPlan(BaseModel):
@@ -312,6 +334,9 @@ class Remedy(BaseModel):
     transport: str = ""
     #: SSH port shown in the form for this remedy, when it differs from the admin login's.
     port_default: int | None = None
+    #: Only adds what Signalbox reads through (packages, permissions for its own login): needs
+    #: the admin login and a confirmation, but not *Allow changes* (#278, ADR 0012).
+    read_side: bool = False
 
 
 class RemedyRequest(BaseModel):
@@ -420,6 +445,9 @@ class Gap(BaseModel):
     fix: str | None = None
     #: Id of a :class:`Remedy` of the integration that repairs this (#215).
     remedy: str | None = None
+    #: An optional feature is missing (LLDP, #278): shown with its fix, but the device stays
+    #: "ok" and the finding is an info at most.
+    optional: bool = False
 
 
 class Observation(BaseModel):
@@ -707,6 +735,7 @@ class Adapter(ABC):
                         message=gap.message,
                         fix=gap.fix,
                         remedy=gap.remedy,
+                        optional=gap.optional,
                     )
                     for gap in result.incomplete
                 )
@@ -715,7 +744,7 @@ class Adapter(ABC):
                     health[key] = _complete_health(value, now)
                 for key, tvalue in result.time.items():
                     times[key] = _complete_time(tvalue, start, end)
-            if errors:
+            if any(not e.optional for e in errors):
                 status = DeviceStatus.PARTIAL
 
         device = Device(
