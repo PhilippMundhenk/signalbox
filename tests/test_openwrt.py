@@ -38,6 +38,7 @@ from signalbox.adapters.openwrt import (
     supported_from_packages,
     vitals,
     width,
+    wireguard,
 )
 from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
@@ -61,7 +62,7 @@ from signalbox.model import (
     passphrase_digest,
     passphrase_fingerprint,
 )
-from signalbox.sim.openwrt import OpenWrtSim, create_app
+from signalbox.sim.openwrt import WG_KEY, WG_PHONE, WG_SITE_A, OpenWrtSim, _wg_key, create_app
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
 from signalbox.testing import assert_contract, passphrase_digest_key
 
@@ -1262,3 +1263,157 @@ def test_structure_kernel_types() -> None:
     assert out["lan1"] == (PortRole.JACK, ["eth0"], None) and out["lan2"][1] == []
     assert out["v"] == (PortRole.VLAN, ["eth9"], PortKind.VIRTUAL)
     assert out["odd"] == (None, [], None)
+
+
+# --- WireGuard (#152) -----------------------------------------------------------------------
+
+
+async def test_no_tunnels_without_wireguard(adapter: OpenWrtAdapter) -> None:
+    assert (await adapter.read_vpn()).tunnels == []
+
+
+async def test_wireguard_tunnel_and_peers(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    sim.wireguard = True
+    snap = await assert_contract(adapter)
+    (t,) = snap.tunnels
+    assert (t.id, t.name, t.up, t.listen_port, t.mtu) == (
+        "ap1/tunnel/wg0",
+        "wg0",
+        True,
+        51820,
+        1420,
+    )
+    assert t.public_key == WG_KEY and t.port_id == "ap1/port/wg0"
+    assert [str(a) for a in t.addresses] == ["2001:db8:ff::2/64"]
+    site, phone = t.peers
+    assert (site.name, site.public_key, site.endpoint_host, site.endpoint_port) == (
+        "site-a",
+        WG_SITE_A,
+        "203.0.113.10",
+        51820,
+    )
+    assert [str(n) for n in site.allowed_ips] == ["2001:db8:ff::1/128", "192.0.2.0/24"]
+    assert (site.keepalive_seconds, site.preshared_key, site.rx_bytes, site.tx_bytes) == (
+        25,
+        True,
+        1834567,
+        2934871,
+    )
+    age = site.handshake_age(datetime.now(UTC))
+    assert age is not None and 40 <= age < 60
+    assert (phone.name, phone.endpoint_host, phone.latest_handshake, phone.preshared_key) == (
+        "phone",
+        None,
+        None,
+        False,
+    )
+    assert phone.keepalive_seconds == 0 and phone.rx_bytes == 0
+    assert [str(n) for n in t.remote_networks(site)] == ["192.0.2.0/24"]
+    assert [str(n) for n in t.routes or []] == ["2001:db8:ff::1/128", "192.0.2.0/24"]
+
+
+async def test_no_private_or_preshared_key_leaves_the_adapter(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    sim.wireguard = True
+    secrets = [_wg_key("sim-secret-private"), _wg_key("sim-secret-psk")]
+    uci = await adapter.ubus.call("uci", "get", {"config": "network"})
+    assert all(s in str(uci) for s in secrets), "the sample must carry keys to be scrubbed"
+    snap = await adapter.observe()
+    assert not any(s in snap.model_dump_json() for s in secrets)
+    scrubbed = await adapter._uci("network")
+    assert not any(s in str(scrubbed) for s in secrets)
+
+
+async def test_wireguard_without_luci_proto_wireguard(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    sim.wireguard, sim.luci_wireguard = True, False
+    (t,) = (await adapter.read_vpn()).tunnels
+    assert t.public_key is None and t.up is True and len(t.peers) == 2
+    assert all(p.latest_handshake is None and p.rx_bytes is None for p in t.peers)
+
+
+async def test_wireguard_needs_its_acl_entry(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    sim.wireguard = True
+    sim.denied = {"luci.wireguard.getWgInstances"}
+    snap = await adapter.observe()
+    err = next(e for e in snap.errors if e.capability == "vpn")
+    assert snap.tunnels == [] and "denied" in err.message.lower()
+
+
+def test_wireguard_helpers_are_defensive() -> None:
+    uci: dict[str, Any] = {
+        "values": {
+            "a": {
+                ".type": "interface",
+                ".name": "a",
+                "proto": "wireguard",
+                "private_key": "x",
+                "ipaddr": "192.0.2.9",
+                "netmask": "255.255.255.0",
+                "listen_port": "0",
+                "mtu": "9",
+                "disabled": "1",
+            },
+            "p1": {".type": "wireguard_a", "public_key": "bad"},
+            "p2": {
+                ".type": "wireguard_a",
+                "public_key": WG_PHONE,
+                "preshared_key": " ",
+                "endpoint_host": "vpn.example",
+                "allowed_ips": "192.0.2.0/24 nonsense",
+            },
+            "p3": {".type": "wireguard_a", "public_key": WG_PHONE},
+            "odd": "not a section",
+        }
+    }
+    wireguard.scrub(uci)
+    assert "private_key" not in uci["values"]["a"] and "preshared_key" not in str(uci)
+    runtime = wireguard.instances({"a": {"peers": ["x", {}]}})
+    (t,) = wireguard.tunnels(uci, runtime, "d", {}, set())
+    assert (t.up, t.enabled, t.listen_port, t.mtu) == (False, False, None, None)
+    assert [str(a) for a in t.addresses] == ["192.0.2.9/24"]
+    (peer,) = t.peers
+    assert (peer.endpoint_host, peer.endpoint_port) == ("vpn.example", None)
+    assert peer.preshared_key is False
+    assert [str(n) for n in peer.allowed_ips] == ["192.0.2.0/24"]
+    assert wireguard.instances("odd") == {}
+    assert wireguard.instances({"instances": {"a": {}}}) == {"a": {}}
+    assert wireguard._endpoint("[2001:db8::1]:51820") == ("2001:db8::1", 51820)
+    assert wireguard._endpoint("(none)") == (None, None)
+    assert wireguard._endpoint("h:x") == ("h:x", None)
+
+
+def test_wireguard_routes_come_from_route_sections_and_route_allowed_ips() -> None:
+    uci: dict[str, Any] = {
+        "values": {
+            "a": {
+                ".type": "route",
+                "interface": "wg0",
+                "target": "198.51.100.0",
+                "netmask": "255.255.255.0",
+            },
+            "b": {".type": "route6", "interface": "wg0", "target": "2001:db8:20::/64"},
+            "c": {".type": "route", "interface": "lan", "target": "203.0.113.0/24"},
+            "d": {
+                ".type": "route",
+                "interface": "wg0",
+                "target": "203.0.113.0/24",
+                "disabled": "1",
+            },
+            "e": {".type": "route", "interface": "wg0", "target": "nonsense"},
+            "f": {".type": "route", "interface": "wg0"},
+            "g": {
+                ".type": "wireguard_wg0",
+                "route_allowed_ips": "1",
+                "allowed_ips": ["192.0.2.0/24"],
+            },
+            "h": {".type": "wireguard_wg0", "allowed_ips": ["192.0.2.128/25"]},
+        }
+    }
+    assert [str(n) for n in wireguard.routes(uci, "wg0")] == [
+        "198.51.100.0/24",
+        "2001:db8:20::/64",
+        "192.0.2.0/24",
+    ]

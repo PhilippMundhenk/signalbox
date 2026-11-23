@@ -25,6 +25,7 @@ READ_ACL: dict[str, Any] = {
                 "rpc-sys": ["packagelist"],
                 "file": ["read"],
                 "luci.lldpd": ["getStatus"],
+                "luci.wireguard": ["getWgInstances"],
             },
             "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd"],
             "file": {

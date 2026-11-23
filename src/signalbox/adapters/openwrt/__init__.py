@@ -41,7 +41,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.openwrt import discovery as _discovery
-from signalbox.adapters.openwrt import provision, setup, vitals
+from signalbox.adapters.openwrt import provision, setup, vitals, wireguard
 from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import AccessDenied, InvalidArgument, NoData, NotFound, Ubus
 from signalbox.changes import Change, ChangeKind
@@ -657,7 +657,7 @@ class OpenWrtAdapter(Adapter):
         id="openwrt",
         name="OpenWrt",
         version="0.1.0",
-        api_version="1.2",
+        api_version="1.3",
         vendor="OpenWrt",
         roles=frozenset({DeviceRole.AP, DeviceRole.SWITCH, DeviceRole.GATEWAY}),
         capabilities=frozenset(
@@ -670,6 +670,7 @@ class OpenWrtAdapter(Adapter):
                 Capability.NEIGHBOURS,
                 Capability.HEALTH,
                 Capability.TIME,
+                Capability.VPN,
             }
         ),
         config=OpenWrtConfig,
@@ -759,6 +760,8 @@ class OpenWrtAdapter(Adapter):
                 "OpenWrt router (not a firmware built on it with its own configuration) and "
                 "that /etc/config/network exists there.",
             ) from None
+        if config == "network":  # WireGuard keys: dropped on arrival (#152)
+            wireguard.scrub(data)
         return data
 
     async def _network(self, running: bool = True) -> NetworkView:
@@ -1656,6 +1659,31 @@ class OpenWrtAdapter(Adapter):
                 )
 
         await self._twice(attempt)
+
+    # vpn ------------------------------------------------------------------------------
+
+    async def read_vpn(self) -> Observation:
+        """WireGuard interfaces (``proto wireguard``) and their ``wireguard_<if>`` peers from
+        UCI (keys already dropped by :meth:`_uci`), with handshakes and transfer from
+        ``luci.wireguard getWgInstances`` (luci-proto-wireguard) where that is installed (#152)."""
+        uci = await self._uci("network")
+        if not wireguard.interfaces(uci):
+            return Observation(tunnels=[])
+        runtime: dict[str, dict[str, Any]] = {}
+        with contextlib.suppress(NotFound):  # no luci-proto-wireguard: configuration only
+            runtime = wireguard.instances(await self.ubus.call("luci.wireguard", "getWgInstances"))
+        dump = await self.ubus.call("network.interface", "dump")
+        entries = dump.get("interface") if isinstance(dump, dict) else None
+        running = {
+            str(e["interface"]): e
+            for e in entries or []
+            if isinstance(e, dict) and isinstance(e.get("interface"), str)
+        }
+        up = {n: bool(e.get("up")) for n, e in running.items()}
+        status = await self.ubus.call("network.device", "status")
+        ports = set(status) if isinstance(status, dict) else set()  # as read_interfaces names them
+        tunnels = wireguard.tunnels(uci, runtime, self.context.device_id, up, ports)
+        return Observation(tunnels=tunnels)
 
     # neighbours -----------------------------------------------------------------------
 

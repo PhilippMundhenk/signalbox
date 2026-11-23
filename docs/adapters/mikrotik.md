@@ -505,6 +505,27 @@ Registration tables: `/rest/interface/wifi/registration-table`, or
 
 *Guess*: on a bridged port `interface` lists the port and the bridge.
 
+### `/rest/interface/wireguard`, `/rest/interface/wireguard/peers` *(optional)* (vpn, #152)
+
+```json
+[{".id": "*1", "name": "wg0", "mtu": "1420", "listen-port": "51820", "public-key": "...",
+  "running": "true", "disabled": "false", "comment": "site link"}]
+[{".id": "*2", "interface": "wg0", "public-key": "...", "allowed-address": "2001:db8:ff::2/128,203.0.113.0/24",
+  "endpoint-address": "203.0.113.20", "endpoint-port": "51820", "current-endpoint-address": "203.0.113.20",
+  "persistent-keepalive": "25s", "last-handshake": "42s", "rx": "1834567", "tx": "2934871",
+  "name": "peer1", "comment": "site-b", "disabled": "false"}]
+```
+
+Both menus can also return `private-key` (interface; peers of 7.15 and later for client
+configurations) and `preshared-key` (peer). RouterOS shows them only to a user with the
+`sensitive` policy, which the read-only group does not have; a login that has it gets them
+anyway, so the adapter deletes `private-key` and turns `preshared-key` into a flag while
+parsing, and reads these two menus without its answer cache. `last-handshake` is how long ago
+(absent before the first handshake); `comment` names the peer (else `name`, which RouterOS fills with `peer1`, `peer2`, ... itself); addresses come
+from `/ip/address` and `/ipv6/address` of the interface. Without the menu (RouterOS 6, no
+`wireguard` package) there are no tunnels and no error. *Guess*: field names per 7.x release; CI
+(CHR) confirms the interface, the peer, the allowed addresses and the keepalive, not a handshake.
+
 ## Writing
 
 Signalbox changes a RouterOS device only through a reviewed and approved change (see

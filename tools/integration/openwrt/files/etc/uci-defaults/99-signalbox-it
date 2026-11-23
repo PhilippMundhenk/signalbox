@@ -61,6 +61,22 @@ set network.wwan.defaultroute='0'
 set network.wwan.peerdns='0'
 EOF
 
+# --- WireGuard (#152): wg0 with one peer; the keys are made here, at first boot --------------
+uci set network.wg0=interface
+uci set network.wg0.proto='wireguard'
+uci set network.wg0.private_key="$(wg genkey)"
+uci set network.wg0.listen_port='51820'
+uci add_list network.wg0.addresses='2001:db8:ff::1/64'
+uci add network wireguard_wg0 >/dev/null
+uci set network.@wireguard_wg0[-1].description='site-b'
+uci set network.@wireguard_wg0[-1].public_key="$(wg genkey | wg pubkey)"
+uci set network.@wireguard_wg0[-1].preshared_key="$(wg genpsk)"
+uci set network.@wireguard_wg0[-1].endpoint_host='203.0.113.20'
+uci set network.@wireguard_wg0[-1].endpoint_port='51820'
+uci add_list network.@wireguard_wg0[-1].allowed_ips='2001:db8:ff::2/128'
+uci add_list network.@wireguard_wg0[-1].allowed_ips='203.0.113.0/24'
+uci set network.@wireguard_wg0[-1].persistent_keepalive='25'
+
 # --- firewall: everything in the lan zone (the test only needs HTTPS on eth0) ----------------
 for net in mgmt iot wwan; do uci add_list firewall.@zone[0].network="$net"; done
 

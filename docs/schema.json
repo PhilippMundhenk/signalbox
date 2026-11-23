@@ -3864,6 +3864,30 @@
           "default": null,
           "title": "Public Key"
         },
+        "routes": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "format": "ipv4network",
+                    "type": "string"
+                  },
+                  {
+                    "format": "ipv6network",
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Routes"
+        },
         "source": {
           "anyOf": [
             {

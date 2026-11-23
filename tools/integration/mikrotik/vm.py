@@ -423,7 +423,27 @@ def rest_setup(d: Path, keys: dict[str, str]) -> None:
         {"bridge": "bridge", "vlan-ids": "20", "tagged": "bridge,ether3", "comment": "IoT"},
     )
     admin.add("interface/vlan", {"name": "iot", "vlan-id": "20", "interface": "bridge"})
-    admin.add("interface/wireguard", {"name": "wg0"})  # a tunnel interface (port role, #252)
+    # a tunnel interface (port role, #252) with one peer (#152): the peer's key is derived from
+    # a name (a valid key nobody holds the private half of), the interface makes its own
+    admin.add(
+        "interface/wireguard", {"name": "wg0", "listen-port": "51820", "comment": "site link"}
+    )
+    peer_key = base64.b64encode(hashlib.sha256(b"signalbox-it-site-b").digest()).decode()
+    admin.add(
+        "interface/wireguard/peers",
+        {
+            "interface": "wg0",
+            "public-key": peer_key,
+            "comment": "site-b",
+            "endpoint-address": "203.0.113.20",
+            "endpoint-port": "51820",
+            "allowed-address": "2001:db8:ff::2/128,203.0.113.0/24",
+            "persistent-keepalive": "25s",
+        },
+    )
+    admin.add(
+        "ipv6/address", {"address": "2001:db8:ff::1/64", "interface": "wg0", "advertise": "no"}
+    )
     admin.add("ip/address", {"address": "192.0.2.1/24", "interface": "bridge"})
     admin.add("ip/address", {"address": "198.51.100.1/24", "interface": "iot"})
     admin.add(
