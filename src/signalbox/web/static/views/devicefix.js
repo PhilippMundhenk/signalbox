@@ -5,7 +5,7 @@
 // is cleared right after it, on navigation and when left unused. Never runs by itself.
 import { enc, post } from '../api.js';
 import { clear, h, place } from '../util.js';
-import { confirmDialog, run, toast } from '../ui.js';
+import { confirmDialog, field, run, toast } from '../ui.js';
 import { fingerprintText, stepList } from './devicesetup.js';
 import { adminStep, previewList } from './adminstep.js';
 import { testResult } from './devicetest.js';
@@ -23,6 +23,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
   const portDefault = remedy.port_default || login.port_default;
   const transport = remedy.transport || login.transport;
   const out = h('div', { 'data-testid': 'fix-result', 'aria-live': 'polite' });
+  const port = portDefault ? h('input', { type: 'number', min: '1', max: '65535', value: String(portDefault), 'data-testid': 'fix-admin-port' }) : null;
   const planBtn = h('button', { class: 'btn', type: 'button', 'data-testid': 'fix-plan' }, 'Show what it does');
   const url = `/devices/${enc(device.id)}/fix`;
   let trusted = null;
@@ -54,7 +55,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
     place(clear(out), h('p', { class: 'muted' }, 'Fetching the device’s identity (no login is sent)…'));
     try {
       const body = { remedy: remedy.id, admin: { user: login.user_default || '' } };
-      if (portDefault) body.admin.port = portDefault;
+      if (port && port.value) body.admin.port = Number(port.value);
       const plan = await post(url, body);
       const kind = plan.fingerprint_kind === 'certificate' ? 'certificate' : 'SSH host key';
       const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'fix-trust' }, `Trust this ${kind}`);
@@ -79,7 +80,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
   // 3. the temporary password, right before the button
   function showFinal(extraNote) {
     if (step) step.dispose();
-    step = adminStep(login, 'fix', portDefault);
+    step = adminStep(login, 'fix');
     const go = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'fix-apply' }, 'Run: fix it on the device');
     go.addEventListener('click', () => run(go, doApply));
     place(
@@ -101,7 +102,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
       return;
     }
     const admin = { user: step.user(), secret: step.secret() };
-    if (step.port()) admin.port = step.port();
+    if (port && port.value) admin.port = Number(port.value);
     const body = { remedy: remedy.id, admin, trust: trusted, plan_ids: acked };
     const current = step;
     let res;
@@ -147,6 +148,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
     h('p', {}, remedy.description),
     h('p', { class: 'muted small' }, `Signalbox logs in once over ${transport}. First you see what it does and confirm the device’s identity; the admin password is asked for last, used once and never saved. You can also do it by hand, as described above.`),
     login.note ? h('p', { class: 'muted small' }, login.note) : null,
+    port ? field('SSH port', port) : null,
     h('div', { class: 'row' }, planBtn),
     out,
   );

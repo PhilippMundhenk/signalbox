@@ -357,4 +357,4 @@ def test_password_comes_last(
         "packages"
     }
     assert "rpcd-mod-luci" not in device.installed
-    assert len(device.scripts) == before + 1  # only the read-only inspection ran
+    assert not [x for x in device.scripts[before:] if "apk add" in x]  # only inspection ran

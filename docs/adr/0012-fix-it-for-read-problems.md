@@ -80,3 +80,16 @@ permissions it writes include the write part. Remedies that are not read-side st
 now `Gap(optional=True)`: shown with their fix, no *Partly read*, an info finding at most, and
 the automatic setup offers them as unticked extras (`AdminLogin.extras`); *Remove* leaves
 installed packages alone unless the extra is ticked.
+
+## Note (#279): the admin password comes last
+
+In the UI (setup and *Fix it*; see also ADR 0009) the order is: what it does (the integration's static `preview`,
+no credential, nothing sent), the device's identity (SSH host key or certificate, fetched with
+the plan endpoint called **without** `admin.secret`, which sends no credential), and only then a
+small temporary password step right before *Run* ("used once for this step, never saved",
+autocomplete off, cleared right after the request, on cancel, on navigation and after two idle
+minutes). *Apply* takes the password once and, with `plan_ids` (the steps the user saw), first
+plans with it: a step that was not among them stops the run with 409 `plan_changed` and the real
+plan, to be confirmed again; an unconfirmed SSH host key of the optional SSH step answers 409
+`untrusted_ssh` before the SSH password is used. API clients that send no `plan_ids` keep the
+old behaviour. Nothing stores the password, as before.

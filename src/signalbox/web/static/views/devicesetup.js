@@ -37,6 +37,8 @@ export function autoSetup(a, collect, onDone) {
   const login = a.admin_login;
   const remove = h('input', { type: 'checkbox', 'data-testid': 'setup-remove' });
   const out = h('div', { 'data-testid': 'setup-result', 'aria-live': 'polite' });
+  // the port is needed to fetch the identity, so it is asked before: it is no secret
+  const port = login.port_default ? h('input', { type: 'number', min: '1', max: '65535', value: String(login.port_default), 'data-testid': 'setup-admin-port' }) : null;
   const planBtn = h('button', { class: 'btn', type: 'button', 'data-testid': 'setup-plan' }, 'Show what it does');
   let trusted = null;
   let trustedSsh = null;
@@ -90,7 +92,7 @@ export function autoSetup(a, collect, onDone) {
     place(clear(out), h('p', { class: 'muted' }, 'Fetching the device’s identity (no login is sent)…'));
     try {
       const body = { device, admin: { user: login.user_default || '' }, remove: remove.checked, extras: ticked().filter((x) => x !== 'ssh') };
-      if (login.port_default) body.admin.port = login.port_default;
+      if (port && port.value) body.admin.port = Number(port.value);
       const plan = await post('/devices/setup', body);
       const kind = plan.fingerprint_kind === 'certificate' ? 'certificate' : 'SSH host key';
       const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust' }, `Trust this ${kind}`);
@@ -123,7 +125,7 @@ export function autoSetup(a, collect, onDone) {
       sshPort = h('input', { type: 'number', min: '1', max: '65535', value: String(opt.port_default), 'data-testid': 'setup-ssh-port' });
       more.push({ el: h('div', { class: 'ssh-option-fields', 'data-testid': 'setup-ssh-fields' }, field(`${opt.secret_label} (${opt.user})`, sshSecret), field('SSH port', sshPort)), input: sshSecret });
     }
-    step = adminStep(login, 'setup', login.port_default, more);
+    step = adminStep(login, 'setup', more);
     const removing = remove.checked;
     const go = h('button', { class: removing ? 'btn danger' : 'btn primary', type: 'button', 'data-testid': 'setup-apply' }, removing ? 'Run: remove it from the device' : 'Run: set up the device');
     go.addEventListener('click', () => run(go, () => doApply(sshSecret, sshPort)));
@@ -141,14 +143,15 @@ export function autoSetup(a, collect, onDone) {
     const device = collect();
     if (!device || !step) return;
     const removing = remove.checked;
-    if (!step.secret()) return fail(`Enter the ${login.secret_label}.`);
-    if (sshSecret && !sshSecret.value) return fail(`Enter the ${opt.secret_label} (${opt.user}), or untick “${opt.label}”.`);
+    const missing = (text) => step.el.append(h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, text));
+    if (!step.secret()) return missing(`Enter the ${login.secret_label}.`);
+    if (sshSecret && !sshSecret.value) return missing(`Enter the ${opt.secret_label} (${opt.user}), or untick “${opt.label}”.`);
     if (removing && !(await confirmDialog({ title: 'Remove the login?', message: 'Signalbox deletes the login and permissions it set up on the device. It cannot read the device with them afterwards.', confirmLabel: 'Remove', danger: true }))) {
       step.wipe(); // cancelled: the password does not stay in the field
       return;
     }
     const admin = { user: step.user(), secret: step.secret() };
-    if (step.port()) admin.port = step.port();
+    if (port && port.value) admin.port = Number(port.value);
     const body = { device, admin, remove: removing, trust: trusted, extras: ticked().filter((x) => x !== 'ssh'), plan_ids: acked };
     if (sshSecret) {
       body.ssh = { secret: sshSecret.value, trust: trustedSsh };
@@ -205,6 +208,7 @@ export function autoSetup(a, collect, onDone) {
     h('summary', {}, 'Set up automatically with the admin login'),
     h('p', {}, `Signalbox logs in once over ${login.transport}, sets up its own login with the permissions of the setup guide (read-only unless “Allow changes” is on) and fills in the settings below. First you see what it does and confirm the device’s identity; the admin password is asked for last, used once and never saved.`),
     login.note ? h('p', { class: 'muted small' }, login.note) : null,
+    port ? field('SSH port', port) : null,
     opt ? checkField(opt.label, sshOn, opt.note) : null,
     checkField('Remove what Signalbox set up instead', remove, null),
     ...extraFields,

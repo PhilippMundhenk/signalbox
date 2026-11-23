@@ -86,3 +86,16 @@ device the user confirmed, and that the result is no more than the documented ac
 - New dependency `asyncssh` (pure Python on `cryptography`, already a dependency).
 - Verified against the real software in CI (OpenWrt 24.10 and 25.12, OPNsense 26.7, RouterOS
   CHR); details that differ on real hardware are tracked in #21.
+
+## Note (#279): the admin password comes last
+
+In the UI (setup and *Fix it*) the order is: what it does (the integration's static `preview`,
+no credential, nothing sent), the device's identity (SSH host key or certificate, fetched with
+the plan endpoint called **without** `admin.secret`, which sends no credential), and only then a
+small temporary password step right before *Run* ("used once for this step, never saved",
+autocomplete off, cleared right after the request, on cancel, on navigation and after two idle
+minutes). *Apply* takes the password once and, with `plan_ids` (the steps the user saw), first
+plans with it: a step that was not among them stops the run with 409 `plan_changed` and the real
+plan, to be confirmed again; an unconfirmed SSH host key of the optional SSH step answers 409
+`untrusted_ssh` before the SSH password is used. API clients that send no `plan_ids` keep the
+old behaviour. Nothing stores the password, as before.

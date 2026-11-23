@@ -9,12 +9,11 @@ import { field } from '../ui.js';
 const IDLE_MS = 120000;
 
 // login: the integration's admin_login (labels); prefix: test id prefix ("setup" / "fix");
-// portDefault: the SSH/API port to offer (null: no port field); more: further fields (the
+// more: further fields (the
 // optional SSH step's password) as { el, input } entries that are wiped like the password.
-export function adminStep(login, prefix, portDefault, more = []) {
+export function adminStep(login, prefix, more = []) {
   const user = h('input', { type: 'text', value: login.user_default || '', autocomplete: 'off', spellcheck: 'false', 'data-testid': `${prefix}-admin-user` });
   const secret = h('input', { type: 'password', autocomplete: 'new-password', spellcheck: 'false', 'data-testid': `${prefix}-admin-secret` });
-  const port = portDefault ? h('input', { type: 'number', min: '1', max: '65535', value: String(portDefault), 'data-testid': `${prefix}-admin-port` }) : null;
   const note = h('p', { class: 'temporary-note', 'data-testid': `${prefix}-temporary-note` }, 'Used once for this step, never saved. It is cleared from this page as soon as the request is sent.');
   const secrets = [secret, ...more.map((m) => m.input).filter(Boolean)];
   let timer = null;
@@ -42,13 +41,11 @@ export function adminStep(login, prefix, portDefault, more = []) {
     note,
     field(login.user_label || 'Admin user', user),
     field(login.secret_label || 'Password', secret),
-    port ? field('SSH port', port) : null,
     ...more.map((m) => m.el),
   );
   return {
     el,
     user: () => user.value.trim(),
-    port: () => (port && port.value ? Number(port.value) : null),
     secret: () => secret.value,
     // empties every secret field (after the request, on cancel, on navigation)
     wipe,
