@@ -127,11 +127,6 @@ def ctx(**kw: Any) -> AdapterContext:
     )
 
 
-@pytest.fixture(autouse=True)
-def _no_failures() -> None:
-    Fake.fail = {}
-
-
 async def test_observe_builds_a_valid_snapshot() -> None:
     snap = await assert_contract(Fake(ctx()))
     assert snap.status is DeviceStatus.OK
