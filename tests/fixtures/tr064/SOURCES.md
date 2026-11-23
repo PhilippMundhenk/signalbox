@@ -49,6 +49,9 @@ gofritz dump. So the 8.25 files are copied into both version directories unchang
 assumption that 7.57 and 8.02 describe these two services the same way; a box of those versions
 can confirm it (`https://<box>:49443/wanpppconnSCPD.xml`).
 
+The firewall reader (#135) uses `GetGenericPortMappingEntry` of these two descriptions: no new
+file was needed.
+
 AVM also publishes the same descriptions as PDFs per service ("TR-064 First Steps" and the
 `...SCPD.pdf` files on avm.de / fritz.support). When they can be reached, compare these files
 with them; a difference is a bug in the simulator or the adapter.

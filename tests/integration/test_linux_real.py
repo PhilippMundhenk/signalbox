@@ -30,7 +30,14 @@ from signalbox.adapters import AdapterContext, SetupRequest, StepState
 from signalbox.adapters.linux import LinuxAdapter, LinuxConfig
 from signalbox.adapters.linux.setup import SUDOERS_PATH, sudoers, sudoers_path
 from signalbox.adapters.ssh import sha256_hex
-from signalbox.model import DeviceRole, DeviceStatus, Membership, PortRole, Snapshot
+from signalbox.model import (
+    DeviceRole,
+    DeviceStatus,
+    FirewallAction,
+    Membership,
+    PortRole,
+    Snapshot,
+)
 from signalbox.testing import assert_contract
 
 from .conftest import Target
@@ -145,6 +152,31 @@ async def test_read_as_the_documented_user(lx: Target) -> None:
     assert d.time.ntp_server is not None and d.time.ntp_server.enabled
 
 
+async def test_firewall_from_the_real_nft(lx: Target) -> None:
+    """The rules start.sh loads with nft -f (#135), read through the documented sudoers rule."""
+    snap = await observe(context(lx))
+    (fw,) = snap.firewalls
+    assert fw.id == "gw2/firewall" and fw.enabled and fw.rules_complete
+    assert [e for e in snap.errors if e.capability == "firewall"] == []
+    assert fw.input_policy is FirewallAction.DROP and fw.forward_policy is FirewallAction.DROP
+    zones = {z.name: z for z in fw.zones}
+    assert zones["br0"].segments == ["it/segment/native"]
+    assert zones["eth0"].uplinks == ["gw2/uplink/eth0"] and zones["wg0"].tunnels
+    web = next(r for r in fw.rules if r.name == "web from the office")
+    assert [str(n) for n in web.source.networks] == ["203.0.113.0/24"]
+    assert [str(p) for p in web.destination.ports] == ["8080"] and web.exact
+    # ct state accepts are left out, the jump to from_vpn is flattened
+    vpn = next(r for r in fw.rules if r.source.zones == ["wg0"])
+    assert [str(n) for n in vpn.destination.networks] == ["192.0.2.20/32"]
+    assert [str(p) for p in vpn.destination.ports] == ["80", "443"]
+    assert any(r.forwarded for r in fw.rules)
+    (fwd,) = fw.port_forwards
+    assert fwd.name == "nas" and fwd.zones == ["eth0"] and str(fwd.target_address) == "192.0.2.20"
+    assert fwd.target_port == 443 and [str(p) for p in fwd.external_ports] == ["8443"]
+    (nat,) = fw.nat
+    assert nat.masquerade and nat.zones == ["eth0"]
+
+
 async def test_without_the_sudoers_rule_wireguard_is_a_gap(lx: Target) -> None:
     docker(lx, "mv", SUDOERS_PATH, "/root/sudoers.saved")
     try:
@@ -152,8 +184,8 @@ async def test_without_the_sudoers_rule_wireguard_is_a_gap(lx: Target) -> None:
     finally:
         docker(lx, "mv", "/root/sudoers.saved", SUDOERS_PATH)
     assert snap.status is DeviceStatus.PARTIAL
-    assert [e.capability for e in snap.errors] == ["vpn"]
-    assert "wg show" in snap.errors[0].message
+    assert [e.capability for e in snap.errors] == ["vpn", "firewall"]
+    assert "wg show" in snap.errors[0].message and snap.firewalls == []
 
 
 @pytest.mark.parametrize("who", ["root", "admin"])
@@ -183,7 +215,7 @@ async def test_automatic_setup(lx: Target, who: str) -> None:
     assert result.certificate == sha256_hex(fp)
     key = result.secrets["private_key"].get_secret_value()
     snap = await observe(context(lx, username=login, private_key=key))
-    assert snap.tunnels[0].public_key == lx.extra["WG_PUBLIC"]
+    assert snap.tunnels[0].public_key == lx.extra["WG_PUBLIC"] and snap.firewalls
     # the rule on the device is the documented one for this login, in a file of its own
     out = subprocess.run(
         ["docker", "exec", lx.extra["CONTAINER"], "cat", sudoers_path(login)],

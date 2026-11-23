@@ -42,6 +42,7 @@ from signalbox.adapters import (
     AuthFailed,
     Backup,
     Capability,
+    Gap,
     Manifest,
     Observation,
     SystemInfo,
@@ -49,7 +50,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.omada import discovery as _discovery
-from signalbox.adapters.omada import vitals
+from signalbox.adapters.omada import firewall, vitals
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
@@ -62,6 +63,9 @@ from signalbox.model import (
     DeviceRole,
     DhcpPool,
     DhcpServer,
+    Firewall,
+    FirewallAction,
+    FirewallRule,
     Firmware,
     IPAddress,
     IPInterface,
@@ -69,6 +73,7 @@ from signalbox.model import (
     Membership,
     Pmf,
     Port,
+    PortForward,
     PortKind,
     PortMembership,
     PortRole,
@@ -84,6 +89,7 @@ from signalbox.model import (
     Uplink,
     UplinkKind,
     Wlan,
+    firewall_id,
     normalise_mac,
     object_id,
     passphrase_digest,
@@ -487,7 +493,7 @@ class OmadaAdapter(_Adapter):
         id="omada",
         name="TP-Link Omada",
         version="0.2.0",
-        api_version="1.2",
+        api_version="1.4",
         vendor="TP-Link",
         roles=frozenset({DeviceRole.OTHER, DeviceRole.AP, DeviceRole.SWITCH, DeviceRole.GATEWAY}),
         capabilities=frozenset(
@@ -498,11 +504,12 @@ class OmadaAdapter(_Adapter):
                 Capability.CLIENTS,
                 Capability.HEALTH,
                 Capability.TIME,
+                Capability.FIREWALL,
             }
         ),
         config=OmadaConfig,
         description="Reads one site of an Omada controller through its Open API and changes "
-        "its LAN networks, DHCP, switch ports and SSIDs.",
+        "its LAN networks, DHCP, switch ports and SSIDs; reads its gateway ACLs and port forwards.",
         writes=frozenset({ChangeKind.ROUTER, ChangeKind.DHCP, ChangeKind.PORT, ChangeKind.WLAN}),
     )
 
@@ -827,13 +834,7 @@ class OmadaAdapter(_Adapter):
             )
             for d in await self._devices()
         ]
-        uplinks: list[Uplink] = []
-        if gateway is not None:
-            path = f"{self._site_path}/gateways/{gateway.raw_mac}/wan-status"
-            for row in await self._optional_rows(path):
-                uplink = wan_uplink(row, self._prefix(gateway), gateway.extra())
-                if uplink is not None:
-                    uplinks.append(uplink)
+        uplinks = await self._uplinks(gateway) if gateway is not None else []
         return Observation(
             ports=ports,
             segments=segs,
@@ -842,6 +843,62 @@ class OmadaAdapter(_Adapter):
             uplinks=uplinks,
             services=await self._services([m.id for m in managed]),
         )
+
+    # --- firewall -----------------------------------------------------------------------------
+
+    async def read_firewall(self) -> Observation:
+        """The gateway's ACLs and port forwarding (#135), mapped from the Open API description
+        *(guess until a site with a gateway is read, #21)*. A site without a gateway has no
+        firewall to report; an ACL or forwarding list the viewer role cannot read is a gap."""
+        gateway = await self._gateway()
+        if gateway is None:
+            return Observation()
+        owner = self._prefix(gateway)
+        nets = await self._networks()
+        names = firewall.zone_names({n.id: n.name for n in nets.values()})
+        segments = {names[n.id]: n.segment for n in nets.values()}
+        wan = [u.id for u in await self._uplinks(gateway)]
+        zones, policies = firewall.zones_and_policies(segments, wan)
+        gaps: list[Gap] = []
+        rules: list[FirewallRule] = []
+        rules_complete = port_forwards_complete = True
+        try:
+            rules = firewall.acl_rules(await self._rows(f"{self._site_path}/acls"), names)
+        except (NotFound, OmadaError) as exc:
+            rules_complete = False
+            gaps.append(Gap(message=f"firewall: the gateway ACLs are not read ({exc})"))
+        forwards: list[PortForward] = []
+        try:
+            rows = await self._rows(f"{self._site_path}/nat/port-forwardings")
+            forwards = firewall.port_forwards(rows)
+        except (NotFound, OmadaError) as exc:
+            port_forwards_complete = False
+            gaps.append(Gap(message=f"firewall: the port forwarding is not read ({exc})"))
+        return Observation(
+            firewalls=[
+                Firewall(
+                    id=firewall_id(owner),
+                    device_id=owner,
+                    zones=zones,
+                    policies=policies,
+                    forward_policy=FirewallAction.ACCEPT,  # LAN to LAN is routed by default
+                    rules=rules,
+                    rules_complete=rules_complete,
+                    port_forwards=forwards,
+                    port_forwards_complete=port_forwards_complete,
+                )
+            ],
+            incomplete=gaps,
+        )
+
+    async def _uplinks(self, gateway: _Managed) -> list[Uplink]:
+        """The gateway's WAN ports in WAN mode (``wan-status``)."""
+        path = f"{self._site_path}/gateways/{gateway.raw_mac}/wan-status"
+        found = (
+            wan_uplink(row, self._prefix(gateway), gateway.extra())
+            for row in await self._optional_rows(path)
+        )
+        return [u for u in found if u is not None]
 
     async def _services(self, device_ids: list[str]) -> list[ManagementService]:
         """SSH and SNMP of the site (#173). The controller applies both to every device it

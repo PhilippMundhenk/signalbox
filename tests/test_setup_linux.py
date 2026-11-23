@@ -129,8 +129,8 @@ async def test_plan_apply_read_rerun_remove(user: str, secret: str, sudo: str | 
         assert {s.state for s in nothing.steps} == {StepState.UNCHANGED}
 
 
-async def test_without_wireguard_no_sudoers_rule() -> None:
-    box = LinuxSim(wg_installed=False)
+async def test_without_wireguard_or_nft_no_sudoers_rule() -> None:
+    box = LinuxSim(wg_installed=False, nft_installed=False)
     async with serve_ssh(box) as (port, fp):
         result = await LinuxAdapter.apply_setup(request(port, fp))
     assert result.ok

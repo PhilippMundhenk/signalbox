@@ -24,6 +24,43 @@ ip route add 198.51.100.128/25 dev wg0
 sysctl -qw net.ipv4.ip_forward=1 || true
 wg show wg0 public-key > /wg0.pub
 
+# a small nftables firewall (#135): input and forward drop by default, a jump, a named set, one
+# port forward and masquerade. SSH stays open for everyone: the test connects from the Docker host.
+nft -f - <<'END'
+table inet filter {
+  set office { type ipv4_addr; flags interval; elements = { 203.0.113.0/24 } }
+  chain input {
+    type filter hook input priority 0; policy drop;
+    ct state established,related accept
+    ct state invalid drop
+    tcp dport 22 accept comment "ssh"
+    iifname "lo" accept
+    iifname "br0" accept
+    iifname "eth0" ip saddr @office tcp dport 8080 accept comment "web from the office"
+  }
+  chain forward {
+    type filter hook forward priority 0; policy drop;
+    ct state established,related accept
+    iifname "br0" oifname "eth0" accept
+    iifname "eth0" ct status dnat accept comment "port forwards"
+    iifname "wg0" jump from_vpn
+  }
+  chain from_vpn {
+    ip daddr 192.0.2.20 tcp dport { 80, 443 } accept
+  }
+}
+table ip nat {
+  chain prerouting {
+    type nat hook prerouting priority -100;
+    iifname "eth0" tcp dport 8443 dnat to 192.0.2.20:443 comment "nas"
+  }
+  chain postrouting {
+    type nat hook postrouting priority 100;
+    oifname "eth0" masquerade
+  }
+}
+END
+
 # dnsmasq: DHCP and DNS on the LAN, with a reservation and a lease
 cat > /etc/dnsmasq.conf <<'END'
 interface=br0

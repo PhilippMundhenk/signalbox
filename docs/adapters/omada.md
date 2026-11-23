@@ -10,7 +10,7 @@ their DHCP, switch ports, SSIDs ([Changing the site](#changing-the-site)).
 | --- | --- |
 | Adapter id | `omada` |
 | Roles | `other` (recommended: the controller), `ap`, `switch`, `gateway` |
-| Capabilities | interfaces, DHCP, wireless, clients |
+| Capabilities | interfaces, DHCP, wireless, clients, firewall (gateway ACLs, port forwarding) |
 | Writes | router, dhcp, port, wlan (through the controller) |
 | Simulator | `signalbox.sim.omada` (`uvicorn --factory signalbox.sim.omada:create_app`) |
 
@@ -319,6 +319,35 @@ The SSID list leaves out the security settings; Signalbox reads every SSID's own
   3 = 6 GHz) and `ssid`.
 - `lastSeen` is in milliseconds since 1970. A `name` that is just the MAC is no host name.
 - The controller's own managed devices are not reported as clients.
+
+## Firewall (#135)
+
+The `firewall` capability reports the **gateway's** firewall (`<omada device>/gateway-<mac>/firewall`,
+the managed gateway; a site without a gateway reports none). It uses the viewer role like
+everything else and is mapped from the controller's Open API description: the test site in CI
+has no gateway, so none of it is confirmed against a real answer (**#21**). The integration run
+records the description of every path about ACLs, port forwarding and NAT and what these paths
+answer (`tools/integration/omada/dump.py firewall`), to confirm the names below.
+
+- **Zones**: one per LAN network (its name, made unique with its id when two share one), mapped
+  to its segment; `wan` (the gateway's WAN ports in WAN mode, masquerading) when the gateway
+  reports any.
+- **Policies** (the gateway's defaults, not read): every LAN network reaches the gateway, the
+  internet and, with `forward_policy` accept, the other LAN networks; `wan` reaches nothing
+  (to the gateway and to every LAN network: drop).
+- **Rules**: `GET …/sites/{siteId}/acls` *(guess: path and field names)*, rows of `type` 0
+  (gateway; switch and EAP ACLs belong to those devices and are left out) sorted by `index`:
+  `policy` 1 permit and 0 deny, `status`, `protocols` (IP protocol numbers, 256 all),
+  `sourceType`/`sourceIds` and `destinationType`/`destinationIds` (type 0 are LAN network ids; an
+  IP group or IP-port group is not resolved and makes the rule `exact=False`), `direction`:
+  `lanToWan` (LAN zones to `wan`), `lanToLan`, `wanInIds` (`wan` to LAN zones); one rule per
+  direction. VPN directions are not modelled.
+- **Port forwards**: `GET …/sites/{siteId}/nat/port-forwardings` *(guess)*: `name`, `status`,
+  `protocol` (`tcp`, `udp`, `tcp/udp`, `all`), `externalPort` (`8080` or `8000-8100`),
+  `forwardIp`, `forwardPort`; each is a `PortForward` on `wan` with `passes_filter=True`.
+- A list the viewer role cannot read or the controller does not have is a gap and sets
+  `rules_complete` or `port_forwards_complete` to `False`.
+- Not read: EAP ACLs (they filter by SSID), IP group contents, the VPN, DMZ and one-to-one NAT.
 
 ## DHCP leases, options and relay (#183)
 

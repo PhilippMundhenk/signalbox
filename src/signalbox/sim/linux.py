@@ -5,8 +5,8 @@ section from :class:`LinuxSim` (what ``ip -j``, ``ss``, ``df`` ... print, and th
 the setup scripts of :mod:`signalbox.adapters.linux.provision` against a small model of the
 users, their ``authorized_keys`` and ``/etc/sudoers.d``. Anything else fails with status 127.
 Every script received is kept in ``scripts`` (the tests check that nothing that prints a
-private key is ever sent). The WireGuard sections are answered only for root or a user with
-exactly the sudoers rule of the setup guide.
+private key is ever sent). The WireGuard and nft sections are answered only for root or a user
+with exactly the sudoers rule of the setup guide.
 
 Sample data uses documentation addresses and locally administered MACs only.
 
@@ -259,6 +259,7 @@ def default_sections() -> dict[str, str]:
         "isc": "",
         "isc-leases": "",
         "networkd": "",
+        "iptables": "iptables v1.8.9 (nf_tables)\n",
     }
 
 
@@ -274,6 +275,132 @@ def default_wireguard() -> dict[str, str]:
         "transfer": f"wg0\t{PEER_KEY}\t123456\t654321\nwg0\t{PHONE_KEY}\t0\t0\n",
         "persistent-keepalive": f"wg0\t{PEER_KEY}\t25\nwg0\t{PHONE_KEY}\toff\n",
     }
+
+
+def _meta(key: str) -> dict[str, Any]:
+    return {"meta": {"key": key}}
+
+
+def _pay(protocol: str, field_name: str) -> dict[str, Any]:
+    return {"payload": {"protocol": protocol, "field": field_name}}
+
+
+def _eq(left: dict[str, Any], right: Any, op: str = "==") -> dict[str, Any]:
+    return {"match": {"op": op, "left": left, "right": right}}
+
+
+def _rule(
+    chain: str, *expr: dict[str, Any], family: str = "inet", table: str = "filter", **extra: Any
+) -> dict[str, Any]:
+    return {"rule": {"family": family, "table": table, "chain": chain, "expr": list(expr), **extra}}
+
+
+def _state(*names: str) -> dict[str, Any]:
+    return _eq({"ct": {"key": "state"}}, {"set": list(names)}, "in")
+
+
+def default_nft() -> str:
+    """``nft -j list ruleset`` of a small router: input and forward drop by default, a jump to
+    a chain for the VPN, a named set, one port forward and masquerade (documentation addresses)."""
+    accept, drop = {"accept": None}, {"drop": None}
+
+    def chain(name: str, **kw: Any) -> dict[str, Any]:
+        return {"chain": {"family": "inet", "table": "filter", "name": name, **kw}}
+
+    base = {"type": "filter", "prio": 0}
+    objects: list[dict[str, Any]] = [
+        {"metainfo": {"version": "1.0.6", "json_schema_version": 1}},
+        {"table": {"family": "inet", "name": "filter", "handle": 1}},
+        {
+            "set": {
+                "family": "inet",
+                "table": "filter",
+                "name": "office",
+                "type": "ipv4_addr",
+                "flags": ["interval"],
+                "elem": [{"prefix": {"addr": "203.0.113.0", "len": 24}}],
+            }
+        },
+        chain("input", **base, hook="input", policy="drop"),
+        _rule("input", _state("established", "related"), accept),
+        _rule("input", _state("invalid"), drop),
+        _rule("input", _eq(_meta("iifname"), "lo"), accept),
+        _rule("input", _eq(_meta("iifname"), "br0"), accept),
+        _rule(
+            "input",
+            _eq(_meta("iifname"), "eth1.30"),
+            _eq(_pay("udp", "dport"), {"set": [53, 67]}),
+            accept,
+        ),
+        _rule(
+            "input",
+            _eq(_meta("iifname"), "eth0"),
+            _eq(_pay("ip", "saddr"), "@office"),
+            _eq(_pay("tcp", "dport"), 22),
+            accept,
+            comment="ssh from the office",
+        ),
+        _rule("input", _eq(_pay("icmp", "type"), "echo-request"), accept),
+        chain("forward", **base, hook="forward", policy="drop"),
+        _rule("forward", _state("established", "related"), accept),
+        _rule("forward", _eq(_meta("iifname"), "br0"), _eq(_meta("oifname"), "eth0"), accept),
+        _rule("forward", _eq(_meta("iifname"), "eth1.30"), _eq(_meta("oifname"), "eth0"), accept),
+        _rule(
+            "forward",
+            _eq(_meta("iifname"), "eth0"),
+            _eq({"ct": {"key": "status"}}, "dnat", "in"),
+            accept,
+            comment="port forwards",
+        ),
+        _rule("forward", _eq(_meta("iifname"), "wg0"), {"jump": {"target": "from_vpn"}}),
+        chain("from_vpn"),
+        _rule(
+            "from_vpn",
+            _eq(_pay("ip", "daddr"), "192.0.2.20"),
+            _eq(_pay("tcp", "dport"), {"set": [80, 443]}),
+            accept,
+        ),
+        {"table": {"family": "ip", "name": "nat", "handle": 2}},
+        {
+            "chain": {
+                "family": "ip",
+                "table": "nat",
+                "name": "prerouting",
+                "type": "nat",
+                "hook": "prerouting",
+                "prio": -100,
+                "policy": "accept",
+            }
+        },
+        _rule(
+            "prerouting",
+            _eq(_meta("iifname"), "eth0"),
+            _eq(_pay("tcp", "dport"), 8443),
+            {"dnat": {"addr": "192.0.2.20", "port": 443, "family": "ip"}},
+            family="ip",
+            table="nat",
+            comment="nas",
+        ),
+        {
+            "chain": {
+                "family": "ip",
+                "table": "nat",
+                "name": "postrouting",
+                "type": "nat",
+                "hook": "postrouting",
+                "prio": 100,
+                "policy": "accept",
+            }
+        },
+        _rule(
+            "postrouting",
+            _eq(_meta("oifname"), "eth0"),
+            {"masquerade": None},
+            family="ip",
+            table="nat",
+        ),
+    ]
+    return json.dumps({"nftables": objects})
 
 
 def default_time() -> dict[str, str]:
@@ -321,6 +448,9 @@ class LinuxSim:
 
     sections: dict[str, str] = field(default_factory=default_sections)
     wireguard: dict[str, str] = field(default_factory=default_wireguard)
+    #: ``nft -j list ruleset``
+    nft: str = field(default_factory=default_nft)
+    nft_installed: bool = True
     time: dict[str, str] = field(default_factory=default_time)
     users: dict[str, User] = field(default_factory=default_users)
     sudoers_files: dict[str, str] = field(default_factory=dict)
@@ -346,6 +476,17 @@ class LinuxSim:
                 if self.wg_installed and not self.wg_allowed(user):
                     out.append("@@wg-denied")
                 out.append(f"@@wg-tool\n{'/usr/bin/wg' if self.wg_installed else 'none'}")
+                continue
+            if name == "nft-denied":
+                continue
+            if name == "nft-tool":
+                if self.nft_installed and not self.wg_allowed(user):
+                    out.append("@@nft-denied")
+                out.append(f"@@nft-tool\n{'/usr/sbin/nft' if self.nft_installed else 'none'}")
+                continue
+            if name == "nft":
+                text = self.nft if self.nft_installed and self.wg_allowed(user) else ""
+                out.append(f"@@nft\n{text}" if text else "@@nft")
                 continue
             if name.startswith("wg-"):
                 text = ""
@@ -417,6 +558,9 @@ class LinuxSim:
             out.append("@@wg")
             if self.wg_installed:
                 out.append("/usr/bin/wg")
+            out.append("@@nft")
+            if self.nft_installed:
+                out.append("/usr/sbin/nft")
             out.append("@@end")
             return 0, ("\n".join(out) + "\n").encode(), ""
         if step == "user":

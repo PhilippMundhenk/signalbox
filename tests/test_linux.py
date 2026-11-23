@@ -185,9 +185,10 @@ async def test_wireguard_without_sudoers_is_a_gap() -> None:
     async with adapter_for(box) as adapter:
         snap = await adapter.observe()
     assert snap.status is DeviceStatus.PARTIAL
-    (err,) = snap.errors
-    assert err.capability == "vpn"
+    err = next(e for e in snap.errors if e.capability == "vpn")
     assert "wg show" in err.message and err.fix and "sudoers" in err.fix
+    assert {e.capability for e in snap.errors} == {"vpn", "firewall"}
+    assert snap.firewalls == []  # not read: never "filters nothing"
     (tunnel,) = snap.tunnels
     assert tunnel.public_key is None and tunnel.peers == [] and tunnel.up is True
 

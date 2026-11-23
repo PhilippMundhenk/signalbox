@@ -26,6 +26,9 @@ WG_FIELDS = (
     "transfer",
     "persistent-keepalive",
 )
+#: The one nftables command that needs ``CAP_NET_ADMIN``; the sudoers rule allows exactly this.
+NFT = "/usr/sbin/nft"
+NFT_ARGS = "-j list ruleset"
 #: Words that must never appear in a command sent to the device (checked by the tests).
 FORBIDDEN = ("dump", "private-key", "preshared-key", "/etc/wireguard", "showconf")
 
@@ -117,6 +120,15 @@ if [ -n "$W" ]; then
   else echo @@wg-denied; fi
 fi
 echo @@wg-tool; echo "${W:-none}"
+N=$(command -v nft 2>/dev/null); J=""
+if [ -n "$N" ]; then
+  if J=$("$N" -j list ruleset 2>/dev/null); then :
+  elif J=$(sudo -n "$N" -j list ruleset 2>/dev/null); then :
+  else J=""; echo @@nft-denied; fi
+fi
+echo @@nft-tool; echo "${N:-none}"
+echo @@nft; printf '%s\\n' "$J"
+echo @@iptables; iptables -V 2>/dev/null
 """
     + _WG
     + "echo @@end\n"

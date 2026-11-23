@@ -6,8 +6,9 @@ answer: ``ip -j`` links, addresses and routes to ports (with their roles, ADR 00
 subnets and the uplink (default route); sshd's configuration to the SSH service; dnsmasq, Kea,
 ISC dhcpd and systemd-networkd configuration and lease files to DHCP servers; dnsmasq, AdGuard
 Home, Pi-hole and Unbound to DNS services; ``/proc`` and ``df`` to health; ``timedatectl`` and
-chrony to time; ``wg show all <field>`` (root, or the sudoers rule of the setup guide) to the
-WireGuard tunnels. Nothing needs root except ``wg``; nothing that prints a private key is run.
+chrony to time; ``wg show all <field>`` and ``nft -j list ruleset`` (root, or the sudoers rule
+of the setup guide) to the WireGuard tunnels and the firewall (#135). Nothing needs root except
+``wg`` and ``nft``; nothing that prints a private key is run.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from signalbox.adapters import (
     UntrustedCertificate,
     UntrustedHostKey,
 )
-from signalbox.adapters.linux import clock, collect, dhcp, parse, setup, wireguard
+from signalbox.adapters.linux import clock, collect, dhcp, nftables, parse, setup, wireguard
 from signalbox.adapters.linux.collect import Answer
 from signalbox.adapters.ssh import PinnedSsh, load_private_key
 from signalbox.discovery import Candidate, HostProbe
@@ -47,6 +48,8 @@ from signalbox.model import (
     DhcpServer,
     DnsForwarder,
     DnsService,
+    Firewall,
+    FirewallZone,
     Firmware,
     IPAddress,
     IPInterface,
@@ -62,6 +65,7 @@ from signalbox.model import (
     TunnelPeer,
     Uplink,
     UplinkKind,
+    firewall_id,
     object_id,
     port_id,
     segment_id,
@@ -125,8 +129,8 @@ class UntrustedSshHostKey(UntrustedCertificate):
 LINUX_STEPS = (
     "Create a user signalbox without sudo and give it a login key (commands below). Or let "
     "Signalbox do it: Set up automatically, with root or a sudo user.",
-    "Only with WireGuard: add the sudoers rule of the commands; it allows exactly the "
-    "read-only wg show commands.",
+    "Only with WireGuard or nftables: add the sudoers rule of the commands; it allows "
+    "exactly the read-only wg show commands and nft -j list ruleset.",
     "Below: the address, user signalbox and the private key. Then Test connection and trust "
     "the SSH host key (compare it with ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub).",
 )
@@ -137,7 +141,7 @@ class LinuxAdapter(Adapter):
         id="linux",
         name="Linux (Debian, Raspberry Pi OS)",
         version="0.1.0",
-        api_version="1.3",
+        api_version="1.4",
         vendor="Linux",
         roles=frozenset({DeviceRole.GATEWAY, DeviceRole.OTHER}),
         capabilities=frozenset(
@@ -148,13 +152,14 @@ class LinuxAdapter(Adapter):
                 Capability.HEALTH,
                 Capability.TIME,
                 Capability.VPN,
+                Capability.FIREWALL,
             }
         ),
         config=LinuxConfig,
         description=(
             "Reads a Debian-based Linux gateway (Raspberry Pi OS, Ubuntu) over SSH with a user "
             "of its own: ip, /proc, sshd, dnsmasq/Kea/ISC/networkd DHCP, chrony/timesyncd, "
-            "WireGuard through a sudoers rule for wg show."
+            "WireGuard and nftables through a sudoers rule for wg show and nft -j list ruleset."
         ),
         setup_steps=LINUX_STEPS,
         setup_commands=setup.commands(),
@@ -166,7 +171,7 @@ class LinuxAdapter(Adapter):
             port_default=22,
             note="A login that may use sudo (Raspberry Pi OS: the first user) or root, with "
             "a password over SSH. Signalbox creates the user signalbox with a key of its own, "
-            "and the sudoers rule for wg show if WireGuard is installed.",
+            "and the sudoers rule for wg show and nft if they are installed.",
         ),
     )
 
@@ -345,6 +350,101 @@ class LinuxAdapter(Adapter):
                 )
             )
         return Observation(tunnels=tunnels, incomplete=gaps)
+
+    # firewall ----------------------------------------------------------------------------
+
+    async def read_firewall(self) -> Observation:
+        """``nft -j list ruleset`` (iptables-nft shows up there too). Without the permission
+        nothing is reported (not read) and a gap says what to add; ``iptables-legacy`` rules
+        cannot be read, which makes the rules incomplete."""
+        a = self.answer
+        d = self.context.device_id
+        lay = self._layout()
+        fix = (
+            "Add the sudoers rule of the setup guide "
+            f"({setup.sudoers_path(self.config.username)}), or run Set up automatically again."
+        )
+        tool = a.text("nft-tool").strip()
+        iptables = a.text("iptables").strip()
+        if tool in ("", "none"):
+            if not iptables:
+                return Observation(
+                    firewalls=[Firewall(id=firewall_id(d), device_id=d, enabled=False)]
+                )
+            kind = "legacy" if "legacy" in iptables else "iptables"
+            return Observation(
+                firewalls=[
+                    Firewall(
+                        id=firewall_id(d),
+                        device_id=d,
+                        rules_complete=False,
+                        port_forwards_complete=False,
+                    )
+                ],
+                incomplete=[
+                    Gap(
+                        message=f"firewall: only {kind} iptables is installed, there is no nft "
+                        "command to read its rules",
+                        fix="Install nftables (the iptables-nft backend shows its rules there).",
+                    )
+                ],
+            )
+        if a.has("nft-denied"):
+            return Observation(
+                incomplete=[
+                    Gap(message="firewall: nft list ruleset is not allowed for this user", fix=fix)
+                ]
+            )
+        try:
+            parsed = nftables.parse(a.text("nft"))
+        except ValueError as exc:
+            return Observation(incomplete=[Gap(message=f"firewall: {exc}")])
+        gaps = [Gap(message=m) for m in parsed.gaps]
+        complete = parsed.complete
+        if "legacy" in iptables:
+            complete = False
+            gaps.append(
+                Gap(
+                    message="firewall: iptables-legacy is in use; its rules are not visible to "
+                    "nft and are not read",
+                    fix="Switch to the nf_tables backend (update-alternatives --set iptables "
+                    "/usr/sbin/iptables-nft).",
+                )
+            )
+        zones = [self._zone(lay, name) for name in sorted(parsed.zone_names)]
+        return Observation(
+            firewalls=[
+                Firewall(
+                    id=firewall_id(d),
+                    device_id=d,
+                    enabled=parsed.enabled or not complete,
+                    zones=zones,
+                    input_policy=parsed.input_policy,
+                    forward_policy=parsed.forward_policy,
+                    rules=parsed.rules,
+                    rules_complete=complete,
+                    nat=parsed.nat,
+                    port_forwards=parsed.port_forwards,
+                    port_forwards_complete=parsed.port_forwards_complete and complete,
+                )
+            ],
+            incomplete=gaps,
+        )
+
+    def _zone(self, lay: _Layout, name: str) -> FirewallZone:
+        """The zone of one interface: a segment, the uplink, the tunnel or a bare port."""
+        d = self.context.device_id
+        if name in lay.networks:
+            return FirewallZone(name=name, segments=[lay.networks[name][0]])
+        if any(u.name == name for u in lay.uplinks):
+            return FirewallZone(name=name, uplinks=[object_id(d, "uplink", name)])
+        link = lay.links.get(name)
+        if link is not None and link.kind == "wireguard":
+            return FirewallZone(name=name, tunnels=[object_id(d, "tunnel", name)])
+        if name in lay.ports:
+            return FirewallZone(name=name, ports=[port_id(d, name)])
+        # the loopback maps to nothing by design; a wildcard or a vanished interface does not
+        return FirewallZone(name=name, complete=name == "lo")
 
     def _services(self, lay: _Layout) -> list[ManagementService]:
         a = self.answer

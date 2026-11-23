@@ -35,6 +35,9 @@ def start(work: Path) -> None:
 
     work.mkdir(parents=True, exist_ok=True)
     sh("sudo", "modprobe", "-a", "dummy", "8021q", "bridge", "wireguard")
+    # nftables in the container uses the host's kernel modules (a missing one: the test shows it)
+    for module in ("nf_tables", "nft_ct", "nft_nat", "nft_masq", "nft_chain_nat", "nf_nat"):
+        sh("sudo", "modprobe", module, check=False)
     sh("docker", "build", "-q", "-t", IMAGE, str(HERE))
     sh("docker", "rm", "-f", NAME, check=False, capture_output=True)
     sh(

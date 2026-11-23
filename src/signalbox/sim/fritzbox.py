@@ -296,6 +296,40 @@ def wan_info(ppp: bool, active: bool, up: bool, wan: str) -> dict[str, str]:
     return info
 
 
+def port_mapping(
+    external: int,
+    protocol: str,
+    internal: int,
+    client: str,
+    description: str,
+    *,
+    enabled: bool = True,
+    remote: str = "",
+    lease: int = 0,
+) -> dict[str, str]:
+    """``GetGenericPortMappingEntry`` of WANIPConnection:1/WANPPPConnection:1."""
+    return {
+        "NewRemoteHost": remote,
+        "NewExternalPort": str(external),
+        "NewProtocol": protocol,
+        "NewInternalPort": str(internal),
+        "NewInternalClient": client,
+        "NewEnabled": "1" if enabled else "0",
+        "NewPortMappingDescription": description,
+        "NewLeaseDuration": str(lease),
+    }
+
+
+#: Port sharing of the sample box (documentation addresses): a NAS web interface, a game server,
+#: a disabled SSH forward, one only for a source network.
+PORT_MAPPINGS = [
+    port_mapping(8443, "TCP", 443, "192.0.2.20", "NAS"),
+    port_mapping(27015, "UDP", 27015, "192.0.2.30", "Game server"),
+    port_mapping(2222, "TCP", 22, "192.0.2.21", "SSH (off)", enabled=False),
+    port_mapping(5060, "UDP", 5060, "192.0.2.40", "Phone", remote="203.0.113.0/24"),
+]
+
+
 class NotSimulated(Exception):
     """An action of the description that the simulator does not implement (fault 501)."""
 
@@ -358,6 +392,10 @@ class FritzboxSim:
     wan: str = "dsl"
     #: the connection is up (else ``Disconnected``, uptime 0)
     wan_up: bool = True
+    #: port sharing of the active internet connection (``GetGenericPortMappingEntry``)
+    port_mappings: list[dict[str, str]] = field(
+        default_factory=lambda: [dict(m) for m in PORT_MAPPINGS]
+    )
     #: every authenticated SOAP call that named an existing service: (service, action, args)
     calls: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
     #: seconds since the last start (``DeviceInfo GetInfo`` ``NewUpTime``)
@@ -489,7 +527,7 @@ class FritzboxSim:
         if name == "WLANConfiguration":
             return self._wlan(int(number), action, args)
         if name in ("WANPPPConnection", "WANIPConnection", "WANCommonInterfaceConfig"):
-            return self._wan(name, action)
+            return self._wan(name, action, args)
         if name == "Hosts":
             if action == "GetHostNumberOfEntries":
                 return {"NewHostNumberOfEntries": str(len(HOSTS))}
@@ -500,7 +538,7 @@ class FritzboxSim:
                 return {"NewX_AVM-DE_HostListPath": self.host_list_path or self.list_path}
         raise NotSimulated(f"{service} {action}")
 
-    def _wan(self, name: str, action: str) -> dict[str, str]:
+    def _wan(self, name: str, action: str, args: dict[str, str]) -> dict[str, str] | int:
         if name == "WANCommonInterfaceConfig":
             if action != "GetCommonLinkProperties":
                 raise NotSimulated(f"{name} {action}")
@@ -527,6 +565,10 @@ class FritzboxSim:
             return {"NewExternalIPAddress": info["NewExternalIPAddress"]}
         if action == "X_GetDNSServers":
             return {"NewDNSServers": info["NewDNSServers"]}
+        if action == "GetGenericPortMappingEntry":
+            index = int(args["NewPortMappingIndex"])
+            rows = self.port_mappings if active else []
+            return dict(rows[index]) if index < len(rows) else 713
         raise NotSimulated(f"{name} {action}")
 
     @property

@@ -10,7 +10,9 @@ answers go to DIR/api-<GROUP>.json. Only the throw-away controller's data is in 
 ``detail`` (SSIDs and networks in full), ``auth`` (refusals: a wrong secret, a bogus token,
 a write with the viewer role), ``services`` (the site's SSH and SNMP settings, #173) or
 ``spec`` (the fields of the managed-device answers and the services' own descriptions from the
-controller's own Open API description). Ten notices per call (the limit of one step).
+controller's own Open API description), ``firewall`` (every path about ACLs, port forwarding
+and NAT of that description, with its answer fields, and what the paths answer, #135).
+Ten notices per call (the limit of one step).
 """
 
 from __future__ import annotations
@@ -99,6 +101,56 @@ def spec() -> dict[str, Any]:
     return out
 
 
+def firewall_spec() -> dict[str, Any]:
+    """The controller's own Open API description of everything about gateway ACLs, port
+    forwarding, NAT and firewalls (#135): each path with its methods and, for GET, the fields
+    of the answer, so the adapter's names can be confirmed without a gateway. The paths are
+    also asked for real (the viewer role): the test site has no gateway, but a site-level list
+    answers with an empty page and shows that the path exists."""
+    _, doc = controller.request("GET", "/v3/api-docs")
+    schemas = doc.get("components", {}).get("schemas", {}) if isinstance(doc, dict) else {}
+    paths = doc.get("paths", {}) if isinstance(doc, dict) else {}
+
+    def fields(node: Any, depth: int = 0) -> Any:
+        if not isinstance(node, dict) or depth > 8:
+            return None
+        if "$ref" in node:
+            return fields(schemas.get(node["$ref"].rsplit("/", 1)[-1], {}), depth + 1)
+        if node.get("type") == "array":
+            return [fields(node.get("items"), depth + 1)]
+        props = node.get("properties")
+        if not props:
+            text = (node.get("description") or "")[:100]
+            return f"{node.get('type')} {text}".strip()
+        return {k: fields(v, depth + 1) for k, v in props.items()}
+
+    words = ("acl", "port-forward", "portforward", "/nat", "firewall", "virtual-server")
+    out: dict[str, Any] = {}
+    for path in sorted(paths):
+        if not path.startswith("/openapi/") or not any(w in path.lower() for w in words):
+            continue
+        methods = sorted(m.upper() for m in paths[path])
+        entry: dict[str, Any] = {"methods": methods}
+        op = paths[path].get("get", {})
+        content = op.get("responses", {}).get("200", {}).get("content", {})
+        body = [fields(c.get("schema")) for c in content.values()]
+        entry["get"] = body[0].get("result") if body and isinstance(body[0], dict) else body
+        out[path] = {"method": "SPEC", "path": path, "status": 200, "body": entry}
+    h = bearer()
+    for path in list(out):
+        if "GET" not in out[path]["body"]["methods"]:
+            continue
+        real = path.replace("{omadacId}", OID).replace("{siteId}", SID)
+        if "{" in real:
+            continue  # a gateway or an object this site does not have
+        try:
+            status, answer = controller.request("GET", real + PAGE, None, h)
+        except OSError as exc:
+            status, answer = 0, repr(exc)
+        out[f"answer {path}"] = {"method": "GET", "path": real, "status": status, "body": answer}
+    return out
+
+
 def calls(group: str) -> list[tuple[str, str, str, Any, dict[str, str]]]:
     """(label, method, path, body, headers)"""
     if group == "read":
@@ -165,8 +217,8 @@ def main(d: Path, group: str, part: int) -> None:
     cached = d / f"api-{group}.json"
     if part and cached.exists():
         full = json.loads(cached.read_text())
-    elif group == "spec":
-        full = spec()
+    elif group in ("spec", "firewall"):
+        full = spec() if group == "spec" else firewall_spec()
         cached.write_text(json.dumps(full, indent=1))
     else:
         full = {}
