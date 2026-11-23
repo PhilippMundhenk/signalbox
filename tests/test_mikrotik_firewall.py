@@ -330,3 +330,12 @@ def test_odd_nat_rows() -> None:
     assert str(one.external_address) == "203.0.113.7" and not one.enabled
     assert one.protocols == [FirewallProtocol.ICMP] and one.exact
     assert len(rules) == 2  # the IPsec-only masquerade never matches
+
+
+async def test_menus_the_group_may_not_read(url: str, sim: MikrotikSimulator) -> None:
+    sim.fail[RAW] = 500
+    sim.fail[POLICY] = 500
+    out = await read(url)
+    assert not out.rules_complete  # raw rules unknown
+    assert not any(r.exact for r in out.rules if r.name and "ipsec" in r.name)
+    assert not out.nat[0].exact  # ipsec-policy out,none may depend on IPsec

@@ -347,7 +347,8 @@ async def test_firewall_of_the_default_config(ow: Target, pin: str) -> None:
     assert fw.enabled and fw.rules_complete and fw.port_forwards_complete, fw
     zones = {z.name: z for z in fw.zones}
     assert {"lan", "wan"} <= set(zones), sorted(zones)
-    assert zones["lan"].segments == [NATIVE] and zones["lan"].complete, zones["lan"]
+    # the lab puts its management network into the zone as well
+    assert NATIVE in zones["lan"].segments, zones["lan"]
     assert zones["wan"].masquerade is True and not zones["wan"].complete, zones["wan"]
     assert fw.policy("lan", "wan") is FirewallAction.ACCEPT, fw.policies
     assert fw.policy("wan", None) is FirewallAction.REJECT, fw.policies

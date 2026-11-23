@@ -915,6 +915,13 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         except NotFound:
             return []
 
+    async def _readable(self, endpoint: str) -> list[dict[str, Any]] | None:
+        """A menu that may be missing (empty) or refused to this user (``None``)."""
+        try:
+            return await self._optional_rows(endpoint)
+        except AdapterError:
+            return None
+
     def _seg(self, vid: int | None) -> str:
         return segment_id(self.context.site_id, vid)
 
@@ -2006,7 +2013,11 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         filter4 = await self._rows(FW_FILTER)
         filter6 = await self._optional_rows(FW_FILTER6)  # no ipv6 package
         nat_rows = await self._optional_rows(FW_NAT)
-        raw = await self._optional_rows(FW_RAW)
+        # a menu the group may not read (``ipsec``, ``raw`` can need more than ``read``) is
+        # not known: raw rules then count as a drop, IPsec policies as present
+        raw = await self._readable(FW_RAW)
+        if raw is None:
+            raw = [{"action": "drop"}]
         entries = [
             *await self._optional_rows(FW_ADDRESS_LIST),
             *await self._optional_rows(FW_ADDRESS_LIST6),
@@ -2018,8 +2029,8 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         )
         # a template policy is no IPsec traffic; without a real one ``ipsec-policy`` rules
         # (the defaults of RouterOS have some) can never match
-        policies = await self._optional_rows(IPSEC_POLICY)
-        lists.ipsec = any(
+        policies = await self._readable(IPSEC_POLICY)
+        lists.ipsec = policies is None or any(
             _active(p) and not _flag(p.get("template")) and not _flag(p.get("dynamic"))
             for p in policies
         )

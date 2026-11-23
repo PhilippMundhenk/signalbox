@@ -190,6 +190,8 @@ def firewall_data() -> dict[str, Any]:
             "IoT: the internet",
             "opt1",
             source_net="opt1",
+            destination_net="(self)",
+            destination_not="1",
             sort_order="300000.0000003",
             sequence="3",
         ),

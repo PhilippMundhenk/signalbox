@@ -496,8 +496,12 @@ def firewall_setup(d: Path, root: dict[str, str]) -> None:
         },
         d,
     )
-    checked(root, "/api/firewall/alias/reconfigure", {}, d)
-    checked(root, "/api/firewall/filter/apply", {}, d)
+    # these answer {"status": "OK\n\n"}: apply them and look at the answer ourselves
+    for path in ("/api/firewall/alias/reconfigure", "/api/firewall/filter/apply"):
+        answer = api(root, "POST", path, {})
+        log(f"POST {path} -> {answer}")
+        if "ok" not in str(answer).lower():
+            fail("API setup call refused", f"POST {path} -> {answer}", d)
 
 
 def wireguard_setup(d: Path, root: dict[str, str]) -> None:
