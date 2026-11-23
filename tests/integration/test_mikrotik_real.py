@@ -45,7 +45,7 @@ from signalbox.deploy import Deployer
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
 from signalbox.merge import merge
-from signalbox.model import DeviceRole, FrameTypes, NatClass, Network, UplinkKind
+from signalbox.model import DeviceRole, FrameTypes, LeaseState, NatClass, Network, UplinkKind
 from signalbox.model import DeviceStatus as ReadStatus
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
@@ -107,7 +107,9 @@ def configuration(net: Network) -> Any:
 
     def strip(value: Any) -> Any:
         if isinstance(value, dict):
-            return {k: strip(v) for k, v in value.items() if k not in ("observed_at", "up")}
+            return {
+                k: strip(v) for k, v in value.items() if k not in ("observed_at", "up", "leases")
+            }
         if isinstance(value, list):
             return [strip(v) for v in value]
         return value
@@ -285,6 +287,13 @@ async def test_mapping_of_the_configured_router(rt: dict[str, str]) -> None:
     assert ip_address("192.0.2.1") in dns.listen
     assert ip_address("198.51.100.1") in dns.listen
     assert dhcp.ntp_servers == []  # "ntp-server": "" on the network
+    # leases (#183): the static lease nobody uses is `waiting`; 7.25.1 has no `authoritative`
+    assert dhcp.leases is not None
+    static = next(x for x in dhcp.leases if str(x.address) == "192.0.2.10")
+    assert (static.reserved, static.mac) == (True, "02:00:00:00:00:10"), static
+    assert static.state in (LeaseState.RESERVED, LeaseState.ACTIVE), static
+    assert dhcp.authoritative is None  # RouterOS 7.25.1 has no `authoritative` on the server
+    assert net.dhcp_relays == []
 
 
 async def test_health_and_time_of_chr(rt: dict[str, str]) -> None:

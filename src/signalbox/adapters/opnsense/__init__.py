@@ -26,7 +26,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from ipaddress import IPv6Network, ip_address, ip_interface, ip_network
 from typing import Any
 
@@ -57,7 +57,12 @@ from signalbox.model import (
     AddressSource,
     Client,
     DeviceRole,
+    DhcpBoot,
+    DhcpLease,
+    DhcpOption,
     DhcpPool,
+    DhcpRelay,
+    DhcpRoute,
     DhcpServer,
     DnsForwarder,
     DnsService,
@@ -65,6 +70,7 @@ from signalbox.model import (
     HostRecord,
     IPAddress,
     IPInterface,
+    LeaseState,
     ManagementService,
     Membership,
     Port,
@@ -102,6 +108,9 @@ KEA = "/api/kea/dhcpv4/get"
 KEA_SUBNETS = "/api/kea/dhcpv4/search_subnet"
 KEA_RESERVATIONS = "/api/kea/dhcpv4/search_reservation"
 KEA_LEASES = "/api/kea/leases4/search"
+KEA_PEERS = "/api/kea/dhcpv4/search_peer"
+DHCRELAY = "/api/dhcrelay/settings/search_relay"
+DHCRELAY_DEST = "/api/dhcrelay/settings/search_dest"
 ISC_STATUS = "/api/dhcpv4/service/status"
 ISC_LEASES = "/api/dhcpv4/leases/search_lease"
 UNBOUND = "/api/unbound/settings/get"
@@ -241,6 +250,83 @@ def _mac(value: Any) -> str | None:
         return normalise_mac(_text(value))
     except ValueError:
         return None
+
+
+_ISC_STATES = {
+    "active": LeaseState.ACTIVE,
+    "expired": LeaseState.EXPIRED,
+    "free": LeaseState.EXPIRED,
+    "backup": LeaseState.EXPIRED,
+    "abandoned": LeaseState.DECLINED,
+}
+_ROUTE = re.compile(r"(\d+\.\d+\.\d+\.\d+/\d+)\D+?(\d+\.\d+\.\d+\.\d+)")
+
+
+def _when(value: Any) -> datetime | None:
+    """An epoch (number or text) or an ISC date (``2026/11/22 10:00:00``, UTC) as UTC time."""
+    number = _int(value)
+    if number is not None:
+        return datetime.fromtimestamp(number, UTC) if number > 0 else None
+    text = _text(value)
+    for fmt in ("%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    return None
+
+
+def _valid_route(destination: str, gateway: str) -> bool:
+    try:
+        return (
+            ip_network(destination, strict=False).version == 4 and ip_address(gateway).version == 4
+        )
+    except ValueError:
+        return False
+
+
+def _segment_key(segment: str) -> str:
+    key = segment.rsplit("/", 1)[-1]
+    return "lan" if key == "native" else key
+
+
+def _kea_lease(row: dict[str, Any]) -> DhcpLease | None:
+    address = _addr(row.get("address"))
+    mac, client_id = _mac(row.get("hwaddr")), _text(row.get("client_id")) or None
+    if address is None or (mac is None and client_id is None):
+        return None
+    expires = _when(row.get("expire"))
+    lifetime = _int(row.get("valid_lifetime"))
+    state = {0: LeaseState.ACTIVE, 1: LeaseState.DECLINED, 2: LeaseState.EXPIRED}.get(
+        _int(row.get("state")) or 0, LeaseState.ACTIVE
+    )
+    return DhcpLease(
+        address=address,
+        mac=mac,
+        client_id=client_id,
+        hostname=_text(row.get("hostname")) or None,
+        state=state,
+        starts=expires - timedelta(seconds=lifetime) if expires and lifetime else None,
+        expires=expires,
+    )
+
+
+def _isc_lease(row: dict[str, Any]) -> DhcpLease | None:
+    address, mac = _addr(row.get("address")), _mac(row.get("mac"))
+    if address is None or mac is None:
+        return None
+    static = _text(row.get("type")) == "static"
+    raw = _text(row.get("state")).lower()
+    state = _ISC_STATES.get(raw, LeaseState.RESERVED if static else LeaseState.ACTIVE)
+    return DhcpLease(
+        address=address,
+        mac=mac,
+        hostname=_text(row.get("hostname")) or None,
+        state=state,
+        reserved=static,
+        starts=_when(row.get("starts")),
+        expires=_when(row.get("ends")),
+    )
 
 
 def _vlanif(value: Any) -> str:
@@ -757,16 +843,74 @@ class OpnsenseAdapter(_Adapter):
             root["reservations"] = {
                 "reservation": {_text(r.get("uuid")): _nest(r) for r in reservations}
             }
+        ha = _sub(root, "ha")
+        if _flag(ha.get("enabled")):  # peers: field names are a guess
+            me = _text(ha.get("this_server_name"))
+            peers = [
+                _text(r.get("name"))
+                for r in _rows(await self._optional(KEA_PEERS, grid=True), KEA_PEERS)
+                if _text(r.get("name")) not in ("", me)
+            ]
+            root["_peer"] = peers[0] if peers else None
         return root
 
     async def read_dhcp(self) -> Observation:
         layout = await self._layout()
         servers = self._kea(layout, await self._kea_config())
+        servers = await self._kea_leases(servers)
         # Kea first: ISC only where no enabled Kea server serves the interface (Kea off or not
         # configured: ISC alone; both: each on its own interfaces).
         served = {s.segment_id for s in servers if s.enabled}
         servers += [s for s in await self._isc(layout) if s.segment_id not in served]
-        return Observation(dhcp_servers=servers)
+        return Observation(dhcp_servers=servers, dhcp_relays=await self._relays(layout))
+
+    async def _kea_leases(self, servers: list[DhcpServer]) -> list[DhcpServer]:
+        """Kea leases (all states) onto the server whose subnet holds the address."""
+        data = await self._optional(KEA_LEASES, grid=True)
+        if data is None or not servers:
+            return servers
+        nets = [ip_network(str(s.vendor_extra["subnet"])) for s in servers]
+        found: list[list[DhcpLease]] = [[] for _ in servers]
+        for row in _rows(data, KEA_LEASES):
+            lease = _kea_lease(row)
+            if lease is None:
+                continue
+            for i, net in enumerate(nets):
+                if lease.address in net:
+                    mac = {r.address: r.mac for r in servers[i].reservations}.get(lease.address)
+                    found[i].append(lease.model_copy(update={"reserved": mac == lease.mac}))
+                    break
+        return [s.model_copy(update={"leases": x}) for s, x in zip(servers, found, strict=True)]
+
+    async def _relays(self, layout: _Layout) -> list[DhcpRelay]:
+        """dhcrelay (core since 24.1; field names are a guess): one relay per interface row."""
+        data = await self._optional(DHCRELAY, grid=True)
+        if data is None:
+            return []
+        dest = {
+            _text(r.get("uuid")): _addr(r.get("server"))
+            for r in _rows(await self._optional(DHCRELAY_DEST, grid=True), DHCRELAY_DEST)
+        }
+        relays: list[DhcpRelay] = []
+        for row in _rows(data, DHCRELAY):
+            iface = layout.by_identifier(_text(row.get("interface")))
+            if iface is None or iface.segment is None:
+                continue
+            servers = [a for u in _selected(row.get("destination")) if (a := dest.get(u))]
+            servers = servers or _addrs(row.get("destination"))
+            name = _segment_key(iface.segment)
+            if any(r.id.endswith(f"/{name}") for r in relays):
+                continue
+            relays.append(
+                DhcpRelay(
+                    id=object_id(self.context.device_id, "dhcp-relay", name),
+                    device_id=self.context.device_id,
+                    segment_id=iface.segment,
+                    servers=servers,
+                    enabled=_flag(row.get("enabled", "1")),
+                )
+            )
+        return relays
 
     def _kea(self, layout: _Layout, root: dict[str, Any] | None) -> list[DhcpServer]:
         if root is None:
@@ -776,6 +920,7 @@ class OpnsenseAdapter(_Adapter):
         listen = set(_selected(general.get("interfaces")))
         lease = _int(general.get("valid_lifetime"))
         subnets = dict(_items(_sub(root, "subnets").get("subnet4")))
+        peer = root.get("_peer") or None
 
         reservations: dict[str, list[Reservation]] = {}
         for _, r in _items(_sub(root, "reservations").get("reservation")):
@@ -815,6 +960,24 @@ class OpnsenseAdapter(_Adapter):
                 # OPNsense fills all three with the interface address on every Kea save
                 # (KeaDhcpv4::setNodes, 26.7); seen in CI after a deployment
                 routers, dns, ntp = routers or [own], dns or [own], ntp or [own]
+            domain_search = [
+                d for d in re.split(r"[,\s]+", _text(options.get("domain_search"))) if d
+            ]
+            routes = [
+                DhcpRoute(destination=ip_network(d, strict=False), gateway=ip_address(g))
+                for d, g in _ROUTE.findall(_text(options.get("static_routes")))
+                if _valid_route(d, g)
+            ]
+            next_server = _addr(s.get("next_server"))
+            tftp, boot_file = (
+                _text(options.get("tftp_server_name")),
+                _text(options.get("boot_file_name")),
+            )
+            extra_options = (
+                [DhcpOption(code=4, name="time-servers", value=_text(options.get("time_servers")))]
+                if _text(options.get("time_servers"))
+                else []
+            )
             pools = [
                 p
                 for t in re.split(r"[\n,]+", _text(s.get("pools")))
@@ -833,6 +996,17 @@ class OpnsenseAdapter(_Adapter):
                     domain=_text(options.get("domain_name")) or None,
                     reservations=reservations.get(uuid, []),
                     ntp_servers=ntp,
+                    search_domains=domain_search,
+                    static_routes=routes,
+                    boot=DhcpBoot(
+                        next_server=next_server,
+                        server_name=tftp or None,
+                        filename=boot_file or None,
+                    )
+                    if next_server or tftp or boot_file
+                    else None,
+                    options=extra_options,
+                    failover_peer=peer,
                     vendor_extra={"server": "kea", "subnet": str(net)},
                 )
             )
@@ -868,6 +1042,7 @@ class OpnsenseAdapter(_Adapter):
                     segment_id=iface.segment,
                     enabled=state == "running",
                     reservations=reservations,
+                    leases=[x for r in rows if (x := _isc_lease(r)) is not None],
                     vendor_extra={
                         "server": "isc",
                         "note": (

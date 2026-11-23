@@ -46,6 +46,7 @@ from signalbox.model import (
     Cipher,
     DeviceRole,
     DeviceStatus,
+    LeaseState,
     Membership,
     NtpClient,
     NtpServer,
@@ -345,7 +346,12 @@ async def test_router_mode(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> N
 
 async def test_clients(adapter: OpenWrtAdapter) -> None:
     clients = {c.mac: c for c in (await adapter.read_clients()).clients}
-    assert set(clients) == {"02:00:00:00:20:01", "02:00:00:00:20:02", "02:00:00:00:20:03"}
+    assert set(clients) == {
+        "00:00:5e:00:53:01",  # the printer's lease
+        "02:00:00:00:20:01",
+        "02:00:00:00:20:02",
+        "02:00:00:00:20:03",
+    }
     assert clients["02:00:00:00:20:01"].seen_on == "ap1/wlan/default_radio0"
     assert clients["02:00:00:00:20:02"].seen_on == "ap1/wlan/iot_radio0"
     assert clients["02:00:00:00:20:02"].segment_id == "home/segment/20"
@@ -353,6 +359,56 @@ async def test_clients(adapter: OpenWrtAdapter) -> None:
     assert laptop.seen_on == "ap1/wlan/default_radio1" and laptop.hostname == "laptop"
     assert laptop.addresses == [ip_address("192.0.2.103")]
     assert laptop.address_sources == {ip_address("192.0.2.103"): AddressSource.DHCP}  # #183
+
+
+async def test_lease_table_options_and_relay(
+    sim: OpenWrtSim, https_url: str, cert: TlsFiles
+) -> None:
+    sim.router = True
+    a = OpenWrtAdapter(
+        context(https_url, pinned_fingerprint=cert.fingerprint, role=DeviceRole.GATEWAY)
+    )
+    try:
+        obs = await a.read_dhcp()
+    finally:
+        await a.close()
+    [server] = obs.dhcp_servers
+    assert server.leases is not None
+    by_addr = {str(x.address): x for x in server.leases}
+    assert set(by_addr) == {"192.0.2.103", "192.0.2.50", "2001:db8::1a2"}
+    laptop, printer, v6 = by_addr["192.0.2.103"], by_addr["192.0.2.50"], by_addr["2001:db8::1a2"]
+    assert laptop.state is LeaseState.ACTIVE and laptop.reserved is False
+    assert laptop.expires is not None and laptop.hostname == "laptop"
+    assert 40000 < (laptop.expires - datetime.now(UTC)).total_seconds() <= 43000
+    assert printer.reserved is True and printer.expires is None  # never expires
+    assert v6.mac is None and v6.client_id == "000100012d1b2c3d02000000200a"
+    assert server.search_domains == ["home.example", "lan.example"]
+    assert [(str(r.destination), str(r.gateway)) for r in server.static_routes] == [
+        ("203.0.113.0/24", "192.0.2.254")
+    ]
+    assert server.boot is not None
+    assert (str(server.boot.next_server), server.boot.filename) == ("192.0.2.5", "pxelinux.0")
+    assert [(o.code, o.name, o.value) for o in server.options] == [
+        (252, "wpad", "http://192.0.2.1/wpad.dat")
+    ]
+    assert server.authoritative is True
+    [relay] = obs.dhcp_relays
+    assert (relay.id, relay.segment_id) == ("ap1/dhcp-relay/20", "home/segment/20")
+    assert [str(x) for x in relay.servers] == ["192.0.2.53"] and relay.enabled
+
+
+async def test_lease_table_from_file_without_luci_rpc(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    sim.luci_rpc = False
+    [server] = (await adapter.read_dhcp()).dhcp_servers
+    assert server.leases is not None
+    laptop = next(x for x in server.leases if str(x.address) == "192.0.2.103")
+    assert laptop.client_id == "01:02:00:00:00:20:03" and laptop.expires is not None
+    assert laptop.expires.year == 2100
+    sim.denied = {"luci-rpc", "file"}
+    [server] = (await adapter.read_dhcp()).dhcp_servers
+    assert server.leases is None  # neither source readable: not read, not "no leases"
 
 
 async def test_leases_from_file_without_luci_rpc(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:

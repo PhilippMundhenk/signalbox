@@ -249,6 +249,8 @@ async def test_mapping_of_the_lab_device(ow: Target, pin: str) -> None:
     assert (pool.start, pool.end) == (ip_address("192.0.2.100"), ip_address("192.0.2.149"))
     assert dhcp.router == ip_address("192.0.2.1")
     assert dhcp.ntp_servers == [ip_address("192.0.2.1")]
+    assert dhcp.leases is not None  # #183: luci-rpc or /tmp/dhcp.leases read (maybe empty)
+    assert dhcp.authoritative is True  # the stock dnsmasq section has authoritative 1 (guess)
 
 
 async def test_health_and_time(ow: Target, pin: str) -> None:

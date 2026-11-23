@@ -59,6 +59,7 @@ from signalbox.model import (
     AddressSource,
     DeviceRole,
     DeviceStatus,
+    LeaseState,
     Membership,
     NtpClient,
     PortMedia,
@@ -238,6 +239,40 @@ async def test_dhcp(snap: Snapshot) -> None:
     assert guest.vendor_extra["server"] == "isc"
 
 
+async def test_dhcp_leases_options_and_relay(snap: Snapshot) -> None:
+    servers = {s.id: s for s in snap.dhcp_servers}
+    lan, iot, guest = (servers[f"fw/dhcp/{n}"] for n in ("kea-lan", "kea-opt1", "isc-opt2"))
+    assert lan.leases is not None and iot.leases is not None and guest.leases is not None
+    laptop, phone = lan.leases
+    assert (laptop.mac, laptop.state, laptop.reserved) == (
+        "02:00:00:00:00:21",
+        LeaseState.ACTIVE,
+        False,
+    )
+    assert laptop.client_id == "01:02:00:00:00:00:21" and laptop.hostname == "laptop"
+    assert laptop.expires is not None and laptop.starts is not None
+    assert (laptop.expires - laptop.starts).total_seconds() == 4000
+    assert phone.state is LeaseState.EXPIRED
+    assert [(x.address.compressed, x.reserved) for x in iot.leases] == [("198.51.100.20", True)]
+    assert iot.search_domains == ["iot.example", "example.net"]
+    assert [(str(r.destination), str(r.gateway)) for r in iot.static_routes] == [
+        ("203.0.113.0/24", "198.51.100.254")
+    ]
+    assert iot.boot is not None
+    assert (str(iot.boot.next_server), iot.boot.server_name, iot.boot.filename) == (
+        "198.51.100.5",
+        "tftp.iot.example",
+        "pxelinux.0",
+    )
+    dynamic, static = guest.leases
+    assert (dynamic.state, dynamic.reserved) == (LeaseState.ACTIVE, False)
+    assert dynamic.expires is not None and dynamic.starts is not None
+    assert (static.state, static.reserved) == (LeaseState.RESERVED, True)
+    (relay,) = snap.dhcp_relays
+    assert relay.id == "fw/dhcp-relay/30" and relay.segment_id == "home/segment/30"
+    assert [str(a) for a in relay.servers] == ["192.0.2.53"] and relay.enabled
+
+
 async def test_dns(snap: Snapshot) -> None:
     (dns,) = snap.dns_services  # dnsmasq does DHCP only (port 0): no DNS service
     assert dns.id == "fw/dns/unbound" and dns.name == "unbound"
@@ -341,6 +376,7 @@ async def test_clients(snap: Snapshot) -> None:
         "00:00:5e:00:53:20",
         "00:00:5e:00:53:30",
         "02:00:00:00:00:21",
+        "02:00:00:00:00:22",
         "02:00:00:00:00:31",
     ]  # not the firewall's own MAC, not "(incomplete)"
     printer = by_mac["00:00:5e:00:53:10"]

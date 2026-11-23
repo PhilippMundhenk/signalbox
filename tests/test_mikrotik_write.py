@@ -94,7 +94,7 @@ def view(net: Network) -> dict[str, Any]:
     and back accepts all frames afterwards (``admit-all``, see ``_port`` in write.py).
     """
     data = net.model_dump(mode="json", exclude={"observed_at", "source"})
-    skip = ("observed_at", "source", "frame_types")
+    skip = ("observed_at", "source", "frame_types", "leases")  # leases: live data
 
     def clean(value: Any) -> Any:
         if isinstance(value, dict):

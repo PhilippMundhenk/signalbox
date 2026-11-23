@@ -50,6 +50,7 @@ meant for the simulator.
    | Status: Interfaces | `/api/interfaces/overview/*` |
    | Interfaces: VLAN | `/api/interfaces/vlan_settings/*` |
    | Services: DHCP: Kea(v4) (if Kea is used) | `/api/kea/dhcpv4/*`, `/api/kea/leases4/*` |
+   | Services: DHCRelay | `/api/dhcrelay/*` (DHCP relays; confirmed against the core ACL, `page-services-dhcprelay`) |
    | Services: Unbound | `/api/unbound/*` (the general settings are only readable with this one; *Services: Unbound DNS: General* and *Edit Host and Domain Override* do not cover `/api/unbound/settings/get`) |
    | Diagnostics: ARP Table, Diagnostics: NDP Table | `/api/diagnostics/interface/get_arp`, `get_ndp` |
    | Lobby: Dashboard | `/api/diagnostics/system/system_*`, `/api/diagnostics/cpu_usage/*` (health, and the clock for time) |
@@ -210,6 +211,27 @@ these pages, so treat its key like an admin password.
   is ntpd's peer list (`*` marks the peer in use, with its stratum). The time zone setting and the
   NTP configuration (servers, interfaces) are legacy pages without an API: no zone name, no NTP
   server. Kea's `option_data.ntp_servers` (option 42) is `DhcpServer.ntp_servers`.
+
+### DHCP leases, options and relays (#183)
+
+- **Leases** of every server, all states. Kea: `/api/kea/leases4/search` rows go to the server
+  whose subnet holds the address (`hwaddr`, `client_id`, `hostname`, `expire` as epoch,
+  `valid_lifetime`: `starts` = `expire` - lifetime; `state` 0 active, 1 declined, 2 expired);
+  `reserved` when a reservation of the subnet has that MAC and address. ISC (plugin
+  `os-isc-dhcp`, used where Kea does not serve the interface): `/api/dhcpv4/leases/search_lease`
+  rows (`starts`, `ends` as `YYYY/MM/DD HH:MM:SS` UTC, `state`, `type` `static` is `reserved`; a
+  static row without state is `reserved`). An ISC interface without rows has no server entry
+  (the API lists leases only, see the note under DHCP).
+- **Kea options**: `option_data.domain_search` (search list), `static_routes` (pairs
+  `a.b.c.d/n - gateway`), `tftp_server_name`, `boot_file_name`, `time_servers` (option 4),
+  subnet `next_server`. *(guess: key names and the route format; CI dumps `search_subnet`.)*
+- **Failover**: with `ha.enabled`, the first `/api/kea/dhcpv4/search_peer` row that is not
+  `ha.this_server_name` is `failover_peer` *(guess)*. `authoritative` is not exposed: unknown.
+- **Relays**: `/api/dhcrelay/settings/search_relay` (`enabled`, `interface`, `destination` as
+  uuids of `search_dest`, whose rows have `server`), one `DhcpRelay` per interface *(guess:
+  field names; the privilege `page-services-dhcprelay`, "Services: DHCRelay", is the one in the
+  core ACL)*. A firewall without the DHCRelay privilege makes the DHCP read fail with an access
+  error: add the privilege (the CI user has it).
 
 ## Endpoints and answers
 

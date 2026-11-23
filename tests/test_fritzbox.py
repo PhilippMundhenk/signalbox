@@ -35,6 +35,7 @@ from signalbox.model import (
     DeviceHealth,
     DeviceRole,
     DeviceStatus,
+    LeaseState,
     NtpClient,
     Security,
     Wps,
@@ -161,6 +162,34 @@ async def test_dhcp(adapter: FritzboxAdapter) -> None:
     assert server.router == ip_address("192.0.2.1")
     assert server.dns_servers == [ip_address("192.0.2.1")] and server.domain == "fritz.box"
     assert server.reservations == []
+
+
+async def test_dhcp_leases_from_the_host_list(sim: FritzboxSim, adapter: FritzboxAdapter) -> None:
+    obs = await adapter.read_dhcp()
+    [server] = obs.dhcp_servers
+    assert server.leases is not None and obs.dhcp_relays == []
+    by_mac = {x.mac: x for x in server.leases}
+    laptop, gone = by_mac["02:00:00:00:20:01"], by_mac["02:00:00:00:10:02"]
+    assert (laptop.state, laptop.hostname) == (LeaseState.ACTIVE, "laptop")
+    assert laptop.expires is not None
+    assert 80000 < (laptop.expires - datetime.now(UTC)).total_seconds() <= 86400
+    assert (gone.state, gone.expires) == (LeaseState.EXPIRED, None)  # remembered host
+    assert "02:00:00:00:20:02" not in by_mac  # no address: no lease
+    sim.lan["NewDHCPRelay"] = "1"
+    [relay] = (await adapter.read_dhcp()).dhcp_relays
+    assert (relay.id, relay.segment_id, relay.servers) == (
+        "fb/dhcp-relay/lan",
+        "home/segment/native",
+        [],
+    )
+
+
+async def test_leases_not_read_without_the_host_list(
+    sim: FritzboxSim, adapter: FritzboxAdapter
+) -> None:
+    sim.faults = {"X_AVM-DE_GetHostListPath": 606}
+    [server] = (await adapter.read_dhcp()).dhcp_servers
+    assert server.leases is None  # not read, which is not "no leases"
 
 
 async def test_wireless(adapter: FritzboxAdapter) -> None:

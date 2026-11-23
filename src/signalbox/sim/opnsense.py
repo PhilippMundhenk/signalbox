@@ -188,7 +188,12 @@ def sample_data() -> dict[str, Any]:
                                 "domain_name_servers": "198.51.100.1,192.0.2.1",
                                 "domain_name": "iot.example",
                                 "ntp_servers": "198.51.100.1",
+                                "domain_search": "iot.example,example.net",
+                                "static_routes": "203.0.113.0/24 - 198.51.100.254",
+                                "tftp_server_name": "tftp.iot.example",
+                                "boot_file_name": "pxelinux.0",
                             },
+                            "next_server": "198.51.100.5",
                             "description": "IoT",
                         },
                     }
@@ -212,16 +217,46 @@ def sample_data() -> dict[str, Any]:
             }
         },
         "/api/kea/leases4/search": {
-            "total": 1,
+            "total": 3,
             "rows": [
                 {
                     "address": "192.0.2.100",
                     "hwaddr": "02:00:00:00:00:21",
+                    "client_id": "01:02:00:00:00:00:21",
                     "hostname": "laptop",
+                    "expire": 1795000000,
+                    "valid_lifetime": 4000,
+                    "state": 0,
                     "if_name": "lan",
                     "if_descr": "LAN",
-                }
+                },
+                {
+                    "address": "192.0.2.101",
+                    "hwaddr": "02:00:00:00:00:22",
+                    "hostname": "phone",
+                    "expire": 1794990000,
+                    "valid_lifetime": 4000,
+                    "state": 2,
+                    "if_name": "lan",
+                },
+                {
+                    "address": "198.51.100.20",
+                    "hwaddr": "00:00:5e:00:53:20",
+                    "hostname": "sensor",
+                    "expire": 1795000000,
+                    "valid_lifetime": 4000,
+                    "state": 0,
+                    "if_name": "opt1",
+                },
             ],
+        },
+        "/api/dhcrelay/settings/search_relay": {
+            "total": 1,
+            "rows": [{"uuid": "rl-1", "enabled": "1", "interface": "opt2", "destination": "d-1"}],
+        },
+        "/api/dhcrelay/settings/search_dest": {
+            "total": 1,
+            "rows": [{"uuid": "d-1", "name": "core", "server": "192.0.2.53"}],
         },
         "/api/dhcpv4/service/status": {"status": "running"},
         "/api/dhcpv4/leases/search_lease": {
@@ -236,6 +271,8 @@ def sample_data() -> dict[str, Any]:
                     "if_descr": "Guest",
                     "type": "dynamic",
                     "status": "online",
+                    "starts": "2026/11/22 10:00:00",
+                    "ends": "2026/11/22 22:00:00",
                     "state": "active",
                 },
                 {

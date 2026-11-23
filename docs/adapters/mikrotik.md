@@ -198,6 +198,24 @@ clear text and is only meant for the simulator.
   on every interface, so no segments). `ntp-server` of the DHCP network is the NTP server
   handed out by DHCP (option 42).
 
+### DHCP leases, options and relays (#183)
+
+- **Leases**: `/rest/ip/dhcp-server/lease` rows to the server named in `server` (`all` or empty:
+  by the server's network). `status` `bound` is active, `offered` offered, `busy`/`conflict`
+  declined *(guess)*, `waiting` and anything else `reserved` for a static lease, else expired;
+  `dynamic` `false` is `reserved`; `expires-after` (a duration) from the observation time is
+  `expires` (static leases have none); `class-id` is option 60, `client-id` option 61;
+  `host-name`, else the comment, is the host name. Disabled leases are left out.
+- **Options**: the names listed in `dhcp-option` of the server's network (and of the server) are
+  looked up in `/rest/ip/dhcp-server/option` (`name`, `code`, `value`): code 119 and 121 are
+  decoded from their hex value (RFC 1035 labels, RFC 3442 routes), 66 and 67 fill `boot`, other
+  codes are `DhcpOption`s with the value as RouterOS shows it. The network's `next-server` and
+  `boot-file-name` are `boot` too. `authoritative` of the server is true for `yes`,
+  `after-2sec-delay` and `after-10sec-delay`, false for `no`; RouterOS 7.25.1 (CI) has no such property on `/ip/dhcp-server`, so it is unknown there. No failover.
+- **Relays**: `/rest/ip/dhcp-relay` (`interface`, `dhcp-server` comma list, `disabled`).
+- The read user needs nothing more (`read` covers all three menus). The CI router has a static
+  lease and no relay: the integration test checks the static lease (`reserved`, status `waiting`), that `authoritative` is absent, the empty option and relay menus (both exist on 7.25.1).
+
 ## Endpoints and answers
 
 All `GET /rest/<menu>` with HTTP basic auth. RouterOS answers a menu with a list of objects, each

@@ -118,7 +118,7 @@ async def test_recording_hook_leaves_out_digest_challenges(
     finally:
         await adapter.close()
     assert DeviceHttp.connect is original
-    assert [e.status for e in exchanges] == [200, 200]
+    assert [e.status for e in exchanges][:2] == [200, 200]  # then the LAN info and the hosts
     assert exchanges[0].headers["soapaction"].endswith('DeviceInfo:1#GetInfo"')
     assert "authorization" not in json.dumps([e.as_json() for e in exchanges]).lower()
     assert "<NewModelName>" in exchanges[0].response
