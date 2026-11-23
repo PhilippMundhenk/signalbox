@@ -77,12 +77,12 @@ def zones_and_policies(
     accept, drop = FirewallAction.ACCEPT, FirewallAction.DROP
     zones = [FirewallZone(name=n, segments=[s]) for n, s in segments.items()]
     policies = [ZonePolicy(source=n, destination=None, action=accept) for n in segments]
-    if uplinks:
-        zones.append(FirewallZone(name=WAN, uplinks=uplinks, masquerade=True))
-        policies.append(ZonePolicy(source=WAN, destination=None, action=drop))
-        for n in segments:
-            policies.append(ZonePolicy(source=n, destination=WAN, action=accept))
-            policies.append(ZonePolicy(source=WAN, destination=n, action=drop))
+    # the WAN zone exists even when the gateway reported no WAN port: rules and forwards name it
+    zones.append(FirewallZone(name=WAN, uplinks=uplinks, masquerade=True))
+    policies.append(ZonePolicy(source=WAN, destination=None, action=drop))
+    for n in segments:
+        policies.append(ZonePolicy(source=n, destination=WAN, action=accept))
+        policies.append(ZonePolicy(source=WAN, destination=n, action=drop))
     return zones, policies
 
 
