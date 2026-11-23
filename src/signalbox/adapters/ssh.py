@@ -146,7 +146,14 @@ class PinnedSsh:
         limit = timeout or self.timeout
         try:
             proc: Any = await asyncio.wait_for(
-                self._conn.run(command, input=stdin, encoding=None, check=False),
+                # no input: close stdin at once (EOF), as a server may wait for it before answering
+                self._conn.run(
+                    command,
+                    input=stdin,
+                    stdin=asyncssh.DEVNULL if stdin is None else asyncssh.PIPE,
+                    encoding=None,
+                    check=False,
+                ),
                 timeout=limit,
             )
         except TimeoutError:

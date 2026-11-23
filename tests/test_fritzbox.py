@@ -389,8 +389,10 @@ async def test_timeout(sim: FritzboxSim, https_url: str, cert: TlsFiles) -> None
 
 
 async def test_slow_capability_is_partial(sim: FritzboxSim, adapter: FritzboxAdapter) -> None:
-    sim.delay, sim.slow = 3.0, {"GetGenericAssociatedDeviceInfo"}
-    object.__setattr__(adapter.context, "timeout", 1.0)
+    # Generous timeout, far longer delay: the fast actions must never hit the timeout on a loaded
+    # runner (-n auto), only the slow one, which takes three times as long.
+    sim.delay, sim.slow = 6.0, {"GetGenericAssociatedDeviceInfo"}
+    object.__setattr__(adapter.context, "timeout", 2.0)
     snap = await adapter.observe()
     assert snap.status is DeviceStatus.PARTIAL
     assert [e.capability for e in snap.errors] == ["clients"]
