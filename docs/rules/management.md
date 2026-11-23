@@ -21,18 +21,22 @@ rules are not read yet (issue #135), so where they would decide a rule says "not
 - **Severity:** error; incomplete (info) when the firewall decides
 - **Checks:** a gateway with a reported uplink offers a management service to the internet:
   the device says so (Fritz!Box remote access), or the service listens on the uplink without an
-  address filter. In the second case it depends on the firewall, so it is reported as not
-  checked. Services bound to other networks or limited to private addresses are fine.
+  address filter and its firewall (#135) lets the internet in: no port forward takes the port
+  elsewhere, the input rules and the wan zone policy accept it, and a known router in front
+  (double NAT) forwards it. Where the firewall is not read or does not decide exactly (inexact
+  rules, rules it could not read), it is reported as not checked, with the reason. Services
+  bound to other networks or limited to private addresses are fine.
 - **Fix:** turn off remote access (or restrict it to a VPN) and use a VPN from outside.
 
 ## `security.service-exposure`
 
-- **Severity:** error; incomplete (info) for routers
-- **Checks (level 1, without firewall data):** a management service is offered in a guest, IoT
-  or camera network: the device says it offers it there (error), or a router has an address
-  there and listens on it (not checked, the firewall may block it). Switches and access points
-  with an address there are covered by `security.management-exposure`. Networks the device
-  isolates itself are skipped.
+- **Severity:** error; incomplete (info) for routers whose firewall does not decide
+- **Checks:** a management service is offered in a guest, IoT or camera network: the device
+  says it offers it there, or a router has an address there and listens on it, and the
+  router's firewall (#135) does not block that network from the service (error). Where the
+  firewall is not read or does not decide exactly, the router case is reported as not
+  checked. Switches and access points with an address there are covered by
+  `security.management-exposure`. Networks the device isolates itself are skipped.
 - **Fix:** offer the services only in the LAN or a management VLAN, or block that network.
 
 ## `security.plaintext-read`
