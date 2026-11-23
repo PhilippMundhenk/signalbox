@@ -2,7 +2,7 @@
 // VPN tunnels between sites and unmanaged sites behind a tunnel (#239).
 import { del, enc, get, post } from '../api.js';
 import { PORT_ROLE, by, clear, h, place, portDetails, portSpeed, s } from '../util.js';
-import { card, confirmDialog, field, pageHead, run, select, statusBadge, table, tag, toast } from '../ui.js';
+import { card, confirmDialog, field, manageLink, pageHead, run, select, statusBadge, table, tag, toast } from '../ui.js';
 
 const LAYER = { gateway: 0, remote: 0, switch: 1, ap: 2, other: 3 };
 const ORIGIN = { lldp: 'LLDP', mac: 'MAC table', manual: 'entered', tunnel: 'tunnel keys' };
@@ -168,6 +168,7 @@ function portPanel(data, segments, node, port) {
     'div',
     { class: 'card port-panel', 'data-testid': 'port-panel' },
     h('h3', {}, `${node.name} · port ${port.name}`),
+    manageLink(node, 'Open web interface', 'topo-manage-link', 'btn small'),
     port.description ? h('p', { 'data-testid': 'port-description' }, port.description) : null,
     port.role ? h('p', { class: 'muted', 'data-testid': 'port-role' }, PORT_ROLE[port.role] || port.role) : null,
     h('p', { class: 'muted' }, [port.untagged.length ? `untagged: ${port.untagged.map((x) => segments[x] || x).join(', ')}` : null, port.tagged.length ? `tagged: ${port.tagged.map((x) => segments[x] || x).join(', ')}` : null].filter(Boolean).join(' · ') || 'No VLAN membership reported.'),
