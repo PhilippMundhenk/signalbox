@@ -125,6 +125,11 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
 .filters select, .filters input { width: auto; max-width: 100%; }
 .filters label.check { margin: 0; }
+.port-tree, .port-tree ul { list-style: none; margin: 0; padding: 0; }
+.port-tree ul { margin-left: 10px; padding-left: 14px; border-left: 1px solid var(--border); }
+.port-tree li { padding: 3px 0; }
+.port-tree .name { font-weight: 600; }
+.port-tree .ssids .tag { margin-left: 6px; }
 .row.tight { gap: 6px; flex-wrap: nowrap; justify-content: flex-end; }
 .grid.wide { grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
 ul.plain { list-style: none; padding: 0; margin: 0; }
@@ -191,6 +196,7 @@ svg.topo { display: block; margin: 0 auto; font-family: var(--font); }
 .topo .port.has-clients { stroke: var(--accent); stroke-width: 2; }
 .topo .port.m-untagged { fill: var(--accent); }
 .topo .port.m-tagged { fill: color-mix(in srgb, var(--accent) 45%, var(--surface)); }
+.topo .port.internal { stroke-dasharray: 3 2; }
 .topo .port:focus-visible { outline: none; stroke: var(--accent); stroke-width: 3; }
 .topo .edge { fill: none; stroke: var(--muted); stroke-width: 2.5; }
 .topo .edge.wireless { stroke-dasharray: 6 4; }

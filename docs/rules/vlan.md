@@ -14,6 +14,10 @@ router in front of it untagged (the router whose subnet holds the uplink address
 integration does not report uplinks, a router port in no network that is cabled to another
 router is taken for its uplink and not compared.
 
+Internal ports (#252) are never the end of a cable: a link that ends on a CPU port, a bridge or
+a VLAN interface is not compared, and a bridge in a VLAN is not an access port that needs the
+VLAN on the uplink. Ports whose role the device does not report are compared as before.
+
 ## `vlan.path-to-gateway`
 
 - **Severity:** error

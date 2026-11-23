@@ -11,7 +11,7 @@ Use from an adapter's tests::
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 
 from signalbox.adapters import Adapter, Capability, check_manifest
@@ -31,6 +31,7 @@ from signalbox.model import (
     NatClass,
     Port,
     PortKind,
+    PortRole,
     Radio,
     Security,
     ServiceKind,
@@ -118,6 +119,63 @@ def port_problems(port: Port) -> list[str]:
         out.append(f"port {port.id}: link up on a disabled port")
     if port.kind is PortKind.WIRELESS and port.media is not None:
         out.append(f"port {port.id}: wireless port with a wired medium")
+    return out
+
+
+#: Port kind a role implies (#252): a bridge is a bridge, a Wi-Fi interface is wireless.
+_ROLE_KINDS = {
+    PortRole.BRIDGE: PortKind.BRIDGE,
+    PortRole.WIRELESS: PortKind.WIRELESS,
+    PortRole.LAG: PortKind.LAG,
+}
+
+
+def structure_problems(ports: Sequence[Port], wlans: Sequence[Wlan] = ()) -> list[str]:
+    """The internal port structure (#252, ADR 0008): ``lower`` names ports of the same device
+    that were reported, no port runs on itself (also not through others), roles fit kinds,
+    an SSID's interface is a Wi-Fi port of its device."""
+    out: list[str] = []
+    by_id = {p.id: p for p in ports}
+    for p in ports:
+        if len(set(p.lower)) != len(p.lower):
+            out.append(f"port {p.id}: lower lists a port twice")
+        for low in p.lower:
+            other = by_id.get(low)
+            if other is None:
+                out.append(f"port {p.id}: lower port {low} is not reported")
+            elif other.device_id != p.device_id:
+                out.append(f"port {p.id}: lower port {low} belongs to another device")
+        want = _ROLE_KINDS.get(p.role) if p.role is not None else None
+        if want is not None and p.kind is not want:
+            out.append(f"port {p.id}: role {p.role} with kind {p.kind.value}")
+        if p.role is PortRole.VLAN and len(p.lower) > 1:
+            out.append(f"port {p.id}: a VLAN interface runs on one port, not {len(p.lower)}")
+    # cycles: follow lower from every port
+    state: dict[str, int] = {}  # 1: on the path, 2: done
+
+    def visit(pid: str) -> bool:
+        if state.get(pid) == 1:
+            return True
+        if state.get(pid) == 2 or pid not in by_id:
+            return False
+        state[pid] = 1
+        cyclic = any(visit(x) for x in by_id[pid].lower)
+        state[pid] = 2
+        return cyclic
+
+    for pid in sorted(by_id):
+        if pid not in state and visit(pid):
+            out.append(f"port {pid}: lower ports form a cycle")
+    for w in wlans:
+        if w.port_id is None:
+            continue
+        # the interface may be missing from the ports (netifd lists Wi-Fi interfaces it
+        # bridges), but it is one of the device's
+        port = by_id.get(w.port_id)
+        if not w.port_id.startswith(f"{w.device_id}/port/"):
+            out.append(f"wlan {w.id}: port {w.port_id} is not a port of its device")
+        elif port is not None and port.kind is not PortKind.WIRELESS:
+            out.append(f"wlan {w.id}: port {w.port_id} is not a Wi-Fi interface")
     return out
 
 
@@ -388,6 +446,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
             out.append(f"wlan {wlan.id} references unknown segment {wlan.segment_id}")
     for port in snapshot.ports:
         out += port_problems(port)
+    out += structure_problems(snapshot.ports, snapshot.wlans)
     for uplink in snapshot.uplinks:
         out += uplink_problems(uplink, port_ids)
     seen: set[str] = set()

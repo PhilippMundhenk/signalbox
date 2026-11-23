@@ -26,7 +26,7 @@ from ipaddress import (
     IPv6Network,
     ip_address,
 )
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
@@ -351,6 +351,43 @@ class PortKind(StrEnum):
     VIRTUAL = "virtual"
 
 
+class PortRole(StrEnum):
+    """Where a port sits in the device's internal structure (#252, ADR 0008).
+
+    ``Port.kind`` says what a port is made of (Ethernet, Wi-Fi, bridge); the role says where
+    it sits: a jack on the case, the internal port between the CPU and a switch chip, or an
+    interface built on top of other ports (``Port.lower``).
+    """
+
+    #: A connector on the case (RJ45 jack, SFP cage): a cable can be plugged in. A DSA user
+    #: port (``lan1``) is one; so is the NIC of a PC or a VM.
+    JACK = "jack"
+    #: The internal link between the CPU and a built-in switch chip (DSA conduit ``eth0``,
+    #: the swconfig CPU port). Never cabled; it carries every VLAN of the switch tagged.
+    CPU = "cpu"
+    #: A port of a built-in switch chip that the device does not say more about (usually a
+    #: jack; which one is not known).
+    SWITCH_PORT = "switch-port"
+    BRIDGE = "bridge"
+    #: An 802.1Q interface on top of one port (``eth0.2``, ``br-lan.10``, MikroTik ``vlan20``).
+    VLAN = "vlan"
+    #: A Wi-Fi interface (``phy0-ap0``, ``wlan1``); its radio is the ``Wlan.radio_id`` of the
+    #: SSIDs it carries (``Wlan.port_id``).
+    WIRELESS = "wireless"
+    #: A link aggregation over its member jacks (cabled through them).
+    LAG = "lag"
+    #: A tunnel (WireGuard, GRE, PPPoE session): no layer-2 port of its own.
+    TUNNEL = "tunnel"
+    #: Any other software interface (loopback, dummy, veth, macvlan).
+    VIRTUAL = "virtual"
+
+
+#: Roles of ports that a cable can be plugged into (a LAG through its members).
+CABLED_ROLES = frozenset({PortRole.JACK, PortRole.LAG})
+#: Roles of ports that are never the end of a cable.
+INTERNAL_ROLES = frozenset(set(PortRole) - CABLED_ROLES - {PortRole.SWITCH_PORT})
+
+
 class FrameTypes(StrEnum):
     """Which frames a port accepts on ingress (802.1Q acceptable frame types)."""
 
@@ -424,6 +461,13 @@ class Port(Observed):
     flow_control: bool | None = None
     #: Energy-efficient Ethernet (802.3az).
     eee: bool | None = None
+    # internal structure (#252, ADR 0008); None / empty: not reported -----------------------
+    #: Where the port sits in the device (jack, CPU port, bridge, VLAN interface, ...).
+    role: PortRole | None = None
+    #: Ids of the ports of the same device this one runs on: a bridge's members, a VLAN
+    #: interface's parent, a DSA user port's CPU port (conduit), a LAG's members. Bottom-up:
+    #: the jack does not list the bridge, the bridge lists the jack.
+    lower: list[str] = Field(default_factory=list)
 
     @field_validator("advertised_speeds_mbps")
     @classmethod
@@ -446,6 +490,15 @@ class Port(Observed):
         if self.jumbo is not None:
             return self.jumbo
         return None if self.mtu is None else self.mtu > STANDARD_MTU
+
+    @property
+    def external(self) -> bool | None:
+        """A cable can end here (a jack, or a LAG through its jacks); ``False`` for internal
+        ports (CPU port, bridge, VLAN interface, Wi-Fi interface, tunnel); ``None``: not known
+        (no role, or a switch port the device says nothing more about)."""
+        if self.role is None or self.role is PortRole.SWITCH_PORT:
+            return None
+        return self.role in CABLED_ROLES
 
 
 class Membership(StrEnum):
@@ -1308,6 +1361,9 @@ class Wlan(Observed):
     key_rotation_seconds: int | None = Field(default=None, ge=0)
     #: Beacon protection (802.11 BIGTK) on.
     beacon_protection: bool | None = None
+    #: The Wi-Fi interface (port) that carries this SSID (``phy0-ap0``; #252). None: not
+    #: reported.
+    port_id: str | None = None
 
 
 class Client(Observed):
@@ -1649,6 +1705,46 @@ class Snapshot(Model):
     extra_status: dict[str, DeviceStatus] = Field(default_factory=dict)
 
 
+class PortNode(Model):
+    """One entry of :meth:`Network.port_tree`: a port (or a radio) and what runs on it."""
+
+    #: Port id, or radio id for ``radio`` nodes.
+    id: str
+    node: Literal["port", "radio"] = "port"
+    #: Ports that run on this one alone (a DSA user port under its CPU port, a VLAN interface
+    #: under its parent; under a radio: its Wi-Fi interfaces).
+    children: list[PortNode] = Field(default_factory=list)
+    #: For a port over several others (bridge, LAG): their ids; each is shown at its own place.
+    members: list[str] = Field(default_factory=list)
+    #: SSIDs (``Wlan`` ids) carried here: by a Wi-Fi interface, or by a radio for the SSIDs
+    #: whose interface is not reported.
+    wlans: list[str] = Field(default_factory=list)
+
+
+_ROLE_ORDER = {
+    role: i
+    for i, role in enumerate(
+        (
+            PortRole.CPU,
+            PortRole.JACK,
+            PortRole.SWITCH_PORT,
+            None,
+            PortRole.LAG,
+            PortRole.BRIDGE,
+            PortRole.VLAN,
+            PortRole.WIRELESS,
+            PortRole.TUNNEL,
+            PortRole.VIRTUAL,
+        )
+    )
+}
+
+
+def natural_key(text: str) -> list[tuple[int, int | str]]:
+    """Sort key that puts ``lan2`` before ``lan10``."""
+    return [(0, int(t)) if t.isdigit() else (1, t) for t in re.split(r"(\d+)", text) if t]
+
+
 class Network(Model):
     """The merged view of all sites: what rules, topology and UI work on."""
 
@@ -1937,6 +2033,92 @@ class Network(Model):
     def uplink_at(self, port_id: str) -> Uplink | None:
         """The uplink that uses this port, where the device says (``Uplink.port_id``)."""
         return next((u for u in self.uplinks if u.port_id == port_id), None)
+
+    # internal port structure (#252, ADR 0008) -------------------------------------------
+
+    def ports_of(self, device_id: str) -> list[Port]:
+        return [p for p in self.ports if p.device_id == device_id]
+
+    def external_ports(self, device_id: str, unknown: bool = True) -> list[Port]:
+        """The ports of a device a cable can end on: jacks and LAGs, and with ``unknown`` the
+        ports whose role is not known (devices that do not report it stay as they were)."""
+        return [
+            p
+            for p in self.ports_of(device_id)
+            if p.external is True or (unknown and p.external is None)
+        ]
+
+    def lower_ports(self, port_id: str) -> list[Port]:
+        """The ports this one runs on (``Port.lower``), where they are known."""
+        port = self.port(port_id)
+        if port is None:
+            return []
+        return [p for x in port.lower if x != port_id and (p := self.port(x)) is not None]
+
+    def upper_ports(self, port_id: str) -> list[Port]:
+        """The ports that run on this one: bridges it is a member of, its VLAN interfaces."""
+        return [p for p in self.ports if port_id in p.lower and p.id != port_id]
+
+    def port_tree(self, device_id: str) -> list[PortNode]:
+        """The internal structure of a device as a tree, every port exactly once.
+
+        A port that runs on exactly one other port is that port's child (DSA user port under
+        its CPU port, VLAN interface under its parent, a bridge over one port under it); a
+        port over several (bridge, LAG) is a root that lists them as ``members``. A Wi-Fi
+        interface without a lower port goes under the radio of its SSIDs; radios are roots.
+        Lower ids that are unknown, and cycles (an adapter error), are ignored.
+        """
+        ports = {p.id: p for p in self.ports_of(device_id)}
+        radios = {r.id for r in self.radios if r.device_id == device_id}
+        wlans = [w for w in self.wlans if w.device_id == device_id]
+        lowers = {
+            pid: [x for x in dict.fromkeys(p.lower) if x in ports and x != pid]
+            for pid, p in ports.items()
+        }
+        parent: dict[str, str] = {}
+        for pid, low in lowers.items():
+            if len(low) == 1:
+                parent[pid] = low[0]
+            elif not low and ports[pid].role in (PortRole.WIRELESS, None):
+                radio = next(
+                    (w.radio_id for w in wlans if w.port_id == pid and w.radio_id in radios),
+                    None,
+                )
+                if radio is not None:
+                    parent[pid] = radio
+        children: dict[str, list[str]] = {}
+        for child, up in parent.items():
+            children.setdefault(up, []).append(child)
+
+        def key(pid: str) -> tuple[int, list[tuple[int, int | str]]]:
+            if pid in radios:
+                return len(_ROLE_ORDER), natural_key(pid)
+            p = ports[pid]
+            return _ROLE_ORDER[p.role], natural_key(p.name)
+
+        placed: set[str] = set()
+
+        def build(nid: str) -> PortNode:
+            placed.add(nid)
+            kids = [build(c) for c in sorted(children.get(nid, []), key=key) if c not in placed]
+            if nid in radios:
+                own = [w.id for w in wlans if w.radio_id == nid and w.port_id not in ports]
+                return PortNode(id=nid, node="radio", children=kids, wlans=sorted(own))
+            low = lowers[nid]
+            return PortNode(
+                id=nid,
+                children=kids,
+                members=low if len(low) > 1 else [],
+                wlans=sorted(w.id for w in wlans if w.port_id == nid),
+            )
+
+        roots = [n for n in [*ports, *radios] if n not in parent]
+        tree = [build(n) for n in sorted(roots, key=key)]
+        # what is left sits in a cycle: start it at its first port
+        for pid in sorted(ports, key=key):
+            if pid not in placed:
+                tree.append(build(pid))
+        return tree
 
     def untagged_segments(self, port_id: str) -> list[str]:
         """Segments the port sends untagged (egress), sorted."""

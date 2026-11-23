@@ -2547,6 +2547,13 @@
           "default": null,
           "title": "Lag"
         },
+        "lower": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Lower",
+          "type": "array"
+        },
         "mac": {
           "anyOf": [
             {
@@ -2653,6 +2660,17 @@
           "default": null,
           "title": "Pvid"
         },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortRole"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "source": {
           "anyOf": [
             {
@@ -2743,6 +2761,22 @@
       ],
       "title": "PortMembership",
       "type": "object"
+    },
+    "PortRole": {
+      "description": "Where a port sits in the device's internal structure (#252, ADR 0008).\n\n``Port.kind`` says what a port is made of (Ethernet, Wi-Fi, bridge); the role says where\nit sits: a jack on the case, the internal port between the CPU and a switch chip, or an\ninterface built on top of other ports (``Port.lower``).",
+      "enum": [
+        "jack",
+        "cpu",
+        "switch-port",
+        "bridge",
+        "vlan",
+        "wireless",
+        "lag",
+        "tunnel",
+        "virtual"
+      ],
+      "title": "PortRole",
+      "type": "string"
     },
     "PowerSupply": {
       "additionalProperties": false,
@@ -4103,6 +4137,18 @@
             }
           ],
           "default": null
+        },
+        "port_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port Id"
         },
         "purpose": {
           "anyOf": [

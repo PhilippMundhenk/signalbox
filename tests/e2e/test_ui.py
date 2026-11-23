@@ -77,7 +77,7 @@ def test_first_start_create_site_and_add_device_from_schema(app: Any) -> None:
     expect(app.get_by_test_id("test-result").get_by_test_id("status")).to_have_attribute(
         "data-status", "ok"
     )
-    expect(app.get_by_test_id("test-counts")).to_contain_text("3 ports")
+    expect(app.get_by_test_id("test-counts")).to_contain_text("7 ports")
     app.get_by_test_id("test").click()
     expect(app.get_by_test_id("test-counts")).to_contain_text("3 SSIDs")
     # health and time of the last reading (#178, #179)
@@ -259,7 +259,7 @@ def test_concept_views_show_the_network(app: Any) -> None:
     go(app, "#/device/router/advanced")
     expect(app.get_by_test_id("raw-services")).to_contain_text("services (6)")
     expect(app.get_by_test_id("raw-uplinks")).to_contain_text("uplinks (1)")
-    expect(app.get_by_test_id("raw-port")).to_have_count(3)
+    expect(app.get_by_test_id("raw-port")).to_have_count(7)  # jacks and internal ports (#252)
     expect(app.get_by_test_id("raw-port-table")).to_contain_text('"led":"green"')
     lan1 = app.get_by_test_id("raw-port").filter(has_text="lan1")
     expect(lan1).to_contain_text("Desk")
@@ -309,6 +309,35 @@ def test_topology_manual_link_and_vlan_highlight(app: Any) -> None:
     app.get_by_test_id("confirm-ok").click()
     expect(app.get_by_test_id("no-links")).to_be_visible()
     assert api(app, "GET", "/links") == []
+
+
+def test_port_structure_on_device_page_and_topology(app: Any) -> None:
+    """#252: the device page shows the port tree; the topology hides internal ports until
+    asked."""
+    add_site(app)
+    add_lab(app, "Router")
+    observe(app)
+    go(app, "#/device/router")
+    ports = app.get_by_test_id("device-ports")
+    expect(ports).to_be_visible()
+    cpu = ports.locator('[data-testid="port-node"][data-id="router/port/eth0"]')
+    expect(cpu).to_contain_text("CPU port (internal)")
+    expect(cpu.locator('[data-testid="port-node"]')).to_have_count(3)  # lan1..lan3 under it
+    bridge = ports.locator('[data-testid="port-node"][data-id="router/port/br-lan"]')
+    expect(bridge).to_contain_text("over lan1, lan2, phy0-ap0")
+    expect(bridge.locator('[data-id="router/port/br-lan.10"]')).to_contain_text("VLAN interface")
+    radio = ports.locator('[data-testid="port-node"][data-id="router/radio/radio0"]')
+    expect(radio).to_contain_text("Radio radio0")
+    expect(radio.locator('[data-id="router/port/phy0-ap0"]')).to_contain_text("SSID Home")
+    expect(radio).to_contain_text("SSID Guest")  # no interface reported: under the radio
+
+    go(app, "#/topology")
+    node = app.locator('[data-testid="topo-node"][data-id="router"]')
+    expect(node.get_by_test_id("topo-port")).to_have_count(3)  # the jacks
+    app.get_by_test_id("topo-internal").check()
+    expect(node.get_by_test_id("topo-port")).to_have_count(7)
+    app.locator('[data-testid="topo-port"][data-id="router/port/eth0"]').click()
+    expect(app.get_by_test_id("port-role")).to_have_text("CPU port (internal)")
 
 
 def test_settings_sites_rules_and_delete_device(app: Any) -> None:

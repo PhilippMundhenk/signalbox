@@ -44,7 +44,9 @@ from signalbox.model import (
     NtpClient,
     Pmf,
     Port,
+    PortKind,
     PortMembership,
+    PortRole,
     PurposeSource,
     Radio,
     Reservation,
@@ -168,8 +170,18 @@ class Lab(Adapter):
                 pvid=20,  # differs from its untagged VLAN 10 (#156)
                 mtu=1500,
                 max_speed_mbps=2500,
+                role=PortRole.JACK,
+                lower=[port_id(d, "eth0")],
             ),
-            Port(id=port_id(d, "lan2"), device_id=d, name="lan2", up=True, mac=mac(d, 2)),
+            Port(
+                id=port_id(d, "lan2"),
+                device_id=d,
+                name="lan2",
+                up=True,
+                mac=mac(d, 2),
+                role=PortRole.JACK,
+                lower=[port_id(d, "eth0")],
+            ),
             Port(
                 id=port_id(d, "lan3"),
                 device_id=d,
@@ -177,6 +189,33 @@ class Lab(Adapter):
                 up=False,
                 admin_up=False,
                 mac=mac(d, 3),
+                role=PortRole.JACK,
+                lower=[port_id(d, "eth0")],
+            ),
+            # the internal structure (#252): CPU port, bridge, VLAN and Wi-Fi interface
+            Port(id=port_id(d, "eth0"), device_id=d, name="eth0", up=True, role=PortRole.CPU),
+            Port(
+                id=port_id(d, "br-lan"),
+                device_id=d,
+                name="br-lan",
+                kind=PortKind.BRIDGE,
+                role=PortRole.BRIDGE,
+                lower=[port_id(d, "lan1"), port_id(d, "lan2"), port_id(d, "phy0-ap0")],
+            ),
+            Port(
+                id=port_id(d, "br-lan.10"),
+                device_id=d,
+                name="br-lan.10",
+                kind=PortKind.VIRTUAL,
+                role=PortRole.VLAN,
+                lower=[port_id(d, "br-lan")],
+            ),
+            Port(
+                id=port_id(d, "phy0-ap0"),
+                device_id=d,
+                name="phy0-ap0",
+                kind=PortKind.WIRELESS,
+                role=PortRole.WIRELESS,
             ),
         ]
         segments = [
@@ -379,6 +418,7 @@ class Lab(Adapter):
                     roaming_80211r=True,
                     roaming_80211k=True,
                     roaming_80211v=False,
+                    port_id=port_id(d, "phy0-ap0"),
                 ),
                 Wlan(
                     id=object_id(d, "wlan", "home-5g"),

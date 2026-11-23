@@ -230,6 +230,8 @@ def hidden_device(net: Network) -> Iterator[Result]:
         p = net.port(port_id)
         if p is None or p.kind is not PortKind.ETHERNET or port_id in ends:
             continue
+        if p.external is False:
+            continue  # a CPU port (#252) sees every client of the switch
         if roles.get(p.device_id) not in INFRASTRUCTURE:
             continue
         if any(c.mac in macs or {str(a) for a in c.addresses} & addresses for c in clients):

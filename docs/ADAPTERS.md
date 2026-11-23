@@ -284,6 +284,33 @@ that moved here are no longer in `vendor_extra`):
 | Omada | `profile`, `admin_up` (`disable`), `pvid` (VLAN of the native network), `max_speed_mbps` (`maxSpeed`), `jumbo` (switch setting) | `omada/__init__.py`, switch ports |
 | Fritz!Box | `admin_up`, `max_speed_mbps` (`NewMaxBitRate`: TR-064's maximum, `Auto` is `autoneg`; no longer `speed_mbps`) | `fritzbox/__init__.py`, LAN port |
 
+## Port structure
+
+`Port.role` and `Port.lower` describe the internal structure of a device (#252, ADR 0008;
+`interfaces` capability, no API version needed). Report a role only where the device says it,
+and `lower` bottom-up: the upper port names the ports it runs on (a bridge its members, a VLAN
+interface its parent, a DSA user port its conduit, a LAG its members), never the other way.
+`Wlan.port_id` names the Wi-Fi interface of an SSID. `Port.external` (a cable can end there)
+is derived from the role; rules and the topology skip internal ports. The contract tests
+refuse lower ports that are not reported or belong to another device, cycles, a bridge, Wi-Fi
+or LAG role with another kind, and a VLAN interface on several ports.
+
+| Role | Meaning |
+| --- | --- |
+| `jack` | connector on the case (DSA user port, NIC) |
+| `cpu` | internal link between CPU and switch chip (DSA conduit, swconfig / MikroTik switch CPU port) |
+| `switch-port` | port of a switch chip, jack or not unknown |
+| `bridge`, `vlan`, `wireless`, `lag`, `tunnel`, `virtual` | interfaces built on other ports, or none |
+
+| Integration | Fills | Where |
+| --- | --- | --- |
+| OpenWrt | every role: netifd bridges and VLAN devices, DSA conduit and user ports (`luci-rpc getNetworkDevices`), swconfig CPU port (UCI `switch_vlan`); `Wlan.port_id` | `openwrt/structure.py`, `read_interfaces()`, `read_wireless()` |
+| MikroTik *(follow-up)* | `/interface/ethernet` jacks, `/interface/ethernet/switch` CPU port (`switch1-cpu`), `/interface/bridge` + `/interface/bridge/port` members, `/interface/vlan` (`interface` = parent), `/interface/bonding` (`slaves`), `/interface/wireless` or `/interface/wifi` (`master-interface` for virtual APs; `Wlan.port_id`), EoIP/WireGuard/PPPoE tunnels | `mikrotik/__init__.py` |
+| OPNsense *(follow-up)* | assigned NICs as jacks, VLANs (`if` = parent), `lagg` (`members`), bridges (`members`), `wg`/`ovpn`/`pppoe` tunnels | `opnsense/__init__.py` |
+| Omada *(follow-up)* | switch ports as jacks, LAGs with members; EAP radios and SSIDs need no ports | `omada/__init__.py` |
+| ProSAFE / Easy Smart *(follow-up)* | every port a jack, LAG members where read | `plusswitch/mapping.py` |
+| Fritz!Box *(follow-up)* | LAN ports as jacks, the LAN bridge over them and the WLAN (if TR-064 names it) | `fritzbox/__init__.py` |
+
 ## Wi-Fi security details
 
 `Wlan` and `Radio` have optional security details, read with the `wireless` capability (no API

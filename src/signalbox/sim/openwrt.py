@@ -1,6 +1,7 @@
 """Simulated OpenWrt access point speaking ubus JSON-RPC at ``POST /ubus``.
 
-Neutral sample data: an access point with DSA ports ``lan1``..``lan4`` on bridge ``br-lan``,
+Neutral sample data: an access point with DSA ports ``lan1``..``lan4`` (conduit ``eth1``) on
+bridge ``br-lan``,
 VLAN 1 ("lan", untagged on lan1-3) and VLAN 20 ("iot", tagged on lan1), two radios, the SSIDs
 "Example" (WPA2/WPA3, 802.11r) and "Example-IoT" (WPA2, VLAN 20, client isolation), three
 stations and DHCP switched off (the gateway serves it). With ``router`` set it serves DHCP and
@@ -263,6 +264,10 @@ def device_status(network: Sections, wireless: Sections) -> dict[str, Any]:
         "link-supported": [*GIGABIT, "2500baseT-F"],
         "link-advertising": [*GIGABIT, "2500baseT-F"],
     }
+    # the DSA conduit: the link of the CPU to the switch chip of lan1..lan4 (fixed speed, #252)
+    status[CONDUIT] = eth(True) | {"speed": "1000F", "autoneg": False, "macaddr": _mac(0, 2)}
+    for key in ("link-supported", "link-advertising"):
+        del status[CONDUIT][key]
     for _, s in _of(network, "device"):
         if s.get("name") in status and str(s.get("enabled", "1")) == "0":
             status[str(s["name"])] |= {"up": False, "carrier": False, "speed": "-1F"}
@@ -289,6 +294,42 @@ def device_status(network: Sections, wireless: Sections) -> dict[str, Any]:
             "macaddr": _mac(1, i),
         }
     return status
+
+
+#: DSA conduit of the simulated switch chip. Which kernel facts LuCI reads for it is taken
+#: from the rpcd-mod-luci source, not from a real DSA device (a guess, #21).
+CONDUIT = "eth1"
+
+
+def network_devices(network: Sections, wireless: Sections) -> dict[str, Any]:
+    """``luci-rpc getNetworkDevices``: kernel facts per device (rpcd-mod-luci ``luci.c``):
+    ``devtype`` from the uevent (``dsa`` for DSA user ports), ``parent`` from ``iflink``."""
+    out: dict[str, Any] = {}
+    for name, st in device_status(network, wireless).items():
+        entry: dict[str, Any] = {
+            "name": name,
+            "up": bool(st.get("up")),
+            "mtu": st.get("mtu", 1500),
+            "type": 772 if name == "lo" else 1,
+            "devtype": "ethernet",
+            "wireless": False,
+        }
+        if st.get("macaddr"):
+            entry["mac"] = st["macaddr"]
+        if st.get("type") == "bridge":
+            entry |= {"bridge": True, "ports": st.get("bridge-members", []), "devtype": "bridge"}
+        elif st.get("type") == "VLAN":
+            entry |= {"devtype": "vlan", "parent": name.rsplit(".", 1)[0]}
+        elif name.startswith("lan"):
+            entry |= {"devtype": "dsa", "parent": CONDUIT}
+        elif name.startswith("phy"):
+            entry |= {"devtype": "wlan", "wireless": True}
+        out[name] = entry
+    for bridge in [n for n, e in out.items() if e.get("bridge")]:
+        for member in out[bridge]["ports"]:
+            if member in out:
+                out[member]["master"] = bridge
+    return out
 
 
 def wireless_config() -> dict[str, Any]:
@@ -941,6 +982,8 @@ class OpenWrtSim:
                 for radio in status.values():
                     radio["iwinfo"] = {"hwmodes": ["n"]}
                 return [0, status]
+            if method == "getNetworkDevices":
+                return [0, network_devices(self.state["network"], self.state["wireless"])]
             if method != "getDHCPLeases":
                 return [3]
             mac, ip, name = LEASE

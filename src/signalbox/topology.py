@@ -191,6 +191,9 @@ def view(net: Network) -> dict[str, Any]:
                     "mtu": p.mtu,
                     "jumbo": p.jumbo_frames(),
                     "profile": p.profile,
+                    "role": p.role.value if p.role else None,
+                    "external": p.external,
+                    "lower": p.lower,
                     "untagged": [s for s, m in modes.get(p.id, {}).items() if m == "untagged"],
                     "tagged": [s for s, m in modes.get(p.id, {}).items() if m == "tagged"],
                 }

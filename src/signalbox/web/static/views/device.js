@@ -1,7 +1,7 @@
 // One device: overview with connection test and certificate trust, settings, advanced (raw data).
 import { del, enc, get, post } from '../api.js';
 import { loadNetwork } from '../net.js';
-import { clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, place, portDetails, portSpeed, yesNo } from '../util.js';
+import { PORT_ROLE, clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, place, portDetails, portSpeed, yesNo } from '../util.js';
 import { card, confirmDialog, empty, kv, manageLink, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
 import { readErrors, testResult, trustPanel } from './devicetest.js';
@@ -167,9 +167,58 @@ function managementCard(ix, observed) {
   return h('section', { class: 'card', 'data-testid': 'device-management' }, h('h2', {}, 'Management'), kv(rows));
 }
 
+const BAND = { 2.4: '2.4 GHz', 5: '5 GHz', 6: '6 GHz' };
+
+// One entry of the port tree (#252): the port (or radio), what it is, and what runs on it.
+function portNode(ix, node) {
+  const name = (pid) => (ix.ports.get(pid) || {}).name || pid.split('/port/').pop();
+  const ssids = node.wlans.map((w) => ix.wlans.get(w)).filter(Boolean);
+  let label;
+  let facts;
+  if (node.node === 'radio') {
+    const r = ix.radios.get(node.id) || { name: node.id.split('/').pop() };
+    label = `Radio ${r.name}`;
+    facts = [BAND[r.band], r.channel ? `channel ${r.channel}` : null, r.enabled === false ? 'off' : null];
+  } else {
+    const p = ix.ports.get(node.id) || { name: name(node.id) };
+    label = p.description && p.description !== p.name ? `${p.name} (${p.description})` : p.name;
+    facts = [
+      p.role ? PORT_ROLE[p.role] || p.role : null,
+      p.up === true ? 'up' : p.up === false ? 'down' : null,
+      p.up !== false ? portSpeed(p) : null,
+      ...portDetails(p),
+      node.members.length ? `over ${node.members.map(name).join(', ')}` : null,
+    ];
+  }
+  return h(
+    'li',
+    { 'data-testid': 'port-node', 'data-id': node.id, 'data-role': node.node === 'radio' ? 'radio' : (ix.ports.get(node.id) || {}).role || '' },
+    h('span', { class: 'name' }, label),
+    ' ',
+    h('span', { class: 'muted small' }, facts.filter(Boolean).join(' · ')),
+    ssids.length ? h('span', { class: 'ssids', 'data-testid': 'port-ssids' }, ssids.map((w) => h('span', { class: 'tag' }, `SSID ${w.ssid}`))) : null,
+    node.children.length ? h('ul', {}, node.children.map((c) => portNode(ix, c))) : null,
+  );
+}
+
+// The internal structure of the device's ports (#252); nothing when it has none.
+function portsCard(ix, tree) {
+  if (!tree.length) return null;
+  const known = tree.some(function roled(n) {
+    return (ix.ports.get(n.id) || {}).role || n.node === 'radio' || n.children.some(roled);
+  });
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-ports' },
+    h('h2', {}, 'Ports'),
+    known ? null : h('p', { class: 'muted' }, 'This device does not say which ports are jacks and which are internal.'),
+    h('ul', { class: 'port-tree' }, tree.map((n) => portNode(ix, n))),
+  );
+}
+
 async function overview(main, ctx, device, adapters, sites) {
   const id = ctx.renderId;
-  const ix = await loadNetwork();
+  const [ix, tree] = await Promise.all([loadNetwork(), get(`/devices/${enc(device.id)}/port-tree`)]);
   if (!ctx.alive(id)) return;
   const observed = ix.net.devices.find((d) => d.id === device.id);
   const adapter = adapters.find((a) => a.id === device.adapter);
@@ -234,6 +283,7 @@ async function overview(main, ctx, device, adapters, sites) {
     ),
     notesCard(ix, device.id, 'device', `Notes on ${device.name}`, () => ctx.refresh()),
     internetCard(ix, device.id),
+    portsCard(ix, tree),
     observed ? managementCard(ix, observed) : null,
     observed ? healthCard(observed.health) : null,
     observed ? timeCard(observed.time) : null,
@@ -282,6 +332,7 @@ async function advanced(main, ctx, device) {
             ['Port', (p) => p.name],
             ['Description', (p) => p.description],
             ['Kind', (p) => p.kind],
+            ['Role', (p) => (p.role ? PORT_ROLE[p.role] || p.role : null)],
             ['Up', (p) => yesNo(p.up)],
             ['Speed', (p) => portSpeed(p)],
             ['Settings', (p) => portDetails(p).join(' · ') || null],
