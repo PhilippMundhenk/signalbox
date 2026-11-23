@@ -10,14 +10,21 @@ certificate the user confirmed.
 The API of the user manager (``/api/auth/user/*``, OPNsense 24.7 and newer) is what the web
 interface itself uses; see the "Automatic setup" section of the setup guide for what was
 verified on the integration test image.
+
+Optionally (``SetupRequest.ssh_step``, off by default, #242) the setup also installs the helper
+script that reads the ISC DHCP settings (:mod:`signalbox.adapters.opnsense.isc_script`) and an
+SSH key that can run nothing else, over SSH as root with a pinned host key; "Remove" takes both
+away again.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
+import asyncssh
 from pydantic import SecretStr
 
 from signalbox.adapters import (
@@ -26,9 +33,11 @@ from signalbox.adapters import (
     SetupRequest,
     SetupResult,
     UntrustedCertificate,
+    UntrustedHostKey,
 )
 from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.provision import Redactor, Step, plan_steps, run_steps
+from signalbox.adapters.ssh import PinnedSsh
 
 #: Privileges of the read user (docs: "A least-privilege API user"; the integration test image
 #: gives its users exactly these, tools/integration/opnsense/privileges.json).
@@ -60,6 +69,71 @@ COMPARE = (
     "console: openssl x509 -in /var/etc/cert.pem -noout -fingerprint -sha256"
 )
 ALL = {"current": 1, "rowCount": -1, "searchPhrase": ""}
+
+# --- the optional ISC DHCP helper script (#242) -------------------------------------------------
+
+SCRIPT_PATH = "/usr/local/sbin/signalbox-isc-dhcp"
+KEY_COMMENT = "signalbox-isc-dhcp"
+AUTH_KEYS = "/root/.ssh/authorized_keys"
+#: The text installed: the module of the same name, verbatim (a test compares the two).
+SCRIPT_TEXT = (Path(__file__).parent / "isc_script.py").read_text()
+SSH_COMPARE = (
+    "On the console or in a shell on the firewall: ssh-keygen -lf "
+    "/etc/ssh/ssh_host_ed25519_key.pub (or the _ecdsa_ / _rsa_ key) prints the fingerprint."
+)
+INSPECT_SSH = f"""# signalbox-setup: inspect
+echo @@python
+test -x /usr/local/bin/python3 && echo yes
+echo @@script
+cat {SCRIPT_PATH} 2>/dev/null
+echo @@keys
+grep ' {KEY_COMMENT}$' {AUTH_KEYS} 2>/dev/null
+echo @@end
+"""
+INSTALL_SCRIPT = f"""set -e
+cat > {SCRIPT_PATH} <<'SIGNALBOX_SCRIPT'
+{SCRIPT_TEXT}SIGNALBOX_SCRIPT
+chown root:wheel {SCRIPT_PATH}
+chmod 0755 {SCRIPT_PATH}
+"""
+DROP_KEY = f"""mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+touch {AUTH_KEYS}
+grep -v ' {KEY_COMMENT}$' {AUTH_KEYS} > {AUTH_KEYS}.signalbox || true
+"""
+FINISH_KEY = f"""chmod 600 {AUTH_KEYS}.signalbox
+mv {AUTH_KEYS}.signalbox {AUTH_KEYS}
+"""
+
+
+def authorized_line(public_key: str) -> str:
+    """The ``authorized_keys`` entry: the key may run the script and nothing else."""
+    return f'command="{SCRIPT_PATH}",restrict {public_key} {KEY_COMMENT}'
+
+
+def install_key_script(line: str) -> str:
+    return (
+        "set -e\n"
+        + DROP_KEY
+        + f"cat >> {AUTH_KEYS}.signalbox <<'SIGNALBOX_KEY'\n{line}\nSIGNALBOX_KEY\n"
+        + FINISH_KEY
+    )
+
+
+REMOVE_SCRIPT = f"set -e\nrm -f {SCRIPT_PATH}\n"
+REMOVE_KEY = "set -e\n" + DROP_KEY + FINISH_KEY
+
+
+def _parts(text: str) -> dict[str, str]:
+    parts: dict[str, str] = {}
+    name = ""
+    for line in text.splitlines():
+        if line.startswith("@@"):
+            name = line[2:].strip()
+            parts[name] = ""
+        elif name:
+            parts[name] += line + "\n"
+    return parts
 
 
 def _selected(value: Any) -> list[str]:
@@ -107,6 +181,20 @@ class OpnsenseSetup:
             raise AdapterError("the automatic setup sends root's API key only over https")
         self.privileges = sorted(WRITE_PRIVILEGES if request.allow_writes else READ_PRIVILEGES)
         self.key: dict[str, str] = {}
+        self.ssh_step = request.ssh_step
+        self.host = urlsplit(self.url).hostname or ""
+        self.ssh_port = request.ssh_port or 22
+        self.ssh_key: asyncssh.SSHKey | None = None
+        self.ssh_private = ""
+        if self.ssh_step:
+            if request.ssh_secret is None or not request.ssh_secret.get_secret_value():
+                raise AdapterError("enter the SSH password of root for the ISC DHCP script")
+            self.redact.add(request.ssh_secret.get_secret_value())
+            if not request.remove:
+                self.ssh_key = asyncssh.generate_private_key("ssh-ed25519")
+                self.ssh_key.set_comment(KEY_COMMENT)
+                self.ssh_private = self.ssh_key.export_private_key().decode()
+                self.redact.add(self.ssh_private, *self.ssh_private.split("\n")[1:-2])
 
     def http(self) -> DeviceHttp:
         return DeviceHttp(
@@ -236,11 +324,107 @@ class OpnsenseSetup:
 
         return run
 
+    def ssh(self) -> PinnedSsh:
+        assert self.request.ssh_secret is not None
+        return PinnedSsh(
+            self.host,
+            self.ssh_port,
+            "root",
+            self.request.ssh_secret.get_secret_value(),
+            self.request.ssh_trust,
+            self.request.timeout,
+        )
+
+    async def inspect_ssh(self, ssh: PinnedSsh) -> tuple[str, bool]:
+        """The installed script's text ("" if none) and whether our key line is there."""
+        res = await ssh.run(INSPECT_SSH)
+        parts = _parts(res.text)
+        if "end" not in parts:
+            raise AdapterError(
+                "the device did not answer like OPNsense over SSH: "
+                + self.redact((res.err or res.text).strip())[:300]
+            )
+        if not self.request.remove and not parts.get("python", "").strip():
+            raise AdapterError(
+                "/usr/local/bin/python3 is missing on the firewall, which the script needs"
+            )
+        return parts.get("script", ""), bool(parts.get("keys", "").strip())
+
+    def ssh_steps(self, ssh: PinnedSsh, script: str, has_key: bool) -> list[Step]:
+        if self.request.remove:
+            return [
+                Step(
+                    "isc-script",
+                    f"Delete the script {SCRIPT_PATH}",
+                    REMOVE_SCRIPT if script else "",
+                    needed=bool(script),
+                    action=self._ssh_run(ssh, REMOVE_SCRIPT),
+                    note="" if script else "there is no such file",
+                ),
+                Step(
+                    "isc-key",
+                    f"Delete Signalbox's SSH key from {AUTH_KEYS}",
+                    REMOVE_KEY if has_key else "",
+                    needed=has_key,
+                    action=self._ssh_run(ssh, REMOVE_KEY),
+                    note="" if has_key else "there is no such key",
+                ),
+            ]
+        assert self.ssh_key is not None
+        line = authorized_line(self.ssh_key.export_public_key().decode().strip().rsplit(" ", 1)[0])
+        return [
+            Step(
+                "isc-script",
+                f"Install the read-only script {SCRIPT_PATH} (root, 0755): it prints only the "
+                "DHCP sections of config.xml, without secrets",
+                f"cat > {SCRIPT_PATH}  (the file signalbox/adapters/opnsense/isc_script.py)\n"
+                f"chown root:wheel {SCRIPT_PATH}\nchmod 0755 {SCRIPT_PATH}",
+                needed=script != SCRIPT_TEXT,
+                action=self._ssh_run(ssh, INSTALL_SCRIPT),
+                note="" if script != SCRIPT_TEXT else "already installed, unchanged",
+            ),
+            Step(
+                "isc-key",
+                f"Authorize a new SSH key in {AUTH_KEYS} that can run only that script; older "
+                "keys of Signalbox are removed",
+                line,
+                action=self._ssh_run(ssh, install_key_script(line)),
+                note="the private key is stored encrypted in Signalbox and never shown",
+            ),
+        ]
+
+    def _ssh_run(self, ssh: PinnedSsh, script: str) -> Callable[[], Awaitable[str | None]]:
+        async def run() -> str | None:
+            res = await ssh.run(script)
+            if res.code != 0:
+                raise AdapterError(f"SSH command failed ({res.code}): {res.err[:300]}")
+            return None
+
+        return run
+
     async def plan(self) -> SetupPlan:
         http = self.http()
+        ssh_fingerprint: str | None = None
+        ssh_trusted: bool | None = None
         try:
             uuid, user = await self.inspect(http)
             steps = plan_steps(self.steps(http, uuid, user), self.redact)
+            if self.ssh_step:
+                try:
+                    async with self.ssh() as ssh:
+                        ssh_fingerprint, ssh_trusted = ssh.fingerprint, True
+                        script, has_key = await self.inspect_ssh(ssh)
+                        steps += plan_steps(self.ssh_steps(ssh, script, has_key), self.redact)
+                except UntrustedHostKey as exc:
+                    return SetupPlan(
+                        fingerprint=http.fingerprint or "",
+                        fingerprint_kind="certificate",
+                        trusted=True,
+                        compare=COMPARE,
+                        ssh_fingerprint=exc.fingerprint,
+                        ssh_trusted=False,
+                        ssh_compare=SSH_COMPARE,
+                    )
         except UntrustedCertificate as exc:
             return SetupPlan(
                 fingerprint=exc.fingerprint,
@@ -257,6 +441,9 @@ class OpnsenseSetup:
             fingerprint_kind="certificate",
             trusted=True,
             compare=COMPARE,
+            ssh_fingerprint=ssh_fingerprint,
+            ssh_trusted=ssh_trusted,
+            ssh_compare=SSH_COMPARE if self.ssh_step else "",
             steps=steps,
         )
 
@@ -264,22 +451,39 @@ class OpnsenseSetup:
         http = self.http()
         try:
             uuid, user = await self.inspect(http)
-            ok, steps = await run_steps(self.steps(http, uuid, user), self.redact)
-        except UntrustedCertificate:
+            steps = self.steps(http, uuid, user)
+            if self.ssh_step:
+                # the host key is checked and the script's state read before anything changes
+                async with self.ssh() as ssh:
+                    script, has_key = await self.inspect_ssh(ssh)
+                    steps += self.ssh_steps(ssh, script, has_key)
+                    ok, reports = await run_steps(steps, self.redact)
+            else:
+                ok, reports = await run_steps(steps, self.redact)
+        except (UntrustedCertificate, UntrustedHostKey):
             raise
         except AdapterError as exc:
             raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
         finally:
             await http.close()
         if self.request.remove or not ok:
-            return SetupResult(ok=ok, steps=steps)
+            return SetupResult(ok=ok, steps=reports)
+        settings: dict[str, Any] = {"url": self.url}
+        secrets = {
+            "api_key": SecretStr(self.key["key"]),
+            "api_secret": SecretStr(self.key["secret"]),
+        }
+        if self.ssh_step:
+            settings |= {
+                "isc_ssh_host_key": self.request.ssh_trust,
+                "isc_ssh_port": self.ssh_port,
+                "isc_ssh_user": "root",
+            }
+            secrets["isc_ssh_key"] = SecretStr(self.ssh_private)
         return SetupResult(
             ok=True,
-            steps=steps,
-            settings={"url": self.url},
-            secrets={
-                "api_key": SecretStr(self.key["key"]),
-                "api_secret": SecretStr(self.key["secret"]),
-            },
+            steps=reports,
+            settings=settings,
+            secrets=secrets,
             certificate=http.fingerprint,
         )

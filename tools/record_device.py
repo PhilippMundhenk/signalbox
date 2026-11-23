@@ -59,6 +59,8 @@ async def record(args: argparse.Namespace) -> int:
     for i, name in enumerate(secret_fields):
         env = args.password_env if i == 0 else f"SIGNALBOX_RECORD_{name.upper()}"
         value = os.environ.get(env)
+        if value is None and not fields[name].is_required():
+            continue  # an optional secret (OPNsense's isc_ssh_key): only when given
         if value is None:
             print(f"set {name} in the environment variable {env}", file=sys.stderr)
             return 2

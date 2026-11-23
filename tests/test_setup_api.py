@@ -144,6 +144,9 @@ def test_plan_trust_apply_read_remove(
         "fingerprint_kind": "ssh-host-key",
         "trusted": False,
         "compare": plan["compare"],
+        "ssh_fingerprint": None,
+        "ssh_trusted": None,
+        "ssh_compare": "",
         "steps": [],
     }
     planned = client.post("/api/devices/setup", json=body(https_url, port, trust=fingerprint))

@@ -183,6 +183,21 @@ class AdminLogin(BaseModel):
     port_default: int | None = None
     #: What must be possible on the device first (shown above the fields).
     note: str = ""
+    #: An optional second step over SSH that is off unless the user ticks it (#242).
+    ssh_option: SshOption | None = None
+
+
+class SshOption(BaseModel):
+    """An optional extra of the automatic setup that needs an SSH login (OPNsense: a script)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    label: str
+    #: What it installs and why, shown next to the checkbox.
+    note: str
+    user: str = "root"
+    secret_label: str = "SSH password"
+    port_default: int = 22
 
 
 class StepState(StrEnum):
@@ -226,6 +241,12 @@ class SetupRequest(BaseModel):
     #: The fingerprint (SSH host key or certificate) the user confirmed; None: not yet.
     trust: str | None = None
     timeout: float = 30.0
+    #: The optional SSH step (:class:`SshOption`, #242): ticked, with the SSH login of this one
+    #: request (never stored) and the SSH host key the user confirmed for it.
+    ssh_step: bool = False
+    ssh_secret: SecretStr | None = None
+    ssh_port: int | None = Field(None, ge=1, le=65535)
+    ssh_trust: str | None = None
 
 
 class SetupPlan(BaseModel):
@@ -239,6 +260,10 @@ class SetupPlan(BaseModel):
     trusted: bool
     #: How to compare the fingerprint on the device itself.
     compare: str = ""
+    #: The optional SSH step (#242): the presented host key and whether it is the confirmed one.
+    ssh_fingerprint: str | None = None
+    ssh_trusted: bool | None = None
+    ssh_compare: str = ""
     steps: list[SetupStep] = Field(default_factory=list)
 
 

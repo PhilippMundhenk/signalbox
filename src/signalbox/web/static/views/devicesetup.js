@@ -40,6 +40,14 @@ export function autoSetup(a, collect, onDone) {
   const out = h('div', { 'data-testid': 'setup-result', 'aria-live': 'polite' });
   const planBtn = h('button', { class: 'btn', type: 'button', 'data-testid': 'setup-plan' }, 'Show what it does');
   let trusted = null;
+  // an optional second step over SSH (OPNsense: the ISC DHCP script, #242): off unless ticked
+  const opt = login.ssh_option;
+  const sshOn = opt ? h('input', { type: 'checkbox', 'data-testid': 'setup-ssh' }) : null;
+  const sshSecret = opt ? h('input', { type: 'password', autocomplete: 'off', 'data-testid': 'setup-ssh-secret' }) : null;
+  const sshPort = opt ? h('input', { type: 'number', min: '1', max: '65535', value: String(opt.port_default), 'data-testid': 'setup-ssh-port' }) : null;
+  const sshFields = opt ? h('div', { class: 'ssh-option-fields', hidden: true, 'data-testid': 'setup-ssh-fields' }, field(`${opt.secret_label} (${opt.user})`, sshSecret), field('SSH port', sshPort)) : null;
+  if (opt) sshOn.addEventListener('change', () => { sshFields.hidden = !sshOn.checked; trustedSsh = null; });
+  let trustedSsh = null;
 
   const request = () => {
     const device = collect();
@@ -50,7 +58,16 @@ export function autoSetup(a, collect, onDone) {
     }
     const admin = { user: user.value.trim(), secret: secret.value };
     if (port && port.value) admin.port = Number(port.value);
-    return { device, admin, remove: remove.checked, trust: trusted };
+    const body = { device, admin, remove: remove.checked, trust: trusted };
+    if (opt && sshOn.checked) {
+      if (!sshSecret.value) {
+        place(clear(out), h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, `Enter the ${opt.secret_label} (${opt.user}), or untick “${opt.label}”.`));
+        return null;
+      }
+      body.ssh = { secret: sshSecret.value, trust: trustedSsh };
+      if (sshPort.value) body.ssh.port = Number(sshPort.value);
+    }
+    return body;
   };
 
   const showPlan = (plan, body) => {
@@ -78,6 +95,28 @@ export function autoSetup(a, collect, onDone) {
       );
       return;
     }
+    if (plan.ssh_trusted === false) {
+      const trustSsh = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust-ssh' }, 'Trust this SSH host key');
+      trustSsh.addEventListener('click', () =>
+        run(trustSsh, async () => {
+          trustedSsh = plan.ssh_fingerprint;
+          await doPlan();
+        }),
+      );
+      place(
+        out,
+        h(
+          'div',
+          { class: 'notice', 'data-testid': 'setup-untrusted-ssh' },
+          h('h3', {}, 'The device presented an SSH host key Signalbox does not trust yet'),
+          h('p', {}, 'Compare it with what the device itself shows before you trust it. If they differ, do not trust it: the SSH password has not been sent.'),
+          h('p', { class: 'fingerprint mono', 'data-testid': 'setup-ssh-fingerprint' }, plan.ssh_fingerprint),
+          plan.ssh_compare ? h('p', { class: 'muted small' }, plan.ssh_compare) : null,
+          trustSsh,
+        ),
+      );
+      return;
+    }
     const pending = plan.steps.some((s) => s.state === 'todo');
     const go = h('button', { class: body.remove ? 'btn danger' : 'btn primary', type: 'button', 'data-testid': 'setup-apply' }, body.remove ? 'Remove it from the device' : 'Set up the device');
     go.disabled = !pending && body.remove;
@@ -99,7 +138,7 @@ export function autoSetup(a, collect, onDone) {
       showPlan(await post('/devices/setup', body), body);
     } catch (err) {
       place(clear(out), h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, err.message), err.body && err.body.fix ? h('p', { class: 'fix' }, 'What to do: ', err.body.fix) : null);
-      if (err.code === 'untrusted') trusted = null;
+      if (err.code === 'untrusted') { trusted = null; trustedSsh = null; }
     }
   }
 
@@ -111,6 +150,7 @@ export function autoSetup(a, collect, onDone) {
     try {
       const res = await post('/devices/setup/apply', body);
       secret.value = '';
+      if (sshSecret) sshSecret.value = '';
       clear(out);
       place(out, h('p', { 'data-testid': 'setup-outcome', class: res.ok ? '' : 'error' }, res.ok ? (removing ? 'Removed.' : 'Done. The device is saved with its new login.') : 'The setup stopped at a failed step. Fix it and run it again: steps that are done already are skipped.'), stepList(res.steps, 'setup-done-steps'));
       if (res.ok && res.device) {
@@ -119,7 +159,7 @@ export function autoSetup(a, collect, onDone) {
       }
     } catch (err) {
       place(clear(out), h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, err.message));
-      if (err.code === 'untrusted') trusted = null;
+      if (err.code === 'untrusted') { trusted = null; trustedSsh = null; }
     }
   }
 
@@ -133,6 +173,8 @@ export function autoSetup(a, collect, onDone) {
     field(login.user_label, user),
     field(login.secret_label, secret),
     port ? field('SSH port', port) : null,
+    opt ? checkField(opt.label, sshOn, opt.note) : null,
+    sshFields,
     checkField('Remove what Signalbox set up instead', remove, null),
     h('div', { class: 'row' }, planBtn),
     out,

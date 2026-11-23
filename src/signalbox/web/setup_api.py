@@ -46,6 +46,16 @@ class AdminBody(BaseModel):
     port: int | None = Field(None, ge=1, le=65535)
 
 
+class SshBody(BaseModel):
+    """The optional SSH step of an integration (``AdminLogin.ssh_option``, #242)."""
+
+    #: Never stored, logged or sent back.
+    secret: SecretStr = Field(min_length=1, max_length=500)
+    port: int | None = Field(None, ge=1, le=65535)
+    #: The SSH host key (``SHA256:...``) the user confirmed for it.
+    trust: str | None = Field(None, pattern=FINGERPRINT)
+
+
 class SetupBody(BaseModel):
     """The device form (as for Test connection) and the admin login for this one step."""
 
@@ -55,6 +65,8 @@ class SetupBody(BaseModel):
     remove: bool = False
     #: The SSH host key or certificate fingerprint the user confirmed.
     trust: str | None = Field(None, pattern=FINGERPRINT)
+    #: Also run the integration's optional SSH step (only if its manifest offers one).
+    ssh: SshBody | None = None
 
 
 def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, Any]]) -> APIRouter:
@@ -81,6 +93,13 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             )
         if form.device_id and store.device(form.device_id) is None:
             return error(404, "not_found", "No such device.")
+        if body.ssh is not None and not (
+            cls.manifest.admin_login and cls.manifest.admin_login.ssh_option
+        ):
+            return error(
+                422, "not_supported", f"{cls.manifest.name} has no optional SSH step to run"
+            )
+        ssh = body.ssh
         secret_names = _secret_fields(cls.manifest.config)
         plain = {k: v for k, v in form.config.items() if k not in secret_names}
         request = SetupRequest(
@@ -91,6 +110,10 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             allow_writes=form.allow_writes,
             remove=body.remove,
             trust=body.trust,
+            ssh_step=ssh is not None,
+            ssh_secret=ssh.secret if ssh else None,
+            ssh_port=ssh.port if ssh else None,
+            ssh_trust=ssh.trust if ssh else None,
             timeout=max(30.0, services.config.observe.timeout_seconds),
         )
         return cls, form, request
@@ -115,6 +138,8 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
     def redactor(request: SetupRequest) -> Redactor:
         redact = Redactor()
         redact.add(request.admin_secret.get_secret_value())
+        if request.ssh_secret is not None:
+            redact.add(request.ssh_secret.get_secret_value())
         return redact
 
     @api.post("/devices/setup", response_model=None)
