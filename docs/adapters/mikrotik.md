@@ -823,3 +823,11 @@ with the existing read-only group (`read`, `api`, `rest-api`): `/rest/ip/firewal
   and a `dst-nat`; `test_firewall_rules_and_nat` asserts them as the read-only user.
   *Guess*: the `/interface/list` row fields `include`/`exclude`, jumps and address ranges on
   a real router (the simulator has them), `ipsec-policy` rows with IPsec configured.
+
+## MAC address table (#160)
+
+`/rest/interface/bridge/host` (already read for clients) gives one `FdbEntry` per row on the
+port in `on-interface`: `local` entries are the bridge's own addresses (`self`), `dynamic`
+ones learned, the rest `static`; `vid` is the VLAN where the bridge filters VLANs (otherwise
+no VLAN and the bridge's segment). No extra policy. Confirmed in CI (CHR 7.25.1): the bridge's
+own entries; learned entries only in the simulator (the CI router has no clients).

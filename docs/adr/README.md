@@ -17,5 +17,6 @@
 | [0013](0013-firewall-zones-rules-and-reachability.md) | Firewall: zones, ordered rules, zone pair policies, NAT and a conservative allowed / denied / unknown answer (#135) |
 | [0014](0014-path-traces.md) | Path traces: traceroutes run on the devices, an optional active observation stored apart from snapshots (#253) |
 | [0015](0015-foreign-dhcp-servers-and-routers.md) | Foreign DHCP servers and routers: device sightings always, an optional probe from Signalbox's host that never takes a lease (#184, #61) |
+| [0016](0016-mac-address-tables.md) | MAC address tables: raw entries per device, bounded, one core module derives client placement and links (#160) |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.
