@@ -44,7 +44,14 @@ from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.openwrt import discovery as _discovery
 from signalbox.adapters.openwrt import provision, setup, vitals, wireguard
 from signalbox.adapters.openwrt.structure import structure
-from signalbox.adapters.openwrt.ubus import AccessDenied, InvalidArgument, NoData, NotFound, Ubus
+from signalbox.adapters.openwrt.ubus import (
+    AccessDenied,
+    CallFailed,
+    InvalidArgument,
+    NoData,
+    NotFound,
+    Ubus,
+)
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
@@ -1707,6 +1714,13 @@ class OpenWrtAdapter(Adapter):
                 "Optional: without LLDP Signalbox cannot see which device is plugged into "
                 "which port; everything else works. To add it, install the packages lldpd and "
                 "luci-app-lldpd (LuCI: System, Software), run service rpcd restart and test again.",
+            )
+        except CallFailed:
+            # luci.lldpd's script fails while lldpd is stopped (seen on OpenWrt 24.10/25.12)
+            return self._lldp_gap(
+                "lldpd is installed but not running (luci.lldpd getStatus failed)",
+                "Optional: start it on the router with service lldpd enable && service lldpd "
+                "start (LuCI: System, Startup), then test again.",
             )
         data = status.get("neighbors")
         if not isinstance(data, dict):

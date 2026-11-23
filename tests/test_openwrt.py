@@ -665,6 +665,19 @@ async def test_lldpd_not_running_is_optional(
     assert "not running" in obs.incomplete[0].message
 
 
+async def test_stopped_lldpd_fails_the_ubus_call_optionally(
+    adapter: OpenWrtAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from signalbox.adapters.openwrt.ubus import CallFailed
+
+    async def failing(obj: str, method: str, *args: Any, **kw: Any) -> Any:
+        raise CallFailed("ubus luci.lldpd.getStatus failed: unknown error")
+
+    monkeypatch.setattr(adapter.ubus, "call", failing)
+    [gap] = (await adapter.read_neighbours()).incomplete
+    assert gap.optional and gap.remedy == "lldp" and "not running" in gap.message
+
+
 async def test_wrong_path_is_reported(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
     a = OpenWrtAdapter(
         context(
