@@ -282,11 +282,27 @@ def _match(
     )
 
 
+#: Tables the firewall fills with abusive hosts (SSH and rate-limit lockouts): rules on them are
+#: left out, they only ever hit hosts that misbehave.
+_ABUSE_TABLES = frozenset({"sshlockout", "virusprot"})
+
+
+def _internal_only(row: dict[str, Any]) -> bool:
+    """A rule of the firewall's own that cannot matter: a lockout table as the source, or
+    "block all targeting port 0"."""
+    if _text(row.get("source_net")) in _ABUSE_TABLES:
+        return True
+    ports = (_text(row.get("source_port")), _text(row.get("destination_port")))
+    return "0" in ports and _flag(row.get("legacy"))
+
+
 def rule(ctx: Context, row: dict[str, Any]) -> tuple[FirewallRule, bool] | None:
     """``(rule, quick)`` of one row of ``filter/search_rule``; ``None``: it does not decide
     (action ``match``, an unknown action)."""
     action = _ACTIONS.get(_text(row.get("action")).lower())
     if action is None:
+        return None
+    if _internal_only(row):
         return None
     legacy = _flag(row.get("legacy"))
     zones, zones_ok = ctx.zones(row.get("interface"))
@@ -517,6 +533,8 @@ def zones(ctx: Context) -> list[FirewallZone]:
             )
         )
     for name, members in ctx.groups.items():
+        if name in ctx.ifaces:
+            continue  # one zone per name
         known = [ctx.ifaces[m] for m in members if m in ctx.ifaces]
         out.append(
             FirewallZone(

@@ -1675,7 +1675,8 @@ class OpnsenseAdapter(_Adapter):
                     mapped=bool(i.segment or uplink or tunnel),
                 )
             )
-        if "wireguard" not in {i.identifier for i in ifaces} and tunnels:
+        taken = {i.identifier for i in ifaces} | {_text(g.get("ifname")) for g in groups}
+        if "wireguard" not in taken and tunnels:
             # the interface group every WireGuard instance belongs to (Firewall: Rules: WireGuard)
             ifaces.append(
                 fw.Iface(

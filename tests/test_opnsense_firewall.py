@@ -126,6 +126,20 @@ async def test_rules_in_pf_order(url: str) -> None:
     ]
 
 
+async def test_the_firewalls_own_abuse_rules_are_left_out(url: str) -> None:
+    names = {r.name for r in (await read(url)).rules}
+    assert not names & {"sshlockout", "virusprot overload table", "block all targeting port 0"}
+
+
+def test_a_group_named_like_an_interface_is_one_zone() -> None:
+    c = fw.Context(
+        [fw.Iface("lan", "LAN", segments=["s/native"])],
+        [{"ifname": "lan", "members": "lan"}, {"ifname": "g", "members": "lan"}],
+        [],
+    )
+    assert [z.name for z in fw.zones(c)] == ["lan", "g"]
+
+
 async def test_evaluation_matches_the_firewall(url: str) -> None:
     out = await read(url)
 
@@ -205,7 +219,8 @@ def ctx(**kw: Any) -> fw.Context:
 
 
 def row(**kw: Any) -> dict[str, Any]:
-    return {**firewall_data()[RULES]["rows"][2], "interface": "lan", **kw}
+    base = next(r for r in firewall_data()[RULES]["rows"] if r["uuid"] == "iot-block")
+    return {**base, "interface": "lan", **kw}
 
 
 def test_row_details() -> None:

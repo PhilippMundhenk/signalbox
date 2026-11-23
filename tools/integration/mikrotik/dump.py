@@ -126,7 +126,7 @@ def main(d: Path, group: str) -> None:
     size = -(-len(notes) // 10)
     for i in range(0, len(notes), size):
         text = "\n\n".join(notes[i : i + size]).replace("%", "%25").replace("\n", "%0A")
-        print(f"::notice title=RouterOS REST {group} {i // size + 1}::{text}", flush=True)
+        print(f"RouterOS REST {group} {i // size + 1}: {text}", flush=True)  # TEMP: no notices
 
 
 if __name__ == "__main__":

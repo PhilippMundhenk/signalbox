@@ -311,7 +311,14 @@ async def test_firewall_rules_and_port_forward(fw: dict[str, str]) -> None:
     assert ours.destination.ports == [PortRange(start=8443)] and ours.exact, ours
     assert ours.protocols == [FirewallProtocol.TCP], ours
     # the web interface is reachable from LAN (anti-lockout rule) and not from WAN
-    to_ui = Flow(chain=FirewallChain.INPUT, protocol=FirewallProtocol.TCP, port=443)
+    to_ui = Flow(
+        chain=FirewallChain.INPUT,
+        protocol=FirewallProtocol.TCP,
+        port=443,
+        family=4,
+        source=ip_network("192.0.2.50/32"),
+        destination=ip_network("192.0.2.1/32"),
+    )
     assert (
         fwl.evaluate(to_ui.model_copy(update={"source_zones": {"lan"}})).verdict is Verdict.ALLOWED
     )
