@@ -272,3 +272,12 @@ async def test_http_certificate_is_not_read(ssh: tuple[int, str], device: OpenWr
     req = request(port, fingerprint, config={"url": "http://127.0.0.1", "username": "sb"})
     plan = await OpenWrtAdapter.plan_setup(req)
     assert "certificate" not in {s.id for s in plan.steps}
+
+
+def test_sim_shell_does_not_expand_variables_inside_single_quotes() -> None:
+    """A random md5-crypt salt starting with ``S`` once looked like ``$S`` (flaky)."""
+    from signalbox.sim.openwrt_ssh import _expand
+
+    assert _expand("uci set a.$S.p='$1$Sabcdefg$x' && echo $S", {"S": "cfg01"}) == (
+        "uci set a.cfg01.p='$1$Sabcdefg$x' && echo cfg01"
+    )

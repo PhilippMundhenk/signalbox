@@ -44,6 +44,16 @@ def _root_section() -> dict[str, Any]:
     }
 
 
+def _expand(line: str, env: dict[str, str]) -> str:
+    """Substitute ``$NAME`` outside single quotes only, as sh does (a md5-crypt hash such as
+    ``'$1$S...'`` must stay as it is, whatever its random salt starts with)."""
+    parts = re.split(r"('[^']*')", line)
+    for k in range(0, len(parts), 2):
+        for name, value in env.items():
+            parts[k] = parts[k].replace(f"${name}", value)
+    return "".join(parts)
+
+
 @dataclass
 class OpenWrtSsh:
     """The router as the setup sees it over SSH; mutate between connections."""
@@ -139,8 +149,7 @@ class OpenWrtSsh:
                 i += 1
                 self.files[heredoc.group(1)] = ("\n".join(body) + "\n").encode()
                 continue
-            for name, value in env.items():
-                line = line.replace(f"${name}", value)
+            line = _expand(line, env)
             try:
                 code, text = self._command(line, env)
             except (ValueError, KeyError, IndexError) as exc:
@@ -241,11 +250,11 @@ async def serve_ssh(device: OpenWrtSsh) -> AsyncIterator[tuple[int, str]]:
     key = asyncssh.generate_private_key("ssh-ed25519")
 
     async def handle(process: asyncssh.SSHServerProcess[bytes]) -> None:
+        script = (await process.stdin.read()).decode()  # before any reply (closing early races)
         if process.command != "sh -s":
             process.stderr.write(b"only sh -s\n")
             process.exit(127)
             return
-        script = (await process.stdin.read()).decode()
         code, out, err = device.run(script)
         process.stdout.write(out)
         if err:

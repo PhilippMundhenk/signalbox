@@ -225,6 +225,11 @@ class _Server(asyncssh.SSHServer):
     def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
         self.conn = conn
 
+    def connection_lost(self, exc: Exception | None) -> None:
+        # ids are reused once a connection is gone: a later password login must not inherit the
+        # "logged in with a key" mark of an earlier connection (flaky under load)
+        self.device.key_logins.discard(id(self.conn))
+
     def begin_auth(self, username: str) -> bool:
         return True
 
@@ -250,11 +255,15 @@ async def serve_ssh(device: OpnsenseSsh) -> AsyncIterator[tuple[int, str]]:
     key = asyncssh.generate_private_key("ssh-ed25519")
 
     async def handle(process: asyncssh.SSHServerProcess[bytes]) -> None:
+        # Read what the client sends before answering in every branch: a reply that closes the
+        # channel while the client is still writing its script fails that write ("Channel not
+        # open for sending"), depending on timing (flaky under load).
+        script = (await process.stdin.read()).decode()
         if id(process.channel.get_connection()) in device.key_logins:
             # sshd runs the forced command, whatever the client asked for
             code, out, err = device.forced_command()
         elif process.command == "sh -s":
-            code, out, err = device.run((await process.stdin.read()).decode())
+            code, out, err = device.run(script)
         else:
             code, out, err = 127, b"", "only sh -s"
         process.stdout.write(out)
