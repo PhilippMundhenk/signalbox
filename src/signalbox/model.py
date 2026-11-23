@@ -769,14 +769,17 @@ class Tunnel(Observed):
 
     def remote_networks(self, peer: TunnelPeer) -> list[IPNetwork]:
         """The networks a peer's allowed IPs route through the tunnel: every allowed network
-        that is not inside one of the tunnel's own address networks (the peer's own tunnel
-        address is transit, not a network behind it). ``0.0.0.0/0`` and ``::/0`` stay: the
-        peer is the way to everything (a full tunnel)."""
+        that is neither a single address (``/32``, ``/128``: the peer's own tunnel address, or
+        one host) nor inside one of the tunnel's own address networks (transit). A device may
+        report its tunnel address as a host address (FreeBSD shows ``/128``), so the single
+        address rule is what keeps the transit out. ``0.0.0.0/0`` and ``::/0`` stay: the peer
+        is the way to everything (a full tunnel)."""
         own = [a.network for a in self.addresses]
         return [
             n
             for n in peer.allowed_ips
-            if not any(n.version == o.version and n.subnet_of(o) for o in own)  # type: ignore[arg-type]
+            if n.num_addresses > 1
+            and not any(n.version == o.version and n.subnet_of(o) for o in own)  # type: ignore[arg-type]
         ]
 
     def site_peers(self) -> list[TunnelPeer]:

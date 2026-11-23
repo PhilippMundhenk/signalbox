@@ -298,7 +298,8 @@ other's public key (`Network.tunnel_end`); `topology.tunnel_links` makes that a 
 tunnel does not name this one) gives no link: the ends disagree, which a check can report with
 `Network.tunnel_with_key`.
 
-A peer whose allowed IPs reach beyond the tunnel's own address networks routes a network of
+A peer with allowed IPs that are more than one address and lie beyond the tunnel's own address
+networks routes a network of
 its own: a *site peer* (`Tunnel.site_peers`, `Tunnel.remote_networks`). A peer with only its
 tunnel address is a client (phone, laptop). A site peer whose other end is not read is an
 unmanaged remote site (`Network.remote_sites`): the topology shows it as a box with the networks

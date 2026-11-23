@@ -12,9 +12,9 @@ not yet confirmed on a real device, issue #21). Sample network, documentation ad
   DHCP leases
 - the dashboard's health widgets (uptime, load, memory, ZFS disks, two CPU sensors), the
   clock in Europe/Berlin and ntpd in sync with a local GPS-backed server
-- WireGuard instance ``wg0`` (2001:db8:ff::1/64, port 51820, not assigned) with a site-to-site
-  peer ``site-b`` (routes 2001:db8:20::/64, handshake 42 s before the start) and a phone that never
-  connected (#239)
+- WireGuard instance ``wg0`` (2001:db8:ff::1, shown as /128 like on 26.7.9; port 51820; not
+  assigned) with a site-to-site peer ``site-b`` (routes 2001:db8:20::/64, handshake 42 s before
+  the start) and a phone that never connected (#239)
 
 Failure switches on :class:`OpnsenseSimulator`: ``api_enabled=False`` (404 on everything),
 ``delay`` (seconds before every answer), ``malformed`` (endpoints answering broken JSON),
@@ -170,7 +170,9 @@ def sample_data() -> dict[str, Any]:
                     physical=True,
                 ),
                 _iface("lo0", "lo0", "Loopback", mac="", v4=["127.0.0.1/8"], v6=["::1/128"]),
-                _iface("wg0", "", "", mac="", mtu="1420", v6=["2001:db8:ff::1/64"]),
+                _iface(
+                    "wg0", "", "", mac="", mtu="1420", v6=["2001:db8:ff::1/128"]
+                ),  # as ifconfig shows it
             ],
         },
         "/api/interfaces/vlan_settings/search_item": {

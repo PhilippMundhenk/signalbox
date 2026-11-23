@@ -223,7 +223,8 @@ every peer before the answer leaves the firewall:
 - `type: interface` rows: `if` (`wg0`), `public-key`, `listen-port`, `status` (`up`/`down`
   from ifconfig), `name`/`ifname` (the instance name) → a `Tunnel` `<device>/tunnel/wg0`;
   addresses and MTU come from the interface overview row of the same device, which is also
-  its port (`<device>/port/wg0`).
+  its port (`<device>/port/wg0`). FreeBSD shows a tunnel address with a host prefix
+  (`2001:db8:ff::1/128` for an instance configured with `/64`, verified on 26.7.9).
 - `type: peer` rows: `public-key`, `name` (the peer name), `endpoint` (`host:port`,
   `[v6]:port` or `(none)`), `allowed-ips` (comma list), `latest-handshake` (epoch seconds, 0:
   none), `transfer-rx`/`-tx`, `persistent-keepalive` (seconds or `off`) → `TunnelPeer`.

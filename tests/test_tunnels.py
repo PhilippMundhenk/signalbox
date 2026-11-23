@@ -81,6 +81,16 @@ def test_remote_networks_leave_out_the_tunnel_transit() -> None:
     assert t.peer(wg_key("phone")) is phone and t.peer(wg_key("nobody")) is None
 
 
+def test_host_routes_are_no_remote_networks() -> None:
+    """FreeBSD reports the tunnel address as /128: the peer's own address is still transit."""
+    t = tunnel(
+        "fw",
+        peer("pi", "2001:db8:ff::2/128", "2001:db8:20::/64", "192.0.2.9/32"),
+        addresses=["2001:db8:ff::1/128"],
+    )
+    assert [str(n) for n in t.remote_networks(t.peers[0])] == ["2001:db8:20::/64"]
+
+
 def test_handshake_age_and_naive_times() -> None:
     p = peer("x", latest_handshake=T0.replace(tzinfo=None))
     assert p.latest_handshake == T0

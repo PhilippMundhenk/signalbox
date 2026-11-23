@@ -33,8 +33,9 @@ pre-shared key, and several device APIs return them next to the public data.
   within a site and across sites. A peer that names a key no read tunnel has, or a tunnel that
   does not name us back, gives no link.
 - **An unmanaged remote site** is a site peer whose other end is not read
-  (`Network.remote_sites`). A site peer routes networks of its own: allowed IPs outside the
-  tunnel's own address networks (`Tunnel.remote_networks`); a peer with only its tunnel address
+  (`Network.remote_sites`). A site peer routes networks of its own: allowed IPs that are more than one
+  address and lie outside the tunnel's own address networks (`Tunnel.remote_networks`; a device
+  may report its tunnel address as /128, so single addresses never count); a peer with only its tunnel address
   is a client (a phone, a laptop), not a site. The topology view shows a remote site as a box
   of its own with those networks; it is not a `Site`, has no devices and no id in the
   inventory.

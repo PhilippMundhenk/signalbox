@@ -266,7 +266,8 @@ async def test_wireguard_instance_and_peer(fw: dict[str, str]) -> None:
     (t,) = snap.tunnels
     assert (t.name, t.description, t.listen_port, t.up) == ("wg0", "s2s", 51820, True), t
     assert t.public_key == os.environ["IT_OPNSENSE_WG_SERVER"], t
-    assert "2001:db8:ff::1/64" in [str(x) for x in t.addresses], t
+    # configured as 2001:db8:ff::1/64; FreeBSD's ifconfig (the interface overview) shows /128
+    assert "2001:db8:ff::1" in [str(x.ip) for x in t.addresses], t
     assert t.port_id == "fw/port/wg0" and t.port_id in {p.id for p in snap.ports}
     (p,) = t.peers
     assert (p.name, p.public_key) == ("site-b", os.environ["IT_OPNSENSE_WG_PEER"]), p

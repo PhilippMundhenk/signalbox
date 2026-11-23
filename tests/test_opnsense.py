@@ -933,7 +933,7 @@ async def test_wireguard_tunnel_and_peers(snap: Snapshot) -> None:
         "fw/port/wg0",
     )
     assert (t.up, t.listen_port, t.mtu, t.public_key) == (True, 51820, 1420, WG_KEY)
-    assert [str(a) for a in t.addresses] == ["2001:db8:ff::1/64"]
+    assert [str(a) for a in t.addresses] == ["2001:db8:ff::1/128"]
     site_b, phone = t.peers
     assert (site_b.name, site_b.public_key) == ("site-b", WG_SITE_B)
     assert (site_b.endpoint_host, site_b.endpoint_port) == ("2001:db8:ffff:20::1", 51820)
