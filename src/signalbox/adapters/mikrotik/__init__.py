@@ -774,7 +774,9 @@ REMEDIES = (
         transport="SSH as admin",
         port_default=22,
         preview=[
-            PreviewStep(id="certificate", title="Create the local CA and certificate if missing"),
+            PreviewStep(id="ca", title="Create the local CA if missing"),
+            PreviewStep(id="server-certificate", title="Create the server certificate if missing"),
+            PreviewStep(id="certificate", title="Use the certificate www-ssl already has"),
             PreviewStep(id="www-ssl", title="Enable the www-ssl service"),
             PreviewStep(id="check", title="Read www-ssl again"),
         ],
@@ -819,6 +821,16 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 PreviewStep(id="group", title="Create the user group with the documented policies"),
                 PreviewStep(id="user", title="Create the user signalbox with a generated password"),
                 PreviewStep(id="user", title="Delete the user signalbox", remove=True),
+                PreviewStep(
+                    id="group-signalbox-read",
+                    title="Delete the user group signalbox-read (if no other user is in it)",
+                    remove=True,
+                ),
+                PreviewStep(
+                    id="group-signalbox-write",
+                    title="Delete the user group signalbox-write (if no other user is in it)",
+                    remove=True,
+                ),
             ],
         ),
         traces=TraceSupport(

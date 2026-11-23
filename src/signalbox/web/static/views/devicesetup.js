@@ -47,6 +47,9 @@ export function autoSetup(a, collect, onDone) {
   // an optional second step over SSH (OPNsense: the ISC DHCP script, #242): off unless ticked
   const opt = login.ssh_option;
   const sshOn = opt ? h('input', { type: 'checkbox', 'data-testid': 'setup-ssh' }) : null;
+  // like the main port, the SSH port is no secret and is needed to fetch the SSH host key
+  const sshPort = opt ? h('input', { type: 'number', min: '1', max: '65535', value: String(opt.port_default), 'data-testid': 'setup-ssh-port' }) : null;
+  const sshPortField = opt ? h('div', { class: 'ssh-option-fields', hidden: true, 'data-testid': 'setup-ssh-port-field' }, field('SSH port', sshPort)) : null;
   // optional extras (OpenWrt: LLDP, #278): unticked; on Remove they mean "remove it too"
   const extras = (login.extras || []).map((x) => ({ x, box: h('input', { type: 'checkbox', 'data-testid': `setup-extra-${x.id}`, 'data-extra': x.id }), text: h('span', {}, x.label) }));
   const extraFields = extras.map(({ x, box, text }) => h('div', { class: 'field' }, h('label', { class: 'check' }, box, ' ', text), x.note ? h('small', { class: 'muted' }, x.note) : null));
@@ -63,7 +66,10 @@ export function autoSetup(a, collect, onDone) {
     reset();
   });
   for (const { box } of extras) box.addEventListener('change', reset);
-  if (opt) sshOn.addEventListener('change', reset);
+  if (opt) {
+    sshOn.addEventListener('change', () => { sshPortField.hidden = !sshOn.checked; reset(); });
+    sshPort.addEventListener('change', reset);
+  }
 
   const fail = (text, fix) => place(clear(out), h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, text), fix ? h('p', { class: 'fix' }, 'What to do: ', fix) : null);
 
@@ -93,10 +99,14 @@ export function autoSetup(a, collect, onDone) {
     try {
       const body = { device, admin: { user: login.user_default || '' }, remove: remove.checked, extras: ticked().filter((x) => x !== 'ssh') };
       if (port && port.value) body.admin.port = Number(port.value);
+      // the optional SSH step: its host key is fetched now too, without any password (#290)
+      const withSsh = !!(opt && sshOn.checked);
+      if (withSsh) body.ssh = sshPort.value ? { port: Number(sshPort.value) } : {};
       const plan = await post('/devices/setup', body);
       const kind = plan.fingerprint_kind === 'certificate' ? 'certificate' : 'SSH host key';
-      const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust' }, `Trust this ${kind}`);
-      trust.addEventListener('click', () => { trusted = plan.fingerprint; showFinal(null); });
+      const both = withSsh && plan.ssh_fingerprint;
+      const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust' }, both ? `Trust this ${kind} and the SSH host key` : `Trust this ${kind}`);
+      trust.addEventListener('click', () => { trusted = plan.fingerprint; trustedSsh = both ? plan.ssh_fingerprint : null; showFinal(null); });
       place(
         clear(out),
         h(
@@ -106,6 +116,9 @@ export function autoSetup(a, collect, onDone) {
           h('p', {}, 'Compare it with what the device itself shows before you trust it. If they differ, someone may be in between: do not trust it. No password has been asked for yet.'),
           h('p', { class: 'fingerprint mono', 'data-testid': 'setup-fingerprint' }, fingerprintText(plan)),
           plan.compare ? h('p', { class: 'muted small' }, plan.compare) : null,
+          both ? h('h3', {}, 'and this SSH host key (for the optional SSH step)') : null,
+          both ? h('p', { class: 'fingerprint mono', 'data-testid': 'setup-ssh-fingerprint' }, plan.ssh_fingerprint) : null,
+          both && plan.ssh_compare ? h('p', { class: 'muted small' }, plan.ssh_compare) : null,
           trust,
         ),
       );
@@ -118,17 +131,15 @@ export function autoSetup(a, collect, onDone) {
   function showFinal(extraNote) {
     if (step) step.dispose();
     let sshSecret = null;
-    let sshPort = null;
     const more = [];
     if (opt && sshOn.checked) {
       sshSecret = h('input', { type: 'password', autocomplete: 'new-password', spellcheck: 'false', 'data-testid': 'setup-ssh-secret' });
-      sshPort = h('input', { type: 'number', min: '1', max: '65535', value: String(opt.port_default), 'data-testid': 'setup-ssh-port' });
-      more.push({ el: h('div', { class: 'ssh-option-fields', 'data-testid': 'setup-ssh-fields' }, field(`${opt.secret_label} (${opt.user})`, sshSecret), field('SSH port', sshPort)), input: sshSecret });
+      more.push({ el: h('div', { class: 'ssh-option-fields', 'data-testid': 'setup-ssh-fields' }, field(`${opt.secret_label} (${opt.user})`, sshSecret)), input: sshSecret });
     }
     step = adminStep(login, 'setup', more);
     const removing = remove.checked;
     const go = h('button', { class: removing ? 'btn danger' : 'btn primary', type: 'button', 'data-testid': 'setup-apply' }, removing ? 'Run: remove it from the device' : 'Run: set up the device');
-    go.addEventListener('click', () => run(go, () => doApply(sshSecret, sshPort)));
+    go.addEventListener('click', () => run(go, () => doApply(sshSecret)));
     place(
       clear(out),
       extraNote,
@@ -139,7 +150,7 @@ export function autoSetup(a, collect, onDone) {
   }
 
   // 4. Run: one request with the password, then it is gone
-  async function doApply(sshSecret, sshPort) {
+  async function doApply(sshSecret) {
     const device = collect();
     if (!device || !step) return;
     const removing = remove.checked;
@@ -155,7 +166,7 @@ export function autoSetup(a, collect, onDone) {
     const body = { device, admin, remove: removing, trust: trusted, extras: ticked().filter((x) => x !== 'ssh'), plan_ids: acked };
     if (sshSecret) {
       body.ssh = { secret: sshSecret.value, trust: trustedSsh };
-      if (sshPort && sshPort.value) body.ssh.port = Number(sshPort.value);
+      if (sshPort.value) body.ssh.port = Number(sshPort.value);
     }
     place(clear(out), h('p', { class: 'muted' }, removing ? 'Removing…' : 'Setting up the device…'));
     const current = step;
@@ -210,6 +221,7 @@ export function autoSetup(a, collect, onDone) {
     login.note ? h('p', { class: 'muted small' }, login.note) : null,
     port ? field('SSH port', port) : null,
     opt ? checkField(opt.label, sshOn, opt.note) : null,
+    sshPortField,
     checkField('Remove what Signalbox set up instead', remove, null),
     ...extraFields,
     h('div', { class: 'row' }, planBtn),

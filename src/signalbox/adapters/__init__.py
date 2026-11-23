@@ -298,6 +298,10 @@ class SetupRequest(BaseModel):
     #: The optional SSH step (:class:`SshOption`, #242): ticked, with the SSH login of this one
     #: request (never stored) and the SSH host key the user confirmed for it.
     ssh_step: bool = False
+    #: Only fetch the identities (HTTPS certificate and, with ``ssh_step``, the SSH host key) to
+    #: be confirmed before any password is asked for (#290): no credential is sent, nothing is
+    #: trusted yet. The plan then has no steps and ``trusted`` / ``ssh_trusted`` are False.
+    identity_only: bool = False
     ssh_secret: SecretStr | None = None
     ssh_port: int | None = Field(None, ge=1, le=65535)
     ssh_trust: str | None = None

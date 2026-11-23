@@ -138,7 +138,8 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             # without the password only the fingerprint is fetched: nothing is sent, nothing
             # is trusted yet (#279)
             trust=None if anonymous else body.trust,
-            ssh_step=ssh is not None and not anonymous,
+            ssh_step=ssh is not None,
+            identity_only=anonymous,
             ssh_secret=ssh.secret if ssh and not anonymous else None,
             ssh_port=ssh.port if ssh else None,
             ssh_trust=ssh.trust if ssh and not anonymous else None,

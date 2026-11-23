@@ -35,7 +35,7 @@ def firewall(tmp_path: Path) -> Iterator[tuple[str, int, OpnsenseSsh]]:
         yield url, port, device
 
 
-def test_script_is_off_until_ticked_and_both_keys_are_confirmed(
+def test_script_is_off_until_ticked_and_both_identities_come_before_the_passwords(
     app: Any, firewall: tuple[str, int, OpnsenseSsh]
 ) -> None:
     url, port, device = firewall
@@ -46,27 +46,24 @@ def test_script_is_off_until_ticked_and_both_keys_are_confirmed(
     app.get_by_test_id("auto-setup").locator("summary").click()
     ticked = app.get_by_test_id("setup-ssh")
     expect(ticked).not_to_be_checked()  # off by default
-    expect(app.get_by_test_id("setup-ssh-fields")).to_be_hidden()
+    expect(app.get_by_test_id("setup-ssh-port-field")).to_be_hidden()
     ticked.check()
+    app.get_by_test_id("setup-ssh-port").fill(str(port))  # no secret: asked before the identity
     app.get_by_test_id("setup-plan").click()
     expect(app.get_by_test_id("setup-plan-steps")).to_contain_text("DHCP script")
     app.get_by_test_id("setup-continue").click()
-    app.get_by_test_id("setup-trust").click()  # the certificate
-    # the API key and the SSH password are asked for last
-    app.get_by_test_id("setup-admin-user").fill(KEY)
-    app.get_by_test_id("setup-admin-secret").fill(SECRET)
-    app.get_by_test_id("setup-ssh-secret").fill(ROOT_PASSWORD)
-    app.get_by_test_id("setup-ssh-port").fill(str(port))
-    app.get_by_test_id("setup-apply").click()
-    # the SSH host key is confirmed before the SSH password is sent
+    # both identities are shown together, and no password field exists yet (#290)
+    expect(app.get_by_test_id("setup-fingerprint")).to_be_visible()
     expect(app.get_by_test_id("setup-ssh-fingerprint")).to_contain_text("SHA256:")
+    expect(app.get_by_test_id("setup-admin-secret")).to_have_count(0)
+    expect(app.get_by_test_id("setup-ssh-secret")).to_have_count(0)
+    app.get_by_test_id("setup-trust").click()
+    # the API key and the SSH password are asked for once, last
+    expect(app.get_by_test_id("setup-ssh-secret")).to_have_count(1)
     assert device.scripts == []
-    app.get_by_test_id("setup-trust-ssh").click()
-    expect(app.get_by_test_id("setup-ssh-secret")).to_have_value("")  # cleared, asked again
     app.get_by_test_id("setup-admin-user").fill(KEY)
     app.get_by_test_id("setup-admin-secret").fill(SECRET)
     app.get_by_test_id("setup-ssh-secret").fill(ROOT_PASSWORD)
-    app.get_by_test_id("setup-ssh-port").fill(str(port))
     app.get_by_test_id("setup-apply").click()
     expect(app.get_by_test_id("toast").first).to_contain_text("Firewall set up.")
     assert SCRIPT_PATH in device.files and len(device.key_lines()) == 1

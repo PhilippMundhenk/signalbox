@@ -710,6 +710,7 @@ class OpenWrtAdapter(Adapter):
                 PreviewStep(id="login", title="Delete the rpcd login", remove=True),
                 PreviewStep(id="acl", title="Delete Signalbox's permission file", remove=True),
                 PreviewStep(id="restart", title="Restart rpcd", remove=True),
+                PreviewStep(id="packages", title="Keep the installed packages", remove=True),
                 PreviewStep(
                     id="lldp-remove",
                     title="Remove lldpd and its package",
