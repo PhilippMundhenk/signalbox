@@ -256,6 +256,19 @@ Verified in CI (tests/integration/test_opnsense_real.py): the VM has an instance
 2001:db8:20::/64, an endpoint that never answers, keepalive 25), and the read user gets 403 on
 both configuration grids.
 
+## Path traces (optional, #253)
+
+Only while `traces.enabled` is on ([TRACES.md](../TRACES.md)): *Trace now* calls
+`POST /api/diagnostics/traceroute/set` with
+`{"traceroute": {"settings": {"hostname": "<address>", "ipproto": "inet", "protocol": "icmp",
+"source_address": ""}}}`; the firewall runs configd's `interface traceroute`
+(`traceroute -a -w 2 -q 1 -I`, at most 20 s) and answers `{"result": "ok", "response": {"rows":
+[{"ttl", "AS", "host", "address", "probes"}]}}` (hops that did not answer are left out; Signalbox
+fills in their TTL as unanswered). The API user needs the privilege **Diagnostics: Traceroute**
+(`page-diagnostics-traceroute`); without it the call is HTTP 403 and the trace says so, with
+*Fix it* (`privileges`) on the device page. The automatic setup and *Fix it* add the privilege
+only while path traces are on.
+
 ## Writing (changes)
 
 With `deploy.enabled` and *Allow changes* on the device, Signalbox can change:

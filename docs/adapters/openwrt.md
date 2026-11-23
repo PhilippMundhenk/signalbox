@@ -397,6 +397,13 @@ transfer); with a read ACL from before this method was added the read fails with
 denied" for the `vpn` capability only. ACL entry: `"luci.wireguard": ["getWgInstances"]`, the
 only addition.
 
+## Path traces: not supported (#253)
+
+rpcd has no traceroute method. LuCI's *Network > Diagnostics* runs `/usr/bin/traceroute`
+through `file exec` with an ACL of its own (`luci-mod-network-diagnostics`), an exec right on
+the router that Signalbox does not ask for, so the integration declares no traces. An OpenWrt
+router is still a destination of the other routers' traces ([TRACES.md](../TRACES.md)).
+
 ## Automatic setup
 
 *Set up automatically* in the device form (#231, [ADR 0009](../adr/0009-automatic-setup-with-an-admin-login.md))

@@ -99,6 +99,7 @@ def router(
             allow_writes=rec.allow_writes,
             trust=body.trust,
             timeout=max(30.0, services.config.observe.timeout_seconds),
+            traces=services.config.traces.enabled,
         )
         return cls, request
 

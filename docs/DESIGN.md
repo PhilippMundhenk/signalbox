@@ -45,6 +45,7 @@ desired state → planner → deployment → devices, with every step tracked.
 | **Inventory** | `signalbox.store`, `signalbox.config`, `signalbox.secrets` | sites, devices, cables, credentials (encrypted), certificate pins | UI/API | records | done (#11) |
 | **Automatic setup** | `signalbox.web.setup_api`, `signalbox.adapters.provision`, `signalbox.adapters.ssh`, `<adapter>.provision` | with the admin login given once: plan, then create the integration's own least-privilege login, save the device with it; the admin login is never kept | device form, admin login | steps, device record | done for OpenWrt, OPNsense, MikroTik (#231), [ADR 0009](adr/0009-automatic-setup-with-an-admin-login.md) |
 | **Fix it** | `signalbox.web.fix_api`, `<adapter>.provision` (`REMEDIES`, `*Fix`) | a read gap or error names a remedy of its integration (`remedy=`); on request and after confirmation, with the admin login, only Signalbox's own packages and permissions are repaired, then the device is read again | read errors, admin login | steps, new reading | OpenWrt `access`, `lldp`; OPNsense `privileges` (#215), [ADR 0012](adr/0012-fix-it-for-read-problems.md) |
+| **Path traces** | `signalbox.tracer`, `signalbox.traces`, `signalbox.tracehost`, `<adapter>.trace` | off by default; on *Trace now* or a schedule, the routers (OPNsense, MikroTik, Linux) and Signalbox's host trace to each other and to one internet address; hops matched to known devices: the routed path, who is in front of whom, paths through tunnels | inventory, `Network`, integrations' `trace` hook | `PathTrace` (stored apart), routed view, `trace.*` findings | done (#253), [TRACES.md](TRACES.md), [ADR 0014](adr/0014-path-traces.md) |
 | **Discovery** | `signalbox.discovery` | find devices of the installed integrations when the user asks, without credentials; suggestions for the device form | known networks (`Network`), ranges the user enters, probes of the integrations | candidates | done (#203), [DISCOVERY.md](DISCOVERY.md), [ADR 0006](adr/0006-discovery-probes.md) |
 | **Observation** | `signalbox.runner` | read every device on an interval, merge into one network | inventory, integrations | `Network`, findings history | done (#12) |
 | **History** | `signalbox.sightings`, `signalbox.store` | after every round: first/last seen of devices, clients (per network) and ports, device status, link state, client network; changes as events; pruned after `history.days` | `Network` per round | read-only `History` for rules (`history_rule`), first/last seen in API and UI | done (#185) |
@@ -106,6 +107,7 @@ carries its source (adapter and device), the time it was observed and a stable i
 | DeviceTime | Device clock and Signalbox's time when it was read (offset, uncertainty), time zone, NTP client (servers, synchronised, stratum), NTP server (segments it serves) |
 | Annotation | User data per object id (device, port, segment, subnet, `client/<mac>`): label, purpose, owner, notes, tags, typed expectations (`static_address`, `category`, `may_be_unreachable`, `known_neighbour`, ...); declared or stored |
 | Acknowledgement | A finding accepted by the user: rule plus finding id or target object, reason, until, optional fingerprint of the message |
+| PathTrace | An active observation (#253): a traceroute from a device or Signalbox's host to an address, purpose (gateway, internet, address), hops (TTL, address, RTT, matched device and interface), reached, error with fix and remedy; the latest per pair, stored apart from snapshots, on `Network.traces` only while `traces.enabled` ([ADR 0014](adr/0014-path-traces.md)) |
 
 `Device.health` and `Device.time` (adapter API 1.2, capabilities `health` and `time`) are value
 objects on the device rather than objects with their own ids: there is one per device, it has no
@@ -415,7 +417,10 @@ The topology view is built from `Port` and `Link` objects:
 - clients placed on the port or access point where they were last seen,
 - VPN tunnels: a `vpn` link between two read tunnels whose peers name each other's public keys,
   drawn between the gateways (also of two sites), and an unmanaged remote site for a site peer
-  whose other end is not read.
+  whose other end is not read,
+- routed paths (#253, optional): the layer-3 path of each path trace with the known routers on
+  it and the hops inside a tunnel, and which router is in front of which
+  (`signalbox.traces.routed_view`); it never adds links to the wiring view.
 
 Links that cannot be discovered (unmanaged switches, devices without LLDP) can be entered by hand
 and are marked as such. A link seen by discovery but missing from the desired state, or the other

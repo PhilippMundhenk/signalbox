@@ -126,6 +126,7 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             ssh_port=ssh.port if ssh else None,
             ssh_trust=ssh.trust if ssh else None,
             timeout=max(30.0, services.config.observe.timeout_seconds),
+            traces=services.config.traces.enabled,
         )
         return cls, form, request
 

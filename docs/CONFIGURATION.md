@@ -78,6 +78,21 @@ Generated from the code by `tools/gen_docs.py`.
 | `setup.enabled` | `SIGNALBOX_SETUP_ENABLED` | true | Offer 'Set up automatically' in the device form: with the admin login you give once, Signalbox creates its own least-privilege login on that device (only when you start it and confirm the plan; docs/adr/0009). false: the API refuses it and the form does not show it; the manual setup guides always work. |
 | `setup.fixes` | `SIGNALBOX_SETUP_FIXES` | true | Offer 'Fix it' next to a read problem Signalbox's own setup can repair (a missing package or permission it reads through; no 'Allow changes' needed for these), with the admin login, only when you start it and confirm the plan (docs/adr/0012). Never changes network settings. Off when this or setup.enabled is false. |
 
+## `traces`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `traces.enabled` | `SIGNALBOX_TRACES_ENABLED` | false | Path traces (docs/adr/0014): let the routers Signalbox reads (and its own host) run traceroutes to each other and to one internet address, to show the routed path. Off by default; needs an extra permission on some devices (docs/TRACES.md). |
+| `traces.interval_hours` | `SIGNALBOX_TRACES_INTERVAL_HOURS` | `0` | Run all traces every this many hours; 0: only when you press Trace now. |
+| `traces.internet_target` | `SIGNALBOX_TRACES_INTERNET_TARGET` | `1.1.1.1` | The internet address every gateway traces to (an IP address); empty: none. |
+| `traces.from_signalbox` | `SIGNALBOX_TRACES_FROM_SIGNALBOX` | true | Also trace from Signalbox's own host (unprivileged UDP, no root needed). |
+| `traces.max_hops` | `SIGNALBOX_TRACES_MAX_HOPS` | `16` | Hops per trace at most. |
+| `traces.wait_seconds` | `SIGNALBOX_TRACES_WAIT_SECONDS` | `1` | How long a hop may take to answer, in seconds. |
+| `traces.timeout_seconds` | `SIGNALBOX_TRACES_TIMEOUT_SECONDS` | `40` | Timeout of one whole trace, in seconds. |
+| `traces.concurrency` | `SIGNALBOX_TRACES_CONCURRENCY` | `2` | Traces running at the same time. |
+| `traces.min_gap_seconds` | `SIGNALBOX_TRACES_MIN_GAP_SECONDS` | `60` | Trace now is refused this soon after the last run. |
+| `traces.max_pairs` | `SIGNALBOX_TRACES_MAX_PAIRS` | `64` | At most this many traces in one run. |
+
 ## `plugins`
 
 | Setting | Environment variable | Default | Meaning |

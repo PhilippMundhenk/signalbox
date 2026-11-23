@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 
 from signalbox.rules import RuleSettings
 
@@ -123,6 +124,49 @@ class SetupConfig(Section):
     )
 
 
+class TracesConfig(Section):
+    enabled: bool = Field(
+        False,
+        description="Path traces (docs/adr/0014): let the routers Signalbox reads (and its own "
+        "host) run traceroutes to each other and to one internet address, to show the routed "
+        "path. Off by default; needs an extra permission on some devices (docs/TRACES.md).",
+    )
+    interval_hours: int = Field(
+        0,
+        ge=0,
+        le=720,
+        description="Run all traces every this many hours; 0: only when you press Trace now.",
+    )
+    internet_target: str = Field(
+        "1.1.1.1",
+        description="The internet address every gateway traces to (an IP address); empty: none.",
+    )
+    from_signalbox: bool = Field(
+        True,
+        description="Also trace from Signalbox's own host (unprivileged UDP, no root needed).",
+    )
+    max_hops: int = Field(16, ge=2, le=30, description="Hops per trace at most.")
+    wait_seconds: float = Field(
+        1, gt=0, le=5, description="How long a hop may take to answer, in seconds."
+    )
+    timeout_seconds: float = Field(
+        40, ge=5, le=120, description="Timeout of one whole trace, in seconds."
+    )
+    concurrency: int = Field(2, ge=1, le=8, description="Traces running at the same time.")
+    min_gap_seconds: int = Field(
+        60, ge=0, le=3600, description="Trace now is refused this soon after the last run."
+    )
+    max_pairs: int = Field(64, ge=1, le=512, description="At most this many traces in one run.")
+
+    @field_validator("internet_target")
+    @classmethod
+    def _address(cls, value: str) -> str:
+        text = value.strip()
+        if text:
+            ip_address(text)  # ValueError: not an IP address
+        return text
+
+
 class PluginsConfig(Section):
     remote_adapters: dict[str, list[str]] = Field(
         default_factory=dict,
@@ -139,6 +183,7 @@ class Config(Section):
     history: HistoryConfig = HistoryConfig()
     discovery: DiscoveryConfig = DiscoveryConfig()
     setup: SetupConfig = SetupConfig()
+    traces: TracesConfig = TracesConfig()
     plugins: PluginsConfig = PluginsConfig()
     rules: dict[str, RuleSettings] = Field(
         default_factory=dict,
@@ -228,6 +273,29 @@ setup:
   # Signalbox reads through), (no "Allow changes" needed for these), with the admin login and only
   # after you confirmed the plan. Never changes network settings. Details: docs/adr/0012.
   fixes: true
+
+traces:
+  # Path traces: the routers Signalbox reads (OPNsense, MikroTik, Linux) and Signalbox's own
+  # host run traceroutes to each other and to one internet address; the topology page shows
+  # the routed path (which router is in front of which, paths through VPN tunnels). Off by
+  # default. Some devices need an extra permission for it (docs/TRACES.md); the automatic
+  # setup and Fix it add it only while this is on. Details: docs/adr/0014.
+  enabled: false
+  # Run every trace every this many hours; 0: only when you press "Trace now".
+  interval_hours: 0
+  # The internet address every gateway traces to; empty: none.
+  internet_target: 1.1.1.1
+  # Also trace from Signalbox's own host (unprivileged UDP, no root or raw sockets).
+  from_signalbox: true
+  # Hops per trace, seconds per hop and per trace, traces at the same time.
+  max_hops: 16
+  wait_seconds: 1
+  timeout_seconds: 40
+  concurrency: 2
+  # "Trace now" is refused this soon after the last run, and one run has at most this many
+  # traces.
+  min_gap_seconds: 60
+  max_pairs: 64
 
 plugins:
   # Adapters that run as separate programs, each with only the settings of its device:

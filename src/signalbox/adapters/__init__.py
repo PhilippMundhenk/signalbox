@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from importlib.metadata import entry_points
+from ipaddress import IPv4Address, IPv6Address
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr
@@ -50,6 +51,7 @@ from signalbox.model import (
     Snapshot,
     Source,
     Subnet,
+    TraceHop,
     Tunnel,
     Uplink,
     Wlan,
@@ -280,6 +282,9 @@ class SetupRequest(BaseModel):
     ssh_trust: str | None = None
     #: Ids of the :class:`SetupExtra` the user ticked (#278); with ``remove``: remove them too.
     extras: list[str] = Field(default_factory=list)
+    #: Path traces are on (``traces.enabled``, #253): also give the login the permission to
+    #: run traceroutes (``Manifest.traces``). Off: the login gets none.
+    traces: bool = False
 
 
 class SetupPlan(BaseModel):
@@ -358,6 +363,8 @@ class RemedyRequest(BaseModel):
     #: The fingerprint (SSH host key or certificate) the user confirmed; None: not yet.
     trust: str | None = None
     timeout: float = 30.0
+    #: Path traces are on (#253): the permissions include the one for traceroutes.
+    traces: bool = False
 
 
 class UntrustedHostKey(AdapterError):
@@ -368,6 +375,31 @@ class UntrustedHostKey(AdapterError):
         self.pinned = pinned
         what = "a different SSH host key" if pinned else "an SSH host key not yet trusted"
         super().__init__(f"device presented {what} ({fingerprint})")
+
+
+class TraceSupport(BaseModel):
+    """An integration that can run a traceroute on its device (#253, ``Manifest.traces``).
+
+    It then implements :meth:`Adapter.trace`. Used only while path traces are on
+    (``traces.enabled``); the permission is documented and requested only then.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: What the device login needs for it, in plain words (shown on the topology page).
+    permission: str
+    #: How the device runs it ("the diagnostics API", "tracepath over SSH").
+    method: str = ""
+
+
+class TraceAnswer(BaseModel):
+    """What a device's traceroute returned: the hops in TTL order, raw (core matches them)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    hops: list[TraceHop] = Field(default_factory=list)
+    #: The target itself answered (the last hop is the target).
+    reached: bool = False
 
 
 class AdapterConfig(BaseModel):
@@ -405,6 +437,9 @@ class Manifest(BaseModel):
     #: Repairs the integration can make with the admin login (#215): implements
     #: :meth:`Adapter.plan_remedy` and :meth:`Adapter.apply_remedy`; needs ``admin_login``.
     remedies: tuple[Remedy, ...] = ()
+    #: The integration can run a traceroute on the device (#253): implements
+    #: :meth:`Adapter.trace`. No adapter API version needed (an optional hook).
+    traces: TraceSupport | None = None
 
 
 @dataclass(frozen=True)
@@ -691,6 +726,22 @@ class Adapter(ABC):
         Returns no settings: the device keeps its login."""
         raise NotImplementedError
 
+    # path traces (#253): optional, declared by Manifest.traces -----------------------------
+
+    async def trace(
+        self, target: IPv4Address | IPv6Address, max_hops: int, wait: float
+    ) -> TraceAnswer:
+        """Optional: run a traceroute from the device to ``target`` and return its hops.
+
+        Called only while path traces are on, on a stored device with its stored login, with
+        the context's timeout for the whole trace. Send nothing but the traceroute (no DNS
+        lookups on the device: numeric output), at most ``max_hops`` hops and one probe per
+        hop, waiting ``wait`` seconds per hop. Raise :class:`AuthFailed` (with ``fix`` and
+        ``remedy`` where *Fix it* can add the permission) when the login may not run it,
+        :class:`AdapterError` for anything else. Return raw hops: core matches them.
+        """
+        raise NotImplementedError
+
     async def _call(self, fn: Callable[[], Any]) -> Any:
         return await asyncio.wait_for(fn(), timeout=self.context.timeout)
 
@@ -828,6 +879,11 @@ def remedies(cls: type[Adapter]) -> dict[str, Remedy]:
     return {r.id: r for r in cls.manifest.remedies}
 
 
+def traces(cls: type[Adapter]) -> bool:
+    """The integration can run traceroutes on its devices (#253)."""
+    return cls.manifest.traces is not None
+
+
 def _overrides(cls: type[Adapter], name: str) -> bool:
     own = getattr(cls, name).__func__
     return bool(own is not getattr(Adapter, name).__func__)
@@ -857,6 +913,10 @@ def check_manifest(manifest: Manifest) -> None:
 
 def check_setup(cls: type[Adapter]) -> None:
     """An integration that declares ``admin_login`` implements both setup hooks."""
+    if traces(cls) and cls.trace is Adapter.trace:
+        raise AdapterContractError(
+            f"{cls.manifest.id} declares traces but does not implement trace"
+        )
     if provisions(cls) and not (_overrides(cls, "plan_setup") and _overrides(cls, "apply_setup")):
         raise AdapterContractError(
             f"{cls.manifest.id} declares admin_login but does not implement plan_setup and "

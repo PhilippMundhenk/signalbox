@@ -25,7 +25,7 @@ from pydantic import SecretStr
 
 from factories import SITE
 from integration.conftest import Target
-from signalbox.adapters import AdapterContext, AdapterError
+from signalbox.adapters import AdapterContext, AdapterError, AuthFailed
 from signalbox.adapters.https import fingerprint, peer_certificate
 from signalbox.adapters.opnsense import OpnsenseAdapter, OpnsenseConfig
 from signalbox.changes import Change, ChangeKind, ReservationValue, plan
@@ -484,6 +484,20 @@ async def test_validation_error_of_the_firewall_names_the_field(fw: dict[str, st
     after = await network(fw)
     lan = next(s for s in after.dhcp_servers if s.segment_id == LAN)
     assert "02:00:00:00:00:99" not in {r.mac for r in lan.reservations}
+
+
+async def test_trace_refused_for_the_read_user(fw: dict[str, str]) -> None:
+    """Path traces (#253): the read user has no Diagnostics: Traceroute: HTTP 403, with the
+    privilege named and Fix it offered."""
+    a = adapter(fw)
+    try:
+        with pytest.raises(AuthFailed) as err:
+            await a.trace(ip_address("192.0.2.1"), 4, 1)
+    finally:
+        await a.close()
+    assert err.value.remedy == "privileges" and "page-diagnostics-traceroute" in (
+        err.value.fix or ""
+    )
 
 
 def test_vm_still_answers(fw: dict[str, str]) -> None:

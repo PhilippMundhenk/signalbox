@@ -154,6 +154,17 @@ commands are those the image preparation runs); real devices: [#21](https://gith
   `access denied (HTTP 403)`) for the capability that needs it; the rest is still read. A
   wrong password is HTTP 401.
 
+### Path traces (optional, #253)
+
+Only while `traces.enabled` is on ([TRACES.md](../TRACES.md)): `POST /rest/tool/traceroute`
+with `{"address": "<address>", "count": "1", "max-hops": "16", "timeout": "1000ms",
+"use-dns": "no"}`, answered with one row per hop (`address`, `loss`, `last`, ...; several
+`.section`s when RouterOS printed more than one round: the last counts). The group needs the
+policy **test** (ping and traceroute), which the groups of the setup guide do not have: add it
+by hand (`/user group set signalbox-read policy=read,api,rest-api,test`), or, while path traces
+are on, use *Fix it* (`policies`) or run the automatic setup again. Without it RouterOS answers HTTP 500 `not enough
+permissions` and the trace says which policy is missing.
+
 ## Mapping to the model
 
 - **Port structure** (#252, ADR 0008): role from the `/interface` `type`: `ether` (also SFP) is

@@ -1,8 +1,9 @@
 // Topology: devices with their ports, links between ports, VLAN overlay, entered cables,
-// VPN tunnels between sites and unmanaged sites behind a tunnel (#239).
+// VPN tunnels between sites and unmanaged sites behind a tunnel (#239), routed paths (#253).
 import { del, enc, get, post } from '../api.js';
 import { PORT_ROLE, by, clear, h, place, portDetails, portSpeed, s } from '../util.js';
 import { card, confirmDialog, field, pageHead, run, select, statusBadge, table, tag, toast } from '../ui.js';
+import { routedPathsCard } from './traces.js';
 
 const LAYER = { gateway: 0, remote: 0, switch: 1, ap: 2, other: 3 };
 const ORIGIN = { lldp: 'LLDP', mac: 'MAC table', manual: 'entered', tunnel: 'tunnel keys' };
@@ -339,6 +340,7 @@ export async function renderTopology(main, ctx) {
     h('div', { class: 'card topo-card' }, legend, graphBox, h('p', { class: 'phone-only muted small' }, 'The drawing needs a wider screen; the links are listed below.')),
     panel,
     card('Links', linkList(ctx, data, data.nodes)),
+    routedPathsCard(ctx, data.nodes),
     addLinkForm(ctx, data.nodes.filter((n) => n.role !== 'remote')),
   );
   draw();
