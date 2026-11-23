@@ -189,8 +189,17 @@ these pages, so treat its key like an admin password.
 
 ## Mapping to the model
 
-- **Ports**: every interface row except loopback, `enc`, `pflog`, `pfsync` and VLAN devices.
-  Kind from the name (`bridge*`, `lagg*`, tunnels as virtual), speed and duplex from `media`.
+- **Port structure** (#252, ADR 0008), only from the interface list and the VLAN list the API
+  user can already read (no new privilege): rows with `is_physical` are `jack`; a VLAN device
+  of `vlan_settings` is a port of role `vlan` (kind virtual) on its `if`; `lagg*` is `lag`,
+  `bridge*` is `bridge`; `wg*`, `ovpn*`, `tun*`, `tap*`, `gif*`, `gre*`, `pppoe*` and `ipsec*` are
+  `tunnel`. The members of a lagg or bridge are taken from `members`, `laggport` or
+  `bridge_members` of the interface row where it has one; the LAGG and bridge pages
+  (`/api/interfaces/lagg_settings/*`, `bridge_settings/*`) are not read, they would need more
+  privileges. *Confirmed on the firewall in CI*: NICs as jacks, the VLAN device on its NIC;
+  *guess* (needs a firewall with a lagg or bridge, #21): lagg and bridge members.
+
+- **Ports**: every interface row except loopback, `enc`, `pflog`, `pfsync`. Kind from the name (`bridge*`, `lagg*`, tunnels as virtual), speed and duplex from `media`.
 - **Segments**: an assigned VLAN interface is `<site>/segment/<tag>` with its parent port tagged;
   VLANs that are defined but not assigned also appear. The untagged LAN (`lan`) is the native
   segment. Any other untagged assigned interface (for example a DMZ on its own port) is

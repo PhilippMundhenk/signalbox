@@ -423,6 +423,7 @@ def rest_setup(d: Path, keys: dict[str, str]) -> None:
         {"bridge": "bridge", "vlan-ids": "20", "tagged": "bridge,ether3", "comment": "IoT"},
     )
     admin.add("interface/vlan", {"name": "iot", "vlan-id": "20", "interface": "bridge"})
+    admin.add("interface/wireguard", {"name": "wg0"})  # a tunnel interface (port role, #252)
     admin.add("ip/address", {"address": "192.0.2.1/24", "interface": "bridge"})
     admin.add("ip/address", {"address": "198.51.100.1/24", "interface": "iot"})
     admin.add(

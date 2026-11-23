@@ -91,6 +91,7 @@ from signalbox.model import (
     Port,
     PortKind,
     PortMembership,
+    PortRole,
     PowerSupply,
     Radio,
     Reservation,
@@ -129,6 +130,8 @@ BRIDGE_PORT = "/rest/interface/bridge/port"
 BRIDGE_VLAN = "/rest/interface/bridge/vlan"
 BRIDGE_HOST = "/rest/interface/bridge/host"
 VLAN = "/rest/interface/vlan"
+BONDING = "/rest/interface/bonding"
+ETHERNET_SWITCH_PORT = "/rest/interface/ethernet/switch/port"
 LIST_MEMBER = "/rest/interface/list/member"
 DHCP_CLIENT = "/rest/ip/dhcp-client"
 IPV6_DHCP_CLIENT = "/rest/ipv6/dhcp-client"
@@ -194,8 +197,26 @@ _KINDS = {
     "wlan": PortKind.WIRELESS,
     "cap": PortKind.WIRELESS,
 }
-#: Interface types that are not ports: VLAN interfaces become segments, loopback nothing.
-_NOT_PORTS = {"vlan", "loopback", "lo"}
+#: Interface types that are not ports (loopback). VLAN interfaces are ports of role ``vlan``
+#: and also become segments.
+_NOT_PORTS = {"loopback", "lo"}
+#: ``type`` of ``/interface`` rows -> role (#252). ``ether`` covers SFP too. Types that are
+#: tunnels in RouterOS 7 (WireGuard is ``wg``).
+_ROLES = {
+    "ether": PortRole.JACK,
+    "bridge": PortRole.BRIDGE,
+    "vlan": PortRole.VLAN,
+    "bond": PortRole.LAG,
+    "wifi": PortRole.WIRELESS,
+    "wlan": PortRole.WIRELESS,
+    "cap": PortRole.WIRELESS,
+}
+_TUNNEL_TYPES = frozenset(
+    {
+        "wg", "wireguard", "eoip", "gre", "gre6", "ipip", "ipipv6", "eoipv6", "vxlan",
+        "pppoe-out", "pptp-out", "l2tp-out", "sstp-out", "ovpn-out", "6to4", "ppp-out",
+    }
+)  # fmt: skip
 #: ``frame-types`` of a bridge port that does not accept untagged frames (no pvid membership).
 _TAGGED_ONLY = "admit-only-vlan-tagged"
 _FRAME_TYPES = {
@@ -852,6 +873,8 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         bridge_ports = [r for r in await self._rows(BRIDGE_PORT) if _active(r)]
         bridge_vlans = [r for r in await self._rows(BRIDGE_VLAN) if _active(r)]
         vlan_ifaces = {_text(r.get("name")): r for r in await self._rows(VLAN)}
+        bonds = {_text(r.get("name")): r for r in await self._optional_rows(BONDING)}
+        chip_ports = await self._optional_rows(ETHERNET_SWITCH_PORT)
         wan = {
             _text(r.get("interface"))
             for r in await self._optional_rows(LIST_MEMBER)
@@ -868,7 +891,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         ports: dict[str, Port] = {}
         for row in interfaces:
             name, kind = _text(row.get("name")), _text(row.get("type"))
-            if not name or kind in _NOT_PORTS or name in vlan_ifaces:
+            if not name or kind in _NOT_PORTS:
                 continue
             eth = ethernet.get(name, {})
             mbps, duplex = speed(eth.get("speed"))
@@ -891,8 +914,51 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 autoneg=_maybe(eth.get("auto-negotiation")),
                 flow_control=flow_control(eth),
                 **vlan_details.get(name, {}),
+                role=PortRole.TUNNEL if kind in _TUNNEL_TYPES else _ROLES.get(kind),
                 vendor_extra=_extra(row, "type"),
             )
+            if kind in _TUNNEL_TYPES:
+                ports[name] = ports[name].model_copy(update={"kind": PortKind.VIRTUAL})
+        # internal structure (#252): CPU ports of switch chips, then what runs on what
+        chip_of: dict[str, str] = {}  # jack -> CPU port of its switch chip
+        for row in chip_ports:
+            pname = _text(row.get("name"))
+            if pname.endswith("-cpu") and pname not in ports:
+                cpu = pname
+            elif pname in ports:
+                chip_of[pname] = f"{_text(row.get('switch'))}-cpu"
+                continue
+            else:
+                continue
+            ports[cpu] = Port(
+                id=port_id(dev, cpu), device_id=dev, name=cpu, kind=PortKind.VIRTUAL,
+                role=PortRole.CPU,
+            )  # fmt: skip
+        lower: dict[str, list[str]] = {}
+        for b in bridges:
+            lower[b] = [
+                _text(r.get("interface")) for r in bridge_ports if _text(r.get("bridge")) == b
+            ]
+        for n, vrow in vlan_ifaces.items():
+            lower[n] = [_text(vrow.get("interface"))]
+        for n, brow in bonds.items():
+            lower[n] = _names(brow.get("slaves"))
+        for endpoint in (WIFI, WIRELESS):  # virtual APs run on their master interface
+            for wrow in await self._optional_rows(endpoint):
+                if _text(wrow.get("master-interface")):
+                    lower[_text(wrow.get("name"))] = [_text(wrow.get("master-interface"))]
+        for n, port in ports.items():
+            if port.role is PortRole.JACK and chip_of.get(n) in ports:
+                lower[n] = [chip_of[n]]
+        for n, names_ in lower.items():
+            if n in ports:
+                ports[n] = ports[n].model_copy(
+                    update={
+                        "lower": [
+                            ports[x].id for x in dict.fromkeys(names_) if x in ports and x != n
+                        ]
+                    }
+                )
 
         members: dict[str, dict[str, Membership]] = {}
         names: dict[str, str] = {}
@@ -960,7 +1026,11 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         untagged += [
             p
             for p in ports
-            if p in with_address and p not in bridges and p not in in_bridge and p not in wan
+            if p in with_address
+            and p not in bridges
+            and p not in in_bridge
+            and p not in wan
+            and p not in vlan_ifaces
         ]
         for net in untagged:
             seg = f"{site}/segment/{net}" if native_taken else self._seg(None)
@@ -1537,6 +1607,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     device_id=dev,
                     ssid=ssid,
                     radio_id=radio.id,
+                    port_id=layout.port(name),
                     enabled=radio.enabled and _active(row),
                     security=sec,
                     pmf=pmf,
@@ -1615,6 +1686,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     device_id=dev,
                     ssid=ssid,
                     radio_id=radio.id,
+                    port_id=layout.port(name),
                     enabled=radio.enabled and _active(row),
                     security=sec,
                     pmf=_PMF.get(_text(profile.get("management-protection"))),

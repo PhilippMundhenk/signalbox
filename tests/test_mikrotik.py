@@ -74,6 +74,8 @@ from signalbox.model import (
     NtpClient,
     NtpServer,
     Pmf,
+    PortKind,
+    PortRole,
     SaePwe,
     Security,
     Snapshot,
@@ -208,6 +210,46 @@ async def test_system_without_routerboard_and_update(http_url: str, sim: Mikroti
     assert d.model == "hAP ax^2" and d.firmware is not None and d.firmware.available is None
 
 
+async def test_port_structure(snap: Snapshot) -> None:
+    """Roles and lower ports (#252, ADR 0008)."""
+    ports = {p.name: p for p in snap.ports}
+    ids = {n: p.id for n, p in ports.items()}
+    assert {n: p.role for n, p in ports.items()} == {
+        "ether1": PortRole.JACK,
+        "ether2": PortRole.JACK,
+        "ether3": PortRole.JACK,
+        "ether4": PortRole.JACK,
+        "ether5": PortRole.JACK,
+        "bridge": PortRole.BRIDGE,
+        "iot": PortRole.VLAN,
+        "switch1-cpu": PortRole.CPU,
+        "wg0": PortRole.TUNNEL,
+        "wifi1": PortRole.WIRELESS,
+        "wifi2": PortRole.WIRELESS,
+        "wifi3": PortRole.WIRELESS,
+    }
+    assert ports["bridge"].lower == [ids[n] for n in ("ether2", "ether3", "ether4", "ether5")] + [
+        ids[n] for n in ("wifi1", "wifi2", "wifi3")
+    ]
+    assert ports["iot"].lower == [ids["bridge"]]
+    assert ports["ether2"].lower == [ids["switch1-cpu"]] and ports["ether1"].lower == []
+    assert ports["wifi3"].lower == [ids["wifi1"]]
+    assert ports["wg0"].kind is PortKind.VIRTUAL
+    assert [w.port_id for w in snap.wlans if w.ssid == "Example-IoT"] == [ids["wifi3"]]
+    assert ports["ether1"].external is True and ports["bridge"].external is False
+
+
+async def test_bonding_members(http_url: str, sim: MikrotikSimulator) -> None:
+    sim.data["/rest/interface"].append(
+        {".id": "*99", "name": "bond1", "type": "bond", "running": "true", "disabled": "false"}
+    )
+    sim.data["/rest/interface/bonding"] = [{"name": "bond1", "slaves": "ether4,ether5"}]
+    obs = await observe(adapter(http_url))
+    ports = {p.name: p for p in obs.ports}
+    assert ports["bond1"].role is PortRole.LAG and ports["bond1"].kind is PortKind.LAG
+    assert ports["bond1"].lower == [ports["ether4"].id, ports["ether5"].id]
+
+
 async def test_ports(snap: Snapshot) -> None:
     ports = {p.name: p for p in snap.ports}
     assert sorted(ports) == [
@@ -217,10 +259,13 @@ async def test_ports(snap: Snapshot) -> None:
         "ether3",
         "ether4",
         "ether5",
+        "iot",
+        "switch1-cpu",
+        "wg0",
         "wifi1",
         "wifi2",
         "wifi3",
-    ]  # no VLAN interface, no loopback
+    ]  # no loopback
     e1 = ports["ether1"]
     assert (e1.up, e1.speed_mbps, e1.full_duplex, e1.mac) == (True, 1000, True, "02:00:00:00:00:01")
     assert (e1.description, e1.admin_up, e1.mtu, e1.l2_mtu) == ("uplink", True, 1500, 1568)

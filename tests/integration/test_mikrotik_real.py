@@ -230,7 +230,18 @@ async def test_mapping_of_the_configured_router(rt: dict[str, str]) -> None:
     net = await network(rt)
     ports = {p.name: p for p in net.ports}
     assert {"ether1", "ether2", "ether3", "bridge"} <= set(ports), sorted(ports)
-    assert "iot" not in ports  # a VLAN interface is a segment, not a port
+    # port structure (#252): jacks, bridge over its ports, VLAN interface on the bridge, tunnel
+    role = {n: p.role.value if p.role else None for n, p in ports.items()}
+    assert (role["ether1"], role["ether2"], role["bridge"], role["iot"]) == (
+        "jack",
+        "jack",
+        "bridge",
+        "vlan",
+    ), role
+    assert role["wg0"] == "tunnel", role
+    assert sorted(ports["bridge"].lower) == ["rt/port/ether2", "rt/port/ether3"], ports["bridge"]
+    assert ports["iot"].lower == ["rt/port/bridge"] and ports["ether2"].lower == []
+    assert sorted(p.name for p in net.external_ports("rt")) == ["ether1", "ether2", "ether3"]
     assert ports["ether2"].mac == "02:00:00:00:01:02"
     assert ports["ether2"].kind.value == "ethernet"
     assert ports["bridge"].kind.value == "bridge"

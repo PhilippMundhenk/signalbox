@@ -81,6 +81,7 @@ from signalbox.model import (
     PortKind,
     PortMedia,
     PortMembership,
+    PortRole,
     Reservation,
     Segment,
     ServiceKind,
@@ -146,6 +147,20 @@ _KINDS = (
     ("gre", PortKind.VIRTUAL),
     ("pppoe", PortKind.VIRTUAL),
 )
+#: device name prefixes of tunnels (role ``tunnel``, #252)
+_TUNNEL_PREFIXES = ("wg", "ovpn", "tun", "tap", "gif", "gre", "pppoe", "ipsec")
+#: keys of an interface row that may list the members of a lagg or bridge
+_MEMBER_KEYS = ("members", "laggport", "bridge_members")
+
+
+def _members(row: dict[str, Any]) -> list[str]:
+    for key in _MEMBER_KEYS:
+        value = row.get(key)
+        if isinstance(value, str):
+            value = re.split(r"[,\s]+", value)
+        if isinstance(value, list):
+            return [str(v) for v in value if isinstance(v, str) and v]
+    return []
 
 
 class OpnsenseConfig(AdapterConfig):
@@ -669,11 +684,12 @@ class OpnsenseAdapter(_Adapter):
                 vlans[name] = (parent, tag, _text(v.get("descr")))
 
         ports: dict[str, Port] = {}
+        lower_names: dict[str, list[str]] = {}
         for row in rows:
             device = _text(row.get("device"))
-            if not device or device.startswith(_SKIP_DEVICES) or device in vlans:
+            if not device or device.startswith(_SKIP_DEVICES):
                 continue
-            if row.get("vlan_tag") not in (None, "", 0, "0"):
+            if device not in vlans and row.get("vlan_tag") not in (None, "", 0, "0"):
                 continue  # a VLAN the VLAN table did not list: its parent is unknown
             if not _text(row.get("identifier")) and _VLAN_DEVICE.match(device):
                 # a VLAN device that is no longer configured: reverting the configuration
@@ -685,6 +701,17 @@ class OpnsenseAdapter(_Adapter):
             assigned = bool(_text(row.get("identifier")))
             enabled = row.get("enabled")
             mtu = _int(row.get("mtu"))
+            role: PortRole | None = None
+            if device in vlans:
+                role, kind = PortRole.VLAN, PortKind.VIRTUAL
+            elif kind is PortKind.BRIDGE:
+                role = PortRole.BRIDGE
+            elif kind is PortKind.LAG:
+                role = PortRole.LAG
+            elif device.startswith(_TUNNEL_PREFIXES):
+                role, kind = PortRole.TUNNEL, PortKind.VIRTUAL
+            elif row.get("is_physical") is True:
+                role = PortRole.JACK
             ports[device] = Port(
                 id=port_id(dev, device),
                 device_id=dev,
@@ -704,7 +731,17 @@ class OpnsenseAdapter(_Adapter):
                 max_speed_mbps=max_speed(row.get("supported_media")),
                 autoneg=autoneg_of(row.get("media_raw")),
                 media=media_of(row) if kind is PortKind.ETHERNET else None,
+                role=role,
                 vendor_extra={"identifier": _text(row["identifier"])} if assigned else {},
+            )
+            lower_names[device] = [vlans[device][0]] if device in vlans else _members(row)
+        for device, names in lower_names.items():
+            ports[device] = ports[device].model_copy(
+                update={
+                    "lower": [
+                        port_id(dev, n) for n in dict.fromkeys(names) if n in ports and n != device
+                    ]
+                }
             )
         segments: dict[str, Segment] = {}
 

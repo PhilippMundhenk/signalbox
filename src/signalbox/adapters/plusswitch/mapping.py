@@ -37,6 +37,7 @@ from signalbox.model import (
     Port,
     PortKind,
     PortMembership,
+    PortRole,
     Segment,
     normalise_mac,
     port_id,
@@ -227,9 +228,22 @@ def interfaces(
                 speed_mbps=speed if up and speed else None,
                 full_duplex=(duplex == "full") if up and duplex in ("full", "half") else None,
                 lag=lag_of.get(n),
+                role=PortRole.JACK,
                 pvid=pvid_of.get(n),
                 **settings,
                 vendor_extra=port_extra,
+            )
+        )
+    # a port of role lag per enabled link aggregation group (#252): its members are the jacks
+    for name in sorted(set(lag_of.values())):
+        out_ports.append(
+            Port(
+                id=port_id(device_id, name),
+                device_id=device_id,
+                name=name,
+                kind=PortKind.LAG,
+                role=PortRole.LAG,
+                lower=[pid(n) for n in sorted(lag_of) if lag_of[n] == name],
             )
         )
     return Observation(ports=out_ports, segments=segments)

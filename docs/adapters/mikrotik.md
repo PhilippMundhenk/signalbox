@@ -122,7 +122,22 @@ created and the router read with it (contract), moved to the write group with a 
 
 ## Mapping to the model
 
-- **Ports**: every `/interface` entry except VLAN interfaces and loopback. Kind from `type`
+- **Port structure** (#252, ADR 0008): role from the `/interface` `type`: `ether` (also SFP) is
+  `jack`, `bridge` is `bridge` over the `interface` of its active `/interface/bridge/port`
+  rows, `vlan` is `vlan` on its `interface`, `bond` is `lag` over the `slaves` of
+  `/interface/bonding`, `wifi`/`wlan`/`cap` is `wireless` (a virtual AP, `master-interface` in
+  `/interface/wifi` or `/interface/wireless`, runs on its master; `Wlan.port_id` is the
+  interface of the SSID), `wg`, `eoip`, `gre`, `ipip`, `vxlan`, `pppoe-out`, `l2tp-out`,
+  `sstp-out`, `ovpn-out` and the like are `tunnel` (kind virtual). Devices with a switch chip
+  (`/interface/ethernet/switch/port`, *optional*, a missing menu is skipped): the row named
+  `<switch>-cpu` becomes a port of role `cpu` (not an interface in `/interface`) and the
+  ethernet ports of the chip list it as lower port. *Confirmed on the CHR in CI*: jacks, the
+  bridge over its ports, the VLAN interface on the bridge, a WireGuard tunnel; *not confirmed*
+  (CHR has no switch chip, no bonding, no radio): the switch CPU port, bonding members and
+  virtual APs (from the RouterOS documentation).
+
+- **Ports**: every `/interface` entry except loopback (VLAN interfaces are ports of role `vlan`
+  and also become segments). Kind from `type`
   (`ether`, `bridge`, `bond` as a LAG, `wifi`/`wlan` as wireless, everything else virtual), `up`
   from `running` (a disabled port is down), MAC from `mac-address`, speed and duplex from the
   `speed` of `/interface/ethernet` (`1Gbps`, `1G-baseT-full`, ...). Port details (#156):
