@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import fnmatch
 import json
+import re
 import shlex
 from dataclasses import dataclass, field
 from ipaddress import IPv4Interface, IPv6Interface, ip_address, ip_interface
@@ -246,6 +247,52 @@ def bridge_vlans(answer: Answer) -> dict[str, list[tuple[int, bool, bool]]]:
             end = _int(v.get("vlanEnd")) or int(v["vlan"])
             for vid in range(int(v["vlan"]), min(end, 4094) + 1):
                 out.setdefault(name, []).append((vid, "PVID" in flags, "Egress Untagged" in flags))
+    return out
+
+
+@dataclass(frozen=True)
+class FdbRow:
+    mac: str
+    port: str
+    bridge: str
+    vlan: int | None
+    #: ``permanent`` (an address of the bridge or a port), ``static`` or ``dynamic``.
+    state: str
+    age: int | None
+
+
+def bridge_fdb(answer: Answer) -> list[FdbRow]:
+    """``bridge -j -s fdb show`` (#160): the bridges' own tables only (entries with a
+    ``master``), no multicast addresses; ``updated`` is the age in seconds."""
+    data = _json(answer.text("fdb"))
+    out: list[FdbRow] = []
+    for r in data if isinstance(data, list) else []:
+        if not isinstance(r, dict) or not r.get("master") or not r.get("ifname"):
+            continue
+        mac = str(r.get("mac") or "").lower()
+        if not re.fullmatch(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", mac) or int(mac[:2], 16) & 1:
+            continue
+        state = str(r.get("state") or "")
+        flags = [str(f) for f in r.get("flags") or []]
+        kind = (
+            "permanent"
+            if state == "permanent"
+            else "static"
+            if state == "static" or "static" in flags
+            else "dynamic"
+        )
+        vlan = _int(str(r["vlan"])) if r.get("vlan") is not None else None
+        age = _int(str(r["updated"])) if r.get("updated") is not None else None
+        out.append(
+            FdbRow(
+                mac=mac,
+                port=str(r["ifname"]),
+                bridge=str(r["master"]),
+                vlan=vlan if vlan is not None and 1 <= vlan <= 4094 else None,
+                state=kind,
+                age=age if age is not None and age >= 0 else None,
+            )
+        )
     return out
 
 

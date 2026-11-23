@@ -177,6 +177,21 @@ def _files(files: dict[str, str], unreadable: tuple[str, ...] = ()) -> str:
     return "\n".join(out) + ("\n" if out else "")
 
 
+def default_fdb() -> list[dict[str, Any]]:
+    """``bridge -j -s fdb show`` (#160): br0's own addresses, two learned clients, one static
+    entry, and entries the reader leaves out (the port's own multicast list, no master)."""
+    return [
+        {"mac": "02:5b:00:00:00:02", "ifname": "eth1", "master": "br0", "state": "permanent"},
+        {"mac": "02:5b:00:00:00:02", "ifname": "br0", "master": "br0", "state": "permanent"},
+        {"mac": "02:00:00:00:00:10", "ifname": "eth1", "master": "br0", "state": "", "updated": 4},
+        {"mac": "02:00:00:00:00:21", "ifname": "wlan0", "master": "br0", "updated": 31},
+        {"mac": "02:00:00:00:00:44", "ifname": "eth1", "master": "br0", "state": "static"},
+        {"mac": "33:33:00:00:00:01", "ifname": "eth1", "flags": ["self"], "state": "permanent"},
+        {"mac": "02:00:00:00:00:55", "ifname": "eth1", "flags": ["self"], "state": "permanent"},
+        {"mac": "02:00:00:00:00:66", "ifname": "gone0", "master": "br0", "state": ""},
+    ]
+
+
 def default_sections() -> dict[str, str]:
     return {
         "os": _files(
@@ -221,6 +236,7 @@ def default_sections() -> dict[str, str]:
         "sysnet": "eth0 1 0 1000 full\neth1 1 0 1000 full\nwlan0 1 1 - -\nbr0 0 0 - -\n"
         "eth1.30 0 0 1000 full\nwg0 0 0 - -\nlo 0 0 - -\n",
         "bridge-vlan": "",
+        "fdb": json.dumps(default_fdb()),
         "forward": "1\n1\n",
         "uptime": "273906.51 1043262.11\n",
         "loadavg": "0.08 0.12 0.10 1/312 4321\n",

@@ -52,6 +52,8 @@ from signalbox.model import (
     DhcpServer,
     DnsForwarder,
     DnsService,
+    FdbEntry,
+    FdbKind,
     Firewall,
     FirewallZone,
     Firmware,
@@ -69,6 +71,7 @@ from signalbox.model import (
     TunnelPeer,
     Uplink,
     UplinkKind,
+    fdb_id,
     firewall_id,
     object_id,
     port_id,
@@ -347,7 +350,32 @@ class LinuxAdapter(Adapter):
             subnets=lay.subnets,
             uplinks=lay.uplinks,
             services=self._services(lay),
+            fdb=self._fdb(lay),
         )
+
+    def _fdb(self, lay: _Layout) -> list[FdbEntry]:
+        """The bridges' MAC address tables (``bridge -j -s fdb show``, as the read user, #160)."""
+        d = self.context.device_id
+        segments = {s.id for s in lay.segments()}
+        out: dict[str, FdbEntry] = {}
+        for row in parse.bridge_fdb(self.answer):
+            if row.port not in lay.ports:
+                continue
+            seg = lay.seg(row.vlan) if row.vlan is not None else None
+            fid = fdb_id(d, row.port, row.mac, row.vlan)
+            out[fid] = FdbEntry(
+                id=fid,
+                device_id=d,
+                port_id=lay.ports[row.port].id,
+                mac=row.mac,
+                vlan=row.vlan,
+                segment_id=seg if seg in segments else None,
+                kind={"permanent": FdbKind.SELF, "static": FdbKind.STATIC}.get(
+                    row.state, FdbKind.DYNAMIC
+                ),
+                age_seconds=row.age,
+            )
+        return [out[k] for k in sorted(out)]
 
     # WireGuard ----------------------------------------------------------------------------
 

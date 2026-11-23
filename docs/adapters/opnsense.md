@@ -789,3 +789,8 @@ which needs a privilege that exposes every secret of the firewall: certificates'
 VPN and RADIUS secrets, password hashes. Signalbox does not download it for reading; the
 backup privilege stays with the write user that needs it for changes. A rule that needs to know
 whether SSH is on therefore has no answer for OPNsense.
+
+## MAC address table (#160)
+
+Not read: the API has no call for the bridge address cache (`ifconfig bridge0 addr`). The ARP
+table's interface stays the clients' `seen_on`, which core counts for devices without a table.

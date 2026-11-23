@@ -12,12 +12,13 @@ Use from an adapter's tests::
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
 from signalbox.adapters import Adapter, Capability, check_manifest
 from signalbox.model import (
+    FDB_LIMIT,
     TYPED_OPTION_CODES,
     Cipher,
     Client,
@@ -27,6 +28,7 @@ from signalbox.model import (
     DeviceTime,
     DhcpRelay,
     DhcpServer,
+    FdbEntry,
     Firewall,
     FirewallChain,
     FirewallProtocol,
@@ -634,10 +636,44 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         if nb.local_port_id not in port_ids:
             out.append(f"neighbour {nb.id} on unknown port {nb.local_port_id}")
 
+    out += fdb_problems(snapshot.fdb, owners, port_ids, segment_ids)
+
     out += _capability_problems(snapshot, site)
 
     if Snapshot.model_validate_json(snapshot.model_dump_json()) != snapshot:
         out.append("snapshot does not survive a JSON round trip")
+    return out
+
+
+def fdb_problems(
+    entries: list[FdbEntry], owners: Iterable[str], port_ids: set[str], segment_ids: set[str]
+) -> list[str]:
+    """Forwarding-database entries (#160): of a reported device, on a reported port of that
+    device, a unicast MAC, a known segment, each once, at most ``FDB_LIMIT`` per device."""
+    out: list[str] = []
+    devices = set(owners)
+    seen: set[str] = set()
+    count: dict[str, int] = {}
+    for e in entries:
+        if e.id in seen:
+            out.append(f"fdb entry {e.id} reported twice")
+        seen.add(e.id)
+        count[e.device_id] = count.get(e.device_id, 0) + 1
+        if e.device_id not in devices:
+            out.append(f"fdb entry {e.id} has device_id {e.device_id}")
+        elif not e.id.startswith(f"{e.device_id}/fdb/"):
+            out.append(f"fdb entry id {e.id} does not start with {e.device_id}/fdb/")
+        if e.port_id not in port_ids:
+            out.append(f"fdb entry {e.id} on unknown port {e.port_id}")
+        elif not e.port_id.startswith(f"{e.device_id}/"):
+            out.append(f"fdb entry {e.id} on port {e.port_id} of another device")
+        if int(e.mac[:2], 16) & 1:
+            out.append(f"fdb entry {e.id} is a multicast address")
+        if e.segment_id is not None and e.segment_id not in segment_ids:
+            out.append(f"fdb entry {e.id} references unknown segment {e.segment_id}")
+    out += [
+        f"{d} reports {n} fdb entries (over {FDB_LIMIT})" for d, n in count.items() if n > FDB_LIMIT
+    ]
     return out
 
 

@@ -1,8 +1,8 @@
 // Clients: every MAC address the devices know, with addresses, name, segment and where it was seen.
 import { fmtNumber, t } from '../i18n.js';
 import { get } from '../api.js';
-import { loadNetwork, noData } from '../net.js';
-import { by, clear, fmtAgo, fmtTime, h, place } from '../util.js';
+import { fdbText, loadNetwork, noData } from '../net.js';
+import { by, clear, fmtAgo, fmtDuration, fmtTime, h, place } from '../util.js';
 import { pageHead, table } from '../ui.js';
 import { editNote, noteOf } from '../annotations.js';
 
@@ -14,7 +14,9 @@ const sourceLabel = (src) => (SOURCE[src] ? t(SOURCE[src]) : src);
 
 export async function renderClients(main, ctx) {
   const id = ctx.renderId;
-  const [ix, past] = await Promise.all([loadNetwork(), get('/history')]);
+  const [ix, past, fdb] = await Promise.all([loadNetwork(), get('/history'), get('/fdb').catch(() => [])]);
+  const learned = new Map();
+  for (const e of fdb) if (e.kind !== 'self') learned.set(e.mac, [...(learned.get(e.mac) || []), e]);
   if (!ctx.alive(id)) return;
   place(main, pageHead(t('clients.title')));
   const clients = [...ix.net.clients].sort(by((c) => c.hostname || `~${c.mac}`));
@@ -71,7 +73,7 @@ export async function renderClients(main, ctx) {
           [t('clients.col.addresses'), (r) => [...r.addresses].map((a) => (r.sources[a] && r.sources[a] !== 'unknown' ? `${a} (${sourceLabel(r.sources[a])})` : a)).join(', ')],
           [t('clients.col.lease'), (r) => (r.lease_expires ? h('span', { title: fmtTime(r.lease_expires), 'data-testid': 'client-lease' }, fmtTime(r.lease_expires)) : null)],
           [t('clients.col.segment'), (r) => (r.segment_id ? ix.segmentName(r.segment_id) : null)],
-          [t('clients.col.seenOn'), (r) => r.seen.map((x) => ix.label(x)).join(', ')],
+          [t('clients.col.seenOn'), (r) => seenOn(ix, r, learned.get(r.mac) || [])],
           [t('clients.col.firstSeen'), (r) => (r.first_seen ? h('span', { title: fmtTime(r.first_seen), 'data-testid': 'client-first-seen' }, fmtAgo(r.first_seen)) : null)],
           [t('clients.col.lastSeen'), (r) => (r.last_seen ? h('span', { title: fmtTime(r.last_seen) }, fmtAgo(r.last_seen)) : null)],
           [t('clients.col.notes'), notesButton],
@@ -87,4 +89,21 @@ export async function renderClients(main, ctx) {
   });
   place(main, h('div', { class: 'filters' }, search), body);
   draw();
+}
+
+// Where the client is, and (collapsed) every port a MAC address table learned it on (#160).
+function seenOn(ix, row, entries) {
+  const where = [...new Set(row.seen)].map((x) => ix.placeName(x)).join(', ');
+  if (!entries.length) return where || null;
+  return h(
+    'span',
+    {},
+    where ? h('span', { 'data-testid': 'client-seen-on' }, t('clients.seenOnWhere', { where })) : null,
+    h(
+      'details',
+      { class: 'small', 'data-testid': 'client-learned' },
+      h('summary', {}, t('clients.learnedOn', { count: entries.length })),
+      h('ul', {}, entries.map((e) => h('li', { 'data-testid': 'client-learned-port' }, `${ix.placeName(e.port_id)} (${fdbText(e, fmtDuration)})`))),
+    ),
+  );
 }

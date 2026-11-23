@@ -3,12 +3,13 @@
 One script per observation (``READ``) and one for the clock (``TIME``), each sent on standard
 input of ``sh -s`` and answered in sections: a line ``@@<name>`` starts a section, inside a
 file dump ``@@@ <path>`` starts a file and ``@@! <path>`` names a file that exists but cannot be
-read. Every command only reads: ``ip -j``, ``ss``, ``df``, files under ``/proc``, ``/sys`` and
-``/etc``, ``systemctl is-active``/``is-enabled``, ``timedatectl show``, ``chronyc`` monitoring
-commands. WireGuard needs ``CAP_NET_ADMIN``: ``wg show all <field>`` runs directly (root) or
-through ``sudo -n`` for exactly the commands of :data:`WG_FIELDS` (the sudoers rule of the setup
-guide). Never ``wg show all dump``, ``private-key`` or ``preshared-keys``, never
-``/etc/wireguard``: nothing that prints a private or pre-shared key.
+read. Every command only reads: ``ip -j``, ``bridge -j`` (VLANs, MAC address table), ``ss``,
+``df``, files under ``/proc``, ``/sys`` and ``/etc``, ``systemctl is-active``/``is-enabled``,
+``timedatectl show``, ``chronyc`` monitoring commands. WireGuard needs ``CAP_NET_ADMIN``:
+``wg show all <field>`` runs directly (root) or through ``sudo -n`` for exactly the commands
+of :data:`WG_FIELDS` (the sudoers rule of the setup guide). Never ``wg show all dump``,
+``private-key`` or ``preshared-keys``, never ``/etc/wireguard``: nothing that prints a
+private or pre-shared key.
 """
 
 from __future__ import annotations
@@ -82,6 +83,7 @@ for d in /sys/class/net/*; do
     "$(cat "$d/duplex" 2>/dev/null || echo -)"
 done
 echo @@bridge-vlan; bridge -j vlan show 2>/dev/null
+echo @@fdb; bridge -j -s fdb show 2>/dev/null
 echo @@forward; cat /proc/sys/net/ipv4/ip_forward /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null
 echo @@uptime; cat /proc/uptime
 echo @@loadavg; cat /proc/loadavg

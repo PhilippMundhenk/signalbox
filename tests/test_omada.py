@@ -354,6 +354,11 @@ async def test_clients(snap: Snapshot) -> None:
     assert by_mac["02:00:00:00:00:20"].seen_on == f"{AP2}/wlan/ssid-iot-2g"
     printer = by_mac["02:00:00:00:00:10"]
     assert printer.seen_on == f"{SW}/port/5" and printer.hostname == "printer"
+    # wired clients with their switch port are that switch's table entries (#160)
+    assert [(e.device_id, e.port_id, e.mac, e.vlan) for e in snap.fdb] == [
+        (SW, f"{SW}/port/5", "02:00:00:00:00:10", 1),
+        (SW, f"{SW}/port/7", "02:00:00:00:00:30", 20),
+    ]
     assert by_mac["02:00:00:00:00:30"].segment_id == "home/segment/20"
     guest = by_mac["02:00:00:00:00:31"]
     assert guest.hostname is None and guest.segment_id == "home/segment/30"  # by network name

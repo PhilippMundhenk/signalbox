@@ -594,6 +594,12 @@ async def test_clients(snap: Snapshot) -> None:
         "192.0.2.10": "dhcp-reserved"
     }  # the IPv6 address comes from the neighbour table: not known
     assert (printer.segment_id, printer.seen_on) == ("home/segment/native", P("rt", "ether3"))
+    # the bridge host table as forwarding database entries (#160)
+    fdb = {(e.port_id, e.mac): e for e in snap.fdb}
+    assert fdb[(P("rt", "ether3"), printer.mac)].kind.value == "dynamic"
+    assert fdb[(P("rt", "ether4"), "02:00:00:00:00:20")].vlan == 20
+    own = [e for e in snap.fdb if e.kind.value == "self"]
+    assert [(e.port_id, e.segment_id) for e in own] == [(P("rt", "bridge"), "home/segment/native")]
     sensor = by_mac["02:00:00:00:00:20"]
     assert (sensor.segment_id, sensor.seen_on) == ("home/segment/20", P("rt", "ether4"))
     phone = by_mac["02:00:00:00:00:22"]

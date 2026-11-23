@@ -138,3 +138,11 @@ root and as a sudo user ([TESTING.md](../TESTING.md)).
 Simulator only: Kea, ISC dhcpd and systemd-networkd's DHCP server, timesyncd, AdGuard Home,
 Pi-hole, DSA, bonds and VLAN-filtering bridges, a real Raspberry Pi's device tree and thermal
 zone (#21).
+
+## MAC address table (#160)
+
+`bridge -j -s fdb show` runs as the read user (a netlink dump, no root, no sudoers line):
+entries with a `master` are the bridge's table (`permanent` → `self`, `static` → `static`,
+else `dynamic`, `updated` → age); entries without one (a port's own unicast/multicast list) and
+multicast addresses are left out. Confirmed in CI: a static entry added on the Debian 12
+target's bridge port is read.

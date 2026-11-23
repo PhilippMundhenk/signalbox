@@ -471,3 +471,7 @@ The descriptions of the four `X_AVM-DE_*` services are in `tests/fixtures/tr064`
 7.57 and 8.02 (see SOURCES.md there) and the conformance test checks every action and argument
 against them. `transport_encrypted` is true for the https URL. Not read: SSH (the box has none),
 the password policy and the app users' internet access (`X_AVM-DE_AppSetup`).
+
+## MAC address table (#160)
+
+Not read: the host list says only whether a host is on LAN or Wi-Fi, not on which port.

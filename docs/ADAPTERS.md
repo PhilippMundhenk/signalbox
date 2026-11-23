@@ -834,3 +834,41 @@ pages in docs/adapters/; *(guess)*: not checked against a device or the vendor's
 | Fritz!Box | (done, simulator and the SCPD of 7.57 and 8.02; no CI) Fixed: `lan` (the home network), `guest` (guest LAN/Wi-Fi segment where present), `wan` (the uplink) | No readable filter: policies from the box's fixed behaviour: `lan` → device and → `wan` accept; `guest` → `wan` accept, → `lan` and → device drop (DNS and DHCP accepted, *(guess)*); `wan` → device drop (services the box reports with `from_wan` stay as they are), `wan` → `lan` drop. IPv6 port sharing (pinholes) is not in TR-064 *(guess)*: `port_forwards_complete=False` always (the uplink's IPv6 is not read either) | TR-064 `WANIPConnection:1` / `WANPPPConnection:1` `GetPortMappingNumberOfEntries` and `GetGenericPortMappingEntry` (index loop: `NewRemoteHost`, `NewExternalPort`, `NewProtocol`, `NewInternalPort`, `NewInternalClient`, `NewEnabled`, `NewPortMappingDescription`), `passes_filter=True`; UPnP-created mappings appear there too *(guess)*; `X_AVM-DE_HostFilter` (`GetWANAccessByIP`) only blocks a host's internet access (a `lan` → `wan` drop rule for that address), not port sharing; exposed host *(guess: not in TR-064)* | The TR-064 user the integration already uses (*FRITZ!Box settings* right) |
 | Omada | (done against the simulator; **#21**: no gateway in CI) Gateway networks (LAN interfaces / VLANs, already mapped to segments) and the WAN ports as zones | Gateway ACLs `GET …/sites/{siteId}/acls/osg-acls` (`policy` 0 drop / 1 allow, `protocols`, `sourceType`/`sourceIds` and `destinationType`/`destinationIds` (0 network; groups unresolved: inexact), `direction` `lanToWan`/`lanToLan`/`wanInIds`, `status`, `index`; custom mode `osg-custom-acls`), paths and fields confirmed in CI from `/v3/api-docs`, values *(guess)*; default inter-VLAN routing allowed, WAN in denied; switch and EAP ACLs belong to the managed devices' own `Firewall` (`complete=False` for EAP ACLs, which filter by SSID) | Port forwarding `…/nat/port-forwardings` (`externalPort`, `forwardIp`, `forwardPort`, `protocol` 0/1/2, `status`, `dMZ`; confirmed in CI), `passes_filter=True` | The viewer role of the OpenAPI client already used |
 | ProSAFE / Easy Smart | none: switches without a packet filter (no `Firewall`; core treats them as not filtering) | — | — | — |
+
+## MAC address tables (#160)
+
+The forwarding database of a switch or bridge (#160,
+[ADR 0016](adr/0016-mac-address-tables.md)): report `Observation.fdb` with `clients` (or with
+`interfaces` where the integration has no client read). No API version needed.
+
+```python
+from signalbox.model import FdbEntry, FdbKind, fdb_id, port_id
+
+FdbEntry(
+    id=fdb_id(d, "lan3", "02:00:00:00:00:10", 20),  # <device>/fdb/<port>/<vlan or ->/<mac>
+    device_id=d,  # a controller: the managed switch's id
+    port_id=port_id(d, "lan3"),  # the physical port where the device says so
+    mac="02:00:00:00:00:10",
+    vlan=20,  # None: one table for all VLANs, or not said
+    segment_id=segment_id(site, 20),  # only a segment the snapshot reports
+    kind=FdbKind.DYNAMIC,  # STATIC (entered), SELF (the device's own address)
+    age_seconds=31,  # None: not reported
+)
+```
+
+- What the device keeps, unicast only, each entry once; never merged into clients. Core
+  (`signalbox.fdb`) derives where a wired client is plugged in and links between managed
+  devices, also through switches that are not read.
+- At most `FDB_LIMIT` (2048) per device: `observe()` keeps own and static entries, then the
+  newest, and adds an optional read error. Not in `GET /api/network`; `GET /api/fdb`.
+- Personal data, like clients: never in MQTT, no extra fields in `vendor_extra`.
+
+| Integration | Source | Notes |
+| --- | --- | --- |
+| MikroTik | `/rest/interface/bridge/host` (already read for clients): `mac-address`, `on-interface`, `vid`, `local` → `self`, `dynamic` → `dynamic`, else `static` | VLAN only where the bridge filters VLANs; `age` if present *(guess: RouterOS 7 has none)*. **CI** (CHR 7.25.1): the bridge's own entries |
+| Omada | Wired clients (`switchMac`, `port`, `vid`; already read) | One `dynamic` entry per client on the managed switch's port; the switch MAC table endpoint is not used *(guess: `…/switches/{mac}/mac-table` not in the Open API)* |
+| Linux gateway | `bridge -j -s fdb show` as the read user (netlink, no root) | Entries with a `master` only (the bridge's table, not a port's own address list), `permanent` → `self`, `static` → `static`, `updated` → age. **CI**: a static entry on the Debian 12 target |
+| OpenWrt | not read | No rpcd method exposes the bridge FDB; `/sys/class/net/<bridge>/brforward` is binary, has no VLAN, needs `brif/*/port_no` and a wider ACL. The read ACL is unchanged |
+| OPNsense | not read | No API for the bridge address cache (`ifconfig bridge0 addr`); ARP gives the interface only (`Client.seen_on`, which core counts for devices without a table) |
+| ProSAFE / Easy Smart | not read | NSDP and the Easy Smart protocol have no MAC table on the supported models; Switchyard reads none |
+| Fritz!Box | not read | The host list has no per-port data |

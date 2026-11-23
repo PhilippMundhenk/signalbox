@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import BroadcastResult, Candidate, HostProbe, NetworkProbe
 from signalbox.model import (
+    FDB_LIMIT,
     Client,
     Device,
     DeviceHealth,
@@ -39,6 +40,8 @@ from signalbox.model import (
     DhcpRelay,
     DhcpServer,
     DnsService,
+    FdbEntry,
+    FdbKind,
     Firewall,
     Firmware,
     ManagementService,
@@ -553,6 +556,11 @@ class Observation(BaseModel):
     wlans: list[Wlan] = Field(default_factory=list)
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
+    #: Forwarding database (MAC address table) entries (#160), read with ``clients`` (or
+    #: ``interfaces`` without a client read); no API version needed. Report what the device
+    #: says, on the physical port where it knows it; ``observe()`` keeps at most
+    #: :data:`~signalbox.model.FDB_LIMIT` per device.
+    fdb: list[FdbEntry] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239), read with ``vpn`` (API 1.3). Never a private or
     #: pre-shared key, also not in ``vendor_extra``.
     tunnels: list[Tunnel] = Field(default_factory=list)
@@ -888,6 +896,19 @@ class Adapter(ABC):
                     ),
                 )
             extra_status.update(obs.device_status)
+        lists["fdb"], dropped = _cap_fdb(lists["fdb"])
+        if dropped:
+            errors.append(
+                ReadError(
+                    device_id=ctx.device_id,
+                    capability=Capability.CLIENTS.value
+                    if Capability.CLIENTS in self.manifest.capabilities
+                    else Capability.INTERFACES.value,
+                    message=f"the MAC address table has {dropped} more entries than the "
+                    f"{FDB_LIMIT} Signalbox keeps per device; the newest are kept",
+                    optional=True,
+                )
+            )
         return Snapshot(
             device=device,
             observed_at=now,
@@ -916,6 +937,29 @@ class Adapter(ABC):
             fix_id=getattr(exc, "fix_id", None),
             remedy=getattr(exc, "remedy", None),
         )
+
+
+def _cap_fdb(entries: list[FdbEntry]) -> tuple[list[FdbEntry], int]:
+    """At most :data:`FDB_LIMIT` entries per device (#160): the device's own and static ones
+    first, then the most recently refreshed; the number dropped."""
+    per: dict[str, list[FdbEntry]] = {}
+    for e in entries:
+        per.setdefault(e.device_id, []).append(e)
+    kept: list[FdbEntry] = []
+    dropped = 0
+    for group in per.values():
+        if len(group) > FDB_LIMIT:
+            group = sorted(
+                group,
+                key=lambda e: (
+                    e.kind is FdbKind.DYNAMIC,
+                    e.age_seconds if e.age_seconds is not None else 0,
+                ),
+            )
+            dropped += len(group) - FDB_LIMIT
+            group = group[:FDB_LIMIT]
+        kept += group
+    return kept, dropped
 
 
 def probes_hosts(cls: type[Adapter]) -> bool:

@@ -32,6 +32,11 @@ export function indexNetwork(net, devices = [], sites = []) {
     return m ? `${ix.deviceName(m[1])} · ${m[2]}` : id;
   };
   ix.label = (id) => objectLabel(ix, id);
+  // Where a client is (#160): "port 5 of Switch" for a port, the usual label otherwise.
+  ix.placeName = (id) => {
+    const p = ix.ports.get(id);
+    return p ? t('net.portOf', { port: p.name, device: ix.deviceName(p.device_id) }) : objectLabel(ix, id);
+  };
   ix.siteOf = (id) => siteOf(ix, id);
   return ix;
 }
@@ -97,4 +102,11 @@ export function noData(what) {
     h('p', { class: 'muted' }, t('net.noneKnownHint', { what })),
     h('p', {}, h('a', { href: '#/devices', class: 'btn' }, t('net.devices'))),
   );
+}
+
+// A MAC address table entry (#160) in words: "dynamic, VLAN 20, 30 s old".
+export function fdbText(e, fmtDuration) {
+  const names = { dynamic: 'net.fdb.learned', static: 'net.fdb.static', self: 'net.fdb.self' };
+  const kind = names[e.kind] ? t(names[e.kind]) : e.kind;
+  return [kind, e.vlan ? t('net.vlan', { id: e.vlan }) : null, e.age_seconds !== null && e.age_seconds !== undefined ? t('net.fdb.old', { age: fmtDuration(e.age_seconds) }) : null].filter(Boolean).join(', ');
 }
