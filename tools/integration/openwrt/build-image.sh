@@ -11,7 +11,7 @@
 #   uhttpd with HTTPS (px5g certificate) and uhttpd-mod-ubus, rpcd logins "signalbox" (read ACL)
 #   and "signalbox-write" (write ACL), both from docs/adapters/openwrt.md; bridge VLAN filtering
 #   on br-lan over eth1/eth2; three mac80211_hwsim radios (two APs, one station); dnsmasq DHCP;
-#   lldpd with luci-app-lldpd.
+#   lldpd with luci-app-lldpd; WireGuard interface wg0 with one peer (luci-proto-wireguard).
 #
 # wpad-mbedtls, not wpad-basic: hostapd of wpad-basic has no 802.11v and refuses the whole
 # interface when bss_transition is set ("unknown configuration item").
@@ -42,6 +42,7 @@ PACKAGES=(
   uhttpd uhttpd-mod-ubus px5g-mbedtls libustream-mbedtls
   rpcd rpcd-mod-file rpcd-mod-luci rpcd-mod-ucode luci-base
   lldpd luci-app-lldpd
+  kmod-wireguard wireguard-tools luci-proto-wireguard
   kmod-mac80211-hwsim wpad-mbedtls iw
 )
 

@@ -41,6 +41,7 @@ import asyncio
 import base64
 import binascii
 import copy
+import hashlib
 import json
 import secrets
 from dataclasses import dataclass, field
@@ -57,6 +58,18 @@ PASSWORD = "sim-password"
 PASSPHRASE = "correct horse battery staple"
 
 MAC = "02:00:00:00:{:02x}:{:02x}"
+
+
+def _wg_key(name: str) -> str:
+    """A WireGuard key of the sample: base64 of SHA-256 of a name (valid, nobody's real key;
+    computed so that no key-shaped literal is in the source)."""
+    return base64.b64encode(hashlib.sha256(name.encode()).digest()).decode()
+
+
+#: ``wg0`` of the sample and its peers: a site and a phone (#152)
+WG_KEY = _wg_key("sim-mikrotik-wg0")
+WG_SITE = _wg_key("sim-mikrotik-site")
+WG_PHONE = _wg_key("sim-mikrotik-phone")
 
 
 def _mac(a: int, b: int) -> str:
@@ -333,12 +346,64 @@ def sample_data() -> dict[str, Any]:
                 "link-local": "true",
             },
             {
+                "address": "2001:db8:ff::4/64",
+                "interface": "wg0",
+                "actual-interface": "wg0",
+                "disabled": "false",
+                "dynamic": "false",
+                "invalid": "false",
+            },
+            {
                 "address": "2001:db8:ffff::2/64",
                 "interface": "ether1",
                 "actual-interface": "ether1",
                 "disabled": "false",
                 "dynamic": "true",
                 "invalid": "false",
+            },
+        ),
+        # the menus return private-key and preshared-key: the adapter must drop them
+        "/rest/interface/wireguard": _ids(
+            {
+                "name": "wg0",
+                "mtu": "1420",
+                "listen-port": "51820",
+                "private-key": _wg_key("sim-secret-private"),
+                "public-key": WG_KEY,
+                "running": "true",
+                "disabled": "false",
+                "comment": "site link",
+            }
+        ),
+        "/rest/interface/wireguard/peers": _ids(
+            {
+                "interface": "wg0",
+                "name": "site-b",
+                "public-key": WG_SITE,
+                "private-key": "",
+                "preshared-key": _wg_key("sim-secret-psk"),
+                "allowed-address": "2001:db8:ff::1/128,203.0.113.0/24",
+                "endpoint-address": "198.51.100.77",
+                "endpoint-port": "51820",
+                "current-endpoint-address": "198.51.100.77",
+                "current-endpoint-port": "51820",
+                "persistent-keepalive": "25s",
+                "last-handshake": "42s",
+                "rx": "1834567",
+                "tx": "2934871",
+                "disabled": "false",
+            },
+            {
+                "interface": "wg0",
+                "public-key": WG_PHONE,
+                "allowed-address": "2001:db8:ff::3/128",
+                "endpoint-address": "",
+                "endpoint-port": "0",
+                "persistent-keepalive": "",
+                "rx": "0",
+                "tx": "0",
+                "comment": "phone",
+                "disabled": "false",
             },
         ),
         "/rest/ip/dhcp-client": _ids(

@@ -57,6 +57,7 @@ from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     SERVICE_PORTS,
     TYPED_OPTION_CODES,
+    WIREGUARD_KEY,
     AddressSource,
     Band,
     Cipher,
@@ -106,6 +107,8 @@ from signalbox.model import (
     StorageUsage,
     Subnet,
     TemperatureSensor,
+    Tunnel,
+    TunnelPeer,
     Uplink,
     UplinkKind,
     Wlan,
@@ -136,6 +139,8 @@ LIST_MEMBER = "/rest/interface/list/member"
 DHCP_CLIENT = "/rest/ip/dhcp-client"
 IPV6_DHCP_CLIENT = "/rest/ipv6/dhcp-client"
 PPPOE_CLIENT = "/rest/interface/pppoe-client"
+WIREGUARD = "/rest/interface/wireguard"
+WIREGUARD_PEERS = "/rest/interface/wireguard/peers"
 PPPOE_MONITOR = "/rest/interface/pppoe-client/monitor"
 CLOUD = "/rest/ip/cloud"
 IP_ADDRESS = "/rest/ip/address"
@@ -743,7 +748,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         id="mikrotik",
         name="MikroTik RouterOS",
         version="0.2.0",
-        api_version="1.2",
+        api_version="1.3",
         vendor="MikroTik",
         roles=frozenset({DeviceRole.GATEWAY, DeviceRole.SWITCH, DeviceRole.AP}),
         capabilities=frozenset(
@@ -756,6 +761,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 Capability.NEIGHBOURS,
                 Capability.HEALTH,
                 Capability.TIME,
+                Capability.VPN,
             }
         ),
         config=MikrotikConfig,
@@ -1031,6 +1037,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             and p not in in_bridge
             and p not in wan
             and p not in vlan_ifaces
+            and ports[p].role is not PortRole.TUNNEL  # its address is no network of the site
         ]
         for net in untagged:
             seg = f"{site}/segment/{net}" if native_taken else self._seg(None)
@@ -1827,6 +1834,60 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         value = health_of(resource, sensors)
         return Observation(health={self.context.device_id: value})
 
+    async def read_vpn(self) -> Observation:
+        """WireGuard interfaces and peers (#152): ``/interface/wireguard`` and ``.../peers``.
+
+        Both menus return keys: ``private-key`` of an interface (and, from 7.15, of a peer's
+        client configuration) and a peer's ``preshared-key``. They are dropped while the answer
+        is parsed (:func:`wireguard_rows`), before it is kept or looked at; the pre-shared key
+        stays as the flag ``preshared-key-set``. A menu is read without the cache so that the
+        keys are not kept in it."""
+        d = self.context.device_id
+        try:
+            interfaces = wireguard_rows(await get_menu(self.http, WIREGUARD), WIREGUARD)
+        except NotFound:  # no wireguard package / RouterOS 6
+            return Observation(tunnels=[])
+        peers = wireguard_rows(await get_menu(self.http, WIREGUARD_PEERS), WIREGUARD_PEERS)
+        addresses: dict[str, list[IPInterface]] = {}
+        for endpoint in (IP_ADDRESS, IPV6_ADDRESS):
+            for row in await self._optional_rows(endpoint):
+                try:
+                    a = ip_interface(_text(row.get("address")).split("%")[0])
+                except ValueError:
+                    continue
+                if _active(row) and not a.ip.is_link_local and not a.ip.is_loopback:
+                    iface = _text(row.get("actual-interface")) or _text(row.get("interface"))
+                    addresses.setdefault(iface, []).append(a)
+        known = {_text(r.get("name")) for r in await self._rows(INTERFACE)}
+        now = datetime.now(UTC)
+        tunnels = []
+        for row in interfaces:
+            name = _text(row.get("name"))
+            if not name:
+                continue
+            listen = _int(row.get("listen-port"))
+            mtu = _int(row.get("mtu"))
+            disabled = _flag(row.get("disabled"))
+            tunnels.append(
+                Tunnel(
+                    id=object_id(d, "tunnel", name),
+                    device_id=d,
+                    name=name,
+                    description=_text(row.get("comment")) or None,
+                    port_id=port_id(d, name) if name in known else None,
+                    up=False if disabled else _maybe(row.get("running")),
+                    enabled=not disabled,
+                    listen_port=listen if listen and 1 <= listen <= 65535 else None,
+                    public_key=_wg_key(row.get("public-key")),
+                    addresses=addresses.get(name, []),
+                    mtu=mtu if mtu is not None and 68 <= mtu <= 65535 else None,
+                    peers=wireguard_peers(
+                        [p for p in peers if _text(p.get("interface")) == name], now
+                    ),
+                )
+            )
+        return Observation(tunnels=tunnels)
+
     async def read_time(self) -> Observation:
         start = datetime.now(UTC)
         clock = _object(await get_menu(self.http, CLOCK), CLOCK)
@@ -1838,6 +1899,61 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             server = _object(await self._get(NTP_SERVER), NTP_SERVER)
         value = time_of(clock, client, server, start, end)
         return Observation(time={self.context.device_id: value})
+
+
+def _wg_key(value: Any) -> str | None:
+    text = _text(value)
+    return text if re.fullmatch(WIREGUARD_KEY, text) else None
+
+
+def wireguard_rows(data: Any, endpoint: str) -> list[dict[str, Any]]:
+    """Rows of a WireGuard menu without private and pre-shared keys (#152): ``private-key`` is
+    deleted, ``preshared-key`` becomes ``preshared-key-set`` (a flag). RouterOS says ``auto``
+    or nothing for a key that is not set; anything else counts as set."""
+    out = []
+    for row in _rows(data, endpoint):
+        clean = {k: v for k, v in row.items() if k not in ("private-key", "preshared-key")}
+        psk = _text(row.get("preshared-key"))
+        clean["preshared-key-set"] = psk not in ("", "none", "auto")
+        out.append(clean)
+    return out
+
+
+def wireguard_peers(rows: list[dict[str, Any]], now: datetime) -> list[TunnelPeer]:
+    """Peers of one interface from :func:`wireguard_rows` (``last-handshake`` is how long ago,
+    absent or empty before the first one; ``current-endpoint-*`` is where the peer was seen)."""
+    out: dict[str, TunnelPeer] = {}
+    for row in rows:
+        key = _wg_key(row.get("public-key"))
+        if key is None or key in out:
+            continue
+        host = _text(row.get("endpoint-address")) or _text(row.get("current-endpoint-address"))
+        port = (
+            _int(row.get("endpoint-port"))
+            if _text(row.get("endpoint-address"))
+            else _int(row.get("current-endpoint-port"))
+        )
+        ago = duration(row.get("last-handshake"))
+        allowed: list[IPNetwork] = []
+        for part in _names(row.get("allowed-address")):
+            with contextlib.suppress(ValueError):
+                allowed.append(ip_network(part, strict=False))
+        keepalive = duration(row.get("persistent-keepalive"))
+        rx, tx = _int(row.get("rx")), _int(row.get("tx"))
+        out[key] = TunnelPeer(
+            public_key=key,
+            name=_text(row.get("name")) or _text(row.get("comment")) or None,
+            endpoint_host=host or None,
+            endpoint_port=port if host and port and 1 <= port <= 65535 else None,
+            allowed_ips=allowed,
+            latest_handshake=now - timedelta(seconds=ago) if ago is not None else None,
+            rx_bytes=rx if rx is not None and rx >= 0 else None,
+            tx_bytes=tx if tx is not None and tx >= 0 else None,
+            keepalive_seconds=keepalive if keepalive is not None and keepalive <= 65535 else 0,
+            preshared_key=bool(row.get("preshared-key-set")),
+            enabled=not _flag(row.get("disabled")),
+        )
+    return list(out.values())
 
 
 def _sort_key(address: IPAddress) -> tuple[int, int]:

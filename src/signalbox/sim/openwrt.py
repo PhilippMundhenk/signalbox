@@ -24,7 +24,9 @@ Serve it with any ASGI server, for example
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
+import hashlib
 import json
 import secrets
 import time
@@ -107,7 +109,60 @@ def _on(value: Any) -> bool:
     return str(value) in ("1", "true", "yes", "on")
 
 
-def network_config(router: bool = False) -> dict[str, Any]:
+def _wg_key(name: str) -> str:
+    """A WireGuard key of the sample: base64 of SHA-256 of a name (valid, nobody's real key;
+    computed so that no key-shaped literal is in the source)."""
+    return base64.b64encode(hashlib.sha256(name.encode()).digest()).decode()
+
+
+#: the router's own tunnel ``wg0``, its site peer (the OPNsense simulator's ``wg0``) and a phone
+WG_KEY = _wg_key("sim-site-b")
+WG_SITE_A = _wg_key("sim-opnsense-wg0")
+WG_PHONE = _wg_key("sim-openwrt-phone")
+
+
+def wireguard_sections() -> tuple[tuple[str, str, dict[str, Any]], ...]:
+    """``wg0`` as ``uci get network`` returns it: with ``private_key`` and ``preshared_key``,
+    which the adapter must drop on arrival (the values are derived samples, not secrets)."""
+    return (
+        (
+            "interface",
+            "wg0",
+            {
+                "proto": "wireguard",
+                "private_key": _wg_key("sim-secret-private"),
+                "listen_port": "51820",
+                "addresses": ["2001:db8:ff::2/64"],
+                "mtu": "1420",
+            },
+        ),
+        (
+            "wireguard_wg0",
+            "cfg0a1b2c",
+            {
+                "public_key": WG_SITE_A,
+                "description": "site-a",
+                "preshared_key": _wg_key("sim-secret-psk"),
+                "endpoint_host": "203.0.113.10",
+                "endpoint_port": "51820",
+                "allowed_ips": ["2001:db8:ff::1/128", "192.0.2.0/24"],
+                "persistent_keepalive": "25",
+                "route_allowed_ips": "1",
+            },
+        ),
+        (
+            "wireguard_wg0",
+            "cfg0b2c3d",
+            {
+                "public_key": WG_PHONE,
+                "description": "phone",
+                "allowed_ips": ["2001:db8:ff::3/128"],
+            },
+        ),
+    )
+
+
+def network_config(router: bool = False, wireguard: bool = False) -> dict[str, Any]:
     upstream = {} if router else {"gateway": "192.0.2.1", "dns": "192.0.2.1"}
     return _uci(
         (
@@ -148,6 +203,7 @@ def network_config(router: bool = False) -> dict[str, Any]:
             if router
             else ()
         ),
+        *(wireguard_sections() if wireguard else ()),
     )
 
 
@@ -197,6 +253,11 @@ def interface_dump(network: Sections) -> dict[str, Any]:
         for text in _words(s.get("ip6addr")):
             addr = ip_interface(text)
             v6.append({"address": str(addr.ip), "mask": addr.network.prefixlen})
+        for text in _words(s.get("addresses")):  # proto wireguard
+            addr = ip_interface(text)
+            (v4 if addr.version == 4 else v6).append(
+                {"address": str(addr.ip), "mask": addr.network.prefixlen}
+            )
         gateway = s.get("gateway")
         entry: dict[str, Any] = {
             "interface": name,
@@ -271,6 +332,11 @@ def device_status(network: Sections, wireless: Sections) -> dict[str, Any]:
     for _, s in _of(network, "device"):
         if s.get("name") in status and str(s.get("enabled", "1")) == "0":
             status[str(s["name"])] |= {"up": False, "carrier": False, "speed": "-1F"}
+    for name, s in _of(network, "interface"):
+        if s.get("proto") == "wireguard":
+            status[name] = eth(True) | {"mtu": int(s.get("mtu", 1420)), "macaddr": None}
+            for key in ("speed", "autoneg", "link-supported", "link-advertising", "macaddr"):
+                status[name].pop(key, None)
     wifi = [ifname for _, _, ifname, _ in running_ifaces(wireless)]
     for _, s in _of(network, "device"):
         if s.get("type") == "bridge" and s.get("name"):
@@ -767,6 +833,12 @@ class OpenWrtSim:
     #: luci-app-lldpd installed (ubus object ``luci.lldpd``)
     lldpd: bool = True
     luci_rpc: bool = True
+    #: a WireGuard interface ``wg0`` with two peers in the network config (#152)
+    wireguard: bool = False
+    #: ``luci.wireguard`` (luci-proto-wireguard) installed
+    luci_wireguard: bool = True
+    #: seconds since the site peer's last handshake
+    wg_handshake_ago: int = 42
     #: ``luci getFeatures`` answers (rpcd-mod-luci); off: the adapter reads the wpad package
     luci_features: bool = True
     #: installed hostapd package (``rpc-sys packagelist``); ``wpad-basic-mbedtls``: no SAE, OWE, EAP
@@ -813,7 +885,7 @@ class OpenWrtSim:
     def state(self) -> dict[str, Sections]:
         if self.configs is None:
             self.configs = {
-                "network": _sections(network_config(self.router)),
+                "network": _sections(network_config(self.router, self.wireguard)),
                 "wireless": _sections(wireless_config()),
                 "dhcp": _sections(dhcp_config(self.router)),
                 "system": _sections(system_config(self.router)),
@@ -1029,9 +1101,45 @@ class OpenWrtSim:
             mac, ip, name = LEASE
             text = f"4102444800 {mac} {ip} {name} 01:{mac}\n0 bogus x * *\nshort\n"
             return [0, {"data": text}]
+        if obj == "luci.wireguard" and self.luci_wireguard:
+            return [0, self.wg_instances()] if method == "getWgInstances" else [3]
         if obj == "luci.lldpd" and self.lldpd:
             return [0, lldp_status()] if method == "getStatus" else [3]
         return None
+
+    def wg_instances(self) -> dict[str, Any]:
+        """``luci.wireguard getWgInstances``: running state, public data only."""
+        if not any(
+            s.get("proto") == "wireguard" for _, s in _of(self.state["network"], "interface")
+        ):
+            return {}
+        return {
+            "wg0": {
+                "name": "wg0",
+                "public_key": WG_KEY,
+                "listen_port": 51820,
+                "peers": [
+                    {
+                        "public_key": WG_SITE_A,
+                        "endpoint": "203.0.113.10:51820",
+                        "allowed_ips": ["2001:db8:ff::1/128", "192.0.2.0/24"],
+                        "latest_handshake": int(time.time()) - self.wg_handshake_ago,
+                        "transfer_rx": 1834567,
+                        "transfer_tx": 2934871,
+                        "persistent_keepalive": 25,
+                    },
+                    {
+                        "public_key": WG_PHONE,
+                        "endpoint": "(none)",
+                        "allowed_ips": ["2001:db8:ff::3/128"],
+                        "latest_handshake": 0,
+                        "transfer_rx": 0,
+                        "transfer_tx": 0,
+                        "persistent_keepalive": "off",
+                    },
+                ],
+            }
+        }
 
     async def handle(self, body: bytes) -> Response:
         self.requests += 1

@@ -531,3 +531,37 @@ async def test_a_second_apply_waits_for_the_first(
     finally:
         await first.close()
         await second.close()
+
+
+async def test_wireguard_interface_and_peer(ow: Target, pin: str) -> None:
+    """#152: ``wg0`` and its peer ``site-b`` from the image (kmod-wireguard, wireguard-tools,
+    luci-proto-wireguard), read through ``uci get`` and ``luci.wireguard getWgInstances`` with
+    the read-only login. The keys are made at first boot: the test takes the peer's public key
+    from the raw UCI answer and checks that no private or pre-shared key is in the snapshot."""
+    adapter = OpenWrtAdapter(context(ow, pin))
+    try:
+        raw = await adapter.ubus.call("uci", "get", {"config": "network"})
+        snap = await assert_contract(adapter)
+        runtime = await adapter.ubus.call("luci.wireguard", "getWgInstances")
+    finally:
+        await adapter.close()
+    sections = raw["values"].values()
+    peer_key = next(s["public_key"] for s in sections if s[".type"] == "wireguard_wg0")
+    secrets = [s["private_key"] for s in sections if s.get("private_key")]
+    secrets += [s["preshared_key"] for s in sections if s.get("preshared_key")]
+    assert len(secrets) == 2, "the image has a private and a pre-shared key"
+    assert not any(k in snap.model_dump_json() for k in secrets)
+    assert "wg0" in runtime, runtime  # the shape docs/adapters/openwrt.md describes (a guess, #21)
+    (t,) = snap.tunnels
+    assert (t.id, t.name, t.listen_port) == (f"{DEV}/tunnel/wg0", "wg0", 51820)
+    assert t.public_key == runtime["wg0"]["public_key"], runtime
+    assert [str(a) for a in t.addresses] == ["2001:db8:ff::1/64"]
+    assert t.port_id == f"{DEV}/port/wg0", [p.name for p in snap.ports]
+    (peer,) = t.peers
+    assert (peer.public_key, peer.name) == (peer_key, "site-b")
+    assert (peer.endpoint_host, peer.endpoint_port) == ("203.0.113.20", 51820)
+    assert [str(n) for n in peer.allowed_ips] == ["2001:db8:ff::2/128", "203.0.113.0/24"]
+    assert (peer.keepalive_seconds, peer.preshared_key) == (25, True)
+    assert peer.latest_handshake is None  # nobody answers at 203.0.113.20
+    assert peer.rx_bytes == 0 and peer.tx_bytes is not None
+    assert [str(n) for n in t.remote_networks(peer)] == ["203.0.113.0/24"]

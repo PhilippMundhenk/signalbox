@@ -17,6 +17,8 @@ so the tests can run in any order against one VM.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
 from collections.abc import Callable, Iterator
 from ipaddress import ip_address, ip_network
@@ -677,3 +679,38 @@ def test_vm_still_answers(rt: dict[str, str]) -> None:
         trust_env=False,
     )
     assert r.status_code == 200
+
+
+async def test_wireguard_interface_and_peer(rt: dict[str, str]) -> None:
+    """#152: ``wg0`` and its peer ``site-b`` set up by vm.py, read with the read-only user (no
+    ``sensitive`` policy: RouterOS leaves the keys out) and with the write user (which has it:
+    ``private-key`` is returned and must be dropped)."""
+    peer_key = base64.b64encode(hashlib.sha256(b"signalbox-it-site-b").digest()).decode()
+    for write in (False, True):
+        a = adapter(rt, write=write)
+        try:
+            snap = await a.observe()
+            raw = await a.http.request("GET", "/rest/interface/wireguard")
+        finally:
+            await a.close()
+        assert snap.status is ReadStatus.OK, snap.errors
+        private = [r["private-key"] for r in raw.json() if r.get("private-key")]
+        assert not any(k in snap.model_dump_json() for k in private)
+        (t,) = snap.tunnels
+        assert (t.id, t.name, t.description, t.listen_port) == (
+            "rt/tunnel/wg0",
+            "wg0",
+            "site link",
+            51820,
+        )
+        assert t.public_key and t.port_id == "rt/port/wg0"
+        assert [str(a) for a in t.addresses] == ["2001:db8:ff::1/64"]
+        (peer,) = t.peers
+        assert (peer.public_key, peer.name) == (peer_key, "site-b")
+        assert (peer.endpoint_host, peer.endpoint_port) == ("203.0.113.20", 51820)
+        assert [str(n) for n in peer.allowed_ips] == ["2001:db8:ff::2/128", "203.0.113.0/24"]
+        assert peer.keepalive_seconds == 25 and peer.latest_handshake is None
+        assert [str(n) for n in t.remote_networks(peer)] == ["203.0.113.0/24"]
+    net = await network(rt)
+    assert [t.id for t, _ in net.remote_sites()] == ["rt/tunnel/wg0"]
+    assert not any("wg0" in s.id for s in net.segments)

@@ -61,6 +61,8 @@ from signalbox.adapters.mikrotik import (
     time_of,
     vlan_ids,
     width_of,
+    wireguard_peers,
+    wireguard_rows,
     wps_of,
 )
 from signalbox.model import (
@@ -84,7 +86,15 @@ from signalbox.model import (
     passphrase_fingerprint,
     port_id,
 )
-from signalbox.sim.mikrotik import PASSPHRASE, PASSWORD, USER, MikrotikSimulator
+from signalbox.sim.mikrotik import (
+    PASSPHRASE,
+    PASSWORD,
+    USER,
+    WG_KEY,
+    WG_SITE,
+    MikrotikSimulator,
+    _wg_key,
+)
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
 from signalbox.testing import assert_contract, passphrase_digest_key
 
@@ -816,7 +826,15 @@ async def test_malformed_interfaces_hit_every_capability(
     sim.malformed = {INTERFACE}
     snap = await observe(adapter(http_url))
     assert snap.status is DeviceStatus.PARTIAL
-    assert set(errors(snap)) == {"interfaces", "dhcp", "dns", "wireless", "clients", "neighbours"}
+    assert set(errors(snap)) == {
+        "interfaces",
+        "dhcp",
+        "dns",
+        "wireless",
+        "clients",
+        "neighbours",
+        "vpn",
+    }
 
 
 async def test_menu_without_the_policy(http_url: str, sim: MikrotikSimulator) -> None:
@@ -1139,3 +1157,108 @@ async def test_snmp_v3_and_ssh_password(http_url: str, sim: MikrotikSimulator) -
 
 async def test_transport_encrypted(http_url: str) -> None:
     assert (await observe(adapter(http_url))).device.transport_encrypted is False
+
+
+# --- WireGuard (#152) ------------------------------------------------------------------------
+
+
+async def test_wireguard_tunnel_and_peers(snap: Snapshot) -> None:
+    (t,) = snap.tunnels
+    assert (t.id, t.name, t.description, t.up, t.listen_port, t.mtu) == (
+        "rt/tunnel/wg0",
+        "wg0",
+        "site link",
+        True,
+        51820,
+        1420,
+    )
+    assert t.public_key == WG_KEY and t.port_id == "rt/port/wg0"
+    assert [str(a) for a in t.addresses] == ["2001:db8:ff::4/64"]
+    site, phone = t.peers
+    assert (site.name, site.endpoint_host, site.endpoint_port) == ("site-b", "198.51.100.77", 51820)
+    assert [str(n) for n in site.allowed_ips] == ["2001:db8:ff::1/128", "203.0.113.0/24"]
+    assert (site.keepalive_seconds, site.preshared_key, site.rx_bytes, site.tx_bytes) == (
+        25,
+        True,
+        1834567,
+        2934871,
+    )
+    age = site.handshake_age(datetime.now(UTC))
+    assert age is not None and 40 <= age < 120
+    assert (phone.name, phone.endpoint_host, phone.endpoint_port) == ("phone", None, None)
+    assert (phone.latest_handshake, phone.keepalive_seconds, phone.preshared_key) == (
+        None,
+        0,
+        False,
+    )
+
+
+async def test_a_tunnel_address_is_no_segment(snap: Snapshot) -> None:
+    assert not any("wg0" in s.id for s in snap.segments)
+
+
+async def test_no_private_or_preshared_key_leaves_the_adapter(http_url: str, sim: Any) -> None:
+    secrets = [_wg_key("sim-secret-private"), _wg_key("sim-secret-psk")]
+    assert all(s in str(sim.data) for s in secrets), "the sample must carry keys to be dropped"
+    a = adapter(http_url)
+    try:
+        snap = await a.observe()
+        assert not any(s in snap.model_dump_json() for s in secrets)
+        assert not any(s in str(a._cache) for s in secrets)
+    finally:
+        await a.close()
+
+
+async def test_wireguard_not_installed(http_url: str, sim: Any) -> None:
+    del sim.data["/rest/interface/wireguard"]
+    snap = await observe(adapter(http_url))
+    assert snap.tunnels == [] and "vpn" not in errors(snap)
+
+
+async def test_wireguard_needs_its_policy(http_url: str, sim: Any) -> None:
+    sim.no_policy = {"/rest/interface/wireguard/peers"}
+    snap = await observe(adapter(http_url))
+    assert snap.tunnels == [] and "access denied" in errors(snap)["vpn"]
+
+
+def test_wireguard_rows_drop_the_keys() -> None:
+    rows = wireguard_rows(
+        [
+            {"private-key": "x", "preshared-key": "y", "n": 1},
+            {"preshared-key": "auto"},
+            {"preshared-key": ""},
+            "odd",
+        ],
+        "/rest/interface/wireguard/peers",
+    )
+    assert rows == [
+        {"n": 1, "preshared-key-set": True},
+        {"preshared-key-set": False},
+        {"preshared-key-set": False},
+    ]
+
+
+def test_wireguard_peers_are_parsed_defensively() -> None:
+    now = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
+    rows = wireguard_rows(
+        [
+            {"public-key": "bad"},
+            {
+                "public-key": WG_SITE,
+                "current-endpoint-address": "203.0.113.9",
+                "current-endpoint-port": "40000",
+                "allowed-address": "192.0.2.0/24,nonsense",
+                "last-handshake": "1m5s",
+                "persistent-keepalive": "99999",
+                "rx": "-5",
+                "disabled": "true",
+            },
+            {"public-key": WG_SITE},
+        ],
+        "x",
+    )
+    (peer,) = wireguard_peers(rows, now)
+    assert (peer.endpoint_host, peer.endpoint_port) == ("203.0.113.9", 40000)
+    assert [str(n) for n in peer.allowed_ips] == ["192.0.2.0/24"]
+    assert peer.latest_handshake == now - timedelta(seconds=65)
+    assert (peer.keepalive_seconds, peer.rx_bytes, peer.enabled) == (0, None, False)

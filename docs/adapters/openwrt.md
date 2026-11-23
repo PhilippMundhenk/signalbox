@@ -378,6 +378,25 @@ Without the object the neighbours read fails with "LLDP is not installed on the 
 errors say what to install or start. Either shows as an incomplete
 device; the other capabilities are unaffected.
 
+### WireGuard: `uci get {"config": "network"}` and `luci.wireguard getWgInstances` *(optional)* (vpn)
+
+Interfaces with `option proto 'wireguard'` are tunnels (`listen_port`, `addresses`, `mtu`,
+`disabled`); their peers are the sections `config wireguard_<interface>` (`public_key`,
+`description`, `endpoint_host`, `endpoint_port`, `allowed_ips`, `persistent_keepalive`,
+`disabled`). The same answer holds `private_key` (interface) and `preshared_key` (peer): the
+adapter deletes the private key and turns the pre-shared key into "set" the moment the answer
+arrives, before anything else looks at it; no key but a public key is ever stored or logged.
+
+The running state comes from `luci.wireguard getWgInstances` (package `luci-proto-wireguard`,
+rpcd ucode): `{"wg0": {"public_key": "...", "listen_port": 51820, "peers": [{"public_key":
+"...", "endpoint": "203.0.113.20:51820", "allowed_ips": [...], "latest_handshake": 1700000000,
+"transfer_rx": 1234, "transfer_tx": 5678, "persistent_keepalive": 25}]}}` *(guess: field names
+per release; only the public key, endpoint, handshake and transfer are read)*. Without the
+package the tunnels are read from the configuration alone (no own public key, handshake or
+transfer); with a read ACL from before this method was added the read fails with "access
+denied" for the `vpn` capability only. ACL entry: `"luci.wireguard": ["getWgInstances"]`, the
+only addition.
+
 ## Automatic setup
 
 *Set up automatically* in the device form (#231, [ADR 0009](../adr/0009-automatic-setup-with-an-admin-login.md))
@@ -470,7 +489,8 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "luci": ["getFeatures"],
         "rpc-sys": ["packagelist"],
         "file": ["read"],
-        "luci.lldpd": ["getStatus"]
+        "luci.lldpd": ["getStatus"],
+        "luci.wireguard": ["getWgInstances"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd"],
       "file": {
@@ -571,7 +591,8 @@ only allows the `uci` methods of a transaction on the three configs:
         "luci": ["getFeatures"],
         "rpc-sys": ["packagelist"],
         "file": ["read"],
-        "luci.lldpd": ["getStatus"]
+        "luci.lldpd": ["getStatus"],
+        "luci.wireguard": ["getWgInstances"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd"],
       "file": {
