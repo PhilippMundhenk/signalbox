@@ -85,7 +85,7 @@ carries its source (adapter and device), the time it was observed and a stable i
 | --- | --- |
 | Site | One network domain; a second location over a VPN is a second site |
 | Device | Vendor, model, firmware, role (`gateway`, `switch`, `ap`, `other`), management address, adapter, capabilities, health, time, whether Signalbox reads it encrypted |
-| Port | Physical or logical port, link state, speed, PoE, LAG membership, neighbour (LLDP where available); configuration details: description, admin state, PVID, frame types, ingress filter, MTU / L2 MTU / jumbo flag, maximum and advertised speeds, auto-negotiation, medium, port profile, flow control, EEE |
+| Port | Physical or logical port, link state, speed, PoE, LAG membership, neighbour (LLDP where available); configuration details: description, admin state, PVID, frame types, ingress filter, MTU / L2 MTU / jumbo flag, maximum and advertised speeds, auto-negotiation, medium, port profile, flow control, EEE; internal structure (#252, ADR 0008): role (jack, CPU port, switch port, bridge, VLAN / Wi-Fi interface, LAG, tunnel, virtual) and the ports it runs on, a cable can end there (`external`) derived |
 | Link | A cable or wireless uplink between two ports; observed (LLDP, MAC tables) or entered by hand |
 | Segment | Layer-2 network: VLAN id, name, purpose and its source, isolated by the device; membership per port `untagged` / `tagged` / `none` |
 | Subnet | Prefix, gateway address, segment, IPv4/IPv6 |

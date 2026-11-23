@@ -148,9 +148,35 @@ server handed out by DHCP (`DhcpServer.ntp_servers`).
  "br-lan.1": {"type": "VLAN", …}, "lo": {…}, "phy0-ap0": {…}}
 ```
 
-Every device except `lo` and VLAN devices (`name.vid`) becomes a port; `carrier` is the link
-state, `speed` `"<Mbit/s><F|H>"` speed and duplex (`-1F`: no link). `type: bridge` is a bridge
-port, `phy*`/`wlan*` (or `"wireless": true`) a wireless one.
+Every device except `lo` becomes a port, VLAN devices (`name.vid`) too (#252); `carrier` is
+the link state, `speed` `"<Mbit/s><F|H>"` speed and duplex (`-1F`: no link). `type: bridge` is a
+bridge port, `phy*`/`wlan*` (or `"wireless": true`) a wireless one.
+
+Port structure (#252, ADR 0008): `type: bridge` is role `bridge` with `bridge-members` as its
+lower ports; `type` `VLAN`/`8021q`/`8021ad` role `vlan` on its `parent` (else the name before the
+last dot); a Wi-Fi interface role `wireless`. With swconfig (UCI `switch_vlan` sections), a
+device whose `<device>.<vid>` VLAN devices exist for a switch VLAN is the switch's CPU port
+(role `cpu`); the switch ports themselves are not reported (only `/etc/board.json` says which
+is the CPU port and which are jacks). Everything else comes from the next call.
+
+### `luci-rpc getNetworkDevices` *(optional)* (port structure)
+
+```json
+{"lan1": {"name": "lan1", "devtype": "dsa", "parent": "eth1", "type": 1, "master": "br-lan", …},
+ "eth1": {"name": "eth1", "devtype": "ethernet", "type": 1, …},
+ "br-lan": {"bridge": true, "ports": ["lan1", …], "devtype": "bridge", …},
+ "br-lan.1": {"devtype": "vlan", "parent": "br-lan", …}, "phy0-ap0": {"wireless": true, …}}
+```
+
+rpcd-mod-luci reads the kernel's facts per device: `devtype` is `DEVTYPE` of the device's
+uevent (`ethernet` when there is none), `parent` the device whose ifindex is this one's
+`iflink`, `type` the ARP hardware type. A `dsa` device is a jack (a DSA user port) on its
+`parent`, the conduit, which gets role `cpu`. Another device of `devtype` `ethernet` and `type`
+1 is a jack (a NIC of its own); `wireguard`/`ppp`/… or `type` 512/65534 a tunnel; `veth`,
+`dummy`, `macvlan` virtual. *(DSA is a guess from the rpcd-mod-luci and kernel sources, tested
+in the simulator only: #21. The QEMU image has no switch chip; its NICs are jacks.)* Without
+rpcd-mod-luci the roles above stay unknown; with an older ACL that does not allow the call the
+read is complete otherwise and reports the gap with the fix.
 
 Port details (#156): `mtu`; the fastest mode of `link-supported` is the maximum speed, the
 modes of `link-advertising` the offered speeds, `autoneg` auto-negotiation (netifd adds these

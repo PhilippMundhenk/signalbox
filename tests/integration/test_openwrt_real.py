@@ -41,6 +41,8 @@ from signalbox.model import (
     DeviceStatus,
     Membership,
     NatClass,
+    PortKind,
+    PortRole,
     Security,
     Site,
     Snapshot,
@@ -251,6 +253,33 @@ async def test_mapping_of_the_lab_device(ow: Target, pin: str) -> None:
     assert dhcp.ntp_servers == [ip_address("192.0.2.1")]
     assert dhcp.leases is not None  # #183: luci-rpc or /tmp/dhcp.leases read (maybe empty)
     assert dhcp.authoritative is True  # the stock dnsmasq section has authoritative 1 (guess)
+
+
+async def test_port_structure(ow: Target, pin: str) -> None:
+    """#252 on the real OpenWrt: the QEMU NICs are jacks (no DEVTYPE, ARP type 1, through
+    ``luci-rpc getNetworkDevices``), br-lan a bridge over eth1, eth2 and the Wi-Fi interfaces,
+    br-lan.1 / br-lan.20 VLAN interfaces on it. There is no switch chip, so no CPU port: DSA is
+    only simulated (#21)."""
+    snap = await observe(context(ow, pin))
+    assert snap.status is DeviceStatus.OK, snap.errors
+    ports = {p.name: p for p in snap.ports}
+    for name in ("eth0", "eth1", "eth2"):
+        assert (ports[name].role, ports[name].lower) == (PortRole.JACK, []), ports[name]
+        assert ports[name].external is True
+    bridge = ports["br-lan"]
+    assert bridge.role is PortRole.BRIDGE and bridge.external is False
+    assert {f"{DEV}/port/eth1", f"{DEV}/port/eth2"} <= set(bridge.lower), bridge.lower
+    for vid in (1, 20):
+        vlan = ports.get(f"br-lan.{vid}")
+        assert vlan is not None, sorted(ports)
+        assert (vlan.role, vlan.lower) == (PortRole.VLAN, [bridge.id]), vlan
+    assert not any(p.role is PortRole.CPU for p in snap.ports)
+    wifi = [p for p in snap.ports if p.kind is PortKind.WIRELESS]
+    assert wifi and all(p.role is PortRole.WIRELESS for p in wifi)
+    lab = [w for w in snap.wlans if w.ssid == SSID]
+    assert lab and all(w.port_id and w.port_id.startswith(f"{DEV}/port/") for w in lab), lab
+    bridged = [w.port_id for w in lab if w.port_id in bridge.lower]
+    assert bridged, (bridge.lower, [w.port_id for w in lab])
 
 
 async def test_health_and_time(ow: Target, pin: str) -> None:
