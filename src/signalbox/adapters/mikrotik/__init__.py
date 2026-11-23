@@ -45,6 +45,7 @@ from signalbox.adapters import (
     Capability,
     Manifest,
     Observation,
+    PreviewStep,
     Remedy,
     RemedyRequest,
     SetupPlan,
@@ -755,6 +756,7 @@ REMEDIES = (
     Remedy(
         id="policies",
         read_side=True,
+        preview=[PreviewStep(id="policies", title="Add the missing policies to the group")],
         title="Add the missing policies",
         description="Through the REST API with the admin login: adds the policies of the setup "
         "guide (read, api, rest-api; write and sensitive too when changes are allowed) that the "
@@ -771,6 +773,11 @@ REMEDIES = (
         "afterwards.",
         transport="SSH as admin",
         port_default=22,
+        preview=[
+            PreviewStep(id="certificate", title="Create the local CA and certificate if missing"),
+            PreviewStep(id="www-ssl", title="Enable the www-ssl service"),
+            PreviewStep(id="check", title="Read www-ssl again"),
+        ],
     ),
 )
 
@@ -808,6 +815,11 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             secret_label="admin password",
             note="The REST API (www-ssl with a certificate, setup guide: HTTPS with a "
             "certificate) must be on already.",
+            preview=[
+                PreviewStep(id="group", title="Create the user group with the documented policies"),
+                PreviewStep(id="user", title="Create the user signalbox with a generated password"),
+                PreviewStep(id="user", title="Delete the user signalbox", remove=True),
+            ],
         ),
         traces=TraceSupport(
             permission="the group policy test (RouterOS: ping and traceroute)",

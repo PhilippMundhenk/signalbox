@@ -43,19 +43,31 @@ def test_set_up_openwrt_automatically(app: Any, router: tuple[str, int, OpenWrtS
     app.get_by_test_id("cfg-url").fill(url)
     box = app.get_by_test_id("auto-setup")
     box.locator("summary").click()
-    expect(app.get_by_test_id("setup-admin-user")).to_have_value("root")
+    # 1. what it does: no credential field exists yet, nothing is sent
+    expect(app.get_by_test_id("setup-admin-secret")).to_have_count(0)
     expect(app.get_by_test_id("setup-admin-port")).to_have_value("22")
-    app.get_by_test_id("setup-plan").click()
-    expect(app.get_by_test_id("setup-error")).to_contain_text("root password")
-    app.get_by_test_id("setup-admin-secret").fill(ROOT_PASSWORD)
     app.get_by_test_id("setup-admin-port").fill(str(port))
     app.get_by_test_id("setup-plan").click()
+    expect(app.get_by_test_id("setup-plan-steps")).to_contain_text("Install the packages")
+    expect(app.get_by_test_id("setup-admin-secret")).to_have_count(0)
+    assert device.scripts == []
+    # 2. the device's identity, still without a password
+    app.get_by_test_id("setup-continue").click()
     expect(app.get_by_test_id("setup-fingerprint")).to_contain_text("SHA256:")
-    assert device.scripts == []  # nothing sent before the host key is trusted
+    expect(app.get_by_test_id("setup-admin-secret")).to_have_count(0)
+    assert device.scripts == []
     app.get_by_test_id("setup-trust").click()
-    steps = app.get_by_test_id("setup-plan-steps").get_by_test_id("setup-step")
-    expect(steps).to_have_count(5)
-    expect(steps.first).to_have_attribute("data-state", "unchanged")
+    # 3. only now the temporary password, right before Run
+    expect(app.get_by_test_id("setup-temporary-note")).to_contain_text("never saved")
+    secret = app.get_by_test_id("setup-admin-secret")
+    expect(secret).to_have_value("")
+    expect(secret).to_have_attribute("autocomplete", "new-password")
+    expect(app.get_by_test_id("setup-admin-user")).to_have_value("root")
+    app.get_by_test_id("setup-apply").click()
+    expect(app.get_by_test_id("setup-error")).to_contain_text("root password")
+    assert device.scripts == []  # Run without a password sends nothing
+    expect(secret).to_have_value("")
+    secret.fill(ROOT_PASSWORD)
     app.get_by_test_id("setup-apply").click()
     # saved and read with the new login over the certificate read through SSH
     expect(app.get_by_test_id("toast").first).to_contain_text("Access point set up.")
@@ -75,13 +87,12 @@ def test_lldp_is_an_unticked_extra_of_the_plan(
     app.get_by_test_id("auto-setup").locator("summary").click()
     extra = app.get_by_test_id("setup-extra-lldp")
     expect(extra).not_to_be_checked()
-    app.get_by_test_id("setup-admin-secret").fill(ROOT_PASSWORD)
     app.get_by_test_id("setup-admin-port").fill(str(port))
     app.get_by_test_id("setup-plan").click()
-    app.get_by_test_id("setup-trust").click()
     steps = app.get_by_test_id("setup-plan-steps").get_by_test_id("setup-step")
     expect(steps).to_have_count(5)  # no LLDP step unless ticked
-    extra.check()
+    extra.check()  # changing the ticks starts over
+    expect(app.get_by_test_id("setup-plan-steps")).to_have_count(0)
     app.get_by_test_id("setup-plan").click()
     expect(
         app.get_by_test_id("setup-plan-steps").locator("[data-step=lldp-packages]")

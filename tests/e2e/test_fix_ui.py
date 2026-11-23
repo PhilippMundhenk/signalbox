@@ -75,23 +75,32 @@ def test_fix_it_installs_lldp(app: Any, router: tuple[str, int, str, OpenWrtSsh]
     errors.locator("[data-testid=fix-it][data-remedy=lldp]").click()
     panel = app.get_by_test_id("fix-panel")
     expect(panel).to_contain_text("Install LLDP")
-    expect(app.get_by_test_id("fix-admin-user")).to_have_value("root")
-    app.get_by_test_id("fix-admin-secret").fill(ROOT_PASSWORD)
+    # 1. what it does, with no credential field yet
+    expect(app.get_by_test_id("fix-admin-secret")).to_have_count(0)
     app.get_by_test_id("fix-admin-port").fill(str(port))
     scripts = len(device.scripts)
     app.get_by_test_id("fix-plan").click()
+    expect(app.get_by_test_id("fix-plan-steps")).to_contain_text("Install lldpd")
+    expect(app.get_by_test_id("fix-admin-secret")).to_have_count(0)
+    # 2. the identity, still without a password
+    app.get_by_test_id("fix-continue").click()
     expect(app.get_by_test_id("fix-fingerprint")).to_contain_text("SHA256:")
+    expect(app.get_by_test_id("fix-admin-secret")).to_have_count(0)
     assert len(device.scripts) == scripts  # nothing sent before the host key is trusted
     app.get_by_test_id("fix-trust").click()
-    steps = app.get_by_test_id("fix-plan-steps").get_by_test_id("setup-step")
-    expect(steps).to_have_count(5)
-    expect(steps.first).to_have_attribute("data-state", "todo")
-    expect(steps.first).to_contain_text("Install the LLDP packages")
-    assert not device.installed >= LLDP_PACKAGES  # the plan changes nothing
+    # 3. the temporary password, right before Run
+    expect(app.get_by_test_id("fix-temporary-note")).to_contain_text("never saved")
+    expect(app.get_by_test_id("fix-admin-user")).to_have_value("root")
+    secret = app.get_by_test_id("fix-admin-secret")
+    expect(secret).to_have_value("")
+    secret.fill(ROOT_PASSWORD)
+    assert len(device.scripts) == scripts  # typing it sends nothing
     # cancelled: nothing runs
     app.get_by_test_id("fix-apply").click()
     app.get_by_test_id("confirm-cancel").click()
     assert not device.installed >= LLDP_PACKAGES
+    expect(secret).to_have_value("")  # cancelled: the password does not stay in the field
+    secret.fill(ROOT_PASSWORD)
     app.get_by_test_id("fix-apply").click()
     app.get_by_test_id("confirm-ok").click()
     expect(app.get_by_test_id("fix-outcome")).to_contain_text("Done", timeout=20000)

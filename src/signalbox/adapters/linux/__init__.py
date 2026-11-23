@@ -28,6 +28,7 @@ from signalbox.adapters import (
     Gap,
     Manifest,
     Observation,
+    PreviewStep,
     SetupPlan,
     SetupRequest,
     SetupResult,
@@ -170,6 +171,16 @@ class LinuxAdapter(Adapter):
             note="A login that may use sudo (Raspberry Pi OS: the first user) or root, with "
             "a password over SSH. Signalbox creates the user signalbox with a key of its own, "
             "and the sudoers rule for wg show if WireGuard is installed.",
+            preview=[
+                PreviewStep(id="user", title="Create the user signalbox (no password, no sudo)"),
+                PreviewStep(id="key", title="Authorize a new SSH key for it (public key only)"),
+                PreviewStep(id="sudoers", title="Allow it the read-only wg show commands"),
+                PreviewStep(
+                    id="host-key", title="Trust the SSH host key you confirmed, for reading"
+                ),
+                PreviewStep(id="sudoers", title="Delete the sudoers rule", remove=True),
+                PreviewStep(id="user", title="Delete the user signalbox", remove=True),
+            ],
         ),
         traces=TraceSupport(
             permission="none: tracepath (or traceroute) as the read user, no root",

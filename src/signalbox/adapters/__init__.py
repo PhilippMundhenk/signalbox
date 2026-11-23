@@ -177,6 +177,25 @@ class WritesConfig(Protocol):
     async def restore(self, backup: Backup) -> None: ...
 
 
+class PreviewStep(BaseModel):
+    """A step an automatic setup or a remedy normally takes, shown before any credential (#279).
+
+    Static, in words: Signalbox cannot inspect the device without the admin login. The steps
+    that really are needed come from the plan after the login; if one is not listed here (same
+    ``id``), the user must see and confirm the plan again before anything runs.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: The id of the :class:`SetupStep` it stands for.
+    id: str
+    title: str
+    #: Only when removing what the setup created.
+    remove: bool = False
+    #: Only with this :class:`SetupExtra` ticked.
+    extra: str | None = None
+
+
 class SetupExtra(BaseModel):
     """An optional extra of the automatic setup, an unticked checkbox in the plan (#278).
 
@@ -218,6 +237,8 @@ class AdminLogin(BaseModel):
     ssh_option: SshOption | None = None
     #: Optional extras, offered unticked next to the plan (#278).
     extras: list[SetupExtra] = Field(default_factory=list)
+    #: What the setup normally does, shown before the admin login is asked for (#279).
+    preview: list[PreviewStep] = Field(default_factory=list)
 
 
 class SshOption(BaseModel):
@@ -342,6 +363,8 @@ class Remedy(BaseModel):
     #: Only adds what Signalbox reads through (packages, permissions for its own login): needs
     #: the admin login and a confirmation, but not *Allow changes* (#278, ADR 0012).
     read_side: bool = False
+    #: What it normally does, shown before the admin login is asked for (#279).
+    preview: list[PreviewStep] = Field(default_factory=list)
 
 
 class RemedyRequest(BaseModel):
