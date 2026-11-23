@@ -27,6 +27,7 @@ from signalbox.rules import Finding, Rule, Severity, evaluate, found
 from signalbox.secrets import SecretError
 from signalbox.sightings import History
 from signalbox.store import DeviceRecord, Store, StoreError
+from signalbox.traces import attach as attach_traces
 
 log = logging.getLogger(__name__)
 
@@ -117,13 +118,15 @@ class Runner:
     # everything -------------------------------------------------------------------------
 
     def network(self) -> Network:
-        """The merged network with derived links, the purposes the desired state declares and
-        the user's annotations and acknowledgements (declared and stored, #186)."""
+        """The merged network with derived links, the purposes the desired state declares,
+        the user's annotations and acknowledgements (declared and stored, #186) and, while
+        ``traces.enabled`` is on, the path traces (#253)."""
         state = self._declared()
         net = apply_declared(self._merged(), state)
-        return apply_annotations(
-            net, state, self.store.annotations(), self.store.acknowledgements()
-        )
+        net = apply_annotations(net, state, self.store.annotations(), self.store.acknowledgements())
+        if self.config.traces.enabled:  # path traces (#253): only while the feature is on
+            net = attach_traces(net, self.store.traces())
+        return net
 
     def _declared(self) -> DesiredState | None:
         if self.desired_source is None:

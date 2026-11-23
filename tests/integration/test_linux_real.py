@@ -201,3 +201,13 @@ async def test_automatic_setup(lx: Target, who: str) -> None:
         assert gone.returncode != 0, args
     # the documented user's rule is untouched
     docker(lx, "test", "-e", SUDOERS_PATH)
+
+
+async def test_trace_as_the_read_user(lx: Target) -> None:
+    """Path traces (#253): tracepath as the read user, no sudo, to the container's loopback."""
+    adapter = LinuxAdapter(context(lx))
+    try:
+        answer = await adapter.trace(ip_address("127.0.0.1"), 4, 1)
+    finally:
+        await adapter.close()
+    assert answer.reached and answer.hops[-1].address == ip_address("127.0.0.1"), answer

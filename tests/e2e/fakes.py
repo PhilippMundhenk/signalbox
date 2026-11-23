@@ -7,7 +7,7 @@ import hashlib
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address, ip_interface, ip_network
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, SecretStr
 
@@ -19,6 +19,8 @@ from signalbox.adapters import (
     Manifest,
     Observation,
     SystemInfo,
+    TraceAnswer,
+    TraceSupport,
     Unreachable,
     UntrustedCertificate,
 )
@@ -69,6 +71,7 @@ from signalbox.model import (
     StorageUsage,
     Subnet,
     TemperatureSensor,
+    TraceHop,
     Tunnel,
     TunnelPeer,
     Uplink,
@@ -672,3 +675,64 @@ def open_wifi(net: Network) -> Iterator[Result]:
                 [w.id],
                 fix="Use WPA3 Personal, or Enhanced Open (OWE) for a guest network.",
             )
+
+
+class TracingConfig(AdapterConfig):
+    lan: str = Field(description="The router's LAN address with prefix, e.g. 10.1.0.1/24.")
+
+
+class Tracing(Adapter):
+    """A router that runs traceroutes (#253): every target is reached through the provider's
+    router 192.168.100.1 (a router Signalbox does not know, private address) and 203.0.113.1."""
+
+    manifest = Manifest(
+        id="labtrace",
+        name="Lab tracing router",
+        version="1",
+        api_version="1.3",
+        vendor="Example",
+        roles=frozenset({DeviceRole.GATEWAY}),
+        capabilities=frozenset({Capability.INTERFACES}),
+        config=TracingConfig,
+        traces=TraceSupport(permission="nothing (a lab router)", method="lab"),
+    )
+
+    @property
+    def cfg(self) -> TracingConfig:
+        assert isinstance(self.context.config, TracingConfig)
+        return self.context.config
+
+    async def read_system(self) -> SystemInfo:
+        return SystemInfo(vendor="Example", model="TR-1")
+
+    async def read_interfaces(self) -> Observation:
+        d = self.context.device_id
+        return Observation(
+            subnets=[
+                Subnet(
+                    id=object_id(d, "subnet", "lan"),
+                    segment_id=segment_id(self.context.site_id, None),
+                    interface=ip_interface(self.cfg.lan),
+                    device_id=d,
+                    gateway=True,
+                )
+            ],
+            uplinks=[
+                Uplink(
+                    id=object_id(d, "uplink", "wan"),
+                    device_id=d,
+                    name="wan",
+                    kind=UplinkKind.DHCP,
+                    up=True,
+                    addresses=[ip_interface("203.0.113.30/24")],
+                )
+            ],
+        )
+
+    async def trace(self, target: Any, max_hops: int, wait: float) -> TraceAnswer:
+        hops = [
+            TraceHop(ttl=1, address=ip_address("192.168.100.1"), rtt_ms=0.8),
+            TraceHop(ttl=2, address=ip_address("203.0.113.1"), rtt_ms=4.0),
+            TraceHop(ttl=3, address=target, rtt_ms=9.5),
+        ]
+        return TraceAnswer(hops=hops, reached=True)

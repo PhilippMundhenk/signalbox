@@ -2035,7 +2035,67 @@ class ReadError(Model):
     optional: bool = False
 
 
-# annotations (#186) -------------------------------------------------------------------------
+# path traces (#253) -------------------------------------------------------------------------
+#
+# An active observation, not configuration: a traceroute that Signalbox asked a device (or its
+# own host) to run. Stored apart from the snapshots (one per source and target, the latest), put
+# on every Network by the runner while the feature is on (``traces.enabled``). Hops are matched
+# to known devices and their interfaces by core (:mod:`signalbox.traces`), never by an adapter.
+
+#: Source of a trace run on Signalbox's own host instead of a device.
+SIGNALBOX_SOURCE = "signalbox"
+
+
+class TraceHop(Model):
+    """One hop of a trace: the router that answered for this TTL."""
+
+    ttl: Annotated[int, Field(ge=1, le=64)]
+    #: The address that answered; None: no answer within the wait (``*``).
+    address: IPAddress | None = None
+    #: Round trip of the (first answered) probe, in milliseconds.
+    rtt_ms: Annotated[float, Field(ge=0)] | None = None
+    #: The known device the address belongs to (set by core, :func:`signalbox.traces.match`).
+    device_id: str | None = None
+    #: Its interface with that address: a subnet, uplink or tunnel id of that device.
+    interface_id: str | None = None
+
+
+class PathTrace(Model):
+    """A traceroute from a device (or Signalbox's host) to an address (#253).
+
+    ``id`` is ``trace/<source>/<target>``. ``reached``: the target answered; a trace that did
+    not get there (unanswered hops at the end, the hop limit) is partial, and checks stay quiet
+    about it. ``error``: the trace could not run at all (unsupported, refused, timeout); its
+    ``fix`` and ``remedy`` as for a read error.
+    """
+
+    id: str
+    #: Device id, or ``signalbox`` for Signalbox's own host.
+    source: str
+    target: IPAddress
+    #: The known device the target address belongs to, if any.
+    target_device: str | None = None
+    #: What was asked for: ``gateway`` (another gateway), ``internet``, ``address``.
+    purpose: Literal["gateway", "internet", "address"] = "address"
+    started_at: datetime
+    finished_at: datetime | None = None
+    hops: list[TraceHop] = Field(default_factory=list)
+    reached: bool = False
+    error: str | None = None
+    fix: str | None = None
+    remedy: str | None = None
+
+    @field_validator("started_at", "finished_at")
+    @classmethod
+    def _aware(cls, value: datetime | None) -> datetime | None:
+        return _utc(value)
+
+
+def trace_id(source: str, target: IPAddress | str) -> str:
+    return f"trace/{source}/{target}"
+
+
+# annotations (#186)-------------------------------------------------------------------------
 #
 # User data, not observed: a friendly name, what an object is for, who looks after it, notes,
 # typed expectations, and acknowledged findings. Declared in the desired state (YAML) or set in
@@ -2397,6 +2457,10 @@ class Network(Model):
     annotations: list[Annotation] = Field(default_factory=list)
     #: Acknowledged findings (#186); :func:`signalbox.rules.evaluate` applies them.
     acknowledgements: list[Acknowledgement] = Field(default_factory=list)
+    #: Path traces (#253): the latest per source and target, set by the runner while
+    #: ``traces.enabled`` is on, hops matched to the devices of this network. Active
+    #: observations, not snapshots: empty in the desired and predicted states.
+    traces: list[PathTrace] = Field(default_factory=list)
 
     def annotation(self, target: str) -> Annotation | None:
         """The annotation of a target (a model id or a MAC address), if the user made one."""

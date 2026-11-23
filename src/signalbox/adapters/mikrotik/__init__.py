@@ -51,9 +51,12 @@ from signalbox.adapters import (
     SetupRequest,
     SetupResult,
     SystemInfo,
+    TraceAnswer,
+    TraceSupport,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
+from signalbox.adapters.mikrotik import trace as _trace
 from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
@@ -805,6 +808,10 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             secret_label="admin password",
             note="The REST API (www-ssl with a certificate, setup guide: HTTPS with a "
             "certificate) must be on already.",
+        ),
+        traces=TraceSupport(
+            permission="the group policy test (RouterOS: ping and traceroute)",
+            method="/tool/traceroute through the REST API (one probe per hop)",
         ),
     )
 
@@ -1933,6 +1940,27 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 )
             )
         return Observation(tunnels=tunnels)
+
+    async def trace(self, target: Any, max_hops: int, wait: float) -> TraceAnswer:
+        """``/tool/traceroute`` once (#253); needs the group policy ``test``."""
+        body = _trace.request_body(target, max_hops, wait)
+        response = await self.http.request("POST", _trace.TRACEROUTE, json=body, accept=(400, 500))
+        if response.status_code >= 400:
+            exc = ros_error(_trace.TRACEROUTE, response)
+            if isinstance(exc, AuthFailed):
+                raise AuthFailed(
+                    f"{_trace.TRACEROUTE}: the user's group may not run traceroutes, it needs the "
+                    f"policy test ({exc})",
+                    fix="Give the group of Signalbox's user the policy test (System > Users > "
+                    "Groups), or use Fix it on the device page while path traces are on.",
+                    remedy="policies",
+                ) from None
+            raise exc
+        try:
+            answer = response.json()
+        except ValueError as e:
+            raise AdapterError(f"{_trace.TRACEROUTE}: answer is not valid JSON") from e
+        return _trace.parse(answer, target, max_hops)
 
     async def read_time(self) -> Observation:
         start = datetime.now(UTC)

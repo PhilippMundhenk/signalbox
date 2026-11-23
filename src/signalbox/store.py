@@ -25,6 +25,7 @@ from signalbox.model import (
     DeviceStatus,
     Link,
     Network,
+    PathTrace,
     Site,
     Snapshot,
 )
@@ -130,6 +131,13 @@ SCHEMA = [
     """
     CREATE TABLE annotations (target TEXT PRIMARY KEY, data TEXT NOT NULL);
     CREATE TABLE acknowledgements (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+    """,
+    # version 5: path traces, active observations kept apart from the snapshots (#253)
+    """
+    CREATE TABLE traces (
+        id TEXT PRIMARY KEY, source TEXT NOT NULL, started_at TEXT NOT NULL, data TEXT NOT NULL
+    );
+    CREATE INDEX traces_started ON traces (started_at);
     """,
 ]
 
@@ -476,6 +484,7 @@ class Store:
         with self._tx() as db:
             db.execute("DELETE FROM devices WHERE id = ?", (device_id,))
             db.execute("DELETE FROM snapshots WHERE device_id = ?", (device_id,))
+            db.execute("DELETE FROM traces WHERE source = ?", (device_id,))
             # its history, its ports' and that of the devices it manages (``<id>/...``)
             for table in ("sightings", "sighting_changes"):
                 db.execute(
@@ -618,6 +627,33 @@ class Store:
     def delete_acknowledgement(self, ack_id: str) -> bool:
         with self._tx() as db:
             return db.execute("DELETE FROM acknowledgements WHERE id = ?", (ack_id,)).rowcount > 0
+
+    # path traces (#253): the latest per source and target ------------------------------
+
+    def put_trace(self, trace: PathTrace) -> None:
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO traces (id, source, started_at, data) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET source = excluded.source, "
+                "started_at = excluded.started_at, data = excluded.data",
+                (trace.id, trace.source, trace.started_at.isoformat(), trace.model_dump_json()),
+            )
+
+    def traces(self) -> list[PathTrace]:
+        rows = self._all("SELECT data FROM traces ORDER BY id")
+        return [PathTrace.model_validate_json(r["data"]) for r in rows]
+
+    def delete_traces(self, source: str | None = None) -> int:
+        """Forget the traces (of one source: a device that was removed)."""
+        with self._tx() as db:
+            if source is None:
+                return int(db.execute("DELETE FROM traces").rowcount)
+            return int(db.execute("DELETE FROM traces WHERE source = ?", (source,)).rowcount)
+
+    def prune_traces(self, before: datetime) -> int:
+        with self._tx() as db:
+            cur = db.execute("DELETE FROM traces WHERE started_at < ?", (before.isoformat(),))
+            return int(cur.rowcount)
 
     # change tracking (append-only) ------------------------------------------------------
 

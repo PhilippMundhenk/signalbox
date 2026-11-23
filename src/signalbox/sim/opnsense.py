@@ -56,6 +56,8 @@ from signalbox.sim.opnsense_users import Users
 KEY = "sim-key"
 SECRET = "sim-secret"
 USERS = "/api/auth/user/"
+TRACEROUTE = "/api/diagnostics/traceroute/set"
+TRACE_PRIVILEGE = "page-diagnostics-traceroute"
 
 
 def _wg_key(name: str) -> str:
@@ -1210,6 +1212,40 @@ class OpnsenseSimulator(_Writes):
         default_factory=lambda: {WG_SITE_B: int(datetime.now(UTC).timestamp()) - 42}
     )
 
+    #: Traceroutes (#253): target -> hops (address or None for ``*``, RTT in ms). A target not
+    #: listed answers through one router (192.0.2.254) and then itself.
+    routes: dict[str, list[tuple[str | None, float | None]]] = field(default_factory=dict)
+    #: Traces received (the request bodies).
+    traces: list[Any] = field(default_factory=list)
+
+    def traceroute(self, caller: str, body: Any) -> Response:
+        """``diagnostics/traceroute/set``: as configd's traceroute.py answers (unanswered hops
+        are left out); 403 for a user without *Diagnostics: Traceroute*."""
+        if caller != "root":
+            user = next((u for u in self.accounts.users if u["name"] == caller), None)
+            if user is not None and TRACE_PRIVILEGE not in user["priv"]:
+                return JSONResponse({"status": 403, "message": "Forbidden"}, status_code=403)
+        self.traces.append(body)
+        settings = (body.get("traceroute") or {}).get("settings") or {}
+        host = str(settings.get("hostname", ""))
+        if not host:
+            return JSONResponse(
+                {"result": "failed", "validations": {"traceroute.settings.hostname": "Required"}}
+            )
+        hops = self.routes.get(host, [("192.0.2.254", 0.4), (host, 1.2)])
+        rows = [
+            {
+                "address": addr,
+                "ttl": str(ttl),
+                "AS": "AS0",
+                "host": addr,
+                "probes": f"{rtt:.3f} ms" if rtt is not None else "",
+            }
+            for ttl, (addr, rtt) in enumerate(hops, start=1)
+            if addr is not None
+        ]
+        return JSONResponse({"result": "ok", "response": {"rows": rows}})
+
     def wireguard_show(self) -> Any:
         answer = copy.deepcopy(self.data[WG_SHOW])
         now = int(datetime.now(UTC).timestamp())
@@ -1275,6 +1311,8 @@ class OpnsenseSimulator(_Writes):
             invalid = _prefixed(self.invalid, path)
             if invalid is not None:
                 return JSONResponse({"result": "failed", "validations": invalid})
+            if path == TRACEROUTE and request.method == "POST":
+                return self.traceroute(caller, await request.json())
             if path.startswith(USERS):
                 body = await request.json() if await request.body() else {}
                 users = self.accounts.answer(path, body)

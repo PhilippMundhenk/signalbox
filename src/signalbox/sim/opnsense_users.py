@@ -30,6 +30,7 @@ PRIVILEGES = (
     "page-wireguard-diagnostics",
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory",
+    "page-diagnostics-traceroute",
 )
 GROUPS = ("admins",)
 
