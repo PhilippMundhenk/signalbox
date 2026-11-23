@@ -683,6 +683,111 @@ class Uplink(Observed):
         return None
 
 
+# VPN tunnels (#239) -------------------------------------------------------------------------
+#
+# A tunnel is a VPN interface of one device (a WireGuard interface, ``wg0``) with the peers it
+# talks to. Two tunnels whose peers name each other's public keys are the two ends of one site
+# link (:meth:`Network.tunnel_end`, a ``vpn`` link from :func:`signalbox.topology.tunnel_links`).
+# Private and pre-shared keys are never part of the model: there is no field for them, and the
+# contract checks refuse anything shaped like a key that is not a public key of the snapshot.
+
+#: A WireGuard key: 32 bytes in base64, 43 characters and ``=``; the last character carries
+#: four bits only.
+WIREGUARD_KEY = r"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+WireGuardKey = Annotated[str, Field(pattern=WIREGUARD_KEY)]
+
+
+class TunnelKind(StrEnum):
+    WIREGUARD = "wireguard"
+
+
+class TunnelPeer(Model):
+    """One peer of a tunnel: the other end as this device knows it (#239).
+
+    Never the pre-shared key; ``preshared_key`` only says whether one is set. The endpoint
+    is the other site's public address: shown behind a click like an uplink's, never exported.
+    """
+
+    public_key: WireGuardKey
+    #: The device's name for the peer (OPNsense peer name, OpenWrt section, MikroTik comment).
+    name: str | None = None
+    #: Where packets for the peer go: the configured endpoint or, after a handshake, the address
+    #: the peer was last seen at; a host name or an address. None: the peer connects to us.
+    endpoint_host: str | None = None
+    endpoint_port: Annotated[int, Field(ge=1, le=65535)] | None = None
+    #: Networks routed to this peer and accepted from it (WireGuard ``AllowedIPs``).
+    allowed_ips: list[IPNetwork] = Field(default_factory=list)
+    #: Time of the last completed handshake. None: none since the interface came up, or not read.
+    latest_handshake: datetime | None = None
+    rx_bytes: Annotated[int, Field(ge=0)] | None = None
+    tx_bytes: Annotated[int, Field(ge=0)] | None = None
+    #: Persistent keepalive in seconds; 0: off. None: not known.
+    keepalive_seconds: Annotated[int, Field(ge=0, le=65535)] | None = None
+    #: A pre-shared key is set (the key itself is never read). None: not known.
+    preshared_key: bool | None = None
+    enabled: bool = True
+
+    @field_validator("latest_handshake")
+    @classmethod
+    def _aware(cls, value: datetime | None) -> datetime | None:
+        return _utc(value)
+
+    def handshake_age(self, at: datetime) -> float | None:
+        """Seconds since the last handshake at *at*; None without one."""
+        if self.latest_handshake is None:
+            return None
+        return (_utc(at) - self.latest_handshake).total_seconds()  # type: ignore[operator]
+
+
+class Tunnel(Observed):
+    """A VPN interface of a device (#239), ``object_id(device, "tunnel", <interface name>)``.
+
+    Read with the ``vpn`` capability (adapter API 1.3). ``peers`` lists every peer the device
+    has on this interface, site-to-site and road-warrior ones alike.
+    """
+
+    device_id: str
+    kind: TunnelKind = TunnelKind.WIREGUARD
+    #: The interface name (``wg0``, ``wg_s2s``).
+    name: str = Field(min_length=1)
+    #: The device's own name of the tunnel (OPNsense instance name, a comment).
+    description: str | None = None
+    #: The port of the interface (``<device>/port/wg0``), where the device lists it as a port.
+    port_id: str | None = None
+    #: The interface is up (WireGuard has no connection state: see the peers' handshakes).
+    up: bool | None = None
+    enabled: bool = True
+    listen_port: Annotated[int, Field(ge=1, le=65535)] | None = None
+    public_key: WireGuardKey | None = None
+    #: The device's own addresses on the tunnel, with prefix length.
+    addresses: list[IPInterface] = Field(default_factory=list)
+    mtu: Annotated[int, Field(ge=68, le=65535)] | None = None
+    peers: list[TunnelPeer] = Field(default_factory=list)
+
+    def peer(self, public_key: str) -> TunnelPeer | None:
+        return next((p for p in self.peers if p.public_key == public_key), None)
+
+    def remote_networks(self, peer: TunnelPeer) -> list[IPNetwork]:
+        """The networks a peer's allowed IPs route through the tunnel: every allowed network
+        that is neither a single address (``/32``, ``/128``: the peer's own tunnel address, or
+        one host) nor inside one of the tunnel's own address networks (transit). A device may
+        report its tunnel address as a host address (FreeBSD shows ``/128``), so the single
+        address rule is what keeps the transit out. ``0.0.0.0/0`` and ``::/0`` stay: the peer
+        is the way to everything (a full tunnel)."""
+        own = [a.network for a in self.addresses]
+        return [
+            n
+            for n in peer.allowed_ips
+            if n.num_addresses > 1
+            and not any(n.version == o.version and n.subnet_of(o) for o in own)  # type: ignore[arg-type]
+        ]
+
+    def site_peers(self) -> list[TunnelPeer]:
+        """Peers that route networks of their own (a site behind them), not only their own
+        tunnel address (a phone or laptop)."""
+        return [p for p in self.peers if self.remote_networks(p)]
+
+
 class ServiceKind(StrEnum):
     """A way to manage (log in to, configure, query) a device (#173)."""
 
@@ -1393,15 +1498,21 @@ class LinkOrigin(StrEnum):
     LLDP = "lldp"
     MAC = "mac"
     MANUAL = "manual"
+    #: Two tunnels whose peers name each other's public keys (#239).
+    TUNNEL = "tunnel"
 
 
 class LinkKind(StrEnum):
     CABLE = "cable"
     WIRELESS = "wireless"
+    #: A VPN tunnel between two devices, often of two sites (#239): ``a`` and ``b`` are tunnel
+    #: ids (``<device>/tunnel/<name>``), not ports.
+    VPN = "vpn"
 
 
 class Link(Model):
     id: str
+    #: Port ids; tunnel ids for a ``vpn`` link.
     a: str
     b: str
     kind: LinkKind = LinkKind.CABLE
@@ -1697,6 +1808,8 @@ class Snapshot(Model):
     wlans: list[Wlan] = Field(default_factory=list)
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
+    #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
+    tunnels: list[Tunnel] = Field(default_factory=list)
     errors: list[ReadError] = Field(default_factory=list)
     #: Devices reported through this one (a controller's managed devices). Their ids start with
     #: ``<device id>/`` and their ``managed_by`` is the observed device.
@@ -1766,6 +1879,8 @@ class Network(Model):
     wlans: list[Wlan] = Field(default_factory=list)
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
+    #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
+    tunnels: list[Tunnel] = Field(default_factory=list)
     links: list[Link] = Field(default_factory=list)
     errors: list[ReadError] = Field(default_factory=list)
     #: User annotations, one per target (#186), set by the runner; read-only for rules.
@@ -1808,6 +1923,7 @@ class Network(Model):
             self.wlans,
             self.clients,
             self.neighbours,
+            self.tunnels,
             self.links,
         ]
         return any(o.id == object_id for objs in groups for o in objs)
@@ -1916,6 +2032,44 @@ class Network(Model):
         if address.is_link_local:
             return AddressSource.LINK_LOCAL
         return own
+
+    def tunnels_of(self, device_id: str) -> list[Tunnel]:
+        return [t for t in self.tunnels if t.device_id == device_id]
+
+    def tunnel(self, tunnel_id: str) -> Tunnel | None:
+        return next((t for t in self.tunnels if t.id == tunnel_id), None)
+
+    def tunnel_end(self, tunnel: Tunnel, peer: TunnelPeer) -> Tunnel | None:
+        """The other end of a peer (#239): the read tunnel whose public key is the peer's and
+        which itself has a peer with this tunnel's public key. None when that tunnel is not
+        read, or when it does not name this one (the two ends disagree)."""
+        if tunnel.public_key is None:
+            return None
+        for other in sorted(self.tunnels, key=lambda t: t.id):
+            if (
+                other.id != tunnel.id
+                and other.public_key == peer.public_key
+                and other.peer(tunnel.public_key) is not None
+            ):
+                return other
+        return None
+
+    def tunnel_with_key(self, public_key: str) -> Tunnel | None:
+        """A read tunnel with this public key, whatever its peers say."""
+        return next(
+            (t for t in sorted(self.tunnels, key=lambda t: t.id) if t.public_key == public_key),
+            None,
+        )
+
+    def remote_sites(self) -> list[tuple[Tunnel, TunnelPeer]]:
+        """Site peers whose other end is not read (#239): an unmanaged site behind a tunnel,
+        known only by the networks the peer's allowed IPs route to it."""
+        return [
+            (t, p)
+            for t in sorted(self.tunnels, key=lambda t: t.id)
+            for p in t.site_peers()
+            if self.tunnel_end(t, p) is None
+        ]
 
     def uplinks_of(self, device_id: str) -> list[Uplink]:
         return [u for u in self.uplinks if u.device_id == device_id]

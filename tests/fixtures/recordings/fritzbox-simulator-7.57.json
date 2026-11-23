@@ -1336,6 +1336,7 @@
    }
   ],
   "neighbours": [],
+  "tunnels": [],
   "errors": [],
   "extra_devices": [],
   "extra_status": {}

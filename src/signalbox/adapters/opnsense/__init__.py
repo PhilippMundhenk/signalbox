@@ -1,5 +1,5 @@
-"""OPNsense: reads interfaces and VLANs, DHCP (Kea and ISC), Unbound DNS, ARP/NDP clients;
-writes router interfaces, VLANs on ports, Kea DHCP subnets and reservations.
+"""OPNsense: reads interfaces and VLANs, DHCP (Kea and ISC), Unbound DNS, ARP/NDP clients,
+WireGuard tunnels; writes router interfaces, VLANs on ports, Kea DHCP subnets and reservations.
 
 Talks to the OPNsense REST API with an API key and secret (HTTP basic auth) over HTTPS with a
 pinned certificate (:mod:`signalbox.adapters.https`). Endpoint paths and the JSON shapes assumed
@@ -63,6 +63,7 @@ from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     DNS_PORT,
     SERVICE_PORTS,
+    WIREGUARD_KEY,
     AddressSource,
     Client,
     DeviceRole,
@@ -79,6 +80,7 @@ from signalbox.model import (
     HostRecord,
     IPAddress,
     IPInterface,
+    IPNetwork,
     LeaseState,
     ManagementService,
     Membership,
@@ -93,6 +95,8 @@ from signalbox.model import (
     SnmpSettings,
     SnmpVersion,
     Subnet,
+    Tunnel,
+    TunnelPeer,
     Uplink,
     UplinkKind,
     normalise_mac,
@@ -139,6 +143,9 @@ SYSTEM_TEMPERATURE = "/api/diagnostics/system/system_temperature"
 CPU_TYPE = "/api/diagnostics/cpu_usage/get_cpu_type"
 NTP_STATUS = "/api/ntpd/service/status"
 NETSNMP = "/api/netsnmp/general/get"
+#: ``wg show all dump`` as records, private and pre-shared keys left out by OPNsense itself
+#: (privilege *VPN: WireGuard: Status*). No query string: the grid takes paging from POST only.
+WG_SHOW = "/api/wireguard/service/show"
 
 #: Grid endpoints page their answer; ask for everything at once.
 ALL_ROWS = {"current": 1, "rowCount": -1}
@@ -170,6 +177,98 @@ def _members(row: dict[str, Any]) -> list[str]:
         if isinstance(value, list):
             return [str(v) for v in value if isinstance(v, str) and v]
     return []
+
+
+def _endpoint(value: Any) -> tuple[str | None, int | None]:
+    """``203.0.113.5:51820``, ``[2001:db8::1]:51820`` or ``(none)``: host and port."""
+    text = _text(value)
+    if not text or text == "(none)":
+        return None, None
+    host, sep, port = text.rpartition(":")
+    if not sep or not port.isdigit() or not 1 <= int(port) <= 65535:
+        return text.strip("[]") or None, None
+    return host.strip("[]") or None, int(port)
+
+
+def _networks(value: Any) -> list[IPNetwork]:
+    """``allowed-ips``: ``2001:db8:ff::2/128,203.0.113.0/24`` (``(none)``: none)."""
+    out: list[IPNetwork] = []
+    for part in re.split(r"[,\s]+", _text(value)):
+        with contextlib.suppress(ValueError):
+            out.append(ip_network(part, strict=False))
+    return out
+
+
+def _wg_key(value: Any) -> str | None:
+    text = _text(value)
+    return text if re.fullmatch(WIREGUARD_KEY, text) else None
+
+
+def wireguard_tunnels(
+    rows: list[dict[str, Any]],
+    device_id: str,
+    interfaces: dict[str, dict[str, Any]],
+) -> list[Tunnel]:
+    """Tunnels from the records of ``/api/wireguard/service/show`` (#239).
+
+    One ``interface`` record per running instance (``if``, ``public-key``, ``listen-port``,
+    ``status`` up/down from ifconfig, ``name`` the instance name) and one ``peer`` record per
+    peer (``public-key``, ``endpoint``, ``allowed-ips``, ``latest-handshake`` as epoch seconds,
+    0 for none, ``transfer-rx``/``-tx``, ``persistent-keepalive`` seconds or ``off``, ``name``).
+    Addresses and MTU come from the interface overview row of the same device (``interfaces``).
+    """
+    by_if: dict[str, dict[str, Any]] = {}
+    peers: dict[str, list[TunnelPeer]] = {}
+    for row in rows:
+        ifname = _text(row.get("if"))
+        kind = _text(row.get("type"))
+        if not ifname:
+            continue
+        if kind == "interface":
+            by_if.setdefault(ifname, row)
+        elif kind == "peer":
+            key = _wg_key(row.get("public-key"))
+            if key is None or any(p.public_key == key for p in peers.get(ifname, [])):
+                continue
+            host, port = _endpoint(row.get("endpoint"))
+            stamp = _int(row.get("latest-handshake"))
+            keepalive = _text(row.get("persistent-keepalive"))
+            peers.setdefault(ifname, []).append(
+                TunnelPeer(
+                    public_key=key,
+                    name=_text(row.get("name")) or None,
+                    endpoint_host=host,
+                    endpoint_port=port if host else None,
+                    allowed_ips=_networks(row.get("allowed-ips")),
+                    latest_handshake=datetime.fromtimestamp(stamp, UTC) if stamp else None,
+                    rx_bytes=_int(row.get("transfer-rx")),
+                    tx_bytes=_int(row.get("transfer-tx")),
+                    keepalive_seconds=0 if keepalive == "off" else _int(keepalive),
+                )
+            )
+    out = []
+    for ifname in sorted(set(by_if) | set(peers)):
+        row = by_if.get(ifname, {})
+        overview = interfaces.get(ifname, {})
+        status = _text(row.get("status")) or _text(overview.get("status")).lower()
+        mtu = _int(overview.get("mtu"))
+        listen = _int(row.get("listen-port"))
+        out.append(
+            Tunnel(
+                id=object_id(device_id, "tunnel", ifname),
+                device_id=device_id,
+                name=ifname,
+                description=_text(row.get("ifname")) or _text(row.get("name")) or None,
+                port_id=port_id(device_id, ifname) if overview else None,
+                up=(status == "up") if status else None,
+                listen_port=listen if listen and 1 <= listen <= 65535 else None,
+                public_key=_wg_key(row.get("public-key")),
+                addresses=_iface_addresses(overview),
+                mtu=mtu if mtu is not None and 68 <= mtu <= 65535 else None,
+                peers=peers.get(ifname, []),
+            )
+        )
+    return out
 
 
 class OpnsenseConfig(AdapterConfig):
@@ -611,7 +710,7 @@ class OpnsenseAdapter(_Adapter):
         id="opnsense",
         name="OPNsense",
         version="0.2.0",
-        api_version="1.2",
+        api_version="1.3",
         vendor="Deciso",
         roles=frozenset({DeviceRole.GATEWAY}),
         capabilities=frozenset(
@@ -622,6 +721,7 @@ class OpnsenseAdapter(_Adapter):
                 Capability.CLIENTS,
                 Capability.HEALTH,
                 Capability.TIME,
+                Capability.VPN,
             }
         ),
         config=OpnsenseConfig,
@@ -1452,6 +1552,22 @@ class OpnsenseAdapter(_Adapter):
             time, resources, disks if isinstance(disks, dict | list) else {}, temperatures, cpu
         )
         return Observation(health={self.context.device_id: value})
+
+    async def read_vpn(self) -> Observation:
+        """WireGuard instances and peers as running (#239): ``/api/wireguard/service/show``.
+
+        The configuration endpoints (``server/search_server``, ``client/search_client``) need
+        *VPN: WireGuard: Configuration*, which also returns the private keys: not used. So a
+        disabled instance or peer, which is not running, is not seen.
+        """
+        rows = _rows(await self._get(WG_SHOW), WG_SHOW)
+        try:
+            overview = _rows(await self._get(INTERFACES, grid=True), INTERFACES)
+        except AdapterError:  # no Status: Interfaces: no addresses, the tunnels still
+            overview = []
+        interfaces = {_text(r.get("device")): r for r in overview if _text(r.get("device"))}
+        tunnels = wireguard_tunnels(rows, self.context.device_id, interfaces)
+        return Observation(tunnels=tunnels)
 
     async def read_time(self) -> Observation:
         start = datetime.now(UTC)

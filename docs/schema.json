@@ -1807,7 +1807,8 @@
     "LinkKind": {
       "enum": [
         "cable",
-        "wireless"
+        "wireless",
+        "vpn"
       ],
       "title": "LinkKind",
       "type": "string"
@@ -1816,7 +1817,8 @@
       "enum": [
         "lldp",
         "mac",
-        "manual"
+        "manual",
+        "tunnel"
       ],
       "title": "LinkOrigin",
       "type": "string"
@@ -2268,6 +2270,13 @@
             "$ref": "#/$defs/Subnet"
           },
           "title": "Subnets",
+          "type": "array"
+        },
+        "tunnels": {
+          "items": {
+            "$ref": "#/$defs/Tunnel"
+          },
+          "title": "Tunnels",
           "type": "array"
         },
         "uplinks": {
@@ -3434,6 +3443,13 @@
           "title": "Subnets",
           "type": "array"
         },
+        "tunnels": {
+          "items": {
+            "$ref": "#/$defs/Tunnel"
+          },
+          "title": "Tunnels",
+          "type": "array"
+        },
         "uplinks": {
           "items": {
             "$ref": "#/$defs/Uplink"
@@ -3707,6 +3723,319 @@
         "value_c"
       ],
       "title": "TemperatureSensor",
+      "type": "object"
+    },
+    "Tunnel": {
+      "additionalProperties": false,
+      "description": "A VPN interface of a device (#239), ``object_id(device, \"tunnel\", <interface name>)``.\n\nRead with the ``vpn`` capability (adapter API 1.3). ``peers`` lists every peer the device\nhas on this interface, site-to-site and road-warrior ones alike.",
+      "properties": {
+        "addresses": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4interface",
+                "type": "string"
+              },
+              {
+                "format": "ipv6interface",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Addresses",
+          "type": "array"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/TunnelKind",
+          "default": "wireguard"
+        },
+        "listen_port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Listen Port"
+        },
+        "mtu": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 68,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mtu"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "peers": {
+          "items": {
+            "$ref": "#/$defs/TunnelPeer"
+          },
+          "title": "Peers",
+          "type": "array"
+        },
+        "port_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port Id"
+        },
+        "public_key": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Public Key"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "up": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Up"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "name"
+      ],
+      "title": "Tunnel",
+      "type": "object"
+    },
+    "TunnelKind": {
+      "enum": [
+        "wireguard"
+      ],
+      "title": "TunnelKind",
+      "type": "string"
+    },
+    "TunnelPeer": {
+      "additionalProperties": false,
+      "description": "One peer of a tunnel: the other end as this device knows it (#239).\n\nNever the pre-shared key; ``preshared_key`` only says whether one is set. The endpoint\nis the other site's public address: shown behind a click like an uplink's, never exported.",
+      "properties": {
+        "allowed_ips": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Allowed Ips",
+          "type": "array"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "endpoint_host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endpoint Host"
+        },
+        "endpoint_port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endpoint Port"
+        },
+        "keepalive_seconds": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Keepalive Seconds"
+        },
+        "latest_handshake": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latest Handshake"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "preshared_key": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preshared Key"
+        },
+        "public_key": {
+          "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$",
+          "title": "Public Key",
+          "type": "string"
+        },
+        "rx_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rx Bytes"
+        },
+        "tx_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tx Bytes"
+        }
+      },
+      "required": [
+        "public_key"
+      ],
+      "title": "TunnelPeer",
       "type": "object"
     },
     "Uplink": {

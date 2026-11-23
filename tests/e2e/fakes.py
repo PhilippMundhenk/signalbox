@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -62,6 +63,8 @@ from signalbox.model import (
     StorageUsage,
     Subnet,
     TemperatureSensor,
+    Tunnel,
+    TunnelPeer,
     Uplink,
     UplinkKind,
     Wlan,
@@ -551,6 +554,75 @@ class Switch(Adapter):
             ports=ports,
             segments=[Segment(id=seg, site_id=self.context.site_id, vlan=10, members=members)],
         )
+
+
+def wg_key(name: str) -> str:
+    """A valid WireGuard key from a name (nobody's real key)."""
+    return base64.b64encode(hashlib.sha256(f"e2e-{name}".encode()).digest()).decode()
+
+
+class GateConfig(AdapterConfig):
+    end: Literal["a", "b"] = Field(description="Which end of the lab tunnel this gateway is.")
+
+
+class Gate(Adapter):
+    """A gateway with one WireGuard tunnel (#239): end "a" and end "b" name each other's keys;
+    "a" also has a peer "office" routing 203.0.113.0/24, whose end is never read."""
+
+    manifest = Manifest(
+        id="labvpn",
+        name="Lab VPN gateway",
+        version="1",
+        api_version="1.3",
+        vendor="Example",
+        roles=frozenset({DeviceRole.GATEWAY}),
+        capabilities=frozenset({Capability.VPN}),
+        config=GateConfig,
+    )
+
+    async def read_system(self) -> SystemInfo:
+        return SystemInfo(vendor="Example", model="VPN-1")
+
+    async def read_vpn(self) -> Observation:
+        assert isinstance(self.context.config, GateConfig)
+        end = self.context.config.end
+        other = "b" if end == "a" else "a"
+        lan = {"a": "192.0.2.0/24", "b": "198.51.100.0/24"}
+        host = {"a": "1", "b": "2"}
+        peers = [
+            TunnelPeer(
+                public_key=wg_key(other),
+                name=f"site-{other}",
+                endpoint_host="203.0.113.9" if end == "a" else None,
+                endpoint_port=51820 if end == "a" else None,
+                allowed_ips=[ip_network(f"2001:db8:ff::{host[other]}/128"), ip_network(lan[other])],
+                latest_handshake=datetime.now(UTC) - timedelta(seconds=50),
+                rx_bytes=2048,
+                tx_bytes=4096,
+                keepalive_seconds=25,
+            )
+        ]
+        if end == "a":
+            peers.append(
+                TunnelPeer(
+                    public_key=wg_key("office"),
+                    name="office",
+                    allowed_ips=[ip_network("2001:db8:ff::9/128"), ip_network("203.0.113.0/24")],
+                )
+            )
+        d = self.context.device_id
+        tunnel = Tunnel(
+            id=f"{d}/tunnel/wg0",
+            device_id=d,
+            name="wg0",
+            description="s2s",
+            up=True,
+            listen_port=51820,
+            public_key=wg_key(end),
+            addresses=[ip_interface(f"2001:db8:ff::{host[end]}/64")],
+            peers=peers,
+        )
+        return Observation(tunnels=[tunnel])
 
 
 @rule(

@@ -6,7 +6,8 @@ openssl), never in the development sandbox. Standard library only.
 
     vm.py fetch   DIR    download the pinned image, verify its SHA-256, unpack it
     vm.py prepare DIR    first boot: update to the newest 26.7.x, preseed config.xml, set up
-                         Kea and Unbound through the API, power off (DIR/base.qcow2 + keys.json)
+                         Kea, Unbound and a WireGuard instance through the API, power off
+                         (DIR/base.qcow2, keys.json, wireguard.json with the public keys)
     vm.py start   DIR    boot a throw-away overlay of base.qcow2, wait for the API, print the
                          IT_OPNSENSE_* variables for $GITHUB_ENV
     vm.py stop    DIR    power the VM off
@@ -437,6 +438,53 @@ def api_setup(d: Path, root: dict[str, str]) -> None:
         d,
     )
     checked(root, "/api/unbound/service/reconfigure", {}, d)
+    wireguard_setup(d, root)
+
+
+def wireguard_setup(d: Path, root: dict[str, str]) -> None:
+    """A WireGuard instance "s2s" (wg0, 2001:db8:ff::1/64, port 51820) with a site-to-site peer
+    "site-b" routing 2001:db8:20::/64 at an endpoint that never answers (#239). Only the
+    public keys are kept (wireguard.json); the instance's private key stays on the firewall."""
+    own = api(root, "GET", "/api/wireguard/server/key_pair")
+    other = api(root, "GET", "/api/wireguard/server/key_pair")
+    if not (isinstance(own, dict) and own.get("pubkey") and isinstance(other, dict)):
+        fail("WireGuard key pair", f"{str(own)[:200]}", d)
+    peer = checked(
+        root,
+        "/api/wireguard/client/add_client",
+        {
+            "client": {
+                "enabled": "1",
+                "name": "site-b",
+                "pubkey": other["pubkey"],
+                "tunneladdress": "2001:db8:ff::2/128,2001:db8:20::/64",
+                "serveraddress": "2001:db8:ffff:20::1",
+                "serverport": "51820",
+                "keepalive": "25",
+            }
+        },
+        d,
+    )
+    checked(
+        root,
+        "/api/wireguard/server/add_server",
+        {
+            "server": {
+                "enabled": "1",
+                "name": "s2s",
+                "pubkey": own["pubkey"],
+                "privkey": own["privkey"],
+                "port": "51820",
+                "tunneladdress": "2001:db8:ff::1/64",
+                "peers": peer["uuid"],
+            }
+        },
+        d,
+    )
+    checked(root, "/api/wireguard/general/set", {"general": {"enabled": "1"}}, d)
+    checked(root, "/api/wireguard/service/reconfigure", {}, d)
+    keys = {"server": own["pubkey"], "peer": other["pubkey"]}
+    (d / "wireguard.json").write_text(json.dumps(keys, indent=1))
 
 
 def core_version(text: str) -> tuple[int, ...]:
@@ -530,8 +578,13 @@ def start(d: Path) -> None:
         "IT_OPNSENSE_ROOT_KEY": keys["root"]["key"],
         "IT_OPNSENSE_ROOT_SECRET": keys["root"]["secret"],
     }
+    wg = json.loads((d / "wireguard.json").read_text())  # public keys only (#239)
+    env["IT_OPNSENSE_WG_SERVER"], env["IT_OPNSENSE_WG_PEER"] = wg["server"], wg["peer"]
     for name, value in env.items():
-        if name not in ("IT_OPNSENSE_URL", "IT_OPNSENSE_PIN"):
+        if not name.startswith("IT_OPNSENSE_WG_") and name not in (
+            "IT_OPNSENSE_URL",
+            "IT_OPNSENSE_PIN",
+        ):
             print(f"::add-mask::{value}")
     target = os.environ.get("GITHUB_ENV")
     lines = "".join(f"{k}={v}\n" for k, v in env.items())

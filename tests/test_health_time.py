@@ -82,9 +82,9 @@ class Healthy(Fake):
         return Observation(time={d: value})
 
 
-def test_api_version_is_1_2_and_new_capabilities_need_it() -> None:
-    assert API_VERSION == "1.2"
-    assert SINCE == {Capability.HEALTH: "1.2", Capability.TIME: "1.2"}
+def test_health_and_time_need_api_1_2() -> None:
+    assert API_VERSION == "1.3"  # 1.3: vpn (#239)
+    assert SINCE[Capability.HEALTH] == SINCE[Capability.TIME] == "1.2"
     check_manifest(Healthy.manifest)
     check_manifest(Fake.manifest)  # a 1.0 adapter keeps working
     old = Healthy.manifest.model_copy(update={"api_version": "1.1"})

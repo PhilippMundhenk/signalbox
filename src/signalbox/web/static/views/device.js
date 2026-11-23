@@ -101,6 +101,70 @@ function internetCard(ix, deviceId) {
   return h('section', { class: 'card', 'data-testid': 'device-internet' }, h('h2', {}, 'Internet'), kv(rows));
 }
 
+// WireGuard tunnels (#239): the interface, then one row per peer. Endpoints are the other
+// site's public address: shown on request, like uplink addresses.
+function handshakeText(p) {
+  if (!p.latest_handshake) return 'no handshake yet';
+  const age = given(p.handshake_age) ? p.handshake_age : (Date.now() - new Date(p.latest_handshake).getTime()) / 1000;
+  return `handshake ${fmtDuration(Math.max(0, age))} ago`;
+}
+
+function peerTable(ix, t) {
+  if (!t.peers.length) return h('p', { class: 'muted' }, 'No peers.');
+  const tunnelOf = (id) => ix.net.tunnels.find((x) => x.id === id);
+  return table(
+    [
+      ['Peer', (p) => p.name || h('span', { class: 'mono' }, `${p.public_key.slice(0, 10)}…`)],
+      [
+        'Other end',
+        (p) => {
+          const other = p.other_end && tunnelOf(p.other_end);
+          if (other) return h('a', { href: `#/device/${enc(other.device_id)}`, 'data-testid': 'peer-other-end' }, `${ix.deviceName(other.device_id)} · ${other.name}`);
+          return p.networks.length ? 'remote site (not read)' : 'client';
+        },
+      ],
+      ['Routes', (p) => (p.networks.length ? h('span', { class: 'mono' }, p.networks.join(', ')) : null)],
+      ['Status', (p) => h('span', { 'data-testid': 'peer-handshake' }, handshakeText(p))],
+      ['Traffic', (p) => (given(p.rx_bytes) ? `${fmtBytes(p.rx_bytes)} in / ${fmtBytes(p.tx_bytes || 0)} out` : null)],
+      ['Keepalive', (p) => (p.keepalive_seconds ? `${p.keepalive_seconds} s` : p.keepalive_seconds === 0 ? 'off' : null)],
+      [
+        'Endpoint',
+        (p) =>
+          p.endpoint_host
+            ? h('details', { class: 'addresses', 'data-testid': 'peer-endpoint' }, h('summary', {}, 'Show'), h('span', { class: 'mono' }, p.endpoint_port ? `${p.endpoint_host}:${p.endpoint_port}` : p.endpoint_host))
+            : null,
+      ],
+    ],
+    t.peers,
+    { rowTestid: 'tunnel-peer', compact: true },
+  );
+}
+
+function tunnelsCard(ix, deviceId) {
+  const tunnels = (ix.net.tunnels || []).filter((t) => t.device_id === deviceId);
+  if (!tunnels.length) return null;
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-tunnels' },
+    h('h2', {}, 'VPN tunnels'),
+    tunnels.map((t) =>
+      h(
+        'div',
+        { 'data-testid': 'tunnel', 'data-id': t.id },
+        h('h3', {}, `${t.name}${t.description ? ` (${t.description})` : ''}`),
+        kv([
+          ['Kind', t.kind === 'wireguard' ? 'WireGuard' : t.kind],
+          ['State', t.up === true ? 'up' : t.up === false ? 'down' : 'state unknown'],
+          ['Listens on', opt(t.listen_port, (v) => `UDP ${v}`)],
+          ['Addresses', t.addresses.length ? t.addresses.join(', ') : undefined],
+          ['Public key', opt(t.public_key, (v) => h('span', { class: 'mono' }, v))],
+        ]),
+        peerTable(ix, t),
+      ),
+    ),
+  );
+}
+
 const SERVICE_LABEL = {
   ssh: 'SSH', telnet: 'Telnet', http: 'HTTP', https: 'HTTPS', api: 'API', 'api-ssl': 'API (TLS)', snmp: 'SNMP', ftp: 'FTP', tftp: 'TFTP',
   winbox: 'Winbox', 'mac-telnet': 'MAC telnet', 'mac-winbox': 'MAC Winbox', romon: 'RoMON', 'tr-064': 'TR-064', upnp: 'UPnP', vendor: 'configuration protocol', other: 'service',
@@ -284,6 +348,7 @@ async function overview(main, ctx, device, adapters, sites) {
     notesCard(ix, device.id, 'device', `Notes on ${device.name}`, () => ctx.refresh()),
     internetCard(ix, device.id),
     portsCard(ix, tree),
+    tunnelsCard(ix, device.id),
     observed ? managementCard(ix, observed) : null,
     observed ? healthCard(observed.health) : null,
     observed ? timeCard(observed.time) : null,
@@ -309,6 +374,7 @@ function rawObjects(net, deviceId) {
     wlans: net.wlans.filter(mine),
     clients: net.clients.filter(mine),
     neighbours: net.neighbours.filter((n) => (n.source && n.source.device_id === deviceId) || n.local_port_id.startsWith(`${deviceId}/`)),
+    tunnels: (net.tunnels || []).filter(mine),
   };
 }
 

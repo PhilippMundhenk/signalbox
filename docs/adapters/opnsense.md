@@ -11,6 +11,7 @@ DHCP subnets and reservations ([Writing](#writing-changes)).
 | dhcp | Kea DHCPv4 (pools, router, DNS, domain, lease time, reservations); ISC DHCPv4 (enabled, static mappings) |
 | dns | Unbound: enabled, listen addresses and port, forwarders with ports, host overrides; dnsmasq's DNS when on; an unread DNS server on port 53 when neither listens there (AdGuard Home) |
 | clients | ARP and NDP tables plus DHCP leases (Kea and ISC), with segment and port |
+| vpn | WireGuard instances as running (`wg show`): interface, state, listen port, public key, addresses and MTU from the interface overview; peers with public key, name, endpoint, allowed IPs, last handshake, transfer, keepalive ([WireGuard](#wireguard)) |
 
 > **Verified against OPNsense 26.7.9 in CI.** The endpoints, privileges, answers and write
 > calls below are checked every night against the official OPNsense nano image (26.7, updated
@@ -194,6 +195,7 @@ installed script against a `config.xml` with planted secrets).
    | Diagnostics: ARP Table, Diagnostics: NDP Table | `/api/diagnostics/interface/get_arp`, `get_ndp` |
    | Lobby: Dashboard | `/api/diagnostics/system/system_*`, `/api/diagnostics/cpu_usage/*` (health, and the clock for time) |
    | Status: NTP | `/api/ntpd/service/status` (time: the NTP peers) |
+   | VPN: WireGuard: Status | `/api/wireguard/service/show` (vpn: tunnels and peers; never *VPN: WireGuard: Configuration*, whose grids return the private keys) |
 
    ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
    and are skipped. With the plugin, add its DHCP server and lease pages.
@@ -209,6 +211,36 @@ web interface. The privileges above are what the integration tests give their re
 Their patterns only match the snake_case paths (`get_arp`, not `getArp`), which is why
 Signalbox uses those. A missing privilege shows up as `access denied (HTTP 403); check the user's
 privileges` for the capability that needs it, the rest is still read.
+
+## WireGuard
+
+Read with the `vpn` capability (adapter API 1.3, #239) from one endpoint,
+`GET /api/wireguard/service/show` (privilege *VPN: WireGuard: Status*, pattern
+`api/wireguard/service/*`). It is `wg show all dump` as grid rows, parsed by OPNsense's
+`wg_show.py`, which leaves out the private key of every interface and the pre-shared key of
+every peer before the answer leaves the firewall:
+
+- `type: interface` rows: `if` (`wg0`), `public-key`, `listen-port`, `status` (`up`/`down`
+  from ifconfig), `name`/`ifname` (the instance name) → a `Tunnel` `<device>/tunnel/wg0`;
+  addresses and MTU come from the interface overview row of the same device, which is also
+  its port (`<device>/port/wg0`). FreeBSD shows a tunnel address with a host prefix
+  (`2001:db8:ff::1/128` for an instance configured with `/64`, verified on 26.7.9).
+- `type: peer` rows: `public-key`, `name` (the peer name), `endpoint` (`host:port`,
+  `[v6]:port` or `(none)`), `allowed-ips` (comma list), `latest-handshake` (epoch seconds, 0:
+  none), `transfer-rx`/`-tx`, `persistent-keepalive` (seconds or `off`) → `TunnelPeer`.
+
+The configuration endpoints (`/api/wireguard/server/search_server`,
+`/api/wireguard/client/search_client`) are not used: they need *VPN: WireGuard: Configuration*
+and return every field of the model, the private keys (`privkey`, `psk`) included. The
+consequence: a disabled instance or peer, which is not running, is not seen. The status
+privilege also allows `api/wireguard/service/reconfigure` and `start`/`stop` (one pattern for
+the whole service controller); Signalbox only sends the `GET`. Without the privilege the `vpn`
+capability fails with `access denied (HTTP 403)`; everything else is still read.
+
+Verified in CI (tests/integration/test_opnsense_real.py): the VM has an instance `s2s`
+(2001:db8:ff::1/64, port 51820) with a peer `site-b` (allowed IPs 2001:db8:ff::2/128 and
+2001:db8:20::/64, an endpoint that never answers, keepalive 25), and the read user gets 403 on
+both configuration grids.
 
 ## Writing (changes)
 

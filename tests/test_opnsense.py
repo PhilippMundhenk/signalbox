@@ -40,9 +40,11 @@ from signalbox.adapters.opnsense import (
     SYSTEM_TIME,
     UNBOUND,
     VLANS,
+    WG_SHOW,
     OpnsenseAdapter,
     OpnsenseConfig,
     _addrs,
+    _endpoint,
     _int,
     _items,
     _pool,
@@ -53,6 +55,7 @@ from signalbox.adapters.opnsense import (
     max_speed,
     media_of,
     vitals,
+    wireguard_tunnels,
 )
 from signalbox.merge import merge
 from signalbox.model import (
@@ -69,7 +72,15 @@ from signalbox.model import (
 )
 from signalbox.rules import evaluate
 from signalbox.rules.dns import forwarder_loop, single_forwarder
-from signalbox.sim.opnsense import KEY, SECRET, OpnsenseSimulator, _iface
+from signalbox.sim.opnsense import (
+    KEY,
+    SECRET,
+    WG_KEY,
+    WG_PHONE,
+    WG_SITE_B,
+    OpnsenseSimulator,
+    _iface,
+)
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
 from signalbox.testing import assert_contract
 
@@ -908,3 +919,99 @@ async def test_tls_web_interface(https_url: str, tls: TlsFiles) -> None:
     snap = await observe(adapter(https_url, pin=tls.fingerprint))
     web = next(s for s in snap.services if s.name == "webgui")
     assert (web.kind.value, web.encrypted) == ("https", True)
+
+
+# --- WireGuard (#239) ------------------------------------------------------------------------
+
+
+async def test_wireguard_tunnel_and_peers(snap: Snapshot) -> None:
+    (t,) = snap.tunnels
+    assert (t.id, t.name, t.description, t.port_id) == (
+        "fw/tunnel/wg0",
+        "wg0",
+        "s2s",
+        "fw/port/wg0",
+    )
+    assert (t.up, t.listen_port, t.mtu, t.public_key) == (True, 51820, 1420, WG_KEY)
+    assert [str(a) for a in t.addresses] == ["2001:db8:ff::1/128"]
+    site_b, phone = t.peers
+    assert (site_b.name, site_b.public_key) == ("site-b", WG_SITE_B)
+    assert (site_b.endpoint_host, site_b.endpoint_port) == ("2001:db8:ffff:20::1", 51820)
+    assert [str(n) for n in t.remote_networks(site_b)] == ["2001:db8:20::/64"]
+    assert (site_b.rx_bytes, site_b.tx_bytes, site_b.keepalive_seconds) == (1834567, 2934871, 25)
+    age = site_b.handshake_age(datetime.now(UTC))
+    assert age is not None and 40 <= age < 600
+    assert (phone.name, phone.public_key, phone.endpoint_host) == ("phone", WG_PHONE, None)
+    assert (phone.latest_handshake, phone.keepalive_seconds) == (None, 0)
+    assert t.site_peers() == [site_b]
+
+
+async def test_wireguard_needs_its_privilege(http_url: str, sim: Any) -> None:
+    sim.fail[WG_SHOW] = 403
+    snap = await observe(adapter(http_url))
+    assert snap.status is DeviceStatus.PARTIAL and snap.tunnels == []
+    (err,) = snap.errors
+    assert err.capability == "vpn" and "HTTP 403" in err.message
+
+
+async def test_wireguard_without_the_interface_overview(http_url: str, sim: Any) -> None:
+    sim.fail[INTERFACES] = 403
+    snap = await observe(adapter(http_url))
+    (t,) = snap.tunnels
+    assert (t.addresses, t.port_id, t.up) == ([], None, True)
+    assert "vpn" not in {e.capability for e in snap.errors}
+
+
+async def test_wireguard_not_in_use(http_url: str, sim: Any) -> None:
+    sim.data[WG_SHOW] = {"total": 0, "rowCount": 0, "current": 1, "rows": []}
+    assert (await observe(adapter(http_url))).tunnels == []
+
+
+def test_wireguard_records_are_parsed_defensively() -> None:
+    rows: list[dict[str, Any]] = [
+        {"type": "peer", "public-key": WG_KEY},  # no interface name
+        {"if": "wg1", "type": "peer", "public-key": "not a key"},
+        {
+            "if": "wg1",
+            "type": "peer",
+            "public-key": WG_SITE_B,
+            "endpoint": "198.51.100.9:x",
+            "allowed-ips": "(none)",
+            "latest-handshake": "0",
+            "persistent-keepalive": "",
+        },
+        {"if": "wg1", "type": "peer", "public-key": WG_SITE_B},  # twice
+        {
+            "if": "wg1",
+            "type": "peer",
+            "public-key": WG_PHONE,
+            "endpoint": "203.0.113.4:51820",
+            "allowed-ips": "192.0.2.7/32, bad, 198.51.100.0/24",
+        },
+        {"if": "wg1", "type": "something"},
+    ]
+    (t,) = wireguard_tunnels(rows, "fw", {"wg1": {"status": "down", "mtu": "9"}})
+    assert (t.public_key, t.up, t.mtu, t.listen_port, t.description) == (
+        None,
+        False,
+        None,
+        None,
+        None,
+    )
+    a, b = t.peers
+    assert (a.endpoint_host, a.endpoint_port, a.allowed_ips, a.keepalive_seconds) == (
+        "198.51.100.9:x",
+        None,
+        [],
+        None,
+    )
+    assert (b.endpoint_host, b.endpoint_port) == ("203.0.113.4", 51820)
+    assert [str(n) for n in b.allowed_ips] == ["192.0.2.7/32", "198.51.100.0/24"]
+
+
+def test_wireguard_endpoints() -> None:
+    assert _endpoint("(none)") == (None, None)
+    assert _endpoint("") == (None, None)
+    assert _endpoint("[2001:db8::1]:51820") == ("2001:db8::1", 51820)
+    assert _endpoint("site.example:70000") == ("site.example:70000", None)
+    assert _endpoint("vpn.example") == ("vpn.example", None)

@@ -204,6 +204,8 @@ svg.topo { display: block; margin: 0 auto; font-family: var(--font); }
 .topo .edge.carry { stroke: var(--accent); stroke-width: 4.5; }
 .topo .edge.inconsistent { stroke: var(--danger); stroke-width: 4.5; }
 .topo .edge.dim { opacity: .25; }
+.topo .edge.vpn { stroke: var(--accent); stroke-dasharray: 3 5; stroke-width: 2.5; }
+.topo .node.role-remote .box { stroke-dasharray: 5 4; fill: none; }
 .topo .bad-end { fill: none; stroke: var(--danger); stroke-width: 3; }
 .topo .marks { pointer-events: none; }
 .legend .key { display: inline-block; width: 22px; height: 4px; vertical-align: middle; border-radius: 2px; margin-left: 6px; }

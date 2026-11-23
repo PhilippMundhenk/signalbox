@@ -9,7 +9,8 @@
     "page-diagnostics-arptable",
     "page-diagnostics-ndptable",
     "page-system-login-logout",
-    "page-status-ntp"
+    "page-status-ntp",
+    "page-wireguard-diagnostics"
   ],
   "signalbox-write": [
     "page-system-firmware-manualupdate",
@@ -22,6 +23,7 @@
     "page-diagnostics-ndptable",
     "page-system-login-logout",
     "page-status-ntp",
+    "page-wireguard-diagnostics",
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory"
   ]

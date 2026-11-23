@@ -340,6 +340,48 @@ def test_port_structure_on_device_page_and_topology(app: Any) -> None:
     expect(app.get_by_test_id("port-role")).to_have_text("CPU port (internal)")
 
 
+def test_site_to_site_tunnel_on_topology_and_device_page(app: Any) -> None:
+    """Two gateways at two sites whose WireGuard peers name each other (#239), and a peer of an
+    unmanaged office: a VPN arc between the sites, a remote-site box, the tunnel card."""
+    add_site(app)
+    away = add_site(app, "Away")
+    for name, end, site in (("Gate A", "a", "home"), ("Gate B", "b", away["id"])):
+        body = {"name": name, "site_id": site, "role": "gateway", "adapter": "labvpn"}
+        api(app, "POST", "/devices", {**body, "config": {"end": end}})
+    observe(app)
+    go(app, "#/topology")
+    expect(app.locator('[data-testid="topo-edge"][data-kind="vpn"]')).to_have_count(2)
+    remote = app.locator('[data-testid="topo-node"].role-remote')
+    expect(remote).to_have_count(1)
+    expect(remote).to_contain_text("office")
+    expect(remote).to_contain_text("203.0.113.0/24")
+    rows = app.get_by_test_id("link-row")
+    expect(rows).to_have_count(2)
+    expect(rows.filter(has_text="Gate B")).to_contain_text("198.51.100.0/24")
+    expect(rows.filter(has_text="Gate B")).to_contain_text("tunnel keys")
+    expect(app.get_by_test_id("vpn-detail").first).to_contain_text("handshake")
+    expect(app.get_by_test_id("link-delete")).to_have_count(0)
+
+    go(app, "#/device/gate-a")
+    card = app.get_by_test_id("device-tunnels")
+    expect(card).to_contain_text("wg0 (s2s)")
+    expect(card).to_contain_text("UDP 51820")
+    peers = app.get_by_test_id("tunnel-peer")
+    expect(peers).to_have_count(2)
+    expect(app.get_by_test_id("peer-other-end")).to_have_text("Gate B · wg0")
+    expect(peers.filter(has_text="office")).to_contain_text("remote site (not read)")
+    expect(app.get_by_test_id("peer-handshake").first).to_contain_text("ago")
+    endpoint = app.get_by_test_id("peer-endpoint")
+    expect(endpoint).to_have_count(1)
+    expect(endpoint.locator("span")).not_to_be_visible()  # the address only on request
+    endpoint.locator("summary").click()
+    expect(endpoint).to_contain_text("203.0.113.9:51820")
+    app.get_by_test_id("peer-other-end").click()
+    expect(app.get_by_test_id("device-title")).to_have_text("Gate B")
+    net = api(app, "GET", "/network")
+    assert "privkey" not in str(net) and "private" not in str(net)
+
+
 def test_settings_sites_rules_and_delete_device(app: Any) -> None:
     add_site(app)
     add_lab(app, "Router")

@@ -110,7 +110,9 @@ def public_network(net: Network) -> dict[str, Any]:
     whether the internet can (``internet``, ``null``: the firewall decides, #173), clients the
     source of each address (``sources``, from leases where the client does not say) and the
     end of their active leases (``lease_expires``, #183), ports whether a cable can end there
-    (``external``, #252), so that the UI does not repeat the derivation.
+    (``external``, #252), tunnel peers the networks they route (``networks``), the read tunnel
+    at their other end (``other_end``) and the handshake age at the reading (``handshake_age``,
+    #239), so that the UI does not repeat the derivation.
     """
     data = net.model_dump(mode="json")
     for port, raw in zip(net.ports, data["ports"], strict=True):
@@ -136,6 +138,13 @@ def public_network(net: Network) -> dict[str, Any]:
             if lease.active() and lease.expires is not None
         ]
         raw["lease_expires"] = max(ends).isoformat() if ends else None
+    for tunnel, raw in zip(net.tunnels, data["tunnels"], strict=True):
+        at = tunnel.observed_at
+        for p, praw in zip(tunnel.peers, raw["peers"], strict=True):
+            other = net.tunnel_end(tunnel, p)
+            praw["networks"] = [str(n) for n in tunnel.remote_networks(p)]
+            praw["other_end"] = other.id if other else None
+            praw["handshake_age"] = p.handshake_age(at) if at else None
     return data
 
 

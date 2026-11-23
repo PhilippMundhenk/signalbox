@@ -596,3 +596,70 @@ class MyAdapter(Adapter):
 - The contract checks (`signalbox.testing`) report a declared capability that returns nothing,
   values without the capability, used above total, times without a time zone and empty names.
 
+
+## VPN tunnels (adapter API 1.3)
+
+The `vpn` capability (#239, [ADR 0011](adr/0011-vpn-tunnels-and-site-links.md)) reports every
+VPN interface of the device with its peers. Declare `api_version="1.3"` and implement
+`ReadsVpn`:
+
+```python
+from signalbox.model import Tunnel, TunnelPeer, object_id
+
+
+async def read_vpn(self) -> Observation:  # Capability.VPN, ReadsVpn
+    d = self.context.device_id
+    return Observation(
+        tunnels=[
+            Tunnel(
+                id=object_id(d, "tunnel", "wg0"),
+                device_id=d,
+                name="wg0",
+                up=True,
+                listen_port=51820,
+                public_key="<base64 public key>",
+                addresses=[ip_interface("2001:db8:ff::1/64")],
+                peers=[
+                    TunnelPeer(
+                        public_key="<the other end's public key>",
+                        name="site-b",
+                        endpoint_host="203.0.113.20",
+                        endpoint_port=51820,
+                        allowed_ips=[
+                            ip_network("2001:db8:ff::2/128"),
+                            ip_network("198.51.100.0/24"),
+                        ],
+                        latest_handshake=datetime.fromtimestamp(epoch, UTC),  # None: none
+                        rx_bytes=1834567,
+                        tx_bytes=2934871,
+                        keepalive_seconds=25,  # 0: off
+                    )
+                ],
+            )
+        ]
+    )
+```
+
+- Every interface, also one without peers; every peer, road-warrior clients too. Leave out
+  what the device does not say (`None`), never guess.
+- **Never a private or pre-shared key**, not even in `vendor_extra`: the contract checks refuse
+  a field named like one and every WireGuard-shaped key that is not a public key of the
+  snapshot. `preshared_key` is only `True`/`False` (one is set). Prefer the running state where
+  the device leaves the keys out; if the only source returns them, drop them while parsing.
+- `port_id` where the interface is also one of the device's ports; `addresses` are the
+  device's own tunnel addresses (they are not `Subnet` objects: the tunnel is not a network of
+  the site).
+- `endpoint_host` is the configured endpoint or, once a handshake happened, where the peer was
+  last seen; `None` when the peer connects to us. `latest_handshake` is absolute (timezone-aware).
+
+What each integration can fill (*(guess)*: not checked against a device or the vendor's
+source):
+
+| Integration | Tunnels | Peers | Handshake, transfer |
+| --- | --- | --- | --- |
+| OPNsense | `/api/wireguard/service/show` `interface` rows (`if`, `public-key`, `listen-port`, `status`, instance name); addresses and MTU from the interface overview (done) | `peer` rows: `public-key`, `name`, `endpoint`, `allowed-ips`, `persistent-keepalive` (done) | `latest-handshake` (epoch), `transfer-rx`/`-tx` (done) |
+| OpenWrt | `uci network` sections with `proto wireguard` (`listen_port`, `addresses`, `mtu`, `disabled`); `private_key` is in the same section: never copy it. Public key from `ubus call luci.wireguard getWgInstances` (luci-proto-wireguard) *(guess: method and field names per release)* | `wireguard_<iface>` sections: `public_key`, `description`, `endpoint_host`, `endpoint_port`, `allowed_ips`, `persistent_keepalive`, `disabled`; `preshared_key` only as set / not set | `getWgInstances` peers: `latest_handshake`, `transfer_rx`, `transfer_tx`, `endpoint` *(guess)* |
+| MikroTik | `/rest/interface/wireguard` (`name`, `listen-port`, `public-key`, `mtu`, `running`, `disabled`; `private-key` is returned too: drop it); addresses from `/ip/address` and `/ipv6/address` on that interface | `/rest/interface/wireguard/peers` (`interface`, `public-key`, `endpoint-address`, `endpoint-port`, `current-endpoint-address`/`-port`, `allowed-address`, `persistent-keepalive` as a duration, `comment`/`name`, `disabled`; `preshared-key` and, on 7.15+, `private-key` for client configs: drop them) | `last-handshake` (a duration ago, `rx`, `tx`) *(guess: field names per 7.x)* |
+| Linux gateway (#240) | `wg show all dump` (interface lines: name, private key: drop at once, public key, listen port, fwmark) or `wg show <if> public-key` / `listen-port` (no private key); addresses and MTU from `ip -j addr` | peer lines: public key, pre-shared key (`(none)` or a key: only set / not set), endpoint, allowed IPs, latest handshake (epoch), rx, tx, keepalive (`off` or seconds) | same lines; names from the `# Name` comments of `/etc/wireguard/<if>.conf` *(guess: wg-quick has no name field)* |
+| Fritz!Box | WireGuard since FRITZ!OS 7.50; no TR-064 service known *(guess)* | — | — |
+| Omada, ProSAFE / Easy Smart | none | none | none |

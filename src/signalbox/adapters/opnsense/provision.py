@@ -52,6 +52,7 @@ READ_PRIVILEGES: tuple[str, ...] = (
     "page-diagnostics-ndptable",
     "page-system-login-logout",
     "page-status-ntp",
+    "page-wireguard-diagnostics",
 )
 #: Added for writing (docs: "A separate API user for writing").
 WRITE_PRIVILEGES: tuple[str, ...] = (
