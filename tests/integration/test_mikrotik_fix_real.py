@@ -7,6 +7,7 @@ so the other MikroTik tests find the router as the image preparation left it.
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -135,11 +136,13 @@ async def ssh(chr_: Target) -> AsyncIterator[tuple[PinnedSsh, str]]:
         "127.0.0.1", port, "admin", chr_.extra["ADMIN_PASSWORD"], probe.fingerprint, 60
     )
     async with session as s:
-        original = (await s.command(":put [/ip service get www-ssl address]")).text.strip()
+        got = await s.command(":put [/ip service get www-ssl available-from]")
+        original = ",".join(a for a in re.split(r"[,;\s]+", got.text.strip()) if a)
         yield s, probe.fingerprint
-        await s.command(
-            f"/ip service set www-ssl certificate=signalbox-www disabled=no address={original}"
-        )
+        restore = "/ip service set www-ssl certificate=signalbox-www disabled=no"
+        await s.command(f"{restore} address={original}" if original else f'{restore} address=""')
+        back = await s.command(":put [/ip service get www-ssl available-from]")
+        assert re.split(r"[,;\s]+", back.text.strip()) == original.split(",")
 
 
 async def rest_reachable(t: Target) -> bool:

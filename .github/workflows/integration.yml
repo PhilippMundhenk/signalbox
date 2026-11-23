@@ -327,25 +327,18 @@ jobs:
               exit $code
             }
       - name: Record the REST answers (read user)
-        if: false  # TEMP-DIAG
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" read
       - name: Record the REST answers (read user, DHCP, DNS, clients)
-        if: false  # TEMP-DIAG
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" more
       - name: Record the REST answers (read user, health and time)
-        if: false  # TEMP-DIAG
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" health
       - name: Record the REST answers (read user, uplink)
-        if: false  # TEMP-DIAG
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" uplink
       - name: Record the REST answers (read user, management services)
-        if: false  # TEMP-DIAG
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" services
       - name: Record the REST answers (write user)
-        if: false  # TEMP-DIAG
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" write
       - name: Record the REST answers (refused and missing)
-        if: false  # TEMP-DIAG
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" refused
       - name: Integration tests
         run: |
