@@ -287,6 +287,45 @@ class HostProbe:
             client.cookies.clear()
         return None
 
+    async def banner(self, port: int, limit: int = 255) -> str | None:
+        """The first line a TCP server sends on its own (an SSH identification line), read
+        without sending anything; None when nothing answers. Cached like :meth:`get`."""
+        key = ("tcp-banner", port, "")
+        if key in self._cache:
+            cached = self._cache[key]
+            return cached.text() if cached is not None else None
+        if self.silent or port in self._dead_ports:
+            return None
+        await self.limiter.acquire()
+        self.requests += 1
+        line: bytes | None = None
+        writer: asyncio.StreamWriter | None = None
+        try:
+            async with asyncio.timeout(self.timeout):
+                reader, writer = await asyncio.open_connection(self.host, port)
+                self._answered = True
+                line = await reader.readline()
+        except TimeoutError:
+            if writer is None:
+                self._timed_out(port)
+        except OSError as exc:
+            if exc.errno in _SILENT_ERRNOS:
+                self.silent = True
+            else:
+                self._answered = True
+        finally:
+            if writer is not None:
+                writer.close()
+                with contextlib.suppress(OSError, TimeoutError):
+                    await asyncio.wait_for(writer.wait_closed(), 2)
+        text = line[:limit].decode("utf-8", "replace").strip() if line else None
+        self._cache[key] = (
+            ProbeResponse(status=0, headers={}, body=text.encode(), truncated=False)
+            if text
+            else None
+        )
+        return text
+
     async def _send(
         self,
         client: httpx.AsyncClient,

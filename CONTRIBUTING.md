@@ -39,8 +39,8 @@ Pull requests start only the jobs their changed paths need (`tools/ci_changes.py
 | `src/signalbox/web/**`, `tests/e2e/**`, core code (`src/signalbox/*.py`, rules, adapters, sim, discovery) | plus browser tests |
 | `Dockerfile`, `docker-compose.yml`, `pyproject.toml`, `src/**` | plus the Docker smoke test |
 | `src/signalbox/mqtt*.py`, `tests/test_mqtt*.py`, `tools/validate_ha_discovery.py` | plus the Home Assistant schema check |
-| `src/signalbox/adapters/<id>/`, `sim/<id>*`, `tests/integration/test_<id>_real.py`, `tools/integration/<id>/`, `docs/adapters/<id>.md` | the integration job of that target (opnsense, openwrt, mikrotik, omada) |
-| shared adapter code (`adapters/__init__.py`, `https.py`, `model.py`, `deploy.py`, `changes.py`, `discovery*`, `recording.py`, `testing.py`, `pyproject.toml`, `tests/integration/conftest.py`, `lab.py`) | all integration targets |
+| `src/signalbox/adapters/<id>/`, `sim/<id>*`, `tests/integration/test_<id>_real.py`, `tools/integration/<id>/`, `docs/adapters/<id>.md` | the integration job of that target (opnsense, openwrt, mikrotik, omada, linux) |
+| shared adapter code (`adapters/__init__.py`, `https.py`, `ssh.py`, `provision.py`, `model.py`, `deploy.py`, `changes.py`, `discovery*`, `recording.py`, `testing.py`, `pyproject.toml`, `tests/integration/conftest.py`, `lab.py`) | all integration targets |
 | the workflow files or `tools/ci_changes.py` | everything |
 
 ## Releases

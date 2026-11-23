@@ -16,12 +16,14 @@ import os
 import subprocess
 import sys
 
-ADAPTERS = ("opnsense", "openwrt", "mikrotik", "omada")
+ADAPTERS = ("opnsense", "openwrt", "mikrotik", "omada", "linux")
 
 # Shared code that every integration target depends on.
 INTEGRATION_SHARED = (
     "src/signalbox/adapters/__init__.py",
     "src/signalbox/adapters/https.py",
+    "src/signalbox/adapters/ssh.py",
+    "src/signalbox/adapters/provision.py",
     "src/signalbox/model.py",
     "src/signalbox/deploy.py",
     "src/signalbox/changes.py",
