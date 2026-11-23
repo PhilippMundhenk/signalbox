@@ -45,6 +45,8 @@ from signalbox.adapters import (
     Capability,
     Manifest,
     Observation,
+    Remedy,
+    RemedyRequest,
     SetupPlan,
     SetupRequest,
     SetupResult,
@@ -673,7 +675,10 @@ def ros_error(endpoint: str, response: Any) -> AdapterError:
     if detail.startswith("no such command"):
         return NotFound(f"{endpoint}: not on this device ({detail})")
     if "not enough permissions" in detail:
-        return AuthFailed(f"{endpoint}: access denied ({detail}); check the user's group policies")
+        return AuthFailed(
+            f"{endpoint}: access denied ({detail}); check the user's group policies",
+            remedy="policies",
+        )
     reason = detail or _text(getattr(response, "reason_phrase", ""))
     return AdapterError(f"{endpoint}: HTTP {response.status_code} {reason}".rstrip())
 
@@ -741,6 +746,31 @@ MIKROTIK_STEPS = (
 )
 
 
+#: *Fix it* (#267, docs/adr/0012); implemented in :mod:`.provision`, declared here so that the
+#: adapter module need not import it (the provision module imports this one).
+REMEDIES = (
+    Remedy(
+        id="policies",
+        title="Add the missing policies",
+        description="Through the REST API with the admin login: adds the policies of the setup "
+        "guide (read, api, rest-api; write and sensitive too when changes are allowed) that the "
+        "group of the stored user lacks. Its other policies and members, and the user's "
+        "password, stay; nothing else changes.",
+    ),
+    Remedy(
+        id="rest-service",
+        title="Turn on the REST service",
+        description="Over SSH with the admin login: creates the local CA and the server "
+        "certificate of the setup guide if www-ssl has none, enables www-ssl, and adds this "
+        "machine's address to its address list when the list excludes it. Other services, "
+        "addresses and all network settings stay. A new certificate must be confirmed again "
+        "afterwards.",
+        transport="SSH as admin",
+        port_default=22,
+    ),
+)
+
+
 class MikrotikAdapter(MikrotikWrites, Adapter):
     manifest = Manifest(
         setup_steps=MIKROTIK_STEPS,
@@ -767,6 +797,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         config=MikrotikConfig,
         description="Reads and changes a RouterOS 7 router, switch or access point (REST API).",
         writes=WRITES,
+        remedies=REMEDIES,
         admin_login=AdminLogin(
             transport="the REST API as admin",
             user_default="admin",
@@ -794,6 +825,19 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
 
         return await MikrotikSetup(request).apply()
 
+    @classmethod
+    async def plan_remedy(cls, request: RemedyRequest) -> SetupPlan:
+        """*Fix it* (#267): group policies (REST) or the REST service (SSH), as admin."""
+        from signalbox.adapters.mikrotik.provision import MikrotikFix
+
+        return await MikrotikFix(request).plan()
+
+    @classmethod
+    async def apply_remedy(cls, request: RemedyRequest) -> SetupResult:
+        from signalbox.adapters.mikrotik.provision import MikrotikFix
+
+        return await MikrotikFix(request).apply()
+
     def __init__(self, context: AdapterContext) -> None:
         super().__init__(context)
         cfg = context.config
@@ -804,6 +848,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             timeout=context.timeout,
             auth=(cfg.username, cfg.password.get_secret_value()),
             allow_insecure_http=cfg.allow_insecure_http,
+            unreachable_remedy="rest-service",
         )
         self._cache: dict[str, Any] = {}
         self._layout_cache: _Layout | None = None

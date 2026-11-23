@@ -57,6 +57,7 @@ NEWEST = "https://upgrade.mikrotik.com/routeros/NEWESTa7.{channel}"
 
 SERIAL_PORT = 4556
 HTTPS_PORT = 8443
+SSH_PORT = 8022
 URL = f"https://127.0.0.1:{HTTPS_PORT}"
 MACS = {
     "ether1": "02:00:00:00:0f:11",
@@ -180,7 +181,10 @@ def fetch(d: Path) -> None:
 
 
 def qemu(d: Path, disk: Path) -> subprocess.Popen[bytes]:
-    mgmt = f"user,id=ether1,ipv6=off,hostfwd=tcp:127.0.0.1:{HTTPS_PORT}-:443"
+    mgmt = (
+        "user,id=ether1,ipv6=off,"
+        f"hostfwd=tcp:127.0.0.1:{HTTPS_PORT}-:443,hostfwd=tcp:127.0.0.1:{SSH_PORT}-:22"
+    )
     args = [
         "qemu-system-x86_64",
         "-machine", "pc,accel=kvm",
@@ -588,6 +592,7 @@ def start(d: Path) -> None:
         "IT_MIKROTIK_WRITE_USER": "signalbox-write",
         "IT_MIKROTIK_WRITE_PASSWORD": keys["signalbox-write"],
         "IT_MIKROTIK_ADMIN_PASSWORD": keys["admin"],
+        "IT_MIKROTIK_SSH_PORT": str(SSH_PORT),
         "IT_MIKROTIK_VERSION": str(resource.get("version", "")),
     }
     for name in (

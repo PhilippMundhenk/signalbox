@@ -305,6 +305,10 @@ class Remedy(BaseModel):
     title: str
     #: What it changes on the device, in plain words (shown before the plan).
     description: str = ""
+    #: How this remedy reaches the device when that differs from ``AdminLogin.transport``.
+    transport: str = ""
+    #: SSH port shown in the form for this remedy, when it differs from the admin login's.
+    port_default: int | None = None
 
 
 class RemedyRequest(BaseModel):

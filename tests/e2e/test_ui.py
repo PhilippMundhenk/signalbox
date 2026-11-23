@@ -915,18 +915,6 @@ def test_link_to_the_device_web_interface(app: Any) -> None:
     expect(page_link).to_have_attribute("rel", "noopener noreferrer")
 
 
-def test_topology_panel_links_to_the_device_web_interface(app: Any) -> None:
-    add_site(app)
-    add_lab(app, "Router")
-    observe(app)
-    go(app, "#/topology")
-    app.get_by_test_id("topo-port").first.click()
-    link = app.get_by_test_id("topo-manage-link")
-    expect(link).to_have_attribute("href", "https://192.0.2.1")
-    expect(link).to_have_attribute("target", "_blank")
-    expect(link).to_have_attribute("rel", "noopener noreferrer")
-
-
 def _recheck(page: Any) -> None:
     """What the tab does when it becomes visible again."""
     page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")

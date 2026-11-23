@@ -572,23 +572,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
         """Devices, ports, links with the VLANs at each end, and clients per port."""
         from signalbox.topology import view
 
-        net = runner.network()
-        data = view(net)
-        records = {d.id: d for d in store.devices()}
-        for node in data["nodes"]:
-            rec = records.get(node["id"])
-            dev = net.device(node["id"])
-            node["manage_url"] = (
-                manage_url(
-                    rec.adapter,
-                    rec.config,
-                    net.services_of(rec.id),
-                    dev.management_address if dev else None,
-                )
-                if rec
-                else None
-            )
-        return data
+        return view(runner.network())
 
     @api.get("/links")
     def links() -> list[Link]:
