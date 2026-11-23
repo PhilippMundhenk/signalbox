@@ -78,6 +78,11 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`firmware.update-available`](rules/firmware.md#firmwareupdate-available)
 - [`firmware.end-of-life`](rules/firmware.md#firmwareend-of-life)
 
+## [Foreign DHCP servers and routers](rules/foreign.md)
+
+- [`dhcp.foreign-server`](rules/foreign.md#dhcpforeign-server)
+- [`ra.foreign-router`](rules/foreign.md#raforeign-router)
+
 ## [Device health](rules/health.md)
 
 - [`device.resources`](rules/health.md#deviceresources)

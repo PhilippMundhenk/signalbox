@@ -167,6 +167,38 @@ class TracesConfig(Section):
         return text
 
 
+class ProbesConfig(Section):
+    enabled: bool = Field(
+        False,
+        description="Foreign DHCP servers and routers (docs/adr/0015): let Signalbox's own host "
+        "send one DHCPDISCOVER (never a REQUEST: no lease is taken) and one IPv6 router "
+        "solicitation on each of its networks and list who answers. Off by default; needs "
+        "host networking and UDP port 68, router solicitations need CAP_NET_RAW "
+        "(docs/PROBES.md).",
+    )
+    interval_hours: int = Field(
+        0,
+        ge=0,
+        le=720,
+        description="Probe every this many hours; 0: only when you press Probe now.",
+    )
+    dhcp: bool = Field(True, description="Send a DHCPDISCOVER (needs UDP port 68).")
+    router_solicitation: bool = Field(
+        True, description="Send an IPv6 router solicitation (needs CAP_NET_RAW)."
+    )
+    interfaces: list[str] = Field(
+        default_factory=list,
+        description="Probe only these interfaces of Signalbox's host (eth0, eth0.20); empty: "
+        "every interface whose network Signalbox knows.",
+    )
+    wait_seconds: float = Field(
+        3, ge=1, le=10, description="How long to listen for answers per interface, in seconds."
+    )
+    min_gap_seconds: int = Field(
+        300, ge=0, le=86400, description="Probe now is refused this soon after the last run."
+    )
+
+
 class PluginsConfig(Section):
     remote_adapters: dict[str, list[str]] = Field(
         default_factory=dict,
@@ -184,6 +216,7 @@ class Config(Section):
     discovery: DiscoveryConfig = DiscoveryConfig()
     setup: SetupConfig = SetupConfig()
     traces: TracesConfig = TracesConfig()
+    probes: ProbesConfig = ProbesConfig()
     plugins: PluginsConfig = PluginsConfig()
     rules: dict[str, RuleSettings] = Field(
         default_factory=dict,
@@ -296,6 +329,22 @@ traces:
   # traces.
   min_gap_seconds: 60
   max_pairs: 64
+
+probes:
+  # Foreign DHCP servers and routers: Signalbox's own host sends one DHCPDISCOVER (never a
+  # REQUEST, so no lease is taken) and one IPv6 router solicitation on each network it is
+  # attached to and lists who answers. Off by default. Needs host networking and UDP port 68;
+  # router solicitations need CAP_NET_RAW (docs/PROBES.md). Details: docs/adr/0015.
+  enabled: false
+  # Probe every this many hours; 0: only when you press "Probe now".
+  interval_hours: 0
+  dhcp: true
+  router_solicitation: true
+  # Only these interfaces of Signalbox's host; empty: every one on a network Signalbox knows.
+  interfaces: []
+  # Seconds to listen per interface; "Probe now" is refused this soon after the last run.
+  wait_seconds: 3
+  min_gap_seconds: 300
 
 plugins:
   # Adapters that run as separate programs, each with only the settings of its device:

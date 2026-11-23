@@ -2102,6 +2102,122 @@
       "title": "Firmware",
       "type": "object"
     },
+    "ForeignServer": {
+      "additionalProperties": false,
+      "description": "A DHCP server or IPv6 router seen answering on a network (#184).\n\n``id`` is ``<site>/foreign/<kind>/<segment key>/<server MAC or address>``. ``known_as``:\nthe known device it is (set by core, :func:`signalbox.foreign.known_server`); ``None``:\nnot a server Signalbox knows, a *foreign* one (checks ``dhcp.foreign-server``,\n``ra.foreign-router``). Probe answers are stored (the latest per id, ``first_seen`` kept);\ndevice sightings come from the snapshots.",
+      "properties": {
+        "first_seen": {
+          "format": "date-time",
+          "title": "First Seen",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ServerKind"
+        },
+        "known_as": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Known As"
+        },
+        "known_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Known By"
+        },
+        "last_seen": {
+          "format": "date-time",
+          "title": "Last Seen",
+          "type": "string"
+        },
+        "offered": {
+          "$ref": "#/$defs/ServerOffer"
+        },
+        "seen_by": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Seen By",
+          "type": "array"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Id"
+        },
+        "server_address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server Address"
+        },
+        "server_mac": {
+          "anyOf": [
+            {
+              "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server Mac"
+        },
+        "site_id": {
+          "title": "Site Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SightingSource"
+        }
+      },
+      "required": [
+        "id",
+        "site_id",
+        "kind",
+        "first_seen",
+        "last_seen",
+        "source"
+      ],
+      "title": "ForeignServer",
+      "type": "object"
+    },
     "FrameTypes": {
       "description": "Which frames a port accepts on ingress (802.1Q acceptable frame types).",
       "enum": [
@@ -2671,6 +2787,13 @@
           "title": "Firewalls",
           "type": "array"
         },
+        "foreign_servers": {
+          "items": {
+            "$ref": "#/$defs/ForeignServer"
+          },
+          "title": "Foreign Servers",
+          "type": "array"
+        },
         "links": {
           "items": {
             "$ref": "#/$defs/Link"
@@ -2704,6 +2827,13 @@
             "$ref": "#/$defs/Segment"
           },
           "title": "Segments",
+          "type": "array"
+        },
+        "server_sightings": {
+          "items": {
+            "$ref": "#/$defs/ServerSighting"
+          },
+          "title": "Server Sightings",
           "type": "array"
         },
         "services": {
@@ -4062,6 +4192,290 @@
       "title": "SegmentPurpose",
       "type": "string"
     },
+    "ServerKind": {
+      "enum": [
+        "dhcpv4",
+        "dhcpv6",
+        "ra"
+      ],
+      "title": "ServerKind",
+      "type": "string"
+    },
+    "ServerOffer": {
+      "additionalProperties": false,
+      "description": "What a server hands out, as far as the observation shows it (all optional).",
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Address"
+        },
+        "autonomous": {
+          "items": {
+            "format": "ipv6network",
+            "type": "string"
+          },
+          "title": "Autonomous",
+          "type": "array"
+        },
+        "dns_servers": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Dns Servers",
+          "type": "array"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "lease_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lease Seconds"
+        },
+        "prefixes": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Prefixes",
+          "type": "array"
+        },
+        "relay": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relay"
+        },
+        "router_lifetime": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Router Lifetime"
+        },
+        "routers": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Routers",
+          "type": "array"
+        },
+        "routes": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Routes",
+          "type": "array"
+        }
+      },
+      "title": "ServerOffer",
+      "type": "object"
+    },
+    "ServerSighting": {
+      "additionalProperties": false,
+      "description": "A DHCP server or router a device saw answer, ``object_id(device, \"server-seen\", <key>)``.\n\nRead with the ``dhcp`` capability (no API version). Known or not: core keeps every sighting\nand decides which servers are foreign (:func:`signalbox.foreign.attach`).",
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ServerKind",
+          "default": "dhcpv4"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "offered": {
+          "$ref": "#/$defs/ServerOffer"
+        },
+        "origin": {
+          "default": "client-lease",
+          "enum": [
+            "device-alert",
+            "client-lease"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "seen_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seen At"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Id"
+        },
+        "server_address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server Address"
+        },
+        "server_mac": {
+          "anyOf": [
+            {
+              "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server Mac"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id"
+      ],
+      "title": "ServerSighting",
+      "type": "object"
+    },
     "ServiceKind": {
       "description": "A way to manage (log in to, configure, query) a device (#173).",
       "enum": [
@@ -4093,6 +4507,15 @@
         "layer2"
       ],
       "title": "ServiceTransport",
+      "type": "string"
+    },
+    "SightingSource": {
+      "enum": [
+        "probe",
+        "device-alert",
+        "client-lease"
+      ],
+      "title": "SightingSource",
       "type": "string"
     },
     "Site": {
@@ -4208,6 +4631,13 @@
             "$ref": "#/$defs/Segment"
           },
           "title": "Segments",
+          "type": "array"
+        },
+        "server_sightings": {
+          "items": {
+            "$ref": "#/$defs/ServerSighting"
+          },
+          "title": "Server Sightings",
           "type": "array"
         },
         "services": {

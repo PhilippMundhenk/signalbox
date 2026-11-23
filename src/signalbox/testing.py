@@ -489,6 +489,8 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             out.append(f"{kind} reported without declaring {Capability.INTERFACES.value}")
     if snapshot.dhcp_relays and Capability.DHCP.value not in caps:
         out.append(f"dhcp_relays reported without declaring {Capability.DHCP.value}")
+    if snapshot.server_sightings and Capability.DHCP.value not in caps:
+        out.append(f"server_sightings reported without declaring {Capability.DHCP.value}")
     if snapshot.tunnels and Capability.VPN.value not in caps:
         out.append(f"tunnels reported without declaring {Capability.VPN.value}")
     if snapshot.firewalls and Capability.FIREWALL.value not in caps:
@@ -538,6 +540,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         "dns_services",
         "tunnels",
         "firewalls",
+        "server_sightings",
     )
     for kind in (*owned, "radios", "wlans"):
         for obj in getattr(snapshot, kind):
@@ -574,6 +577,15 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         for obj in refs:
             if obj.segment_id not in segment_ids:
                 out.append(f"{obj.id} references unknown segment {obj.segment_id}")
+    sightings: set[str] = set()
+    for sighting in snapshot.server_sightings:
+        if sighting.id in sightings:
+            out.append(f"server sighting {sighting.id} reported twice")
+        sightings.add(sighting.id)
+        if sighting.segment_id is not None and sighting.segment_id not in segment_ids:
+            out.append(f"{sighting.id} references unknown segment {sighting.segment_id}")
+        if sighting.server_address is None and sighting.server_mac is None:
+            out.append(f"{sighting.id} names neither the server's address nor its MAC")
     radios = {r.id: r for r in snapshot.radios}
     for radio in snapshot.radios:
         out += radio_problems(radio)

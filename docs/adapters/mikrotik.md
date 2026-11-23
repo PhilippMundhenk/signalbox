@@ -229,6 +229,13 @@ permissions` and the trace says which policy is missing.
   `1d00:00:00`), router, DNS and domain from the most specific `/ip/dhcp-server/network` entry
   containing the interface address. Static leases (`dynamic=false`) of that server, or of `all` in its network,
   are reservations; the hostname is the lease comment, else `host-name`.
+  Answering servers (#184, [PROBES.md](../PROBES.md)): a bound `/ip/dhcp-client` on an
+  interface that is not in the `WAN` list gives the server it got its address from
+  (`dhcp-server`, with `gateway`, `primary-dns`/`secondary-dns` and the lease); every
+  `/ip/dhcp-server/alert` entry (the built-in rogue DHCP detector) gives the MAC addresses
+  in `unknown-server` *(format of that list a guess, #21)*. Configure the detector with
+  `/ip dhcp-server alert add interface=bridge valid-server=<your router's MAC>`; Signalbox
+  decides itself which servers are known.
 - **DNS**: one service on port 53 (`<device>/dns/dns`). Enabled when `allow-remote-requests=yes`; it then listens on the
   addresses of every non-uplink interface. `servers` are the forwarders, `dynamic-servers`
   (from DHCP/PPP) go to `vendor_extra`. Enabled static entries of type `A` (the default) and

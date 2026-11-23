@@ -106,7 +106,11 @@ from signalbox.model import (
     SaeSettings,
     Security,
     Segment,
+    ServerKind,
+    ServerOffer,
+    ServerSighting,
     ServiceKind,
+    SightingSource,
     SnmpSettings,
     SnmpVersion,
     StorageKind,
@@ -156,6 +160,7 @@ DHCP_NETWORK = "/rest/ip/dhcp-server/network"
 DHCP_LEASE = "/rest/ip/dhcp-server/lease"
 DHCP_OPTION = "/rest/ip/dhcp-server/option"
 DHCP_RELAY = "/rest/ip/dhcp-relay"
+DHCP_ALERT = "/rest/ip/dhcp-server/alert"
 POOL = "/rest/ip/pool"
 DNS = "/rest/ip/dns"
 DNS_STATIC = "/rest/ip/dns/static"
@@ -1550,7 +1555,67 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     | ({"network": str(net)} if net else {}),
                 )
             )
-        return Observation(dhcp_servers=servers, dhcp_relays=await self._relays(layout))
+        return Observation(
+            dhcp_servers=servers,
+            dhcp_relays=await self._relays(layout),
+            server_sightings=await self._sightings(layout),
+        )
+
+    async def _sightings(self, layout: Any) -> list[ServerSighting]:
+        """DHCP servers the router saw answer (#184): the server of its own DHCP client on a
+        network that is not the WAN (``/ip/dhcp-client`` ``dhcp-server``), and the unknown
+        servers of the rogue DHCP detector (``/ip/dhcp-server/alert`` ``unknown-server``, the
+        MAC addresses it saw answer that are not in ``valid-server``)."""
+        dev = self.context.device_id
+        out: dict[str, ServerSighting] = {}
+        for row in await self._optional_rows(DHCP_CLIENT):
+            iface = _text(row.get("interface"))
+            seg = layout.l3.get(iface)
+            server = _addr(row.get("dhcp-server"))
+            if iface in layout.wan or seg is None or server is None or not _active(row):
+                continue
+            if _text(row.get("status")) != "bound":
+                continue
+            try:
+                lease = ip_interface(_text(row.get("address")))
+            except ValueError:
+                lease = None
+            dns = [a for a in (_addr(row.get(k)) for k in ("primary-dns", "secondary-dns")) if a]
+            gateway = _addr(row.get("gateway"))
+            key = f"lease-{iface}-{server}"
+            out[key] = ServerSighting(
+                id=object_id(dev, "server-seen", key),
+                device_id=dev,
+                segment_id=seg,
+                kind=ServerKind.DHCPV4,
+                server_address=server,
+                offered=ServerOffer(
+                    address=lease.ip if lease else None,
+                    routers=[gateway] if gateway else [],
+                    dns_servers=dns,
+                    prefixes=[lease.network] if lease else [],
+                ),
+                origin=SightingSource.CLIENT_LEASE,
+            )
+        for row in await self._optional_rows(DHCP_ALERT):
+            iface = _text(row.get("interface"))
+            seg = layout.l3.get(iface)
+            if seg is None or _flag(row.get("disabled")):
+                continue
+            for token in _names(row.get("unknown-server")):
+                mac = _mac(token.split("/")[0].strip())
+                if mac is None:
+                    continue
+                key = f"alert-{iface}-{mac}"
+                out[key] = ServerSighting(
+                    id=object_id(dev, "server-seen", key),
+                    device_id=dev,
+                    segment_id=seg,
+                    kind=ServerKind.DHCPV4,
+                    server_mac=mac,
+                    origin=SightingSource.DEVICE_ALERT,
+                )
+        return sorted(out.values(), key=lambda x: x.id)
 
     async def _relays(self, layout: Any) -> list[DhcpRelay]:
         """``/ip/dhcp-relay``: ``interface``, ``dhcp-server`` (comma list), ``disabled``."""

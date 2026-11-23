@@ -2095,6 +2095,123 @@ def trace_id(source: str, target: IPAddress | str) -> str:
     return f"trace/{source}/{target}"
 
 
+# foreign servers (#184, #61) ----------------------------------------------------------------
+#
+# Active and passive observations of DHCP servers and IPv6 routers that answer on a network:
+# what Signalbox's own optional probe heard (``probes.enabled``, stored apart from the snapshots
+# like path traces), what devices report as alerts (MikroTik's rogue DHCP detector) and the
+# servers that gave the devices Signalbox reads their own addresses. Core decides which of them
+# are known (:mod:`signalbox.foreign`), never an integration.
+
+
+class ServerKind(StrEnum):
+    DHCPV4 = "dhcpv4"
+    DHCPV6 = "dhcpv6"
+    #: An IPv6 router advertisement.
+    RA = "ra"
+
+
+class SightingSource(StrEnum):
+    #: Signalbox's own probe (a DHCPDISCOVER or a router solicitation from its host).
+    PROBE = "probe"
+    #: A device reports the server as unknown (MikroTik ``/ip/dhcp-server/alert``).
+    DEVICE_ALERT = "device-alert"
+    #: A device Signalbox reads got its own address from the server (its DHCP client).
+    CLIENT_LEASE = "client-lease"
+
+
+class ServerOffer(Model):
+    """What a server hands out, as far as the observation shows it (all optional)."""
+
+    #: The address offered to the client (DHCP ``yiaddr``).
+    address: IPAddress | None = None
+    #: Default gateways (DHCP option 3); for a router advertisement the router itself.
+    routers: list[IPAddress] = Field(default_factory=list)
+    dns_servers: list[IPAddress] = Field(default_factory=list)
+    #: Prefixes: the offered address's network (with option 1), or the RA's prefix information.
+    prefixes: list[IPNetwork] = Field(default_factory=list)
+    #: More specific routes of a router advertisement (route information option).
+    routes: list[IPNetwork] = Field(default_factory=list)
+    domain: str | None = None
+    lease_seconds: Annotated[int, Field(ge=0)] | None = None
+    #: The relay agent the answer came through (DHCP ``giaddr``); None: not relayed.
+    relay: IPAddress | None = None
+    #: RA router lifetime in seconds: 0 means "not a default router" (Thread border routers).
+    router_lifetime: Annotated[int, Field(ge=0, le=65535)] | None = None
+    #: RA prefixes clients configure addresses from (prefix information with the A flag).
+    autonomous: list[IPv6Network] = Field(default_factory=list)
+
+
+class ServerSighting(Observed):
+    """A DHCP server or router a device saw answer, ``object_id(device, "server-seen", <key>)``.
+
+    Read with the ``dhcp`` capability (no API version). Known or not: core keeps every sighting
+    and decides which servers are foreign (:func:`signalbox.foreign.attach`).
+    """
+
+    device_id: str
+    #: The network it answered on; None: the device does not say.
+    segment_id: str | None = None
+    kind: ServerKind = ServerKind.DHCPV4
+    server_address: IPAddress | None = None
+    server_mac: Mac | None = None
+    offered: ServerOffer = Field(default_factory=ServerOffer)
+    #: How the device saw it (``source`` is the reading's provenance, as everywhere).
+    origin: Literal[SightingSource.DEVICE_ALERT, SightingSource.CLIENT_LEASE] = (
+        SightingSource.CLIENT_LEASE
+    )
+    #: When the device saw it, where it says (else the snapshot's time).
+    seen_at: datetime | None = None
+
+    @field_validator("seen_at")
+    @classmethod
+    def _aware(cls, value: datetime | None) -> datetime | None:
+        return _utc(value)
+
+
+class ForeignServer(Model):
+    """A DHCP server or IPv6 router seen answering on a network (#184).
+
+    ``id`` is ``<site>/foreign/<kind>/<segment key>/<server MAC or address>``. ``known_as``:
+    the known device it is (set by core, :func:`signalbox.foreign.known_server`); ``None``:
+    not a server Signalbox knows, a *foreign* one (checks ``dhcp.foreign-server``,
+    ``ra.foreign-router``). Probe answers are stored (the latest per id, ``first_seen`` kept);
+    device sightings come from the snapshots.
+    """
+
+    id: str
+    site_id: str
+    segment_id: str | None = None
+    kind: ServerKind
+    server_address: IPAddress | None = None
+    server_mac: Mac | None = None
+    offered: ServerOffer = Field(default_factory=ServerOffer)
+    first_seen: datetime
+    last_seen: datetime
+    #: The strongest source: probe, then device-alert, then client-lease.
+    source: SightingSource
+    #: Who saw it: ``signalbox/<interface>`` for the probe, else device ids.
+    seen_by: list[str] = Field(default_factory=list)
+    known_as: str | None = None
+    #: How it was matched (``address``, ``mac``, ``relay``, ``prefix``).
+    known_by: str | None = None
+
+    @field_validator("first_seen", "last_seen")
+    @classmethod
+    def _aware(cls, value: datetime) -> datetime:
+        out = _utc(value)
+        assert out is not None
+        return out
+
+
+def foreign_server_id(
+    site_id: str, kind: ServerKind, segment: str | None, key: IPAddress | str
+) -> str:
+    """``<site>/foreign/<kind>/<segment key>/<MAC or address>``; ``unknown`` without segment."""
+    seg = segment.rsplit("/", 1)[-1] if segment else "unknown"
+    return f"{site_id}/foreign/{kind.value}/{seg}/{key}"
+
+
 # annotations (#186)-------------------------------------------------------------------------
 #
 # User data, not observed: a friendly name, what an object is for, who looks after it, notes,
@@ -2378,6 +2495,8 @@ class Snapshot(Model):
     tunnels: list[Tunnel] = Field(default_factory=list)
     #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).
     firewalls: list[Firewall] = Field(default_factory=list)
+    #: DHCP servers and routers the device saw answer (#184; part of ``dhcp``).
+    server_sightings: list[ServerSighting] = Field(default_factory=list)
     errors: list[ReadError] = Field(default_factory=list)
     #: Devices reported through this one (a controller's managed devices). Their ids start with
     #: ``<device id>/`` and their ``managed_by`` is the observed device.
@@ -2461,6 +2580,12 @@ class Network(Model):
     #: ``traces.enabled`` is on, hops matched to the devices of this network. Active
     #: observations, not snapshots: empty in the desired and predicted states.
     traces: list[PathTrace] = Field(default_factory=list)
+    #: DHCP servers and routers the devices saw answer (#184; from the snapshots).
+    server_sightings: list[ServerSighting] = Field(default_factory=list)
+    #: Every server seen answering, from the sightings and (while ``probes.enabled`` is on)
+    #: Signalbox's own probes, matched by core (``known_as``). Set by the runner; empty in the
+    #: desired and predicted states.
+    foreign_servers: list[ForeignServer] = Field(default_factory=list)
 
     def annotation(self, target: str) -> Annotation | None:
         """The annotation of a target (a model id or a MAC address), if the user made one."""
@@ -2499,6 +2624,8 @@ class Network(Model):
             self.neighbours,
             self.tunnels,
             self.firewalls,
+            self.server_sightings,
+            self.foreign_servers,
             self.links,
         ]
         return any(o.id == object_id for objs in groups for o in objs)

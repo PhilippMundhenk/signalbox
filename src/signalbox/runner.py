@@ -13,6 +13,7 @@ from signalbox.adapters import Adapter, AdapterConfig, AdapterContext
 from signalbox.annotate import apply as apply_annotations
 from signalbox.config import Config
 from signalbox.desired import DesiredError, DesiredState, apply_declared, drift_rules
+from signalbox.foreign import attach as attach_foreign
 from signalbox.merge import merge
 from signalbox.model import (
     Device,
@@ -119,14 +120,18 @@ class Runner:
 
     def network(self) -> Network:
         """The merged network with derived links, the purposes the desired state declares,
-        the user's annotations and acknowledgements (declared and stored, #186) and, while
-        ``traces.enabled`` is on, the path traces (#253)."""
+        the user's annotations and acknowledgements (declared and stored, #186), while
+        ``traces.enabled`` is on the path traces (#253), and the DHCP servers and routers seen
+        answering (#184; the probe's answers only while ``probes.enabled`` is on)."""
         state = self._declared()
         net = apply_declared(self._merged(), state)
         net = apply_annotations(net, state, self.store.annotations(), self.store.acknowledgements())
         if self.config.traces.enabled:  # path traces (#253): only while the feature is on
             net = attach_traces(net, self.store.traces())
-        return net
+        # answering DHCP servers and routers (#184): the devices' sightings always, the
+        # probe's answers only while probes are on
+        probed = self.store.foreign_servers() if self.config.probes.enabled else []
+        return attach_foreign(net, probed)
 
     def _declared(self) -> DesiredState | None:
         if self.desired_source is None:

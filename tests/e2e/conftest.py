@@ -36,7 +36,11 @@ def _free_port() -> int:
 
 class LiveServer:
     def __init__(
-        self, data: Path, adapters: dict[str, Any] | None = None, env: dict[str, str] | None = None
+        self,
+        data: Path,
+        adapters: dict[str, Any] | None = None,
+        env: dict[str, str] | None = None,
+        app_hook: Any = None,
     ) -> None:
         self.services: Services = build(
             data,
@@ -49,9 +53,10 @@ class LiveServer:
             rules=[*load_rules(), open_wifi],
         )
         self.port = _free_port()
-        config = uvicorn.Config(
-            create_app(self.services), host="127.0.0.1", port=self.port, log_level="warning"
-        )
+        app = create_app(self.services)
+        if app_hook is not None:
+            app_hook(app)  # replace parts of the app (the probe's socket layer, #184)
+        config = uvicorn.Config(app, host="127.0.0.1", port=self.port, log_level="warning")
         self.server = uvicorn.Server(config)
         self.thread = threading.Thread(target=self.server.run, daemon=True)
         self.thread.start()

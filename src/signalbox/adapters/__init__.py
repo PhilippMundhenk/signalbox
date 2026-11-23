@@ -48,6 +48,7 @@ from signalbox.model import (
     Radio,
     ReadError,
     Segment,
+    ServerSighting,
     Snapshot,
     Source,
     Subnet,
@@ -538,6 +539,9 @@ class Observation(BaseModel):
     tunnels: list[Tunnel] = Field(default_factory=list)
     #: Packet filter and NAT (#135), read with ``firewall`` (API 1.4): at most one per device.
     firewalls: list[Firewall] = Field(default_factory=list)
+    #: DHCP servers and routers the device saw answer (#184), read with ``dhcp``; no API
+    #: version needed: its own DHCP client's server, rogue-server alerts. Known ones too.
+    server_sightings: list[ServerSighting] = Field(default_factory=list)
     #: Devices managed through the observed one (API 1.1). Ids must start with
     #: ``<device id>/``; site, adapter and ``managed_by`` are filled in by ``observe()``.
     devices: list[Device] = Field(default_factory=list)
