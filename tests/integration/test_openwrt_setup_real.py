@@ -243,6 +243,11 @@ async def test_fix_starts_a_stopped_lldpd(ow: Target, host_key: str) -> None:
     """The image has lldpd: the packages are found installed (apk or opkg), the stopped daemon
     is started. Installing from the feeds is offline in CI: simulator only (#21)."""
     await shell(ow, host_key, "/etc/init.d/lldpd stop\nsleep 1\n")
+    # LLDP is optional (#278): the stopped daemon is a note, the device stays ok
+    stopped = await read_write_login(ow)
+    lldp = [e for e in stopped.errors if e.capability == "neighbours"]
+    assert lldp and all(e.optional for e in lldp), stopped.errors
+    assert stopped.status is DeviceStatus.OK, stopped.errors
     plan = await OpenWrtAdapter.plan_remedy(remedy(ow, host_key, "lldp"))
     states = {s.id: s.state for s in plan.steps}
     assert states["lldp-packages"] is StepState.UNCHANGED, plan.steps

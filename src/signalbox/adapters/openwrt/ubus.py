@@ -28,6 +28,7 @@ UBUS_METHOD_NOT_FOUND = 3
 UBUS_NOT_FOUND = 4
 UBUS_NO_DATA = 5
 UBUS_PERMISSION_DENIED = 6
+UBUS_UNKNOWN_ERROR = 9
 UBUS_STATUS = {
     1: "invalid command",
     2: "invalid argument",
@@ -57,6 +58,10 @@ class AccessDenied(AdapterError):
 
 class InvalidArgument(AdapterError):
     """ubus status 2: the object refuses the arguments of the call."""
+
+
+class CallFailed(AdapterError):
+    """ubus status 9 (unknown error): the object's script failed (luci.lldpd with lldpd stopped)."""
 
 
 class NoData(AdapterError):
@@ -126,6 +131,8 @@ class Ubus:
             raise InvalidArgument(f"ubus {what} failed: {UBUS_STATUS[status]}")
         if status == UBUS_NO_DATA:
             raise NoData(f"ubus {what} failed: {UBUS_STATUS[status]}")
+        if status == UBUS_UNKNOWN_ERROR:
+            raise CallFailed(f"ubus {what} failed: {UBUS_STATUS[status]}")
         if status != UBUS_OK:
             raise AdapterError(f"ubus {what} failed: {UBUS_STATUS.get(status, status)}")
         data = result[1] if len(result) > 1 else {}

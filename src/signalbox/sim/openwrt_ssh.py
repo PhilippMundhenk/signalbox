@@ -179,10 +179,16 @@ class OpenWrtSsh:
         if words[:2] == ["rm", "-f"]:
             self.files.pop(words[2], None)
             return 0, ""
-        if words[:1] == ["/etc/init.d/lldpd"] and words[1:] in (["enable"], ["start"]):
+        if words[:1] == ["/etc/init.d/lldpd"] and words[1:] in (
+            ["enable"],
+            ["start"],
+            ["stop"],
+            ["disable"],
+        ):
             if "lldpd" not in self.installed:
-                return 127, "sh: /etc/init.d/lldpd: not found"
-            self.lldpd_running = self.lldpd_running or words[1] == "start"
+                return (0, "") if optional else (127, "sh: /etc/init.d/lldpd: not found")
+            if words[1] in ("start", "stop"):
+                self.lldpd_running = words[1] == "start"
             return 0, ""
         if len(words) == 2 and words[0].startswith("/etc/init.d/") and words[1] == "restart":
             service = words[0].rsplit("/", 1)[1]
@@ -201,6 +207,9 @@ class OpenWrtSsh:
         if self.offline:
             return 255, "ERROR: unable to fetch the package index"
         words = shlex.split(line.split("&&")[-1])
+        if words[:2] in (["apk", "del"], ["opkg", "remove"]):
+            self.installed -= set(words[2:])
+            return 0, ""
         self.installed |= set(words[2:])
         return 0, ""
 

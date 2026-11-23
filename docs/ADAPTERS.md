@@ -266,7 +266,13 @@ With `setup.enabled: false` the hooks are never called.
 
 An integration with `admin_login` can also repair what its setup owns (#215,
 [ADR 0012](adr/0012-fix-it-for-read-problems.md)): declare the remedies and name one where a read
-fails; the device page then offers *Fix it* next to that error on a device with *Allow changes*.
+fails; the device page then offers *Fix it* next to that error. A remedy with `read_side=True` (only packages and permissions Signalbox reads through)
+needs no *Allow changes*; others do (#278).
+
+A missing optional feature is no read failure: return `Observation(incomplete=[Gap(...,
+optional=True)])`. It is shown with its fix but does not make the device *partly read* and gives
+an info finding at most. `AdminLogin.extras` offers optional setup steps as unticked checkboxes
+(`SetupRequest.extras`; with `remove`, ticked ones are removed again).
 
 ```python
 manifest = Manifest(..., remedies=(Remedy(id="lldp", title="Install LLDP", description="..."),))

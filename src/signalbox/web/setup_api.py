@@ -67,6 +67,8 @@ class SetupBody(BaseModel):
     trust: str | None = Field(None, pattern=FINGERPRINT)
     #: Also run the integration's optional SSH step (only if its manifest offers one).
     ssh: SshBody | None = None
+    #: Ids of the optional extras the user ticked (``AdminLogin.extras``, #278).
+    extras: list[str] = Field(default_factory=list, max_length=20)
 
 
 def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, Any]]) -> APIRouter:
@@ -99,6 +101,14 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             return error(
                 422, "not_supported", f"{cls.manifest.name} has no optional SSH step to run"
             )
+        offered = (
+            {e.id for e in cls.manifest.admin_login.extras} if cls.manifest.admin_login else set()
+        )
+        unknown = sorted(set(body.extras) - offered)
+        if unknown:
+            return error(
+                422, "not_supported", f"{cls.manifest.name} has no optional extra {unknown[0]!r}"
+            )
         ssh = body.ssh
         secret_names = _secret_fields(cls.manifest.config)
         plain = {k: v for k, v in form.config.items() if k not in secret_names}
@@ -109,6 +119,7 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             port=body.admin.port,
             allow_writes=form.allow_writes,
             remove=body.remove,
+            extras=sorted(set(body.extras)),
             trust=body.trust,
             ssh_step=ssh is not None,
             ssh_secret=ssh.secret if ssh else None,

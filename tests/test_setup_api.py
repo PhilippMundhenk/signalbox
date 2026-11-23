@@ -234,6 +234,27 @@ def test_refusals(client: TestClient, ssh: tuple[int, str], https_url: str) -> N
     assert removed == {"ok": False, "steps": [], "device": None}
 
 
+def test_extras_are_validated_and_reach_the_plan(
+    client: TestClient, ssh: tuple[int, str], https_url: str, device: OpenWrtSsh
+) -> None:
+    port, fingerprint = ssh
+    info = {a["id"]: a for a in client.get("/api/adapters").json()}
+    assert [e["id"] for e in info["openwrt"]["admin_login"]["extras"]] == ["lldp"]
+    r = client.post(
+        "/api/devices/setup", json=body(https_url, port, trust=fingerprint, extras=["nope"])
+    )
+    assert r.status_code == 422 and r.json()["error"] == "not_supported"
+    plain = client.post("/api/devices/setup", json=body(https_url, port, trust=fingerprint))
+    assert not [s for s in plain.json()["steps"] if s["id"].startswith("lldp")]
+    ticked = client.post(
+        "/api/devices/setup", json=body(https_url, port, trust=fingerprint, extras=["lldp"])
+    )
+    assert [s["id"] for s in ticked.json()["steps"] if s["id"].startswith("lldp")] == [
+        "lldp-packages",
+        "lldpd",
+    ]
+
+
 def test_failed_setup_saves_nothing(
     client: TestClient, services: Services, ssh: tuple[int, str], https_url: str, device: OpenWrtSsh
 ) -> None:

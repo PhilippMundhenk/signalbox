@@ -180,7 +180,7 @@ installed script against a `config.xml` with planted secrets).
 ### Fix it
 
 A read refused with HTTP 403 names the remedy *Add the missing privileges* (#215,
-[ADR 0012](../adr/0012-fix-it-for-read-problems.md)): on a device with *Allow changes* the
+[ADR 0012](../adr/0012-fix-it-for-read-problems.md)): the
 device page offers *Fix it* next to the error ("What to do" stays the manual way). With an API
 key of root, after the certificate is trusted and the plan confirmed, Signalbox finds the user
 the stored API key belongs to (`POST /api/auth/user/search_api_key`) and adds the privileges of

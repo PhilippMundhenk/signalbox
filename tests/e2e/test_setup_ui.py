@@ -62,3 +62,27 @@ def test_set_up_openwrt_automatically(app: Any, router: tuple[str, int, OpenWrtS
     expect(app.get_by_test_id("test-result")).to_contain_text("OK", timeout=20000)
     assert any(s["options"].get("username") == ["signalbox"] for s in device.rpcd.values())
     assert ROOT_PASSWORD not in app.content()
+
+
+def test_lldp_is_an_unticked_extra_of_the_plan(
+    app: Any, router: tuple[str, int, OpenWrtSsh]
+) -> None:
+    url, port, _device = router
+    add_site(app)
+    app.goto(app.server.url + "/#/devices/new")
+    app.get_by_test_id("device-name").fill("Access point")
+    app.get_by_test_id("cfg-url").fill(url)
+    app.get_by_test_id("auto-setup").locator("summary").click()
+    extra = app.get_by_test_id("setup-extra-lldp")
+    expect(extra).not_to_be_checked()
+    app.get_by_test_id("setup-admin-secret").fill(ROOT_PASSWORD)
+    app.get_by_test_id("setup-admin-port").fill(str(port))
+    app.get_by_test_id("setup-plan").click()
+    app.get_by_test_id("setup-trust").click()
+    steps = app.get_by_test_id("setup-plan-steps").get_by_test_id("setup-step")
+    expect(steps).to_have_count(5)  # no LLDP step unless ticked
+    extra.check()
+    app.get_by_test_id("setup-plan").click()
+    expect(
+        app.get_by_test_id("setup-plan-steps").locator("[data-step=lldp-packages]")
+    ).to_have_count(1)

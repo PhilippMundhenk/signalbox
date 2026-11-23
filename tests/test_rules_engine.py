@@ -150,3 +150,19 @@ def test_every_builtin_rule_is_documented() -> None:
     text = "".join(p.read_text() for p in docs.glob("*.md"))
     missing = [r.id for r in RULES if f"## `{r.id}`" not in text]
     assert not missing, f"document these rules in docs/rules/<module>.md: {missing}"
+
+
+def test_optional_read_error_is_an_info_finding() -> None:
+    from signalbox.model import ReadError
+    from signalbox.rules import READ_ERRORS, evaluate
+
+    net = Network(
+        errors=[
+            ReadError(device_id="ap", capability="neighbours", message="m", optional=True),
+            ReadError(device_id="ap", capability="dhcp", message="n"),
+        ]
+    )
+    found = evaluate(net, [READ_ERRORS])
+    assert sorted(f.severity.value for f in found) == ["info", "warning"]
+    optional = next(f for f in found if f.severity.value == "info")
+    assert "optional feature" in optional.message

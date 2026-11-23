@@ -68,3 +68,15 @@ without the user starting it for that device and confirming the plan, a switch t
 - Verified in CI against the real software: OpenWrt (24.10, 25.12) with an outdated ACL file
   repaired and lldpd started again; OPNsense 26.7 with a privilege removed and added back.
   Installing packages from the feeds is offline in CI and covered by the simulator only (#21).
+
+## Note (#278): read-side remedies do not need *Allow changes*
+
+*Allow changes* is about deploying network configuration. A remedy that only adds what Signalbox
+reads through for its own login (packages such as lldpd, permission or privilege entries) does
+not change the network, so it is declared `Remedy(read_side=True)` and is offered on every device
+with the admin login and the confirmation, as before; *Allow changes* only decides whether the
+permissions it writes include the write part. Remedies that are not read-side still need it.
+`setup.fixes` and `setup.enabled` switch all of them off. Missing optional features (LLDP) are
+now `Gap(optional=True)`: shown with their fix, no *Partly read*, an info finding at most, and
+the automatic setup offers them as unticked extras (`AdminLogin.extras`); *Remove* leaves
+installed packages alone unless the extra is ticked.

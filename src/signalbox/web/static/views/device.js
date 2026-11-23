@@ -374,7 +374,7 @@ async function overview(main, ctx, device, adapters, sites) {
   const fixFor = (e) => {
     const remedy = remedyOf(adapter, e.remedy);
     if (!remedy) return null;
-    if (!device.allow_writes) return h('p', { class: 'muted small', 'data-testid': 'fix-needs-writes' }, `Signalbox can do this for you (“${remedy.title}”) on a device with “Allow changes”.`);
+    if (!device.allow_writes && !remedy.read_side) return h('p', { class: 'muted small', 'data-testid': 'fix-needs-writes' }, `Signalbox can do this for you (“${remedy.title}”) on a device with “Allow changes”.`);
     const btn = h('button', { class: 'btn small', type: 'button', 'data-testid': 'fix-it', 'data-remedy': remedy.id }, 'Fix it');
     btn.addEventListener('click', () => {
       place(clear(fixBox), fixPanel(device, adapter, remedy, (reading) => reading && place(clear(statusBox), statusBadge(reading.status))));
