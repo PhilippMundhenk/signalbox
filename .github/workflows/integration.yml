@@ -69,7 +69,7 @@ jobs:
         run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
       - name: Restore the prepared VM
         id: cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@v4
         with:
           path: .vm/opnsense
           # weekly: the preparation installs the newest 26.7.x packages
@@ -82,7 +82,7 @@ jobs:
         run: python3 tools/integration/opnsense/vm.py prepare "$VM_DIR"
       - name: Save the prepared VM
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@v4
         with:
           path: .vm/opnsense
           key: ${{ steps.cache.outputs.cache-primary-key }}
@@ -192,7 +192,7 @@ jobs:
             build-essential gawk gettext file rsync unzip wget
       - name: Cache the image
         id: cache
-        uses: actions/cache@v6
+        uses: actions/cache@v4
         with:
           path: ${{ env.IMAGE_DIR }}
           key: openwrt-${{ matrix.version }}-${{ hashFiles('tools/integration/openwrt/**', 'docs/adapters/openwrt.md') }}
@@ -279,7 +279,7 @@ jobs:
           sudo apt-get install -y -q --no-install-recommends qemu-system-x86 qemu-utils
       - name: Restore the prepared VM
         id: cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@v4
         with:
           path: .vm/mikrotik
           # the version is pinned in vm.py: a new version or setup is a new key
@@ -292,7 +292,7 @@ jobs:
         run: python3 tools/integration/mikrotik/vm.py prepare "$VM_DIR"
       - name: Save the prepared VM
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@v4
         with:
           path: .vm/mikrotik
           key: ${{ steps.cache.outputs.cache-primary-key }}
@@ -314,6 +314,8 @@ jobs:
               echo "::error title=MikroTik automatic setup tests failed::$body"
               exit $code
             }
+      - name: Fix it tests (policies over REST, REST service over SSH, #267)
+        run: pytest tests/integration/test_mikrotik_fix_real.py -v -p no:cacheprovider
       - name: Record the REST answers (read user)
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" read
       - name: Record the REST answers (read user, DHCP, DNS, clients)

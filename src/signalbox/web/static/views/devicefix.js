@@ -20,7 +20,9 @@ export function fixPanel(device, adapter, remedy, onDone) {
   const login = adapter.admin_login;
   const user = h('input', { type: 'text', value: login.user_default || '', autocomplete: 'off', spellcheck: 'false', 'data-testid': 'fix-admin-user' });
   const secret = h('input', { type: 'password', autocomplete: 'off', 'data-testid': 'fix-admin-secret' });
-  const port = login.port_default ? h('input', { type: 'number', min: '1', max: '65535', value: String(login.port_default), 'data-testid': 'fix-admin-port' }) : null;
+  const portDefault = remedy.port_default || login.port_default;
+  const transport = remedy.transport || login.transport;
+  const port = portDefault ? h('input', { type: 'number', min: '1', max: '65535', value: String(portDefault), 'data-testid': 'fix-admin-port' }) : null;
   const out = h('div', { 'data-testid': 'fix-result', 'aria-live': 'polite' });
   const planBtn = h('button', { class: 'btn', type: 'button', 'data-testid': 'fix-plan' }, 'Show what it does');
   const url = `/devices/${enc(device.id)}/fix`;
@@ -120,7 +122,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
     { class: 'setup-guide notice fix-panel', 'data-testid': 'fix-panel', 'data-remedy': remedy.id },
     h('h3', {}, `Fix it: ${remedy.title}`),
     h('p', {}, remedy.description),
-    h('p', { class: 'muted small' }, `Signalbox logs in once over ${login.transport}. The admin login is used for this step only: it is not stored and not logged. You can also do it by hand, as described above.`),
+    h('p', { class: 'muted small' }, `Signalbox logs in once over ${transport}. The admin login is used for this step only: it is not stored and not logged. You can also do it by hand, as described above.`),
     login.note ? h('p', { class: 'muted small' }, login.note) : null,
     field(login.user_label, user),
     field(login.secret_label, secret),

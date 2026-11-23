@@ -32,7 +32,14 @@ without the user starting it for that device and confirming the plan, a switch t
   - OPNsense `privileges` (an HTTP 403 while reading): the user the stored API key belongs to
     (`search_api_key`) gets the documented privileges it lacks; its other privileges, groups,
     password and keys stay. Root and system users are refused.
-  - MikroTik: none yet (the group policy is the setup's; a re-run of the setup repairs it).
+  - MikroTik `policies` (`not enough permissions (9)`): over REST as admin, the policies of the
+    guide (write and sensitive only with *Allow changes*) are added to the group of the stored
+    user when it is one of Signalbox's; other policies and members stay.
+  - MikroTik `rest-service` (router unreachable): over SSH as admin (the REST API is what is
+    down), the guide's local CA and server certificate if `www-ssl` has none, the service
+    enabled, and the address of the SSH session appended to `address=` when the list excludes it.
+    `Remedy.transport` and `Remedy.port_default` let a remedy use another channel than the
+    manifest's admin login.
 - **The same hooks and rules as the setup.** `plan_remedy(RemedyRequest) -> SetupPlan` and
   `apply_remedy(RemedyRequest) -> SetupResult` (checked by `load_adapters` together with
   `admin_login`): pinned channel first (SSH host key or certificate, confirmed by the user, 409

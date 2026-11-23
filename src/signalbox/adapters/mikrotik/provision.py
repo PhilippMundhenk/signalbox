@@ -6,27 +6,37 @@ The steps of docs/adapters/mikrotik.md: the group ``signalbox-read`` (policies `
 needs ``www-ssl`` with a certificate first (setup guide, "HTTPS with a certificate"); the admin
 password is only sent to the certificate the user confirmed (:class:`DeviceHttp`).
 Removal deletes the user, and its group when no other user is in it.
+
+*Fix it* (#267, docs/adr/0012), :class:`MikrotikFix`: ``policies`` (REST as admin) adds the
+policies of the guide that the group of the stored user lacks; ``rest-service`` (SSH as admin,
+because the REST API is what is down) creates the local CA and server certificate of the guide
+when ``www-ssl`` has none, enables ``www-ssl`` and adds the address Signalbox connects from to
+its ``address`` list when the list excludes it. Network settings are never touched.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
+from ipaddress import ip_address, ip_network
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from pydantic import SecretStr
 
 from signalbox.adapters import (
     AdapterError,
+    RemedyRequest,
     SetupPlan,
     SetupRequest,
     SetupResult,
     UntrustedCertificate,
+    UntrustedHostKey,
 )
 from signalbox.adapters.https import DeviceHttp, device_url
-from signalbox.adapters.mikrotik import get_menu, ros_error
+from signalbox.adapters.mikrotik import REMEDIES, get_menu, ros_error
 from signalbox.adapters.provision import Redactor, Step, new_password, plan_steps, run_steps
+from signalbox.adapters.ssh import PinnedSsh
 
 #: The policies of the two groups, exactly as docs/adapters/mikrotik.md lists them.
 READ_POLICY = (
@@ -248,4 +258,361 @@ class MikrotikSetup:
             settings={"url": self.url, "username": self.login},
             secrets={"password": SecretStr(self.password)},
             certificate=http.fingerprint,
+        )
+
+
+# --- fix it (#267) ------------------------------------------------------------------------------
+
+#: Every policy the guide lists, to spell the ones a group lacks as ``!x``.
+ALL_POLICIES = (
+    *("read", "write", "api", "rest-api", "sensitive", "policy", "password", "reboot"),
+    *("test", "sniff", "romon", "local", "telnet", "ssh", "ftp", "winbox", "web"),
+)
+FIX_READ = ("read", "api", "rest-api")
+FIX_WRITE = ("write", "sensitive")
+CA = "signalbox-ca"
+SERVER = "signalbox-www"
+#: The commands of docs/adapters/mikrotik.md, "HTTPS with a certificate".
+CA_COMMANDS = (
+    f"/certificate add name={CA} common-name={CA} days-valid=3650 key-usage=key-cert-sign,crl-sign",
+    f"/certificate sign {CA}",
+)
+SERVER_COMMANDS = (
+    f"/certificate add name={SERVER} common-name=router days-valid=3650 "
+    "key-usage=digital-signature,key-encipherment,tls-server",
+    f"/certificate sign {SERVER} ca={CA}",
+)
+SSH_COMPARE = (
+    "On the router: /ip ssh export-host-key, then ssh-keygen -lf on the exported public key "
+    "(the file is in /file), or the fingerprint your SSH client shows for it."
+)
+ROS_FAILURE = re.compile(
+    r"failure:|syntax error|bad command name|expected end of command|invalid value|"
+    r"no such item|input does not match|ambiguous value|missing value|not enough permissions"
+)
+
+
+def policy_string(policies: set[str]) -> str:
+    """``read,api,!write,...``: the granted ones, every other known policy denied."""
+    on = [p for p in ALL_POLICIES if p in policies]
+    off = [f"!{p}" for p in ALL_POLICIES if p not in policies]
+    return ",".join(on + off)
+
+
+def _word(value: str) -> str:
+    text = value.strip()
+    return "" if text in ("none", "*0") else text
+
+
+def _net_ok(text: str) -> bool:
+    try:
+        ip_network(text, strict=False)
+    except ValueError:
+        return False
+    return True
+
+
+class MikrotikFix:
+    """*Fix it* on a stored router with the admin login (never stored)."""
+
+    def __init__(self, request: RemedyRequest) -> None:
+        if request.remedy not in {r.id for r in REMEDIES}:
+            raise AdapterError(f"MikroTik has no remedy {request.remedy!r}")
+        self.fix = request
+        self.redact = Redactor()
+        self.redact.add(request.admin_secret.get_secret_value())
+        for secret in request.secrets.values():
+            self.redact.add(secret.get_secret_value())
+        raw = str(request.config.get("url") or "").strip()
+        if not raw:
+            raise AdapterError("give the router's address first")
+        try:
+            self.url = device_url(raw)
+        except ValueError as exc:
+            raise AdapterError(str(exc)) from None
+        self.host = urlsplit(self.url).hostname or ""
+        self.login = str(request.config.get("username") or "signalbox").strip()
+
+    async def plan(self) -> SetupPlan:
+        result = await (
+            self._ssh(False) if self.fix.remedy == "rest-service" else self._rest(False)
+        )
+        assert isinstance(result, SetupPlan)
+        return result
+
+    async def apply(self) -> SetupResult:
+        result = await (self._ssh(True) if self.fix.remedy == "rest-service" else self._rest(True))
+        assert isinstance(result, SetupResult)
+        return result
+
+    # --- policies (REST) -----------------------------------------------------------------
+
+    def _http(self) -> DeviceHttp:
+        if not self.url.startswith("https://"):
+            raise AdapterError("Fix it sends the admin password only over https")
+        return DeviceHttp(
+            self.url,
+            pinned_fingerprint=self.fix.trust,
+            timeout=self.fix.timeout,
+            auth=(self.fix.admin_user, self.fix.admin_secret.get_secret_value()),
+        )
+
+    def policy_steps(
+        self, http: DeviceHttp, users: list[dict[str, Any]], groups: list[dict[str, Any]]
+    ) -> list[Step]:
+        user = next((u for u in users if u.get("name") == self.login), None)
+        if user is None:
+            raise AdapterError(
+                f"the router has no user {self.login!r}",
+                fix="Set the device up again (device settings: Set up automatically, or the "
+                "setup guide): Fix it only repairs the policies of an existing user's group.",
+            )
+        name = str(user.get("group") or "")
+        group = next((g for g in groups if g.get("name") == name), None)
+        if not name.startswith("signalbox") or group is None:
+            raise AdapterError(
+                f"the user {self.login} is in the group {name!r}; Signalbox changes only a "
+                "group of its own (signalbox-read, signalbox-write)",
+                fix="Give the group the policies read, api and rest-api by hand, as the setup "
+                "guide shows.",
+            )
+        wanted = {*FIX_READ, *(FIX_WRITE if self.fix.allow_writes else ())}
+        have = granted(group.get("policy"))
+        missing = [p for p in ALL_POLICIES if p in wanted and p not in have]
+        policy = policy_string(have | wanted)
+        gid = str(group.get(".id", ""))
+        what = "with write access" if self.fix.allow_writes else "read-only"
+        return [
+            Step(
+                "policies",
+                f"Add the missing policies of the setup guide to the group {name} ({what})",
+                f"PATCH /rest/user/group/{gid} policy={policy}\n"
+                + "\n".join(f"+ {p}" for p in missing),
+                needed=bool(missing),
+                action=self._patch(http, f"/rest/user/group/{quote(gid, safe='*')}", policy),
+                note="" if missing else "it has every documented policy",
+            )
+        ]
+
+    def _patch(
+        self, http: DeviceHttp, path: str, policy: str
+    ) -> Callable[[], Awaitable[str | None]]:
+        async def run() -> str | None:
+            response = await http.request("PATCH", path, accept=(400, 500), json={"policy": policy})
+            if response.status_code >= 400:
+                raise ros_error(path, response)
+            return None
+
+        return run
+
+    async def _rest(self, apply: bool) -> SetupPlan | SetupResult:
+        http = self._http()
+        try:
+            users = await get_menu(http, "/rest/user")
+            groups = await get_menu(http, "/rest/user/group")
+            if not isinstance(users, list) or not isinstance(groups, list):
+                raise AdapterError("/rest/user: unexpected answer")
+            steps = self.policy_steps(
+                http,
+                [u for u in users if isinstance(u, dict)],
+                [g for g in groups if isinstance(g, dict)],
+            )
+            if apply:
+                ok, done = await run_steps(steps, self.redact)
+                return SetupResult(ok=ok, steps=done)
+            reports = plan_steps(steps, self.redact)
+        except UntrustedCertificate as exc:
+            if apply:
+                raise
+            return SetupPlan(
+                fingerprint=exc.fingerprint,
+                fingerprint_kind="certificate",
+                trusted=False,
+                compare=COMPARE,
+            )
+        except AdapterError as exc:
+            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+        finally:
+            await http.close()
+        return SetupPlan(
+            fingerprint=http.fingerprint or "",
+            fingerprint_kind="certificate",
+            trusted=True,
+            compare=COMPARE,
+            steps=reports,
+        )
+
+    # --- the REST service (SSH) ------------------------------------------------------------
+
+    def _ssh_client(self) -> PinnedSsh:
+        return PinnedSsh(
+            self.host,
+            self.fix.port or 22,
+            self.fix.admin_user,
+            self.fix.admin_secret.get_secret_value(),
+            self.fix.trust,
+            self.fix.timeout,
+        )
+
+    async def _cli(self, ssh: PinnedSsh, command: str, timeout: float | None = None) -> str:
+        res = await ssh.command(command, timeout=timeout)
+        text = res.text.strip()
+        if res.code != 0 or ROS_FAILURE.search(text) or ROS_FAILURE.search(res.err):
+            raise AdapterError(f"{command}: {(res.err or text)[:300]}")
+        return text
+
+    async def inspect(self, ssh: PinnedSsh) -> dict[str, Any]:
+        def get(prop: str) -> str:
+            return f":put [/ip service get www-ssl {prop}]"
+
+        off = (await self._cli(ssh, get("disabled"))).lower()
+        state: dict[str, Any] = {
+            "disabled": off in ("true", "yes"),
+            "address": [a for a in _word(await self._cli(ssh, get("address"))).split(",") if a],
+            "certificate": _word(await self._cli(ssh, get("certificate"))),
+        }
+        for key, name in (("ca", CA), ("server", SERVER)):
+            found = await self._cli(ssh, f":put [:len [/certificate find where name={name}]]")
+            state[key] = found.strip() not in ("", "0")
+        active = await self._cli(ssh, "/user active print terse where via=ssh")
+        mine = {
+            m.group(1)
+            for line in active.splitlines()
+            if re.search(rf"\bname={re.escape(self.fix.admin_user)}\b", line)
+            if (m := re.search(r"\baddress=([0-9a-fA-F:.]+)", line))
+        }
+        state["source"] = mine.pop() if len(mine) == 1 else None
+        return state
+
+    def ssh_steps(self, ssh: PinnedSsh, state: dict[str, Any]) -> list[Step]:
+        steps: list[Step] = []
+        long = max(180.0, self.fix.timeout)
+        has_cert = bool(state["certificate"])
+        if not has_cert:
+            for sid, title, cmds, present in (
+                (
+                    "ca",
+                    f"Create the local CA {CA} (as in the setup guide)",
+                    CA_COMMANDS,
+                    state["ca"],
+                ),
+                (
+                    "server-certificate",
+                    f"Create the server certificate {SERVER}, signed by {CA}",
+                    SERVER_COMMANDS,
+                    state["server"],
+                ),
+            ):
+                steps.append(
+                    Step(
+                        sid,
+                        title,
+                        "\n".join(cmds),
+                        needed=not present,
+                        action=self._run(ssh, list(cmds), long),
+                        note="exists already" if present else "",
+                    )
+                )
+        else:
+            steps.append(
+                Step(
+                    "certificate",
+                    "Certificate of www-ssl",
+                    "",
+                    needed=False,
+                    note=f"www-ssl uses {state['certificate']}",
+                )
+            )
+        address = list(state["address"])
+        source = state["source"]
+        if address and source is None:
+            raise AdapterError(
+                "cannot tell which address Signalbox connects from (the router lists none or "
+                "several admin SSH sessions)",
+                fix="Add Signalbox's address to /ip service www-ssl address by hand.",
+            )
+        excluded = bool(address) and not any(
+            ip_address(source) in ip_network(a, strict=False) for a in address if _net_ok(a)
+        )
+        if excluded:
+            address.append(f"{source}{'/128' if ':' in str(source) else '/32'}")
+        sets = []
+        if not has_cert:
+            sets.append(f"certificate={SERVER}")
+        if state["disabled"]:
+            sets.append("disabled=no")
+        if excluded:
+            sets.append("address=" + ",".join(address))
+        command = "/ip service set www-ssl " + " ".join(sets) if sets else ""
+        detail = command
+        if excluded:
+            detail += f"\n(Signalbox connects from {source}; the other addresses stay)"
+        steps.append(
+            Step(
+                "www-ssl",
+                "Service www-ssl: "
+                + ("change as below" if sets else "as the setup guide wants it"),
+                detail,
+                needed=bool(sets),
+                action=self._run(ssh, [command]) if sets else None,
+                note="" if sets else "enabled, with a certificate, reachable from this machine",
+            )
+        )
+        steps.append(
+            Step(
+                "check",
+                "Read www-ssl again",
+                "",
+                needed=bool(sets),
+                action=self._check(ssh),
+            )
+        )
+        return steps
+
+    def _run(
+        self, ssh: PinnedSsh, commands: list[str], timeout: float | None = None
+    ) -> Callable[[], Awaitable[str | None]]:
+        async def run() -> str | None:
+            for command in commands:
+                await self._cli(ssh, command, timeout)
+            return None
+
+        return run
+
+    def _check(self, ssh: PinnedSsh) -> Callable[[], Awaitable[str | None]]:
+        async def run() -> str | None:
+            state = await self.inspect(ssh)
+            if state["disabled"] or not state["certificate"]:
+                raise AdapterError("www-ssl is still disabled or has no certificate")
+            return "www-ssl is enabled with a certificate"
+
+        return run
+
+    async def _ssh(self, apply: bool) -> SetupPlan | SetupResult:
+        try:
+            async with self._ssh_client() as ssh:
+                state = await self.inspect(ssh)
+                steps = self.ssh_steps(ssh, state)
+                fingerprint = ssh.fingerprint or ""
+                if apply:
+                    ok, done = await run_steps(steps, self.redact)
+                    return SetupResult(ok=ok, steps=done)
+                reports = plan_steps(steps, self.redact)
+        except UntrustedHostKey as exc:
+            if apply:
+                raise
+            return SetupPlan(
+                fingerprint=exc.fingerprint,
+                fingerprint_kind="ssh-host-key",
+                trusted=False,
+                compare=SSH_COMPARE,
+            )
+        except AdapterError as exc:
+            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+        return SetupPlan(
+            fingerprint=fingerprint,
+            fingerprint_kind="ssh-host-key",
+            trusted=True,
+            compare=SSH_COMPARE,
+            steps=reports,
         )

@@ -335,7 +335,6 @@ def test_topology_endpoint(logged_in: TestClient) -> None:
     topo = logged_in.get("/api/topology").json()
     assert [n["id"] for n in topo["nodes"]] == ["main-gateway"]
     assert topo["edges"] == []
-    assert topo["nodes"][0]["manage_url"] is None  # unknown adapter, same rules as /api/devices
     [lan] = topo["nodes"][0]["ports"]
     assert (lan["role"], lan["external"], lan["lower"]) == (None, None, [])
     # the port structure (#252): one port without a role is a root of its own

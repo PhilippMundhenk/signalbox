@@ -147,6 +147,7 @@ class DeviceHttp:
         headers: dict[str, str] | None = None,
         allow_insecure_http: bool = False,
         denied_remedy: str | None = None,
+        unreachable_remedy: str | None = None,
     ) -> None:
         parts = urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.hostname:
@@ -167,6 +168,8 @@ class DeviceHttp:
         self._client: httpx.AsyncClient | None = None
         #: Remedy (#215) named by an HTTP 403: the integration can add missing privileges.
         self.denied_remedy = denied_remedy
+        #: Remedy (#215) named when the device cannot be reached (a service that is off).
+        self.unreachable_remedy = unreachable_remedy
         #: Fingerprint seen at the last probe (also when it was refused).
         self.fingerprint: str | None = None
 
@@ -176,7 +179,11 @@ class DeviceHttp:
             return
         verify: ssl.SSLContext | bool = False
         if self.secure:
-            der = await peer_certificate(self.host, self.port, self.timeout)
+            try:
+                der = await peer_certificate(self.host, self.port, self.timeout)
+            except Unreachable as exc:
+                exc.remedy = self.unreachable_remedy
+                raise
             self.fingerprint = fingerprint(der)
             if self.pinned != self.fingerprint:
                 raise UntrustedCertificate(self.fingerprint, self.pinned)
@@ -226,12 +233,16 @@ class DeviceHttp:
             response = await self._client.request(method, path, **kw)
         except httpx.TimeoutException as exc:
             raise Unreachable(
-                f"{path}: no answer within {self.timeout:g} s", fix=REACH_FIX
+                f"{path}: no answer within {self.timeout:g} s",
+                fix=REACH_FIX,
+                remedy=self.unreachable_remedy,
             ) from exc
         except httpx.HTTPError as exc:
             await self.reset()
             raise Unreachable(
-                f"{path}: cannot reach {self.base_url}: {_reason(exc)}", fix=REACH_FIX
+                f"{path}: cannot reach {self.base_url}: {_reason(exc)}",
+                fix=REACH_FIX,
+                remedy=self.unreachable_remedy,
             ) from exc
         code = response.status_code
         if code in accept:

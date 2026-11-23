@@ -94,6 +94,40 @@ pinning, a refused admin password, the image's group recognised as already right
 created and the router read with it (contract), moved to the write group with a new password
 (the old one refused), and the removal keeping the groups the image's users are in.
 
+### Fix it
+
+Two remedies (#267, [ADR 0012](../adr/0012-fix-it-for-read-problems.md)), both optional: on a
+device with *Allow changes* the device page offers *Fix it* next to the read error ("What to do"
+stays the manual way, and the commands of this guide are what *Fix it* runs). Each needs the
+admin login for that one request (never stored or logged), the confirmed certificate or SSH
+host key and the confirmed plan; afterwards the router is read again. Off with
+`setup.fixes: false` or `setup.enabled: false`. Network settings are never changed.
+
+- **Add the missing policies** (`policies`, named by `not enough permissions (9)`), over the
+  REST API as admin with the certificate pinned: the group of the stored user (it must be one of
+  Signalbox's, a name starting with `signalbox`) gets the policies `read`, `api` and `rest-api`,
+  and `write` and `sensitive` too since changes are allowed (`PATCH /rest/user/group/<id>`).
+  Policies it has already stay, every other policy is written as `!policy` like in the guide; the
+  user, its password and its members are not touched. Groups of other names (`full`, `read`) are
+  refused.
+- **Turn on the REST service** (`rest-service`, named when the router cannot be reached), over
+  **SSH** as admin with the host key pinned, because the REST API is what is down. It reads
+  `/ip service www-ssl`, the certificates and the address of the admin SSH session
+  (`/user active`), then does only what is missing: creates the local CA `signalbox-ca` and the
+  server certificate `signalbox-www` with the commands of [HTTPS with a
+  certificate](#https-with-a-certificate) if `www-ssl` has no certificate, sets it as the
+  service's certificate, enables the service, and adds that address (`/32`) to `address=` when the
+  list excludes it (the other entries stay; no list means every address and stays). The address
+  is the one the router sees for the SSH session, so it is right behind NAT too, if the REST
+  connection takes the same path. A new certificate has a new fingerprint: confirm it again in
+  the device form. The SSH port field defaults to 22.
+
+Verified in CI on the RouterOS 7.25.1 CHR (`tests/integration/test_mikrotik_fix_real.py`): a group
+without `api` and `rest-api` gives the error with the remedy and is repaired with the same login
+reading afterwards; `www-ssl` limited to another address (unreachable) and without a certificate
+is repaired over SSH. Not verified: creating the CA and certificate by this path on the CHR (the
+commands are those the image preparation runs); real devices: [#21](https://github.com/PhilippMundhenk/signalbox/issues/21).
+
 ### A read-only user group
 
 ```
