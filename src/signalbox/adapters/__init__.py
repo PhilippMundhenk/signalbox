@@ -38,6 +38,7 @@ from signalbox.model import (
     DhcpRelay,
     DhcpServer,
     DnsService,
+    Firewall,
     Firmware,
     ManagementService,
     Neighbour,
@@ -56,7 +57,7 @@ from signalbox.model import (
 
 #: Version of this API. An adapter declares the version it was written for; the major part
 #: must match.
-API_VERSION = "1.3"
+API_VERSION = "1.4"
 
 
 class Capability(StrEnum):
@@ -69,6 +70,7 @@ class Capability(StrEnum):
     HEALTH = "health"  # uptime, CPU, memory, storage, sensors (API 1.2)
     TIME = "time"  # clock, time zone, NTP (API 1.2)
     VPN = "vpn"  # VPN tunnels and their peers (API 1.3)
+    FIREWALL = "firewall"  # zones, filter rules, NAT and port forwards (API 1.4)
 
 
 #: Adapter API version that introduced a capability (absent: 1.0). An adapter declaring a
@@ -77,6 +79,7 @@ SINCE: dict[Capability, str] = {
     Capability.HEALTH: "1.2",
     Capability.TIME: "1.2",
     Capability.VPN: "1.3",
+    Capability.FIREWALL: "1.4",
 }
 
 
@@ -439,6 +442,8 @@ class Observation(BaseModel):
     #: VPN tunnels with their peers (#239), read with ``vpn`` (API 1.3). Never a private or
     #: pre-shared key, also not in ``vendor_extra``.
     tunnels: list[Tunnel] = Field(default_factory=list)
+    #: Packet filter and NAT (#135), read with ``firewall`` (API 1.4): at most one per device.
+    firewalls: list[Firewall] = Field(default_factory=list)
     #: Devices managed through the observed one (API 1.1). Ids must start with
     #: ``<device id>/``; site, adapter and ``managed_by`` are filled in by ``observe()``.
     devices: list[Device] = Field(default_factory=list)
@@ -509,6 +514,15 @@ class ReadsVpn(Protocol):
     async def read_vpn(self) -> Observation: ...
 
 
+@runtime_checkable
+class ReadsFirewall(Protocol):
+    """Fill ``Observation.firewalls`` (API 1.4): zones, policies, filter rules in evaluation
+    order, NAT and port forwards; ``rules_complete = False`` where some rules are not
+    visible."""
+
+    async def read_firewall(self) -> Observation: ...
+
+
 PROTOCOLS: dict[Capability, tuple[type, str]] = {
     Capability.INTERFACES: (ReadsInterfaces, "read_interfaces"),
     Capability.DHCP: (ReadsDhcp, "read_dhcp"),
@@ -519,6 +533,7 @@ PROTOCOLS: dict[Capability, tuple[type, str]] = {
     Capability.HEALTH: (ReadsHealth, "read_health"),
     Capability.TIME: (ReadsTime, "read_time"),
     Capability.VPN: (ReadsVpn, "read_vpn"),
+    Capability.FIREWALL: (ReadsFirewall, "read_firewall"),
 }
 
 

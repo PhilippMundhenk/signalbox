@@ -21,6 +21,7 @@ from signalbox import __version__
 from signalbox.adapters import Adapter
 from signalbox.deploy import Deployer
 from signalbox.discovery.engine import Discovery
+from signalbox.firewall import service_from_internet
 from signalbox.model import (
     DeviceRole,
     DeviceStatus,
@@ -30,6 +31,7 @@ from signalbox.model import (
     Network,
     Site,
     Snapshot,
+    Verdict,
 )
 from signalbox.mqtt import MqttBridge
 from signalbox.rules import ENGINE_RULES, rule_enabled
@@ -112,7 +114,9 @@ def public_network(net: Network) -> dict[str, Any]:
     end of their active leases (``lease_expires``, #183), ports whether a cable can end there
     (``external``, #252), tunnel peers the networks they route (``networks``), the read tunnel
     at their other end (``other_end``) and the handshake age at the reading (``handshake_age``,
-    #239), so that the UI does not repeat the derivation.
+    #239), firewalls the action per zone pair (``matrix``: one row per source zone, the
+    device itself first, then each zone; ``null``: not known, #135), so that the UI does not
+    repeat the derivation.
     """
     data = net.model_dump(mode="json")
     for port, raw in zip(net.ports, data["ports"], strict=True):
@@ -127,7 +131,8 @@ def public_network(net: Network) -> dict[str, Any]:
         raw["upstream_device"] = front.device_id if front else None
     for service, raw in zip(net.services, data["services"], strict=True):
         raw["reach_segments"] = net.service_segments(service)
-        raw["internet"] = net.service_from_wan(service)
+        internet = service_from_internet(net, service).verdict
+        raw["internet"] = None if internet is Verdict.UNKNOWN else internet is Verdict.ALLOWED
     for client, raw in zip(net.clients, data["clients"], strict=True):
         sources = {str(a): net.address_source(client, a) for a in client.addresses}
         raw["sources"] = {a: s.value for a, s in sources.items() if s is not None}
@@ -138,6 +143,18 @@ def public_network(net: Network) -> dict[str, Any]:
             if lease.active() and lease.expires is not None
         ]
         raw["lease_expires"] = max(ends).isoformat() if ends else None
+    for fw, raw in zip(net.firewalls, data["firewalls"], strict=True):
+        names = [z.name for z in fw.zones]
+        matrix = []
+        for src in names:
+            row = []
+            for dst in (None, *names):
+                action = fw.policy(src, dst) or (
+                    fw.input_policy if dst is None else fw.forward_policy
+                )
+                row.append(action.value if action else None)
+            matrix.append(row)
+        raw["matrix"] = matrix
     for tunnel, raw in zip(net.tunnels, data["tunnels"], strict=True):
         at = tunnel.observed_at
         for p, praw in zip(tunnel.peers, raw["peers"], strict=True):

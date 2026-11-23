@@ -224,3 +224,54 @@ def test_plaintext_read_quiet() -> None:
         update={"transport_encrypted": False, "management_address": None}
     )
     assert run(plaintext_read, n) == []
+
+
+# --- with the firewall (#135) --------------------------------------------------------------
+
+
+def _gw_firewall(**kw: Any) -> Any:
+    from factories import firewall, policy, zone
+
+    kw.setdefault("policies", [policy("lan", None, "accept"), policy("iot", None, "reject")])
+    return firewall(
+        "gw",
+        zone("lan", LAN),
+        zone("iot", IOT),
+        zone("wan", "gw/uplink/wan"),
+        input_policy=kw.pop("input_policy", "reject"),
+        **kw,
+    )
+
+
+def test_wan_management_uses_the_firewall() -> None:
+    from factories import fw_rule
+
+    sv = [service("gw", "ssh"), service("gw", "https")]
+    blocked = make(services=sv, uplinks=[uplink("gw")], firewalls=[_gw_firewall()])
+    assert run(wan_management, blocked) == []
+    ssh = fw_rule("accept", "wan", port=22, proto="tcp", chain="input")
+    opened = make(services=sv, uplinks=[uplink("gw")], firewalls=[_gw_firewall(rules=[ssh])])
+    (f,) = run(wan_management, opened)
+    assert not f.incomplete and f.message == "gw accepts SSH (port 22) from the internet"
+    vague = fw_rule("accept", "wan", chain="input", exact=False, name="geo")
+    unsure = make(services=sv, uplinks=[uplink("gw")], firewalls=[_gw_firewall(rules=[vague])])
+    (f,) = run(wan_management, unsure)
+    assert f.incomplete and "does not decide it exactly" in f.message and "'geo'" in f.message
+
+
+def test_service_exposure_uses_the_firewall() -> None:
+    from factories import policy
+
+    blocked = exposure_net(services=[service("gw", "https")], firewalls=[_gw_firewall()])
+    assert run(service_exposure, blocked) == []
+    told = exposure_net(services=[service("gw", "ssh", segments=[IOT])], firewalls=[_gw_firewall()])
+    assert run(service_exposure, told) == []  # offered there, but the firewall rejects it
+    open_ = [policy("lan", None, "accept"), policy("iot", None, "accept")]
+    opened = exposure_net(
+        services=[service("gw", "https")], firewalls=[_gw_firewall(policies=open_)]
+    )
+    (f,) = run(service_exposure, opened)
+    assert not f.incomplete and f.message.startswith("gw offers HTTPS in")
+    blind = _gw_firewall(policies=[], input_policy=None)
+    (f,) = run(service_exposure, exposure_net(services=[service("gw", "https")], firewalls=[blind]))
+    assert f.incomplete and "does not decide it exactly" in f.message

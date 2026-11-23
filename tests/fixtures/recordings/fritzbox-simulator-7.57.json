@@ -1337,6 +1337,7 @@
   ],
   "neighbours": [],
   "tunnels": [],
+  "firewalls": [],
   "errors": [],
   "extra_devices": [],
   "extra_status": {}

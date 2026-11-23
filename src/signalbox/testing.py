@@ -27,6 +27,9 @@ from signalbox.model import (
     DeviceTime,
     DhcpRelay,
     DhcpServer,
+    Firewall,
+    FirewallChain,
+    FirewallProtocol,
     LeaseState,
     ManagementService,
     Membership,
@@ -44,6 +47,7 @@ from signalbox.model import (
     UplinkKind,
     Wlan,
     address_nat_class,
+    firewall_id,
     set_passphrase_digest_key,
     source_fits,
 )
@@ -364,6 +368,70 @@ def tunnel_problems(tunnel: Tunnel, port_ids: set[str]) -> list[str]:
     return out
 
 
+def firewall_problems(
+    fw: Firewall,
+    port_ids: set[str],
+    segment_ids: set[str],
+    uplink_ids: set[str],
+    tunnel_ids: set[str],
+) -> list[str]:
+    """A firewall (#135): its id, unique zone names, zone members that exist in the snapshot,
+    rules, policies and NAT that name known zones."""
+    out: list[str] = []
+    if fw.id != firewall_id(fw.device_id):
+        out.append(f"firewall {fw.id} is not {firewall_id(fw.device_id)}")
+    names = [z.name for z in fw.zones]
+    if len(set(names)) != len(names):
+        out.append(f"firewall {fw.id} lists a zone twice")
+    known = set(names)
+    own = f"{fw.device_id}/"
+    for z in fw.zones:
+        for kind, ids, refs in (
+            ("segment", segment_ids, z.segments),
+            ("uplink", uplink_ids, z.uplinks),
+            ("tunnel", tunnel_ids, z.tunnels),
+            ("port", port_ids, z.ports),
+        ):
+            for ref in refs:
+                if ref not in ids and (kind == "segment" or ref.startswith(own)):
+                    out.append(f"firewall {fw.id} zone {z.name} has unknown {kind} {ref}")
+    pairs = [(p.source, p.destination) for p in fw.policies]
+    if len(set(pairs)) != len(pairs):
+        out.append(f"firewall {fw.id} has two policies for the same zone pair")
+    for p in fw.policies:
+        for zone in (p.source, p.destination):
+            if zone is not None and zone not in known:
+                out.append(f"firewall {fw.id} policy names unknown zone {zone}")
+    for i, rule in enumerate(fw.rules):
+        where = f"firewall {fw.id} rule {rule.name or i}"
+        for zone in (*rule.source.zones, *rule.destination.zones):
+            if zone not in known:
+                out.append(f"{where} names unknown zone {zone}")
+        if (
+            rule.destination.ports
+            and rule.protocols
+            and not set(rule.protocols)
+            & {
+                FirewallProtocol.TCP,
+                FirewallProtocol.UDP,
+            }
+        ):
+            out.append(f"{where} has ports without TCP or UDP")
+        if rule.chain is FirewallChain.INPUT and rule.destination.zones:
+            out.append(f"{where} is an input rule with a destination zone")
+    for pf in fw.port_forwards:
+        for zone in pf.zones:
+            if zone not in known:
+                out.append(f"firewall {fw.id} port forward {pf.name} names unknown zone {zone}")
+    for n in fw.nat:
+        for zone in n.zones:
+            if zone not in known:
+                out.append(f"firewall {fw.id} NAT rule {n.name} names unknown zone {zone}")
+        if not n.masquerade and n.to_address is None:
+            out.append(f"firewall {fw.id} NAT rule {n.name} has neither masquerade nor address")
+    return out
+
+
 #: Names of fields that hold tunnel keys: never in ``vendor_extra`` (#239).
 SECRET_KEYS = re.compile(
     r"priv(ate)?[-_ ]?key|pre[-_ ]?shared[-_ ]?key|^psk$",
@@ -423,6 +491,8 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
         out.append(f"dhcp_relays reported without declaring {Capability.DHCP.value}")
     if snapshot.tunnels and Capability.VPN.value not in caps:
         out.append(f"tunnels reported without declaring {Capability.VPN.value}")
+    if snapshot.firewalls and Capability.FIREWALL.value not in caps:
+        out.append(f"firewalls reported without declaring {Capability.FIREWALL.value}")
     for d in devices:
         if d.health is not None:
             out += health_problems(d.id, d.health)
@@ -467,6 +537,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         "dhcp_relays",
         "dns_services",
         "tunnels",
+        "firewalls",
     )
     for kind in (*owned, "radios", "wlans"):
         for obj in getattr(snapshot, kind):
@@ -539,6 +610,13 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
             out.append(f"tunnel {tunnel.id} reported twice")
         tunnels.add(tunnel.id)
         out += tunnel_problems(tunnel, port_ids)
+    firewalls: set[str] = set()
+    uplink_ids = {u.id for u in snapshot.uplinks}
+    for fw in snapshot.firewalls:
+        if fw.device_id in firewalls:
+            out.append(f"firewall of {fw.device_id} reported twice")
+        firewalls.add(fw.device_id)
+        out += firewall_problems(fw, port_ids, segment_ids, uplink_ids, tunnels)
     out += secret_problems(snapshot)
     for nb in snapshot.neighbours:
         if nb.local_port_id not in port_ids:
