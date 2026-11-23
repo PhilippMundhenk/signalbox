@@ -1996,6 +1996,53 @@ class Neighbour(Observed):
     management_address: str | None = None
 
 
+class FdbKind(StrEnum):
+    """How a MAC address got into a forwarding database (#160)."""
+
+    #: Learned from traffic; ages out.
+    DYNAMIC = "dynamic"
+    #: Entered by hand (or by a protocol) and kept.
+    STATIC = "static"
+    #: An address of the device itself (a bridge's or port's own MAC).
+    SELF = "self"
+
+
+#: Most forwarding-database entries kept per device (#160). A busy switch can learn thousands;
+#: more are dropped by :meth:`signalbox.adapters.Adapter.observe` (dynamic ones first, then the
+#: oldest) with an optional read error, so the checks know the table is incomplete.
+FDB_LIMIT = 2048
+
+
+def fdb_id(device_id: str, port: str, mac: str, vlan: int | None = None) -> str:
+    """Id of a forwarding-database entry: ``<device>/fdb/<port name>/<vlan or ->/<mac>``."""
+    return object_id(device_id, "fdb", f"{port}/{vlan if vlan is not None else '-'}/{mac}")
+
+
+class FdbEntry(Observed):
+    """One entry of a device's forwarding database (MAC address table, #160): ``mac`` is
+    reachable through ``port_id``, as the device reports it, not merged into clients.
+
+    Read with ``clients`` (or ``interfaces`` where an integration has no client read); no
+    adapter API version needed. A controller reports the entries of the switches it manages
+    under their device ids. Personal data like clients: not in ``GET /api/network``, never in
+    MQTT.
+    """
+
+    #: The device whose table holds the entry (the observed device or one it manages).
+    device_id: str
+    #: The port the address was learned on: a physical port where the device says so, else the
+    #: port it reports (a bridge for its own addresses).
+    port_id: str
+    mac: Mac
+    #: VLAN id of the entry; None: the device keeps one table for all VLANs or does not say.
+    vlan: int | None = Field(default=None, ge=1, le=4094)
+    #: Segment of that VLAN where the device knows it.
+    segment_id: str | None = None
+    kind: FdbKind = FdbKind.DYNAMIC
+    #: Seconds since the entry was last refreshed; None: not reported.
+    age_seconds: Annotated[int, Field(ge=0)] | None = None
+
+
 class LinkOrigin(StrEnum):
     LLDP = "lldp"
     MAC = "mac"
@@ -2491,6 +2538,9 @@ class Snapshot(Model):
     wlans: list[Wlan] = Field(default_factory=list)
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
+    #: Forwarding database (MAC address table) entries (#160), at most
+    #: :data:`FDB_LIMIT` per device.
+    fdb: list[FdbEntry] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
     tunnels: list[Tunnel] = Field(default_factory=list)
     #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).
@@ -2566,6 +2616,9 @@ class Network(Model):
     wlans: list[Wlan] = Field(default_factory=list)
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
+    #: Forwarding database (MAC address table) entries (#160), at most
+    #: :data:`FDB_LIMIT` per device.
+    fdb: list[FdbEntry] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
     tunnels: list[Tunnel] = Field(default_factory=list)
     #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).
@@ -2622,6 +2675,7 @@ class Network(Model):
             self.wlans,
             self.clients,
             self.neighbours,
+            self.fdb,
             self.tunnels,
             self.firewalls,
             self.server_sightings,
@@ -2893,6 +2947,16 @@ class Network(Model):
     def uplink_at(self, port_id: str) -> Uplink | None:
         """The uplink that uses this port, where the device says (``Uplink.port_id``)."""
         return next((u for u in self.uplinks if u.port_id == port_id), None)
+
+    # forwarding databases (#160) ----------------------------------------------------------
+
+    def fdb_of(self, mac: str) -> list[FdbEntry]:
+        """Every entry of every read table for this MAC address (any kind)."""
+        return [e for e in self.fdb if e.mac == mac]
+
+    def fdb_on(self, port_id: str) -> list[FdbEntry]:
+        """The entries learned on a port."""
+        return [e for e in self.fdb if e.port_id == port_id]
 
     # internal port structure (#252, ADR 0008) -------------------------------------------
 

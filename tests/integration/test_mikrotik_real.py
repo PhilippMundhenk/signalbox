@@ -262,6 +262,9 @@ async def test_mapping_of_the_configured_router(rt: dict[str, str]) -> None:
     assert (e2.admin_up, e2.mtu, e2.pvid, e2.description) == (True, 1500, 1, None), e2
     assert (e3.pvid, e3.frame_types) == (1, FrameTypes.ALL), e3
     assert ports["bridge"].description == "LAN" and ports["ether1"].pvid is None
+    # the bridge host table (#160): at least the bridge's own addresses, on the bridge or a port
+    own = {e.port_id for e in net.fdb if e.kind.value == "self"}
+    assert own & {"rt/port/bridge", "rt/port/ether2", "rt/port/ether3"}, net.fdb
     lan = net.segment(LAN)
     assert lan is not None and lan.name == "LAN", lan
     assert [(m.port_id, m.mode.value) for m in lan.members] == [

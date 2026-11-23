@@ -82,6 +82,8 @@ from signalbox.model import (
     DnsForwarder,
     DnsService,
     Fan,
+    FdbEntry,
+    FdbKind,
     Firmware,
     FrameTypes,
     HostRecord,
@@ -126,6 +128,7 @@ from signalbox.model import (
     Wps,
     WpsMethod,
     address_nat_class,
+    fdb_id,
     normalise_mac,
     object_id,
     passphrase_digest,
@@ -1923,14 +1926,37 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 hostname=_text(row.get("host-name")),
                 segment=layout.l3.get(iface),
             )
+        fdb: dict[str, FdbEntry] = {}
         for row in await self._rows(BRIDGE_HOST):
-            if _flag(row.get("local")):
-                continue
             on = _text(row.get("on-interface")) or _text(row.get("interface"))
             vid = _int(row.get("vid"))
             bridge = _text(row.get("bridge"))
-            seg = self._seg(vid) if bridge in layout.filtering and vid else None
-            add(_mac(row.get("mac-address")), seen_on=layout.port(on), segment=seg)
+            filtering = bridge in layout.filtering
+            seg = self._seg(vid) if filtering and vid else None
+            mac, port = _mac(row.get("mac-address")), layout.port(on)
+            if mac is not None and port is not None and not int(mac[:2], 16) & 1:
+                vlan = vid if filtering else None
+                kind = (
+                    FdbKind.SELF
+                    if _flag(row.get("local"))
+                    else FdbKind.DYNAMIC
+                    if _flag(row.get("dynamic"))
+                    else FdbKind.STATIC
+                )
+                entry_seg = seg if filtering else layout.l3.get(bridge)
+                fid = fdb_id(dev, on, mac, vlan)
+                fdb[fid] = FdbEntry(
+                    id=fid,
+                    device_id=dev,
+                    port_id=port,
+                    mac=mac,
+                    vlan=vlan,
+                    segment_id=entry_seg if entry_seg in layout.segments else None,
+                    kind=kind,
+                    age_seconds=duration(row.get("age")),
+                )
+            if not _flag(row.get("local")):
+                add(mac, seen_on=port, segment=seg)
         for endpoint in (WIFI_REGISTRATION, WIRELESS_REGISTRATION):
             for row in await self._optional_rows(endpoint):
                 iface = _text(row.get("interface"))
@@ -1956,7 +1982,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             )
             for mac, e in sorted(seen.items())
         ]
-        return Observation(clients=clients)
+        return Observation(clients=clients, fdb=[fdb[k] for k in sorted(fdb)])
 
     # --- neighbours ---------------------------------------------------------------------------
 

@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Any
 
+from signalbox.fdb import adjacencies
 from signalbox.model import (
     Device,
     Link,
@@ -36,17 +37,15 @@ def _mac(value: str | None) -> str | None:
         return None
 
 
-def _device_index(net: Network) -> tuple[dict[str, Device], dict[str, Port], dict[str, Device]]:
-    """Lookups: chassis/MAC → device, MAC → port, name → device."""
+def _device_index(net: Network) -> tuple[dict[str, Device], dict[str, Device]]:
+    """Lookups: chassis/MAC → device, name → device."""
     by_mac: dict[str, Device] = {}
-    port_by_mac: dict[str, Port] = {}
     for p in net.ports:
         dev = net.device(p.device_id)
         if p.mac and dev:
             by_mac.setdefault(p.mac, dev)
-            port_by_mac.setdefault(p.mac, p)
     by_name = {d.name.lower(): d for d in net.devices}
-    return by_mac, port_by_mac, by_name
+    return by_mac, by_name
 
 
 def _remote_port(net: Network, device: Device, name: str | None) -> Port | None:
@@ -61,7 +60,7 @@ def _remote_port(net: Network, device: Device, name: str | None) -> Port | None:
 
 def lldp_links(net: Network) -> Iterator[Link]:
     """A link for every LLDP neighbour that is a known device with a known port."""
-    by_mac, _, by_name = _device_index(net)
+    by_mac, by_name = _device_index(net)
     for nb in net.neighbours:
         local = net.port(nb.local_port_id)
         if local is None:
@@ -81,19 +80,15 @@ def lldp_links(net: Network) -> Iterator[Link]:
 
 
 def mac_links(net: Network) -> Iterator[Link]:
-    """A link where one device sees another device's port MAC on one of its own ports."""
-    _, port_by_mac, _ = _device_index(net)
-    for client in net.clients:
-        remote = port_by_mac.get(client.mac)
-        local = net.port(client.seen_on or "")
-        if remote is None or local is None or remote.device_id == local.device_id:
-            continue
-        kind = LinkKind.WIRELESS if local.kind.value == "wireless" else LinkKind.CABLE
+    """A link where a port of one device learns another managed device's address in its
+    forwarding database (#160, :mod:`signalbox.fdb`): also through switches that are not read,
+    the nearest device only. Devices without a table count their clients' ``seen_on``."""
+    for adj in adjacencies(net):
         yield Link(
-            id=link_id(LinkOrigin.MAC, local.id, remote.id),
-            a=local.id,
-            b=remote.id,
-            kind=kind,
+            id=link_id(LinkOrigin.MAC, adj.local, adj.remote),
+            a=adj.local,
+            b=adj.remote,
+            kind=LinkKind.WIRELESS if adj.wireless else LinkKind.CABLE,
             origin=LinkOrigin.MAC,
         )
 

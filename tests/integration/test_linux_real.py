@@ -33,6 +33,7 @@ from signalbox.adapters.ssh import sha256_hex
 from signalbox.model import (
     DeviceRole,
     DeviceStatus,
+    FdbKind,
     FirewallAction,
     Membership,
     PortRole,
@@ -107,6 +108,11 @@ async def test_read_as_the_documented_user(lx: Target) -> None:
     assert ports["lan0.30"].role is PortRole.VLAN and ports["lan0.30"].lower == ["gw2/port/lan0"]
     assert ports["lan1"].role is PortRole.VIRTUAL  # dummies
     assert ports["wg0"].role is PortRole.TUNNEL
+    # the bridge's MAC address table as the read user, without root (#160)
+    fdb = {(e.port_id, e.mac): e for e in snap.fdb}
+    static = fdb[("gw2/port/lan1", "02:00:00:00:53:01")]
+    assert static.kind is FdbKind.STATIC and static.device_id == "gw2"
+    assert any(e.kind is FdbKind.SELF for e in snap.fdb)
     (tunnel,) = snap.tunnels
     assert tunnel.public_key == lx.extra["WG_PUBLIC"] and tunnel.listen_port == 51820
     assert tunnel.port_id == "gw2/port/wg0" and tunnel.up is True

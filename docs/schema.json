@@ -1679,6 +1679,121 @@
       "title": "Fan",
       "type": "object"
     },
+    "FdbEntry": {
+      "additionalProperties": false,
+      "description": "One entry of a device's forwarding database (MAC address table, #160): ``mac`` is\nreachable through ``port_id``, as the device reports it, not merged into clients.\n\nRead with ``clients`` (or ``interfaces`` where an integration has no client read); no\nadapter API version needed. A controller reports the entries of the switches it manages\nunder their device ids. Personal data like clients: not in ``GET /api/network``, never in\nMQTT.",
+      "properties": {
+        "age_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Age Seconds"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FdbKind",
+          "default": "dynamic"
+        },
+        "mac": {
+          "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+          "title": "Mac",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "port_id": {
+          "title": "Port Id",
+          "type": "string"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Id"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        },
+        "vlan": {
+          "anyOf": [
+            {
+              "maximum": 4094,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vlan"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "port_id",
+        "mac"
+      ],
+      "title": "FdbEntry",
+      "type": "object"
+    },
+    "FdbKind": {
+      "description": "How a MAC address got into a forwarding database (#160).",
+      "enum": [
+        "dynamic",
+        "static",
+        "self"
+      ],
+      "title": "FdbKind",
+      "type": "string"
+    },
     "Firewall": {
       "additionalProperties": false,
       "description": "The packet filter and NAT of one device (#135), ``<device>/firewall``.\n\nRead with the ``firewall`` capability (adapter API 1.4). A device without a ``Firewall``\nis \"not read\", never \"filters nothing\": that is ``enabled = False``.",
@@ -2778,6 +2893,13 @@
             "$ref": "#/$defs/ReadError"
           },
           "title": "Errors",
+          "type": "array"
+        },
+        "fdb": {
+          "items": {
+            "$ref": "#/$defs/FdbEntry"
+          },
+          "title": "Fdb",
           "type": "array"
         },
         "firewalls": {
@@ -4592,6 +4714,13 @@
           },
           "title": "Extra Status",
           "type": "object"
+        },
+        "fdb": {
+          "items": {
+            "$ref": "#/$defs/FdbEntry"
+          },
+          "title": "Fdb",
+          "type": "array"
         },
         "firewalls": {
           "items": {

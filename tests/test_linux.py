@@ -86,6 +86,14 @@ async def test_contract_and_values() -> None:
     assert d.model == "Raspberry Pi 5 Model B Rev 1.0" and d.vendor == "Raspberry Pi"
     assert d.firmware is not None and d.firmware.current == "Debian GNU/Linux 12 (bookworm)"
     assert d.transport_encrypted is True
+    # br0's table (#160): no multicast, no entries of a port's own list, no unknown port
+    assert [(e.port_id, e.mac, e.kind.value, e.age_seconds) for e in snap.fdb] == [
+        ("gw2/port/br0", "02:5b:00:00:00:02", "self", None),
+        ("gw2/port/eth1", "02:00:00:00:00:10", "dynamic", 4),
+        ("gw2/port/eth1", "02:00:00:00:00:44", "static", None),
+        ("gw2/port/eth1", "02:5b:00:00:00:02", "self", None),
+        ("gw2/port/wlan0", "02:00:00:00:00:21", "dynamic", 31),
+    ]
     ports = {p.name: p for p in snap.ports}
     assert "lo" not in ports
     assert ports["eth0"].role is PortRole.JACK and ports["eth0"].speed_mbps == 1000

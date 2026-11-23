@@ -63,6 +63,7 @@ from signalbox.model import (
     DeviceRole,
     DhcpPool,
     DhcpServer,
+    FdbEntry,
     Firewall,
     FirewallAction,
     FirewallRule,
@@ -89,6 +90,7 @@ from signalbox.model import (
     Uplink,
     UplinkKind,
     Wlan,
+    fdb_id,
     firewall_id,
     normalise_mac,
     object_id,
@@ -1188,6 +1190,7 @@ class OmadaAdapter(_Adapter):
         except AdapterError:
             wireless = None  # clients are still worth reporting, without their WLAN
         clients: dict[str, Client] = {}
+        fdb: dict[str, FdbEntry] = {}
         for row in await self._rows(f"{self._site_path}/clients"):
             mac = _mac(row.get("mac"))
             if mac is None or mac in own or mac in clients:
@@ -1214,6 +1217,17 @@ class OmadaAdapter(_Adapter):
                 number = _int(row.get("port"))
                 if sw is not None and number is not None:
                     seen_on = f"{self._prefix(sw)}/port/{number}"
+                    # the controller's client list is the switch's table for this MAC (#160)
+                    vlan = vid if vid and 1 <= vid <= 4094 else None
+                    fid = fdb_id(self._prefix(sw), str(number), mac, vlan)
+                    fdb[fid] = FdbEntry(
+                        id=fid,
+                        device_id=self._prefix(sw),
+                        port_id=seen_on,
+                        mac=mac,
+                        vlan=vlan,
+                        segment_id=seg,
+                    )
             hostname = _text(row.get("hostName")) or _text(row.get("name"))
             last = _int(row.get("lastSeen"))
             clients[mac] = Client(
@@ -1225,7 +1239,9 @@ class OmadaAdapter(_Adapter):
                 seen_on=seen_on,
                 last_seen=datetime.fromtimestamp(last / 1000, UTC) if last else None,
             )
-        return Observation(clients=[clients[m] for m in sorted(clients)])
+        return Observation(
+            clients=[clients[m] for m in sorted(clients)], fdb=[fdb[k] for k in sorted(fdb)]
+        )
 
 
 __all__ = ["OmadaAdapter", "OmadaConfig"]

@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from ipaddress import IPv4Network, IPv6Network, ip_address
 
+from signalbox.fdb import place_clients
 from signalbox.model import (
     AddressSource,
     Client,
@@ -271,6 +272,9 @@ def _split_snapshot(snap: Snapshot, native: dict[str, str]) -> Snapshot:
                 for f in snap.firewalls
             ],
             "clients": [client(c) for c in snap.clients],
+            "fdb": [
+                e.model_copy(update={"segment_id": of(e.device_id, e.segment_id)}) for e in snap.fdb
+            ],
         }
     )
 
@@ -346,7 +350,9 @@ def _merge_clients(snapshots: list[Snapshot]) -> list[Client]:
     """One client per MAC address.
 
     Addresses are joined. Where it was seen comes from the most specific device: an access point
-    or switch knows the port, a gateway only knows the client exists.
+    or switch knows the port, a gateway only knows the client exists. A wired client's port is
+    then taken from the forwarding databases where they know it (#160,
+    :func:`signalbox.fdb.place_clients`).
     """
     rank = {DeviceRole.AP: 0, DeviceRole.SWITCH: 1, DeviceRole.OTHER: 2, DeviceRole.GATEWAY: 3}
     ordered = sorted(snapshots, key=lambda s: (rank[s.device.role], s.device.id))
@@ -418,6 +424,7 @@ def merge(
             "wlans": every("wlans"),
             "clients": _merge_clients(snaps),
             "neighbours": every("neighbours"),
+            "fdb": every("fdb"),
             "tunnels": every("tunnels"),
             "firewalls": every("firewalls"),
             "server_sightings": every("server_sightings"),
@@ -425,4 +432,4 @@ def merge(
             "errors": every("errors"),
         }
     )
-    return with_heuristics(net)
+    return with_heuristics(place_clients(net))

@@ -32,6 +32,7 @@ from signalbox.model import (
     Site,
     Snapshot,
     Verdict,
+    normalise_mac,
 )
 from signalbox.mqtt import MqttBridge
 from signalbox.prober import Prober
@@ -120,9 +121,10 @@ def public_network(net: Network) -> dict[str, Any]:
     at their other end (``other_end``) and the handshake age at the reading (``handshake_age``,
     #239), firewalls the action per zone pair (``matrix``: one row per source zone, the
     device itself first, then each zone; ``null``: not known, #135), so that the UI does not
-    repeat the derivation.
+    repeat the derivation. The MAC address tables (``fdb``, #160) are left out: they can be
+    large and are read with ``GET /api/fdb``.
     """
-    data = net.model_dump(mode="json")
+    data = net.model_dump(mode="json", exclude={"fdb"})
     for port, raw in zip(net.ports, data["ports"], strict=True):
         raw["external"] = port.external
     for wlan in data["wlans"]:
@@ -584,6 +586,32 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     def network() -> dict[str, Any]:
         """The merged network model without passphrase data; derived uplink and service values."""
         return public_network(runner.network())
+
+    @api.get("/fdb", response_model=None)
+    def fdb(
+        device: str | None = None, mac: str | None = None
+    ) -> list[dict[str, Any]] | JSONResponse:
+        """MAC address table entries (#160): of one device (``?device=``, also the switches a
+        controller manages), of one MAC address (``?mac=``), or all. Each with ``client``,
+        the merged client of that address (``client/<mac>``) if there is one."""
+        net = runner.network()
+        wanted = None
+        if mac is not None:
+            try:
+                wanted = normalise_mac(mac)
+            except ValueError:
+                return error(422, "invalid", "not a MAC address")
+        clients = {c.mac for c in net.clients}
+        out = []
+        for e in net.fdb:
+            if (device is not None and e.device_id != device) or (
+                wanted is not None and e.mac != wanted
+            ):
+                continue
+            raw = e.model_dump(mode="json")
+            raw["client"] = f"client/{e.mac}" if e.mac in clients else None
+            out.append(raw)
+        return out
 
     @api.get("/findings")
     def findings(resolved: bool = False) -> list[dict[str, Any]]:
