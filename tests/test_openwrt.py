@@ -1309,6 +1309,7 @@ async def test_wireguard_tunnel_and_peers(sim: OpenWrtSim, adapter: OpenWrtAdapt
     )
     assert phone.keepalive_seconds == 0 and phone.rx_bytes == 0
     assert [str(n) for n in t.remote_networks(site)] == ["192.0.2.0/24"]
+    assert [str(n) for n in t.routes or []] == ["2001:db8:ff::1/128", "192.0.2.0/24"]
 
 
 async def test_no_private_or_preshared_key_leaves_the_adapter(
@@ -1382,3 +1383,37 @@ def test_wireguard_helpers_are_defensive() -> None:
     assert wireguard._endpoint("[2001:db8::1]:51820") == ("2001:db8::1", 51820)
     assert wireguard._endpoint("(none)") == (None, None)
     assert wireguard._endpoint("h:x") == ("h:x", None)
+
+
+def test_wireguard_routes_come_from_route_sections_and_route_allowed_ips() -> None:
+    uci: dict[str, Any] = {
+        "values": {
+            "a": {
+                ".type": "route",
+                "interface": "wg0",
+                "target": "198.51.100.0",
+                "netmask": "255.255.255.0",
+            },
+            "b": {".type": "route6", "interface": "wg0", "target": "2001:db8:20::/64"},
+            "c": {".type": "route", "interface": "lan", "target": "203.0.113.0/24"},
+            "d": {
+                ".type": "route",
+                "interface": "wg0",
+                "target": "203.0.113.0/24",
+                "disabled": "1",
+            },
+            "e": {".type": "route", "interface": "wg0", "target": "nonsense"},
+            "f": {".type": "route", "interface": "wg0"},
+            "g": {
+                ".type": "wireguard_wg0",
+                "route_allowed_ips": "1",
+                "allowed_ips": ["192.0.2.0/24"],
+            },
+            "h": {".type": "wireguard_wg0", "allowed_ips": ["192.0.2.128/25"]},
+        }
+    }
+    assert [str(n) for n in wireguard.routes(uci, "wg0")] == [
+        "198.51.100.0/24",
+        "2001:db8:20::/64",
+        "192.0.2.0/24",
+    ]

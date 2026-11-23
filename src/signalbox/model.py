@@ -762,6 +762,10 @@ class Tunnel(Observed):
     #: The device's own addresses on the tunnel, with prefix length.
     addresses: list[IPInterface] = Field(default_factory=list)
     mtu: Annotated[int, Field(ge=68, le=65535)] | None = None
+    #: Networks the device routes into this tunnel by its configuration: static routes through
+    #: the interface and the allowed IPs of peers whose routes it installs itself. None: the
+    #: integration does not know (routes set by scripts are not seen either).
+    routes: list[IPNetwork] | None = None
     peers: list[TunnelPeer] = Field(default_factory=list)
 
     def peer(self, public_key: str) -> TunnelPeer | None:

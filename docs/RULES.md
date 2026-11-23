@@ -161,6 +161,14 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`vlan.trunk-scope`](rules/vlan.md#vlantrunk-scope)
 - [`link.slow`](rules/vlan.md#linkslow)
 
+## [VPN tunnels](rules/vpn.md)
+
+- [`vpn.handshake-stale`](rules/vpn.md#vpnhandshake-stale)
+- [`vpn.allowed-ips-overlap`](rules/vpn.md#vpnallowed-ips-overlap)
+- [`vpn.allowed-ips-unrouted`](rules/vpn.md#vpnallowed-ips-unrouted)
+- [`vpn.keepalive-behind-nat`](rules/vpn.md#vpnkeepalive-behind-nat)
+- [`vpn.ends-disagree`](rules/vpn.md#vpnends-disagree)
+
 ## [Internet connection (WAN)](rules/wan.md)
 
 - [`wan.cgnat`](rules/wan.md#wancgnat)

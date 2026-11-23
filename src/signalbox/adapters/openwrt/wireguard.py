@@ -145,6 +145,36 @@ def _peers(name: str, uci: dict[str, Any], runtime: dict[str, Any]) -> list[Tunn
     return list(out.values())
 
 
+def _route_target(section: dict[str, Any]) -> IPNetwork | None:
+    """``option target`` of a ``route`` (with ``netmask``) or ``route6`` section."""
+    target = str(section.get("target") or "").strip()
+    if not target:
+        return None
+    if "/" not in target and section.get("netmask"):
+        target = f"{target}/{section['netmask']}"
+    try:
+        return ip_network(target, strict=False)
+    except ValueError:
+        return None
+
+
+def routes(uci: dict[str, Any], name: str) -> list[IPNetwork]:
+    """What the configuration routes into interface *name*: ``route``/``route6`` sections of
+    the interface, and the allowed IPs of peers with ``route_allowed_ips``."""
+    out: list[IPNetwork] = []
+    values = uci.get("values")
+    for section in values.values() if isinstance(values, dict) else []:
+        if not isinstance(section, dict) or _flag(section.get("disabled")):
+            continue
+        kind = section.get(".type")
+        if kind in ("route", "route6") and section.get("interface") == name:
+            if (net := _route_target(section)) is not None:
+                out.append(net)
+        elif kind == f"wireguard_{name}" and _flag(section.get("route_allowed_ips")):
+            out += _networks(section.get("allowed_ips"))
+    return out
+
+
 def _nonneg(value: Any) -> int | None:
     n = _int(value)
     return n if n is not None and n >= 0 else None
@@ -183,6 +213,7 @@ def tunnels(
                 public_key=_key(live.get("public_key")),
                 addresses=addresses,
                 mtu=mtu if mtu is not None and 68 <= mtu <= 65535 else None,
+                routes=routes(uci, name),
                 peers=_peers(name, uci, live),
             )
         )

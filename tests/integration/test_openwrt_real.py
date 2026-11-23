@@ -565,3 +565,4 @@ async def test_wireguard_interface_and_peer(ow: Target, pin: str) -> None:
     assert peer.latest_handshake is None  # nobody answers at 203.0.113.20
     assert peer.rx_bytes == 0 and peer.tx_bytes is not None
     assert [str(n) for n in t.remote_networks(peer)] == ["203.0.113.0/24"]
+    assert t.routes == []  # the image routes nothing into the tunnel (no route allowed IPs)
