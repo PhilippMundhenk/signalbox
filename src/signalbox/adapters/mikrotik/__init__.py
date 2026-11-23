@@ -1920,8 +1920,9 @@ def wireguard_rows(data: Any, endpoint: str) -> list[dict[str, Any]]:
 
 
 def wireguard_peers(rows: list[dict[str, Any]], now: datetime) -> list[TunnelPeer]:
-    """Peers of one interface from :func:`wireguard_rows` (``last-handshake`` is how long ago,
-    absent or empty before the first one; ``current-endpoint-*`` is where the peer was seen)."""
+    """Peers of one interface from :func:`wireguard_rows`. The name is the ``comment``, else
+    ``name`` (RouterOS numbers peers ``peer1``, ...); ``last-handshake`` is how long ago, absent
+    or empty before the first one; ``current-endpoint-*`` is where the peer was seen."""
     out: dict[str, TunnelPeer] = {}
     for row in rows:
         key = _wg_key(row.get("public-key"))
@@ -1942,7 +1943,7 @@ def wireguard_peers(rows: list[dict[str, Any]], now: datetime) -> list[TunnelPee
         rx, tx = _int(row.get("rx")), _int(row.get("tx"))
         out[key] = TunnelPeer(
             public_key=key,
-            name=_text(row.get("name")) or _text(row.get("comment")) or None,
+            name=_text(row.get("comment")) or _text(row.get("name")) or None,
             endpoint_host=host or None,
             endpoint_port=port if host and port and 1 <= port <= 65535 else None,
             allowed_ips=allowed,

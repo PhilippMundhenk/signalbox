@@ -378,7 +378,8 @@ def sample_data() -> dict[str, Any]:
         "/rest/interface/wireguard/peers": _ids(
             {
                 "interface": "wg0",
-                "name": "site-b",
+                "name": "peer1",
+                "comment": "site-b",
                 "public-key": WG_SITE,
                 "private-key": "",
                 "preshared-key": _wg_key("sim-secret-psk"),
@@ -395,6 +396,7 @@ def sample_data() -> dict[str, Any]:
             },
             {
                 "interface": "wg0",
+                "name": "peer2",
                 "public-key": WG_PHONE,
                 "allowed-address": "2001:db8:ff::3/128",
                 "endpoint-address": "",
