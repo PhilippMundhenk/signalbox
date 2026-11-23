@@ -272,6 +272,7 @@ def default_wireguard() -> dict[str, str]:
         f"wg0\t{PHONE_KEY}\t203.0.113.251/32\n",
         "latest-handshakes": f"wg0\t{PEER_KEY}\t{NOW - 42}\nwg0\t{PHONE_KEY}\t0\n",
         "transfer": f"wg0\t{PEER_KEY}\t123456\t654321\nwg0\t{PHONE_KEY}\t0\t0\n",
+        "persistent-keepalive": f"wg0\t{PEER_KEY}\t25\nwg0\t{PHONE_KEY}\toff\n",
     }
 
 

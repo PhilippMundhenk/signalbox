@@ -94,7 +94,21 @@ async def test_contract_and_values() -> None:
     assert ports["wlan0"].role is PortRole.WIRELESS
     assert ports["eth1.30"].role is PortRole.VLAN and ports["eth1.30"].lower == ["gw2/port/eth1"]
     assert ports["wg0"].role is PortRole.TUNNEL and ports["wg0"].up is True
-    assert ports["wg0"].vendor_extra["public_key"] == sim.GW_KEY
+    (tunnel,) = snap.tunnels
+    assert tunnel.id == "gw2/tunnel/wg0" and tunnel.port_id == "gw2/port/wg0"
+    assert tunnel.public_key == sim.GW_KEY and tunnel.listen_port == 51820 and tunnel.up
+    assert [str(a) for a in tunnel.addresses] == ["203.0.113.250/30"] and tunnel.mtu == 1420
+    peers = {p.public_key: p for p in tunnel.peers}
+    site = peers[sim.PEER_KEY]
+    assert (site.endpoint_host, site.endpoint_port) == ("203.0.113.1", 51820)
+    assert [str(n) for n in site.allowed_ips] == ["203.0.113.249/32", "198.51.100.128/25"]
+    assert site.latest_handshake == datetime.fromtimestamp(sim.NOW - 42, UTC)
+    assert (site.rx_bytes, site.tx_bytes, site.keepalive_seconds) == (123456, 654321, 25)
+    assert site.preshared_key is None  # never read
+    phone = peers[sim.PHONE_KEY]
+    assert phone.endpoint_host is None and phone.latest_handshake is None
+    assert phone.keepalive_seconds == 0
+    assert [str(n) for n in tunnel.remote_networks(site)] == ["198.51.100.128/25"]
     segs = {s.id: s for s in snap.segments}
     native = segs["home/segment/native"]
     assert {(m.port_id, m.mode) for m in native.members} == {
@@ -172,17 +186,18 @@ async def test_wireguard_without_sudoers_is_a_gap() -> None:
         snap = await adapter.observe()
     assert snap.status is DeviceStatus.PARTIAL
     (err,) = snap.errors
+    assert err.capability == "vpn"
     assert "wg show" in err.message and err.fix and "sudoers" in err.fix
-    wg0 = next(p for p in snap.ports if p.name == "wg0")
-    assert "public_key" not in wg0.vendor_extra
+    (tunnel,) = snap.tunnels
+    assert tunnel.public_key is None and tunnel.peers == [] and tunnel.up is True
 
 
 async def test_wireguard_with_the_sudoers_rule() -> None:
     box = device()
     async with adapter_for(box) as adapter:
         snap = await assert_contract(adapter)
-    wg0 = next(p for p in snap.ports if p.name == "wg0")
-    assert wg0.vendor_extra["peers"] == 2 and wg0.vendor_extra["listen_port"] == 51820
+    (tunnel,) = snap.tunnels
+    assert len(tunnel.peers) == 2 and tunnel.listen_port == 51820
 
 
 async def test_role_other_has_no_uplink_and_eth0_is_a_network() -> None:
@@ -724,6 +739,7 @@ def test_wireguard_parser() -> None:
         wg_allowed_ips=f"wg0\t{sim.PEER_KEY}\t198.51.100.0/24 bad",
         wg_latest_handshakes=f"wg0\t{sim.PEER_KEY}\tx",
         wg_transfer=f"wg0\t{sim.PEER_KEY}\t1\tx",
+        wg_persistent_keepalive=f"wg0\t{sim.PEER_KEY}\tx\nwg0\t{sim.PHONE_KEY}\t70000",
     )
     ifaces, denied = wireguard.read(a)
     assert not denied
@@ -734,6 +750,7 @@ def test_wireguard_parser() -> None:
     assert (peer.endpoint_host, peer.endpoint_port) == ("2001:db8::1", 51820)
     assert peer.allowed_ips == [ip_network("198.51.100.0/24")] and peer.rx_bytes is None
     assert wg0.peers[sim.PHONE_KEY].endpoint_host is None
+    assert wg0.peers[sim.PHONE_KEY].keepalive_seconds is None
     assert wireguard.endpoint("(none)") == (None, None)
     assert wireguard.endpoint("h:99999") == ("h", None)
 

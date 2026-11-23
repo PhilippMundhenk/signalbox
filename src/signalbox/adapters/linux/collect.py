@@ -24,6 +24,7 @@ WG_FIELDS = (
     "allowed-ips",
     "latest-handshakes",
     "transfer",
+    "persistent-keepalive",
 )
 #: Words that must never appear in a command sent to the device (checked by the tests).
 FORBIDDEN = ("dump", "private-key", "preshared-key", "/etc/wireguard", "showconf")

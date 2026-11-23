@@ -17,7 +17,7 @@ wg genkey > /root/wg0.key
 ip link add wg0 type wireguard
 wg set wg0 listen-port 51820 private-key /root/wg0.key \
   peer "$(wg genkey | wg pubkey)" endpoint 203.0.113.1:51820 \
-  allowed-ips 203.0.113.249/32,198.51.100.128/25
+  allowed-ips 203.0.113.249/32,198.51.100.128/25 persistent-keepalive 25
 ip addr add 203.0.113.250/30 dev wg0
 ip link set wg0 up
 ip route add 198.51.100.128/25 dev wg0

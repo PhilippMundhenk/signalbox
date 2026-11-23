@@ -58,6 +58,8 @@ from signalbox.model import (
     Segment,
     ServiceKind,
     Subnet,
+    Tunnel,
+    TunnelPeer,
     Uplink,
     UplinkKind,
     object_id,
@@ -135,7 +137,7 @@ class LinuxAdapter(Adapter):
         id="linux",
         name="Linux (Debian, Raspberry Pi OS)",
         version="0.1.0",
-        api_version="1.2",
+        api_version="1.3",
         vendor="Linux",
         roles=frozenset({DeviceRole.GATEWAY, DeviceRole.OTHER}),
         capabilities=frozenset(
@@ -145,6 +147,7 @@ class LinuxAdapter(Adapter):
                 Capability.DNS,
                 Capability.HEALTH,
                 Capability.TIME,
+                Capability.VPN,
             }
         ),
         config=LinuxConfig,
@@ -282,35 +285,66 @@ class LinuxAdapter(Adapter):
 
     async def read_interfaces(self) -> Observation:
         lay = self._layout()
-        gaps: list[Gap] = []
-        services = self._services(lay)
-        wg, denied = wireguard.read(self.answer)
-        if denied and lay.wireguard:
-            gaps.append(
-                Gap(
-                    message="WireGuard: wg show is not allowed for this user",
-                    fix="Add the sudoers rule of the setup guide (/etc/sudoers.d/signalbox), "
-                    "or run Set up automatically again.",
-                )
-            )
-        for name, iface in wg.items():  # until tunnels are in the model: on the port
-            if name in lay.ports:
-                p = lay.ports[name]
-                extra = dict(p.vendor_extra)
-                if iface.public_key:
-                    extra["public_key"] = iface.public_key
-                if iface.listen_port:
-                    extra["listen_port"] = iface.listen_port
-                extra["peers"] = len(iface.peers)
-                lay.ports[name] = p.model_copy(update={"vendor_extra": extra})
         return Observation(
             ports=list(lay.ports.values()),
             segments=lay.segments(),
             subnets=lay.subnets,
             uplinks=lay.uplinks,
-            services=services,
-            incomplete=gaps,
+            services=self._services(lay),
         )
+
+    # WireGuard ----------------------------------------------------------------------------
+
+    async def read_vpn(self) -> Observation:
+        """Every WireGuard interface of ``ip -d link`` with what ``wg show all <field>`` says;
+        without the permission for ``wg`` the interfaces without keys and peers, and a gap."""
+        d = self.context.device_id
+        links = {n: x for n, x in parse.links(self.answer).items() if x.kind == "wireguard"}
+        wg, denied = wireguard.read(self.answer)
+        gaps: list[Gap] = []
+        if denied and links:
+            gaps.append(
+                Gap(
+                    message="WireGuard: wg show is not allowed for this user, so the public "
+                    "keys and peers are not read",
+                    fix="Add the sudoers rule of the setup guide "
+                    f"({setup.sudoers_path(self.config.username)}), or run Set up "
+                    "automatically again.",
+                )
+            )
+        tunnels: list[Tunnel] = []
+        for name in sorted(set(links) | set(wg)):
+            link = links.get(name)
+            iface = wg.get(name, wireguard.WgInterface(name))
+            mtu = link.raw.get("mtu") if link is not None else None
+            tunnels.append(
+                Tunnel(
+                    id=object_id(d, "tunnel", name),
+                    device_id=d,
+                    name=name,
+                    port_id=port_id(d, name) if link is not None else None,
+                    up=link.up if link is not None else None,
+                    listen_port=iface.listen_port,
+                    public_key=iface.public_key,
+                    addresses=parse.global_addresses(link) if link is not None else [],
+                    mtu=mtu if isinstance(mtu, int) and 68 <= mtu <= 65535 else None,
+                    peers=[
+                        TunnelPeer(
+                            public_key=p.public_key,
+                            endpoint_host=p.endpoint_host,
+                            endpoint_port=p.endpoint_port if p.endpoint_host else None,
+                            allowed_ips=p.allowed_ips,
+                            latest_handshake=p.latest_handshake,
+                            rx_bytes=p.rx_bytes,
+                            tx_bytes=p.tx_bytes,
+                            keepalive_seconds=p.keepalive_seconds,
+                        )
+                        for p in iface.peers.values()
+                        if p.public_key != iface.public_key
+                    ],
+                )
+            )
+        return Observation(tunnels=tunnels, incomplete=gaps)
 
     def _services(self, lay: _Layout) -> list[ManagementService]:
         a = self.answer
@@ -576,7 +610,6 @@ class _Layout:
         self.uplinks: list[Uplink] = []
         #: L3 interface name -> (segment id, addresses)
         self.networks: dict[str, tuple[str, list[IPInterface]]] = {}
-        self.wireguard = False
 
     def seg(self, vlan: int | None) -> str:
         return segment_id(self.site, vlan)
@@ -620,8 +653,6 @@ class _Layout:
                 lower=[port_id(device, x) for x in lower],
                 vendor_extra=extra,
             )
-            if link.kind == "wireguard":
-                lay.wireguard = True
 
         # uplinks: interfaces with a default route (a gateway only)
         uplink_devs: dict[str, list[parse.Route]] = {}

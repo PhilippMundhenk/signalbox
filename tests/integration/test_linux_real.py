@@ -100,9 +100,15 @@ async def test_read_as_the_documented_user(lx: Target) -> None:
     assert ports["lan0.30"].role is PortRole.VLAN and ports["lan0.30"].lower == ["gw2/port/lan0"]
     assert ports["lan1"].role is PortRole.VIRTUAL  # dummies
     assert ports["wg0"].role is PortRole.TUNNEL
-    assert ports["wg0"].vendor_extra.get("public_key") == lx.extra["WG_PUBLIC"]
-    assert ports["wg0"].vendor_extra.get("peers") == 1
-    assert ports["wg0"].vendor_extra.get("listen_port") == 51820
+    (tunnel,) = snap.tunnels
+    assert tunnel.public_key == lx.extra["WG_PUBLIC"] and tunnel.listen_port == 51820
+    assert tunnel.port_id == "gw2/port/wg0" and tunnel.up is True
+    assert [str(a) for a in tunnel.addresses] == ["203.0.113.250/30"]
+    (peer,) = tunnel.peers
+    assert (peer.endpoint_host, peer.endpoint_port) == ("203.0.113.1", 51820)
+    assert {str(n) for n in peer.allowed_ips} == {"203.0.113.249/32", "198.51.100.128/25"}
+    assert peer.latest_handshake is None and peer.keepalive_seconds == 25
+    assert peer.rx_bytes == 0 and peer.preshared_key is None
     segs = {s.id: s for s in snap.segments}
     assert [(m.port_id, m.mode) for m in segs["it/segment/30"].members] == [
         ("gw2/port/lan0", Membership.TAGGED)
@@ -146,7 +152,7 @@ async def test_without_the_sudoers_rule_wireguard_is_a_gap(lx: Target) -> None:
     finally:
         docker(lx, "mv", "/root/sudoers.saved", SUDOERS_PATH)
     assert snap.status is DeviceStatus.PARTIAL
-    assert [e.capability for e in snap.errors] == ["interfaces"]
+    assert [e.capability for e in snap.errors] == ["vpn"]
     assert "wg show" in snap.errors[0].message
 
 
@@ -177,8 +183,7 @@ async def test_automatic_setup(lx: Target, who: str) -> None:
     assert result.certificate == sha256_hex(fp)
     key = result.secrets["private_key"].get_secret_value()
     snap = await observe(context(lx, username=login, private_key=key))
-    wg0 = next(p for p in snap.ports if p.name == "wg0")
-    assert wg0.vendor_extra.get("public_key") == lx.extra["WG_PUBLIC"]
+    assert snap.tunnels[0].public_key == lx.extra["WG_PUBLIC"]
     # the rule on the device is the documented one for this login, in a file of its own
     out = subprocess.run(
         ["docker", "exec", lx.extra["CONTAINER"], "cat", sudoers_path(login)],

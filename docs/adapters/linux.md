@@ -10,7 +10,7 @@ which a sudoers rule allows for exactly the read commands.
 | --- | --- |
 | Adapter id | `linux` |
 | Roles | `gateway`, `other` |
-| Capabilities | interfaces (ports, segments, subnets, uplink, SSH service), DHCP, DNS, health, time |
+| Capabilities | interfaces (ports, segments, subnets, uplink, SSH service), DHCP, DNS, health, time, vpn (WireGuard) |
 | Writes | none |
 | Simulator | `signalbox.sim.linux` (an asyncssh server answering the read and setup scripts) |
 | Automatic setup | yes: root or a sudo user over SSH ([below](#automatic-setup)) |
@@ -32,7 +32,7 @@ sudo chown signalbox: ~signalbox/.ssh/authorized_keys && sudo chmod 600 ~signalb
 # 3. optional, only with WireGuard: the read-only wg commands without a password
 sudo tee /etc/sudoers.d/signalbox >/dev/null <<'END'
 # Signalbox: read the WireGuard status. These commands print public keys only.
-signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer
+signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive
 END
 sudo chmod 440 /etc/sudoers.d/signalbox && sudo visudo -cf /etc/sudoers.d/signalbox
 ```
@@ -49,7 +49,7 @@ sudo chmod 440 /etc/sudoers.d/signalbox && sudo visudo -cf /etc/sudoers.d/signal
 
    ```text
 # Signalbox: read the WireGuard status. These commands print public keys only.
-signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer
+signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive
    ```
 
 4. In the device form: the address, user `signalbox` and the key. *Test connection* shows the
@@ -91,7 +91,7 @@ One script (`signalbox.adapters.linux.collect.READ`) per observation, one more f
 | DNS | dnsmasq (`port`, `listen-address`, `server=`, `/etc/resolv.conf` without `no-resolv`, `host-record`, `address=/name/ip`); AdGuard Home, Pi-hole and Unbound are recognised (unit, process or installation) with `config_read=false`: their configuration and APIs need their own login |
 | Health | `/proc/uptime`, `/proc/loadavg`, `/proc/meminfo` (total minus available), CPU count, `df -P -T -B1` (`/` system, tmpfs temporary, `/boot*` other, others data), thermal zones |
 | Time | `date +%s.%N`, `timedatectl show` (time zone, NTP, synchronised), chrony (`chronyc -n -c tracking`/`sources`: synchronised, stratum, current server; `server`/`pool` lines; `allow` means it serves time), else systemd-timesyncd (`timedatectl show-timesync`, `timesyncd.conf`) |
-| WireGuard | `wg show all public-key`, `listen-port`, `peers`, `endpoints`, `allowed-ips`, `latest-handshakes`, `transfer` directly (root) or with `sudo -n` (the rule above). Until the tunnel model of #239 is merged, the interface's public key, listen port and number of peers are on the `wg0` port (`vendor_extra`); without the rule a gap says what to add |
+| Tunnels (`vpn`) | every `wireguard` interface of `ip -d link` (port, up, addresses, MTU) with `wg show all public-key`, `listen-port`, `peers`, `endpoints`, `allowed-ips`, `latest-handshakes`, `transfer`, `persistent-keepalive`, run directly (root) or with `sudo -n` (the rule above). No peer names (wg-quick has none outside its configuration file, which holds the private key and is never read) and no `preshared_key` (only `preshared-keys` would tell, which prints the keys). Without the rule: the interfaces without keys and peers, and a gap that says what to add |
 
 Not read: Pi-hole's own DHCP server, dnsmasq IPv6 ranges (`constructor:`), firewall rules
 (nftables/iptables, #135).

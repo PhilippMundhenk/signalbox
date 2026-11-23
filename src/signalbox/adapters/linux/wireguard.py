@@ -29,6 +29,7 @@ class WgPeer:
     latest_handshake: datetime | None = None
     rx_bytes: int | None = None
     tx_bytes: int | None = None
+    keepalive_seconds: int | None = None
 
 
 @dataclass
@@ -85,6 +86,12 @@ def read(answer: Answer) -> tuple[dict[str, WgInterface], bool]:
                 with contextlib.suppress(ValueError):
                     stamp = int(values[0])
                     peer.latest_handshake = datetime.fromtimestamp(stamp, UTC) if stamp else None
+            elif what == "persistent-keepalive" and values:
+                text = values[0].strip()
+                if text == "off":
+                    peer.keepalive_seconds = 0
+                elif text.isdigit() and int(text) <= 65535:
+                    peer.keepalive_seconds = int(text)
             elif what == "transfer" and len(values) >= 2:
                 with contextlib.suppress(ValueError):
                     peer.rx_bytes, peer.tx_bytes = int(values[0]), int(values[1])
