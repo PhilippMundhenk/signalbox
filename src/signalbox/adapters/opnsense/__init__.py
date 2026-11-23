@@ -46,6 +46,7 @@ from signalbox.adapters import (
     Capability,
     Manifest,
     Observation,
+    PreviewStep,
     RemedyRequest,
     SetupPlan,
     SetupRequest,
@@ -748,6 +749,26 @@ class OpnsenseAdapter(_Adapter):
                 "else. Needs SSH on the firewall (System > Settings > Administration, "
                 "root login). Off unless you tick it; Remove deletes both.",
             ),
+            preview=[
+                PreviewStep(id="user", title="Create the user signalbox (scrambled password)"),
+                PreviewStep(id="privileges", title="Give it the privileges of the setup guide"),
+                PreviewStep(id="key", title="Create a new API key for it"),
+                PreviewStep(
+                    id="isc-script", title="Install the read-only DHCP script", extra="ssh"
+                ),
+                PreviewStep(
+                    id="isc-key", title="Authorize an SSH key that can run only it", extra="ssh"
+                ),
+                PreviewStep(
+                    id="user", title="Delete the user signalbox and its API keys", remove=True
+                ),
+                PreviewStep(
+                    id="isc-script", title="Delete the DHCP script", remove=True, extra="ssh"
+                ),
+                PreviewStep(
+                    id="isc-key", title="Delete Signalbox's SSH key", remove=True, extra="ssh"
+                ),
+            ],
         ),
         remedies=provision.REMEDIES,
     )

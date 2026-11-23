@@ -240,6 +240,9 @@ textarea.code { width: 100%; max-width: none; font-family: ui-monospace, SFMono-
 
 /* device form: setup guide, test, read errors with what to do */
 .setup-guide summary { cursor: pointer; font-weight: 600; }
+.admin-step { border-left-color: var(--muted); max-width: 26em; }
+.admin-step h3 { font-size: 1em; }
+.temporary-note { color: var(--muted); font-size: 0.9em; }
 .setup-guide ol { margin: 8px 0; padding-left: 1.4em; }
 .setup-guide li { margin: 4px 0; }
 /* automatic setup (#231) */

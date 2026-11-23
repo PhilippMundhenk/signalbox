@@ -22,6 +22,7 @@ from signalbox.adapters import (
     AdapterError,
     AuthFailed,
     RemedyRequest,
+    StepState,
     Unreachable,
     UntrustedCertificate,
     UntrustedHostKey,
@@ -33,7 +34,7 @@ from signalbox.secrets import SecretError
 from signalbox.service import Services
 from signalbox.store import StoreError, _secret_fields
 from signalbox.web.app import error
-from signalbox.web.setup_api import FINGERPRINT, AdminBody
+from signalbox.web.setup_api import FINGERPRINT, NO_SECRET, AdminBody
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +45,8 @@ class FixBody(BaseModel):
     remedy: str = Field(pattern=r"^[a-z][a-z0-9_-]*$", max_length=64)
     admin: AdminBody
     trust: str | None = Field(None, pattern=FINGERPRINT)
+    #: *Apply* only: the step ids the user saw before the login (see ``SetupBody.plan_ids``).
+    plan_ids: list[str] | None = Field(None, max_length=100)
 
 
 def fixes_enabled(services: Services) -> bool:
@@ -94,10 +97,11 @@ def router(
             config=values,
             secrets=secrets,
             admin_user=body.admin.user.strip(),
-            admin_secret=body.admin.secret,
+            admin_secret=body.admin.secret or NO_SECRET,
             port=body.admin.port,
             allow_writes=rec.allow_writes,
-            trust=body.trust,
+            # without the password only the fingerprint is fetched, nothing is sent (#279)
+            trust=None if body.admin.secret is None else body.trust,
             timeout=max(30.0, services.config.observe.timeout_seconds),
         )
         return cls, request
@@ -153,9 +157,27 @@ def router(
         if isinstance(ready, JSONResponse):
             return ready
         cls, request = ready
+        if body.admin.secret is None:
+            return error(422, "invalid", "give the admin password for this step")
         if not request.trust:
             return error(422, "invalid", "confirm the device's fingerprint first")
         redact = redactor(request)
+        if body.plan_ids is not None:
+            try:
+                planned = await cls.plan_remedy(request)
+            except AdapterError as exc:
+                return failure(exc, redact)
+            if not planned.trusted:
+                return failure(UntrustedHostKey(planned.fingerprint, None), redact)
+            new = [s.id for s in planned.steps if s.state is StepState.TODO]
+            if set(new) - set(body.plan_ids):
+                return error(
+                    409,
+                    "plan_changed",
+                    "The device needs steps that were not in the plan you saw. Check the plan "
+                    "and run it again; nothing was changed.",
+                    plan=planned.model_dump(mode="json"),
+                )
         try:
             result = await cls.apply_remedy(request)
         except AdapterError as exc:

@@ -33,6 +33,7 @@ from pydantic import SecretStr
 
 from signalbox.adapters import (
     AdapterError,
+    PreviewStep,
     Remedy,
     RemedyRequest,
     SetupPlan,
@@ -152,6 +153,12 @@ REMEDIES = (
     Remedy(
         id="access",
         read_side=True,
+        preview=[
+            PreviewStep(id="packages", title="Install missing packages"),
+            PreviewStep(id="acl", title="Write the permission file"),
+            PreviewStep(id="login", title="Add the permission to the stored login"),
+            PreviewStep(id="restart", title="Restart rpcd"),
+        ],
         title="Repair Signalbox's access",
         description="Over SSH as root: installs the packages Signalbox reads through that are "
         "missing, writes its permission file as in the setup guide (with the write part when "
@@ -161,6 +168,13 @@ REMEDIES = (
     Remedy(
         id="lldp",
         read_side=True,
+        preview=[
+            PreviewStep(id="lldp-packages", title="Install lldpd and luci-app-lldpd"),
+            PreviewStep(id="lldpd", title="Enable and start lldpd"),
+            PreviewStep(id="acl", title="Write the permission file"),
+            PreviewStep(id="login", title="Add the permission to the stored login"),
+            PreviewStep(id="restart", title="Restart rpcd"),
+        ],
         title="Install LLDP",
         description="Over SSH as root: installs lldpd and luci-app-lldpd if missing, starts "
         "lldpd (it then sends and receives LLDP on the router's ports), checks Signalbox's "

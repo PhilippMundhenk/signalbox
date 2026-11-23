@@ -32,6 +32,7 @@ from pydantic import SecretStr
 
 from signalbox.adapters import (
     AdapterError,
+    PreviewStep,
     Remedy,
     RemedyRequest,
     SetupPlan,
@@ -146,6 +147,7 @@ REMEDIES = (
     Remedy(
         id="privileges",
         read_side=True,
+        preview=[PreviewStep(id="privileges", title="Add the missing privileges to the user")],
         title="Add the missing privileges",
         description="Through the API with root's key: adds the privileges of the setup guide "
         "that the user of the stored API key lacks (with those for writing when changes are "
