@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address, ip_interface, ip_network
 from typing import Any
@@ -44,6 +46,8 @@ from signalbox.model import (
     StorageKind,
     StorageUsage,
     TemperatureSensor,
+    Tunnel,
+    TunnelPeer,
     Uplink,
     UplinkKind,
     UpsStatus,
@@ -310,6 +314,65 @@ def client(mac: str, *addresses: str, **kw: Any) -> Client:
         address_sources={ip(a): AddressSource(v) for a, v in sources.items()},
         **(values | kw),
     )
+
+
+def wg_key(name: str) -> str:
+    """A valid WireGuard public key derived from a name (nobody's real key, #239)."""
+    return base64.b64encode(hashlib.sha256(f"test-{name}".encode()).digest()).decode()
+
+
+def peer(name: str, *allowed: str, **kw: Any) -> TunnelPeer:
+    """A peer with the key ``wg_key(name)`` routing *allowed* (#239), named *name*."""
+    return TunnelPeer(
+        public_key=kw.pop("public_key", wg_key(name)),
+        name=kw.pop("label", name),
+        allowed_ips=[ip_network(a, strict=False) for a in allowed],
+        **kw,
+    )
+
+
+def tunnel(device_id: str, *peers: TunnelPeer, **kw: Any) -> Tunnel:
+    """WireGuard interface ``wg0`` of a device with the key ``wg_key(device_id)``, up, port
+    51820; addresses as text (``addresses=["2001:db8:ff::1/64"]``)."""
+    name = kw.pop("name", "wg0")
+    return Tunnel(
+        id=object_id(device_id, "tunnel", name),
+        device_id=device_id,
+        name=name,
+        public_key=kw.pop("public_key", wg_key(device_id)),
+        addresses=[ip_interface(a) for a in kw.pop("addresses", [])],
+        peers=list(peers),
+        **({"up": True, "listen_port": 51820, "observed_at": T0} | kw),
+    )
+
+
+def site_link(a: str = "fw", b: str = "pi") -> tuple[Tunnel, Tunnel]:
+    """The two ends of a site-to-site tunnel: *a* routes 198.51.100.0/24 to *b*, *b* routes
+    192.0.2.0/24 to *a*; tunnel addresses 2001:db8:ff::1/64 and ::2/64."""
+    one = tunnel(
+        a,
+        peer(
+            b,
+            "2001:db8:ff::2/128",
+            "198.51.100.0/24",
+            endpoint_host="203.0.113.20",
+            endpoint_port=51820,
+            latest_handshake=T0 - timedelta(seconds=30),
+        ),
+        addresses=["2001:db8:ff::1/64"],
+    )
+    two = tunnel(
+        b,
+        peer(
+            a,
+            "2001:db8:ff::1/128",
+            "192.0.2.0/24",
+            keepalive_seconds=25,
+            latest_handshake=T0 - timedelta(seconds=40),
+        ),
+        addresses=["2001:db8:ff::2/64"],
+    )
+    return one, two
 
 
 def net(text: str) -> Any:

@@ -11,8 +11,10 @@ Use from an adapter's tests::
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from typing import Any
 
 from signalbox.adapters import Adapter, Capability, check_manifest
 from signalbox.model import (
@@ -37,6 +39,7 @@ from signalbox.model import (
     ServiceKind,
     ServiceTransport,
     Snapshot,
+    Tunnel,
     Uplink,
     UplinkKind,
     Wlan,
@@ -341,6 +344,68 @@ def time_problems(device_id: str, value: DeviceTime, segment_prefix: str) -> lis
     return out
 
 
+def tunnel_problems(tunnel: Tunnel, port_ids: set[str]) -> list[str]:
+    """A tunnel (#239): its port, its peers' keys, its handshake times."""
+    out: list[str] = []
+    own = f"{tunnel.device_id}/"
+    if tunnel.id != f"{tunnel.device_id}/tunnel/{tunnel.name}":
+        out.append(f"tunnel {tunnel.id} is not {tunnel.device_id}/tunnel/{tunnel.name}")
+    port = tunnel.port_id
+    if port is not None and port.startswith(own) and port not in port_ids:
+        out.append(f"tunnel {tunnel.id} on unknown port {tunnel.port_id}")
+    keys = [p.public_key for p in tunnel.peers]
+    if len(set(keys)) != len(keys):
+        out.append(f"tunnel {tunnel.id} lists a peer twice")
+    if tunnel.public_key is not None and tunnel.public_key in keys:
+        out.append(f"tunnel {tunnel.id} has itself as a peer")
+    for peer in tunnel.peers:
+        if peer.endpoint_port is not None and not peer.endpoint_host:
+            out.append(f"tunnel {tunnel.id} peer {peer.public_key}: endpoint port without host")
+    return out
+
+
+#: Names of fields that hold tunnel keys: never in ``vendor_extra`` (#239).
+SECRET_KEYS = re.compile(
+    r"priv(ate)?[-_ ]?key|pre[-_ ]?shared[-_ ]?key|^psk$",
+    re.IGNORECASE,
+)
+_WG_KEY = re.compile(r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=(?![A-Za-z0-9+/=])")
+
+
+def _extra_secrets(where: str, value: Any, public: set[str]) -> Iterator[str]:
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if SECRET_KEYS.search(str(k)):
+                yield f"{where}: vendor_extra field {k!r} looks like a secret"
+            yield from _extra_secrets(where, v, public)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _extra_secrets(where, v, public)
+    elif isinstance(value, str):
+        for key in _WG_KEY.findall(value):
+            if key not in public:
+                yield f"{where}: vendor_extra holds a key that is no public key of the snapshot"
+
+
+def secret_problems(snapshot: Snapshot) -> list[str]:
+    """No private or pre-shared key anywhere (#239): the model has no field for them, so the
+    only place an adapter could put one is ``vendor_extra``. A field named like a secret, or a
+    WireGuard-shaped key that is not one of the snapshot's public keys, is refused."""
+    public = {t.public_key for t in snapshot.tunnels if t.public_key}
+    public |= {p.public_key for t in snapshot.tunnels for p in t.peers}
+    out: list[str] = []
+    objects: list[Any] = [snapshot.device, *snapshot.extra_devices]
+    for kind in Snapshot.model_fields:
+        value = getattr(snapshot, kind)
+        if isinstance(value, list) and kind != "errors":
+            objects += value
+    for obj in objects:
+        extra = getattr(obj, "vendor_extra", None)
+        if extra:
+            out += _extra_secrets(getattr(obj, "id", "?"), extra, public)
+    return out
+
+
 def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
     caps = set(snapshot.device.capabilities)
     devices: list[Device] = [snapshot.device, *snapshot.extra_devices]
@@ -356,6 +421,8 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             out.append(f"{kind} reported without declaring {Capability.INTERFACES.value}")
     if snapshot.dhcp_relays and Capability.DHCP.value not in caps:
         out.append(f"dhcp_relays reported without declaring {Capability.DHCP.value}")
+    if snapshot.tunnels and Capability.VPN.value not in caps:
+        out.append(f"tunnels reported without declaring {Capability.VPN.value}")
     for d in devices:
         if d.health is not None:
             out += health_problems(d.id, d.health)
@@ -399,6 +466,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         "dhcp_servers",
         "dhcp_relays",
         "dns_services",
+        "tunnels",
     )
     for kind in (*owned, "radios", "wlans"):
         for obj in getattr(snapshot, kind):
@@ -465,6 +533,13 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         out += relay_problems(relay)
     for client in snapshot.clients:
         out += client_problems(client)
+    tunnels: set[str] = set()
+    for tunnel in snapshot.tunnels:
+        if tunnel.id in tunnels:
+            out.append(f"tunnel {tunnel.id} reported twice")
+        tunnels.add(tunnel.id)
+        out += tunnel_problems(tunnel, port_ids)
+    out += secret_problems(snapshot)
     for nb in snapshot.neighbours:
         if nb.local_port_id not in port_ids:
             out.append(f"neighbour {nb.id} on unknown port {nb.local_port_id}")

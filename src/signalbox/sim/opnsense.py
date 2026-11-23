@@ -12,6 +12,9 @@ not yet confirmed on a real device, issue #21). Sample network, documentation ad
   DHCP leases
 - the dashboard's health widgets (uptime, load, memory, ZFS disks, two CPU sensors), the
   clock in Europe/Berlin and ntpd in sync with a local GPS-backed server
+- WireGuard instance ``wg0`` (2001:db8:ff::1/64, port 51820, not assigned) with a site-to-site
+  peer ``site-b`` (routes 2001:db8:20::/64, handshake 42 s before the start) and a phone that never
+  connected (#239)
 
 Failure switches on :class:`OpnsenseSimulator`: ``api_enabled=False`` (404 on everything),
 ``delay`` (seconds before every answer), ``malformed`` (endpoints answering broken JSON),
@@ -35,6 +38,7 @@ import asyncio
 import base64
 import binascii
 import copy
+import hashlib
 import ipaddress
 import re
 import secrets
@@ -52,6 +56,18 @@ from signalbox.sim.opnsense_users import Users
 KEY = "sim-key"
 SECRET = "sim-secret"
 USERS = "/api/auth/user/"
+
+
+def _wg_key(name: str) -> str:
+    """A WireGuard public key of the sample: base64 of SHA-256 of a name (valid, nobody's real
+    key; computed so that no key-shaped literal is in the source)."""
+    return base64.b64encode(hashlib.sha256(name.encode()).digest()).decode()
+
+
+WG_KEY = _wg_key("sim-opnsense-wg0")
+WG_SITE_B = _wg_key("sim-site-b")
+WG_PHONE = _wg_key("sim-phone")
+WG_SHOW = "/api/wireguard/service/show"
 
 
 def _opt(selected: dict[str, tuple[str, bool]]) -> dict[str, dict[str, Any]]:
@@ -153,8 +169,8 @@ def sample_data() -> dict[str, Any]:
                     mtu="9000",
                     physical=True,
                 ),
-                _iface("wg0", "", "", mac="", status="up"),  # WireGuard tunnel, no assignment
                 _iface("lo0", "lo0", "Loopback", mac="", v4=["127.0.0.1/8"], v6=["::1/128"]),
+                _iface("wg0", "", "", mac="", mtu="1420", v6=["2001:db8:ff::1/64"]),
             ],
         },
         "/api/interfaces/vlan_settings/search_item": {
@@ -487,6 +503,57 @@ def sample_data() -> dict[str, Any]:
             },
         ],
         "/api/diagnostics/cpu_usage/get_cpu_type": ["AMD GX-412TC SOC (4 cores, 4 threads)"],
+        # wg_show.py: ``wg show all dump`` without private and pre-shared keys, plus the names;
+        # latest-handshake is set when answered (OpnsenseSimulator.wg_handshake_ago)
+        WG_SHOW: {
+            "total": 3,
+            "rowCount": 3,
+            "current": 1,
+            "rows": [
+                {
+                    "if": "wg0",
+                    "type": "interface",
+                    "public-key": WG_KEY,
+                    "listen-port": "51820",
+                    "fwmark": "off",
+                    "endpoint": "51820",
+                    "status": "up",
+                    "name": "s2s",
+                    "latest-handshake-age": None,
+                    "latest-handshake-epoch": None,
+                    "peer-status": "offline",
+                    "ifname": "s2s",
+                },
+                {
+                    "if": "wg0",
+                    "type": "peer",
+                    "public-key": WG_SITE_B,
+                    "endpoint": "[2001:db8:ffff:20::1]:51820",
+                    "allowed-ips": "2001:db8:ff::2/128,2001:db8:20::/64",
+                    "latest-handshake": 0,
+                    "transfer-rx": 1834567,
+                    "transfer-tx": 2934871,
+                    "persistent-keepalive": "25",
+                    "name": "site-b",
+                    "peer-status": "online",
+                    "ifname": "s2s",
+                },
+                {
+                    "if": "wg0",
+                    "type": "peer",
+                    "public-key": WG_PHONE,
+                    "endpoint": "(none)",
+                    "allowed-ips": "2001:db8:ff::3/128",
+                    "latest-handshake": 0,
+                    "transfer-rx": 0,
+                    "transfer-tx": 0,
+                    "persistent-keepalive": "off",
+                    "name": "phone",
+                    "peer-status": "offline",
+                    "ifname": "s2s",
+                },
+            ],
+        },
         # os-net-snmp (not part of the base system): general settings, v2c community "public"
         "/api/netsnmp/general/get": {
             "general": {
@@ -1136,6 +1203,20 @@ class OpnsenseSimulator(_Writes):
     timezone: str = "Europe/Berlin"
     #: The user manager (``/api/auth/user/*``); ``api_key`` is root's key.
     accounts: Users = field(default_factory=Users)
+    #: Last WireGuard handshake per peer key (epoch seconds): 42 s before the simulator started.
+    wg_handshakes: dict[str, int] = field(
+        default_factory=lambda: {WG_SITE_B: int(datetime.now(UTC).timestamp()) - 42}
+    )
+
+    def wireguard_show(self) -> Any:
+        answer = copy.deepcopy(self.data[WG_SHOW])
+        now = int(datetime.now(UTC).timestamp())
+        for row in answer.get("rows", []) if isinstance(answer, dict) else []:
+            at = self.wg_handshakes.get(row.get("public-key", ""))
+            if isinstance(row, dict) and row.get("type") == "peer" and at is not None:
+                row["latest-handshake"] = at
+                row["latest-handshake-age"] = now - at
+        return answer
 
     def local_time(self) -> str:
         """``Sun Nov 22 17:12:00 CET 2026``, PHP's ``date("D M j G:i:s T Y")``."""
@@ -1223,6 +1304,8 @@ class OpnsenseSimulator(_Writes):
                 return JSONResponse(overview)
             if path in (KEA, *grids):
                 return JSONResponse(self._kea_answer(path))
+            if path == WG_SHOW:
+                return JSONResponse(self.wireguard_show())
             if path == SYSTEM_TIME and isinstance(self.data[path], dict):
                 return JSONResponse({**self.data[path], "datetime": self.local_time()})
             return JSONResponse(self.data[path])

@@ -401,6 +401,7 @@ def merge(
             "wlans": every("wlans"),
             "clients": _merge_clients(snaps),
             "neighbours": every("neighbours"),
+            "tunnels": every("tunnels"),
             "links": sorted(links, key=lambda link: link.id),
             "errors": every("errors"),
         }

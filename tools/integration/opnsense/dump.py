@@ -7,7 +7,8 @@ Prints each answer (status and a compact, shortened body) as a GitHub ``::notice
 shapes can be compared with docs/adapters/opnsense.md and the simulator without downloading
 logs; the full answers go to DIR/api-<GROUP>.json (uploaded as an artifact). Only the
 throw-away VM's data is in there (documentation prefixes, the 02: MACs of the test setup).
-GROUP is ``read`` (the read user, camelCase and snake_case paths), ``kea``, ``health`` (the
+GROUP is ``read`` (the read user, camelCase and snake_case paths), ``kea``, ``vpn`` (WireGuard,
+#239, private keys redacted), ``health`` (the
 dashboard and NTP endpoints of health and time, #178 and #179) or ``write`` (the write and
 the root user). At most ten notices per call (the limit of one step).
 """
@@ -65,6 +66,16 @@ GROUPS = {
         ("root", "/api/ntpd/service/gps"),
         ("root", "/api/diagnostics/system/system_time"),
     ],
+    # WireGuard (#239): the status the adapter reads; the configuration grids the read user
+    # must not get (they hold private keys: redacted below for the root user's answers)
+    "vpn": [
+        ("signalbox-read", "/api/wireguard/service/show"),
+        ("signalbox-read", "/api/wireguard/server/search_server"),
+        ("signalbox-read", "/api/wireguard/client/search_client"),
+        ("root", "/api/wireguard/server/search_server"),
+        ("root", "/api/wireguard/client/search_client"),
+        ("root", "/api/wireguard/general/get"),
+    ],
     "write": [
         ("signalbox-write", "/api/interfaces/assignment/searchItem" + GRID),
         ("signalbox-write", "/api/interfaces/assignment/search_item" + GRID),
@@ -86,6 +97,18 @@ SHORT = (
 )  # fmt: skip
 
 
+#: fields never recorded, not even of the throw-away VM (private and pre-shared keys)
+SECRET = ("privkey", "psk", "private-key", "preshared-key")
+
+
+def redact(body: object) -> object:
+    if isinstance(body, dict):
+        return {k: "***" if k in SECRET else redact(v) for k, v in body.items()}
+    if isinstance(body, list):
+        return [redact(v) for v in body]
+    return body
+
+
 def short(body: object) -> object:
     rows = body.get("rows") if isinstance(body, dict) else None
     if (
@@ -103,7 +126,7 @@ def main(d: Path, group: str) -> None:
     notes: list[str] = []
     for user, path in GROUPS[group]:
         try:
-            body = vm.api(keys[user], "GET", path, timeout=60)
+            body = redact(vm.api(keys[user], "GET", path, timeout=60))
             status = 200
         except urllib.error.HTTPError as exc:
             status, body = exc.code, exc.read().decode(errors="replace")[:500]

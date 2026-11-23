@@ -87,7 +87,7 @@ carries its source (adapter and device), the time it was observed and a stable i
 | Site | One network domain; a second location over a VPN is a second site |
 | Device | Vendor, model, firmware, role (`gateway`, `switch`, `ap`, `other`), management address, adapter, capabilities, health, time, whether Signalbox reads it encrypted |
 | Port | Physical or logical port, link state, speed, PoE, LAG membership, neighbour (LLDP where available); configuration details: description, admin state, PVID, frame types, ingress filter, MTU / L2 MTU / jumbo flag, maximum and advertised speeds, auto-negotiation, medium, port profile, flow control, EEE; internal structure (#252, ADR 0008): role (jack, CPU port, switch port, bridge, VLAN / Wi-Fi interface, LAG, tunnel, virtual) and the ports it runs on, a cable can end there (`external`) derived |
-| Link | A cable or wireless uplink between two ports; observed (LLDP, MAC tables) or entered by hand |
+| Link | A cable or wireless uplink between two ports; observed (LLDP, MAC tables) or entered by hand; a `vpn` link between two tunnels whose peers name each other's public keys |
 | Segment | Layer-2 network: VLAN id, name, purpose and its source, isolated by the device; membership per port `untagged` / `tagged` / `none` |
 | Subnet | Prefix, gateway address, segment, IPv4/IPv6 |
 | Uplink | A gateway's WAN connection: kind (`dhcp`, `static`, `pppoe`, `dslite`, `map-e`, `lte`, `bridge`, `other`), port, connected and since when, own addresses, delegated IPv6 prefixes, upstream gateway, provider DNS, public IPv4 where the device knows it, line rates; NAT class derived |
@@ -95,6 +95,7 @@ carries its source (adapter and device), the time it was observed and a stable i
 | DhcpServer | Device, segment, enabled, pool, lease time, options (router, DNS, NTP, search domains, classless routes, network boot, further options by code), static reservations, authoritative, failover peer, lease table (address, MAC, client id, host name, state, reserved, start and end, vendor class) |
 | DhcpRelay | Device, segment, servers it forwards to, enabled |
 | DnsService | Resolver with its port (several per device), host overrides, forwarders (address and port), split-DNS domains |
+| Tunnel | A VPN interface of a device (`wireguard`): name, description, port, up, enabled, listen port, own public key, addresses, MTU; peers with public key, name, endpoint, allowed IPs, last handshake, transfer counters, keepalive, whether a pre-shared key is set. Never a private or pre-shared key ([ADR 0008](adr/0008-vpn-tunnels-and-site-links.md)) |
 | Wlan | SSID, security (open, OWE, WEP, WPA/WPA2/WPA3 Personal and Enterprise incl. mixed and 192-bit modes; PMF), passphrase fingerprint and SSID-independent digest, segment, bands, hidden, roaming (802.11r/k/v), purpose and its source, client isolation; security details: pairwise and group ciphers, SAE (PWE, SAE-PK, anti-clogging), WPS (on, methods, AP PIN lock), group rekey interval, beacon protection |
 | Radio | Band, channel, width, transmit power, country code, security modes the hardware and firmware can offer |
 | Firewall | Zones, rules, NAT; read-only at first |
@@ -288,6 +289,30 @@ it as an untagged member of the upstream router's network (`Network.upstream_rou
 where uplinks are not reported, a router port in no segment cabled to another router as an
 uplink. `addr.double-nat` (#60) reports the two routers in a row as information.
 
+### VPN tunnels and site links
+
+A tunnel belongs to its device and is read with the `vpn` capability (adapter API 1.3, #239);
+its peers are values on it. Two tunnels are the ends of one link when each has a peer with the
+other's public key (`Network.tunnel_end`); `topology.tunnel_links` makes that a `Link` of kind
+`vpn` between the two tunnel ids, within a site or across sites. A one-sided match (the other
+tunnel does not name this one) gives no link: the ends disagree, which a check can report with
+`Network.tunnel_with_key`.
+
+A peer whose allowed IPs reach beyond the tunnel's own address networks routes a network of
+its own: a *site peer* (`Tunnel.site_peers`, `Tunnel.remote_networks`). A peer with only its
+tunnel address is a client (phone, laptop). A site peer whose other end is not read is an
+unmanaged remote site (`Network.remote_sites`): the topology shows it as a box with the networks
+behind the tunnel, so one read end is enough to see that the site is connected. It is not a
+`Site` of the inventory.
+
+Private and pre-shared keys never enter the model: there is no field for them, the contract
+checks refuse key-named fields and unknown WireGuard-shaped keys in `vendor_extra`, and
+recordings replace every key by a placeholder. Integrations read the running state where the
+device leaves the keys out (OPNsense `wireguard/service/show`). The peer endpoint is the other
+site's public address: shown behind a click, never exported. Handshake times are absolute;
+their age is taken against the time of the reading. See
+[ADR 0008](adr/0008-vpn-tunnels-and-site-links.md).
+
 ### Annotations and acknowledged findings
 
 Annotations (#186, [ADR 0007](adr/0007-annotations-and-acknowledgements.md)) are user data, not
@@ -337,7 +362,10 @@ The topology view is built from `Port` and `Link` objects:
 
 - physical wiring: which port is connected to which, cable or wireless uplink,
 - VLAN view: per link, which segments are tagged or untagged,
-- clients placed on the port or access point where they were last seen.
+- clients placed on the port or access point where they were last seen,
+- VPN tunnels: a `vpn` link between two read tunnels whose peers name each other's public keys,
+  drawn between the gateways (also of two sites), and an unmanaged remote site for a site peer
+  whose other end is not read.
 
 Links that cannot be discovered (unmanaged switches, devices without LLDP) can be entered by hand
 and are marked as such. A link seen by discovery but missing from the desired state, or the other

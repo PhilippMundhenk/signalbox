@@ -111,6 +111,8 @@ jobs:
         run: python3 tools/integration/opnsense/dump.py "$VM_DIR" kea
       - name: Record the API answers (health and time)
         run: python3 tools/integration/opnsense/dump.py "$VM_DIR" health
+      - name: Record the API answers (WireGuard)
+        run: python3 tools/integration/opnsense/dump.py "$VM_DIR" vpn
       - name: Integration tests
         run: |
           set -o pipefail

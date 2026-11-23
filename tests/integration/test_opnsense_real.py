@@ -3,7 +3,8 @@
 The VM (tools/integration/opnsense/vm.py) is preseeded with: LAN vtnet0 192.0.2.1/24 +
 2001:db8:1::1/64, WAN vtnet1 (DHCP), VLAN 20 "IoT" on the trunk vtnet2 assigned as opt1
 198.51.100.1/24, Kea DHCPv4 on LAN (pool 192.0.2.100-199, reservation 02:00:00:00:00:10 ->
-192.0.2.10 "printer"), an Unbound host override nas.home.example -> 192.0.2.10, and two API
+192.0.2.10 "printer"), an Unbound host override nas.home.example -> 192.0.2.10, a WireGuard
+instance "s2s" with a peer "site-b" (#239), and two API
 users with the read and write privileges of docs/adapters/opnsense.md.
 
 Every write test ends with the firewall as it started (revert or restore through the
@@ -12,6 +13,7 @@ Deployer), so the tests can run in any order against one VM.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterator
 from ipaddress import ip_address, ip_network
 from pathlib import Path
@@ -36,7 +38,7 @@ from signalbox.model import DeviceStatus as ReadStatus
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
 from signalbox.store import DeviceRecord
-from signalbox.testing import assert_contract
+from signalbox.testing import assert_contract, secret_problems
 
 LAN, IOT, LAB = "home/segment/native", "home/segment/20", "home/segment/60"
 TIMEOUT = 60.0  # interface and Kea reconfigure calls take seconds on the real firewall
@@ -245,6 +247,36 @@ async def test_health_and_time(fw: dict[str, str]) -> None:
     assert t.utc_offset_minutes == 0, t  # the image runs on UTC
     assert t.ntp_client is not None and t.ntp_client.servers, t
     assert any(s.endswith("opnsense.pool.ntp.org") for s in t.ntp_client.servers), t
+
+
+async def test_wireguard_instance_and_peer(fw: dict[str, str]) -> None:
+    """The WireGuard instance "s2s" set up by vm.py (#239), read with *VPN: WireGuard: Status*
+    only: wg0 up on 51820 with its address, the peer site-b with its allowed IPs, configured
+    endpoint and keepalive, no handshake (the endpoint never answers). The configuration
+    grids, which hold the private keys, stay closed to the read user."""
+    a = adapter(fw)
+    try:
+        snap = await a.observe()
+        for grid in ("server/search_server", "client/search_client"):
+            with pytest.raises(AdapterError, match="HTTP 403"):
+                await a.http.get_json(f"/api/wireguard/{grid}")
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    (t,) = snap.tunnels
+    assert (t.name, t.description, t.listen_port, t.up) == ("wg0", "s2s", 51820, True), t
+    assert t.public_key == os.environ["IT_OPNSENSE_WG_SERVER"], t
+    assert "2001:db8:ff::1/64" in [str(x) for x in t.addresses], t
+    assert t.port_id == "fw/port/wg0" and t.port_id in {p.id for p in snap.ports}
+    (p,) = t.peers
+    assert (p.name, p.public_key) == ("site-b", os.environ["IT_OPNSENSE_WG_PEER"]), p
+    assert sorted(str(n) for n in p.allowed_ips) == ["2001:db8:20::/64", "2001:db8:ff::2/128"]
+    assert [str(n) for n in t.remote_networks(p)] == ["2001:db8:20::/64"]
+    assert (p.endpoint_host, p.endpoint_port) == ("2001:db8:ffff:20::1", 51820), p
+    assert (p.keepalive_seconds, p.latest_handshake) == (25, None), p
+    assert secret_problems(snap) == []
+    net = merge([SITE], [snap])
+    assert [(t.id, peer.name) for t, peer in net.remote_sites()] == [("fw/tunnel/wg0", "site-b")]
 
 
 async def test_refused_api_key_is_auth_failed(fw: dict[str, str]) -> None:

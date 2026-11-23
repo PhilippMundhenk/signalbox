@@ -49,13 +49,14 @@ from signalbox.model import (
     Snapshot,
     Source,
     Subnet,
+    Tunnel,
     Uplink,
     Wlan,
 )
 
 #: Version of this API. An adapter declares the version it was written for; the major part
 #: must match.
-API_VERSION = "1.2"
+API_VERSION = "1.3"
 
 
 class Capability(StrEnum):
@@ -67,11 +68,16 @@ class Capability(StrEnum):
     NEIGHBOURS = "neighbours"  # LLDP
     HEALTH = "health"  # uptime, CPU, memory, storage, sensors (API 1.2)
     TIME = "time"  # clock, time zone, NTP (API 1.2)
+    VPN = "vpn"  # VPN tunnels and their peers (API 1.3)
 
 
 #: Adapter API version that introduced a capability (absent: 1.0). An adapter declaring a
 #: capability must be written for at least that version.
-SINCE: dict[Capability, str] = {Capability.HEALTH: "1.2", Capability.TIME: "1.2"}
+SINCE: dict[Capability, str] = {
+    Capability.HEALTH: "1.2",
+    Capability.TIME: "1.2",
+    Capability.VPN: "1.3",
+}
 
 
 class AdapterError(Exception):
@@ -385,6 +391,9 @@ class Observation(BaseModel):
     wlans: list[Wlan] = Field(default_factory=list)
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
+    #: VPN tunnels with their peers (#239), read with ``vpn`` (API 1.3). Never a private or
+    #: pre-shared key, also not in ``vendor_extra``.
+    tunnels: list[Tunnel] = Field(default_factory=list)
     #: Devices managed through the observed one (API 1.1). Ids must start with
     #: ``<device id>/``; site, adapter and ``managed_by`` are filled in by ``observe()``.
     devices: list[Device] = Field(default_factory=list)
@@ -448,6 +457,13 @@ class ReadsTime(Protocol):
     async def read_time(self) -> Observation: ...
 
 
+@runtime_checkable
+class ReadsVpn(Protocol):
+    """Fill ``Observation.tunnels`` (API 1.3): every VPN interface with its peers."""
+
+    async def read_vpn(self) -> Observation: ...
+
+
 PROTOCOLS: dict[Capability, tuple[type, str]] = {
     Capability.INTERFACES: (ReadsInterfaces, "read_interfaces"),
     Capability.DHCP: (ReadsDhcp, "read_dhcp"),
@@ -457,6 +473,7 @@ PROTOCOLS: dict[Capability, tuple[type, str]] = {
     Capability.NEIGHBOURS: (ReadsNeighbours, "read_neighbours"),
     Capability.HEALTH: (ReadsHealth, "read_health"),
     Capability.TIME: (ReadsTime, "read_time"),
+    Capability.VPN: (ReadsVpn, "read_vpn"),
 }
 
 

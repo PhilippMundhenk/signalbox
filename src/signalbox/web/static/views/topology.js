@@ -1,14 +1,16 @@
-// Topology: devices with their ports, links between ports, VLAN overlay, entered cables.
+// Topology: devices with their ports, links between ports, VLAN overlay, entered cables,
+// VPN tunnels between sites and unmanaged sites behind a tunnel (#239).
 import { del, enc, get, post } from '../api.js';
 import { PORT_ROLE, by, clear, h, place, portDetails, portSpeed, s } from '../util.js';
 import { card, confirmDialog, field, pageHead, run, select, statusBadge, table, tag, toast } from '../ui.js';
 
-const LAYER = { gateway: 0, switch: 1, ap: 2, other: 3 };
-const ORIGIN = { lldp: 'LLDP', mac: 'MAC table', manual: 'entered' };
+const LAYER = { gateway: 0, remote: 0, switch: 1, ap: 2, other: 3 };
+const ORIGIN = { lldp: 'LLDP', mac: 'MAC table', manual: 'entered', tunnel: 'tunnel keys' };
 const PORT = 18;
 const PORT_GAP = 5;
 const MAX_PORTS = 24;
 const ROW = 150;
+const TOP = 30; // room for VPN arcs above the first row
 const BOX_H = 74;
 const GAP = 36;
 const state = { segment: '', site: '', internal: false };
@@ -36,7 +38,7 @@ function layout(nodes, linked) {
     for (const n of row) {
       const ports = visiblePorts(n, linked);
       const w = Math.max(150, ports.length * (PORT + PORT_GAP) + 20);
-      boxes.set(n.id, { node: n, x, y: 20 + i * ROW, w, ports });
+      boxes.set(n.id, { node: n, x, y: TOP + i * ROW, w, ports });
       x += w + GAP;
     }
     width = Math.max(width, x);
@@ -47,7 +49,7 @@ function layout(nodes, linked) {
     const shift = (width - (last.x + last.w + GAP / 2)) / 2;
     for (const n of row) boxes.get(n.id).x += shift;
   });
-  return { boxes, width: Math.max(width, 320), height: used.length * ROW + 10 };
+  return { boxes, width: Math.max(width, 320), height: used.length * ROW + TOP - 10 };
 }
 
 function portCenter(boxes, end) {
@@ -71,6 +73,19 @@ function drawGraph(data, nodes, onPort) {
   const markLayer = s('g', { class: 'marks' });
   place(svg, edgeLayer, nodeLayer, markLayer);
   for (const e of data.edges) {
+    if (e.kind === 'vpn') {
+      // a tunnel joins two boxes, not ports: an arc above them, dashed
+      const ba = boxes.get(e.a.device_id);
+      const bb = boxes.get(e.b.device_id);
+      if (!ba || !bb) continue;
+      const ax = ba.x + ba.w / 2;
+      const bx = bb.x + bb.w / 2;
+      const top = Math.max(2, Math.min(ba.y, bb.y) - TOP + 4);
+      const path = s('path', { d: `M${ax},${ba.y} C${ax},${top} ${bx},${top} ${bx},${bb.y}`, class: `edge vpn ${state.segment ? 'dim' : ''}`.trim(), 'data-testid': 'topo-edge', 'data-id': e.id, 'data-kind': 'vpn', 'data-state': state.segment ? 'dim' : 'none' });
+      place(path, s('title', {}, `VPN ${e.a.port} ↔ ${e.b.port}${vpnText(e) ? ` – ${vpnText(e)}` : ''}`));
+      place(edgeLayer, path);
+      continue;
+    }
     const a = portCenter(boxes, e.a);
     const b = portCenter(boxes, e.b);
     if (!a || !b) continue;
@@ -112,7 +127,8 @@ function drawGraph(data, nodes, onPort) {
     const g = s('g', { class: `node role-${node.role} status-${node.status}`, 'data-testid': 'topo-node', 'data-id': node.id });
     place(g, s('rect', { x: String(x), y: String(y), width: String(w), height: String(BOX_H), rx: '10', class: 'box' }));
     place(g, s('text', { x: String(x + 10), y: String(y + 20), class: 'name' }, node.name));
-    place(g, s('text', { x: String(x + 10), y: String(y + 36), class: 'role' }, `${node.role}${shownPorts(node).length > ports.length ? ` · ${shownPorts(node).length - ports.length} more ports` : ''}`));
+    const roleText = node.role === 'remote' ? `remote site · ${node.networks.join(', ') || 'no networks'}` : `${node.role}${shownPorts(node).length > ports.length ? ` · ${shownPorts(node).length - ports.length} more ports` : ''}`;
+    place(g, s('text', { x: String(x + 10), y: String(y + 36), class: 'role' }, roleText));
     ports.forEach((p, i) => {
       const px = x + 10 + i * (PORT + PORT_GAP);
       const py = y + BOX_H - 14 - PORT;
@@ -170,6 +186,15 @@ function portPanel(data, segments, node, port) {
   );
 }
 
+// What a VPN link carries: the networks each end routes into the tunnel, the handshake.
+function vpnText(e) {
+  const v = e.vpn || {};
+  const nets = [...((v.a && v.a.networks) || []), ...((v.b && v.b.networks) || [])];
+  const ages = [v.a, v.b].filter((x) => x && x.handshake_age !== null && x.handshake_age !== undefined).map((x) => x.handshake_age);
+  const shake = ages.length ? `handshake ${Math.round(Math.min(...ages))} s ago` : [v.a, v.b].some(Boolean) ? 'no handshake' : '';
+  return [nets.join(', '), shake].filter(Boolean).join(' · ');
+}
+
 function linkList(ctx, data, nodes) {
   const names = new Map(nodes.map((n) => [n.id, n.name]));
   const endText = (end) => `${names.get(end.device_id) || end.device_id} · ${end.port}`;
@@ -184,7 +209,9 @@ function linkList(ctx, data, nodes) {
       [
         'VLANs',
         (e) =>
-          e.segments.length
+          e.kind === 'vpn'
+            ? h('span', { 'data-testid': 'vpn-detail' }, vpnText(e) || null)
+            : e.segments.length
             ? e.segments.map((x, i) => [i ? ', ' : '', h('span', { class: x.consistent ? '' : 'error', title: x.consistent ? `${x.a} on both ends` : `${x.a || 'not a member'} ↔ ${x.b || 'not a member'}` }, `${x.name}${x.consistent ? '' : ' (!)'}`)])
             : null,
       ],
@@ -268,6 +295,8 @@ export async function renderTopology(main, ctx) {
     return;
   }
   if (state.site && !sites.some((x) => x.id === state.site)) state.site = '';
+  // unmanaged sites behind a tunnel are boxes of their own, next to the gateways
+  for (const r of data.remotes || []) data.nodes.push({ ...r, role: 'remote', status: 'ok', ports: [] });
   const graphBox = h('div', { class: 'topo-wrap' });
   const panel = h('div', {});
   const legend = h('p', { class: 'legend muted small', 'data-testid': 'topo-legend' });
@@ -280,7 +309,7 @@ export async function renderTopology(main, ctx) {
     place(clear(legend), 
       state.segment
         ? [h('span', { class: 'key carry' }), ' carries the VLAN  ', h('span', { class: 'key inconsistent' }), ' ends disagree (marked with a circle)  ', h('span', { class: 'key dim' }), ' does not carry it']
-        : 'Click a port to see its clients. Pick a VLAN to see which links carry it.',
+        : ['Click a port to see its clients. Pick a VLAN to see which links carry it.', data.edges.some((e) => e.kind === 'vpn') ? ' Dashed arcs are VPN tunnels.' : ''],
     );
   };
   const segSelect = select([['', 'No VLAN overlay'], ...Object.entries(data.segments).sort(by(([, n]) => n)).map(([sid, n]) => [sid, `${n}${sites.length > 1 ? ` – ${(sites.find((x) => sid.startsWith(`${x.id}/`)) || {}).name || ''}` : ''}`])], state.segment, { 'aria-label': 'Highlight a VLAN', 'data-testid': 'topo-segment' });
@@ -310,7 +339,7 @@ export async function renderTopology(main, ctx) {
     h('div', { class: 'card topo-card' }, legend, graphBox, h('p', { class: 'phone-only muted small' }, 'The drawing needs a wider screen; the links are listed below.')),
     panel,
     card('Links', linkList(ctx, data, data.nodes)),
-    addLinkForm(ctx, data.nodes),
+    addLinkForm(ctx, data.nodes.filter((n) => n.role !== 'remote')),
   );
   draw();
 }

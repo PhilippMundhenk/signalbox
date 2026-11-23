@@ -26,6 +26,8 @@ of the neutralised recording when it was taken (without the observation time).
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import ipaddress
 import json
 import os
@@ -74,7 +76,7 @@ VOLATILE = {
 SECRET_FIELDS = re.compile(
     r"(?<!chars)password|passphrase|passwd|secret|token|session|cookie"
     r"|^(new)?(x_avm-de_)?(presharedkey|wepkey\d*|key|psk|apikey|api_key|privatekey"
-    r"|private_key|serialnumber|serial|sid|client_id|clientid|omadac_id|omadacid)$",
+    r"|private_key|privkey|private-key|preshared_key|preshared-key|serialnumber|serial|sid|client_id|clientid|omadac_id|omadacid)$",
     re.IGNORECASE,
 )
 #: field names whose values are names people chose: replaced by ``name-<n>``
@@ -91,6 +93,8 @@ DEFAULT_NAMES = {"fritz.box", "lan", "localdomain", "home.arpa", "local", "", "n
 
 _IPV4 = re.compile(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])")
 _IPV6 = re.compile(r"(?<![0-9A-Fa-f:])([0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7})(?![0-9A-Fa-f:])")
+#: a WireGuard key (32 bytes in base64), public or private: replaced by a placeholder key (#239)
+_WG_KEY = re.compile(r"(?<![A-Za-z0-9+/])([A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=)(?![A-Za-z0-9+/=])")
 _MAC = re.compile(
     r"(?<![0-9A-Fa-f:-])([0-9A-Fa-f]{2}([:-])(?:[0-9A-Fa-f]{2}\2){4}[0-9A-Fa-f]{2})"
     r"(?![0-9A-Fa-f:-])"
@@ -203,6 +207,9 @@ class Neutraliser:
       (link-local ``fe80::<n>``); loopback, unspecified, multicast and 2001:db8::/32 are kept.
     - MAC addresses (``:`` or ``-``): ``00:00:5e:00:53:<n>`` (RFC 7042 documentation range),
       beyond 256 ``02:00:5e:00:<n>``; all-zero, broadcast and documentation MACs are kept.
+    - WireGuard keys (any 32-byte base64 value): a placeholder key, the same for the same key
+      (#239), so the ends of a tunnel still match; private and pre-shared key fields are
+      secrets anyway;
     - secrets (fields matching :data:`SECRET_FIELDS`, ``sid=`` in URLs, the given password):
       ``redacted-secret-<n>``; the password and user name given to the recorder become
       :data:`PLACEHOLDER_SECRET` and :data:`PLACEHOLDER_USER` wherever they appear as a whole
@@ -220,6 +227,7 @@ class Neutraliser:
     v6_prefixes: dict[int, int] = field(default_factory=dict)
     v6_ids: dict[int, int] = field(default_factory=dict)
     macs: dict[str, str] = field(default_factory=dict)
+    wg_keys: dict[str, str] = field(default_factory=dict)
     #: every address placeholder handed out (kept as they are when seen again)
     produced: set[str] = field(default_factory=set)
 
@@ -324,7 +332,20 @@ class Neutraliser:
         new = self.macs[key].replace(":", sep)
         return new.upper() if any(c.isupper() for c in text) else new
 
+    def wg_key(self, match: re.Match[str]) -> str:
+        """A WireGuard key: the same placeholder key (valid, from a counter) for the same key,
+        so that the two ends of a recorded tunnel still match."""
+        text = match.group(1)
+        if text in self.produced:
+            return text
+        if text not in self.wg_keys:
+            seed = f"signalbox-recorded-key-{len(self.wg_keys) + 1}".encode()
+            self.wg_keys[text] = base64.b64encode(hashlib.sha256(seed).digest()).decode()
+            self.produced.add(self.wg_keys[text])
+        return self.wg_keys[text]
+
     def addresses(self, text: str) -> str:
+        text = _WG_KEY.sub(self.wg_key, text)
         text = _MAC.sub(self.mac, text)
         text = _IPV6.sub(self.ipv6, text)
         return _IPV4.sub(self.ipv4, text)

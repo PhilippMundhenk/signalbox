@@ -1,8 +1,10 @@
-"""Topology: links discovered from LLDP and MAC tables, and the view model for the UI."""
+"""Topology: links discovered from LLDP, MAC tables and VPN tunnels, and the view model for
+the UI."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from datetime import datetime
 from typing import Any
 
 from signalbox.model import (
@@ -13,6 +15,8 @@ from signalbox.model import (
     Membership,
     Network,
     Port,
+    Tunnel,
+    TunnelPeer,
     normalise_mac,
 )
 from signalbox.rules import Result, Severity, found, rule
@@ -94,8 +98,26 @@ def mac_links(net: Network) -> Iterator[Link]:
         )
 
 
+def tunnel_links(net: Network) -> Iterator[Link]:
+    """A ``vpn`` link between two read tunnels whose peers name each other's public keys
+    (#239), within a site or across sites. Its ends are the tunnel ids."""
+    for tunnel in net.tunnels:
+        for peer in tunnel.peers:
+            other = net.tunnel_end(tunnel, peer)
+            if other is None or other.id < tunnel.id:
+                continue  # not read, disagreeing, or found from the other end
+            yield Link(
+                id=link_id(LinkOrigin.TUNNEL, tunnel.id, other.id),
+                a=tunnel.id,
+                b=other.id,
+                kind=LinkKind.VPN,
+                origin=LinkOrigin.TUNNEL,
+            )
+
+
 def discovered_links(net: Network) -> list[Link]:
-    """LLDP first; a MAC-table link only where LLDP has nothing for either port."""
+    """LLDP first; a MAC-table link only where LLDP has nothing for either port; VPN links
+    between tunnels (they join tunnels, never ports)."""
     out: dict[frozenset[str], Link] = {}
     for link in lldp_links(net):
         out.setdefault(frozenset((link.a, link.b)), link)
@@ -104,7 +126,57 @@ def discovered_links(net: Network) -> list[Link]:
         pair = frozenset((link.a, link.b))
         if pair not in out and not pair & used:
             out[pair] = link
+    for link in tunnel_links(net):
+        out.setdefault(frozenset((link.a, link.b)), link)
     return sorted(out.values(), key=lambda link: link.id)
+
+
+def _at(net: Network, tunnel: Tunnel) -> datetime | None:
+    """When the tunnel was read (handshake ages are relative to the reading, not to now)."""
+    if tunnel.observed_at is not None:
+        return tunnel.observed_at
+    device = net.device(tunnel.device_id)
+    return device.observed_at if device else None
+
+
+def _peer_view(net: Network, tunnel: Tunnel, peer: TunnelPeer) -> dict[str, Any]:
+    """What the topology shows of one end's peer: handshake, traffic, networks behind it."""
+    at = _at(net, tunnel)
+    return {
+        "name": peer.name,
+        "latest_handshake": peer.latest_handshake.isoformat() if peer.latest_handshake else None,
+        "handshake_age": peer.handshake_age(at) if at else None,
+        "rx_bytes": peer.rx_bytes,
+        "tx_bytes": peer.tx_bytes,
+        "networks": [str(n) for n in tunnel.remote_networks(peer)],
+    }
+
+
+def remote_id(tunnel: Tunnel, peer: TunnelPeer) -> str:
+    """Id of the unmanaged site behind a peer: the tunnel id and the start of the key."""
+    key = "".join(c for c in peer.public_key if c.isalnum())[:12]
+    return f"{tunnel.id}/remote/{key}"
+
+
+def _vpn_edge(net: Network, link: Link, end: Callable[[str], dict[str, Any]]) -> dict[str, Any]:
+    """A ``vpn`` link: each end's view of the other (handshake, traffic, networks)."""
+    a, b = net.tunnel(link.a), net.tunnel(link.b)
+    views: dict[str, Any] = {"a": None, "b": None}
+    for side, here, there in (("a", a, b), ("b", b, a)):
+        if here is None or there is None or there.public_key is None:
+            continue
+        peer = here.peer(there.public_key)
+        if peer is not None:
+            views[side] = _peer_view(net, here, peer)
+    return {
+        "id": link.id,
+        "kind": link.kind.value,
+        "origin": link.origin.value,
+        "a": end(link.a),
+        "b": end(link.b),
+        "segments": [],
+        "vpn": views,
+    }
 
 
 def view(net: Network) -> dict[str, Any]:
@@ -117,7 +189,23 @@ def view(net: Network) -> dict[str, Any]:
         s.id: (s.name or (f"VLAN {s.vlan}" if s.vlan else "untagged")) for s in net.segments
     }
 
+    tunnels = {t.id: t for t in net.tunnels}
+
     def end(port_id: str) -> dict[str, Any]:
+        tunnel = tunnels.get(port_id)
+        if tunnel is not None:
+            return {
+                "port_id": port_id,
+                "device_id": tunnel.device_id,
+                "port": tunnel.name,
+                "known": True,
+                "tunnel": True,
+                "speed_mbps": None,
+                "max_speed_mbps": None,
+                "mtu": tunnel.mtu,
+                "up": tunnel.up,
+                "uplink": False,
+            }
         port = net.port(port_id)
         return {
             "port_id": port_id,
@@ -142,6 +230,9 @@ def view(net: Network) -> dict[str, Any]:
 
     edges = []
     for link in net.links:
+        if link.kind is LinkKind.VPN:
+            edges.append(_vpn_edge(net, link, end))
+            continue
         a, b = carried(link.a), carried(link.b)
         segments = [
             {
@@ -203,7 +294,44 @@ def view(net: Network) -> dict[str, Any]:
         }
         for d in net.devices
     ]
-    return {"nodes": nodes, "edges": edges, "clients": clients, "segments": seg_names}
+    remotes = []
+    for tunnel, peer in net.remote_sites():
+        device = net.device(tunnel.device_id)
+        rid = remote_id(tunnel, peer)
+        remotes.append(
+            {
+                "id": rid,
+                "name": peer.name or f"behind {tunnel.description or tunnel.name}",
+                "site_id": device.site_id if device else None,
+                "device_id": tunnel.device_id,
+                "tunnel_id": tunnel.id,
+                "networks": [str(n) for n in tunnel.remote_networks(peer)],
+            }
+        )
+        edges.append(
+            {
+                "id": link_id(LinkOrigin.TUNNEL, tunnel.id, rid),
+                "kind": LinkKind.VPN.value,
+                "origin": LinkOrigin.TUNNEL.value,
+                "a": end(tunnel.id),
+                "b": {
+                    "port_id": rid,
+                    "device_id": rid,
+                    "port": peer.name or "peer",
+                    "known": False,
+                    "remote": True,
+                },
+                "segments": [],
+                "vpn": {"a": _peer_view(net, tunnel, peer), "b": None},
+            }
+        )
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "clients": clients,
+        "segments": seg_names,
+        "remotes": remotes,
+    }
 
 
 @rule(
