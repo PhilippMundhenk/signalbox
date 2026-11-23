@@ -461,6 +461,13 @@ class MikrotikFix:
             raise AdapterError(f"{command}: {(res.err or text)[:300]}")
         return text
 
+    async def _available(self, ssh: PinnedSsh, get: Callable[[str], str]) -> str:
+        """``available-from`` (RouterOS 7.25 calls ``address`` that), else ``address``."""
+        try:
+            return await self._cli(ssh, get("available-from"))
+        except AdapterError:
+            return await self._cli(ssh, get("address"))
+
     async def inspect(self, ssh: PinnedSsh) -> dict[str, Any]:
         def get(prop: str) -> str:
             return f":put [/ip service get www-ssl {prop}]"
@@ -468,7 +475,7 @@ class MikrotikFix:
         off = (await self._cli(ssh, get("disabled"))).lower()
         state: dict[str, Any] = {
             "disabled": off in ("true", "yes"),
-            "address": [a for a in _word(await self._cli(ssh, get("address"))).split(",") if a],
+            "address": [a for a in _word(await self._available(ssh, get)).split(",") if a],
             "certificate": _word(await self._cli(ssh, get("certificate"))),
         }
         for key, name in (("ca", CA), ("server", SERVER)):

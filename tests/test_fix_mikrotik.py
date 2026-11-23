@@ -287,3 +287,15 @@ async def test_ssh_failures() -> None:
         device.admin_password = "other"
         with pytest.raises(AuthFailed):
             await MikrotikAdapter.plan_remedy(trusted)
+
+
+async def test_older_routeros_calls_the_address_list_address() -> None:
+    device = MikrotikSsh(
+        certificate="signalbox-www", address=["198.51.100.0/24"], disabled=False, legacy=True
+    )
+    async with serve_ssh(device) as (port, fingerprint):
+        trusted = request(
+            "https://127.0.0.1", fingerprint, "rest-service", port=port, secret=ADMIN_PASSWORD
+        )
+        done = await MikrotikAdapter.apply_remedy(trusted)
+        assert done.ok and device.address == ["198.51.100.0/24", "192.0.2.50/32"]

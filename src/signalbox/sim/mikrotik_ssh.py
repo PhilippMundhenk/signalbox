@@ -39,6 +39,8 @@ class MikrotikSsh:
     sessions: int = 1
     #: ``/ip service set`` is refused with this text
     refuse_set: str = ""
+    #: a RouterOS without ``available-from`` (only ``address``)
+    legacy: bool = False
     commands: list[str] = field(default_factory=list)
 
     def run(self, command: str) -> tuple[int, str]:
@@ -47,7 +49,9 @@ class MikrotikSsh:
             prop = m.group(1)
             if prop == "disabled":
                 return 0, "true" if self.disabled else "false"
-            if prop == "address":
+            if prop == "available-from" and self.legacy:
+                return 0, "failure: no such property"
+            if prop in ("address", "available-from"):
                 return 0, ",".join(self.address)
             if prop == "certificate":
                 return 0, self.certificate or "none"
