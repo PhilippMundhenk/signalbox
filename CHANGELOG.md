@@ -91,6 +91,7 @@ All notable changes to this project are documented here. The format follows
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
 - Each device links to its own web interface: an icon on the devices list and an "Open web interface" button on the device page, derived from a reported https/http service or the adapter settings (#214)
 
+- Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
 - DNS: two DNS services on one router (AdGuard Home in front of Unbound on another port) are no longer a forwarding loop: services have a listen port, forwarders an address and port, and a forward to a service Signalbox cannot read is incomplete, not a loop (#241)
 - Web UI: a session that ended (expired, logged out in another tab, server restarted) is noticed automatically: the login appears in place and the same page returns after login; an unreachable server shows a banner instead (#238)
