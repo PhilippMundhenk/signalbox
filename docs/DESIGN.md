@@ -95,7 +95,7 @@ carries its source (adapter and device), the time it was observed and a stable i
 | DhcpServer | Device, segment, enabled, pool, lease time, options (router, DNS, NTP, search domains, classless routes, network boot, further options by code), static reservations, authoritative, failover peer, lease table (address, MAC, client id, host name, state, reserved, start and end, vendor class) |
 | DhcpRelay | Device, segment, servers it forwards to, enabled |
 | DnsService | Resolver with its port (several per device), host overrides, forwarders (address and port), split-DNS domains |
-| Tunnel | A VPN interface of a device (`wireguard`): name, description, port, up, enabled, listen port, own public key, addresses, MTU; peers with public key, name, endpoint, allowed IPs, last handshake, transfer counters, keepalive, whether a pre-shared key is set. Never a private or pre-shared key ([ADR 0010](adr/0010-vpn-tunnels-and-site-links.md)) |
+| Tunnel | A VPN interface of a device (`wireguard`): name, description, port, up, enabled, listen port, own public key, addresses, MTU; peers with public key, name, endpoint, allowed IPs, last handshake, transfer counters, keepalive, whether a pre-shared key is set. Never a private or pre-shared key ([ADR 0011](adr/0011-vpn-tunnels-and-site-links.md)) |
 | Wlan | SSID, security (open, OWE, WEP, WPA/WPA2/WPA3 Personal and Enterprise incl. mixed and 192-bit modes; PMF), passphrase fingerprint and SSID-independent digest, segment, bands, hidden, roaming (802.11r/k/v), purpose and its source, client isolation; security details: pairwise and group ciphers, SAE (PWE, SAE-PK, anti-clogging), WPS (on, methods, AP PIN lock), group rekey interval, beacon protection |
 | Radio | Band, channel, width, transmit power, country code, security modes the hardware and firmware can offer |
 | Firewall | Zones, rules, NAT; read-only at first |
@@ -312,7 +312,7 @@ recordings replace every key by a placeholder. Integrations read the running sta
 device leaves the keys out (OPNsense `wireguard/service/show`). The peer endpoint is the other
 site's public address: shown behind a click, never exported. Handshake times are absolute;
 their age is taken against the time of the reading. See
-[ADR 0010](adr/0010-vpn-tunnels-and-site-links.md).
+[ADR 0011](adr/0011-vpn-tunnels-and-site-links.md).
 
 ### Annotations and acknowledged findings
 

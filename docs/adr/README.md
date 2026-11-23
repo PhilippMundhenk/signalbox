@@ -12,6 +12,6 @@
 | [0008](0008-internal-port-structure.md) | The internal port structure of a device: `Port.role` and `Port.lower` (#252) |
 | [0009](0009-automatic-setup-with-an-admin-login.md) | Automatic setup with an admin login, used once and never kept (#231) |
 | [0010](0010-isc-dhcp-settings-through-a-helper-script.md) | ISC DHCP settings of OPNsense through an optional, forced-command script (#242) |
-| [0010](0010-vpn-tunnels-and-site-links.md) | VPN tunnels belong to their device, site links come from matching public keys, keys never enter the model (#239) |
+| [0011](0011-vpn-tunnels-and-site-links.md) | VPN tunnels belong to their device, site links come from matching public keys, keys never enter the model (#239) |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.
