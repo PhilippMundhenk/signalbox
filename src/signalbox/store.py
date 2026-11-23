@@ -23,6 +23,7 @@ from signalbox.model import (
     AnnotationSource,
     DeviceRole,
     DeviceStatus,
+    ForeignServer,
     Link,
     Network,
     PathTrace,
@@ -138,6 +139,11 @@ SCHEMA = [
         id TEXT PRIMARY KEY, source TEXT NOT NULL, started_at TEXT NOT NULL, data TEXT NOT NULL
     );
     CREATE INDEX traces_started ON traces (started_at);
+    """,
+    # version 6: answers to Signalbox's own probes for foreign DHCP servers and routers (#184)
+    """
+    CREATE TABLE foreign_servers (id TEXT PRIMARY KEY, last_seen TEXT NOT NULL, data TEXT NOT NULL);
+    CREATE INDEX foreign_servers_seen ON foreign_servers (last_seen);
     """,
 ]
 
@@ -653,6 +659,45 @@ class Store:
     def prune_traces(self, before: datetime) -> int:
         with self._tx() as db:
             cur = db.execute("DELETE FROM traces WHERE started_at < ?", (before.isoformat(),))
+            return int(cur.rowcount)
+
+    # probe answers (#184): the latest per server and network, first_seen kept --------------
+
+    def put_foreign(self, server: ForeignServer) -> ForeignServer:
+        """Store a probe answer; a server seen before keeps its ``first_seen``."""
+        with self._tx() as db:
+            row = db.execute("SELECT data FROM foreign_servers WHERE id = ?", (server.id,))
+            old = row.fetchone()
+            if old is not None:
+                first = ForeignServer.model_validate_json(old["data"]).first_seen
+                server = server.model_copy(update={"first_seen": min(first, server.first_seen)})
+            db.execute(
+                "INSERT INTO foreign_servers (id, last_seen, data) VALUES (?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen, "
+                "data = excluded.data",
+                (server.id, server.last_seen.isoformat(), server.model_dump_json()),
+            )
+        return server
+
+    def foreign_servers(self) -> list[ForeignServer]:
+        rows = self._all("SELECT data FROM foreign_servers ORDER BY id")
+        return [ForeignServer.model_validate_json(r["data"]) for r in rows]
+
+    def delete_foreign(self, ids: list[str] | None = None) -> int:
+        """Forget every probe answer, or these."""
+        with self._tx() as db:
+            if ids is None:
+                return int(db.execute("DELETE FROM foreign_servers").rowcount)
+            return sum(
+                int(db.execute("DELETE FROM foreign_servers WHERE id = ?", (i,)).rowcount)
+                for i in ids
+            )
+
+    def prune_foreign(self, before: datetime) -> int:
+        with self._tx() as db:
+            cur = db.execute(
+                "DELETE FROM foreign_servers WHERE last_seen < ?", (before.isoformat(),)
+            )
             return int(cur.rowcount)
 
     # change tracking (append-only) ------------------------------------------------------

@@ -1757,6 +1757,7 @@
     "port_forwards_complete": false
    }
   ],
+  "server_sightings": [],
   "errors": [],
   "extra_devices": [],
   "extra_status": {}

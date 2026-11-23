@@ -366,7 +366,8 @@ async def test_mikrotik_without_wan_list_reads_nothing_more(
     sim, url = mikrotik_sim
     sim.data[mikrotik.LIST_MEMBER] = []
     assert await _uplinks(_mikrotik(url)) == []
-    assert mikrotik.DHCP_CLIENT not in sim.requests
+    # (/ip/dhcp-client is still read with dhcp: its server on other networks, #184)
+    assert "/rest/ipv6/dhcp-client" not in sim.requests
 
 
 async def test_mikrotik_without_cloud_menu(
@@ -593,3 +594,59 @@ def test_omada_wan_entries() -> None:
     )
     lite = omada_uplink({"port": 7, "proto": "ds-lite", "internetState": 0}, "gw", extra)
     assert lite is not None and (lite.kind, lite.up) == (UplinkKind.DSLITE, False)
+
+
+async def test_mikrotik_server_sightings(
+    mikrotik_sim: tuple[mikrotik.MikrotikSimulator, str],
+) -> None:
+    """#184: the server of a DHCP client on the LAN and the rogue DHCP detector's unknown
+    servers; the WAN's DHCP client is the provider's, not a sighting."""
+    sim, url = mikrotik_sim
+    adapter = _mikrotik(url)
+    try:
+        assert (await assert_contract(adapter)).server_sightings == []
+    finally:
+        await adapter.close()
+    sim.data[mikrotik.DHCP_CLIENT].append(
+        {
+            ".id": "*9",
+            "interface": "bridge",
+            "status": "bound",
+            "address": "192.0.2.77/24",
+            "gateway": "192.0.2.254",
+            "dhcp-server": "192.0.2.254",
+            "primary-dns": "192.0.2.254",
+            "disabled": "false",
+            "invalid": "false",
+        }
+    )
+    sim.data[mikrotik.DHCP_CLIENT].append(
+        {".id": "*a", "interface": "bridge", "status": "searching", "dhcp-server": "192.0.2.9"}
+    )
+    sim.data[mikrotik.DHCP_CLIENT].append(
+        {
+            ".id": "*b",
+            "interface": "bridge",
+            "status": "bound",
+            "address": "bad",
+            "dhcp-server": "192.0.2.8",
+        }
+    )
+    sim.data["/rest/ip/dhcp-server/alert"][0]["unknown-server"] = "02:00:00:00:00:99,junk"
+    sim.data["/rest/ip/dhcp-server/alert"].append(
+        {".id": "*2", "interface": "nowhere", "unknown-server": "02:00:00:00:00:98"}
+    )
+    adapter = _mikrotik(url)
+    try:
+        snap = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    by = {(s.origin.value, str(s.server_address)): s for s in snap.server_sightings}
+    lease = by[("client-lease", "192.0.2.254")]
+    assert lease.segment_id
+    assert [str(a) for a in lease.offered.routers] == ["192.0.2.254"]
+    assert str(lease.offered.address) == "192.0.2.77"
+    assert [str(p) for p in lease.offered.prefixes] == ["192.0.2.0/24"]
+    assert by[("client-lease", "192.0.2.8")].offered.address is None
+    assert by[("device-alert", "None")].server_mac == "02:00:00:00:00:99"
+    assert len(by) == 3

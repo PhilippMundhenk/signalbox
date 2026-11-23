@@ -65,6 +65,9 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | GET | `/api/traces` | The last run's progress, the sources that can trace (with the permission each |
 | POST | `/api/traces` | Trace now: all gateways to each other and to the internet target, or only from or |
 | DELETE | `/api/traces` | Forget every stored trace. |
+| GET | `/api/probes` | The last probe's state per interface and every DHCP server and router seen |
+| POST | `/api/probes` | Probe now: one DHCPDISCOVER and one router solicitation per interface of |
+| DELETE | `/api/probes` | Forget every stored probe answer (the devices' sightings stay). |
 | POST | `/api/devices/setup` | What the automatic setup would do with this admin login; nothing is changed. |
 | POST | `/api/devices/setup/apply` | Run the automatic setup (or its removal) and save the device with the new login. |
 | POST | `/api/devices/{device_id}/fix` | What *Fix it* would do on this device with the admin login; nothing is changed. |

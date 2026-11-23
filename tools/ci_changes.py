@@ -81,6 +81,12 @@ def integration(files: list[str] | None) -> dict[str, object]:
             f"tools/integration/{a}/*",
             f"docs/adapters/{a}.md",
         )
+        if a == "linux":  # the Linux job also runs the probe against dnsmasq (#184)
+            own += (
+                "src/signalbox/probehost.py",
+                "tests/integration/test_probe_real.py",
+                "tools/integration/probe/*",
+            )
         out[a] = any_match(files, own)
     return out
 

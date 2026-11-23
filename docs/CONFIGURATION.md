@@ -93,6 +93,18 @@ Generated from the code by `tools/gen_docs.py`.
 | `traces.min_gap_seconds` | `SIGNALBOX_TRACES_MIN_GAP_SECONDS` | `60` | Trace now is refused this soon after the last run. |
 | `traces.max_pairs` | `SIGNALBOX_TRACES_MAX_PAIRS` | `64` | At most this many traces in one run. |
 
+## `probes`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `probes.enabled` | `SIGNALBOX_PROBES_ENABLED` | false | Foreign DHCP servers and routers (docs/adr/0015): let Signalbox's own host send one DHCPDISCOVER (never a REQUEST: no lease is taken) and one IPv6 router solicitation on each of its networks and list who answers. Off by default; needs host networking and UDP port 68, router solicitations need CAP_NET_RAW (docs/PROBES.md). |
+| `probes.interval_hours` | `SIGNALBOX_PROBES_INTERVAL_HOURS` | `0` | Probe every this many hours; 0: only when you press Probe now. |
+| `probes.dhcp` | `SIGNALBOX_PROBES_DHCP` | true | Send a DHCPDISCOVER (needs UDP port 68). |
+| `probes.router_solicitation` | `SIGNALBOX_PROBES_ROUTER_SOLICITATION` | true | Send an IPv6 router solicitation (needs CAP_NET_RAW). |
+| `probes.interfaces` | `SIGNALBOX_PROBES_INTERFACES` | - | Probe only these interfaces of Signalbox's host (eth0, eth0.20); empty: every interface whose network Signalbox knows. |
+| `probes.wait_seconds` | `SIGNALBOX_PROBES_WAIT_SECONDS` | `3` | How long to listen for answers per interface, in seconds. |
+| `probes.min_gap_seconds` | `SIGNALBOX_PROBES_MIN_GAP_SECONDS` | `300` | Probe now is refused this soon after the last run. |
+
 ## `plugins`
 
 | Setting | Environment variable | Default | Meaning |

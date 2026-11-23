@@ -2,6 +2,7 @@
 import { loadNetwork, noData, siteFilter } from '../net.js';
 import { by, clear, h, place } from '../util.js';
 import { pageHead, purposeTag, table, tag } from '../ui.js';
+import { foreignServersCard } from './probes.js';
 
 let siteChoice = '';
 
@@ -73,6 +74,7 @@ export async function renderSegments(main, ctx) {
     h('p', { class: 'muted' }, 'A segment is one network (VLAN) of a site. The same VLAN on several devices is one segment.'),
     h('div', { class: 'filters' }, siteFilter(ix, siteChoice, (v) => { siteChoice = v; draw(); })),
     body,
+    foreignServersCard(ctx),
   );
   draw();
 }

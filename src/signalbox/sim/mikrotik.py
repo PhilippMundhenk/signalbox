@@ -577,6 +577,18 @@ def sample_data() -> dict[str, Any]:
             {"name": "routes", "code": "121", "value": "0x18cb0071c00002fe"},
             {"name": "wpad", "code": "252", "value": "'http://192.0.2.1/wpad.dat'"},
         ),
+        # the rogue DHCP detector (#184): RouterOS lists the MACs of servers that answered on
+        # the interface and are not in valid-server; none here
+        "/rest/ip/dhcp-server/alert": _ids(
+            {
+                "interface": "bridge",
+                "valid-server": _mac(0, 1),
+                "unknown-server": "",
+                "alert-timeout": "1h",
+                "disabled": "false",
+                "invalid": "false",
+            }
+        ),
         "/rest/ip/dhcp-relay": _ids(
             {
                 "name": "iot-relay",

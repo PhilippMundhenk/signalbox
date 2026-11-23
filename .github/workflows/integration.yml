@@ -480,6 +480,28 @@ jobs:
               echo "::error title=Linux integration tests failed::$body"
               exit $code
             }
+      - name: A second DHCP server and IPv6 router (dnsmasq in a network namespace, #184)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends dnsmasq-base
+          bash tools/integration/probe/netns.sh start "$RUNNER_TEMP/probe"
+          cat "$RUNNER_TEMP/probe/env" >> "$GITHUB_ENV"
+      - name: Probe tests (DHCP as the CI user, the router solicitation as root)
+        run: |
+          set -o pipefail
+          {
+            pytest tests/integration/test_probe_real.py -v -p no:cacheprovider &&
+            sudo -E env "PATH=$PATH" IT_PROBE_RA=1 "$(command -v python)" -m pytest \
+              tests/integration/test_probe_real.py -v -p no:cacheprovider -k router
+          } 2>&1 | tee "$TARGET_DIR/pytest-probe.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$TARGET_DIR/pytest-probe.log" | cut -c1-600 | tail -n 40)
+              body=$(printf '%s\n--- dnsmasq ---\n%s' "$summary" "$(tail -n 20 "$RUNNER_TEMP/probe/dnsmasq.log" 2>/dev/null)")
+              body=${body//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=Probe integration tests failed::$body"
+              exit $code
+            }
       - name: Container log on failure
         if: failure()
         run: |
@@ -489,7 +511,9 @@ jobs:
           echo "::error title=Linux container log::$body"
       - name: Stop
         if: always()
-        run: python3 tools/integration/linux/target.py stop "$TARGET_DIR" || true
+        run: |
+          python3 tools/integration/linux/target.py stop "$TARGET_DIR" || true
+          bash tools/integration/probe/netns.sh stop "$RUNNER_TEMP/probe" || true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
