@@ -75,7 +75,7 @@ Generated from the code by `tools/gen_docs.py`.
 
 | Setting | Environment variable | Default | Meaning |
 | --- | --- | --- | --- |
-| `setup.enabled` | `SIGNALBOX_SETUP_ENABLED` | true | Offer 'Set up automatically' in the device form: with the admin login you give once, Signalbox creates its own least-privilege login on that device (only when you start it and confirm the plan; docs/adr/0008). false: the API refuses it and the form does not show it; the manual setup guides always work. |
+| `setup.enabled` | `SIGNALBOX_SETUP_ENABLED` | true | Offer 'Set up automatically' in the device form: with the admin login you give once, Signalbox creates its own least-privilege login on that device (only when you start it and confirm the plan; docs/adr/0009). false: the API refuses it and the form does not show it; the manual setup guides always work. |
 
 ## `plugins`
 

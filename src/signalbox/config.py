@@ -111,7 +111,7 @@ class SetupConfig(Section):
         True,
         description="Offer 'Set up automatically' in the device form: with the admin login you "
         "give once, Signalbox creates its own least-privilege login on that device (only when "
-        "you start it and confirm the plan; docs/adr/0008). false: the API refuses it and the "
+        "you start it and confirm the plan; docs/adr/0009). false: the API refuses it and the "
         "form does not show it; the manual setup guides always work.",
     )
 
@@ -215,7 +215,7 @@ setup:
   # "Set up automatically" in the device form: you give a device's admin login once and
   # Signalbox creates its own least-privilege login there, after you confirmed the plan.
   # Never in the background; the admin login is not stored. false turns it off completely
-  # (the manual setup guides always work). Details: docs/adr/0008.
+  # (the manual setup guides always work). Details: docs/adr/0009.
   enabled: true
 
 plugins:

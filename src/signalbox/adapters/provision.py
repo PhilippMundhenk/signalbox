@@ -1,4 +1,4 @@
-"""Shared helpers of the automatic setup with an admin login (#231, docs/adr/0008).
+"""Shared helpers of the automatic setup with an admin login (#231, docs/adr/0009).
 
 An integration that sets up its own least-privilege login builds a list of :class:`Step`:
 what the step does (shown in the plan, secrets as ``***``), whether it is needed, and the

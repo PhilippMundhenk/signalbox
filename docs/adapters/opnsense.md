@@ -40,7 +40,7 @@ meant for the simulator.
 
 ## Automatic setup
 
-*Set up automatically* in the device form (#231, [ADR 0008](../adr/0008-automatic-setup-with-an-admin-login.md))
+*Set up automatically* in the device form (#231, [ADR 0009](../adr/0009-automatic-setup-with-an-admin-login.md))
 creates the user of the next section through the API, with an API key of root.
 It is optional: the manual setup below is the same result and always works. Nothing is
 changed on the device unless you start it for that device and confirm the plan (never from

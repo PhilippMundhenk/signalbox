@@ -1,4 +1,4 @@
-"""Automatic setup of an OpenWrt router over SSH as root (#231, docs/adr/0008).
+"""Automatic setup of an OpenWrt router over SSH as root (#231, docs/adr/0009).
 
 The same steps as the commands of the setup guide (:mod:`signalbox.adapters.openwrt.setup`):
 the packages Signalbox reads through (apk or opkg, only the missing ones), the ACL file

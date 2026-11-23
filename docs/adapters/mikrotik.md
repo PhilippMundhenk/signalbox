@@ -68,7 +68,7 @@ clear text and is only meant for the simulator.
 
 ### Automatic setup
 
-*Set up automatically* in the device form (#231, [ADR 0008](../adr/0008-automatic-setup-with-an-admin-login.md))
+*Set up automatically* in the device form (#231, [ADR 0009](../adr/0009-automatic-setup-with-an-admin-login.md))
 creates the group and the user below through the REST API as admin, once HTTPS is set up as
 above.
 It is optional: the manual setup below is the same result and always works. Nothing is

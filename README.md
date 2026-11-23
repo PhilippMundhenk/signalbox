@@ -84,7 +84,7 @@ Adapters are plugins: other devices can be added as separate packages, see
    Or let Signalbox do it: *Set up automatically* in the device form takes the admin login once
    (OpenWrt root over SSH, an API key of OPNsense's root, MikroTik admin), shows what it will
    create, creates exactly that least-privilege login and saves the device with it. The admin
-   login is not stored ([docs/adr/0008](docs/adr/0008-automatic-setup-with-an-admin-login.md)).
+   login is not stored ([docs/adr/0009](docs/adr/0009-automatic-setup-with-an-admin-login.md)).
 4. Add the devices under *Devices*, by hand or with *Find devices*: Signalbox looks for the
    supported devices in the networks of the routers you added (and at addresses you enter),
    without credentials, and opens the form prefilled; you enter the login

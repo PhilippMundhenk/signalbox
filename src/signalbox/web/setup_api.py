@@ -1,4 +1,4 @@
-"""API of the automatic device setup with an admin login (#231, docs/adr/0008).
+"""API of the automatic device setup with an admin login (#231, docs/adr/0009).
 
 ``POST /api/devices/setup`` asks the integration what it would do (nothing is changed);
 ``POST /api/devices/setup/apply`` does it and saves the device with the new login. The admin

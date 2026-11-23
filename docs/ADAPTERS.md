@@ -217,7 +217,7 @@ class MyAdapter(Adapter):
 ## Automatic setup with an admin login
 
 An integration can set up its own least-privilege login when the user gives the admin login
-once (#231, [ADR 0008](adr/0008-automatic-setup-with-an-admin-login.md)); the device form then
+once (#231, [ADR 0009](adr/0009-automatic-setup-with-an-admin-login.md)); the device form then
 offers *Set up automatically*. Optional, no adapter API version needed:
 
 ```python

@@ -380,7 +380,7 @@ device; the other capabilities are unaffected.
 
 ## Automatic setup
 
-*Set up automatically* in the device form (#231, [ADR 0008](../adr/0008-automatic-setup-with-an-admin-login.md))
+*Set up automatically* in the device form (#231, [ADR 0009](../adr/0009-automatic-setup-with-an-admin-login.md))
 does the steps of the next section for you, over SSH as root.
 It is optional: the manual setup below is the same result and always works. Nothing is
 changed on the device unless you start it for that device and confirm the plan (never from
