@@ -48,8 +48,8 @@ MAC = "02:00:00:00:{:02x}:{:02x}"
 FIXED_MAC = "00:00:5e:00:53:{:02x}"
 #: UCI configs the simulator knows (and can write)
 CONFIGS = ("network", "wireless", "dhcp")
-#: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173)
-READ_ONLY = ("system", "dropbear", "uhttpd")
+#: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173; firewall, #135)
+READ_ONLY = ("system", "dropbear", "uhttpd", "firewall")
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
     "/tmp/dhcp.leases",
@@ -572,6 +572,148 @@ def dhcp_config(router: bool) -> dict[str, Any]:
     )
 
 
+def firewall_config(router: bool = False, wireguard: bool = False) -> dict[str, Any]:
+    """``/etc/config/firewall`` as OpenWrt 24.10 ships it (zones ``lan`` and ``wan``, one
+    forwarding, the ``Allow-*`` rules), plus an ``iot`` zone, a port forward and a rule of the
+    owner's (documentation addresses). Without ``router`` (an access point): LAN only."""
+    zones: list[tuple[str, str, dict[str, Any]]] = [
+        ("defaults", "cfg01e63d", {"input": "REJECT", "output": "ACCEPT", "forward": "REJECT"}),
+        (
+            "zone",
+            "cfg02dc81",
+            {
+                "name": "lan",
+                "network": ["lan"],
+                "input": "ACCEPT",
+                "output": "ACCEPT",
+                "forward": "ACCEPT",
+            },
+        ),
+    ]
+    if not router:
+        return _uci(*zones)
+    wan_networks = ["wan", "wan6"]
+    return _uci(
+        *zones,
+        (
+            "zone",
+            "cfg03dc81",
+            {
+                "name": "wan",
+                "network": wan_networks,
+                "input": "REJECT",
+                "output": "ACCEPT",
+                "forward": "REJECT",
+                "masq": "1",
+                "mtu_fix": "1",
+            },
+        ),
+        (
+            "zone",
+            "iot",
+            {
+                "name": "iot",
+                "network": ["iot"],
+                "input": "REJECT",
+                "output": "ACCEPT",
+                "forward": "REJECT",
+            },
+        ),
+        *(
+            (
+                (
+                    "zone",
+                    "vpn",
+                    {
+                        "name": "vpn",
+                        "network": ["wg0"],
+                        "input": "REJECT",
+                        "output": "ACCEPT",
+                        "forward": "REJECT",
+                    },
+                ),
+            )
+            if wireguard
+            else ()
+        ),
+        ("forwarding", "cfg04ad58", {"src": "lan", "dest": "wan"}),
+        ("forwarding", "cfg05ad58", {"src": "iot", "dest": "wan"}),
+        (
+            "rule",
+            "cfg06dc81",
+            {
+                "name": "Allow-DHCP-Renew",
+                "src": "wan",
+                "proto": "udp",
+                "dest_port": "68",
+                "target": "ACCEPT",
+                "family": "ipv4",
+            },
+        ),
+        (
+            "rule",
+            "cfg07dc81",
+            {
+                "name": "Allow-Ping",
+                "src": "wan",
+                "proto": "icmp",
+                "icmp_type": "echo-request",
+                "family": "ipv4",
+                "target": "ACCEPT",
+            },
+        ),
+        (
+            "rule",
+            "cfg08dc81",
+            {
+                "name": "Allow-DHCPv6",
+                "src": "wan",
+                "proto": "udp",
+                "dest_ip": "fc00::/6",
+                "dest_port": "546",
+                "family": "ipv6",
+                "target": "ACCEPT",
+            },
+        ),
+        (
+            "rule",
+            "cfg09dc81",
+            {
+                "name": "Allow-IPSec-ESP",
+                "src": "wan",
+                "dest": "lan",
+                "proto": "esp",
+                "target": "ACCEPT",
+            },
+        ),
+        (
+            "rule",
+            "iot_dns",
+            {
+                "name": "Allow-DNS-IoT",
+                "src": "iot",
+                "proto": ["tcp", "udp"],
+                "dest_port": "53",
+                "target": "ACCEPT",
+            },
+        ),
+        (
+            "redirect",
+            "nas",
+            {
+                "name": "nas-https",
+                "target": "DNAT",
+                "src": "wan",
+                "src_dport": "8443",
+                "dest": "lan",
+                "dest_ip": "192.0.2.10",
+                "dest_port": "443",
+                "proto": "tcp",
+            },
+        ),
+    )
+
+
 def dropbear_config() -> dict[str, Any]:
     """``/etc/config/dropbear`` as OpenWrt ships it (one instance, SSH in the LAN)."""
     return _uci(
@@ -891,6 +1033,7 @@ class OpenWrtSim:
                 "system": _sections(system_config(self.router)),
                 "dropbear": _sections(dropbear_config()),
                 "uhttpd": _sections(uhttpd_config()),
+                "firewall": _sections(firewall_config(self.router, self.wireguard)),
             }
         return self.configs
 

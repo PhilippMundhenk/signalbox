@@ -43,7 +43,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.openwrt import discovery as _discovery
-from signalbox.adapters.openwrt import provision, setup, vitals, wireguard
+from signalbox.adapters.openwrt import firewall, provision, setup, vitals, wireguard
 from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import (
     AccessDenied,
@@ -666,7 +666,7 @@ class OpenWrtAdapter(Adapter):
         id="openwrt",
         name="OpenWrt",
         version="0.1.0",
-        api_version="1.3",
+        api_version="1.4",
         vendor="OpenWrt",
         roles=frozenset({DeviceRole.AP, DeviceRole.SWITCH, DeviceRole.GATEWAY}),
         capabilities=frozenset(
@@ -680,6 +680,7 @@ class OpenWrtAdapter(Adapter):
                 Capability.HEALTH,
                 Capability.TIME,
                 Capability.VPN,
+                Capability.FIREWALL,
             }
         ),
         config=OpenWrtConfig,
@@ -1723,6 +1724,53 @@ class OpenWrtAdapter(Adapter):
         ports = set(status) if isinstance(status, dict) else set()  # as read_interfaces names them
         tunnels = wireguard.tunnels(uci, runtime, self.context.device_id, up, ports)
         return Observation(tunnels=tunnels)
+
+    # firewall -------------------------------------------------------------------------
+
+    async def read_firewall(self) -> Observation:
+        """The UCI ``firewall`` config (#135): zones mapped to segments, uplinks and tunnels,
+        forwardings and rules, redirects and NAT. A router set up with an older ACL refuses
+        ``uci get firewall``: that is a gap with the fix, not an error."""
+        try:
+            uci = await self._uci("firewall")
+        except AccessDenied as exc:
+            return Observation(
+                incomplete=[
+                    Gap(message=f"firewall: {exc}", fix=exc.fix, remedy=exc.remedy),
+                ]
+            )
+        d = self.context.device_id
+        view = await self._network()
+        router = (
+            self.context.role is DeviceRole.GATEWAY
+        )  # as read_interfaces: only a router has uplinks
+        uplinks = {
+            n: u.id
+            for u in (self._uplinks(view, {}) if router else [])
+            for n in (u.vendor_extra.get("interfaces") or [])  # type: ignore[union-attr]
+        }
+        tunnels = {n for n, _ in wireguard.interfaces(view.uci)}
+        segment_ids = self._segment_ids(view)
+
+        def mapper(name: str) -> tuple[list[str], list[str], list[str]] | None:
+            if name in uplinks:
+                return [], [uplinks[name]], []
+            if name in tunnels:
+                return [], [], [object_id(d, "tunnel", name)]
+            vid = view.vlan_of_interface(name)
+            if vid is not None and self._seg(vid) in segment_ids:
+                return [self._seg(vid)], [], []
+            return None
+
+        return Observation(firewalls=[firewall.build(uci, d, mapper)])
+
+    def _segment_ids(self, view: NetworkView) -> set[str]:
+        """The segments :meth:`read_interfaces` reports: bridge VLANs with members, and the
+        native segment of a bridge with ports."""
+        vids = {vid for vlans in view.vlans.values() for vid in vlans}
+        if any(ports for b, ports in view.bridges.items() if b not in view.vlans):
+            vids.add(_NATIVE)
+        return {self._seg(v) for v in vids}
 
     # neighbours -----------------------------------------------------------------------
 

@@ -27,9 +27,10 @@ async def test_demo_devices_are_readable_and_show_findings(tmp_path: Path) -> No
             assert purposes["home/segment/30"] == ("guest", "heuristic")
             assert purposes["home/segment/native"] == (None, None)
             assert "segment.purpose-missing" in rules
-            exposure = [f for f in findings if f.rule_id == "security.management-exposure"]
-            assert sorted(f.objects[1] for f in exposure) == ["home/segment/20", "home/segment/30"]
-            assert all(f.incomplete and f.objects[0] == "gateway" for f in exposure)
+            # the gateway's firewall is read (#135): it keeps IoT and guest away from the
+            # web interface, so nothing is reported and nothing is "not checked"
+            exposure = [f for f in findings if f.rule_id.endswith("-exposure")]
+            assert not any(f.objects and f.objects[0] == "gateway" for f in exposure)
             assert not rules & {"wifi.guest-isolation", "segment.guest-no-isolation"}
             iot = [w for w in net.wlans if w.ssid == "Example-IoT"]
             assert iot and all(w.client_isolation for w in iot)

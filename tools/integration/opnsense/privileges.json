@@ -10,7 +10,13 @@
     "page-diagnostics-ndptable",
     "page-system-login-logout",
     "page-status-ntp",
-    "page-wireguard-diagnostics"
+    "page-wireguard-diagnostics",
+    "page-filter-api",
+    "page-firewall-aliases",
+    "page-interfaces-groups-edit",
+    "page-firewall-nat-portforward-edit",
+    "page-filter-snat-api",
+    "page-firewall-nat-1-1-edit"
   ],
   "signalbox-write": [
     "page-system-firmware-manualupdate",
@@ -24,6 +30,12 @@
     "page-system-login-logout",
     "page-status-ntp",
     "page-wireguard-diagnostics",
+    "page-filter-api",
+    "page-firewall-aliases",
+    "page-interfaces-groups-edit",
+    "page-firewall-nat-portforward-edit",
+    "page-filter-snat-api",
+    "page-firewall-nat-1-1-edit",
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory"
   ]

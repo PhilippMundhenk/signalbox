@@ -834,6 +834,7 @@ async def test_malformed_interfaces_hit_every_capability(
         "clients",
         "neighbours",
         "vpn",
+        "firewall",
     }
 
 

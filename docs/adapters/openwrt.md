@@ -507,7 +507,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "luci.lldpd": ["getStatus"],
         "luci.wireguard": ["getWgInstances"]
       },
-      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd"],
+      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -609,7 +609,7 @@ only allows the `uci` methods of a transaction on the three configs:
         "luci.lldpd": ["getStatus"],
         "luci.wireguard": ["getWgInstances"]
       },
-      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd"],
+      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -688,3 +688,33 @@ rest of the read is unaffected, add the two names to the ACL to read them).
   `redirect_https` is `redirects_to_https` of the HTTP service.
 - No `snmpd` and no telnet are read. `from_wan` stays unknown (firewall: #135).
 - `transport_encrypted` is true for https, false for `allow_insecure_http`.
+
+
+## Firewall and NAT (#135)
+
+Read with the `firewall` capability (adapter API 1.4, [ADR 0013](../adr/0013-firewall-zones-rules-and-reachability.md))
+from `uci get firewall`; `firewall` is in the **read** ACL's `uci` list (above, in
+`setup.py` `READ_ACL`, and so in the setup and *Fix it* steps; the write ACL keeps leaving it out).
+A router set up with an older ACL answers "access denied for uci.get (firewall)": the capability
+reports a gap with the usual fix (update the ACL file, `service rpcd restart`), the rest is read.
+
+- `zone` (`name`, `network` mapped like the interfaces: a bridge or VLAN network to its segment,
+  `wan`/`wan6` to the uplink, a WireGuard interface to its tunnel; `masq`; a zone with `device`,
+  `subnet` or `extra`, or a network that maps to nothing is `complete = False`); a zone without
+  any is the network of its own name.
+- Policies: a zone's `input` (zone to the router) and `forward` (inside the zone), else the
+  `defaults`; a `forwarding` (`src` to `dest`) is an accept; `forward_policy` is reject (traffic
+  between zones without a forwarding is rejected), `input_policy` is `defaults.input`.
+- `rule`: no `dest` is an input rule, a `dest` zone or `*` a forward rule, no `src` an output rule;
+  `src_ip`, `dest_ip`, `dest_port` (ranges `a-b`), `proto` (default `tcp udp`; `all`), `family`,
+  `target` (default DROP; MARK, NOTRACK and the like are skipped), `enabled`. Inexact:
+  `icmp_type`, `limit`, `ipset`, `mark`, `start_time`, `weekdays`, `src_mac`, `extra` and similar.
+  An `include` section (other than the default `/etc/firewall.user`) makes `rules_complete` false.
+- `redirect` with DNAT: `src` (zone), `src_dport`, `src_dip`, `src_ip`, `dest_ip`, `dest_port`,
+  `proto`, `reflection`; `passes_filter` is true. One without `dest_ip` (to the router itself)
+  is no forward, and makes the list incomplete only on an uplink zone. SNAT redirects and `nat`
+  sections are `NatRule`s; zone `masq` is `masquerade` of the zone.
+- **CI** (24.10 and 25.12): `test_firewall_of_the_default_config` reads the image's default
+  config (zones lan and wan, the lan to wan forwarding, the `Allow-*` rules); the lab has no
+  `wan` interface, so that zone is incomplete. *Guess*: redirect and `nat` sections on a real
+  router (the simulator has them), fw3 releases.

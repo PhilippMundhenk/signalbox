@@ -210,6 +210,12 @@ remedy, the fix adds exactly that privilege and the same key reads the firewall 
    | Lobby: Dashboard | `/api/diagnostics/system/system_*`, `/api/diagnostics/cpu_usage/*` (health, and the clock for time) |
    | Status: NTP | `/api/ntpd/service/status` (time: the NTP peers) |
    | VPN: WireGuard: Status | `/api/wireguard/service/show` (vpn: tunnels and peers; never *VPN: WireGuard: Configuration*, whose grids return the private keys) |
+   | Firewall: Rules [new] | `/api/firewall/filter/search_rule` (firewall: the rules of all three kinds, see "Firewall and NAT") |
+   | Firewall: Aliases | `/api/firewall/alias/search_item` (read-only patterns: search, list, get) |
+   | Firewall: Groups | `/api/firewall/group/search_item` (interface groups as zones) |
+   | Firewall: NAT: Destination NAT | `/api/firewall/d_nat/search_rule` (port forwards) |
+   | Firewall: NAT: Source NAT | `/api/firewall/source_nat/search_rule` (outbound NAT) |
+   | Firewall: NAT: 1:1 | `/api/firewall/one_to_one/search_rule` (one-to-one NAT) |
 
    ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
    and are skipped. With the plugin, add its DHCP server and lease pages.
@@ -268,6 +274,50 @@ fills in their TTL as unanswered). The API user needs the privilege **Diagnostic
 (`page-diagnostics-traceroute`); without it the call is HTTP 403 and the trace says so, with
 *Fix it* (`privileges`) on the device page. The automatic setup and *Fix it* add the privilege
 only while path traces are on.
+
+## Firewall and NAT (#135)
+
+Read with the `firewall` capability (adapter API 1.4, [ADR 0013](../adr/0013-firewall-zones-rules-and-reachability.md))
+from six grids, each with the privilege in the table above (the privilege ids are
+`page-filter-api`, `page-firewall-aliases`, `page-interfaces-groups-edit`,
+`page-firewall-nat-portforward-edit`, `page-filter-snat-api`, `page-firewall-nat-1-1-edit`; they
+are in `READ_PRIVILEGES` of the automatic setup and in `tools/integration/opnsense/privileges.json`,
+a test compares them). Like all OPNsense privileges they also allow the write endpoints of their
+pages; Signalbox only sends `GET`. Without one of them the `firewall` capability fails with
+`access denied (HTTP 403)` and the *Fix it* "privileges" action adds it; the rest is still read.
+
+- **Rules**: `filter/search_rule` lists, in evaluation order (`sort_order`), the rules of the new
+  model, those of the legacy *Firewall: Rules* pages (`legacy`) and the automatic ones
+  (`is_automatic`: anti-lockout, DHCP, ...), read from the controller source of 26.7. A release
+  whose rows have no `sort_order` lists only the new model: `rules_complete = False`.
+  pf takes the first matching `quick` rule, else the last matching rule: the adapter lists the
+  quick rules in order and then the others in reverse. `direction out` rules are `output` rules
+  (forwarded traffic rides on the state of the `in` rule), the others have no chain (the
+  destination tells). Legacy rows name interfaces by description: mapped back to identifiers.
+  Not expressed (rule `exact = False`): schedules, TCP flags, tags, state limits, an alias of a
+  URL table, GeoIP or external type, host names, a negated interface list. Zero rows or an action
+  other than pass, block, reject (`match`) are not rules.
+- **Zones** are the assigned interfaces (identifier `lan`, `wan`, `opt1`; description in
+  `description`) and the interface groups (`group/search_item`), mapped to the segments, the
+  `wan` uplink and, for WireGuard, to the tunnels (the `wireguard` group zone holds all instances).
+  Policies: pf's default block, as `input_policy` and `forward_policy` `drop`.
+- **Aliases**: `alias/search_item` (`name`, `type`, `content`, `enabled`): host, network,
+  network group and port aliases are resolved (nested ones too); `lan`, `lanip`, `(self)` and
+  interface groups in a network field become the interface's networks or addresses.
+- **NAT**: `d_nat/search_rule` (flattened `destination.network`, `destination.port`, `target`,
+  `local-port`, `pass`) to `PortForward` (`pass` = `pass` is `passes_filter`; automatic rows are
+  skipped; a no-redirect exception row or a target that is no single address makes
+  `port_forwards_complete` false); `source_nat/search_rule` to `NatRule` (no `target` is
+  masquerade; a `nonat` row makes the others inexact); `one_to_one/search_rule` to a forward
+  without ports and a `NatRule` (whole networks are not expressed: incomplete). A release without
+  the MVC pages (404) leaves the forwards unread.
+- **CI**: vm.py adds an alias, a rule (LAN, TCP 8443 to the alias) and a port forward (WAN 8443 to
+  it, local port 443); `test_firewall_rules_and_port_forward` asserts them, the evaluation of the
+  web interface from LAN and WAN, and the outbound NAT.
+  Confirmed in CI (26.7.9): the privilege ids, the rows (legacy and automatic ones included),
+  alias `content`, `filter/apply`. The firewall's own `sshlockout` and `virusprot` table rules
+  and "block all targeting port 0" are left out (they only hit abusive hosts). *Guess*: floating
+  legacy rules without `quick`, other releases.
 
 ## Writing (changes)
 

@@ -129,6 +129,130 @@ def _port(interface: str, pvid: str = "1", frame_types: str = "admit-all") -> di
     }
 
 
+def _fw(chain: str, action: str, comment: str, **kw: str) -> dict[str, str]:
+    """A row of ``/ip/firewall/filter`` or ``nat``."""
+    return {
+        "chain": chain,
+        "action": action,
+        "comment": comment,
+        "disabled": "false",
+        "dynamic": "false",
+        "invalid": "false",
+        "bytes": "0",
+        "packets": "0",
+        **kw,
+    }
+
+
+def firewall_data() -> dict[str, Any]:
+    """The packet filter of the sample router (#135): the default configuration of RouterOS 7
+    (``defconf``) plus a user chain, rules of the owner's, a destination NAT and address lists
+    (documentation addresses)."""
+    est = "established,related,untracked"
+    lst = {"builtin": "false", "dynamic": "false", "include": "", "exclude": ""}
+    entry = {"disabled": "false", "dynamic": "false"}
+    return {
+        "/rest/interface/list": _ids(
+            {"name": "all", **lst, "builtin": "true"},
+            {"name": "none", **lst, "builtin": "true"},
+            {"name": "LAN", **lst},
+            {"name": "WAN", **lst},
+            {"name": "IOT", **lst},
+            {"name": "INSIDE", **lst, "include": "LAN,IOT"},
+        ),
+        "/rest/ip/firewall/address-list": _ids(
+            {"list": "trusted", "address": "192.0.2.10", **entry},
+            {"list": "trusted", "address": "198.51.100.0/28", **entry},
+            {"list": "trusted", "address": "198.51.100.64-198.51.100.79", **entry},
+            {"list": "scanners", "address": "203.0.113.66", **entry, "dynamic": "true"},
+        ),
+        "/rest/ip/firewall/filter": _ids(
+            _fw("input", "accept", "defconf: accept established", **{"connection-state": est}),
+            _fw("input", "drop", "defconf: drop invalid", **{"connection-state": "invalid"}),
+            _fw("input", "accept", "defconf: accept ICMP", protocol="icmp"),
+            _fw("input", "accept", "defconf: accept loopback", **{"dst-address": "127.0.0.1"}),
+            _fw(
+                "input",
+                "accept",
+                "IoT: DNS",
+                protocol="udp",
+                **{"dst-port": "53", "in-interface": "iot"},
+            ),
+            _fw("input", "drop", "defconf: drop all not from LAN", **{"in-interface-list": "!LAN"}),
+            _fw("forward", "accept", "defconf: accept in ipsec", **{"ipsec-policy": "in,ipsec"}),
+            _fw("forward", "accept", "defconf: accept out ipsec", **{"ipsec-policy": "out,ipsec"}),
+            _fw(
+                "forward",
+                "fasttrack-connection",
+                "defconf: fasttrack",
+                **{"connection-state": "established,related", "hw-offload": "true"},
+            ),
+            _fw("forward", "accept", "defconf: accept established", **{"connection-state": est}),
+            _fw("forward", "drop", "defconf: drop invalid", **{"connection-state": "invalid"}),
+            _fw(
+                "forward", "jump", "IoT rules", **{"in-interface-list": "IOT", "jump-target": "iot"}
+            ),
+            _fw(
+                "forward",
+                "accept",
+                "NAS from trusted hosts",
+                protocol="tcp",
+                **{"dst-address": "192.0.2.10", "dst-port": "443", "src-address-list": "trusted"},
+            ),
+            _fw("forward", "drop", "block scanners", **{"src-address-list": "scanners"}),
+            _fw(
+                "forward",
+                "drop",
+                "defconf: drop all from WAN not DSTNATed",
+                **{
+                    "connection-nat-state": "!dstnat",
+                    "connection-state": "new",
+                    "in-interface-list": "WAN",
+                },
+            ),
+            _fw(
+                "iot",
+                "accept",
+                "IoT: web",
+                protocol="tcp",
+                **{"dst-port": "80,443", "out-interface-list": "WAN"},
+            ),
+            _fw(
+                "iot", "return", "IoT: SSH is somebody else's", protocol="tcp", **{"dst-port": "22"}
+            ),
+            _fw("iot", "drop", "IoT: nothing else to the LAN", **{"out-interface-list": "LAN"}),
+        ),
+        "/rest/ipv6/firewall/filter": _ids(
+            _fw("input", "accept", "defconf: accept established", **{"connection-state": est}),
+            _fw("input", "accept", "defconf: accept ICMPv6", protocol="icmpv6"),
+            _fw("input", "drop", "defconf: drop all not from LAN", **{"in-interface-list": "!LAN"}),
+            _fw("forward", "drop", "defconf: drop all from WAN", **{"in-interface-list": "WAN"}),
+        ),
+        "/rest/ip/firewall/nat": _ids(
+            _fw(
+                "srcnat",
+                "masquerade",
+                "defconf: masquerade",
+                **{"ipsec-policy": "out,none", "out-interface-list": "WAN"},
+            ),
+            _fw(
+                "dstnat",
+                "dst-nat",
+                "NAS web interface",
+                protocol="tcp",
+                **{
+                    "dst-port": "8443",
+                    "in-interface-list": "WAN",
+                    "dst-address-type": "local",
+                    "to-addresses": "192.0.2.10",
+                    "to-ports": "443",
+                },
+            ),
+        ),
+        "/rest/ip/firewall/raw": [],
+    }
+
+
 def sample_data() -> dict[str, Any]:
     """Answers by path (a fresh copy every call)."""
     bridge_mac = _mac(1, 0)
@@ -292,9 +416,11 @@ def sample_data() -> dict[str, Any]:
                 "disabled": "false",
             }
         ),
+        **firewall_data(),
         "/rest/interface/list/member": _ids(
             {"list": "WAN", "interface": "ether1", "disabled": "false", "dynamic": "false"},
             {"list": "LAN", "interface": "bridge", "disabled": "false", "dynamic": "false"},
+            {"list": "IOT", "interface": "iot", "disabled": "false", "dynamic": "false"},
         ),
         "/rest/ip/address": _ids(
             {
