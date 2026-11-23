@@ -223,6 +223,14 @@ def test_concept_views_show_the_network(app: Any) -> None:
     rows = app.get_by_test_id("client-row")
     expect(rows.filter(has_text="printer")).to_contain_text("192.0.2.10 (DHCP reservation)")
     expect(rows.filter(has_text="laptop")).to_contain_text("192.0.2.123 (DHCP)")
+    # where it is plugged in, and the ports the MAC address tables learned it on (#160)
+    printer = rows.filter(has_text="printer")
+    expect(printer.get_by_test_id("client-seen-on")).to_have_text("Seen on port lan1 of Router")
+    expect(printer.get_by_test_id("client-learned-port")).to_be_hidden()
+    printer.get_by_test_id("client-learned").locator("summary").click()
+    expect(printer.get_by_test_id("client-learned-port")).to_have_text(
+        "port lan1 of Router (learned, VLAN 10, 30 s old)"
+    )
     expect(app.get_by_test_id("client-lease")).to_have_count(1)
     app.get_by_test_id("client-filter").fill("laptop")
     expect(app.get_by_test_id("client-row")).to_have_count(1)
@@ -230,6 +238,15 @@ def test_concept_views_show_the_network(app: Any) -> None:
 
     # the uplink (#148): a summary, the addresses only after a click
     go(app, "#/device/router")
+    # learned addresses (#160): per port, collapsed
+    learned = app.get_by_test_id("fdb-port")
+    expect(learned).to_have_count(1)
+    expect(learned.locator("summary")).to_contain_text("2 addresses")
+    expect(app.get_by_test_id("fdb-row").first).to_be_hidden()
+    learned.locator("summary").click()
+    expect(app.get_by_test_id("fdb-row")).to_have_count(2)
+    expect(app.get_by_test_id("fdb-row").first).to_contain_text("printer")
+    expect(app.get_by_test_id("fdb-row").last).to_contain_text("static")
     summary = app.get_by_test_id("uplink-summary")
     expect(summary).to_contain_text("PPPoE · up for 3 h")
     expect(summary).to_contain_text("public IPv4 · IPv6 /56 delegated")

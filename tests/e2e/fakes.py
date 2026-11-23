@@ -38,6 +38,8 @@ from signalbox.model import (
     DhcpServer,
     DnsForwarder,
     DnsService,
+    FdbEntry,
+    FdbKind,
     Firewall,
     FirewallAction,
     FirewallProtocol,
@@ -80,6 +82,7 @@ from signalbox.model import (
     Wps,
     WpsMethod,
     ZonePolicy,
+    fdb_id,
     firewall_id,
     object_id,
     port_id,
@@ -488,7 +491,24 @@ class Lab(Adapter):
                     seen_on=object_id(d, "wlan", "home-5g"),
                     last_seen=now,
                 ),
-            ]
+            ],
+            fdb=[  # the bridge's MAC address table (#160)
+                FdbEntry(
+                    id=fdb_id(d, "lan1", "02:00:00:00:aa:01", 10),
+                    device_id=d,
+                    port_id=port_id(d, "lan1"),
+                    mac="02:00:00:00:aa:01",
+                    vlan=10,
+                    age_seconds=30,
+                ),
+                FdbEntry(
+                    id=fdb_id(d, "lan1", "02:00:00:00:aa:09"),
+                    device_id=d,
+                    port_id=port_id(d, "lan1"),
+                    mac="02:00:00:00:aa:09",
+                    kind=FdbKind.STATIC,
+                ),
+            ],
         )
 
     async def read_health(self) -> Observation:

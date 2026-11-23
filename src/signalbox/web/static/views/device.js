@@ -1,6 +1,6 @@
 // One device: overview with connection test and certificate trust, settings, advanced (raw data).
 import { del, enc, get, post } from '../api.js';
-import { loadNetwork } from '../net.js';
+import { fdbText, loadNetwork } from '../net.js';
 import { PORT_ROLE, clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, place, portDetails, portSpeed, yesNo } from '../util.js';
 import { card, confirmDialog, empty, kv, manageLink, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
@@ -323,10 +323,49 @@ function portsCard(ix, tree) {
   );
 }
 
+// The device's MAC address table (#160), per port and collapsed: a table can be long. A
+// controller's page shows the tables of the switches it manages too.
+function learnedCard(ix, entries) {
+  if (!entries.length) return null;
+  const byPort = new Map();
+  for (const e of entries) byPort.set(e.port_id, [...(byPort.get(e.port_id) || []), e]);
+  const ports = [...byPort.keys()].sort((a, b) => ix.portName(a).localeCompare(ix.portName(b), undefined, { numeric: true }));
+  const clients = new Map(ix.net.clients.map((c) => [c.mac, c]));
+  const who = (e) => {
+    const c = clients.get(e.mac);
+    const label = ix.net.annotations && (ix.net.annotations.find((a) => a.target === `client/${e.mac}`) || {}).label;
+    return label || (c && c.hostname) || null;
+  };
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-fdb' },
+    h('h2', {}, 'Learned addresses'),
+    h('p', { class: 'muted' }, `${entries.length} MAC addresses in the forwarding table, by the port they were learned on.`),
+    ports.map((pid) => {
+      const list = byPort.get(pid).sort((a, b) => (a.mac < b.mac ? -1 : 1));
+      return h(
+        'details',
+        { class: 'fdb-port', 'data-testid': 'fdb-port', 'data-port': pid },
+        h('summary', {}, `${ix.portName(pid)} – ${list.length} ${list.length === 1 ? 'address' : 'addresses'}`),
+        table(
+          [
+            ['MAC', (e) => h('span', { class: 'mono' }, e.mac)],
+            ['Client', who],
+            ['Entry', (e) => fdbText(e, fmtDuration)],
+          ],
+          list,
+          { testid: 'fdb-table', rowTestid: 'fdb-row', compact: true },
+        ),
+      );
+    }),
+  );
+}
+
 async function overview(main, ctx, device, adapters, sites) {
   const id = ctx.renderId;
-  const [ix, tree] = await Promise.all([loadNetwork(), get(`/devices/${enc(device.id)}/port-tree`)]);
+  const [ix, tree, fdb] = await Promise.all([loadNetwork(), get(`/devices/${enc(device.id)}/port-tree`), get('/fdb').catch(() => [])]);
   if (!ctx.alive(id)) return;
+  const learned = fdb.filter((e) => e.device_id === device.id || e.device_id.startsWith(`${device.id}/`));
   const observed = ix.net.devices.find((d) => d.id === device.id);
   const adapter = adapters.find((a) => a.id === device.adapter);
   // a refused path trace (#253) is shown like a read problem, with its Fix it where there is one
@@ -408,6 +447,7 @@ async function overview(main, ctx, device, adapters, sites) {
     notesCard(ix, device.id, 'device', `Notes on ${device.name}`, () => ctx.refresh()),
     internetCard(ix, device.id),
     portsCard(ix, tree),
+    learnedCard(ix, learned),
     tunnelsCard(ix, device.id),
     firewallCard(ix, device.id),
     observed ? managementCard(ix, observed) : null,
