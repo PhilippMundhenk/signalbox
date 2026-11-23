@@ -315,7 +315,17 @@ jobs:
               exit $code
             }
       - name: Fix it tests (policies over REST, REST service over SSH, #267)
-        run: pytest tests/integration/test_mikrotik_fix_real.py -v -p no:cacheprovider
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_mikrotik_fix_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$VM_DIR/pytest-fix.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest-fix.log" | cut -c1-3000 | tail -n 60)
+              body=${summary//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=MikroTik fix-it tests failed::$body"
+              exit $code
+            }
       - name: Record the REST answers (read user)
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" read
       - name: Record the REST answers (read user, DHCP, DNS, clients)
