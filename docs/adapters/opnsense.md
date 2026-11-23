@@ -314,9 +314,10 @@ pages; Signalbox only sends `GET`. Without one of them the `firewall` capability
 - **CI**: vm.py adds an alias, a rule (LAN, TCP 8443 to the alias) and a port forward (WAN 8443 to
   it, local port 443); `test_firewall_rules_and_port_forward` asserts them, the evaluation of the
   web interface from LAN and WAN, and the outbound NAT.
-  *Guess* (confirmed in CI once green): the shape of the `legacy` and automatic rows (the
-  default deny rule, `quick` of floating legacy rules), `content` of an alias as a comma list,
-  the privilege ids, and `filter/apply` as the call that applies the rules.
+  Confirmed in CI (26.7.9): the privilege ids, the rows (legacy and automatic ones included),
+  alias `content`, `filter/apply`. The firewall's own `sshlockout` and `virusprot` table rules
+  and "block all targeting port 0" are left out (they only hit abusive hosts). *Guess*: floating
+  legacy rules without `quick`, other releases.
 
 ## Writing (changes)
 
