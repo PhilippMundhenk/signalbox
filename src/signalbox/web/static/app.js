@@ -1,6 +1,7 @@
 // Entry point: session handling, shell and hash router.
 import { announceLogout, get, onReachability, onUnauthorized, post, watchSession } from './api.js';
 import { clear, h } from './util.js';
+import { initI18n, t } from './i18n.js';
 import { showError } from './ui.js';
 import { buildShell } from './nav.js';
 import { renderFindings } from './views/findings.js';
@@ -42,8 +43,6 @@ export const ctx = {
 };
 
 const LOGO = () => h('img', { src: 'favicon.svg', alt: '', width: '28', height: '28', class: 'logo' });
-const DISCLAIMER =
-  'Signalbox is an independent open-source project, not affiliated with, endorsed or supported by any of the vendors whose devices it works with. Product names are used only to say what it works with.';
 
 export function applyTheme(choice) {
   if (choice === 'light' || choice === 'dark') document.documentElement.dataset.theme = choice;
@@ -58,9 +57,11 @@ function savedTheme() {
   }
 }
 
+const THEME_NAME = { auto: 'app.themeAuto', light: 'app.themeLight', dark: 'app.themeDark' };
+
 function themeToggle() {
   const order = ['auto', 'light', 'dark'];
-  const btn = h('button', { class: 'btn small ghost', type: 'button', 'data-testid': 'theme', 'aria-label': 'Change theme' }, `Theme: ${savedTheme()}`);
+  const btn = h('button', { class: 'btn small ghost', type: 'button', 'data-testid': 'theme', 'aria-label': t('app.changeTheme') }, t('app.theme', { theme: t(THEME_NAME[savedTheme()]) }));
   btn.addEventListener('click', () => {
     const next = order[(order.indexOf(savedTheme()) + 1) % order.length];
     try {
@@ -69,22 +70,22 @@ function themeToggle() {
       /* private mode: only for this page */
     }
     applyTheme(next);
-    btn.textContent = `Theme: ${next}`;
+    btn.textContent = t('app.theme', { theme: t(THEME_NAME[next]) });
   });
   return btn;
 }
 
-const NAV = [
-  ['findings', '#/', 'Findings'],
-  ['devices', '#/devices', 'Devices'],
-  ['topology', '#/topology', 'Topology'],
-  ['segments', '#/segments', 'Segments'],
-  ['wireless', '#/wireless', 'Wireless'],
-  ['services', '#/dhcp-dns', 'DHCP & DNS'],
-  ['clients', '#/clients', 'Clients'],
-  ['desired', '#/desired', 'Desired state'],
-  ['changes', '#/changes', 'Changes'],
-  ['settings', '#/settings', 'Settings'],
+const NAV = () => [
+  ['findings', '#/', t('nav.findings')],
+  ['devices', '#/devices', t('nav.devices')],
+  ['topology', '#/topology', t('nav.topology')],
+  ['segments', '#/segments', t('nav.segments')],
+  ['wireless', '#/wireless', t('nav.wireless')],
+  ['services', '#/dhcp-dns', t('nav.services')],
+  ['clients', '#/clients', t('nav.clients')],
+  ['desired', '#/desired', t('nav.desired')],
+  ['changes', '#/changes', t('nav.changes')],
+  ['settings', '#/settings', t('nav.settings')],
 ];
 
 export function routeInfo() {
@@ -103,7 +104,7 @@ export function routeInfo() {
 }
 
 function footer(session) {
-  return h('footer', {}, h('p', { 'data-testid': 'disclaimer' }, DISCLAIMER), h('p', { 'data-testid': 'version' }, `Signalbox ${session.version}`));
+  return h('footer', {}, h('p', { 'data-testid': 'disclaimer' }, t('app.disclaimer')), h('p', { 'data-testid': 'version' }, t('app.version', { version: session.version })));
 }
 
 function renderLogin(message) {
@@ -112,7 +113,7 @@ function renderLogin(message) {
   clear(document.getElementById('modal-root'));
   const pw = h('input', { type: 'password', id: 'pw', autocomplete: 'current-password', required: true, 'data-testid': 'login-password' });
   const err = h('p', { class: 'error', role: 'alert', 'data-testid': 'login-error' }, message || '');
-  const submit = h('button', { class: 'btn primary', type: 'submit', 'data-testid': 'login-submit' }, 'Sign in');
+  const submit = h('button', { class: 'btn primary', type: 'submit', 'data-testid': 'login-submit' }, t('login.signIn'));
   const form = h(
     'form',
     {
@@ -131,12 +132,12 @@ function renderLogin(message) {
       },
     },
     h('div', { class: 'brand' }, LOGO(), 'Signalbox'),
-    h('p', { class: 'muted' }, 'Sign in to see and check your network.'),
-    h('label', { for: 'pw' }, 'Password'),
+    h('p', { class: 'muted' }, t('login.intro')),
+    h('label', { for: 'pw' }, t('login.password')),
     pw,
     err,
     h('p', {}, submit),
-    h('p', { class: 'muted small' }, 'First start without a configured password? The generated one is printed in the server log.'),
+    h('p', { class: 'muted small' }, t('login.firstStart')),
   );
   root.append(h('main', { id: 'main' }, form), footer(state.session));
   pw.focus();
@@ -164,10 +165,10 @@ async function render() {
           await boot();
         },
       },
-      'Log out',
+      t('app.logout'),
     ),
   );
-  const { shell, content } = buildShell({ items: NAV, current: route.nav, brand: LOGO, actions });
+  const { shell, content } = buildShell({ items: NAV(), current: route.nav, brand: LOGO, actions });
   root.append(shell);
   const main = h('main', { id: 'main', tabindex: '-1' });
   content.append(main, footer(session));
@@ -192,17 +193,16 @@ async function render() {
 }
 
 // Shown while the server does not answer; the page behind it stays as it is.
-const banner = h('div', { class: 'banner', role: 'status', hidden: true, 'data-testid': 'offline' }, 'Signalbox is not reachable. Retrying…');
+const banner = h('div', { class: 'banner', role: 'status', hidden: true, 'data-testid': 'offline' }, t('app.offline'));
 document.body.prepend(banner);
 onReachability((up) => {
   banner.hidden = up;
 });
 
-const SESSION_ENDED = 'Your session ended; log in again';
 function sessionEnded() {
   if (state.session && state.session.authenticated) {
     state.session.authenticated = false;
-    renderLogin(SESSION_ENDED); // the hash stays, so the same page returns after login
+    renderLogin(t('app.sessionEnded')); // the hash stays, so the same page returns after login
   }
 }
 
@@ -234,4 +234,9 @@ onUnauthorized(sessionEnded);
 watchSession({ onEnded: sessionEnded });
 
 applyTheme(savedTheme());
-boot();
+const start = () => {
+  banner.textContent = t('app.offline');
+  document.querySelector('.skip').textContent = t('app.skip');
+  boot();
+};
+initI18n().then(start, start);

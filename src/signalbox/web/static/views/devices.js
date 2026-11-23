@@ -1,5 +1,6 @@
 // Devices: list, add and edit (settings form generated from the adapter's schema).
 import { enc, get, post, put } from '../api.js';
+import { compare, t } from '../i18n.js';
 import { schemaForm } from '../schemaform.js';
 import { clear, fmtAgo, fmtTime, h, place } from '../util.js';
 import { checkField, empty, field, manageLink, pageHead, run, select, statusBadge, table, toast } from '../ui.js';
@@ -10,27 +11,33 @@ import { autoSetup } from './devicesetup.js';
 // What to prepare on the device before adding it (steps, commands to paste, setup guide).
 function setupGuide(a, open) {
   if (!a.setup_steps.length && !a.setup_commands) return null;
-  const parts = [h('summary', {}, `Before you add it: prepare the ${a.name}`)];
+  const parts = [h('summary', {}, t('devices.setup.summary', { name: a.name }))];
   if (a.setup_steps.length) parts.push(h('ol', { 'data-testid': 'setup-steps' }, a.setup_steps.map((s) => h('li', {}, ...linked(s)))));
   if (a.setup_commands) {
     const code = h('pre', { class: 'commands', 'data-testid': 'setup-commands', tabindex: '0' }, a.setup_commands);
-    const copy = h('button', { class: 'btn small', type: 'button', 'data-testid': 'copy-commands' }, 'Copy commands');
+    const copy = h('button', { class: 'btn small', type: 'button', 'data-testid': 'copy-commands' }, t('devices.setup.copy'));
     copy.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(a.setup_commands);
-        toast('Commands copied.');
+        toast(t('devices.setup.copied'));
       } catch {
         window.getSelection().selectAllChildren(code); // no clipboard (plain http): select them
-        toast('Commands selected: copy them with Ctrl+C.', 'warn');
+        toast(t('devices.setup.selected'), 'warn');
       }
     });
     parts.push(h('div', { class: 'row' }, copy), code);
   }
-  if (a.setup_url) parts.push(h('p', { class: 'muted small' }, h('a', { href: a.setup_url, target: '_blank', rel: 'noopener noreferrer', 'data-testid': 'setup-guide' }, 'Full setup guide')));
+  if (a.setup_url) parts.push(h('p', { class: 'muted small' }, h('a', { href: a.setup_url, target: '_blank', rel: 'noopener noreferrer', 'data-testid': 'setup-guide' }, t('devices.setup.guide'))));
   return h('details', { class: 'setup-guide notice', open, 'data-testid': 'setup' }, ...parts);
 }
 
-export const ROLE_TEXT = { gateway: 'Router / gateway (with or without Wi-Fi)', switch: 'Switch', ap: 'Access point (Wi-Fi only, no routing)', other: 'Other (controller, …)' };
+// Role names, looked up when rendered (getters: ROLE_TEXT[role] stays usable, and follows the language).
+export const ROLE_TEXT = {
+  get gateway() { return t('devices.role.gateway'); },
+  get switch() { return t('devices.role.switch'); },
+  get ap() { return t('devices.role.ap'); },
+  get other() { return t('devices.role.other'); },
+};
 // the order roles are offered in; a router with Wi-Fi is a router, so that comes first
 const ROLE_ORDER = ['gateway', 'ap', 'switch', 'other'];
 // Devices whose connection is tested as soon as their page opens (right after adding).
@@ -45,30 +52,30 @@ export async function renderDevices(main, ctx) {
   const find = () => (found.enabled ? findButton(panel) : null);
   const siteName = (sid) => (sites.find((x) => x.id === sid) || {}).name || sid;
   const adapterName = (aid) => (adapters.find((x) => x.id === aid) || {}).name || aid;
-  place(main, pageHead('Devices', find(), h('a', { class: 'btn primary', href: '#/devices/new', 'data-testid': 'add-device' }, 'Add device')));
+  place(main, pageHead(t('devices.title'), find(), h('a', { class: 'btn primary', href: '#/devices/new', 'data-testid': 'add-device' }, t('devices.add'))));
   place(main, panel);
   if (!devices.length) {
     place(main, 
       empty(
         'empty',
-        'No devices yet',
-        h('p', { class: 'muted' }, 'Add your router, switches and access points. Signalbox reads them with an adapter and only reads: it changes nothing on the device.'),
-        h('p', { class: 'row' }, h('a', { class: 'btn primary', href: '#/devices/new' }, 'Add your first device'), find()),
+        t('devices.empty.title'),
+        h('p', { class: 'muted' }, t('devices.empty.text')),
+        h('p', { class: 'row' }, h('a', { class: 'btn primary', href: '#/devices/new' }, t('devices.empty.first')), find()),
       ),
     );
     return;
   }
-  devices.sort((a, b) => a.name.localeCompare(b.name));
+  devices.sort((a, b) => compare(a.name, b.name));
   place(main, 
     table(
       [
-        ['Name', (d) => [h('a', { href: `#/device/${enc(d.id)}`, 'data-testid': 'device-link' }, d.name), ' ', manageLink(d, '↗', 'device-manage-link', 'manage-link')]],
-        ['Status', (d) => [statusBadge(d.status), d.enabled ? null : h('span', { class: 'tag' }, 'disabled')]],
-        ['Adapter', (d) => adapterName(d.adapter)],
-        ['Role', (d) => ROLE_TEXT[d.role] || d.role],
-        ['Site', (d) => siteName(d.site_id)],
-        ['First seen', (d) => ago(d.first_seen, 'device-first-seen')],
-        ['Last read', (d) => ago(d.last_ok, 'device-last-ok')],
+        [t('devices.col.name'), (d) => [h('a', { href: `#/device/${enc(d.id)}`, 'data-testid': 'device-link' }, d.name), ' ', manageLink(d, '↗', 'device-manage-link', 'manage-link')]],
+        [t('devices.col.status'), (d) => [statusBadge(d.status), d.enabled ? null : h('span', { class: 'tag' }, t('devices.disabled'))]],
+        [t('devices.col.adapter'), (d) => adapterName(d.adapter)],
+        [t('devices.col.role'), (d) => ROLE_TEXT[d.role] || d.role],
+        [t('devices.col.site'), (d) => siteName(d.site_id)],
+        [t('devices.col.firstSeen'), (d) => ago(d.first_seen, 'device-first-seen')],
+        [t('devices.col.lastRead'), (d) => ago(d.last_ok, 'device-last-ok')],
       ],
       devices,
       { testid: 'devices', rowTestid: 'device-row', rowAttrs: (d) => ({ 'data-id': d.id }) },
@@ -81,15 +88,15 @@ export async function renderDevices(main, ctx) {
     const controller = (cid) => (devices.find((x) => x.id === cid) || {}).name || cid;
     place(main,
       h('section', { class: 'card' },
-        h('h2', {}, 'Managed through a controller'),
-        h('p', { class: 'muted' }, 'Reported by a controller you added (for example an Omada controller). They need no settings of their own.'),
+        h('h2', {}, t('devices.managed.title')),
+        h('p', { class: 'muted' }, t('devices.managed.text')),
         table(
           [
-            ['Name', (d) => d.name],
-            ['Status', (d) => statusBadge(net.statuses[d.id])],
-            ['Role', (d) => ROLE_TEXT[d.role] || d.role],
-            ['Model', (d) => d.model || ''],
-            ['Controller', (d) => h('a', { href: `#/device/${enc(d.managed_by)}` }, controller(d.managed_by))],
+            [t('devices.col.name'), (d) => d.name],
+            [t('devices.col.status'), (d) => statusBadge(net.statuses[d.id])],
+            [t('devices.col.role'), (d) => ROLE_TEXT[d.role] || d.role],
+            [t('devices.col.model'), (d) => d.model || ''],
+            [t('devices.col.controller'), (d) => h('a', { href: `#/device/${enc(d.managed_by)}` }, controller(d.managed_by))],
           ],
           managed,
           { testid: 'managed-devices', rowTestid: 'managed-row' },
@@ -106,20 +113,20 @@ function ago(iso, testid) {
 
 // The first site, created inline: a device needs one and a fresh install has none.
 function firstSite(onCreated) {
-  const name = h('input', { type: 'text', value: 'Home', 'data-testid': 'first-site-name', maxlength: '100' });
-  const btn = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'first-site-create' }, 'Create site');
+  const name = h('input', { type: 'text', value: t('devices.firstSite.defaultName'), 'data-testid': 'first-site-name', maxlength: '100' });
+  const btn = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'first-site-create' }, t('devices.firstSite.create'));
   btn.addEventListener('click', () =>
     run(btn, async () => {
-      const site = await post('/sites', { name: name.value.trim() || 'Home' });
-      toast(`Site ${site.name} created.`);
+      const site = await post('/sites', { name: name.value.trim() || t('devices.firstSite.defaultName') });
+      toast(t('devices.firstSite.created', { name: site.name }));
       onCreated(site);
     }),
   );
   return h(
     'div',
     { class: 'notice', 'data-testid': 'first-site' },
-    h('p', {}, h('strong', {}, 'First, create a site. '), 'A site is one place with its own network, such as your home or an office. Most people need just one.'),
-    field('Site name', name),
+    h('p', {}, h('strong', {}, t('devices.firstSite.heading')), t('devices.firstSite.text')),
+    field(t('devices.firstSite.name'), name),
     btn,
   );
 }
@@ -133,9 +140,9 @@ export async function renderDeviceForm(main, ctx, device) {
   // a device found by Find devices: adapter, role, address and name are suggestions
   const found = editing ? null : takePrefill();
   const prefill = found && adapters.some((a) => a.id === found.adapter) ? found : null;
-  if (!editing) place(main, h('p', { class: 'back' }, h('a', { href: '#/devices' }, '← Devices')), pageHead('Add device'));
+  if (!editing) place(main, h('p', { class: 'back' }, h('a', { href: '#/devices' }, t('devices.back'))), pageHead(t('devices.add')));
   if (!adapters.length) {
-    place(main, empty('no-adapters', 'No adapters installed', h('p', { class: 'muted' }, 'Signalbox talks to devices through adapters. Install one (see docs/ADAPTERS.md) and restart Signalbox.')));
+    place(main, empty('no-adapters', t('devices.noAdapters.title'), h('p', { class: 'muted' }, t('devices.noAdapters.text'))));
     return;
   }
   const form = h('form', { class: 'card device-form', 'data-testid': 'device-form', novalidate: true });
@@ -167,7 +174,7 @@ export async function renderDeviceForm(main, ctx, device) {
         }),
       );
     } else {
-      place(siteBox, field('Site', site, sites.length > 1 ? null : 'Add more sites under Settings.'));
+      place(siteBox, field(t('devices.field.site'), site, sites.length > 1 ? null : t('devices.field.siteHelp')));
     }
     save.disabled = !sites.length;
   };
@@ -198,7 +205,7 @@ export async function renderDeviceForm(main, ctx, device) {
       values: same ? device.config : suggested,
       secretsSet: same ? device.secrets_set : null,
     });
-    place(configBox, h('h3', {}, `${a.name} connection`), cfg.element);
+    place(configBox, h('h3', {}, t('devices.connection', { name: a.name })), cfg.element);
     clear(testBox);
     trusted = null;
   };
@@ -208,27 +215,27 @@ export async function renderDeviceForm(main, ctx, device) {
   const collect = (forTest, forSetup = false) => {
     clear(errors);
     const problems = [];
-    if (!name.value.trim() && !forTest) problems.push('Give the device a name.');
-    if (!site.value) problems.push('Create a site first.');
+    if (!name.value.trim() && !forTest) problems.push(t('devices.error.name'));
+    if (!site.value) problems.push(t('devices.error.site'));
     const { config, errors: cfgErrors, clear: cleared } = cfg.collect({ noSecrets: forSetup });
     problems.push(...cfgErrors);
     if (problems.length) {
       place(errors, h('ul', {}, problems.map((p) => h('li', {}, p))));
       return null;
     }
-    const body = { name: name.value.trim() || 'new device', site_id: site.value, role: role.value, adapter: adapter.value, enabled: enabled.checked, allow_writes: allowWrites.checked, config };
+    const body = { name: name.value.trim() || t('devices.defaultName'), site_id: site.value, role: role.value, adapter: adapter.value, enabled: enabled.checked, allow_writes: allowWrites.checked, config };
     if (cleared.length) body.clear_secrets = cleared;
     if (trusted) body.trust_fingerprint = trusted;
     if (forSetup && editing) body.device_id = device.id;
     return body;
   };
 
-  const testBtn = h('button', { class: 'btn', type: 'button', 'data-testid': 'form-test-button' }, 'Test connection');
+  const testBtn = h('button', { class: 'btn', type: 'button', 'data-testid': 'form-test-button' }, t('devices.test'));
   async function test() {
     const body = collect(true);
     if (!body) return;
     if (editing) body.device_id = device.id;
-    place(clear(testBox), h('p', { class: 'muted', 'data-testid': 'testing' }, 'Reading the device…'));
+    place(clear(testBox), h('p', { class: 'muted', 'data-testid': 'testing' }, t('devices.testing')));
     try {
       const res = await post('/devices/test', body);
       if (!ctx.alive(id)) return;
@@ -242,7 +249,7 @@ export async function renderDeviceForm(main, ctx, device) {
               trusted = fp;
               await test();
             },
-            editing ? 'Trusted when you save the changes.' : 'Trusted when you add the device.',
+            editing ? t('devices.trustOnSave') : t('devices.trustOnAdd'),
           ),
         );
       }
@@ -253,7 +260,7 @@ export async function renderDeviceForm(main, ctx, device) {
   }
   testBtn.addEventListener('click', () => run(testBtn, test));
 
-  const save = h('button', { class: 'btn primary', type: 'submit', 'data-testid': 'device-save' }, editing ? 'Save changes' : 'Add device');
+  const save = h('button', { class: 'btn primary', type: 'submit', 'data-testid': 'device-save' }, editing ? t('devices.saveChanges') : t('devices.add'));
   adapter.addEventListener('change', fillAdapter);
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -262,7 +269,7 @@ export async function renderDeviceForm(main, ctx, device) {
     run(save, async () => {
       try {
         const saved = editing ? await put(`/devices/${enc(device.id)}`, body) : await post('/devices', body);
-        toast(editing ? 'Saved.' : `${saved.name} added.`);
+        toast(editing ? t('devices.saved') : t('devices.added', { name: saved.name }));
         if (!editing) testOnOpen.add(saved.id);
         ctx.navigate(`#/device/${enc(saved.id)}`);
       } catch (err) {
@@ -276,23 +283,23 @@ export async function renderDeviceForm(main, ctx, device) {
       ? h(
           'div',
           { class: 'notice', 'data-testid': 'prefill-notice' },
-          h('p', {}, h('strong', {}, 'Found by Find devices. '), 'Check the address and enter the login; the device has told Signalbox nothing that is trusted yet.'),
+          h('p', {}, h('strong', {}, t('devices.prefill.heading')), t('devices.prefill.text')),
           prefill.note ? h('p', { 'data-testid': 'prefill-note' }, prefill.note) : null,
         )
       : null,
-    field('Name', name, 'How Signalbox shows this device, for example “Office switch”.'),
-    field('Adapter', adapter),
+    field(t('devices.field.name'), name, t('devices.field.nameHelp')),
+    field(t('devices.field.adapter'), adapter),
     adapterHelp,
     setupBox,
-    field('Role', role, 'What the device mainly does. A router that also has Wi-Fi (like most Fritz!Boxes) is a router: its Wi-Fi is read either way.'),
+    field(t('devices.field.role'), role, t('devices.field.roleHelp')),
     siteBox,
-    editing ? checkField('Read this device', enabled, 'Disabled devices are kept but not read and not checked.') : null,
-    checkField('Allow changes', allowWrites, 'Approved changes may be deployed to this device. Off: Signalbox only reads it. Deploying must also be enabled in the configuration.'),
+    editing ? checkField(t('devices.field.read'), enabled, t('devices.field.readHelp')) : null,
+    checkField(t('devices.field.allowChanges'), allowWrites, t('devices.field.allowChangesHelp')),
     configBox,
-    h('p', { class: 'muted small' }, 'Test connection reads the device with these settings without saving them. Nothing is changed on the device.'),
+    h('p', { class: 'muted small' }, t('devices.testHelp')),
     testBox,
     errors,
-    h('div', { class: 'row' }, save, testBtn, h('a', { class: 'btn', href: editing ? `#/device/${enc(device.id)}` : '#/devices' }, 'Cancel')),
+    h('div', { class: 'row' }, save, testBtn, h('a', { class: 'btn', href: editing ? `#/device/${enc(device.id)}` : '#/devices' }, t('common.cancel'))),
   );
   place(main, form);
   fillAdapter();

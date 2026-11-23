@@ -1,4 +1,5 @@
 // Small helpers: DOM builder, formatting. No dependencies.
+import { compare, fmtDate, fmtNumber, t } from './i18n.js';
 
 export function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
@@ -50,19 +51,19 @@ export function fmtTime(iso) {
   if (!iso) return '–';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  return fmtDate(d);
 }
 
 export function fmtAgo(iso, now = Date.now()) {
-  if (!iso) return 'never';
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return String(iso);
-  const d = Math.max(0, Math.round((now - t) / 1000));
-  if (d < 10) return 'just now';
-  if (d < 60) return `${d} s ago`;
-  if (d < 3600) return `${Math.floor(d / 60)} min ago`;
-  if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
-  return `${Math.floor(d / 86400)} d ago`;
+  if (!iso) return t('util.never');
+  const ts = new Date(iso).getTime();
+  if (Number.isNaN(ts)) return String(iso);
+  const d = Math.max(0, Math.round((now - ts) / 1000));
+  if (d < 10) return t('util.justNow');
+  if (d < 60) return t('util.secondsAgo', { n: fmtNumber(d) });
+  if (d < 3600) return t('util.minutesAgo', { n: fmtNumber(Math.floor(d / 60)) });
+  if (d < 86400) return t('util.hoursAgo', { n: fmtNumber(Math.floor(d / 3600)) });
+  return t('util.daysAgo', { n: fmtNumber(Math.floor(d / 86400)) });
 }
 
 // SHA-256 hex as the devices show it: upper-case byte pairs, colon-separated.
@@ -71,43 +72,61 @@ export function groupHex(hex) {
 }
 
 export function yesNo(value) {
-  if (value === true) return 'yes';
-  if (value === false) return 'no';
+  if (value === true) return t('common.yes');
+  if (value === false) return t('common.no');
   return '–';
 }
 
 export function fmtSpeed(mbps) {
-  return mbps >= 1000 ? `${mbps / 1000} Gbit/s` : `${mbps} Mbit/s`;
+  return mbps >= 1000 ? t('util.gbit', { n: fmtNumber(mbps / 1000) }) : t('util.mbit', { n: fmtNumber(mbps) });
 }
 
 // Link speed, with the port's maximum where it is faster ("1 Gbit/s of 2.5 Gbit/s").
 export function portSpeed(p) {
   const top = p.max_speed_mbps;
-  if (!p.speed_mbps) return top ? `max ${fmtSpeed(top)}` : null;
-  return top && top > p.speed_mbps ? `${fmtSpeed(p.speed_mbps)} of ${fmtSpeed(top)}` : fmtSpeed(p.speed_mbps);
+  if (!p.speed_mbps) return top ? t('util.speedMax', { speed: fmtSpeed(top) }) : null;
+  return top && top > p.speed_mbps ? t('util.speedOf', { speed: fmtSpeed(p.speed_mbps), top: fmtSpeed(top) }) : fmtSpeed(p.speed_mbps);
 }
 
 // Port configuration details (#156), only those the device reports.
 export function portDetails(p) {
   return [
-    p.admin_up === false ? 'disabled' : null,
-    p.pvid ? `PVID ${p.pvid}` : null,
-    p.mtu ? `MTU ${p.mtu}` : p.jumbo === true ? 'jumbo frames' : null,
-    p.profile ? `profile ${p.profile}` : null,
+    p.admin_up === false ? t('util.disabled') : null,
+    p.pvid ? t('util.pvid', { id: p.pvid }) : null,
+    p.mtu ? t('util.mtu', { n: p.mtu }) : p.jumbo === true ? t('util.jumbo') : null,
+    p.profile ? t('util.profile', { name: p.profile }) : null,
   ].filter(Boolean);
 }
 
 // Where a port sits in its device (#252, Port.role).
 export const PORT_ROLE = {
-  jack: 'jack',
-  cpu: 'CPU port (internal)',
-  'switch-port': 'switch port',
-  bridge: 'bridge',
-  vlan: 'VLAN interface',
-  wireless: 'Wi-Fi interface',
-  lag: 'link aggregation',
-  tunnel: 'tunnel',
-  virtual: 'virtual interface',
+  get jack() {
+    return t('util.role.jack');
+  },
+  get cpu() {
+    return t('util.role.cpu');
+  },
+  get 'switch-port'() {
+    return t('util.role.switchPort');
+  },
+  get bridge() {
+    return t('util.role.bridge');
+  },
+  get vlan() {
+    return t('util.role.vlan');
+  },
+  get wireless() {
+    return t('util.role.wireless');
+  },
+  get lag() {
+    return t('util.role.lag');
+  },
+  get tunnel() {
+    return t('util.role.tunnel');
+  },
+  get virtual() {
+    return t('util.role.virtual');
+  },
 };
 
 export function sleep(ms) {
@@ -115,7 +134,7 @@ export function sleep(ms) {
 }
 
 export function by(key) {
-  return (a, b) => String(key(a)).localeCompare(String(key(b)), undefined, { numeric: true });
+  return (a, b) => compare(key(a), key(b));
 }
 
 export function fmtBytes(n) {
@@ -127,7 +146,8 @@ export function fmtBytes(n) {
     v /= 1024;
     i += 1;
   }
-  return `${i ? v.toFixed(v < 10 ? 1 : 0) : v} ${units[i]}`;
+  const digits = v < 10 ? 1 : 0;
+  return `${i ? fmtNumber(v, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : v} ${units[i]}`;
 }
 
 export function fmtDuration(seconds) {
@@ -136,8 +156,8 @@ export function fmtDuration(seconds) {
   const d = Math.floor(s / 86400);
   const hrs = Math.floor((s % 86400) / 3600);
   const min = Math.floor((s % 3600) / 60);
-  if (d) return `${d} d ${hrs} h`;
-  if (hrs) return `${hrs} h ${min} min`;
-  if (min) return `${min} min`;
-  return `${s} s`;
+  if (d) return t('util.durDays', { d, h: hrs });
+  if (hrs) return t('util.durHours', { h: hrs, m: min });
+  if (min) return t('util.durMinutes', { m: min });
+  return t('util.durSeconds', { s });
 }

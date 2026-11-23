@@ -177,16 +177,38 @@ class LinuxAdapter(Adapter):
             "a password over SSH. Signalbox creates the user signalbox with a key of its own, "
             "and the sudoers rule for wg show and nft if they are installed.",
             preview=[
-                PreviewStep(id="user", title="Create the user signalbox (no password, no sudo)"),
-                PreviewStep(id="key", title="Authorize a new SSH key for it (public key only)"),
                 PreviewStep(
-                    id="sudoers", title="Allow it the read-only wg show and nft list commands"
+                    id="user",
+                    title="Create the user signalbox (no password, no sudo)",
+                    title_id="setup.linux.previewUser",
                 ),
                 PreviewStep(
-                    id="host-key", title="Trust the SSH host key you confirmed, for reading"
+                    id="key",
+                    title="Authorize a new SSH key for it (public key only)",
+                    title_id="setup.linux.previewKey",
                 ),
-                PreviewStep(id="sudoers", title="Delete the sudoers rule", remove=True),
-                PreviewStep(id="user", title="Delete the user signalbox", remove=True),
+                PreviewStep(
+                    id="sudoers",
+                    title="Allow it the read-only wg show and nft list commands",
+                    title_id="setup.linux.previewSudoers",
+                ),
+                PreviewStep(
+                    id="host-key",
+                    title="Trust the SSH host key you confirmed, for reading",
+                    title_id="setup.linux.previewHostKey",
+                ),
+                PreviewStep(
+                    id="sudoers",
+                    title="Delete the sudoers rule",
+                    remove=True,
+                    title_id="setup.linux.previewDeleteSudoers",
+                ),
+                PreviewStep(
+                    id="user",
+                    title="Delete the user signalbox",
+                    remove=True,
+                    title_id="setup.linux.previewDeleteUser",
+                ),
             ],
         ),
         traces=TraceSupport(

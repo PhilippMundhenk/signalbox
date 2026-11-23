@@ -1,6 +1,7 @@
 // The merged network from /api/network with lookups and human names for object ids.
 import { get } from './api.js';
 import { h, place } from './util.js';
+import { t } from './i18n.js';
 
 export async function loadNetwork() {
   const [net, devices, sites] = await Promise.all([get('/network'), get('/devices'), get('/sites')]);
@@ -39,9 +40,9 @@ export function segmentLabel(seg, id) {
   if (!seg) {
     const m = /\/segment\/(.+)$/.exec(id || '');
     if (!m) return id || '–';
-    return /^native(-|$)/.test(m[1]) ? 'Untagged network' : `VLAN ${m[1]}`;
+    return /^native(-|$)/.test(m[1]) ? t('net.untagged') : t('net.vlan', { id: m[1] });
   }
-  const base = seg.vlan ? `VLAN ${seg.vlan}` : 'Untagged network';
+  const base = seg.vlan ? t('net.vlan', { id: seg.vlan }) : t('net.untagged');
   return seg.name ? `${base} (${seg.name})` : base;
 }
 
@@ -55,7 +56,7 @@ function objectLabel(ix, id) {
   const radio = ix.radios.get(id);
   if (radio) return `${ix.deviceName(radio.device_id)} · radio ${radio.name}`;
   const link = ix.links.get(id);
-  if (link) return `Link ${ix.portName(link.a)} ↔ ${ix.portName(link.b)}`;
+  if (link) return t('net.link', { a: ix.portName(link.a), b: ix.portName(link.b) });
   const first = id.split('/')[0];
   if (ix.devices.has(first)) return `${ix.deviceName(first)} · ${id.slice(first.length + 1).replace('/', ' ')}`;
   return id;
@@ -82,8 +83,8 @@ export function objectRef(ix, id) {
 
 export function siteFilter(ix, value, onchange) {
   if (ix.sites.length < 2) return null;
-  const sel = h('select', { 'aria-label': 'Site', 'data-testid': 'filter-site', onchange: () => onchange(sel.value) });
-  place(sel, h('option', { value: '' }, 'All sites'));
+  const sel = h('select', { 'aria-label': t('net.site'), 'data-testid': 'filter-site', onchange: () => onchange(sel.value) });
+  place(sel, h('option', { value: '' }, t('net.allSites')));
   for (const site of ix.sites) place(sel, h('option', { value: site.id, selected: site.id === value }, site.name));
   return sel;
 }
@@ -92,8 +93,8 @@ export function noData(what) {
   return h(
     'div',
     { class: 'card empty', 'data-testid': 'empty' },
-    h('h2', {}, `No ${what} known yet`),
-    h('p', { class: 'muted' }, `Signalbox shows ${what} once a device that reports them has been read.`),
-    h('p', {}, h('a', { href: '#/devices', class: 'btn' }, 'Devices')),
+    h('h2', {}, t('net.noneKnown', { what })),
+    h('p', { class: 'muted' }, t('net.noneKnownHint', { what })),
+    h('p', {}, h('a', { href: '#/devices', class: 'btn' }, t('net.devices'))),
   );
 }

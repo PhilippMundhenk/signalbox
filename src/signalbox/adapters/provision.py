@@ -54,6 +54,9 @@ class Step:
     action: Callable[[], Awaitable[str | None]] | None = None
     #: Shown when nothing is needed (why), or after the step ran when it returns no text.
     note: str = ""
+    #: Translation (#204): catalogue id of ``title`` (``msg.<id>``) and its values.
+    title_id: str | None = None
+    params: dict[str, str | int | float | bool | None] = field(default_factory=dict)
 
     def report(self, redact: Redactor) -> SetupStep:
         return SetupStep(
@@ -62,6 +65,8 @@ class Step:
             detail=redact(self.detail),
             state=StepState.TODO if self.needed else StepState.UNCHANGED,
             message=redact(self.note),
+            title_id=self.title_id,
+            params={k: redact(v) if isinstance(v, str) else v for k, v in self.params.items()},
         )
 
 

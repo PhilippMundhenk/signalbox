@@ -3,11 +3,14 @@
 // right before Run; then the steps as they ran. The password is only in its input field and in
 // the one request; it is cleared right after it, on navigation and when left unused.
 import { post } from '../api.js';
+import { t } from '../i18n.js';
+import { stepTitle } from '../texts.js';
 import { clear, groupHex, h, place } from '../util.js';
 import { checkField, confirmDialog, field, run, toast } from '../ui.js';
 import { adminStep, previewList, previewSteps } from './adminstep.js';
 
-const STATE_TEXT = { todo: 'will be done', unchanged: 'already as needed', done: 'done', failed: 'failed', skipped: 'not run' };
+const STATE_KEY = { todo: 'setup.state.todo', unchanged: 'setup.state.unchanged', done: 'setup.state.done', failed: 'setup.state.failed', skipped: 'setup.state.skipped' };
+const stateText = (state) => (STATE_KEY[state] ? t(STATE_KEY[state]) : state);
 
 export function stepList(steps, testid) {
   return h(
@@ -17,11 +20,11 @@ export function stepList(steps, testid) {
       h(
         'li',
         { class: `setup-step state-${s.state}`, 'data-testid': 'setup-step', 'data-step': s.id, 'data-state': s.state },
-        h('span', { class: `badge step-${s.state}` }, STATE_TEXT[s.state] || s.state),
+        h('span', { class: `badge step-${s.state}` }, stateText(s.state)),
         ' ',
-        h('strong', {}, s.title),
+        h('strong', {}, stepTitle(s)),
         s.message ? h('p', { class: s.state === 'failed' ? 'error' : 'muted small' }, s.message) : null,
-        s.detail ? h('details', {}, h('summary', { class: 'small' }, 'What is sent'), h('pre', { class: 'commands' }, s.detail)) : null,
+        s.detail ? h('details', {}, h('summary', { class: 'small' }, t('setup.whatIsSent')), h('pre', { class: 'commands' }, s.detail)) : null,
       ),
     ),
   );
@@ -39,7 +42,7 @@ export function autoSetup(a, collect, onDone) {
   const out = h('div', { 'data-testid': 'setup-result', 'aria-live': 'polite' });
   // the port is needed to fetch the identity, so it is asked before: it is no secret
   const port = login.port_default ? h('input', { type: 'number', min: '1', max: '65535', value: String(login.port_default), 'data-testid': 'setup-admin-port' }) : null;
-  const planBtn = h('button', { class: 'btn', type: 'button', 'data-testid': 'setup-plan' }, 'Show what it does');
+  const planBtn = h('button', { class: 'btn', type: 'button', 'data-testid': 'setup-plan' }, t('setup.show'));
   let trusted = null;
   let trustedSsh = null;
   let step = null; // the admin step on screen, if any
@@ -49,7 +52,7 @@ export function autoSetup(a, collect, onDone) {
   const sshOn = opt ? h('input', { type: 'checkbox', 'data-testid': 'setup-ssh' }) : null;
   // like the main port, the SSH port is no secret and is needed to fetch the SSH host key
   const sshPort = opt ? h('input', { type: 'number', min: '1', max: '65535', value: String(opt.port_default), 'data-testid': 'setup-ssh-port' }) : null;
-  const sshPortField = opt ? h('div', { class: 'ssh-option-fields', hidden: true, 'data-testid': 'setup-ssh-port-field' }, field('SSH port', sshPort)) : null;
+  const sshPortField = opt ? h('div', { class: 'ssh-option-fields', hidden: true, 'data-testid': 'setup-ssh-port-field' }, field(t('setup.sshPort'), sshPort)) : null;
   // optional extras (OpenWrt: LLDP, #278): unticked; on Remove they mean "remove it too"
   const extras = (login.extras || []).map((x) => ({ x, box: h('input', { type: 'checkbox', 'data-testid': `setup-extra-${x.id}`, 'data-extra': x.id }), text: h('span', {}, x.label) }));
   const extraFields = extras.map(({ x, box, text }) => h('div', { class: 'field' }, h('label', { class: 'check' }, box, ' ', text), x.note ? h('small', { class: 'muted' }, x.note) : null));
@@ -71,7 +74,7 @@ export function autoSetup(a, collect, onDone) {
     sshPort.addEventListener('change', reset);
   }
 
-  const fail = (text, fix) => place(clear(out), h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, text), fix ? h('p', { class: 'fix' }, 'What to do: ', fix) : null);
+  const fail = (text, fix) => place(clear(out), h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, text), fix ? h('p', { class: 'fix' }, t('setup.whatToDo'), fix) : null);
 
   // 1. what it does, without any credential
   function showPreview() {
@@ -80,13 +83,13 @@ export function autoSetup(a, collect, onDone) {
     step = null;
     const steps = previewSteps(login.preview, remove.checked, ticked());
     acked = steps.map((s) => s.id);
-    const next = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-continue' }, 'Continue: check the device’s identity');
+    const next = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-continue' }, t('setup.continue'));
     next.addEventListener('click', () => run(next, identity));
     place(
       clear(out),
-      h('p', {}, remove.checked ? 'Signalbox would remove what it set up. Usually:' : 'Signalbox would do this on the device, once. Usually:'),
+      h('p', {}, remove.checked ? t('setup.preview.remove') : t('setup.preview.do')),
       steps.length ? previewList(steps, 'setup-plan-steps') : null,
-      h('p', { class: 'muted small' }, 'The exact steps depend on the device and are shown after the login if they differ. Nothing has been sent, and no password is asked for yet.'),
+      h('p', { class: 'muted small' }, t('setup.preview.note')),
       h('div', { class: 'row' }, next),
     );
   }
@@ -95,7 +98,7 @@ export function autoSetup(a, collect, onDone) {
   async function identity() {
     const device = collect();
     if (!device) return;
-    place(clear(out), h('p', { class: 'muted' }, 'Fetching the device’s identity (no login is sent)…'));
+    place(clear(out), h('p', { class: 'muted' }, t('setup.fetching')));
     try {
       const body = { device, admin: { user: login.user_default || '' }, remove: remove.checked, extras: ticked().filter((x) => x !== 'ssh') };
       if (port && port.value) body.admin.port = Number(port.value);
@@ -103,20 +106,20 @@ export function autoSetup(a, collect, onDone) {
       const withSsh = !!(opt && sshOn.checked);
       if (withSsh) body.ssh = sshPort.value ? { port: Number(sshPort.value) } : {};
       const plan = await post('/devices/setup', body);
-      const kind = plan.fingerprint_kind === 'certificate' ? 'certificate' : 'SSH host key';
+      const cert = plan.fingerprint_kind === 'certificate';
       const both = withSsh && plan.ssh_fingerprint;
-      const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust' }, both ? `Trust this ${kind} and the SSH host key` : `Trust this ${kind}`);
+      const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust' }, both ? (cert ? t('setup.trust.certBoth') : t('setup.trust.sshBoth')) : cert ? t('setup.trust.cert') : t('setup.trust.ssh'));
       trust.addEventListener('click', () => { trusted = plan.fingerprint; trustedSsh = both ? plan.ssh_fingerprint : null; showFinal(null); });
       place(
         clear(out),
         h(
           'div',
           { class: 'notice', 'data-testid': 'setup-untrusted' },
-          h('h3', {}, `The device presented this ${kind}`),
-          h('p', {}, 'Compare it with what the device itself shows before you trust it. If they differ, someone may be in between: do not trust it. No password has been asked for yet.'),
+          h('h3', {}, cert ? t('setup.presented.cert') : t('setup.presented.ssh')),
+          h('p', {}, t('setup.compare')),
           h('p', { class: 'fingerprint mono', 'data-testid': 'setup-fingerprint' }, fingerprintText(plan)),
           plan.compare ? h('p', { class: 'muted small' }, plan.compare) : null,
-          both ? h('h3', {}, 'and this SSH host key (for the optional SSH step)') : null,
+          both ? h('h3', {}, t('setup.andSshKey')) : null,
           both ? h('p', { class: 'fingerprint mono', 'data-testid': 'setup-ssh-fingerprint' }, plan.ssh_fingerprint) : null,
           both && plan.ssh_compare ? h('p', { class: 'muted small' }, plan.ssh_compare) : null,
           trust,
@@ -134,16 +137,16 @@ export function autoSetup(a, collect, onDone) {
     const more = [];
     if (opt && sshOn.checked) {
       sshSecret = h('input', { type: 'password', autocomplete: 'new-password', spellcheck: 'false', 'data-testid': 'setup-ssh-secret' });
-      more.push({ el: h('div', { class: 'ssh-option-fields', 'data-testid': 'setup-ssh-fields' }, field(`${opt.secret_label} (${opt.user})`, sshSecret)), input: sshSecret });
+      more.push({ el: h('div', { class: 'ssh-option-fields', 'data-testid': 'setup-ssh-fields' }, field(t('setup.secretLabel', { label: opt.secret_label, user: opt.user }), sshSecret)), input: sshSecret });
     }
     step = adminStep(login, 'setup', more);
     const removing = remove.checked;
-    const go = h('button', { class: removing ? 'btn danger' : 'btn primary', type: 'button', 'data-testid': 'setup-apply' }, removing ? 'Run: remove it from the device' : 'Run: set up the device');
+    const go = h('button', { class: removing ? 'btn danger' : 'btn primary', type: 'button', 'data-testid': 'setup-apply' }, removing ? t('setup.run.remove') : t('setup.run.setup'));
     go.addEventListener('click', () => run(go, () => doApply(sshSecret)));
     place(
       clear(out),
       extraNote,
-      h('p', { class: 'muted small' }, 'The device’s identity is confirmed. Nothing is sent until you press Run.'),
+      h('p', { class: 'muted small' }, t('setup.confirmed')),
       step.el,
       h('div', { class: 'row' }, go),
     );
@@ -155,9 +158,9 @@ export function autoSetup(a, collect, onDone) {
     if (!device || !step) return;
     const removing = remove.checked;
     const missing = (text) => step.el.append(h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, text));
-    if (!step.secret()) return missing(`Enter the ${login.secret_label}.`);
-    if (sshSecret && !sshSecret.value) return missing(`Enter the ${opt.secret_label} (${opt.user}), or untick “${opt.label}”.`);
-    if (removing && !(await confirmDialog({ title: 'Remove the login?', message: 'Signalbox deletes the login and permissions it set up on the device. It cannot read the device with them afterwards.', confirmLabel: 'Remove', danger: true }))) {
+    if (!step.secret()) return missing(t('setup.enter', { label: login.secret_label }));
+    if (sshSecret && !sshSecret.value) return missing(t('setup.enterSsh', { label: opt.secret_label, user: opt.user, option: opt.label }));
+    if (removing && !(await confirmDialog({ title: t('setup.removeLogin.title'), message: t('setup.removeLogin.message'), confirmLabel: t('common.remove'), danger: true }))) {
       step.wipe(); // cancelled: the password does not stay in the field
       return;
     }
@@ -168,7 +171,7 @@ export function autoSetup(a, collect, onDone) {
       body.ssh = { secret: sshSecret.value, trust: trustedSsh };
       if (sshPort.value) body.ssh.port = Number(sshPort.value);
     }
-    place(clear(out), h('p', { class: 'muted' }, removing ? 'Removing…' : 'Setting up the device…'));
+    place(clear(out), h('p', { class: 'muted' }, removing ? t('setup.removing') : t('setup.settingUp')));
     const current = step;
     let res;
     try {
@@ -179,9 +182,9 @@ export function autoSetup(a, collect, onDone) {
     }
     current.dispose(); // the password is gone as soon as the request is answered
     step = null;
-    place(out, h('p', { 'data-testid': 'setup-outcome', class: res.ok ? '' : 'error' }, res.ok ? (removing ? 'Removed.' : 'Done. The device is saved with its new login.') : 'The setup stopped at a failed step. Fix it and run it again: steps that are done already are skipped.'), stepList(res.steps, 'setup-done-steps'));
+    place(out, h('p', { 'data-testid': 'setup-outcome', class: res.ok ? '' : 'error' }, res.ok ? (removing ? t('setup.removed') : t('setup.done')) : t('setup.stopped')), stepList(res.steps, 'setup-done-steps'));
     if (res.ok && res.device) {
-      toast(`${res.device.name} set up.`);
+      toast(t('setup.deviceSetUp', { name: res.device.name }));
       onDone(res.device);
     }
   }
@@ -190,18 +193,18 @@ export function autoSetup(a, collect, onDone) {
   function failed(err) {
     if (err.code === 'plan_changed' && err.body && err.body.plan) {
       acked = err.body.plan.steps.filter((s) => s.state === 'todo').map((s) => s.id);
-      return showFinal(h('div', { class: 'notice', 'data-testid': 'setup-plan-changed' }, h('p', {}, 'The device needs steps that were not in the first plan. Nothing was changed. Check the plan and run it again:'), stepList(err.body.plan.steps, 'setup-plan-steps')));
+      return showFinal(h('div', { class: 'notice', 'data-testid': 'setup-plan-changed' }, h('p', {}, t('setup.planChanged')), stepList(err.body.plan.steps, 'setup-plan-steps')));
     }
     if (err.code === 'untrusted_ssh') {
-      const trustSsh = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust-ssh' }, 'Trust this SSH host key');
+      const trustSsh = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust-ssh' }, t('setup.trust.ssh'));
       trustSsh.addEventListener('click', () => { trustedSsh = err.body.fingerprint; showFinal(null); });
       return place(
         clear(out),
         h(
           'div',
           { class: 'notice', 'data-testid': 'setup-untrusted-ssh' },
-          h('h3', {}, 'The device presented an SSH host key Signalbox does not trust yet'),
-          h('p', {}, 'Compare it with what the device itself shows before you trust it. If they differ, do not trust it: the SSH password has not been sent.'),
+          h('h3', {}, t('setup.untrustedSsh.title')),
+          h('p', {}, t('setup.untrustedSsh.text')),
           h('p', { class: 'fingerprint mono', 'data-testid': 'setup-ssh-fingerprint' }, err.body.fingerprint),
           err.body.compare ? h('p', { class: 'muted small' }, err.body.compare) : null,
           trustSsh,
@@ -216,13 +219,13 @@ export function autoSetup(a, collect, onDone) {
   return h(
     'details',
     { class: 'setup-guide notice', 'data-testid': 'auto-setup' },
-    h('summary', {}, 'Set up automatically with the admin login'),
-    h('p', {}, `Signalbox logs in once over ${login.transport}, sets up its own login with the permissions of the setup guide (read-only unless “Allow changes” is on) and fills in the settings below. First you see what it does and confirm the device’s identity; the admin password is asked for last, used once and never saved.`),
+    h('summary', {}, t('setup.summary')),
+    h('p', {}, t('setup.intro', { transport: login.transport })),
     login.note ? h('p', { class: 'muted small' }, login.note) : null,
-    port ? field('SSH port', port) : null,
+    port ? field(t('setup.sshPort'), port) : null,
     opt ? checkField(opt.label, sshOn, opt.note) : null,
     sshPortField,
-    checkField('Remove what Signalbox set up instead', remove, null),
+    checkField(t('setup.removeInstead'), remove, null),
     ...extraFields,
     h('div', { class: 'row' }, planBtn),
     out,

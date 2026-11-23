@@ -2021,6 +2021,12 @@ class Link(Model):
     origin: LinkOrigin
 
 
+#: A value that fills a placeholder of a translated text (#204).
+MessageValue = str | int | float | bool | None
+#: The values of a translatable text: ``{"name": "Switch", "count": 3}``.
+MessageParams = dict[str, MessageValue]
+
+
 class ReadError(Model):
     """A capability that was declared but could not be read: becomes an "incomplete" finding."""
 
@@ -2029,6 +2035,11 @@ class ReadError(Model):
     message: str
     #: What the user can do about it, in plain words, where the adapter knows.
     fix: str | None = None
+    #: Translation (#204): ids of ``message`` and ``fix`` (catalogue ``msg.<id>``) and the values
+    #: their placeholders take. The English text stays the source and the fallback.
+    message_id: str | None = None
+    fix_id: str | None = None
+    params: MessageParams = Field(default_factory=dict)
     #: Id of a remedy of the device's integration that repairs this with *Fix it* (#215).
     remedy: str | None = None
     #: A missing optional feature (#278): does not make the device "partly read"; an info at most.

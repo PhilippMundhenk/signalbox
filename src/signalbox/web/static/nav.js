@@ -1,6 +1,7 @@
 // Navigation shell: a side bar on wide screens, a compact top bar plus the same side bar as a drawer
 // on narrow ones. Icons are built with setAttribute, never from markup strings.
 import { h, s } from './util.js';
+import { t } from './i18n.js';
 
 export const WIDE = window.matchMedia('(min-width: 1100px)');
 
@@ -44,7 +45,7 @@ export function buildShell({ items, current, brand, actions }) {
   const currentLabel = (items.find(([key]) => key === current) || [])[2] || '';
   const menuBtn = h(
     'button',
-    { class: 'btn menu-btn', type: 'button', 'aria-label': 'Menu', 'aria-expanded': 'false', 'aria-controls': 'sidebar', 'data-testid': 'nav-menu' },
+    { class: 'btn menu-btn', type: 'button', 'aria-label': t('nav.menu'), 'aria-expanded': 'false', 'aria-controls': 'sidebar', 'data-testid': 'nav-menu' },
     icon('menu'),
   );
   const topbar = h(
@@ -56,16 +57,16 @@ export function buildShell({ items, current, brand, actions }) {
   );
   const nav = h(
     'nav',
-    { class: 'nav', 'aria-label': 'Main' },
+    { class: 'nav', 'aria-label': t('nav.main') },
     items.map(([key, href, text]) =>
       h('a', { href, 'aria-current': current === key ? 'page' : null, 'data-testid': `nav-${key}` }, icon(key), h('span', { class: 'nav-label' }, text)),
     ),
   );
-  const closeBtn = h('button', { class: 'btn ghost close-btn', type: 'button', 'aria-label': 'Close menu', 'data-testid': 'nav-close' }, icon('close'));
+  const closeBtn = h('button', { class: 'btn ghost close-btn', type: 'button', 'aria-label': t('nav.closeMenu'), 'data-testid': 'nav-close' }, icon('close'));
   const sidebar = h(
     'div',
     { class: 'sidebar', id: 'sidebar' },
-    h('div', { class: 'sidebar-head' }, h('a', { class: 'brand', href: '#/', 'aria-label': 'Signalbox, start page' }, brand(), 'Signalbox'), closeBtn),
+    h('div', { class: 'sidebar-head' }, h('a', { class: 'brand', href: '#/', 'aria-label': t('nav.startPage') }, brand(), 'Signalbox'), closeBtn),
     nav,
     actions,
   );
