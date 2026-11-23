@@ -21,6 +21,7 @@ PRIVILEGES = (
     "page-status-interfaces",
     "page-interfaces-vlan-edit",
     "page-dhcp-kea-v4",
+    "page-services-dhcprelay",
     "page-services-unbound",
     "page-diagnostics-arptable",
     "page-diagnostics-ndptable",
