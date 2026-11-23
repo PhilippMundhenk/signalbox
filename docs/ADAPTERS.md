@@ -821,9 +821,9 @@ name an unknown zone, ports on a rule without TCP or UDP, an input rule with a d
 zone, a NAT rule without masquerade or address, and firewalls without the `firewall`
 capability.
 
-What each integration can read, and the privilege it needs (OPNsense, OpenWrt and MikroTik are
-implemented, see their pages in docs/adapters/; the others are plans; *(guess)*: not checked
-against a device or the vendor's documentation; **CI**: read from the real software in CI):
+What each integration can read, and the privilege it needs (all of them are implemented, see their
+pages in docs/adapters/; *(guess)*: not checked against a device or the vendor's documentation;
+**CI**: read from the real software in CI):
 
 | Integration | Zones | Filter rules and policies | NAT and port forwards | Privilege |
 | --- | --- | --- | --- | --- |
