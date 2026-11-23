@@ -64,6 +64,14 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`clients.unexpected-network`](rules/expectations.md#clientsunexpected-network)
 - [`clients.category-network`](rules/expectations.md#clientscategory-network)
 
+## [Firewall](rules/firewall_checks.md)
+
+- [`security.port-forward-target`](rules/firewall_checks.md#securityport-forward-target)
+- [`firewall.forward-into-guest`](rules/firewall_checks.md#firewallforward-into-guest)
+- [`firewall.duplicate-port-forward`](rules/firewall_checks.md#firewallduplicate-port-forward)
+- [`firewall.segment-without-zone`](rules/firewall_checks.md#firewallsegment-without-zone)
+- [`firewall.untrusted-reaches-lan`](rules/firewall_checks.md#firewalluntrusted-reaches-lan)
+
 ## [Firmware](rules/firmware.md)
 
 - [`firmware.drift`](rules/firmware.md#firmwaredrift)

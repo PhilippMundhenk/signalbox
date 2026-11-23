@@ -102,6 +102,11 @@ role. IPv6 link-local and IPv4 169.254.0.0/16 addresses are ignored unless a rul
 - **Fix:** nothing if everything works. If port forwards, a VPN server, games or IPv6 behind the
   inner router matter: put the outer router into bridge (modem) mode, or make the inner router
   its exposed host (DMZ). For CGNAT: ask the provider for a public IPv4 address, or use IPv6.
+- **Forwards on the inner router only (warning, #135):** when both routers' firewalls and
+  forward lists were read, a port forward of the inner router that the outer router does not
+  pass on to the inner router's WAN address (a forward of the same port, or an exposed host)
+  can never work from the internet. Quiet when either list is unknown. Fix: forward the ports on
+  the outer router too, make the inner router its exposed host, or use bridge mode.
 
 ## `inventory.management-address`
 

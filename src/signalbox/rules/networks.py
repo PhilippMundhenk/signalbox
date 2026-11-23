@@ -9,8 +9,21 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
+from ipaddress import ip_address
 
-from signalbox.model import Band, DeviceRole, Network, PurposeSource, SegmentPurpose, Wlan
+from signalbox.firewall import reach
+from signalbox.model import (
+    Band,
+    DeviceRole,
+    FirewallProtocol,
+    ManagementService,
+    Network,
+    PurposeSource,
+    SegmentPurpose,
+    ServiceTransport,
+    Verdict,
+    Wlan,
+)
 from signalbox.purpose import untrusted, wlan_purpose, wlan_source
 from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
 from signalbox.rules._names import device_name, segment_name, site_of_device
@@ -145,8 +158,12 @@ def guest_no_isolation(net: Network) -> Iterator[Result]:
     "A switch or access point is managed at an address in a guest or IoT network (or has an "
     "address there). Guests, or a compromised smart plug, can then reach its login page: brute "
     "force and firmware exploits are one step away. A router has an address in every network "
-    "it serves; whether its web interface is reachable from there depends on the firewall, "
-    "which is not read yet, so that case is reported as not checked.",
+    "it serves; whether its web interface is reachable from there depends on its firewall: "
+    "where that is not read, the case is reported as not checked, otherwise "
+    "security.service-exposure decides. Level 2: with the firewall rules read (#135), a "
+    "management service of a device in another network that guest, IoT or camera networks "
+    "reach through the router is reported too; where the firewall does not decide exactly, "
+    "the rule stays quiet.",
 )
 def management_exposure(net: Network) -> Iterator[Result]:
     reported: set[tuple[str, str]] = set()
@@ -184,6 +201,8 @@ def management_exposure(net: Network) -> Iterator[Result]:
                 "VLAN), or block access from that network to it.",
             )
     for (dev_id, seg), addresses in sorted(routers.items()):
+        if net.firewall_of(dev_id) is not None:
+            continue  # security.service-exposure asks the firewall
         yield incomplete(
             f"{device_name(net, dev_id)} is reachable at {', '.join(addresses)} in "
             f"{_network_text(net, seg)}; without firewall rules it is not known whether its "
@@ -191,6 +210,60 @@ def management_exposure(net: Network) -> Iterator[Result]:
             [dev_id, seg],
             key=seg,
         )
+    yield from _through_firewall(net)
+
+
+def _protocol(service: ManagementService) -> FirewallProtocol | None:
+    if service.transport is ServiceTransport.TCP:
+        return FirewallProtocol.TCP
+    return FirewallProtocol.UDP if service.transport is ServiceTransport.UDP else None
+
+
+def _through_firewall(net: Network) -> Iterator[Result]:
+    """Level 2: the management services of a device in another network that an untrusted
+    network reaches through the firewall (#120, #135). Only what the firewalls surely allow."""
+    sources = [
+        s.id
+        for s in sorted(net.segments, key=lambda s: s.id)
+        if untrusted(s.purpose) and not s.isolated
+    ]
+    for d in sorted(net.devices, key=lambda d: d.id):
+        if d.role not in INFRASTRUCTURE or not d.management_address:
+            continue
+        try:
+            address = ip_address(d.management_address.strip("[]"))
+        except ValueError:
+            continue
+        home = address_segment(net, d)
+        services = [
+            s
+            for s in net.services_of(d.id)
+            if s.enabled and s.transport is not ServiceTransport.LAYER2 and s.unrestricted()
+        ]
+        own = {x.segment_id for x in net.subnets if x.device_id == d.id}
+        for src in sources:
+            if src == home or src in own:
+                continue  # level 1 and security.service-exposure
+            hits = [
+                (s, v)
+                for s in services
+                if (v := reach(net, src, address, s.port, _protocol(s))).verdict is Verdict.ALLOWED
+            ]
+            if not hits:
+                continue
+            who = _names(
+                device_name(net, i) for i in sorted({v.device_id for _, v in hits if v.device_id})
+            )
+            yield found(
+                f"{_names(s.label() for s, _ in hits)} of {d.name} ({address}) can be reached "
+                f"from {_network_text(net, src)}"
+                + (f" through the firewall of {who}" if who else ""),
+                [d.id, src, *(s.id for s, _ in hits)],
+                fix=f"Block {segment_name(net, src)} from reaching {d.name} in the firewall "
+                f"of its router, or move {d.name} to a management VLAN that "
+                f"{segment_name(net, src)} cannot reach.",
+                key=f"{src}/firewall",
+            )
 
 
 def _purpose(net: Network, segment_id: str) -> SegmentPurpose | None:

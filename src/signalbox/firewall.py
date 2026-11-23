@@ -40,6 +40,8 @@ from signalbox.model import (
     ManagementService,
     Match,
     Network,
+    PortForward,
+    PortRange,
     ServiceTransport,
     Uplink,
     Verdict,
@@ -489,3 +491,26 @@ def service_from_internet(net: Network, service: ManagementService) -> FirewallV
     if service.transport is ServiceTransport.LAYER2:
         return _v(Verdict.UNKNOWN, "layer-2 service on the uplink port", service.device_id)
     return any_of(service_reach(net, service, u.id) for u in net.uplinks_of(service.device_id))
+
+
+def port_ranges_overlap(a: Iterable[PortRange], b: Iterable[PortRange]) -> list[tuple[int, int]]:
+    """The inclusive port ranges that are in both *a* and *b*."""
+    b = list(b)
+    return [
+        (max(x.start, y.start), min(x.last, y.last))
+        for x in a
+        for y in b
+        if max(x.start, y.start) <= min(x.last, y.last)
+    ]
+
+
+def forward_target_ports(forward: PortForward) -> list[PortRange]:
+    """The ports on the target that *forward* leads to (every port for an exposed host)."""
+    if not forward.external_ports:
+        return [PortRange(start=1, end=65535)]
+    if forward.target_port is None:
+        return list(forward.external_ports)
+    return [
+        PortRange(start=forward.target_port, end=min(65535, forward.target_port + r.last - r.start))
+        for r in forward.external_ports
+    ]
