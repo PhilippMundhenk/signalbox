@@ -211,6 +211,8 @@ class LinuxSetup:
                 needed=not state.exists,
                 action=self._action(ssh, create),
                 note="" if not state.exists else "the user exists",
+                title_id="setup.linux.createUser",
+                params={"login": self.login},
             ),
             Step(
                 "key",
@@ -219,6 +221,8 @@ class LinuxSetup:
                 key,
                 action=self._action(ssh, key),
                 note="the private key is stored encrypted in Signalbox and never shown",
+                title_id="setup.linux.key",
+                params={"login": self.login},
             ),
         ]
         if state.wg or state.nft:
@@ -231,6 +235,8 @@ class LinuxSetup:
                     needed=state.sudoers != rule,
                     action=self._action(ssh, install_rule),
                     note="" if state.sudoers != rule else "already as in the setup guide",
+                    title_id="setup.linux.sudoers",
+                    params={"login": self.login, "path": sudoers_path(self.login)},
                 )
             )
         else:
@@ -240,6 +246,7 @@ class LinuxSetup:
                     "No sudoers rule: neither WireGuard (wg) nor nftables (nft) is installed",
                     needed=False,
                     note="not needed",
+                    title_id="setup.linux.noSudoers",
                 )
             )
         steps.append(
@@ -248,6 +255,7 @@ class LinuxSetup:
                 "Trust the device's SSH host key for reading (the one confirmed for this setup)",
                 fingerprint,
                 needed=True,
+                title_id="setup.linux.hostKey",
             )
         )
         return steps
@@ -276,6 +284,8 @@ class LinuxSetup:
                 needed=state.sudoers is not None,
                 action=self._action(ssh, drop_rule),
                 note="" if state.sudoers else "there is no such file",
+                title_id="setup.linux.deleteSudoers",
+                params={"path": sudoers_path(self.login)},
             ),
             Step(
                 "user",
@@ -284,6 +294,8 @@ class LinuxSetup:
                 needed=state.exists,
                 action=self._action(ssh, drop_user),
                 note="" if state.exists else f"there is no user {self.login}",
+                title_id="setup.linux.deleteUser",
+                params={"login": self.login},
             ),
         ]
 

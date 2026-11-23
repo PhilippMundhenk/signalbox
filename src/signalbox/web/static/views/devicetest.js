@@ -1,8 +1,10 @@
 // Connection test results and certificate trust, shared by the device page and the device form.
+import { t } from '../i18n.js';
+import { errorFix, errorMessage } from '../texts.js';
 import { groupHex, h } from '../util.js';
 import { run, statusBadge } from '../ui.js';
 
-const COUNT_TEXT = { ports: 'ports', segments: 'segments', subnets: 'subnets', wlans: 'SSIDs', clients: 'clients' };
+const COUNT_TEXT = { ports: 'test.count.ports', segments: 'test.count.segments', subnets: 'test.count.subnets', wlans: 'test.count.wlans', clients: 'test.count.clients' };
 
 // Text with its https:// addresses as links (built as text nodes and elements, no markup).
 export function linked(text) {
@@ -14,7 +16,7 @@ export function linked(text) {
 // Optional features that are missing (#278) are a muted note, not an error.
 export function readErrors(errors, testid, extra = null) {
   if (!errors.length) return null;
-  const item = (e) => h('li', { 'data-optional': e.optional ? 'true' : null }, h('span', {}, e.optional ? `Optional, not available: ${e.capability}: ${e.message}` : `${e.capability}: ${e.message}`), e.fix ? h('p', { class: 'fix', 'data-testid': 'error-fix' }, 'What to do: ', ...linked(e.fix)) : null, extra ? extra(e) : null);
+  const item = (e) => h('li', { 'data-optional': e.optional ? 'true' : null }, h('span', {}, e.optional ? t('test.optional', { capability: e.capability, message: errorMessage(e) }) : t('test.error', { capability: e.capability, message: errorMessage(e) })), e.fix ? h('p', { class: 'fix', 'data-testid': 'error-fix' }, t('test.whatToDo'), ...linked(errorFix(e))) : null, extra ? extra(e) : null);
   const real = errors.filter((e) => !e.optional);
   const optional = errors.filter((e) => e.optional);
   return h(
@@ -27,27 +29,27 @@ export function readErrors(errors, testid, extra = null) {
 
 export function testResult(res) {
   const d = res.device || {};
-  const found = [d.vendor, d.model, d.firmware && `firmware ${d.firmware}`].filter(Boolean).join(', ');
+  const found = [d.vendor, d.model, d.firmware && t('test.firmware', { version: d.firmware })].filter(Boolean).join(', ');
   return h(
     'div',
     { class: `test-result status-${res.status}`, 'data-testid': 'test-result' },
-    h('p', {}, 'Result: ', statusBadge(res.status), found ? ` ${found}` : ''),
+    h('p', {}, t('test.result'), statusBadge(res.status), found ? ` ${found}` : ''),
     readErrors(res.errors, 'test-errors'),
     res.status === 'ok' || res.status === 'partial'
-      ? h('p', { 'data-testid': 'test-counts' }, 'Found ', Object.entries(res.counts).map(([k, v], i) => `${i ? ', ' : ''}${v} ${COUNT_TEXT[k] || k}`), '.')
+      ? h('p', { 'data-testid': 'test-counts' }, t('test.found'), Object.entries(res.counts).map(([k, v], i) => `${i ? ', ' : ''}${v} ${COUNT_TEXT[k] ? t(COUNT_TEXT[k]) : k}`), '.')
       : null,
   );
 }
 
 // onTrust(fingerprint) is called when the user trusts the certificate.
 export function trustPanel(fingerprint, onTrust, note) {
-  const btn = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'trust' }, 'Trust this certificate');
+  const btn = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'trust' }, t('test.trust'));
   btn.addEventListener('click', () => run(btn, () => onTrust(fingerprint)));
   return h(
     'div',
     { class: 'notice', 'data-testid': 'untrusted' },
-    h('h3', {}, 'The device presented a certificate Signalbox does not trust yet'),
-    h('p', {}, 'Before you trust it, compare this SHA-256 fingerprint with the one the device shows in its own web interface or console. If they differ, someone may be in between: do not trust it.'),
+    h('h3', {}, t('test.untrustedTitle')),
+    h('p', {}, t('test.untrustedText')),
     h('p', { class: 'fingerprint mono', 'data-testid': 'fingerprint' }, groupHex(fingerprint)),
     note ? h('p', { class: 'muted small' }, note) : null,
     btn,

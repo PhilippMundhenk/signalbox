@@ -29,7 +29,14 @@ from importlib.metadata import entry_points
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from signalbox.model import Acknowledgement, AnnotationSource, DeviceStatus, Network
+from signalbox.model import (
+    Acknowledgement,
+    AnnotationSource,
+    DeviceStatus,
+    MessageParams,
+    MessageValue,
+    Network,
+)
 from signalbox.sightings import History
 
 
@@ -53,6 +60,12 @@ class Finding(BaseModel):
     message: str
     objects: list[str] = Field(default_factory=list)
     fix: str | None = None
+    #: Translation (#204): stable id of ``message`` (and of ``fix``) and the values the English
+    #: text was built from. The UI translates ``msg.<id>`` with ``params`` when its catalogue has
+    #: the id and shows the English text otherwise, so a rule can be converted at any time.
+    message_id: str | None = None
+    fix_id: str | None = None
+    params: MessageParams = Field(default_factory=dict)
     #: Id of a remedy of the device's integration that repairs this with *Fix it* (#215);
     #: set on read findings, the device is ``objects[0]``.
     remedy: str | None = None
@@ -76,6 +89,9 @@ class Result:
     severity: Severity | None = None
     incomplete: bool = False
     key: str = ""
+    message_id: str | None = None
+    fix_id: str | None = None
+    params: Mapping[str, MessageValue] = field(default_factory=dict)
 
 
 def found(
@@ -85,14 +101,33 @@ def found(
     fix: str | None = None,
     severity: Severity | None = None,
     key: str = "",
+    mid: str | None = None,
+    fix_id: str | None = None,
+    params: Mapping[str, MessageValue] | None = None,
 ) -> Result:
-    """A problem. ``key`` distinguishes several findings of one rule on the same objects."""
-    return Result(message, tuple(objects), fix, severity, False, key)
+    """A problem. ``key`` distinguishes several findings of one rule on the same objects.
+
+    ``mid`` / ``fix_id`` / ``params`` make the texts translatable (#204): the ids name catalogue
+    entries (``msg.<id>``) and ``params`` fill their placeholders. ``message`` and ``fix`` stay the
+    English text, shown wherever there is no translation.
+    """
+    return Result(
+        message, tuple(objects), fix, severity, False, key, mid, fix_id, dict(params or {})
+    )
 
 
-def incomplete(message: str, objects: Iterable[str], *, key: str = "") -> Result:
+def incomplete(
+    message: str,
+    objects: Iterable[str],
+    *,
+    key: str = "",
+    mid: str | None = None,
+    params: Mapping[str, MessageValue] | None = None,
+) -> Result:
     """Something the rule could not check, for example because a device did not report it."""
-    return Result(message, tuple(objects), None, Severity.INFO, True, key)
+    return Result(
+        message, tuple(objects), None, Severity.INFO, True, key, mid, None, dict(params or {})
+    )
 
 
 Check = Callable[[Network], Iterable[Result]]
@@ -168,6 +203,9 @@ def _finding(r: Rule, res: Result, severity: Severity) -> Finding:
         message=res.message,
         objects=list(res.objects),
         fix=res.fix,
+        message_id=res.message_id,
+        fix_id=res.fix_id,
+        params=dict(res.params),
         incomplete=res.incomplete,
     )
 
@@ -185,6 +223,11 @@ _STATUS_TEXT = {
     DeviceStatus.UNREACHABLE: "is unreachable",
     DeviceStatus.AUTH_FAILED: "refused the login",
     DeviceStatus.UNTRUSTED: "presented a certificate that is not trusted",
+}
+_STATUS_MID = {
+    DeviceStatus.UNREACHABLE: ("read.unreachable", "read.fix.unreachable"),
+    DeviceStatus.AUTH_FAILED: ("read.authFailed", "read.fix.authFailed"),
+    DeviceStatus.UNTRUSTED: ("read.untrusted", "read.fix.untrusted"),
 }
 _STATUS_FIX = {
     DeviceStatus.UNREACHABLE: "Check that the device is on and its address is right.",
@@ -220,7 +263,28 @@ def _expired_findings(net: Network, now: datetime, severity: Severity) -> list[F
             else "remove the acknowledgement under Findings"
         )
         fix = f"Acknowledge the finding again if it is still accepted, or fix it; then {where}."
-        res = Result(message, (ack.target,) if ack.target else (), fix, None, False, ack.id)
+        params: dict[str, MessageValue] = {
+            "rule": ack.rule_id,
+            "date": f"{ack.until:%Y-%m-%d}",
+            "target": ack.target or "",
+            "reason": ack.reason or "",
+        }
+        if ack.target:
+            mid = "ack.expiredFor" + ("Reason" if ack.reason else "")
+        else:
+            mid = "ack.expired" + ("Reason" if ack.reason else "")
+        fix_id = "ack.fix.declared" if ack.source is AnnotationSource.DECLARED else "ack.fix.ui"
+        res = Result(
+            message,
+            (ack.target,) if ack.target else (),
+            fix,
+            None,
+            False,
+            ack.id,
+            mid,
+            fix_id,
+            params,
+        )
         out.append(_finding(ACK_EXPIRED, res, severity))
     return out
 
@@ -241,17 +305,30 @@ def _read_findings(net: Network, severity: Severity) -> list[Finding]:
         dev = net.device(err.device_id)
         name = dev.name if dev else err.device_id
         status = net.statuses.get(err.device_id, DeviceStatus.PARTIAL)
+        params: dict[str, MessageValue] = {
+            "name": name,
+            "capability": err.capability,
+            "error": err.message,
+            **err.params,
+        }
+        mid: str | None
+        fix_id: str | None
         if err.capability == "system" and status in _STATUS_TEXT:
             message = f"{name} {_STATUS_TEXT[status]}: {err.message}"
             fix = _STATUS_FIX[status]
+            mid, fix_id = _STATUS_MID[status]
         else:
             message = f"{name}: could not read {err.capability}: {err.message}"
             fix = None
-        fix = err.fix or fix
-        res = Result(message, (err.device_id,), fix, None, False, err.capability)
+            mid, fix_id = "read.failed", None
+        if err.fix:
+            fix, fix_id = err.fix, err.fix_id
         if err.optional:
             message = f"{name}: optional feature not available ({err.capability}): {err.message}"
-            res = Result(message, (err.device_id,), fix, None, False, err.capability)
+            mid = "read.optional"
+        res = Result(
+            message, (err.device_id,), fix, None, False, err.capability, mid, fix_id, params
+        )
         finding = _finding(READ_ERRORS, res, Severity.INFO if err.optional else severity)
         out.append(finding.model_copy(update={"remedy": err.remedy}) if err.remedy else finding)
     return out

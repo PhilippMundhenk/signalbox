@@ -2,6 +2,7 @@
 import { loadNetwork, noData, siteFilter } from '../net.js';
 import { by, clear, h, place } from '../util.js';
 import { pageHead, purposeTag, table, tag } from '../ui.js';
+import { t } from '../i18n.js';
 
 let siteChoice = '';
 
@@ -22,28 +23,28 @@ function segmentCard(ix, seg) {
   return h(
     'section',
     { class: 'card', 'data-testid': 'segment', 'data-id': seg.id },
-    h('h3', {}, seg.vlan ? h('span', { class: 'vlan-id' }, `VLAN ${seg.vlan}`) : h('span', { class: 'vlan-id' }, 'Untagged'), seg.name ? ` ${seg.name}` : '', seg.purpose ? [' ', purposeTag(seg)] : null),
-    seg.isolated ? h('p', { class: 'muted small', 'data-testid': 'segment-isolated' }, 'Isolated by the device (clients cannot reach the other networks).') : null,
+    h('h3', {}, seg.vlan ? h('span', { class: 'vlan-id' }, t('segments.vlan', { vlan: seg.vlan })) : h('span', { class: 'vlan-id' }, t('segments.untagged')), seg.name ? ` ${seg.name}` : '', seg.purpose ? [' ', purposeTag(seg)] : null),
+    seg.isolated ? h('p', { class: 'muted small', 'data-testid': 'segment-isolated' }, t('segments.isolated')) : null,
     rows.length
       ? table(
           [
-            ['Device', ([d]) => h('a', { href: `#/device/${encodeURIComponent(d)}` }, ix.deviceName(d))],
-            ['Untagged ports', ([, m]) => (m.untagged.length ? m.untagged.sort(by((x) => x)).join(', ') : null)],
-            ['Tagged ports', ([, m]) => (m.tagged.length ? m.tagged.sort(by((x) => x)).join(', ') : null)],
+            [t('segments.col.device'), ([d]) => h('a', { href: `#/device/${encodeURIComponent(d)}` }, ix.deviceName(d))],
+            [t('segments.col.untaggedPorts'), ([, m]) => (m.untagged.length ? m.untagged.sort(by((x) => x)).join(', ') : null)],
+            [t('segments.col.taggedPorts'), ([, m]) => (m.tagged.length ? m.tagged.sort(by((x) => x)).join(', ') : null)],
           ],
           rows,
           { rowTestid: 'segment-member' },
         )
-      : h('p', { class: 'muted' }, 'No device reported member ports.'),
+      : h('p', { class: 'muted' }, t('segments.noMembers')),
     subnets.length
       ? h(
           'div',
           { class: 'subnets' },
-          h('h4', {}, 'Subnets'),
+          h('h4', {}, t('segments.subnets')),
           h(
             'ul',
             { class: 'plain' },
-            subnets.map((x) => h('li', { 'data-testid': 'subnet' }, h('span', { class: 'mono' }, x.interface), ' on ', ix.deviceName(x.device_id), x.gateway ? [' ', tag('gateway', 'ok')] : null)),
+            subnets.map((x) => h('li', { 'data-testid': 'subnet' }, h('span', { class: 'mono' }, x.interface), t('segments.subnetOn', { device: ix.deviceName(x.device_id) }), x.gateway ? [' ', tag(t('segments.gateway'), 'ok')] : null)),
           ),
         )
       : null,
@@ -69,8 +70,8 @@ export async function renderSegments(main, ctx) {
     }
   };
   place(main, 
-    pageHead('Segments'),
-    h('p', { class: 'muted' }, 'A segment is one network (VLAN) of a site. The same VLAN on several devices is one segment.'),
+    pageHead(t('segments.title')),
+    h('p', { class: 'muted' }, t('segments.intro')),
     h('div', { class: 'filters' }, siteFilter(ix, siteChoice, (v) => { siteChoice = v; draw(); })),
     body,
   );

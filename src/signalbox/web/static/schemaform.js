@@ -1,5 +1,6 @@
 // A form generated from an adapter's settings (JSON Schema from pydantic).
 // Supports string, integer, number, boolean, enum, defaults, descriptions and secrets.
+import { t } from './i18n.js';
 import { h } from './util.js';
 import { checkField, field } from './ui.js';
 
@@ -25,7 +26,7 @@ function resolve(schema, root) {
   }
   if (Array.isArray(s.type)) {
     nullable = nullable || s.type.includes('null');
-    s = { ...s, type: s.type.find((t) => t !== 'null') };
+    s = { ...s, type: s.type.find((x) => x !== 'null') };
   }
   if (s.enum && !s.type) s = { ...s, type: typeof s.enum[0] === 'number' ? 'number' : 'string' };
   return { ...s, nullable };
@@ -45,12 +46,13 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
   const fields = [];
   const element = h('div', { class: 'schema-form', 'data-testid': 'config-form' });
   // settings marked "advanced" (simulators, tests) go into a closed section
-  const advanced = h('details', { class: 'advanced', 'data-testid': 'advanced-settings' }, h('summary', {}, 'Advanced'));
+  const advanced = h('details', { class: 'advanced', 'data-testid': 'advanced-settings' }, h('summary', {}, t('schemaform.advanced')));
   for (const [name, raw] of Object.entries(schema.properties || {})) {
     const s = resolve(raw, schema);
     const box = s.advanced ? advanced : element;
     const isSecret = secrets.includes(name) || s.format === 'password' || s.writeOnly;
-    const label = titleOf(name, s) + (required.has(name) && !s.nullable ? '' : ' (optional)');
+    const bare = titleOf(name, s);
+    const label = required.has(name) && !s.nullable ? bare : t('schemaform.optionalLabel', { label: bare });
     const current = name in values ? values[name] : s.default;
     const id = `${idPrefix}-${name}`;
     const testid = `cfg-${name}`;
@@ -58,9 +60,9 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
     let read;
     if (isSecret) {
       const stored = secretsSet && secretsSet.includes(name);
-      control = h('input', { type: 'password', id, autocomplete: 'new-password', 'data-testid': testid, placeholder: stored ? 'stored — leave empty to keep' : '' });
+      control = h('input', { type: 'password', id, autocomplete: 'new-password', 'data-testid': testid, placeholder: stored ? t('schemaform.storedPlaceholder') : '' });
       read = () => (control.value === '' ? undefined : control.value);
-      const hint = [s.description, stored ? 'A value is stored. Leave the field empty to keep it.' : null].filter(Boolean).join(' ');
+      const hint = [s.description, stored ? t('schemaform.storedHint') : null].filter(Boolean).join(' ');
       box.append(field(label, control, hint || null));
       let remove = null;
       if (stored && s.nullable) {
@@ -70,7 +72,7 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
           control.disabled = remove.checked;
           if (remove.checked) control.value = '';
         });
-        box.append(checkField(`Remove the stored ${label.replace(' (optional)', '').toLowerCase()}`, remove, null));
+        box.append(checkField(t('schemaform.removeStored', { label: bare.toLowerCase() }), remove, null));
       }
       fields.push({ name, s, read, control, secret: true, stored, remove, required: required.has(name) && !s.nullable });
       continue;
@@ -78,7 +80,7 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
     if (s.type === 'boolean') {
       control = h('input', { type: 'checkbox', id, checked: Boolean(current), 'data-testid': testid });
       read = () => control.checked;
-      box.append(checkField(label.replace(' (optional)', ''), control, s.description));
+      box.append(checkField(bare, control, s.description));
     } else if (s.enum) {
       control = h('select', { id, 'data-testid': testid });
       if (s.nullable || (!required.has(name) && s.default === undefined)) control.append(h('option', { value: '' }, '–'));
@@ -133,14 +135,14 @@ export function schemaForm(schema, { secrets = [], values = {}, secretsSet = nul
       const label = titleOf(f.name, f.s);
       if (value === undefined) {
         if (f.required && !(f.secret && f.stored) && f.s.default === undefined) {
-          errors.push(`${label} is required.`);
+          errors.push(t('schemaform.required', { label }));
           f.control.setAttribute('aria-invalid', 'true');
         }
         continue;
       }
       if (typeof value === 'number') {
         if (Number.isNaN(value) || (f.s.minimum !== undefined && value < f.s.minimum) || (f.s.maximum !== undefined && value > f.s.maximum)) {
-          errors.push(`${label} must be a number${f.s.minimum !== undefined ? ` from ${f.s.minimum}` : ''}${f.s.maximum !== undefined ? ` to ${f.s.maximum}` : ''}.`);
+          errors.push(f.s.minimum !== undefined && f.s.maximum !== undefined ? t('schemaform.numberRange', { label, min: f.s.minimum, max: f.s.maximum }) : f.s.minimum !== undefined ? t('schemaform.numberMin', { label, min: f.s.minimum }) : f.s.maximum !== undefined ? t('schemaform.numberMax', { label, max: f.s.maximum }) : t('schemaform.number', { label }));
           f.control.setAttribute('aria-invalid', 'true');
           continue;
         }

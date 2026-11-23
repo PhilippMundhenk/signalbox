@@ -1,4 +1,6 @@
 // Start page: what is wrong, why, where and how to fix it.
+import { compare, fmtNumber, t } from '../i18n.js';
+import { findingFix, findingMessage, findingTitle } from '../texts.js';
 import { del, enc, get, post } from '../api.js';
 import { confirmRemoveAck } from '../annotations.js';
 import { loadNetwork, objectRef, siteFilter } from '../net.js';
@@ -6,30 +8,30 @@ import { clear, fmtAgo, fmtTime, h, place, sleep } from '../util.js';
 import { checkField, empty, field, modal, pageHead, run, select, severityBadge, showError, toast } from '../ui.js';
 
 const ORDER = { error: 0, warning: 1, info: 2 };
-const GROUP_TITLE = { error: 'Errors', warning: 'Warnings', info: 'Information' };
+const GROUP_TITLE = { error: 'findings.group.error', warning: 'findings.group.warning', info: 'findings.group.info' };
 const filters = { site: '', severity: '', resolved: false };
 
 // Accept a finding (#186): this finding, or every finding of its check about one object.
 function acknowledgeDialog(ix, f, onDone) {
   const reason = h('textarea', { rows: 3, maxlength: 500, 'data-testid': 'ack-reason' });
-  const scopes = [['finding', 'Only this finding'], ...f.objects.map((id) => [`target:${id}`, `Every “${f.title}” finding about ${ix.label(id)}`])];
+  const scopes = [['finding', t('findings.ack.scopeOne')], ...f.objects.map((id) => [`target:${id}`, t('findings.ack.scopeTarget', { title: f.title, object: ix.label(id) })])];
   const scope = select(scopes, 'finding', { 'data-testid': 'ack-scope' });
   const until = h('input', { type: 'date', 'data-testid': 'ack-until' });
   const lapse = h('input', { type: 'checkbox', 'data-testid': 'ack-lapse' });
   modal({
-    title: 'Acknowledge finding',
+    title: t('findings.ack.dialogTitle'),
     body: h(
       'div',
       {},
-      h('p', {}, f.message),
-      field('Reason', reason, 'Why this is fine, for whoever looks next.'),
-      f.objects.length ? field('Applies to', scope) : null,
-      field('Until (optional)', until, 'After this day it counts as a problem again.'),
-      checkField('Show it again when the details change', lapse),
-      h('p', { class: 'muted small' }, 'Acknowledged findings are listed apart and do not count as problems (also in Home Assistant).'),
+      h('p', {}, findingMessage(f)),
+      field(t('findings.ack.reason'), reason, t('findings.ack.reasonHint')),
+      f.objects.length ? field(t('findings.ack.appliesTo'), scope) : null,
+      field(t('findings.ack.untilOptional'), until, t('findings.ack.untilHint')),
+      checkField(t('findings.ack.lapse'), lapse),
+      h('p', { class: 'muted small' }, t('findings.ack.note')),
     ),
     actions: (close) => [
-      h('button', { class: 'btn', type: 'button', 'data-testid': 'ack-cancel', onclick: () => close() }, 'Cancel'),
+      h('button', { class: 'btn', type: 'button', 'data-testid': 'ack-cancel', onclick: () => close() }, t('common.cancel')),
       h('button', { class: 'btn primary', type: 'button', 'data-testid': 'ack-save', onclick: (e) => run(e.target, async () => {
         const target = scope.value.startsWith('target:') ? scope.value.slice(7) : null;
         await post(`/findings/${enc(f.id)}/acknowledge`, {
@@ -39,33 +41,33 @@ function acknowledgeDialog(ix, f, onDone) {
           until: until.value ? `${until.value}T00:00:00Z` : null,
           lapse_on_change: lapse.checked,
         });
-        toast('Finding acknowledged.');
+        toast(t('findings.ack.done'));
         close();
         await onDone();
-      }) }, 'Acknowledge'),
+      }) }, t('findings.ack.submit')),
     ],
   });
 }
 
 function ackLine(f, onDone) {
   const a = f.acknowledged;
-  const remove = h('button', { class: 'btn small', type: 'button', 'data-testid': 'ack-remove' }, 'Remove acknowledgement');
+  const remove = h('button', { class: 'btn small', type: 'button', 'data-testid': 'ack-remove' }, t('findings.ack.remove'));
   remove.addEventListener('click', () =>
     run(remove, async () => {
       if (!(await confirmRemoveAck())) return;
       await del(`/acknowledgements/${enc(a.id)}`);
-      toast('Acknowledgement removed.');
+      toast(t('findings.ack.removed'));
       await onDone();
     }),
   );
   return h(
     'p',
     { class: 'ack', 'data-testid': 'ack-info' },
-    h('strong', {}, 'Acknowledged'),
+    h('strong', {}, t('findings.ack.label')),
     a.at ? h('span', { title: fmtTime(a.at) }, ` ${fmtAgo(a.at)}`) : '',
     a.reason ? `: ${a.reason}` : '',
-    a.until ? ` · until ${fmtTime(a.until)}` : '',
-    a.source === 'declared' ? h('span', { class: 'muted' }, ' · declared in the desired state') : [' ', remove],
+    a.until ? ` · ${t('findings.ack.until', { time: fmtTime(a.until) })}` : '',
+    a.source === 'declared' ? h('span', { class: 'muted' }, ` · ${t('findings.ack.declared')}`) : [' ', remove],
   );
 }
 
@@ -75,24 +77,24 @@ function findingCard(ix, rec, onDone, fixable = () => false) {
   const resolved = Boolean(rec.resolved_at);
   let ackButton = null;
   if (!resolved && !f.acknowledged && onDone) {
-    ackButton = h('button', { class: 'btn small', type: 'button', 'data-testid': 'acknowledge' }, 'Acknowledge');
+    ackButton = h('button', { class: 'btn small', type: 'button', 'data-testid': 'acknowledge' }, t('findings.ack.submit'));
     ackButton.addEventListener('click', () => acknowledgeDialog(ix, f, onDone));
   }
   return h(
     'article',
     { class: `card finding sev-${f.severity}${resolved ? ' resolved' : ''}${f.incomplete ? ' incomplete' : ''}${f.acknowledged ? ' acknowledged' : ''}`, 'data-testid': 'finding', 'data-rule': f.rule_id, 'data-severity': f.severity },
-    h('div', { class: 'finding-head' }, f.incomplete ? h('span', { class: 'badge sev-unknown' }, 'Not checked') : severityBadge(f.severity), h('h3', { 'data-testid': 'finding-title' }, f.title), resolved ? h('span', { class: 'badge status-ok', 'data-testid': 'resolved' }, 'Resolved') : null),
-    h('p', { 'data-testid': 'finding-message' }, f.message),
-    f.objects.length ? h('p', { class: 'objects' }, h('span', { class: 'muted' }, 'Affects: '), f.objects.map((id, i) => [i ? ', ' : '', objectRef(ix, id)])) : null,
-    f.fix ? h('p', { class: 'fix', 'data-testid': 'finding-fix' }, h('strong', {}, 'How to fix: '), f.fix) : null,
-    !resolved && fixable(f) ? h('p', {}, h('a', { class: 'btn small', href: `#/device/${encodeURIComponent(f.objects[0])}`, 'data-testid': 'finding-fix-it' }, 'Fix it on the device page')) : null,
+    h('div', { class: 'finding-head' }, f.incomplete ? h('span', { class: 'badge sev-unknown' }, t('findings.notChecked')) : severityBadge(f.severity), h('h3', { 'data-testid': 'finding-title' }, findingTitle(f)), resolved ? h('span', { class: 'badge status-ok', 'data-testid': 'resolved' }, t('findings.resolved')) : null),
+    h('p', { 'data-testid': 'finding-message' }, findingMessage(f)),
+    f.objects.length ? h('p', { class: 'objects' }, h('span', { class: 'muted' }, t('findings.affects')), f.objects.map((id, i) => [i ? ', ' : '', objectRef(ix, id)])) : null,
+    f.fix ? h('p', { class: 'fix', 'data-testid': 'finding-fix' }, h('strong', {}, t('findings.howToFix')), findingFix(f)) : null,
+    !resolved && fixable(f) ? h('p', {}, h('a', { class: 'btn small', href: `#/device/${encodeURIComponent(f.objects[0])}`, 'data-testid': 'finding-fix-it' }, t('findings.fixIt'))) : null,
     f.acknowledged ? ackLine(f, onDone) : null,
     h(
       'p',
       { class: 'muted small' },
-      h('span', { title: fmtTime(rec.first_seen), 'data-testid': 'finding-since' }, `Since ${fmtAgo(rec.first_seen)}`),
-      resolved ? ` · resolved ${fmtAgo(rec.resolved_at)}` : '',
-      ` · rule ${f.rule_id}`,
+      h('span', { title: fmtTime(rec.first_seen), 'data-testid': 'finding-since' }, t('findings.since', { ago: fmtAgo(rec.first_seen) })),
+      resolved ? ` · ${t('findings.resolvedAgo', { ago: fmtAgo(rec.resolved_at) })}` : '',
+      ` · ${t('findings.rule', { id: f.rule_id })}`,
       ackButton ? [' ', ackButton] : null,
     ),
   );
@@ -124,9 +126,9 @@ export async function renderFindings(main, ctx) {
       place(list, 
         empty(
           'empty',
-          'No devices yet',
-          h('p', { class: 'muted' }, 'Signalbox reads your router, switches and access points and checks that they agree with each other. Add your first device to start.'),
-          h('p', {}, h('a', { class: 'btn primary', href: '#/devices/new', 'data-testid': 'empty-add-device' }, 'Add a device')),
+          t('findings.noDevices.title'),
+          h('p', { class: 'muted' }, t('findings.noDevices.text')),
+          h('p', {}, h('a', { class: 'btn primary', href: '#/devices/new', 'data-testid': 'empty-add-device' }, t('findings.noDevices.add'))),
         ),
       );
       return;
@@ -141,8 +143,8 @@ export async function renderFindings(main, ctx) {
         h(
           'div',
           { class: 'card empty', 'data-testid': 'not-read' },
-          h('h2', {}, 'Not checked yet'),
-          h('p', { class: 'muted' }, 'Your devices have not been read yet. Signalbox reads them regularly; use “Read all devices now” to start at once.'),
+          h('h2', {}, t('findings.notRead.title')),
+          h('p', { class: 'muted' }, t('findings.notRead.text')),
         ),
       );
     } else if (!problems.some((r) => !r.resolved_at)) {
@@ -150,23 +152,23 @@ export async function renderFindings(main, ctx) {
         h(
           'div',
           { class: 'card empty good', 'data-testid': 'no-problems' },
-          h('h2', {}, 'No problems found'),
-          h('p', { class: 'muted' }, records.length && shown.length !== records.length ? 'Nothing matches the filter.' : 'Your devices agree with each other on everything Signalbox checks.'),
+          h('h2', {}, t('findings.noProblems.title')),
+          h('p', { class: 'muted' }, records.length && shown.length !== records.length ? t('findings.noProblems.filtered') : t('findings.noProblems.text')),
         ),
       );
     }
     for (const sev of ['error', 'warning', 'info']) {
       const group = problems.filter((r) => r.finding.severity === sev);
       if (!group.length) continue;
-      place(list, h('section', { class: 'group', 'data-testid': `group-${sev}` }, h('h2', {}, `${GROUP_TITLE[sev]} (${group.length})`), group.map(card)));
+      place(list, h('section', { class: 'group', 'data-testid': `group-${sev}` }, h('h2', {}, t('findings.groupHeading', { title: t(GROUP_TITLE[sev]), count: fmtNumber(group.length) })), group.map(card)));
     }
     if (unchecked.length) {
       place(list, 
         h(
           'section',
           { class: 'group unchecked', 'data-testid': 'group-incomplete' },
-          h('h2', {}, `Could not check (${unchecked.length})`),
-          h('p', { class: 'muted' }, 'These checks are missing data, for example because a device does not report it or could not be read. They are not confirmed problems.'),
+          h('h2', {}, t('findings.incomplete.heading', { count: fmtNumber(unchecked.length) })),
+          h('p', { class: 'muted' }, t('findings.incomplete.text')),
           unchecked.map(card),
         ),
       );
@@ -176,8 +178,8 @@ export async function renderFindings(main, ctx) {
         h(
           'details',
           { class: 'group acknowledged', 'data-testid': 'group-acknowledged' },
-          h('summary', {}, h('h2', {}, `Acknowledged (${acknowledged.length})`)),
-          h('p', { class: 'muted' }, 'Findings you have accepted. They are not counted as problems; remove an acknowledgement to count it again.'),
+          h('summary', {}, h('h2', {}, t('findings.acknowledged.heading', { count: fmtNumber(acknowledged.length) }))),
+          h('p', { class: 'muted' }, t('findings.acknowledged.text')),
           acknowledged.map(card),
         ),
       );
@@ -187,17 +189,17 @@ export async function renderFindings(main, ctx) {
   const reload = async () => {
     ix = await loadNetwork();
     records = await get(`/findings${filters.resolved ? '?resolved=true' : ''}`);
-    records.sort((a, b) => ORDER[a.finding.severity] - ORDER[b.finding.severity] || a.finding.title.localeCompare(b.finding.title));
+    records.sort((a, b) => ORDER[a.finding.severity] - ORDER[b.finding.severity] || compare(findingTitle(a.finding), findingTitle(b.finding)));
     if (ctx.alive(id)) draw();
   };
-  records.sort((a, b) => ORDER[a.finding.severity] - ORDER[b.finding.severity] || a.finding.title.localeCompare(b.finding.title));
+  records.sort((a, b) => ORDER[a.finding.severity] - ORDER[b.finding.severity] || compare(findingTitle(a.finding), findingTitle(b.finding)));
 
-  const observe = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'observe' }, 'Read all devices now');
+  const observe = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'observe' }, t('findings.observe'));
   observe.addEventListener('click', () =>
     run(observe, async () => {
       const before = (await get('/health')).last_run;
       await post('/observe');
-      toast('Reading all devices…');
+      toast(t('findings.observing'));
       for (let i = 0; i < 10 && ctx.alive(id); i += 1) {
         await sleep(i < 3 ? 700 : 1500);
         const health = await get('/health');
@@ -206,7 +208,7 @@ export async function renderFindings(main, ctx) {
       await reload();
     }),
   );
-  const sev = select([['', 'All severities'], ['error', 'Errors'], ['warning', 'Warnings'], ['info', 'Information']], filters.severity, { 'aria-label': 'Severity', 'data-testid': 'filter-severity' });
+  const sev = select([['', t('findings.filter.all')], ['error', t(GROUP_TITLE.error)], ['warning', t(GROUP_TITLE.warning)], ['info', t(GROUP_TITLE.info)]], filters.severity, { 'aria-label': t('findings.filter.severity'), 'data-testid': 'filter-severity' });
   sev.addEventListener('change', () => {
     filters.severity = sev.value;
     draw();
@@ -222,8 +224,8 @@ export async function renderFindings(main, ctx) {
   });
 
   place(main, 
-    pageHead('Findings', observe),
-    ix.deviceList.length ? h('div', { class: 'filters' }, site, sev, h('label', { class: 'check' }, resolved, ' Show resolved')) : null,
+    pageHead(t('findings.title'), observe),
+    ix.deviceList.length ? h('div', { class: 'filters' }, site, sev, h('label', { class: 'check' }, resolved, t('findings.showResolved'))) : null,
     list,
   );
   draw();

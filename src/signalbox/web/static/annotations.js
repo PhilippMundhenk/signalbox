@@ -1,9 +1,12 @@
 // The user's own notes on objects (#186): label, owner, purpose, notes, expectations.
+import { t } from './i18n.js';
 import { del, enc, put } from './api.js';
 import { h } from './util.js';
 import { checkField, confirmDialog, field, kv, modal, run, select, toast } from './ui.js';
 
-export const CATEGORIES = [['', 'Not said'], ['computer', 'Computer'], ['phone', 'Phone'], ['tablet', 'Tablet'], ['iot', 'Smart home (IoT)'], ['camera', 'Camera'], ['printer', 'Printer'], ['media', 'TV / media'], ['server', 'Server / NAS'], ['network', 'Network device'], ['other', 'Other']];
+// Category labels are looked up at render time.
+const CATEGORY_KEYS = { '': 'ack.category.none', computer: 'ack.category.computer', phone: 'ack.category.phone', tablet: 'ack.category.tablet', iot: 'ack.category.iot', camera: 'ack.category.camera', printer: 'ack.category.printer', media: 'ack.category.media', server: 'ack.category.server', network: 'ack.category.network', other: 'ack.category.other' };
+export const categories = () => Object.entries(CATEGORY_KEYS).map(([id, key]) => [id, t(key)]);
 
 export function noteOf(ix, target) {
   return (ix.net.annotations || []).find((a) => a.target === target) || null;
@@ -11,13 +14,13 @@ export function noteOf(ix, target) {
 
 // Expectations offered per kind of object (the server refuses the others).
 const EXPECT = {
-  device: [['may_be_unreachable', 'May be off or unreachable for long (a laptop, a seasonal device)']],
+  device: [['may_be_unreachable', 'ack.expect.deviceUnreachable']],
   client: [
-    ['static_address', 'Uses a fixed address on purpose'],
-    ['may_be_unreachable', 'May be away for long'],
-    ['known_neighbour', 'A known foreign device (not ours, not a problem)'],
+    ['static_address', 'ack.expect.clientStatic'],
+    ['may_be_unreachable', 'ack.expect.clientAway'],
+    ['known_neighbour', 'ack.expect.clientNeighbour'],
   ],
-  port: [['uplink', 'Uplink towards the router']],
+  port: [['uplink', 'ack.expect.portUplink']],
 };
 
 // Opens the editor; resolves to true when something was saved or removed.
@@ -32,19 +35,19 @@ export function editNote(target, kind, note, title) {
     const tags = input('tags', (n.tags || []).join(', '));
     const notes = h('textarea', { rows: 4, maxlength: 2000, 'data-testid': 'note-notes' });
     notes.value = n.notes || '';
-    const checks = (EXPECT[kind] || []).map(([key, text]) => [key, h('input', { type: 'checkbox', checked: n.expected[key] === true, 'data-testid': `note-${key}` }), text]);
-    const category = kind === 'client' ? select(CATEGORIES, n.expected.category || '', { 'data-testid': 'note-category' }) : null;
+    const checks = (EXPECT[kind] || []).map(([key, text]) => [key, h('input', { type: 'checkbox', checked: n.expected[key] === true, 'data-testid': `note-${key}` }), t(text)]);
+    const category = kind === 'client' ? select(categories(), n.expected.category || '', { 'data-testid': 'note-category' }) : null;
     const body = h(
       'div',
       {},
-      field('Name', label, 'A friendly name, shown next to the one the device reports.'),
-      field('Owner', owner),
-      field('Purpose', purpose),
-      category ? field('What it is', category) : null,
-      field('Notes', notes),
-      field('Tags', tags, 'Separated by commas.'),
+      field(t('ack.field.name'), label, t('ack.field.nameHint')),
+      field(t('ack.field.owner'), owner),
+      field(t('ack.field.purpose'), purpose),
+      category ? field(t('ack.field.kind'), category) : null,
+      field(t('ack.field.notes'), notes),
+      field(t('ack.field.tags'), tags, t('ack.field.tagsHint')),
       checks.map(([, box, text]) => checkField(text, box)),
-      h('p', { class: 'muted small' }, 'Kept in Signalbox only: never written to the device and never sent to MQTT.'),
+      h('p', { class: 'muted small' }, t('ack.localOnly')),
     );
     modal({
       title,
@@ -54,10 +57,10 @@ export function editNote(target, kind, note, title) {
         note ? h('button', { class: 'btn danger', type: 'button', 'data-testid': 'note-remove', onclick: (e) => run(e.target, async () => {
           await del(`/annotations/${enc(target)}`);
           changed = true;
-          toast('Notes removed.');
+          toast(t('ack.removed'));
           close();
-        }) }, 'Remove') : null,
-        h('button', { class: 'btn', type: 'button', 'data-testid': 'note-cancel', onclick: () => close() }, 'Cancel'),
+        }) }, t('common.remove')) : null,
+        h('button', { class: 'btn', type: 'button', 'data-testid': 'note-cancel', onclick: () => close() }, t('common.cancel')),
         h('button', { class: 'btn primary', type: 'button', 'data-testid': 'note-save', onclick: (e) => run(e.target, async () => {
           const expected = {};
           for (const [key, box] of checks) if (box.checked) expected[key] = true;
@@ -67,13 +70,13 @@ export function editNote(target, kind, note, title) {
             owner: owner.value || null,
             purpose: purpose.value || null,
             notes: notes.value || null,
-            tags: tags.value.split(',').map((t) => t.trim()).filter(Boolean),
+            tags: tags.value.split(',').map((tag) => tag.trim()).filter(Boolean),
             expected,
           });
           changed = true;
-          toast('Notes saved.');
+          toast(t('ack.saved'));
           close();
-        }) }, 'Save'),
+        }) }, t('common.save')),
       ],
     });
   });
@@ -83,30 +86,30 @@ export function editNote(target, kind, note, title) {
 export function notesCard(ix, target, kind, title, onChange) {
   const note = noteOf(ix, target);
   const declared = note && note.source === 'declared';
-  const edit = h('button', { class: 'btn', type: 'button', 'data-testid': 'edit-notes' }, note ? 'Edit notes' : 'Add notes');
+  const edit = h('button', { class: 'btn', type: 'button', 'data-testid': 'edit-notes' }, note ? t('ack.edit') : t('ack.add'));
   edit.addEventListener('click', async () => {
     if (await editNote(target, kind, note, title)) onChange();
   });
   const rows = note
     ? [
-        ['Name', note.label || undefined],
-        ['Owner', note.owner || undefined],
-        ['Purpose', note.purpose || undefined],
-        ['Notes', note.notes || undefined],
-        ['Tags', note.tags.length ? note.tags.join(', ') : undefined],
-        ['May be unreachable', note.expected.may_be_unreachable ? 'yes' : undefined],
+        [t('ack.field.name'), note.label || undefined],
+        [t('ack.field.owner'), note.owner || undefined],
+        [t('ack.field.purpose'), note.purpose || undefined],
+        [t('ack.field.notes'), note.notes || undefined],
+        [t('ack.field.tags'), note.tags.length ? note.tags.join(', ') : undefined],
+        [t('ack.field.mayBeUnreachable'), note.expected.may_be_unreachable ? t('ack.yes') : undefined],
       ]
     : [];
   return h(
     'section',
     { class: 'card', 'data-testid': 'notes' },
-    h('h2', {}, 'Notes'),
-    note ? kv(rows) : h('p', { class: 'muted' }, 'Your own notes: a name, who looks after it, what it is for.'),
-    declared ? h('p', { class: 'muted small', 'data-testid': 'notes-declared' }, 'Declared in the desired state; change them there.') : h('div', { class: 'row' }, edit),
+    h('h2', {}, t('ack.card.title')),
+    note ? kv(rows) : h('p', { class: 'muted' }, t('ack.card.empty')),
+    declared ? h('p', { class: 'muted small', 'data-testid': 'notes-declared' }, t('ack.card.declared')) : h('div', { class: 'row' }, edit),
   );
 }
 
 export function confirmRemoveAck() {
-  return confirmDialog({ title: 'Remove the acknowledgement?', message: 'The finding counts as a problem again.', confirmLabel: 'Remove' });
+  return confirmDialog({ title: t('ack.confirmRemove.title'), message: t('ack.confirmRemove.message'), confirmLabel: t('common.remove') });
 }
 

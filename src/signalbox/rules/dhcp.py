@@ -70,6 +70,9 @@ def one_server(net: Network) -> Iterator[Result]:
                 f"{len(found_here)} DHCP servers on {label}: {names}",
                 [seg_id, *sorted(s.id for s in found_here)],
                 fix="Keep the DHCP server on the router of this network and disable the others.",
+                mid="dhcp.multiple",
+                fix_id="dhcp.multiple.fix",
+                params={"count": len(found_here), "segment": label, "names": names},
             )
         elif not found_here:
             if net.dhcp_relays_on(seg_id):
@@ -86,12 +89,18 @@ def one_server(net: Network) -> Iterator[Result]:
                 fix="Enable a DHCP server for this network on its router, or give every device "
                 "on it a fixed address if that is intended.",
                 severity=Severity.WARNING,
+                mid="dhcp.none",
+                fix_id="dhcp.none.fix",
+                params={"segment": label},
             )
     for site, seg_ids in sorted(missing.items()):
+        segments = ", ".join(segment_name(net, s) for s in seg_ids)
         yield incomplete(
             f"No device at site {site} reported its DHCP servers, so it is not known whether "
-            f"{', '.join(segment_name(net, s) for s in seg_ids)} have one",
+            f"{segments} have one",
             seg_ids,
+            mid="dhcp.unknown",
+            params={"site": site, "segments": segments},
         )
 
 
@@ -116,6 +125,14 @@ def pools_overlap(net: Network) -> Iterator[Result]:
                     [srv.id],
                     fix="Shrink or merge the pools so that every address is in at most one.",
                     key=f"{_pool_text(a)} {_pool_text(b)}",
+                    mid="dhcp.poolsOverlap",
+                    fix_id="dhcp.poolsOverlap.fix",
+                    params={
+                        "device": device_name(net, srv.device_id),
+                        "segment": segment_name(net, srv.segment_id),
+                        "a": _pool_text(a),
+                        "b": _pool_text(b),
+                    },
                 )
 
 
@@ -141,6 +158,14 @@ def pool_fixed_address(net: Network) -> Iterator[Result]:
                         [srv.id, sub.id],
                         fix="Move the pool so that it starts above the fixed addresses, or give "
                         "the device an address outside the pool.",
+                        mid="dhcp.fixedInPool",
+                        fix_id="dhcp.fixedInPool.fix",
+                        params={
+                            "address": str(address),
+                            "device": device_name(net, sub.device_id),
+                            "pool": _pool_text(pool),
+                            "segment": segment_name(net, srv.segment_id),
+                        },
                     )
 
 
@@ -165,6 +190,14 @@ def reservation_in_pool(net: Network) -> Iterator[Result]:
                         [srv.id],
                         fix="Pick a reserved address outside the pool, or shrink the pool.",
                         key=f"{res.mac} {res.address}",
+                        mid="dhcp.reservationInPool",
+                        fix_id="dhcp.reservationInPool.fix",
+                        params={
+                            "address": str(res.address),
+                            "who": who,
+                            "segment": segment_name(net, srv.segment_id),
+                            "pool": _pool_text(pool),
+                        },
                     )
 
 
@@ -190,6 +223,12 @@ def router_option(net: Network) -> Iterator[Result]:
                 f"No router address is known for {label}, so the router option {srv.router} of "
                 f"the DHCP server on {device_name(net, srv.device_id)} cannot be checked",
                 [srv.id],
+                mid="dhcp.routerUnknown",
+                params={
+                    "segment": label,
+                    "router": str(srv.router),
+                    "device": device_name(net, srv.device_id),
+                },
             )
             continue
         expected = sorted({str(g.interface.ip) for g in gateways})
@@ -199,6 +238,15 @@ def router_option(net: Network) -> Iterator[Result]:
                 f"router {srv.router}, but the router of this network is {', '.join(expected)}",
                 [srv.id, *sorted(g.id for g in gateways)],
                 fix=f"Set the router (gateway) option of this DHCP server to {expected[0]}.",
+                mid="dhcp.wrongRouter",
+                fix_id="dhcp.wrongRouter.fix",
+                params={
+                    "device": device_name(net, srv.device_id),
+                    "segment": label,
+                    "router": str(srv.router),
+                    "expected": ", ".join(expected),
+                    "first": expected[0],
+                },
             )
 
 
@@ -236,6 +284,13 @@ def dns_option(net: Network) -> Iterator[Result]:
                 [srv.id],
                 fix="Set the DNS option to the address of your router or local DNS resolver, or "
                 "turn this rule off if an outside resolver is intended.",
+                mid="dhcp.unknownDns",
+                fix_id="dhcp.unknownDns.fix",
+                params={
+                    "device": device_name(net, srv.device_id),
+                    "segment": segment_name(net, srv.segment_id),
+                    "servers": ", ".join(unknown),
+                },
             )
 
 
@@ -266,6 +321,14 @@ def subnet_overlap(net: Network) -> Iterator[Result]:
             [segs[0][0], segs[1][0]],
             fix="Give each network its own, non-overlapping address range.",
             key=f"{segs[0][1]} {segs[1][1]}",
+            mid="addr.overlap",
+            fix_id="addr.overlap.fix",
+            params={
+                "net_a": segs[0][1],
+                "segment_a": segment_name(net, segs[0][0]),
+                "net_b": segs[1][1],
+                "segment_b": segment_name(net, segs[1][0]),
+            },
         )
 
 
@@ -295,6 +358,9 @@ def duplicate_ip(net: Network) -> Iterator[Result]:
             fix="Give each device its own address: change the reservation or the fixed address "
             "of one of them.",
             key=text,
+            mid="addr.duplicate",
+            fix_id="addr.duplicate.fix",
+            params={"address": text, "count": len(by_mac), "macs": ", ".join(sorted(by_mac))},
         )
 
 

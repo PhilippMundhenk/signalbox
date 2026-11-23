@@ -1,8 +1,9 @@
+import { t } from './i18n.js';
 // Thin fetch wrapper. Errors carry the server's code ({"error": ..., "message": ...}).
 
 export class ApiError extends Error {
   constructor(status, body) {
-    super(body.message || 'Request failed');
+    super(body.message || t('api.requestFailed'));
     this.status = status;
     this.code = body.error || 'error';
     this.body = body;
@@ -37,7 +38,7 @@ export async function api(method, path, body) {
     });
   } catch (err) {
     setReachable(false);
-    throw new ApiError(0, { error: 'network', message: 'Cannot reach the Signalbox server.' });
+    throw new ApiError(0, { error: 'network', message: t('api.unreachable') });
   }
   setReachable(true);
   let data = {};

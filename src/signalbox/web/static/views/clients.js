@@ -1,4 +1,5 @@
 // Clients: every MAC address the devices know, with addresses, name, segment and where it was seen.
+import { fmtNumber, t } from '../i18n.js';
 import { get } from '../api.js';
 import { loadNetwork, noData } from '../net.js';
 import { by, clear, fmtAgo, fmtTime, h, place } from '../util.js';
@@ -8,13 +9,14 @@ import { editNote, noteOf } from '../annotations.js';
 let query = '';
 
 // Where an address came from (#183), as shown after it.
-const SOURCE = { dhcp: 'DHCP', 'dhcp-reserved': 'DHCP reservation', static: 'fixed', slaac: 'SLAAC', 'slaac-privacy': 'SLAAC temporary', dhcpv6: 'DHCPv6', 'link-local': 'link-local' };
+const SOURCE = { dhcp: 'clients.source.dhcp', 'dhcp-reserved': 'clients.source.dhcpReserved', static: 'clients.source.static', slaac: 'clients.source.slaac', 'slaac-privacy': 'clients.source.slaacPrivacy', dhcpv6: 'clients.source.dhcpv6', 'link-local': 'clients.source.linkLocal' };
+const sourceLabel = (src) => (SOURCE[src] ? t(SOURCE[src]) : src);
 
 export async function renderClients(main, ctx) {
   const id = ctx.renderId;
   const [ix, past] = await Promise.all([loadNetwork(), get('/history')]);
   if (!ctx.alive(id)) return;
-  place(main, pageHead('Clients'));
+  place(main, pageHead(t('clients.title')));
   const clients = [...ix.net.clients].sort(by((c) => c.hostname || `~${c.mac}`));
   if (!clients.length) {
     place(main, noData('clients'));
@@ -40,7 +42,7 @@ export async function renderClients(main, ctx) {
     if (seen && (!row.last_seen || seen.last_seen > row.last_seen)) row.last_seen = seen.last_seen;
   }
   const all = [...rows.values()];
-  const search = h('input', { type: 'search', placeholder: 'Filter by name, MAC or address', 'aria-label': 'Filter clients', 'data-testid': 'client-filter', value: query });
+  const search = h('input', { type: 'search', placeholder: t('clients.filter.placeholder'), 'aria-label': t('clients.filter.label'), 'data-testid': 'client-filter', value: query });
   const body = h('div', {});
   const draw = () => {
     const q = query.trim().toLowerCase();
@@ -53,26 +55,26 @@ export async function renderClients(main, ctx) {
     };
     const notesButton = (r) => {
       const n = note(r);
-      if (n && n.source === 'declared') return h('span', { class: 'muted small', title: 'Declared in the desired state' }, n.owner || 'declared');
-      const b = h('button', { class: 'btn small', type: 'button', 'data-testid': 'client-notes' }, n ? n.owner || 'Edit' : 'Add');
+      if (n && n.source === 'declared') return h('span', { class: 'muted small', title: t('clients.declared.title') }, n.owner || t('clients.declared.short'));
+      const b = h('button', { class: 'btn small', type: 'button', 'data-testid': 'client-notes' }, n ? n.owner || t('common.edit') : t('common.add'));
       b.addEventListener('click', async () => {
-        if (await editNote(`client/${r.mac}`, 'client', n, `Notes on ${n && n.label ? n.label : r.hostname || r.mac}`)) ctx.refresh();
+        if (await editNote(`client/${r.mac}`, 'client', n, t('clients.notesOn', { name: n && n.label ? n.label : r.hostname || r.mac }))) ctx.refresh();
       });
       return b;
     };
     place(clear(body), 
-      h('p', { class: 'muted', 'data-testid': 'client-count' }, `${shown.length} of ${all.length} clients`),
+      h('p', { class: 'muted', 'data-testid': 'client-count' }, t('clients.count', { shown: fmtNumber(shown.length), total: fmtNumber(all.length) })),
       table(
         [
-          ['Name', name],
-          ['MAC', (r) => h('span', { class: 'mono' }, r.mac)],
-          ['Addresses', (r) => [...r.addresses].map((a) => (r.sources[a] && r.sources[a] !== 'unknown' ? `${a} (${SOURCE[r.sources[a]] || r.sources[a]})` : a)).join(', ')],
-          ['Lease until', (r) => (r.lease_expires ? h('span', { title: fmtTime(r.lease_expires), 'data-testid': 'client-lease' }, fmtTime(r.lease_expires)) : null)],
-          ['Segment', (r) => (r.segment_id ? ix.segmentName(r.segment_id) : null)],
-          ['Seen on', (r) => r.seen.map((x) => ix.label(x)).join(', ')],
-          ['First seen', (r) => (r.first_seen ? h('span', { title: fmtTime(r.first_seen), 'data-testid': 'client-first-seen' }, fmtAgo(r.first_seen)) : null)],
-          ['Last seen', (r) => (r.last_seen ? h('span', { title: fmtTime(r.last_seen) }, fmtAgo(r.last_seen)) : null)],
-          ['Notes', notesButton],
+          [t('clients.col.name'), name],
+          [t('clients.col.mac'), (r) => h('span', { class: 'mono' }, r.mac)],
+          [t('clients.col.addresses'), (r) => [...r.addresses].map((a) => (r.sources[a] && r.sources[a] !== 'unknown' ? `${a} (${sourceLabel(r.sources[a])})` : a)).join(', ')],
+          [t('clients.col.lease'), (r) => (r.lease_expires ? h('span', { title: fmtTime(r.lease_expires), 'data-testid': 'client-lease' }, fmtTime(r.lease_expires)) : null)],
+          [t('clients.col.segment'), (r) => (r.segment_id ? ix.segmentName(r.segment_id) : null)],
+          [t('clients.col.seenOn'), (r) => r.seen.map((x) => ix.label(x)).join(', ')],
+          [t('clients.col.firstSeen'), (r) => (r.first_seen ? h('span', { title: fmtTime(r.first_seen), 'data-testid': 'client-first-seen' }, fmtAgo(r.first_seen)) : null)],
+          [t('clients.col.lastSeen'), (r) => (r.last_seen ? h('span', { title: fmtTime(r.last_seen) }, fmtAgo(r.last_seen)) : null)],
+          [t('clients.col.notes'), notesButton],
         ],
         shown,
         { testid: 'clients', rowTestid: 'client-row' },

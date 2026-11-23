@@ -1,6 +1,7 @@
 // Shared UI pieces: toasts, dialogs, form fields, tables, badges.
 import { ApiError } from './api.js';
 import { clear, h } from './util.js';
+import { has, t } from './i18n.js';
 
 export function toast(message, kind = 'ok') {
   const root = document.getElementById('toasts');
@@ -40,7 +41,7 @@ export function modal({ title, body, actions, onClose }) {
   return close;
 }
 
-export function confirmDialog({ title, message, confirmLabel = 'Confirm', danger = false }) {
+export function confirmDialog({ title, message, confirmLabel = t('common.confirm'), danger = false }) {
   return new Promise((resolve) => {
     let answered = false;
     const done = (value, close) => {
@@ -55,7 +56,7 @@ export function confirmDialog({ title, message, confirmLabel = 'Confirm', danger
         if (!answered) resolve(false);
       },
       actions: (close) => [
-        h('button', { class: 'btn', 'data-testid': 'confirm-cancel', onclick: () => done(false, close) }, 'Cancel'),
+        h('button', { class: 'btn', 'data-testid': 'confirm-cancel', onclick: () => done(false, close) }, t('common.cancel')),
         h('button', { class: danger ? 'btn danger' : 'btn primary', 'data-testid': 'confirm-ok', onclick: () => done(true, close) }, confirmLabel),
       ],
     });
@@ -103,7 +104,7 @@ export function pageHead(title, ...actions) {
 // backend (scheme, host and port only) and is set as an attribute, never as HTML.
 export function manageLink(device, label, testid, cls) {
   if (!/^https?:\/\//.test(device.manage_url || '')) return null;
-  return h('a', { class: cls || null, href: device.manage_url, target: '_blank', rel: 'noopener noreferrer', title: `Open the web interface of ${device.name}`, 'aria-label': `Open web interface of ${device.name}`, 'data-testid': testid }, label);
+  return h('a', { class: cls || null, href: device.manage_url, target: '_blank', rel: 'noopener noreferrer', title: t('ui.openWeb', { name: device.name }), 'aria-label': t('ui.openWebAria', { name: device.name }), 'data-testid': testid }, label);
 }
 
 export function card(title, ...children) {
@@ -135,27 +136,29 @@ export function table(columns, rows, { testid, rowTestid, rowAttrs, compact } = 
 }
 
 const STATUS_TEXT = {
-  ok: 'OK',
-  partial: 'Partly read',
-  unreachable: 'Unreachable',
-  'auth-failed': 'Login failed',
-  'untrusted-certificate': 'Untrusted certificate',
+  ok: 'ui.status.ok',
+  partial: 'ui.status.partial',
+  unreachable: 'ui.status.unreachable',
+  'auth-failed': 'ui.status.authFailed',
+  'untrusted-certificate': 'ui.status.untrusted',
 };
 
 export function statusBadge(status) {
   const key = status || 'unknown';
-  return h('span', { class: `badge status-${key}`, 'data-testid': 'status', 'data-status': key }, STATUS_TEXT[key] || 'Not read yet');
+  return h('span', { class: `badge status-${key}`, 'data-testid': 'status', 'data-status': key }, t(STATUS_TEXT[key] || 'ui.status.unknown'));
 }
 
 export function severityBadge(severity) {
-  return h('span', { class: `badge sev-${severity}`, 'data-testid': 'severity' }, { error: 'Error', warning: 'Warning', info: 'Info' }[severity] || severity);
+  return h('span', { class: `badge sev-${severity}`, 'data-testid': 'severity' }, t({ error: 'ui.severity.error', warning: 'ui.severity.warning', info: 'ui.severity.info' }[severity] || 'ui.severity.info'));
 }
 
 export function tag(text, cls = '') {
   return h('span', { class: `tag ${cls}`.trim() }, text);
 }
 
-const SOURCE = { reported: 'reported by the device', declared: 'declared in the desired state', heuristic: 'guessed from the name' };
+const SOURCE = { reported: 'ui.source.reported', declared: 'ui.source.declared', heuristic: 'ui.source.heuristic' };
+const PURPOSE = { main: 'ui.purpose.main', guest: 'ui.purpose.guest', iot: 'ui.purpose.iot', management: 'ui.purpose.management', servers: 'ui.purpose.servers', lab: 'ui.purpose.lab', voice: 'ui.purpose.voice', cameras: 'ui.purpose.cameras', transit: 'ui.purpose.transit', other: 'ui.purpose.other' };
+const purposeName = (p) => (PURPOSE[p] && has(PURPOSE[p]) ? t(PURPOSE[p]) : p);
 const UNTRUSTED = new Set(['guest', 'iot', 'cameras']);
 
 // Purpose of a segment or SSID ("guest", "iot", ...) with where it comes from; a guess gets a "?".
@@ -163,8 +166,8 @@ export function purposeTag(obj) {
   if (!obj || !obj.purpose) return null;
   const guessed = obj.purpose_source === 'heuristic';
   const cls = ['purpose', UNTRUSTED.has(obj.purpose) ? 'untrusted' : '', guessed ? 'guess' : ''].join(' ');
-  const el = h('span', { class: `tag ${cls}`.trim(), 'data-testid': 'purpose', 'data-source': obj.purpose_source || '', title: SOURCE[obj.purpose_source] || '' }, guessed ? `${obj.purpose}?` : obj.purpose);
-  if (obj.reported_purpose) el.title += ` (device reports ${obj.reported_purpose})`;
+  const el = h('span', { class: `tag ${cls}`.trim(), 'data-testid': 'purpose', 'data-source': obj.purpose_source || '', title: SOURCE[obj.purpose_source] ? t(SOURCE[obj.purpose_source]) : '' }, guessed ? `${purposeName(obj.purpose)}?` : purposeName(obj.purpose));
+  if (obj.reported_purpose) el.title += ` (${t('ui.deviceReports', { purpose: obj.reported_purpose })})`;
   return el;
 }
 
@@ -180,7 +183,7 @@ export function kv(pairs) {
 export function tabs(items, current, testPrefix = 'tab') {
   return h(
     'nav',
-    { class: 'tabs', 'aria-label': 'Sections' },
+    { class: 'tabs', 'aria-label': t('ui.sections') },
     items.map(([key, text, href]) => h('a', { href, 'aria-current': key === current ? 'page' : null, 'data-testid': `${testPrefix}-${key}` }, text)),
   );
 }

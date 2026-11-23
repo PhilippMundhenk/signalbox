@@ -42,6 +42,7 @@ from signalbox.model import (
     Firewall,
     Firmware,
     ManagementService,
+    MessageParams,
     Neighbour,
     Observed,
     Port,
@@ -92,10 +93,18 @@ class AdapterError(Exception):
     ``remedy``: the id of a :class:`Remedy` of the integration that repairs it (#215), if any.
     """
 
-    def __init__(self, *args: object, fix: str | None = None, remedy: str | None = None) -> None:
+    def __init__(
+        self,
+        *args: object,
+        fix: str | None = None,
+        remedy: str | None = None,
+        fix_id: str | None = None,
+    ) -> None:
         super().__init__(*args)
         self.fix = fix
         self.remedy = remedy
+        #: Translation id of ``fix`` (#204), catalogue ``msg.<id>``; no values.
+        self.fix_id = fix_id
 
 
 class Unreachable(AdapterError):
@@ -190,6 +199,9 @@ class PreviewStep(BaseModel):
     #: The id of the :class:`SetupStep` it stands for.
     id: str
     title: str
+    #: Translation (#204): catalogue id of ``title`` (``msg.<id>``) and its values.
+    title_id: str | None = None
+    params: MessageParams = Field(default_factory=dict)
     #: Only when removing what the setup created.
     remove: bool = False
     #: Only with this :class:`SetupExtra` ticked.
@@ -275,6 +287,9 @@ class SetupStep(BaseModel):
     detail: str = ""
     state: StepState = StepState.TODO
     message: str = ""
+    #: Translation (#204): catalogue id of ``title`` (``msg.<id>``) and its values.
+    title_id: str | None = None
+    params: MessageParams = Field(default_factory=dict)
 
 
 class SetupRequest(BaseModel):
@@ -505,6 +520,10 @@ class Gap(BaseModel):
 
     message: str
     fix: str | None = None
+    #: Translation ids and values of ``message`` / ``fix`` (#204), see ``ReadError``.
+    message_id: str | None = None
+    fix_id: str | None = None
+    params: MessageParams = Field(default_factory=dict)
     #: Id of a :class:`Remedy` of the integration that repairs this (#215).
     remedy: str | None = None
     #: An optional feature is missing (LLDP, #278): shown with its fix, but the device stays
@@ -812,6 +831,9 @@ class Adapter(ABC):
                         capability=cap.value,
                         message=gap.message,
                         fix=gap.fix,
+                        message_id=gap.message_id,
+                        fix_id=gap.fix_id,
+                        params=gap.params,
                         remedy=gap.remedy,
                         optional=gap.optional,
                     )
@@ -874,13 +896,20 @@ class Adapter(ABC):
 
     def _error(self, capability: str, exc: BaseException) -> ReadError:
         message = str(exc) or type(exc).__name__
+        message_id = None
+        params: MessageParams = {}
         if isinstance(exc, TimeoutError):
             message = f"no answer within {self.context.timeout:g} s"
+            message_id = "read.timeout"
+            params = {"seconds": f"{self.context.timeout:g}"}
         return ReadError(
             device_id=self.context.device_id,
             capability=capability,
             message=message,
+            message_id=message_id,
+            params=params,
             fix=getattr(exc, "fix", None),
+            fix_id=getattr(exc, "fix_id", None),
             remedy=getattr(exc, "remedy", None),
         )
 
