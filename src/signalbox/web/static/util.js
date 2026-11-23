@@ -97,6 +97,19 @@ export function portDetails(p) {
   ].filter(Boolean);
 }
 
+// Where a port sits in its device (#252, Port.role).
+export const PORT_ROLE = {
+  jack: 'jack',
+  cpu: 'CPU port (internal)',
+  'switch-port': 'switch port',
+  bridge: 'bridge',
+  vlan: 'VLAN interface',
+  wireless: 'Wi-Fi interface',
+  lag: 'link aggregation',
+  tunnel: 'tunnel',
+  virtual: 'virtual interface',
+};
+
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

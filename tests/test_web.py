@@ -335,6 +335,16 @@ def test_topology_endpoint(logged_in: TestClient) -> None:
     topo = logged_in.get("/api/topology").json()
     assert [n["id"] for n in topo["nodes"]] == ["main-gateway"]
     assert topo["edges"] == []
+    [lan] = topo["nodes"][0]["ports"]
+    assert (lan["role"], lan["external"], lan["lower"]) == (None, None, [])
+    # the port structure (#252): one port without a role is a root of its own
+    tree = logged_in.get("/api/devices/main-gateway/port-tree").json()
+    assert tree == [
+        {"id": "main-gateway/port/lan", "node": "port", "children": [], "members": [], "wlans": []}
+    ]
+    assert logged_in.get("/api/devices/nope/port-tree").json() == []
+    [raw] = logged_in.get("/api/network").json()["ports"]
+    assert raw["external"] is None
 
 
 def test_mqtt_bridge_wired_into_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -109,10 +109,12 @@ def public_network(net: Network) -> dict[str, Any]:
     #148), management services the segments that can reach them (``reach_segments``) and
     whether the internet can (``internet``, ``null``: the firewall decides, #173), clients the
     source of each address (``sources``, from leases where the client does not say) and the
-    end of their active leases (``lease_expires``, #183), so that the UI does not repeat the
-    derivation.
+    end of their active leases (``lease_expires``, #183), ports whether a cable can end there
+    (``external``, #252), so that the UI does not repeat the derivation.
     """
     data = net.model_dump(mode="json")
+    for port, raw in zip(net.ports, data["ports"], strict=True):
+        raw["external"] = port.external
     for wlan in data["wlans"]:
         wlan.pop("passphrase_fingerprint", None)
         wlan.pop("passphrase_digest", None)
@@ -518,6 +520,13 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
         store.trust_fingerprint(device_id, body.fingerprint)
         runner.trigger()
         return {"trusted": True}
+
+    @api.get("/devices/{device_id}/port-tree")
+    def port_tree(device_id: str) -> list[dict[str, Any]]:
+        """The internal structure of a device's ports (#252): CPU port with its switch ports,
+        bridges with their members, VLAN interfaces, radios with Wi-Fi interfaces and SSIDs.
+        Empty for a device that is not known or not read yet."""
+        return [n.model_dump(mode="json") for n in runner.network().port_tree(device_id)]
 
     # network, findings, links -----------------------------------------------------------
 

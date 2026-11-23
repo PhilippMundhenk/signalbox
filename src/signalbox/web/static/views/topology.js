@@ -1,6 +1,6 @@
 // Topology: devices with their ports, links between ports, VLAN overlay, entered cables.
 import { del, enc, get, post } from '../api.js';
-import { by, clear, h, place, portDetails, portSpeed, s } from '../util.js';
+import { PORT_ROLE, by, clear, h, place, portDetails, portSpeed, s } from '../util.js';
 import { card, confirmDialog, field, pageHead, run, select, statusBadge, table, tag, toast } from '../ui.js';
 
 const LAYER = { gateway: 0, switch: 1, ap: 2, other: 3 };
@@ -11,11 +11,18 @@ const MAX_PORTS = 24;
 const ROW = 150;
 const BOX_H = 74;
 const GAP = 36;
-const state = { segment: '', site: '' };
+const state = { segment: '', site: '', internal: false };
+
+// Jacks and ports of unknown role; internal ports (CPU port, bridges, VLAN and Wi-Fi interfaces,
+// #252) only on request. A link to a hidden port ends at the device box.
+function shownPorts(node) {
+  return state.internal ? node.ports : node.ports.filter((p) => p.external !== false);
+}
 
 function visiblePorts(node, linked) {
-  if (node.ports.length <= MAX_PORTS) return node.ports;
-  return node.ports.filter((p) => linked.has(p.id)).slice(0, MAX_PORTS);
+  const ports = shownPorts(node);
+  if (ports.length <= MAX_PORTS) return ports;
+  return ports.filter((p) => linked.has(p.id)).slice(0, MAX_PORTS);
 }
 
 function layout(nodes, linked) {
@@ -105,15 +112,15 @@ function drawGraph(data, nodes, onPort) {
     const g = s('g', { class: `node role-${node.role} status-${node.status}`, 'data-testid': 'topo-node', 'data-id': node.id });
     place(g, s('rect', { x: String(x), y: String(y), width: String(w), height: String(BOX_H), rx: '10', class: 'box' }));
     place(g, s('text', { x: String(x + 10), y: String(y + 20), class: 'name' }, node.name));
-    place(g, s('text', { x: String(x + 10), y: String(y + 36), class: 'role' }, `${node.role}${node.ports.length > ports.length ? ` · ${node.ports.length - ports.length} more ports` : ''}`));
+    place(g, s('text', { x: String(x + 10), y: String(y + 36), class: 'role' }, `${node.role}${shownPorts(node).length > ports.length ? ` · ${shownPorts(node).length - ports.length} more ports` : ''}`));
     ports.forEach((p, i) => {
       const px = x + 10 + i * (PORT + PORT_GAP);
       const py = y + BOX_H - 14 - PORT;
       const member = state.segment && (p.untagged.includes(state.segment) ? 'untagged' : p.tagged.includes(state.segment) ? 'tagged' : null);
       const clients = (data.clients[p.id] || []).length;
-      const cls = ['port', p.up === false ? 'down' : 'up', linked.has(p.id) ? 'linked' : '', member ? `m-${member}` : '', clients ? 'has-clients' : ''];
+      const cls = ['port', p.up === false ? 'down' : 'up', linked.has(p.id) ? 'linked' : '', member ? `m-${member}` : '', clients ? 'has-clients' : '', p.external === false ? 'internal' : ''];
       const rect = s('rect', { x: String(px), y: String(py), width: String(PORT), height: String(PORT), rx: '3', class: cls.join(' ').trim(), tabindex: '0', role: 'button', 'aria-label': `${node.name} port ${p.name}${p.description ? ` (${p.description})` : ''}${clients ? `, ${clients} clients` : ''}`, 'data-testid': 'topo-port', 'data-id': p.id });
-      place(rect, s('title', {}, `${p.name}${p.description ? ` (${p.description})` : ''}${member ? ` (${member})` : ''}${clients ? ` – ${clients} clients` : ''}`));
+      place(rect, s('title', {}, `${p.name}${p.description ? ` (${p.description})` : ''}${p.role && p.role !== 'jack' ? `, ${PORT_ROLE[p.role] || p.role}` : ''}${member ? ` (${member})` : ''}${clients ? ` – ${clients} clients` : ''}`));
       rect.addEventListener('click', () => onPort(node, p));
       rect.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' || ev.key === ' ') {
@@ -146,6 +153,7 @@ function portPanel(data, segments, node, port) {
     { class: 'card port-panel', 'data-testid': 'port-panel' },
     h('h3', {}, `${node.name} · port ${port.name}`),
     port.description ? h('p', { 'data-testid': 'port-description' }, port.description) : null,
+    port.role ? h('p', { class: 'muted', 'data-testid': 'port-role' }, PORT_ROLE[port.role] || port.role) : null,
     h('p', { class: 'muted' }, [port.untagged.length ? `untagged: ${port.untagged.map((x) => segments[x] || x).join(', ')}` : null, port.tagged.length ? `tagged: ${port.tagged.map((x) => segments[x] || x).join(', ')}` : null].filter(Boolean).join(' · ') || 'No VLAN membership reported.'),
     portFacts(port, segments),
     clients.length
@@ -288,9 +296,16 @@ export async function renderTopology(main, ctx) {
       draw();
     });
   }
+  const internalBox = h('input', { type: 'checkbox', 'data-testid': 'topo-internal' });
+  internalBox.checked = state.internal;
+  internalBox.addEventListener('change', () => {
+    state.internal = internalBox.checked;
+    draw();
+  });
+  const hasInternal = data.nodes.some((n) => n.ports.some((p) => p.external === false));
   const problems = data.nodes.filter((n) => n.status !== 'ok');
   place(main, 
-    h('div', { class: 'filters' }, siteSelect, segSelect),
+    h('div', { class: 'filters' }, siteSelect, segSelect, hasInternal ? h('label', { class: 'check', title: 'CPU ports, bridges, VLAN and Wi-Fi interfaces' }, internalBox, ' Show internal ports') : null),
     problems.length ? h('p', { class: 'notice small' }, 'Not read completely: ', problems.map((n, i) => [i ? ', ' : '', n.name, ' ', statusBadge(n.status)])) : null,
     h('div', { class: 'card topo-card' }, legend, graphBox, h('p', { class: 'phone-only muted small' }, 'The drawing needs a wider screen; the links are listed below.')),
     panel,
