@@ -107,6 +107,7 @@ ALL_PORTS = (
     "mikrotik.http",
     "omada.https",
     "omada.hardware",
+    "linux.ssh",
 )
 
 
@@ -438,7 +439,7 @@ def test_hooks_are_optional_and_detected() -> None:
     adapters = load_adapters()
     hosts = sorted(k for k, cls in adapters.items() if probes_hosts(cls))
     casts = sorted(k for k, cls in adapters.items() if probes_broadcast(cls))
-    assert hosts == ["fritzbox", "mikrotik", "omada", "openwrt", "opnsense"]
+    assert hosts == ["fritzbox", "linux", "mikrotik", "omada", "openwrt", "opnsense"]
     assert casts == ["easysmart", "prosafe"]
     assert not probes_hosts(Adapter) and not probes_broadcast(Adapter)
 

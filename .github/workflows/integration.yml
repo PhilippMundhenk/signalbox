@@ -30,6 +30,7 @@ jobs:
       openwrt: ${{ steps.sel.outputs.openwrt }}
       mikrotik: ${{ steps.sel.outputs.mikrotik }}
       omada: ${{ steps.sel.outputs.omada }}
+      linux: ${{ steps.sel.outputs.linux }}
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
@@ -434,10 +435,57 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  linux:
+    needs: changes
+    if: needs.changes.outputs.linux == 'true'
+    name: Linux gateway (Debian 12 container with sshd, dnsmasq, chrony, WireGuard)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      REQUIRE_INTEGRATION: "1"
+      TARGET_DIR: ${{ github.workspace }}/.target/linux
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -e ".[dev,switches]"
+      - name: Start the container, create the read user as documented
+        run: python3 tools/integration/linux/target.py start "$TARGET_DIR"
+      - name: Integration tests
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_linux_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$TARGET_DIR/pytest.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$TARGET_DIR/pytest.log" | cut -c1-600 | tail -n 60)
+              body=$(printf '%s\n--- last lines ---\n%s' "$summary" "$(tail -n 40 "$TARGET_DIR/pytest.log")")
+              body=${body//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=Linux integration tests failed::$body"
+              exit $code
+            }
+      - name: Container log on failure
+        if: failure()
+        run: |
+          body=$(docker logs signalbox-linux 2>&1 | tail -n 40)
+          body=${body//'%'/'%25'}
+          body=${body//$'\n'/'%0A'}
+          echo "::error title=Linux container log::$body"
+      - name: Stop
+        if: always()
+        run: python3 tools/integration/linux/target.py stop "$TARGET_DIR" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-logs
+          path: .target/linux/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   integration-ok:
     name: Integration (all needed targets passed)
     if: always()
-    needs: [changes, opnsense, openwrt, mikrotik, omada]
+    needs: [changes, opnsense, openwrt, mikrotik, omada, linux]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

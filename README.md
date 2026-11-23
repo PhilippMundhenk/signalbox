@@ -43,6 +43,7 @@ Signalbox is made of separate parts with narrow jobs (details in [docs/DESIGN.md
 | AVM Fritz!Box | TR-064 (SOAP over HTTPS) with a dedicated user ([docs](docs/adapters/fritzbox.md)); read, simulator-tested | LAN, subnet, the internet connection (PPPoE/IP, line rate), DHCP, Wi-Fi radios, SSIDs and guest network, connected hosts; writes: DHCP on/off and pool, existing SSIDs (name, security, passphrase, hidden, on/off) (simulator-tested) |
 | MikroTik (RouterOS 7) | REST API over HTTPS with a read-only user group, a group with `write` to deploy ([docs](docs/adapters/mikrotik.md)); read and write, simulator-tested | ports, bridge VLAN filtering, subnets, WAN uplinks (DHCP, PPPoE), DHCP, DNS, Wi-Fi (wifi and wireless packages), clients, LLDP/MNDP neighbours; writes: router interfaces (VLANs, addresses), DHCP, static leases, bridge port VLANs, Wi-Fi SSIDs (wifi package) |
 | TP-Link Omada (controller with gateway, switches, EAPs) | Open API with a viewer-role client (administrator role for changes), one site per device ([docs](docs/adapters/omada.md)); read, simulator-tested | LAN networks, subnets, the gateway's WAN ports, DHCP, switch ports and VLANs, radios and SSIDs, clients; writes: LAN networks (router), DHCP, switch ports and SSIDs through the controller, simulator-tested |
+| Linux gateway (Raspberry Pi OS, Debian, Ubuntu) | SSH with a user of its own (key or password, pinned host key), no root; WireGuard through a sudoers rule for `wg show` only ([docs](docs/adapters/linux.md)); read only | ports (bridges, VLANs, WireGuard), subnets, the uplink (default route), SSH service, DHCP (dnsmasq, Kea, ISC, systemd-networkd) with leases, DNS (dnsmasq; AdGuard Home, Pi-hole recognised), health, time (chrony, timesyncd) |
 | TP-Link Easy Smart switches | Easy Smart protocol (UDP) through [Switchyard](https://github.com/PhilippMundhenk/switchyard) ([docs](docs/adapters/plusswitch.md)); read, simulator-tested | model, firmware, ports with link and speed, 802.1Q VLANs (tagged/untagged, PVIDs), port-based VLAN groups, link aggregation; writes: ports (802.1Q membership, PVIDs), simulator-tested |
 
 Adapters are plugins: other devices can be added as separate packages, see
@@ -77,12 +78,14 @@ Adapters are plugins: other devices can be added as separate packages, see
    ([docs/adapters/opnsense.md](docs/adapters/opnsense.md)), an rpcd login for OpenWrt
    ([docs/adapters/openwrt.md](docs/adapters/openwrt.md)), a dedicated user for a Fritz!Box
    ([docs/adapters/fritzbox.md](docs/adapters/fritzbox.md)), a read-only user group for MikroTik
-   ([docs/adapters/mikrotik.md](docs/adapters/mikrotik.md)). NETGEAR ProSAFE Plus and TP-Link
+   ([docs/adapters/mikrotik.md](docs/adapters/mikrotik.md)), a user `signalbox` with a key for a Linux
+   gateway ([docs/adapters/linux.md](docs/adapters/linux.md)). NETGEAR ProSAFE Plus and TP-Link
    Easy Smart switches use their management password; their protocols are not encrypted, and
    Easy Smart switches need host networking
    ([docs/adapters/plusswitch.md](docs/adapters/plusswitch.md)).
    Or let Signalbox do it: *Set up automatically* in the device form takes the admin login once
-   (OpenWrt root over SSH, an API key of OPNsense's root, MikroTik admin), shows what it will
+   (OpenWrt root over SSH, an API key of OPNsense's root, MikroTik admin, root or a sudo user
+   of a Linux gateway), shows what it will
    create, creates exactly that least-privilege login and saves the device with it. The admin
    login is not stored ([docs/adr/0009](docs/adr/0009-automatic-setup-with-an-admin-login.md)).
 4. Add the devices under *Devices*, by hand or with *Find devices*: Signalbox looks for the

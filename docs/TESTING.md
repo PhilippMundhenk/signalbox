@@ -178,3 +178,9 @@ What the real OpenWrt showed that the simulator had wrong is listed in
 
 `tools/integration/opnsense/`, job `Integration / OPNsense`; see
 [adapters/opnsense.md](adapters/opnsense.md#integration-tests).
+
+### Linux gateway (Debian 12 in Docker)
+
+`tools/integration/linux/` (`target.py start` builds the container, creates the read user with
+the commands of the setup guide and exports the `IT_LINUX_*` variables), job
+`Integration / Linux gateway`; see [adapters/linux.md](adapters/linux.md#integration-tests).
