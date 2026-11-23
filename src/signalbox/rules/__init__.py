@@ -53,6 +53,9 @@ class Finding(BaseModel):
     message: str
     objects: list[str] = Field(default_factory=list)
     fix: str | None = None
+    #: Id of a remedy of the device's integration that repairs this with *Fix it* (#215);
+    #: set on read findings, the device is ``objects[0]``.
+    remedy: str | None = None
     #: True when the rule could not check something (missing data), not a confirmed problem.
     incomplete: bool = False
     #: The user's acknowledgement that covers this finding (#186): it is shown apart and not
@@ -246,7 +249,8 @@ def _read_findings(net: Network, severity: Severity) -> list[Finding]:
             fix = None
         fix = err.fix or fix
         res = Result(message, (err.device_id,), fix, None, False, err.capability)
-        out.append(_finding(READ_ERRORS, res, severity))
+        finding = _finding(READ_ERRORS, res, severity)
+        out.append(finding.model_copy(update={"remedy": err.remedy}) if err.remedy else finding)
     return out
 
 

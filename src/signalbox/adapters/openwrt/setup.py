@@ -61,6 +61,8 @@ WRITE_ACL: dict[str, Any] = {
 }
 
 PACKAGES = "uhttpd uhttpd-mod-ubus rpcd rpcd-mod-file rpcd-mod-luci"
+#: Optional: LLDP neighbours (ubus object ``luci.lldpd``), installed by *Fix it* (#215).
+LLDP_PACKAGES = "lldpd luci-app-lldpd"
 
 
 def commands() -> str:

@@ -7,7 +7,7 @@ import { checkField, confirmDialog, field, run, toast } from '../ui.js';
 
 const STATE_TEXT = { todo: 'will be done', unchanged: 'already as needed', done: 'done', failed: 'failed', skipped: 'not run' };
 
-function stepList(steps, testid) {
+export function stepList(steps, testid) {
   return h(
     'ol',
     { class: 'setup-steps', 'data-testid': testid },
@@ -25,7 +25,7 @@ function stepList(steps, testid) {
   );
 }
 
-function fingerprintText(plan) {
+export function fingerprintText(plan) {
   return plan.fingerprint_kind === 'certificate' ? groupHex(plan.fingerprint) : plan.fingerprint;
 }
 

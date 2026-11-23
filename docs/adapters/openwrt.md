@@ -415,6 +415,31 @@ removal keeps the ACL file the image's other logins use. *Not verified*: install
 (the CI router has no internet access, the simulator covers it) and dropbear builds without
 password authentication.
 
+### Fix it
+
+Some read problems name a remedy (#215, [ADR 0012](../adr/0012-fix-it-for-read-problems.md)):
+on a device with *Allow changes* the device page shows *Fix it* next to the error, below its
+"What to do", which stays the manual way. *Fix it* asks for root's password (and the SSH port),
+shows the host key to trust, then the exact steps; *Fix it on the device* asks once more and
+runs them, then reads the router again. It is optional like the setup: never in the background,
+off with `setup.fixes: false` or `setup.enabled: false`. It changes only Signalbox's own
+packages and permissions, never network settings.
+
+- **Repair Signalbox's access** (`access`; an "access denied" for a call, the port structure
+  gap, wireless on 25.12 without rpcd-mod-luci): installs the missing packages of the setup,
+  writes `/usr/share/rpcd/acl.d/signalbox.json` as above (with the write part, since changes are
+  allowed), adds `list read 'signalbox'` / `list write 'signalbox'` to the stored login's
+  section if missing (its password is not touched; root needs nothing) and restarts rpcd.
+- **Install LLDP** (`lldp`; "LLDP is not installed", "lldpd is installed but not running"):
+  `apk add lldpd luci-app-lldpd` (24.10: `opkg install`) if missing, `/etc/init.d/lldpd enable`
+  and `start`, then the permission steps and an rpcd restart. lldpd then sends and receives
+  LLDP on the router's ports.
+
+Verified in CI on 24.10 and 25.12: an ACL file without `luci-rpc getNetworkDevices` gives the
+port structure gap with `access`, the fix rewrites the file and the next read is complete; a
+stopped lldpd is found with its packages installed and started. Installing from the feeds is
+offline in CI: simulator only (#21).
+
 ## Read-only user on the device
 
 The device form shows these steps as commands to paste on the router (`ssh root@<router>`):

@@ -177,6 +177,20 @@ the default sshd settings of OPNsense 26.7, and the layout of `<dhcpd>` of every
 The integration test image has no `os-isc-dhcp`, so CI covers the script, the adapter and the
 setup against the simulator only (`signalbox.sim.opnsense_ssh`: an SSH server that runs the
 installed script against a `config.xml` with planted secrets).
+### Fix it
+
+A read refused with HTTP 403 names the remedy *Add the missing privileges* (#215,
+[ADR 0012](../adr/0012-fix-it-for-read-problems.md)): on a device with *Allow changes* the
+device page offers *Fix it* next to the error ("What to do" stays the manual way). With an API
+key of root, after the certificate is trusted and the plan confirmed, Signalbox finds the user
+the stored API key belongs to (`POST /api/auth/user/search_api_key`) and adds the privileges of
+this guide it lacks (`POST /api/auth/user/set/<uuid>` with its current privileges plus the
+missing ones, with those of the write user since changes are allowed). Its other privileges,
+groups, password and keys stay; root and system users are refused. Then the firewall is read
+again. Off with `setup.fixes: false` or `setup.enabled: false`.
+
+Verified in CI on 26.7: the user `signalbox` without `page-status-ntp` gives a 403 with the
+remedy, the fix adds exactly that privilege and the same key reads the firewall completely.
 
 ## A least-privilege API user
 

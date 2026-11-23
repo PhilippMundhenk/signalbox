@@ -114,6 +114,13 @@ class SetupConfig(Section):
         "you start it and confirm the plan; docs/adr/0009). false: the API refuses it and the "
         "form does not show it; the manual setup guides always work.",
     )
+    fixes: bool = Field(
+        True,
+        description="Offer 'Fix it' next to a read problem Signalbox's own setup can repair "
+        "(a missing package or permission it reads through), on devices with 'Allow changes': "
+        "with the admin login, only when you start it and confirm the plan (docs/adr/0012). "
+        "Never changes network settings. Off when this or setup.enabled is false.",
+    )
 
 
 class PluginsConfig(Section):
@@ -217,6 +224,10 @@ setup:
   # Never in the background; the admin login is not stored. false turns it off completely
   # (the manual setup guides always work). Details: docs/adr/0009.
   enabled: true
+  # "Fix it" next to a read problem the setup can repair (a missing package or permission
+  # Signalbox reads through), on devices with "Allow changes", with the admin login and only
+  # after you confirmed the plan. Never changes network settings. Details: docs/adr/0012.
+  fixes: true
 
 plugins:
   # Adapters that run as separate programs, each with only the settings of its device:

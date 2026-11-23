@@ -24,6 +24,7 @@ from pydantic import SecretStr
 from signalbox.adapters import (
     AdapterContext,
     AuthFailed,
+    RemedyRequest,
     SetupRequest,
     SetupResult,
     StepState,
@@ -170,3 +171,86 @@ async def test_setup_read_write_remove(ow: Target, host_key: str, restored: None
     assert acl.state is StepState.UNCHANGED and "signalbox-write" in acl.message
     assert (await read_with(ow, down)).status is DeviceStatus.AUTH_FAILED
     assert LOGIN not in await shell(ow, host_key, "uci -q -X show rpcd\n")
+
+
+# --- Fix it (#215) --------------------------------------------------------------------------------
+
+
+def remedy(t: Target, trust: str, name: str) -> RemedyRequest:
+    """*Fix it* for the image's login with write access, as the API builds it."""
+    return RemedyRequest(
+        remedy=name,
+        config={"url": t.url, "username": t.write_username or "signalbox-write"},
+        secrets={"password": SecretStr(t.write_password or "")},
+        admin_user="root",
+        admin_secret=SecretStr(t.extra["ROOT_PASSWORD"]),
+        port=int(t.extra["SSH_PORT"]),
+        allow_writes=True,
+        trust=trust,
+        timeout=60,
+    )
+
+
+async def read_write_login(t: Target) -> Any:
+    a = OpenWrtAdapter(
+        AdapterContext(
+            site_id="lab",
+            device_id="openwrt",
+            device_name="OpenWrt (QEMU)",
+            role=DeviceRole.GATEWAY,
+            config=OpenWrtConfig(
+                url=t.url,
+                username=t.write_username or "signalbox-write",
+                password=SecretStr(t.write_password or ""),
+            ),
+            pinned_fingerprint=t.fingerprint(),
+            timeout=30,
+        )
+    )
+    try:
+        return await a.observe()
+    finally:
+        await a.close()
+
+
+async def test_fix_an_outdated_permission_file(ow: Target, host_key: str, restored: None) -> None:
+    old = json.loads(json.dumps(WRITE_ACL))
+    old["signalbox"]["read"]["ubus"]["luci-rpc"].remove("getNetworkDevices")
+    await shell(
+        ow, host_key, f"cat > {ACL_PATH} <<'END'\n{json.dumps(old, indent=2)}\nEND\n{RESTART}"
+    )
+    before = await read_write_login(ow)
+    gaps = [e for e in before.errors if e.remedy == "access"]
+    assert gaps and "getNetworkDevices" in gaps[0].message, before.errors
+
+    plan = await OpenWrtAdapter.plan_remedy(remedy(ow, host_key, "access"))
+    states = {s.id: s.state for s in plan.steps}
+    assert states == {
+        "packages": StepState.UNCHANGED,
+        "acl": StepState.TODO,
+        "login": StepState.UNCHANGED,
+        "restart": StepState.TODO,
+    }, plan.steps
+    result = await OpenWrtAdapter.apply_remedy(remedy(ow, host_key, "access"))
+    check(result)
+    assert json.loads(await shell(ow, host_key, f"cat {ACL_PATH}\n")) == WRITE_ACL
+    after = await read_write_login(ow)
+    assert not [e for e in after.errors if e.remedy == "access"], after.errors
+    assert after.status is DeviceStatus.OK, after.errors
+
+
+async def test_fix_starts_a_stopped_lldpd(ow: Target, host_key: str) -> None:
+    """The image has lldpd: the packages are found installed (apk or opkg), the stopped daemon
+    is started. Installing from the feeds is offline in CI: simulator only (#21)."""
+    await shell(ow, host_key, "/etc/init.d/lldpd stop\nsleep 1\n")
+    plan = await OpenWrtAdapter.plan_remedy(remedy(ow, host_key, "lldp"))
+    states = {s.id: s.state for s in plan.steps}
+    assert states["lldp-packages"] is StepState.UNCHANGED, plan.steps
+    assert states["lldpd"] is StepState.TODO
+    try:
+        check(await OpenWrtAdapter.apply_remedy(remedy(ow, host_key, "lldp")))
+        assert (await shell(ow, host_key, "pidof lldpd >/dev/null && echo up\n")).strip() == "up"
+        again = await OpenWrtAdapter.plan_remedy(remedy(ow, host_key, "lldp"))
+        assert {s.id: s.state for s in again.steps}["lldpd"] is StepState.UNCHANGED
+    finally:
+        await shell(ow, host_key, "/etc/init.d/lldpd start\n")

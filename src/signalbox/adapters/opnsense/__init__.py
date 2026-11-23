@@ -46,6 +46,7 @@ from signalbox.adapters import (
     Capability,
     Manifest,
     Observation,
+    RemedyRequest,
     SetupPlan,
     SetupRequest,
     SetupResult,
@@ -748,6 +749,7 @@ class OpnsenseAdapter(_Adapter):
                 "root login). Off unless you tick it; Remove deletes both.",
             ),
         ),
+        remedies=provision.REMEDIES,
     )
 
     @classmethod
@@ -765,6 +767,15 @@ class OpnsenseAdapter(_Adapter):
     async def apply_setup(cls, request: SetupRequest) -> SetupResult:
         return await provision.OpnsenseSetup(request).apply()
 
+    @classmethod
+    async def plan_remedy(cls, request: RemedyRequest) -> SetupPlan:
+        """*Fix it* (#215): add the documented privileges the stored key's user lacks."""
+        return await provision.OpnsenseFix(request).plan()
+
+    @classmethod
+    async def apply_remedy(cls, request: RemedyRequest) -> SetupResult:
+        return await provision.OpnsenseFix(request).apply()
+
     def __init__(self, context: AdapterContext) -> None:
         super().__init__(context)
         cfg = context.config
@@ -776,6 +787,7 @@ class OpnsenseAdapter(_Adapter):
             timeout=context.timeout,
             auth=(cfg.api_key.get_secret_value(), cfg.api_secret.get_secret_value()),
             allow_insecure_http=cfg.allow_insecure_http,
+            denied_remedy="privileges",
         )
         self._cache: dict[str, Any] = {}
         self._layout_cache: _Layout | None = None

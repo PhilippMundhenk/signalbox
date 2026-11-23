@@ -64,3 +64,5 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | POST | `/api/discovery/ignore` | Hide a found device from the list (or show it again with `ignored: false`). |
 | POST | `/api/devices/setup` | What the automatic setup would do with this admin login; nothing is changed. |
 | POST | `/api/devices/setup/apply` | Run the automatic setup (or its removal) and save the device with the new login. |
+| POST | `/api/devices/{device_id}/fix` | What *Fix it* would do on this device with the admin login; nothing is changed. |
+| POST | `/api/devices/{device_id}/fix/apply` | Run the remedy, then read the device again (`reading`, as Test connection answers). |

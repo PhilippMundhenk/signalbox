@@ -32,6 +32,7 @@ from signalbox.adapters import (
     Gap,
     Manifest,
     Observation,
+    RemedyRequest,
     SetupPlan,
     SetupRequest,
     SetupResult,
@@ -687,6 +688,7 @@ class OpenWrtAdapter(Adapter):
             note="The router's SSH server (dropbear) must allow a password login for root, as "
             "OpenWrt does by default. The router needs internet access if packages are missing.",
         ),
+        remedies=provision.REMEDIES,
     )
 
     @classmethod
@@ -702,6 +704,15 @@ class OpenWrtAdapter(Adapter):
     @classmethod
     async def apply_setup(cls, request: SetupRequest) -> SetupResult:
         return await provision.OpenWrtSetup(request).apply()
+
+    @classmethod
+    async def plan_remedy(cls, request: RemedyRequest) -> SetupPlan:
+        """*Fix it* (#215): packages and permissions over SSH as root (docs: Fix it)."""
+        return await provision.OpenWrtFix(request).plan()
+
+    @classmethod
+    async def apply_remedy(cls, request: RemedyRequest) -> SetupResult:
+        return await provision.OpenWrtFix(request).apply()
 
     _ubus: Ubus | None = None
     #: ``uci apply`` with rollback was called and not yet confirmed or rolled back
@@ -861,7 +872,7 @@ class OpenWrtAdapter(Adapter):
             services = await self._services(view, ports, {s.id for s in segments})
         except AccessDenied as exc:  # set up with an older ACL: the rest is read
             services = []
-            gaps.append(Gap(message=f"management services: {exc}", fix=exc.fix))
+            gaps.append(Gap(message=f"management services: {exc}", fix=exc.fix, remedy=exc.remedy))
         return Observation(
             ports=list(ports.values()),
             segments=segments,
@@ -884,6 +895,7 @@ class OpenWrtAdapter(Adapter):
                 "is not allowed",
                 fix="Update Signalbox's permission file on the router (see the device form): "
                 "it now allows luci-rpc getNetworkDevices. Then run service rpcd restart.",
+                remedy="access",
             )
         return (data if isinstance(data, dict) else None), None
 
@@ -1040,6 +1052,7 @@ class OpenWrtAdapter(Adapter):
                     fix="Install the package rpcd-mod-luci on the router (LuCI: System, "
                     "Software) and use Signalbox's permission file, which allows luci-rpc "
                     "getWirelessDevices; then run service rpcd restart and test again.",
+                    remedy="access",
                 ) from None
         return {k: v for k, v in status.items() if isinstance(v, dict)}
 
@@ -1567,6 +1580,7 @@ class OpenWrtAdapter(Adapter):
                 f"{exc} (uci.apply is also refused while another change waits for its "
                 "confirmation)",
                 fix=exc.fix,
+                remedy=exc.remedy,
             ) from None
 
     async def apply(
@@ -1655,6 +1669,7 @@ class OpenWrtAdapter(Adapter):
                 fix="Optional: without LLDP Signalbox cannot see which device is plugged into "
                 "which port; everything else works. To add it, install the packages lldpd and "
                 "luci-app-lldpd (LuCI: System, Software), run service rpcd restart and test again.",
+                remedy="lldp",
             ) from None
         data = status.get("neighbors")
         if not isinstance(data, dict):
@@ -1662,6 +1677,7 @@ class OpenWrtAdapter(Adapter):
                 "lldpd is installed but not running (luci.lldpd getStatus has no neighbours)",
                 fix="Start it on the router with service lldpd enable && service lldpd start "
                 "(LuCI: System, Startup), then test again.",
+                remedy="lldp",
             )
         neighbours: list[Neighbour] = []
         for lldp in data.get("lldp") or []:
