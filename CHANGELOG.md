@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Internal port structure of a device: `Port.role` (jack, CPU port, bridge, VLAN and Wi-Fi interfaces, ...) and `Port.lower`, a port tree on the device page, internal ports hidden in the topology, no link or VLAN findings on CPU ports; OpenWrt reads it (DSA via `luci-rpc getNetworkDevices`, new in the read ACL; swconfig CPU port) (#252)
 - DHCP leases in the integrations: OPNsense (Kea and ISC leases, Kea options and HA peer, dhcrelay; new read privilege Services: DHCRelay), OpenWrt (luci-rpc or lease file, options, authoritative, relay sections), MikroTik (leases, options, relays), Fritz!Box (leases from the host list, relay flag); simulators serve leases (#183)
 - Wi-Fi security details in the OpenWrt, MikroTik, Fritz!Box and Omada integrations: modes incl. WEP, WPA1 and mixed, ciphers, SAE settings, WPS, group rekey, supported modes and the passphrase digest, where the device reports them; simulators serve them (#167)
 - OPNsense: Kea is read first, ISC DHCP only for interfaces no enabled Kea server serves; documents that the ISC plugin API offers no ranges or options (#242)
