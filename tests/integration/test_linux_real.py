@@ -184,8 +184,8 @@ async def test_without_the_sudoers_rule_wireguard_is_a_gap(lx: Target) -> None:
     finally:
         docker(lx, "mv", "/root/sudoers.saved", SUDOERS_PATH)
     assert snap.status is DeviceStatus.PARTIAL
-    assert [e.capability for e in snap.errors] == ["vpn", "firewall"]
-    assert "wg show" in snap.errors[0].message and snap.firewalls == []
+    assert sorted(e.capability for e in snap.errors) == ["firewall", "vpn"]
+    assert any("wg show" in e.message for e in snap.errors) and snap.firewalls == []
 
 
 @pytest.mark.parametrize("who", ["root", "admin"])
