@@ -8,7 +8,7 @@ HTTPS port `49443`. It can also change the DHCP server and the existing Wi-Fi ne
 | --- | --- |
 | Adapter id | `fritzbox` |
 | Roles | `gateway`, `ap` |
-| Capabilities | interfaces, DHCP, wireless, clients |
+| Capabilities | interfaces, DHCP, wireless, clients, firewall (fixed policies and port sharing) |
 | Writes | `dhcp` (LAN), `wlan` (existing SSIDs only) |
 | Simulator | `signalbox.sim.fritzbox` (`uvicorn --factory signalbox.sim.fritzbox:create_app`), built from AVM's service descriptions |
 
@@ -381,6 +381,8 @@ new passphrase stays (restore the backup to get the old one back).
 - **Neighbours (LLDP)**: FRITZ!OS does not speak LLDP.
 - **DHCP reservations, lease time, VLANs, per-port LAN state**: not in TR-064 (see above).
 - **IPv6 and DS-Lite of the uplink**: only over the IGD services (see the uplink above).
+- **Filter rules, IPv6 port sharing, exposed host (DMZ)**: not in TR-064 *(guess)*, see
+  [Firewall](#firewall-135).
 
 ## Checked against AVM's service descriptions
 
@@ -415,6 +417,40 @@ key arguments. Still open (not in the descriptions): the value `guest` of
 `NewX_AVM-DE_APType`, which fault a box gives for which mistake, and whether empty WEP/PSK
 arguments are accepted by `SetSecurityKeys`.
 
+
+## Firewall (#135)
+
+A Fritz!Box has no readable packet filter, so the `firewall` capability (adapter API 1.4,
+[ADR 0013](../adr/0013-firewall-zones-rules-and-reachability.md)) reports what the box does by
+itself plus its port sharing. Gateways only (an access point or repeater reports none).
+
+- **Zones**: `lan` (the home network, the native segment), `guest` (the guest segment, only
+  where a guest Wi-Fi exists) and `wan` (the uplink of the internet connection, masquerading;
+  none while neither WAN connection is enabled).
+- **Policies** (fixed behaviour of FRITZ!OS, not read): `lan` to the box and to `wan` accept;
+  `guest` to `wan` accept, to `lan` and to the box drop, `lan` to `guest` drop *(guess)*; `wan`
+  to the box and to `lan` drop (services the box itself says are reachable from the internet
+  keep their `from_wan` flag, see Management services). One rule lets `guest` use the box's DNS
+  and DHCP (UDP 53 and 67) *(guess: nothing else)*.
+- **Port sharing**: `WANPPPConnection:1` or, when that is not the enabled connection,
+  `WANIPConnection:1` `GetGenericPortMappingEntry` with `NewPortMappingIndex` 0, 1, 2, ... until
+  the box answers UPnP fault 713 (714 ends it too) or 512 entries: `NewExternalPort` (0: every
+  port), `NewProtocol` (`TCP`/`UDP`), `NewInternalPort`, `NewInternalClient`, `NewEnabled`,
+  `NewPortMappingDescription` (name only), `NewRemoteHost` (a source address). Each is a
+  `PortForward` on `wan` with `passes_filter=True`; mappings that UPnP clients opened appear in
+  the same list *(guess)*. An entry without a usable internal client is a gap. A fault other
+  than 713 (606 without the *FRITZ!Box settings* right) is a gap and the list read so far is
+  kept.
+- **Not readable**: IPv6 port sharing (pinholes) and the exposed host are not in the TR-064
+  descriptions *(guess)*, so `port_forwards_complete` is always `False`: "no forward to this
+  address" is `unknown`, never `denied`. The host filter (`X_AVM-DE_HostFilter`) only blocks
+  a host's internet access and is not read.
+
+The actions are in the SCPD files that are already in `tests/fixtures/tr064/` (the two WAN
+connection descriptions of FRITZ!OS 8.25, see `SOURCES.md`, MIT and Apache-2.0 licence texts
+next to them), so `tests/test_fritzbox_scpd.py` checks `GetGenericPortMappingEntry` and its
+argument names against them for both versions. The simulator serves four sample mappings
+(documentation addresses) and fault 713 after the last.
 
 ## Management services (#173)
 

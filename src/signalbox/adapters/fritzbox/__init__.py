@@ -22,7 +22,7 @@ import contextlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from ipaddress import IPv4Address, IPv4Interface, ip_address
+from ipaddress import IPv4Address, IPv4Interface, ip_address, ip_network
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -38,6 +38,7 @@ from signalbox.adapters import (
     AuthFailed,
     Backup,
     Capability,
+    Gap,
     Manifest,
     Observation,
     SystemInfo,
@@ -73,14 +74,23 @@ from signalbox.model import (
     DhcpPool,
     DhcpRelay,
     DhcpServer,
+    Firewall,
+    FirewallAction,
+    FirewallChain,
+    FirewallMatch,
+    FirewallProtocol,
+    FirewallRule,
+    FirewallZone,
     Firmware,
     LeaseState,
     ManagementService,
     Membership,
     NtpClient,
     Port,
+    PortForward,
     PortKind,
     PortMembership,
+    PortRange,
     PurposeSource,
     Radio,
     Security,
@@ -93,6 +103,8 @@ from signalbox.model import (
     Wlan,
     Wps,
     WpsMethod,
+    ZonePolicy,
+    firewall_id,
     normalise_mac,
     object_id,
     passphrase_digest,
@@ -110,6 +122,10 @@ RIGHT = "FRITZ!Box settings"
 #: At most this many WLANConfiguration services (2.4 GHz, 5 GHz, 6 GHz or second 5 GHz, guest).
 MAX_WLANS = 4
 GUEST = "guest"
+#: Port mappings read per connection (a box has a few dozen at most; the loop ends at fault 713).
+MAX_PORT_MAPPINGS = 512
+#: ``SpecifiedArrayIndexInvalid`` (713) ends the index loop; 714 is its other spelling in UPnP.
+END_OF_ARRAY = (713, 714)
 
 
 class FritzboxConfig(AdapterConfig):
@@ -361,6 +377,79 @@ def _extra(info: dict[str, str], *keys: str) -> dict[str, JsonValue]:
     return {k.removeprefix("New"): info[k] for k in keys if info.get(k)}
 
 
+def _fixed_policies(guest: bool, wan: bool) -> list[ZonePolicy]:
+    """What a Fritz!Box always does between its networks (the box has no filter to read)."""
+    accept, drop = FirewallAction.ACCEPT, FirewallAction.DROP
+    out = [ZonePolicy(source="lan", destination=None, action=accept)]
+    if wan:
+        out += [
+            ZonePolicy(source="lan", destination="wan", action=accept),
+            ZonePolicy(source="wan", destination=None, action=drop),
+            ZonePolicy(source="wan", destination="lan", action=drop),
+        ]
+    if guest:
+        out += [
+            ZonePolicy(source="guest", destination=None, action=drop),
+            ZonePolicy(source="guest", destination="lan", action=drop),
+            ZonePolicy(source="lan", destination="guest", action=drop),
+        ]
+        if wan:
+            out += [
+                ZonePolicy(source="guest", destination="wan", action=accept),
+                ZonePolicy(source="wan", destination="guest", action=drop),
+            ]
+    return out
+
+
+def _guest_rules(guest: bool) -> list[FirewallRule]:
+    """The guest network may use the box's DNS and DHCP (*guess*: nothing else)."""
+    if not guest:
+        return []
+    return [
+        FirewallRule(
+            name="guest DNS and DHCP",
+            chain=FirewallChain.INPUT,
+            protocols=[FirewallProtocol.UDP],
+            source=FirewallMatch(zones=["guest"]),
+            destination=FirewallMatch(ports=[PortRange(start=53), PortRange(start=67)]),
+            action=FirewallAction.ACCEPT,
+        )
+    ]
+
+
+def port_forward(row: dict[str, str]) -> PortForward | None:
+    """One ``GetGenericPortMappingEntry`` answer; ``None`` without a usable internal client.
+
+    The external port 0 means every port (an exposed host); the description goes to the name
+    only. UPnP-created mappings appear in this list too (*guess*)."""
+    try:
+        target = ip_address(row.get("NewInternalClient", "").strip())
+    except ValueError:
+        return None
+    protocol = {"TCP": FirewallProtocol.TCP, "UDP": FirewallProtocol.UDP}.get(
+        row.get("NewProtocol", "").strip().upper()
+    )
+    external, internal = _int(row.get("NewExternalPort")), _int(row.get("NewInternalPort"))
+    remote = row.get("NewRemoteHost", "").strip()
+    sources = []
+    if remote:
+        try:
+            sources = [ip_network(remote)]
+        except ValueError:
+            return None
+    return PortForward(
+        name=row.get("NewPortMappingDescription", "").strip() or None,
+        enabled=_flag(row.get("NewEnabled")),
+        protocols=[protocol] if protocol else [],
+        zones=["wan"],
+        external_ports=[PortRange(start=external)] if external and 0 < external < 65536 else [],
+        sources=sources,
+        target_address=target,
+        target_port=internal if internal and 0 < internal < 65536 else None,
+        passes_filter=True,
+    )
+
+
 @dataclass
 class WlanService:
     index: int
@@ -401,7 +490,7 @@ class FritzboxAdapter(Adapter):
         id="fritzbox",
         name="AVM Fritz!Box",
         version="0.2.0",
-        api_version="1.2",
+        api_version="1.4",
         vendor="AVM",
         roles=frozenset({DeviceRole.GATEWAY, DeviceRole.AP}),
         capabilities=frozenset(
@@ -412,11 +501,13 @@ class FritzboxAdapter(Adapter):
                 Capability.CLIENTS,
                 Capability.HEALTH,
                 Capability.TIME,
+                Capability.FIREWALL,
             }
         ),
         config=FritzboxConfig,
         description="Reads a Fritz!Box over TR-064 (SOAP over HTTPS) with a dedicated user; "
-        "changes its DHCP server and existing Wi-Fi networks.",
+        "changes its DHCP server and existing Wi-Fi networks. Its fixed firewall behaviour and "
+        "port sharing are read as a firewall.",
         writes=frozenset({ChangeKind.DHCP, ChangeKind.WLAN}),
     )
 
@@ -717,6 +808,80 @@ class FritzboxAdapter(Adapter):
         now = datetime.now(UTC).replace(microsecond=0)
         uplink = wan_uplink(self.context.device_id, ppp, ip, link or {}, now)
         return [uplink] if uplink else []
+
+    # firewall -------------------------------------------------------------------------
+
+    async def read_firewall(self) -> Observation:
+        """The box's fixed behaviour and its port sharing (#135). TR-064 has no filter rules:
+        the policies are what a Fritz!Box always does (guest network and internet kept out of
+        the LAN, the LAN allowed out); port sharing is ``GetGenericPortMappingEntry`` of the
+        active internet connection, read until fault 713. IPv6 port sharing (pinholes) is not
+        in TR-064, so the port forwards are never complete."""
+        if self.context.role is not DeviceRole.GATEWAY:
+            return Observation()  # an access point or repeater: no packet filter to report
+        d = self.context.device_id
+        uplinks = await self._uplinks()
+        guest = False
+        with contextlib.suppress(AdapterError):
+            guest = any(w.guest for w in await self._wlans())
+        zones = [FirewallZone(name="lan", segments=[self._native])]
+        if guest:
+            zones.append(FirewallZone(name="guest", segments=[self._guest]))
+        wan = bool(uplinks)
+        if wan:
+            zones.append(FirewallZone(name="wan", uplinks=[u.id for u in uplinks], masquerade=True))
+        policies = _fixed_policies(guest, wan)
+        forwards: list[PortForward] = []
+        gaps: list[Gap] = []
+        if uplinks:
+            service = str(uplinks[0].vendor_extra.get("service", "")).split(":")[0] + "1"
+            rows, fault = await self._port_mappings(service)
+            if fault is not None:
+                gaps.append(fault)
+            for row in rows:
+                if (found := port_forward(row)) is not None:
+                    forwards.append(found)
+                else:
+                    gaps.append(Gap(message="firewall: a port mapping without a usable target"))
+        return Observation(
+            firewalls=[
+                Firewall(
+                    id=firewall_id(d),
+                    device_id=d,
+                    zones=zones,
+                    policies=policies,
+                    rules=_guest_rules(guest),
+                    nat=[],
+                    port_forwards=forwards,
+                    port_forwards_complete=False,  # IPv6 port sharing is not readable
+                )
+            ],
+            incomplete=gaps,
+        )
+
+    async def _port_mappings(self, service: str) -> tuple[list[dict[str, str]], Gap | None]:
+        """Every ``GetGenericPortMappingEntry`` of *service* until the box answers 713; a gap
+        when it answers otherwise."""
+        rows: list[dict[str, str]] = []
+        for index in range(MAX_PORT_MAPPINGS):
+            try:
+                rows.append(
+                    await self.tr064.call(
+                        service, "GetGenericPortMappingEntry", NewPortMappingIndex=index
+                    )
+                )
+            except SoapFault as exc:
+                if exc.code in END_OF_ARRAY:
+                    return rows, None
+                return rows, Gap(
+                    message=f"firewall: port sharing is not read ({exc})",
+                    fix=f"Give the user the right {RIGHT!r} (see the setup guide)."
+                    if exc.code == 606
+                    else None,
+                )
+            except NotFound:
+                return rows, Gap(message=f"firewall: this FRITZ!OS has no {service} port sharing")
+        return rows, Gap(message=f"firewall: more than {MAX_PORT_MAPPINGS} port mappings")
 
     # dhcp -----------------------------------------------------------------------------
 

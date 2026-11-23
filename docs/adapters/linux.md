@@ -3,14 +3,14 @@
 Reads a Debian-based Linux box that does gateway work (a Raspberry Pi as the router of a second
 site, a mini PC with dnsmasq) over SSH, read-only (#240). Signalbox logs in with a user of its
 own, sends one read script per observation on standard input of `sh -s` and maps the answer to
-the model. Nothing on the device is changed; nothing needs root except the WireGuard status,
-which a sudoers rule allows for exactly the read commands.
+the model. Nothing on the device is changed; nothing needs root except the WireGuard status and the nftables
+ruleset, which a sudoers rule allows for exactly the read commands.
 
 | | |
 | --- | --- |
 | Adapter id | `linux` |
 | Roles | `gateway`, `other` |
-| Capabilities | interfaces (ports, segments, subnets, uplink, SSH service), DHCP, DNS, health, time, vpn (WireGuard) |
+| Capabilities | interfaces (ports, segments, subnets, uplink, SSH service), DHCP, DNS, health, time, vpn (WireGuard), firewall (nftables) |
 | Writes | none |
 | Simulator | `signalbox.sim.linux` (an asyncssh server answering the read and setup scripts) |
 | Automatic setup | yes: root or a sudo user over SSH ([below](#automatic-setup)) |
@@ -29,10 +29,10 @@ sudo install -d -m 700 -o signalbox -g "$(id -gn signalbox)" ~signalbox/.ssh
 echo 'PASTE-THE-LINE-OF-signalbox-key.pub' | sudo tee ~signalbox/.ssh/authorized_keys
 sudo chown signalbox: ~signalbox/.ssh/authorized_keys && sudo chmod 600 ~signalbox/.ssh/authorized_keys
 #    (or instead a password:  sudo passwd signalbox)
-# 3. optional, only with WireGuard: the read-only wg commands without a password
+# 3. optional, only with WireGuard or nftables: the read-only commands without a password
 sudo tee /etc/sudoers.d/signalbox >/dev/null <<'END'
-# Signalbox: read the WireGuard status. These commands print public keys only.
-signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive
+# Signalbox: read the WireGuard status (public keys only) and the nftables ruleset.
+signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive, /usr/sbin/nft -j list ruleset
 END
 sudo chmod 440 /etc/sudoers.d/signalbox && sudo visudo -cf /etc/sudoers.d/signalbox
 ```
@@ -43,13 +43,14 @@ sudo chmod 440 /etc/sudoers.d/signalbox && sudo visudo -cf /etc/sudoers.d/signal
 2. Log in with a key (recommended). Paste the private key into *Private key* in the device form;
    a field without line breaks is fine, Signalbox puts them back. Or give the user a password
    (`sudo passwd signalbox`) and enter that; the SSH server must then allow password logins.
-3. Only with WireGuard: `wg` needs `CAP_NET_ADMIN`. The sudoers rule allows exactly these
-   commands, all of which print public keys only (never `wg show all dump`, `private-key` or
-   `preshared-keys`, which are not allowed and never sent):
+3. Only with WireGuard or nftables: `wg` and `nft` need `CAP_NET_ADMIN`. The sudoers rule
+   allows exactly these commands: the `wg show all <field>` ones print public keys only (never
+   `wg show all dump`, `private-key` or `preshared-keys`, which are not allowed and never
+   sent), and `nft -j list ruleset` only prints the packet filter rules (no secrets):
 
    ```text
-# Signalbox: read the WireGuard status. These commands print public keys only.
-signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive
+# Signalbox: read the WireGuard status (public keys only) and the nftables ruleset.
+signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive, /usr/sbin/nft -j list ruleset
    ```
 
 4. In the device form: the address, user `signalbox` and the key. *Test connection* shows the
@@ -92,9 +93,10 @@ One script (`signalbox.adapters.linux.collect.READ`) per observation, one more f
 | Health | `/proc/uptime`, `/proc/loadavg`, `/proc/meminfo` (total minus available), CPU count, `df -P -T -B1` (`/` system, tmpfs temporary, `/boot*` other, others data), thermal zones |
 | Time | `date +%s.%N`, `timedatectl show` (time zone, NTP, synchronised), chrony (`chronyc -n -c tracking`/`sources`: synchronised, stratum, current server; `server`/`pool` lines; `allow` means it serves time), else systemd-timesyncd (`timedatectl show-timesync`, `timesyncd.conf`) |
 | Tunnels (`vpn`) | every `wireguard` interface of `ip -d link` (port, up, addresses, MTU) with `wg show all public-key`, `listen-port`, `peers`, `endpoints`, `allowed-ips`, `latest-handshakes`, `transfer`, `persistent-keepalive`, run directly (root) or with `sudo -n` (the rule above). No peer names (wg-quick has none outside its configuration file, which holds the private key and is never read) and no `preshared_key` (only `preshared-keys` would tell, which prints the keys). Without the rule: the interfaces without keys and peers, and a gap that says what to add |
+| Firewall (`firewall`, #135) | `nft -j list ruleset`, run directly (root) or with `sudo -n /usr/sbin/nft -j list ruleset` (the rule above). Every interface named by `iifname`/`oifname` (single names, literal sets and named sets, resolved) is a zone of its own named after it, mapped like the networks: a network interface to its segment, the uplink to the uplink, `wireguard` to its tunnel, anything else to its port; `lo` maps to nothing by design, a wildcard (`eth*`) or vanished interface makes the zone `complete=False`. Base chains of type `filter` on the hooks `input` and `forward` give the rules in evaluation order (`ip saddr/daddr`, `ip6`, `tcp/udp sport/dport`, `meta l4proto`, `nfproto`, `ct status dnat` as `forwarded`, verdicts `accept`/`drop`/`reject`) and their `policy` as `input_policy`/`forward_policy` (no base chain: accept, and `enabled=False` when no chain filters). Rules that only match `ct state established,related` or `invalid` are left out. `jump` and `goto` to regular chains are flattened with the jump's conditions merged in. Conditions the model lacks (marks, limits, ICMP types, the `xt` matches iptables-nft uses for modules, a set that is empty or filled at run time) keep the rule with `exact=False`. `nat` chains: `dnat to` in `prerouting` is a port forward (`passes_filter=False`: the filter rules decide), `masquerade`/`snat` in `postrouting` a NAT rule; `redirect`, `dnat` without a plain address and `snat` ranges make the forwards (or rules) incomplete. iptables-nft systems (the Debian default) show up in nft too. Not read: `output` chains, `netdev`, `bridge` and `arp` tables. `rules_complete=False` with a gap: `iptables` runs the legacy backend (its rules are invisible to nft) or there is no `nft` command, several base chains on one hook that cannot be merged (a later chain exists and an earlier one accepts or has a `drop` policy), a verdict map, a jump to an unknown chain, a dropping `prerouting` filter chain. Without the sudoers rule nothing is reported (not read) and a gap says what to add |
 
-Not read: Pi-hole's own DHCP server, dnsmasq IPv6 ranges (`constructor:`), firewall rules
-(nftables/iptables, #135).
+Not read: Pi-hole's own DHCP server, dnsmasq IPv6 ranges (`constructor:`), firewalld and ufw
+as such (only what they put into nftables).
 
 ## Automatic setup
 
@@ -109,7 +111,7 @@ first and sends nothing before. Then, over that pinned connection (a sudo user's
 2. generates an ed25519 key in Signalbox and writes only the public key (comment
    `signalbox-read`) to the user's `authorized_keys`, replacing what was there; the private key
    is stored encrypted in Signalbox;
-3. with `wg` installed, writes the sudoers rule above to `/etc/sudoers.d/<login>` after
+3. with `wg` or `nft` installed, writes the sudoers rule above to `/etc/sudoers.d/<login>` after
    `visudo -c` accepted it;
 4. pins the confirmed host key for reading, so one fingerprint is confirmed, not two.
 
@@ -126,9 +128,9 @@ says so.
 
 ## Integration tests
 
-CI starts a Debian 12 container with OpenSSH, iproute2, dnsmasq, chrony and wireguard-tools
+CI starts a Debian 12 container with OpenSSH, iproute2, dnsmasq, chrony, nftables and wireguard-tools
 (`tools/integration/linux/`): a dummy LAN with a VLAN, a bridge, dnsmasq with a lease, chrony,
-and a WireGuard interface with a peer (the runner's kernel has the module; the container gets
+a WireGuard interface with a peer, and nftables rules with a port forward and masquerade (the runner's kernel has the modules; the container gets
 `NET_ADMIN`). The manual setup above is run as written to create the read user; the tests read
 the container as that user (with and without the sudoers rule) and run the automatic setup as
 root and as a sudo user ([TESTING.md](../TESTING.md)).

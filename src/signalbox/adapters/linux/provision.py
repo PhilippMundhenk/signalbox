@@ -2,11 +2,12 @@
 
 The same result as the commands of the setup guide (:mod:`signalbox.adapters.linux.setup`): a
 system user without password, sudo or groups; an ed25519 key generated here, of which only the
-public half is sent (``authorized_keys``); with WireGuard installed, the sudoers rule for the
-``wg show`` read commands, checked with ``visudo -c`` before it is put in place. A sudo user's
-password goes to ``sudo -S`` on standard input, never on a command line; with ``NOPASSWD`` it is
-not sent at all. The host key confirmed for the admin login is pinned for reading, so the user
-confirms one fingerprint.
+public half is sent (``authorized_keys``); with WireGuard or nftables installed, the sudoers
+rule for the ``wg show`` and ``nft -j list ruleset`` read commands, checked with ``visudo -c``
+before it is put in place. A sudo user's password goes to ``sudo -S`` on standard input,
+never on a command line; with ``NOPASSWD`` it is not sent at all. The host key confirmed for
+the admin login is pinned for reading,
+so the user confirms one fingerprint.
 
 Removal deletes the sudoers rule and the user with its home directory.
 """
@@ -54,6 +55,7 @@ class DeviceState:
     keys: list[str]
     sudoers: str | None
     wg: bool
+    nft: bool = False
 
 
 def parse_sections(text: str) -> dict[str, list[str]]:
@@ -133,6 +135,7 @@ class LinuxSetup:
             '[ -n "$H" ] && cat "$H/.ssh/authorized_keys" 2>/dev/null\n'
             f"echo @@sudoers; cat {sudoers_path(self.login)} 2>/dev/null\n"
             "echo @@wg; command -v wg\n"
+            "echo @@nft; command -v nft\n"
             "echo @@end\n"
         )
         res = await self.run(ssh, script)
@@ -153,6 +156,7 @@ class LinuxSetup:
             keys=[x for x in parts.get("keys", []) if x.strip()],
             sudoers=sudo_text + "\n" if sudo_text else None,
             wg=bool([x for x in parts.get("wg", []) if x.strip()]),
+            nft=bool([x for x in parts.get("nft", []) if x.strip()]),
         )
 
     def _action(self, ssh: PinnedSsh, script: str) -> Callable[[], Awaitable[str | None]]:
@@ -217,11 +221,11 @@ class LinuxSetup:
                 note="the private key is stored encrypted in Signalbox and never shown",
             ),
         ]
-        if state.wg:
+        if state.wg or state.nft:
             steps.append(
                 Step(
                     "sudoers",
-                    f"Allow {self.login} the read-only wg show commands "
+                    f"Allow {self.login} the read-only commands (wg show, nft list ruleset) "
                     f"({sudoers_path(self.login)})",
                     install_rule,
                     needed=state.sudoers != rule,
@@ -233,7 +237,7 @@ class LinuxSetup:
             steps.append(
                 Step(
                     "sudoers",
-                    "No sudoers rule: WireGuard (wg) is not installed",
+                    "No sudoers rule: neither WireGuard (wg) nor nftables (nft) is installed",
                     needed=False,
                     note="not needed",
                 )

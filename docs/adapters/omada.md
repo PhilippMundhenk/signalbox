@@ -10,7 +10,7 @@ their DHCP, switch ports, SSIDs ([Changing the site](#changing-the-site)).
 | --- | --- |
 | Adapter id | `omada` |
 | Roles | `other` (recommended: the controller), `ap`, `switch`, `gateway` |
-| Capabilities | interfaces, DHCP, wireless, clients |
+| Capabilities | interfaces, DHCP, wireless, clients, firewall (gateway ACLs, port forwarding) |
 | Writes | router, dhcp, port, wlan (through the controller) |
 | Simulator | `signalbox.sim.omada` (`uvicorn --factory signalbox.sim.omada:create_app`) |
 
@@ -319,6 +319,42 @@ The SSID list leaves out the security settings; Signalbox reads every SSID's own
   3 = 6 GHz) and `ssid`.
 - `lastSeen` is in milliseconds since 1970. A `name` that is just the MAC is no host name.
 - The controller's own managed devices are not reported as clients.
+
+## Firewall (#135)
+
+The `firewall` capability reports the **gateway's** firewall (`<omada device>/gateway-<mac>/firewall`,
+the managed gateway; a site without a gateway reports none). It uses the viewer role like
+everything else. **CI (Omada 6.3)**: every path and field name below is in the controller's own
+`/v3/api-docs`, and the paths answer to the viewer (an empty page: the test site has no gateway;
+`tools/integration/omada/dump.py firewall`). No ACL or forward was ever read from a real gateway,
+so the mapping of values is *(guess)* until one is (**#21**).
+
+- **Zones**: one per LAN network (its name, made unique with its id when two share one), mapped
+  to its segment; `wan` (the gateway's WAN ports in WAN mode, masquerading) when the gateway
+  reports any.
+- **Policies** (the gateway's defaults, not read): every LAN network reaches the gateway, the
+  internet and, with `forward_policy` accept, the other LAN networks; `wan` reaches nothing
+  (to the gateway and to every LAN network: drop).
+- **Rules**: `GET …/sites/{siteId}/acls/osg-config-mode` (`mode` 0 profiles, 1 custom) decides.
+  Profile mode: `…/acls/osg-acls`, sorted by `index`: `description` (the name), `status`,
+  `policy` (0 drop, 1 allow), `protocols` (IP protocol numbers, section 5.5 of the Open API
+  guide; 256 or 0 all *(guess)*), `sourceType`/`sourceIds` and `destinationType`/`destinationIds`
+  (0 LAN networks; 1 IP group, 2 IP-port group, 4 SSID, 6 IPv6 are not resolved and make the
+  rule `exact=False`), `timeRangeId` (a schedule: `exact=False`), `direction`: `lanToWan` (LAN
+  zones to `wan`), `lanToLan`, `wanInIds` (`wan` to LAN zones); one rule per direction. `vpnInIds`
+  is not modelled. Custom mode: `…/acls/osg-custom-acls`: `direction` 0 LAN-LAN, 1 LAN-WAN,
+  2 WAN-LAN, 3 LOCAL IN (to the gateway), `policy`, `protocol`, `sourceList`/`destinationList`
+  (addresses or networks; anything else, such as a group id, makes the rule inexact) and the
+  ports as text (`80` or `80-81`).
+- **Port forwards**: `GET …/sites/{siteId}/nat/port-forwardings`: `name`, `status`, `from`
+  (0 anywhere, 1 only `limitedAddresses`), `externalPort` (`8080` or `8000-8100`), `forwardIp`,
+  `forwardPort`, `protocol` (0 all, 1 TCP, 2 UDP) and `dMZ` (an exposed host: no ports); each is
+  a `PortForward` on `wan` with `passes_filter=True`. WAN port, virtual WAN and WAN alias
+  restrictions (`interfaceWanPortId`, `virtualWanId`, `wanIps`) are not mapped.
+- A list the viewer role cannot read or the controller does not have is a gap and sets
+  `rules_complete` or `port_forwards_complete` to `False`.
+- Not read: switch ACLs (`osw-acls`) and EAP ACLs (they filter by SSID), IP group contents, the
+  VPN, one-to-one NAT, the ACL `states` (the model is stateful anyway).
 
 ## DHCP leases, options and relay (#183)
 

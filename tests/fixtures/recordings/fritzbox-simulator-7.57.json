@@ -2,7 +2,7 @@
  "format": "signalbox-recording",
  "version": 1,
  "adapter": "fritzbox",
- "recorded": "2026-11-22",
+ "recorded": "2026-11-23",
  "role": "gateway",
  "path": "",
  "settings": {},
@@ -203,6 +203,186 @@
   },
   {
    "method": "POST",
+   "path": "/upnp/control/wanpppconn1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANPPPConnection:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewEnable>1</NewEnable><NewConnectionStatus>Connected</NewConnectionStatus><NewPossibleConnectionTypes>IP_Routed</NewPossibleConnectionTypes><NewConnectionType>IP_Routed</NewConnectionType><NewName>internet</NewName><NewUptime>7200</NewUptime><NewUpstreamMaxBitRate>46719000</NewUpstreamMaxBitRate><NewDownstreamMaxBitRate>116790000</NewDownstreamMaxBitRate><NewLastConnectionError>ERROR_NONE</NewLastConnectionError><NewIdleDisconnectTime>0</NewIdleDisconnectTime><NewRSIPAvailable>0</NewRSIPAvailable><NewUserName>name-9</NewUserName><NewNATEnabled>1</NewNATEnabled><NewExternalIPAddress>203.0.113.45</NewExternalIPAddress><NewDNSServers>203.0.113.53, 203.0.113.54</NewDNSServers><NewMACAddress>00:00:5e:00:53:07</NewMACAddress><NewConnectionTrigger>AlwaysOn</NewConnectionTrigger><NewLastAuthErrorInfo></NewLastAuthErrorInfo><NewMaxCharsUsername>128</NewMaxCharsUsername><NewMinCharsUsername>0</NewMinCharsUsername><NewAllowedCharsUsername>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@.-_</NewAllowedCharsUsername><NewMaxCharsPassword>128</NewMaxCharsPassword><NewMinCharsPassword>0</NewMinCharsPassword><NewAllowedCharsPassword>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz</NewAllowedCharsPassword><NewTransportType>PPPoE</NewTransportType><NewRouteProtocolRx>Off</NewRouteProtocolRx><NewPPPoEServiceName></NewPPPoEServiceName><NewRemoteIPAddress>203.0.113.1</NewRemoteIPAddress><NewPPPoEACName>isp-bras</NewPPPoEACName><NewDNSEnabled>1</NewDNSEnabled><NewDNSOverrideAllowed>0</NewDNSOverrideAllowed></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wanipconnection1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANIPConnection:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WANIPConnection:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WANIPConnection:1\"><NewEnable>0</NewEnable><NewConnectionStatus>Disconnected</NewConnectionStatus><NewPossibleConnectionTypes>IP_Routed</NewPossibleConnectionTypes><NewConnectionType>IP_Routed</NewConnectionType><NewName>mstv</NewName><NewUptime>0</NewUptime><NewLastConnectionError>ERROR_NONE</NewLastConnectionError><NewRSIPAvailable>0</NewRSIPAvailable><NewNATEnabled>1</NewNATEnabled><NewExternalIPAddress></NewExternalIPAddress><NewDNSServers></NewDNSServers><NewMACAddress>00:00:5e:00:53:07</NewMACAddress><NewConnectionTrigger>AlwaysOn</NewConnectionTrigger><NewRouteProtocolRx>Off</NewRouteProtocolRx><NewDNSEnabled>1</NewDNSEnabled><NewDNSOverrideAllowed>0</NewDNSOverrideAllowed></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wancommonifconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANCommonInterfaceConfig:1#GetCommonLinkProperties\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetCommonLinkProperties xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"></u:GetCommonLinkProperties></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetCommonLinkPropertiesResponse xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"><NewWANAccessType>DSL</NewWANAccessType><NewLayer1UpstreamMaxBitRate>46719000</NewLayer1UpstreamMaxBitRate><NewLayer1DownstreamMaxBitRate>116790000</NewLayer1DownstreamMaxBitRate><NewPhysicalLinkStatus>Up</NewPhysicalLinkStatus><NewX_AVM-DE_DownstreamCurrentUtilization></NewX_AVM-DE_DownstreamCurrentUtilization><NewX_AVM-DE_UpstreamCurrentUtilization></NewX_AVM-DE_UpstreamCurrentUtilization><NewX_AVM-DE_DownstreamCurrentMaxSpeed>0</NewX_AVM-DE_DownstreamCurrentMaxSpeed><NewX_AVM-DE_UpstreamCurrentMaxSpeed>0</NewX_AVM-DE_UpstreamCurrentMaxSpeed></u:GetCommonLinkPropertiesResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>6</NewChannel><NewSSID>name-3</NewSSID><NewBeaconType>11iandWPA3</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:00</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>36</NewChannel><NewSSID>name-3</NewSSID><NewBeaconType>11iandWPA3</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:01</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>5000</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMaxBitRate>Auto</NewMaxBitRate><NewChannel>6</NewChannel><NewSSID>name-4</NewSSID><NewBeaconType>11i</NewBeaconType><NewX_AVM-DE_PossibleBeaconTypes>none,11i,WPAand11i,WPA3,11iandWPA3</NewX_AVM-DE_PossibleBeaconTypes><NewMACAddressControlEnabled>0</NewMACAddressControlEnabled><NewStandard>ax</NewStandard><NewBSSID>00:00:5e:00:53:02</NewBSSID><NewBasicEncryptionModes>None</NewBasicEncryptionModes><NewBasicAuthenticationMode>None</NewBasicAuthenticationMode><NewMaxCharsSSID>32</NewMaxCharsSSID><NewMinCharsSSID>1</NewMinCharsSSID><NewAllowedCharsSSID>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsSSID><NewMinCharsPSK>8</NewMinCharsPSK><NewMaxCharsPSK>63</NewMaxCharsPSK><NewAllowedCharsPSK>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz !\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</NewAllowedCharsPSK><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_WLANGlobalEnable>1</NewX_AVM-DE_WLANGlobalEnable></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig4",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:4#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:4\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 404,
+   "content_type": "",
+   "response": "<html>404 Not Found</html>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>normal</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>0</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>normal</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>5000</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>0</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig3",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#X_AVM-DE_GetWLANExtInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"></u:X_AVM-DE_GetWLANExtInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWLANExtInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewX_AVM-DE_APEnabled>1</NewX_AVM-DE_APEnabled><NewX_AVM-DE_APType>guest</NewX_AVM-DE_APType><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand><NewX_AVM-DE_TimeoutActive>0</NewX_AVM-DE_TimeoutActive><NewX_AVM-DE_Timeout>0</NewX_AVM-DE_Timeout><NewX_AVM-DE_TimeRemain>0</NewX_AVM-DE_TimeRemain><NewX_AVM-DE_NoForcedOff>0</NewX_AVM-DE_NoForcedOff><NewX_AVM-DE_UserIsolation>1</NewX_AVM-DE_UserIsolation><NewX_AVM-DE_EncryptionMode></NewX_AVM-DE_EncryptionMode><NewX_AVM-DE_LastChangedStamp>0</NewX_AVM-DE_LastChangedStamp></u:X_AVM-DE_GetWLANExtInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wanpppconn1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANPPPConnection:1#GetGenericPortMappingEntry\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericPortMappingEntry xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewPortMappingIndex>0</NewPortMappingIndex></u:GetGenericPortMappingEntry></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericPortMappingEntryResponse xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewRemoteHost></NewRemoteHost><NewExternalPort>8443</NewExternalPort><NewProtocol>TCP</NewProtocol><NewInternalPort>443</NewInternalPort><NewInternalClient>192.0.2.20</NewInternalClient><NewEnabled>1</NewEnabled><NewPortMappingDescription>NAS</NewPortMappingDescription><NewLeaseDuration>0</NewLeaseDuration></u:GetGenericPortMappingEntryResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wanpppconn1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANPPPConnection:1#GetGenericPortMappingEntry\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericPortMappingEntry xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewPortMappingIndex>1</NewPortMappingIndex></u:GetGenericPortMappingEntry></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericPortMappingEntryResponse xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewRemoteHost></NewRemoteHost><NewExternalPort>27015</NewExternalPort><NewProtocol>UDP</NewProtocol><NewInternalPort>27015</NewInternalPort><NewInternalClient>192.0.2.30</NewInternalClient><NewEnabled>1</NewEnabled><NewPortMappingDescription>Game server</NewPortMappingDescription><NewLeaseDuration>0</NewLeaseDuration></u:GetGenericPortMappingEntryResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wanpppconn1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANPPPConnection:1#GetGenericPortMappingEntry\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericPortMappingEntry xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewPortMappingIndex>2</NewPortMappingIndex></u:GetGenericPortMappingEntry></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericPortMappingEntryResponse xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewRemoteHost></NewRemoteHost><NewExternalPort>2222</NewExternalPort><NewProtocol>TCP</NewProtocol><NewInternalPort>22</NewInternalPort><NewInternalClient>192.0.2.21</NewInternalClient><NewEnabled>0</NewEnabled><NewPortMappingDescription>SSH (off)</NewPortMappingDescription><NewLeaseDuration>0</NewLeaseDuration></u:GetGenericPortMappingEntryResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wanpppconn1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANPPPConnection:1#GetGenericPortMappingEntry\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericPortMappingEntry xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewPortMappingIndex>3</NewPortMappingIndex></u:GetGenericPortMappingEntry></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericPortMappingEntryResponse xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewRemoteHost>203.0.113.0/24</NewRemoteHost><NewExternalPort>5060</NewExternalPort><NewProtocol>UDP</NewProtocol><NewInternalPort>5060</NewInternalPort><NewInternalClient>192.0.2.40</NewInternalClient><NewEnabled>1</NewEnabled><NewPortMappingDescription>Phone</NewPortMappingDescription><NewLeaseDuration>0</NewLeaseDuration></u:GetGenericPortMappingEntryResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wanpppconn1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANPPPConnection:1#GetGenericPortMappingEntry\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericPortMappingEntry xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewPortMappingIndex>4</NewPortMappingIndex></u:GetGenericPortMappingEntry></s:Body></s:Envelope>",
+   "status": 500,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail><UPnPError xmlns=\"urn:dslforum-org:control-1-0\"><errorCode>713</errorCode><errorDescription>SpecifiedArrayIndexInvalid</errorDescription></UPnPError></detail></s:Fault></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
    "path": "/upnp/control/deviceinfo",
    "headers": {
     "soapaction": "\"urn:dslforum-org:service:DeviceInfo:1#GetInfo\"",
@@ -223,7 +403,7 @@
    "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:LANEthernetInterfaceConfig:1\"></u:GetInfo></s:Body></s:Envelope>",
    "status": 200,
    "content_type": "text/xml; charset=\"utf-8\"",
-   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:LANEthernetInterfaceConfig:1\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMACAddress>00:00:5e:00:53:07</NewMACAddress><NewMaxBitRate>1000</NewMaxBitRate><NewDuplexMode>Full</NewDuplexMode></u:GetInfoResponse></s:Body></s:Envelope>"
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:LANEthernetInterfaceConfig:1\"><NewEnable>1</NewEnable><NewStatus>Up</NewStatus><NewMACAddress>00:00:5e:00:53:08</NewMACAddress><NewMaxBitRate>1000</NewMaxBitRate><NewDuplexMode>Full</NewDuplexMode></u:GetInfoResponse></s:Body></s:Envelope>"
   },
   {
    "method": "POST",
@@ -343,7 +523,7 @@
    "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"></u:GetInfo></s:Body></s:Envelope>",
    "status": 200,
    "content_type": "text/xml; charset=\"utf-8\"",
-   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewEnable>1</NewEnable><NewConnectionStatus>Connected</NewConnectionStatus><NewPossibleConnectionTypes>IP_Routed</NewPossibleConnectionTypes><NewConnectionType>IP_Routed</NewConnectionType><NewName>internet</NewName><NewUptime>7200</NewUptime><NewUpstreamMaxBitRate>46719000</NewUpstreamMaxBitRate><NewDownstreamMaxBitRate>116790000</NewDownstreamMaxBitRate><NewLastConnectionError>ERROR_NONE</NewLastConnectionError><NewIdleDisconnectTime>0</NewIdleDisconnectTime><NewRSIPAvailable>0</NewRSIPAvailable><NewUserName>name-9</NewUserName><NewNATEnabled>1</NewNATEnabled><NewExternalIPAddress>203.0.113.45</NewExternalIPAddress><NewDNSServers>203.0.113.53, 203.0.113.54</NewDNSServers><NewMACAddress>00:00:5e:00:53:08</NewMACAddress><NewConnectionTrigger>AlwaysOn</NewConnectionTrigger><NewLastAuthErrorInfo></NewLastAuthErrorInfo><NewMaxCharsUsername>128</NewMaxCharsUsername><NewMinCharsUsername>0</NewMinCharsUsername><NewAllowedCharsUsername>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@.-_</NewAllowedCharsUsername><NewMaxCharsPassword>128</NewMaxCharsPassword><NewMinCharsPassword>0</NewMinCharsPassword><NewAllowedCharsPassword>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz</NewAllowedCharsPassword><NewTransportType>PPPoE</NewTransportType><NewRouteProtocolRx>Off</NewRouteProtocolRx><NewPPPoEServiceName></NewPPPoEServiceName><NewRemoteIPAddress>203.0.113.1</NewRemoteIPAddress><NewPPPoEACName>isp-bras</NewPPPoEACName><NewDNSEnabled>1</NewDNSEnabled><NewDNSOverrideAllowed>0</NewDNSOverrideAllowed></u:GetInfoResponse></s:Body></s:Envelope>"
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WANPPPConnection:1\"><NewEnable>1</NewEnable><NewConnectionStatus>Connected</NewConnectionStatus><NewPossibleConnectionTypes>IP_Routed</NewPossibleConnectionTypes><NewConnectionType>IP_Routed</NewConnectionType><NewName>internet</NewName><NewUptime>7200</NewUptime><NewUpstreamMaxBitRate>46719000</NewUpstreamMaxBitRate><NewDownstreamMaxBitRate>116790000</NewDownstreamMaxBitRate><NewLastConnectionError>ERROR_NONE</NewLastConnectionError><NewIdleDisconnectTime>0</NewIdleDisconnectTime><NewRSIPAvailable>0</NewRSIPAvailable><NewUserName>name-9</NewUserName><NewNATEnabled>1</NewNATEnabled><NewExternalIPAddress>203.0.113.45</NewExternalIPAddress><NewDNSServers>203.0.113.53, 203.0.113.54</NewDNSServers><NewMACAddress>00:00:5e:00:53:07</NewMACAddress><NewConnectionTrigger>AlwaysOn</NewConnectionTrigger><NewLastAuthErrorInfo></NewLastAuthErrorInfo><NewMaxCharsUsername>128</NewMaxCharsUsername><NewMinCharsUsername>0</NewMinCharsUsername><NewAllowedCharsUsername>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@.-_</NewAllowedCharsUsername><NewMaxCharsPassword>128</NewMaxCharsPassword><NewMinCharsPassword>0</NewMinCharsPassword><NewAllowedCharsPassword>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz</NewAllowedCharsPassword><NewTransportType>PPPoE</NewTransportType><NewRouteProtocolRx>Off</NewRouteProtocolRx><NewPPPoEServiceName></NewPPPoEServiceName><NewRemoteIPAddress>203.0.113.1</NewRemoteIPAddress><NewPPPoEACName>isp-bras</NewPPPoEACName><NewDNSEnabled>1</NewDNSEnabled><NewDNSOverrideAllowed>0</NewDNSOverrideAllowed></u:GetInfoResponse></s:Body></s:Envelope>"
   },
   {
    "method": "POST",
@@ -355,7 +535,7 @@
    "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:WANIPConnection:1\"></u:GetInfo></s:Body></s:Envelope>",
    "status": 200,
    "content_type": "text/xml; charset=\"utf-8\"",
-   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WANIPConnection:1\"><NewEnable>0</NewEnable><NewConnectionStatus>Disconnected</NewConnectionStatus><NewPossibleConnectionTypes>IP_Routed</NewPossibleConnectionTypes><NewConnectionType>IP_Routed</NewConnectionType><NewName>mstv</NewName><NewUptime>0</NewUptime><NewLastConnectionError>ERROR_NONE</NewLastConnectionError><NewRSIPAvailable>0</NewRSIPAvailable><NewNATEnabled>1</NewNATEnabled><NewExternalIPAddress></NewExternalIPAddress><NewDNSServers></NewDNSServers><NewMACAddress>00:00:5e:00:53:08</NewMACAddress><NewConnectionTrigger>AlwaysOn</NewConnectionTrigger><NewRouteProtocolRx>Off</NewRouteProtocolRx><NewDNSEnabled>1</NewDNSEnabled><NewDNSOverrideAllowed>0</NewDNSOverrideAllowed></u:GetInfoResponse></s:Body></s:Envelope>"
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:WANIPConnection:1\"><NewEnable>0</NewEnable><NewConnectionStatus>Disconnected</NewConnectionStatus><NewPossibleConnectionTypes>IP_Routed</NewPossibleConnectionTypes><NewConnectionType>IP_Routed</NewConnectionType><NewName>mstv</NewName><NewUptime>0</NewUptime><NewLastConnectionError>ERROR_NONE</NewLastConnectionError><NewRSIPAvailable>0</NewRSIPAvailable><NewNATEnabled>1</NewNATEnabled><NewExternalIPAddress></NewExternalIPAddress><NewDNSServers></NewDNSServers><NewMACAddress>00:00:5e:00:53:07</NewMACAddress><NewConnectionTrigger>AlwaysOn</NewConnectionTrigger><NewRouteProtocolRx>Off</NewRouteProtocolRx><NewDNSEnabled>1</NewDNSEnabled><NewDNSOverrideAllowed>0</NewDNSOverrideAllowed></u:GetInfoResponse></s:Body></s:Envelope>"
   },
   {
    "method": "POST",
@@ -439,7 +619,7 @@
    "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:Time:1\"></u:GetInfo></s:Body></s:Envelope>",
    "status": 200,
    "content_type": "text/xml; charset=\"utf-8\"",
-   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:Time:1\"><NewNTPServer1>ntp.example.net</NewNTPServer1><NewNTPServer2></NewNTPServer2><NewCurrentLocalTime>2026-11-22T23:35:02+01:00</NewCurrentLocalTime><NewLocalTimeZone>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZone><NewLocalTimeZoneName>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZoneName><NewDaylightSavingsUsed>1</NewDaylightSavingsUsed><NewDaylightSavingsStart>0001-01-01T00:00:00</NewDaylightSavingsStart><NewDaylightSavingsEnd>0001-01-01T00:00:00</NewDaylightSavingsEnd></u:GetInfoResponse></s:Body></s:Envelope>"
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:Time:1\"><NewNTPServer1>ntp.example.net</NewNTPServer1><NewNTPServer2></NewNTPServer2><NewCurrentLocalTime>2026-11-23T09:42:52+01:00</NewCurrentLocalTime><NewLocalTimeZone>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZone><NewLocalTimeZoneName>CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00</NewLocalTimeZoneName><NewDaylightSavingsUsed>1</NewDaylightSavingsUsed><NewDaylightSavingsStart>0001-01-01T00:00:00</NewDaylightSavingsStart><NewDaylightSavingsEnd>0001-01-01T00:00:00</NewDaylightSavingsEnd></u:GetInfoResponse></s:Body></s:Envelope>"
   },
   {
    "method": "POST",
@@ -657,6 +837,7 @@
    "capabilities": [
     "clients",
     "dhcp",
+    "firewall",
     "health",
     "interfaces",
     "time",
@@ -678,7 +859,7 @@
     "ups": []
    },
    "time": {
-    "clock": "2026-11-22T23:35:02.500000+01:00",
+    "clock": "2026-11-23T09:42:52.500000+01:00",
     "timezone": "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00",
     "utc_offset_minutes": 60,
     "ntp_client": {
@@ -717,7 +898,7 @@
     "full_duplex": true,
     "poe": null,
     "lag": null,
-    "mac": "00:00:5e:00:53:07",
+    "mac": "00:00:5e:00:53:08",
     "description": null,
     "admin_up": true,
     "pvid": null,
@@ -1337,7 +1518,245 @@
   ],
   "neighbours": [],
   "tunnels": [],
-  "firewalls": [],
+  "firewalls": [
+   {
+    "id": "recorded/firewall",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "enabled": true,
+    "stateful": true,
+    "zones": [
+     {
+      "name": "lan",
+      "description": null,
+      "segments": [
+       "home/segment/native"
+      ],
+      "uplinks": [],
+      "tunnels": [],
+      "ports": [],
+      "masquerade": null,
+      "complete": true
+     },
+     {
+      "name": "guest",
+      "description": null,
+      "segments": [
+       "home/segment/guest"
+      ],
+      "uplinks": [],
+      "tunnels": [],
+      "ports": [],
+      "masquerade": null,
+      "complete": true
+     },
+     {
+      "name": "wan",
+      "description": null,
+      "segments": [],
+      "uplinks": [
+       "recorded/uplink/internet"
+      ],
+      "tunnels": [],
+      "ports": [],
+      "masquerade": true,
+      "complete": true
+     }
+    ],
+    "policies": [
+     {
+      "source": "lan",
+      "destination": null,
+      "action": "accept"
+     },
+     {
+      "source": "lan",
+      "destination": "wan",
+      "action": "accept"
+     },
+     {
+      "source": "wan",
+      "destination": null,
+      "action": "drop"
+     },
+     {
+      "source": "wan",
+      "destination": "lan",
+      "action": "drop"
+     },
+     {
+      "source": "guest",
+      "destination": null,
+      "action": "drop"
+     },
+     {
+      "source": "guest",
+      "destination": "lan",
+      "action": "drop"
+     },
+     {
+      "source": "lan",
+      "destination": "guest",
+      "action": "drop"
+     },
+     {
+      "source": "guest",
+      "destination": "wan",
+      "action": "accept"
+     },
+     {
+      "source": "wan",
+      "destination": "guest",
+      "action": "drop"
+     }
+    ],
+    "input_policy": null,
+    "forward_policy": null,
+    "rules": [
+     {
+      "name": "guest DNS and DHCP",
+      "order": null,
+      "enabled": true,
+      "chain": "input",
+      "family": null,
+      "protocols": [
+       "udp"
+      ],
+      "source": {
+       "zones": [
+        "guest"
+       ],
+       "zones_not": false,
+       "networks": [],
+       "networks_not": false,
+       "ports": []
+      },
+      "destination": {
+       "zones": [],
+       "zones_not": false,
+       "networks": [],
+       "networks_not": false,
+       "ports": [
+        {
+         "start": 53,
+         "end": null
+        },
+        {
+         "start": 67,
+         "end": null
+        }
+       ]
+      },
+      "action": "accept",
+      "forwarded": null,
+      "exact": true
+     }
+    ],
+    "rules_complete": true,
+    "nat": [],
+    "port_forwards": [
+     {
+      "name": "NAS",
+      "enabled": true,
+      "protocols": [
+       "tcp"
+      ],
+      "zones": [
+       "wan"
+      ],
+      "external_address": null,
+      "external_ports": [
+       {
+        "start": 8443,
+        "end": null
+       }
+      ],
+      "sources": [],
+      "target_address": "192.0.2.20",
+      "target_port": 443,
+      "passes_filter": true,
+      "reflection": null,
+      "exact": true
+     },
+     {
+      "name": "Game server",
+      "enabled": true,
+      "protocols": [
+       "udp"
+      ],
+      "zones": [
+       "wan"
+      ],
+      "external_address": null,
+      "external_ports": [
+       {
+        "start": 27015,
+        "end": null
+       }
+      ],
+      "sources": [],
+      "target_address": "192.0.2.30",
+      "target_port": 27015,
+      "passes_filter": true,
+      "reflection": null,
+      "exact": true
+     },
+     {
+      "name": "SSH (off)",
+      "enabled": false,
+      "protocols": [
+       "tcp"
+      ],
+      "zones": [
+       "wan"
+      ],
+      "external_address": null,
+      "external_ports": [
+       {
+        "start": 2222,
+        "end": null
+       }
+      ],
+      "sources": [],
+      "target_address": "192.0.2.21",
+      "target_port": 22,
+      "passes_filter": true,
+      "reflection": null,
+      "exact": true
+     },
+     {
+      "name": "Phone",
+      "enabled": true,
+      "protocols": [
+       "udp"
+      ],
+      "zones": [
+       "wan"
+      ],
+      "external_address": null,
+      "external_ports": [
+       {
+        "start": 5060,
+        "end": null
+       }
+      ],
+      "sources": [
+       "203.0.113.0/24"
+      ],
+      "target_address": "192.0.2.40",
+      "target_port": 5060,
+      "passes_filter": true,
+      "reflection": null,
+      "exact": true
+     }
+    ],
+    "port_forwards_complete": false
+   }
+  ],
   "errors": [],
   "extra_devices": [],
   "extra_status": {}
