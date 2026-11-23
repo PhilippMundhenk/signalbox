@@ -99,3 +99,14 @@ plans with it: a step that was not among them stops the run with 409 `plan_chang
 plan, to be confirmed again; an unconfirmed SSH host key of the optional SSH step answers 409
 `untrusted_ssh` before the SSH password is used. API clients that send no `plan_ids` keep the
 old behaviour. Nothing stores the password, as before.
+
+## Note (#290): the preview cannot drift, and both identities come first
+
+Every integration's static `preview` is covered by `tests/test_preview_covers_plan.py`: the
+real plan (fresh, set up, removal, with the optional extras and the optional SSH step, and each
+*Fix it* remedy) may only contain step ids the preview lists. The test found three drifts that
+are fixed (MikroTik removal groups and REST-service certificate steps, OpenWrt removal
+`packages`). With the optional SSH step (OPNsense ISC script) the plan endpoint called without
+a password (`SetupRequest.identity_only`) now returns the HTTPS certificate **and** the SSH host
+key (the SSH port is asked before, no secret); one confirmation trusts both, and the passwords
+(API secret, SSH password) are asked once, together, right before *Run*.

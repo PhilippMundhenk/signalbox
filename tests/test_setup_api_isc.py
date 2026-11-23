@@ -159,3 +159,28 @@ def test_ssh_secret_is_never_echoed(
     bad["ssh"]["secret"] = ""
     assert client.post("/api/devices/setup", json=bad).status_code == 422
     assert ROOT_PASSWORD not in client.post("/api/devices/setup", json=bad).text
+
+
+def test_both_identities_are_fetched_without_any_password(
+    client: TestClient, url: str, tls: TlsFiles, ssh: tuple[int, str], firewall: OpnsenseSsh
+) -> None:
+    """#290: certificate and SSH host key come before the passwords, which are asked once."""
+    payload = body(url, tls, ssh)
+    payload["admin"] = {"user": ""}
+    payload["ssh"] = {"port": ssh[0]}
+    del payload["trust"]
+    r = client.post("/api/devices/setup", json=payload)
+    assert r.status_code == 200, r.text
+    plan = r.json()
+    assert plan["trusted"] is False and plan["fingerprint"] == tls.fingerprint
+    assert plan["ssh_trusted"] is False and plan["ssh_fingerprint"] == ssh[1]
+    assert plan["steps"] == [] and firewall.scripts == [] and firewall.files == {}
+
+    # without the SSH option only the certificate is fetched
+    del payload["ssh"]
+    plain = client.post("/api/devices/setup", json=payload).json()
+    assert plain["ssh_fingerprint"] is None and plain["ssh_trusted"] is None
+
+    # one run with both passwords and both confirmations: no further question
+    done = client.post("/api/devices/setup/apply", json=body(url, tls, ssh))
+    assert done.status_code == 200 and done.json()["ok"], done.text

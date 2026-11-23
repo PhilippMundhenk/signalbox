@@ -213,7 +213,7 @@ class OpnsenseSetup:
         self.ssh_port = request.ssh_port or 22
         self.ssh_key: asyncssh.SSHKey | None = None
         self.ssh_private = ""
-        if self.ssh_step:
+        if self.ssh_step and not request.identity_only:
             if request.ssh_secret is None or not request.ssh_secret.get_secret_value():
                 raise AdapterError("enter the SSH password of root for the ISC DHCP script")
             self.redact.add(request.ssh_secret.get_secret_value())
@@ -429,7 +429,41 @@ class OpnsenseSetup:
 
         return run
 
+    async def identities(self) -> SetupPlan:
+        """Both identities to confirm, before any password (#290): the HTTPS certificate and,
+        with the SSH step, the SSH host key. Nothing is trusted, so no credential is sent."""
+        http = self.http()
+        try:
+            await self.inspect(http)
+        except UntrustedCertificate as exc:
+            certificate = exc.fingerprint
+        except AdapterError as exc:
+            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+        else:  # pragma: no cover - without a pin the certificate is never trusted
+            raise AdapterError("the certificate was accepted without being confirmed")
+        finally:
+            await http.close()
+        ssh_fingerprint: str | None = None
+        if self.ssh_step:
+            probe = PinnedSsh(self.host, self.ssh_port, "root", "", None, self.request.timeout)
+            try:
+                async with probe:
+                    pass  # pragma: no cover - without a pin the host key is never trusted
+            except UntrustedHostKey as exc:
+                ssh_fingerprint = exc.fingerprint
+        return SetupPlan(
+            fingerprint=certificate,
+            fingerprint_kind="certificate",
+            trusted=False,
+            compare=COMPARE,
+            ssh_fingerprint=ssh_fingerprint,
+            ssh_trusted=False if self.ssh_step else None,
+            ssh_compare=SSH_COMPARE if self.ssh_step else "",
+        )
+
     async def plan(self) -> SetupPlan:
+        if self.request.identity_only:
+            return await self.identities()
         http = self.http()
         ssh_fingerprint: str | None = None
         ssh_trusted: bool | None = None
