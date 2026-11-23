@@ -39,6 +39,8 @@ from signalbox.model import (
     Cipher,
     DeviceRole,
     DeviceStatus,
+    FirewallAction,
+    FirewallChain,
     Membership,
     NatClass,
     PortKind,
@@ -333,6 +335,28 @@ async def test_management_services(ow: Target, pin: str) -> None:
     assert by["https"].enabled and by["https"].port == 443, by["https"]
     assert by["http"].redirects_to_https is False, by["http"]
     assert snap.device.transport_encrypted is True
+
+
+async def test_firewall_of_the_default_config(ow: Target, pin: str) -> None:
+    """The image's default ``/etc/config/firewall`` (zones lan and wan, one forwarding, the
+    ``Allow-*`` rules) as the read-only login sees it (#135; needs ``firewall`` in the ACL's
+    ``uci`` list). The lab has no ``wan`` interface, so that zone has nothing to map to."""
+    snap = await observe(context(ow, pin))
+    assert snap.status is DeviceStatus.OK, snap.errors
+    [fw] = snap.firewalls
+    assert fw.enabled and fw.rules_complete and fw.port_forwards_complete, fw
+    zones = {z.name: z for z in fw.zones}
+    assert {"lan", "wan"} <= set(zones), sorted(zones)
+    assert zones["lan"].segments == [NATIVE] and zones["lan"].complete, zones["lan"]
+    assert zones["wan"].masquerade is True and not zones["wan"].complete, zones["wan"]
+    assert fw.policy("lan", "wan") is FirewallAction.ACCEPT, fw.policies
+    assert fw.policy("wan", None) is FirewallAction.REJECT, fw.policies
+    assert fw.input_policy is FirewallAction.REJECT, fw
+    names = {r.name for r in fw.rules}
+    assert {"Allow-DHCP-Renew", "Allow-Ping", "Allow-ISAKMP"} <= names, sorted(names)
+    ping = next(r for r in fw.rules if r.name == "Allow-Ping")
+    assert ping.source.zones == ["wan"] and ping.chain is FirewallChain.INPUT, ping
+    assert fw.port_forwards == []
 
 
 async def test_the_management_interface_is_the_uplink(ow: Target, pin: str) -> None:

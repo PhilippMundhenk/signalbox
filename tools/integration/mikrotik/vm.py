@@ -448,6 +448,46 @@ def rest_setup(d: Path, keys: dict[str, str]) -> None:
     admin.add(
         "ipv6/address", {"address": "2001:db8:ff::1/64", "interface": "wg0", "advertise": "no"}
     )
+    # the packet filter (#135): a LAN list, an address list, a forward rule, masquerade and a
+    # destination NAT (nothing that would cut the REST access over ether1)
+    admin.add("interface/list", {"name": "LAN"})
+    admin.add("interface/list/member", {"list": "LAN", "interface": "bridge"})
+    admin.add("ip/firewall/address-list", {"list": "ci-trusted", "address": "198.51.100.0/28"})
+    admin.add(
+        "ip/firewall/filter",
+        {
+            "chain": "forward",
+            "action": "accept",
+            "protocol": "tcp",
+            "dst-address": "192.0.2.10",
+            "dst-port": "443",
+            "src-address-list": "ci-trusted",
+            "in-interface-list": "WAN",
+            "comment": "Signalbox CI: NAS",
+        },
+    )
+    admin.add(
+        "ip/firewall/nat",
+        {
+            "chain": "srcnat",
+            "action": "masquerade",
+            "out-interface-list": "WAN",
+            "comment": "Signalbox CI: masquerade",
+        },
+    )
+    admin.add(
+        "ip/firewall/nat",
+        {
+            "chain": "dstnat",
+            "action": "dst-nat",
+            "protocol": "tcp",
+            "dst-port": "8443",
+            "in-interface-list": "WAN",
+            "to-addresses": "192.0.2.10",
+            "to-ports": "443",
+            "comment": "Signalbox CI: NAS web",
+        },
+    )
     admin.add("ip/address", {"address": "192.0.2.1/24", "interface": "bridge"})
     admin.add("ip/address", {"address": "198.51.100.1/24", "interface": "iot"})
     admin.add(

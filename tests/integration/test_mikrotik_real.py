@@ -47,7 +47,17 @@ from signalbox.deploy import Deployer
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
 from signalbox.merge import merge
-from signalbox.model import DeviceRole, FrameTypes, LeaseState, NatClass, Network, UplinkKind
+from signalbox.model import (
+    DeviceRole,
+    FirewallAction,
+    FirewallChain,
+    FrameTypes,
+    LeaseState,
+    NatClass,
+    Network,
+    PortRange,
+    UplinkKind,
+)
 from signalbox.model import DeviceStatus as ReadStatus
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
@@ -307,6 +317,34 @@ async def test_mapping_of_the_configured_router(rt: dict[str, str]) -> None:
     assert static.state in (LeaseState.RESERVED, LeaseState.ACTIVE), static
     assert dhcp.authoritative is None  # RouterOS 7.25.1 has no `authoritative` on the server
     assert net.dhcp_relays == []
+
+
+async def test_firewall_rules_and_nat(rt: dict[str, str]) -> None:
+    """The filter rule, masquerade and destination NAT tools/integration/mikrotik/vm.py adds
+    (#135), read with the read-only group: interface lists as zones, the address list resolved,
+    ``dst-nat`` as a port forward the filter decides on."""
+    a = adapter(rt)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    [fwl] = snap.firewalls
+    zones = {z.name: z for z in fwl.zones}
+    assert zones["WAN"].uplinks == ["rt/uplink/ether1"] and zones["WAN"].complete, zones
+    assert zones["LAN"].segments == [LAN], zones
+    assert fwl.input_policy is FirewallAction.ACCEPT and fwl.rules_complete, fwl
+    ours = next(r for r in fwl.rules if r.name == "Signalbox CI: NAS")
+    assert ours.chain is FirewallChain.FORWARD and ours.action is FirewallAction.ACCEPT, ours
+    assert ours.source.zones == ["WAN"] and ours.exact, ours
+    assert [str(n) for n in ours.source.networks] == ["198.51.100.0/28"], ours
+    assert ours.destination.ports == [PortRange(start=443)], ours
+    [masq] = [n for n in fwl.nat if n.name == "Signalbox CI: masquerade"]
+    assert masq.masquerade and masq.zones == ["WAN"] and masq.exact, masq
+    [pf] = [f for f in fwl.port_forwards if f.name == "Signalbox CI: NAS web"]
+    assert pf.zones == ["WAN"] and pf.external_ports == [PortRange(start=8443)], pf
+    assert str(pf.target_address) == "192.0.2.10" and pf.target_port == 443 and pf.exact, pf
+    assert pf.passes_filter is False and fwl.port_forwards_complete
 
 
 async def test_health_and_time_of_chr(rt: dict[str, str]) -> None:

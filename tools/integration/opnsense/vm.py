@@ -439,6 +439,65 @@ def api_setup(d: Path, root: dict[str, str]) -> None:
     )
     checked(root, "/api/unbound/service/reconfigure", {}, d)
     wireguard_setup(d, root)
+    firewall_setup(d, root)
+
+
+def firewall_setup(d: Path, root: dict[str, str]) -> None:
+    """What a user adds on the firewall pages (#135): a host alias, a filter rule of the "new"
+    model that passes TCP 8443 to the NAS on LAN, and a port forward from WAN 8443 to it
+    (443 on the NAS, no filter rule association)."""
+    checked(
+        root,
+        "/api/firewall/alias/add_item",
+        {
+            "alias": {
+                "enabled": "1",
+                "name": "ci_nas",
+                "type": "host",
+                "content": "192.0.2.10",
+                "description": "Signalbox CI NAS",
+            }
+        },
+        d,
+    )
+    checked(
+        root,
+        "/api/firewall/filter/add_rule",
+        {
+            "rule": {
+                "enabled": "1",
+                "action": "pass",
+                "quick": "1",
+                "interface": "lan",
+                "direction": "in",
+                "ipprotocol": "inet",
+                "protocol": "TCP",
+                "source_net": "any",
+                "destination_net": "ci_nas",
+                "destination_port": "8443",
+                "description": "Signalbox CI: NAS",
+            }
+        },
+        d,
+    )
+    checked(
+        root,
+        "/api/firewall/d_nat/add_rule",
+        {
+            "rule": {
+                "interface": "wan",
+                "ipprotocol": "inet",
+                "protocol": "tcp",
+                "destination": {"network": "wanip", "port": "8443"},
+                "target": "ci_nas",
+                "local-port": "443",
+                "descr": "Signalbox CI: NAS web",
+            }
+        },
+        d,
+    )
+    checked(root, "/api/firewall/alias/reconfigure", {}, d)
+    checked(root, "/api/firewall/filter/apply", {}, d)
 
 
 def wireguard_setup(d: Path, root: dict[str, str]) -> None:

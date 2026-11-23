@@ -781,3 +781,38 @@ are the `services` dump group), as the read-only user of this page.
   `/ip/service` fails the list stays empty (not read) and the rest of the read is unaffected.
 - `transport_encrypted` is true for the https URL, false for `allow_insecure_http`.
 - `from_wan` stays unknown: the firewall is not read (#135).
+
+
+## Firewall and NAT (#135)
+
+Read with the `firewall` capability (adapter API 1.4, [ADR 0013](../adr/0013-firewall-zones-rules-and-reachability.md))
+with the existing read-only group (`read`, `api`, `rest-api`): `/rest/ip/firewall/filter`,
+`/rest/ipv6/firewall/filter`, `/rest/ip/firewall/nat`, `/rest/ip/firewall/raw`,
+`/rest/ip/firewall/address-list` (and `ipv6/`), `/rest/interface/list` with its members and
+`/rest/ip/ipsec/policy`.
+
+- **Zones**: every interface list a rule names (`in-interface-list`, `out-interface-list`;
+  `include` and `exclude` resolved; `all` is no condition), and every single interface a rule
+  names (`in-interface=iot`) as a zone of its own. Members map to segments (bridges, VLAN
+  interfaces, routed ports), uplinks, WireGuard tunnels or bare ports.
+- **Rules** of the `input`, `forward` and `output` chains, IPv4 then IPv6, in list order. `jump`
+  is flattened (the jump rule's conditions joined with each rule of the chain; two different
+  conditions make the rule inexact; a loop makes the list incomplete); a conditional `return`
+  makes the rest of its chain inexact. Left out: rules that only match
+  `established`/`related`/`invalid`/`untracked`, `fasttrack-connection`, `passthrough`, `log`.
+  `connection-nat-state=dstnat` is `forwarded`. `src-address-list` and `dst-address-list` are
+  resolved (ranges become prefixes); a dynamic entry or a host name makes the rule inexact, as
+  do the conditions the model has no field for (`limit`, `connection-mark`, `src-mac-address`,
+  `tcp-flags`, `time`, `!protocol`, `!dst-port`, ...). `ipsec-policy`: without an active IPsec
+  policy `in,ipsec` can never match (the rule is left out) and `out,none` matches all.
+  Both chains' defaults are `accept` (`input_policy`, `forward_policy`). A `drop` in
+  `/ip/firewall/raw` makes `rules_complete` false.
+- **NAT**: `srcnat` masquerade and `src-nat` to `NatRule` (an `accept` rule in the chain makes
+  them inexact), `dstnat` `dst-nat` to `PortForward` (`passes_filter = False`: the filter decides;
+  `dst-address-type=local` is the router's own address); `redirect` goes to the router itself
+  and is not a forward; `netmap`, `jump` and a target that is no single address make
+  `port_forwards_complete` false.
+- **CI** (CHR 7.25.1): `rest_setup` adds a LAN list, an address list, a forward rule, masquerade
+  and a `dst-nat`; `test_firewall_rules_and_nat` asserts them as the read-only user.
+  *Guess*: the `/interface/list` row fields `include`/`exclude`, jumps and address ranges on
+  a real router (the simulator has them), `ipsec-policy` rows with IPsec configured.

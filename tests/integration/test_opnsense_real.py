@@ -33,7 +33,18 @@ from signalbox.deploy import Deployer
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
 from signalbox.merge import merge
-from signalbox.model import DeviceRole, NatClass, Network, UplinkKind
+from signalbox.model import (
+    DeviceRole,
+    FirewallAction,
+    FirewallChain,
+    FirewallProtocol,
+    Flow,
+    NatClass,
+    Network,
+    PortRange,
+    UplinkKind,
+    Verdict,
+)
 from signalbox.model import DeviceStatus as ReadStatus
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
@@ -278,6 +289,39 @@ async def test_wireguard_instance_and_peer(fw: dict[str, str]) -> None:
     assert secret_problems(snap) == []
     net = merge([SITE], [snap])
     assert [(t.id, peer.name) for t, peer in net.remote_sites()] == [("fw/tunnel/wg0", "site-b")]
+
+
+async def test_firewall_rules_and_port_forward(fw: dict[str, str]) -> None:
+    """The rule and the port forward vm.py adds (#135), read with the read user's firewall
+    privileges: the "new" model's rule (alias resolved), the automatic and default rules around
+    it, the destination NAT and the automatic outbound NAT of the WAN."""
+    a = adapter(fw)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    [fwl] = snap.firewalls
+    zones = {z.name: z for z in fwl.zones}
+    assert zones["lan"].segments == [LAN] and zones["wan"].uplinks == ["fw/uplink/wan"], zones
+    assert fwl.input_policy is FirewallAction.DROP
+    ours = next(r for r in fwl.rules if r.name == "Signalbox CI: NAS")
+    assert ours.action is FirewallAction.ACCEPT and ours.source.zones == ["lan"], ours
+    assert [str(n) for n in ours.destination.networks] == ["192.0.2.10/32"], ours
+    assert ours.destination.ports == [PortRange(start=8443)] and ours.exact, ours
+    assert ours.protocols == [FirewallProtocol.TCP], ours
+    # the web interface is reachable from LAN (anti-lockout rule) and not from WAN
+    to_ui = Flow(chain=FirewallChain.INPUT, protocol=FirewallProtocol.TCP, port=443)
+    assert (
+        fwl.evaluate(to_ui.model_copy(update={"source_zones": {"lan"}})).verdict is Verdict.ALLOWED
+    )
+    assert (
+        fwl.evaluate(to_ui.model_copy(update={"source_zones": {"wan"}})).verdict is Verdict.DENIED
+    )
+    [pf] = [f for f in fwl.port_forwards if f.name == "Signalbox CI: NAS web"]
+    assert pf.zones == ["wan"] and pf.external_ports == [PortRange(start=8443)], pf
+    assert str(pf.target_address) == "192.0.2.10" and pf.target_port == 443 and pf.exact, pf
+    assert any(n.masquerade and "wan" in n.zones for n in fwl.nat), fwl.nat
 
 
 async def test_refused_api_key_is_auth_failed(fw: dict[str, str]) -> None:
