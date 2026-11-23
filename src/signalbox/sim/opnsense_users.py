@@ -27,6 +27,7 @@ PRIVILEGES = (
     "page-diagnostics-ndptable",
     "page-system-login-logout",
     "page-status-ntp",
+    "page-wireguard-diagnostics",
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory",
 )
