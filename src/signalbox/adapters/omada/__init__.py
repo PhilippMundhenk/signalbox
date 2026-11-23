@@ -863,7 +863,13 @@ class OmadaAdapter(_Adapter):
         rules: list[FirewallRule] = []
         rules_complete = port_forwards_complete = True
         try:
-            rules = firewall.acl_rules(await self._rows(f"{self._site_path}/acls"), names)
+            mode = await self._object(f"{self._site_path}/acls/osg-config-mode")
+            if mode is not None and mode.get("mode") == 1:  # custom ACLs instead of profiles
+                custom = await self._rows(f"{self._site_path}/acls/osg-custom-acls")
+                rules = firewall.custom_acl_rules(custom, names)
+            else:
+                rows = await self._rows(f"{self._site_path}/acls/osg-acls")
+                rules = firewall.acl_rules(rows, names)
         except (NotFound, OmadaError) as exc:
             rules_complete = False
             gaps.append(Gap(message=f"firewall: the gateway ACLs are not read ({exc})"))

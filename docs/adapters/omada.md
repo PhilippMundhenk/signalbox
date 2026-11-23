@@ -324,10 +324,10 @@ The SSID list leaves out the security settings; Signalbox reads every SSID's own
 
 The `firewall` capability reports the **gateway's** firewall (`<omada device>/gateway-<mac>/firewall`,
 the managed gateway; a site without a gateway reports none). It uses the viewer role like
-everything else and is mapped from the controller's Open API description: the test site in CI
-has no gateway, so none of it is confirmed against a real answer (**#21**). The integration run
-records the description of every path about ACLs, port forwarding and NAT and what these paths
-answer (`tools/integration/omada/dump.py firewall`), to confirm the names below.
+everything else. **CI (Omada 6.3)**: every path and field name below is in the controller's own
+`/v3/api-docs`, and the paths answer to the viewer (an empty page: the test site has no gateway;
+`tools/integration/omada/dump.py firewall`). No ACL or forward was ever read from a real gateway,
+so the mapping of values is *(guess)* until one is (**#21**).
 
 - **Zones**: one per LAN network (its name, made unique with its id when two share one), mapped
   to its segment; `wan` (the gateway's WAN ports in WAN mode, masquerading) when the gateway
@@ -335,19 +335,26 @@ answer (`tools/integration/omada/dump.py firewall`), to confirm the names below.
 - **Policies** (the gateway's defaults, not read): every LAN network reaches the gateway, the
   internet and, with `forward_policy` accept, the other LAN networks; `wan` reaches nothing
   (to the gateway and to every LAN network: drop).
-- **Rules**: `GET …/sites/{siteId}/acls` *(guess: path and field names)*, rows of `type` 0
-  (gateway; switch and EAP ACLs belong to those devices and are left out) sorted by `index`:
-  `policy` 1 permit and 0 deny, `status`, `protocols` (IP protocol numbers, 256 all),
-  `sourceType`/`sourceIds` and `destinationType`/`destinationIds` (type 0 are LAN network ids; an
-  IP group or IP-port group is not resolved and makes the rule `exact=False`), `direction`:
-  `lanToWan` (LAN zones to `wan`), `lanToLan`, `wanInIds` (`wan` to LAN zones); one rule per
-  direction. VPN directions are not modelled.
-- **Port forwards**: `GET …/sites/{siteId}/nat/port-forwardings` *(guess)*: `name`, `status`,
-  `protocol` (`tcp`, `udp`, `tcp/udp`, `all`), `externalPort` (`8080` or `8000-8100`),
-  `forwardIp`, `forwardPort`; each is a `PortForward` on `wan` with `passes_filter=True`.
+- **Rules**: `GET …/sites/{siteId}/acls/osg-config-mode` (`mode` 0 profiles, 1 custom) decides.
+  Profile mode: `…/acls/osg-acls`, sorted by `index`: `description` (the name), `status`,
+  `policy` (0 drop, 1 allow), `protocols` (IP protocol numbers, section 5.5 of the Open API
+  guide; 256 or 0 all *(guess)*), `sourceType`/`sourceIds` and `destinationType`/`destinationIds`
+  (0 LAN networks; 1 IP group, 2 IP-port group, 4 SSID, 6 IPv6 are not resolved and make the
+  rule `exact=False`), `timeRangeId` (a schedule: `exact=False`), `direction`: `lanToWan` (LAN
+  zones to `wan`), `lanToLan`, `wanInIds` (`wan` to LAN zones); one rule per direction. `vpnInIds`
+  is not modelled. Custom mode: `…/acls/osg-custom-acls`: `direction` 0 LAN-LAN, 1 LAN-WAN,
+  2 WAN-LAN, 3 LOCAL IN (to the gateway), `policy`, `protocol`, `sourceList`/`destinationList`
+  (addresses or networks; anything else, such as a group id, makes the rule inexact) and the
+  ports as text (`80` or `80-81`).
+- **Port forwards**: `GET …/sites/{siteId}/nat/port-forwardings`: `name`, `status`, `from`
+  (0 anywhere, 1 only `limitedAddresses`), `externalPort` (`8080` or `8000-8100`), `forwardIp`,
+  `forwardPort`, `protocol` (0 all, 1 TCP, 2 UDP) and `dMZ` (an exposed host: no ports); each is
+  a `PortForward` on `wan` with `passes_filter=True`. WAN port, virtual WAN and WAN alias
+  restrictions (`interfaceWanPortId`, `virtualWanId`, `wanIps`) are not mapped.
 - A list the viewer role cannot read or the controller does not have is a gap and sets
   `rules_complete` or `port_forwards_complete` to `False`.
-- Not read: EAP ACLs (they filter by SSID), IP group contents, the VPN, DMZ and one-to-one NAT.
+- Not read: switch ACLs (`osw-acls`) and EAP ACLs (they filter by SSID), IP group contents, the
+  VPN, one-to-one NAT, the ACL `states` (the model is stateful anyway).
 
 ## DHCP leases, options and relay (#183)
 

@@ -1,20 +1,24 @@
 """Omada gateway ACLs and port forwarding as a firewall (#135, ADR 0013).
 
-Mapped from the controller's Open API description, not from a gateway (the CI site has none):
-the names of the fields are *(guess)* until a real site is read (#21). Parsing is tolerant: an
-unknown shape keeps the rule and makes it ``exact = False``, nothing is invented.
+Paths and field names are from the controller's own Open API description (6.3, recorded in CI by
+``tools/integration/omada/dump.py firewall``); the test site has no gateway, so no ACL or
+forward was ever read from a real one (#21). Parsing is tolerant: an unknown shape keeps the
+rule and makes it ``exact = False``, nothing is invented.
 
-Gateway ACLs (``…/sites/{siteId}/acls``, ``type`` gateway) have a ``policy`` (0 deny, 1 permit),
-``protocols`` (IP protocol numbers), a source and a destination (``sourceType`` and
-``sourceIds``, ``destinationType`` and ``destinationIds``: 0 LAN networks, anything else an IP
-group or IP-port group that is not resolved), a ``direction`` (``lanToWan``, ``lanToLan``,
-``wanInIds`` for WAN to LAN) and an ``index`` (the order). The gateway routes between its LAN
+``GET …/sites/{siteId}/acls/osg-acls`` (the gateway ACLs of the profile mode): ``description``
+(the name), ``status``, ``policy`` (0 drop, 1 allow), ``protocols`` (IP protocol numbers),
+``sourceType``/``sourceIds`` and ``destinationType``/``destinationIds`` (0 LAN networks; 1 IP
+group, 2 IP-port group, 4 SSID, 6 IPv6 groups are not resolved), ``direction`` (``lanToWan``,
+``lanToLan``, ``wanInIds``, ``vpnInIds``), ``timeRangeId`` and ``index`` (the order). In custom
+mode (``…/acls/osg-config-mode`` ``mode`` 1) ``…/acls/osg-custom-acls`` applies instead:
+``direction`` 0 LAN-LAN, 1 LAN-WAN, 2 WAN-LAN, 3 LOCAL IN, ``protocol``, ``sourceList`` and
+``destinationList``, ``sourcePort`` and ``destinationPort``. The gateway routes between its LAN
 networks and lets them out by default and keeps the internet out: those are the zone policies.
 """
 
 from __future__ import annotations
 
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from typing import Any
 
 from signalbox.model import (
@@ -96,13 +100,66 @@ def _ends(row: dict[str, Any], side: str, names: dict[str, str]) -> tuple[list[s
     return found, True
 
 
+def _name(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def custom_acl_rules(rows: list[dict[str, Any]], names: dict[str, str]) -> list[FirewallRule]:
+    """``osg-custom-acls`` (custom mode) in evaluation order: one rule each, the direction an
+    integer; address lists are only kept when they are addresses or networks."""
+    out: list[FirewallRule] = []
+    ordered = sorted(rows, key=lambda r: (_int(r.get("index")) is None, _int(r.get("index")) or 0))
+    lan = list(names.values())
+    for row in ordered:
+        policy, direction = _int(row.get("policy")), _int(row.get("direction"))
+        if policy not in (0, 1) or direction not in (0, 1, 2, 3):
+            continue  # 3: LOCAL IN (to the gateway itself) is below
+        exact = True
+        nets: dict[str, list[Any]] = {}
+        for side in ("source", "destination"):
+            found: list[Any] = []
+            for text in row.get(f"{side}List") or []:
+                try:
+                    found.append(ip_network(str(text), strict=False))
+                except ValueError:
+                    exact = False  # an IP group id or a name
+            nets[side] = found
+        ports = {side: _ports(row.get(f"{side}Port")) for side in ("source", "destination")}
+        protocol = _int(row.get("protocol"))
+        protocols = (
+            [] if protocol in (None, 0, 256) else [PROTOCOLS.get(protocol, FirewallProtocol.OTHER)]
+        )
+        if (ports["source"] or ports["destination"]) and not protocols:
+            protocols = [FirewallProtocol.TCP, FirewallProtocol.UDP]
+        source = [WAN] if direction == 2 else lan
+        destination = [WAN] if direction == 1 else lan
+        out.append(
+            FirewallRule(
+                name=_name(row.get("description")),
+                order=_int(row.get("index")),
+                enabled=_flag(row.get("status")),
+                chain=FirewallChain.INPUT if direction == 3 else FirewallChain.FORWARD,
+                protocols=protocols,
+                source=FirewallMatch(
+                    zones=source, networks=nets["source"], ports=ports["source"] or []
+                ),
+                destination=FirewallMatch(
+                    zones=[] if direction == 3 else destination,
+                    networks=nets["destination"],
+                    ports=ports["destination"] or [],
+                ),
+                action=FirewallAction.ACCEPT if policy == 1 else FirewallAction.DROP,
+                exact=exact,
+            )
+        )
+    return out
+
+
 def acl_rules(rows: list[dict[str, Any]], names: dict[str, str]) -> list[FirewallRule]:
     """Gateway ACLs in evaluation order (``index``); one rule for each direction of an ACL."""
     out: list[FirewallRule] = []
     ordered = sorted(rows, key=lambda r: (_int(r.get("index")) is None, _int(r.get("index")) or 0))
     for row in ordered:
-        if _int(row.get("type")) not in (None, 0):
-            continue  # switch and EAP ACLs belong to those devices
         policy = _int(row.get("policy"))
         if policy not in (0, 1):
             continue
@@ -111,7 +168,7 @@ def acl_rules(rows: list[dict[str, Any]], names: dict[str, str]) -> list[Firewal
         dst, dst_exact = _ends(row, "destination", names)
         protos = row.get("protocols")
         protocols: list[FirewallProtocol] = []
-        exact = src_exact and dst_exact
+        exact = src_exact and dst_exact and not row.get("timeRangeId")
         if isinstance(protos, list) and protos and all(isinstance(p, int) for p in protos):
             if not any(p in (0, 256) for p in protos):  # 256: all protocols
                 protocols = [PROTOCOLS.get(p, FirewallProtocol.OTHER) for p in protos]
@@ -132,7 +189,7 @@ def acl_rules(rows: list[dict[str, Any]], names: dict[str, str]) -> list[Firewal
         for source, destination in wanted:
             out.append(
                 FirewallRule(
-                    name=row.get("name") if isinstance(row.get("name"), str) else None,
+                    name=_name(row.get("description") or row.get("name")),
                     order=_int(row.get("index")),
                     enabled=_flag(row.get("status")),
                     chain=FirewallChain.FORWARD,
@@ -163,36 +220,48 @@ def _ports(value: Any) -> list[PortRange] | None:
 
 
 def port_forwards(rows: list[dict[str, Any]]) -> list[PortForward]:
-    """``…/nat/port-forwardings``: ``externalPort``, ``forwardIp``, ``forwardPort``,
-    ``protocol`` (``tcp``, ``udp``, ``all``/``tcp/udp``) and ``status``; the filter lets them
-    through by itself."""
+    """``…/nat/port-forwardings``: ``name``, ``status``, ``from`` (0 anywhere, 1 only
+    ``limitedAddresses``), ``externalPort`` (``8080`` or ``8000-8100``), ``forwardIp``,
+    ``forwardPort``, ``protocol`` (0 all, 1 TCP, 2 UDP) and ``dMZ`` (an exposed host); the
+    filter lets them through by itself."""
     out: list[PortForward] = []
     for row in rows:
         try:
             target = ip_address(str(row.get("forwardIp", "")).strip())
         except ValueError:
             continue
-        text = str(row.get("protocol", "")).lower().replace(" ", "")
+        number = _int(row.get("protocol"))
+        proto = 0 if row.get("protocol") is None else (-1 if number is None else number)
         protocols = {
-            "tcp": [FirewallProtocol.TCP],
-            "udp": [FirewallProtocol.UDP],
-            "tcp/udp": [FirewallProtocol.TCP, FirewallProtocol.UDP],
-            "all": [FirewallProtocol.TCP, FirewallProtocol.UDP],
-        }.get(text)
+            0: [FirewallProtocol.TCP, FirewallProtocol.UDP],
+            1: [FirewallProtocol.TCP],
+            2: [FirewallProtocol.UDP],
+        }.get(proto)
+        exposed = row.get("dMZ") is True
         external = _ports(row.get("externalPort"))
         internal = _ports(row.get("forwardPort"))
+        sources: list[Any] = []
+        exact = protocols is not None
+        if _int(row.get("from")) == 1:
+            for text in row.get("limitedAddresses") or []:
+                try:
+                    sources.append(ip_network(str(text), strict=False))
+                except ValueError:
+                    exact = False
+        if not exposed and external is None:
+            exact = False
         out.append(
             PortForward(
-                name=row.get("name") if isinstance(row.get("name"), str) else None,
+                name=_name(row.get("name")),
                 enabled=_flag(row.get("status")),
-                protocols=protocols or [],
+                protocols=[] if exposed else protocols or [],
                 zones=[WAN],
-                external_ports=external or [],
+                external_ports=[] if exposed else external or [],
+                sources=sources,
                 target_address=target,
-                target_port=internal[0].start if internal else None,
+                target_port=None if exposed or not internal else internal[0].start,
                 passes_filter=True,
-                exact=protocols is not None
-                and (external is not None or not row.get("externalPort")),
+                exact=exact,
             )
         )
     return out

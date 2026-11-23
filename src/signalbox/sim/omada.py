@@ -394,11 +394,10 @@ def sample_data() -> dict[str, Any]:
         ],
         # gateway ACLs and port forwarding (#135): the field names follow the controller's Open
         # API description as far as it was read, the values are the simulator's own *(guess)*
-        f"{SITE}/acls": [
+        f"{SITE}/acls/osg-acls": [
             {
                 "id": "acl-1",
-                "name": "IoT must not reach the LAN",
-                "type": 0,
+                "description": "IoT must not reach the LAN",
                 "status": True,
                 "policy": 0,
                 "protocols": [256],
@@ -411,8 +410,7 @@ def sample_data() -> dict[str, Any]:
             },
             {
                 "id": "acl-2",
-                "name": "Allow web to the NAS",
-                "type": 0,
+                "description": "Allow web to the NAS",
                 "status": True,
                 "policy": 1,
                 "protocols": [6],
@@ -425,8 +423,7 @@ def sample_data() -> dict[str, Any]:
             },
             {
                 "id": "acl-3",
-                "name": "Guests out: no UDP",
-                "type": 0,
+                "description": "Guests out: no UDP",
                 "status": False,
                 "policy": 0,
                 "protocols": [17],
@@ -437,14 +434,30 @@ def sample_data() -> dict[str, Any]:
                 "direction": {"lanToWan": True, "lanToLan": False, "wanInIds": []},
                 "index": 2,
             },
-            {"id": "acl-sw", "name": "A switch ACL", "type": 1, "policy": 0, "index": 0},
+        ],
+        f"{SITE}/acls/osg-config-mode": {"mode": 0},
+        f"{SITE}/acls/osg-custom-acls": [
+            {
+                "id": "cacl-1",
+                "index": 0,
+                "status": True,
+                "description": "Block the printer from the internet",
+                "direction": 1,
+                "policy": 0,
+                "protocol": 6,
+                "sourceList": ["192.0.2.10"],
+                "sourcePort": "",
+                "destinationList": ["group-any"],
+                "destinationPort": "443",
+            }
         ],
         f"{SITE}/nat/port-forwardings": [
             {
                 "id": "pf-1",
                 "name": "NAS",
                 "status": True,
-                "protocol": "tcp",
+                "protocol": 1,
+                "from": 0,
                 "externalPort": "8443",
                 "forwardIp": "192.0.2.20",
                 "forwardPort": "443",
@@ -453,7 +466,7 @@ def sample_data() -> dict[str, Any]:
                 "id": "pf-2",
                 "name": "Game server",
                 "status": True,
-                "protocol": "tcp/udp",
+                "protocol": 0,
                 "externalPort": "27015-27020",
                 "forwardIp": "192.0.2.30",
                 "forwardPort": "27015",
@@ -462,10 +475,22 @@ def sample_data() -> dict[str, Any]:
                 "id": "pf-3",
                 "name": "Off",
                 "status": False,
-                "protocol": "udp",
+                "protocol": 2,
                 "externalPort": "5060",
                 "forwardIp": "192.0.2.40",
                 "forwardPort": "5060",
+            },
+            {
+                "id": "pf-4",
+                "name": "Exposed host",
+                "status": True,
+                "protocol": 0,
+                "from": 1,
+                "limitedAddresses": ["203.0.113.0/24"],
+                "externalPort": "",
+                "forwardIp": "192.0.2.50",
+                "forwardPort": "",
+                "dMZ": True,
             },
         ],
         f"{SITE}/lan-profiles": [
