@@ -39,7 +39,7 @@ INTEGRATION_SHARED = (
 )
 
 DOCS = ("docs/*", "*.md", ".github/ISSUE_TEMPLATE/*")
-PYTHON_VERSIONS = ("3.11", "3.12", "3.13")
+PYTHON_VERSIONS = ("3.11", "3.12", "3.13", "3.15")
 CORE = (
     "src/signalbox/*.py",
     "src/signalbox/rules/*",
