@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- AdGuard Home and Pi-hole: Pi-hole clients (network table), the DNS server DHCP hands out (both hand out themselves unless Pi-hole's `dnsmasq_lines` say otherwise), and discovery probes for both (`/control/status`, `/api/info/login`); AdGuard IP-only clients stay unlisted (the model keys clients by MAC); unconfirmed on real devices (#314, #21)
 - Automatic setup shows the step that is running: apply runs as a background job (`POST /api/devices/setup/jobs`, polled `GET .../jobs/{id}`) and the UI lists each step as waiting, running now, done or failed with its message; the admin password is only in the start request, never in the job (#316)
 - Translations: the findings of all rules (except the firewall rules) and the HTTPS/SSH transport errors carry message ids with German texts; English wording of some findings changed (comma lists, short time units, arrows for links) (#204)
 - AdGuard Home and Pi-hole v6 as read-only devices (role other): DNS service and port, upstream servers as forwarders, DHCP server with leases and reservations, local DNS records, configured clients (AdGuard Home); Pi-hole v5 is reported with a fix; simulator-tested, not yet confirmed on real devices (#304, #241)
