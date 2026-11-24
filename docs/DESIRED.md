@@ -129,6 +129,46 @@ sites:
 - *Import what the devices report* exports the zone policies the devices state explicitly and
   the rules and forwards Signalbox created, not the device's own rules.
 
+## Logging and SNMP
+
+Where the devices of a site send their syslog, and whether their SNMP agent runs (#327,
+[ADR 0021](adr/0021-logging-and-snmp-desired-state.md)). Written on OpenWrt and MikroTik;
+other integrations refuse a plan with logging changes for now. Off like every write: it needs
+`deploy.enabled`, *Allow changes* on the device and the per-plan approval.
+
+```yaml
+sites:
+  home:
+    logging:
+      syslog:                       # every device named below (or every read device) sends here
+        - {address: 192.0.2.5, port: 514, transport: udp}   # port default 514; udp or tcp
+      snmp: off                     # off, or v3-only (see below)
+      devices: [gateway, ap-1]      # default: every device of the site whose log targets are read
+      adopt: [192.0.2.9]            # the devices' own targets Signalbox may change or remove
+      overrides:
+        - device: ap-1              # replaces a setting for one device ([] means none)
+          syslog: [{address: 198.51.100.7, transport: tcp}]
+          snmp: off
+```
+
+- **Ownership**: Signalbox changes or removes only a target it created (OpenWrt: the option
+  `signalbox_syslog` in the `system` section; MikroTik: an action named `signalbox<address>`
+  with its logging rules) and a target of the device's own whose address is under `adopt`. A
+  declared target at an address where the device has its own, different one is refused with the
+  hint (`adopt`); a device's other targets are never touched. `syslog: []` removes the targets
+  Signalbox created (and adopted ones); leaving `syslog` out manages nothing.
+- **One target per address**; OpenWrt's logd has one slot, so there at most one target can be
+  declared. `transport` is `udp` or `tcp`; syslog over TLS is read but not written.
+- **`snmp: off`** switches the agent off (`snmpd` on OpenWrt, `/snmp` on MikroTik); the revert
+  switches it on again. **`snmp: v3-only`** is compared (an agent that answers v1 or v2c is
+  drift) but not written: creating SNMPv3 users needs secrets Signalbox does not handle; the
+  plan is refused with that reason. An agent that is off satisfies both. Communities and
+  passwords are never read into the model, shown, or stored.
+- *Import what the devices report* exports each device's syslog targets under `overrides`
+  (all of them listed under `adopt`, so they can be edited) and `snmp: off` for an agent that
+  is switched off. `devices: []` keeps the site-wide settings from applying to anything until
+  you write some.
+
 ## Network purposes
 
 `purpose` says what a segment or SSID is for: `main`, `guest`, `iot`, `management`, `servers`,
@@ -156,6 +196,7 @@ device does not report it the finding is incomplete. Deployments write it on Ope
 | `drift.segment` | segment exists, name, purpose against a reported one, router address, DHCP on/off, pool, DNS servers, lease time, reservations |
 | `drift.wlan` | SSID present on each access point, security, PMF, VLAN, hidden, on/off, 802.11r/k/v, client isolation, purpose against a reported one, passphrase (by fingerprint against the stored secret) |
 | `drift.port` | untagged and tagged VLANs of each declared port |
+| `drift.logging` | the declared syslog targets of each device (address, port, transport, sent at all), targets Signalbox created or was told to adopt that are no longer declared, and the SNMP agent (off, or v3-only) |
 | `drift.firewall` | every declared zone policy (the action the device applies), rule and port forward Signalbox created (all fields), and tagged ones that are no longer declared; a reference to a zone or segment that does not resolve |
 
 A device that was not read gives an "incomplete" finding instead. An unreadable desired-state

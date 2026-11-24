@@ -144,6 +144,8 @@ def test_manifest_declares_what_it_writes() -> None:
         ChangeKind.ZONE_POLICY,
         ChangeKind.FIREWALL_RULE,
         ChangeKind.PORT_FORWARD,
+        ChangeKind.LOG_TARGET,
+        ChangeKind.SNMP_POLICY,
     }
     assert issubclass(OpenWrtAdapter, WritesConfig)
 
@@ -662,7 +664,13 @@ async def test_backup_and_restore_round_trip(
     before = committed(sim)
     backup = await adapter.backup()
     assert backup.format == BACKUP_FORMAT and backup.device_id == DEV
-    assert set(json.loads(backup.content)) == {"network", "wireless", "dhcp", "firewall"}
+    assert set(json.loads(backup.content)) == {
+        "network",
+        "wireless",
+        "dhcp",
+        "firewall",
+        "system",
+    }
     net = await network(url)
     pid = f"{DEV}/port/lan1"
     printer = ReservationValue(
@@ -704,7 +712,7 @@ async def test_restore_while_our_change_waits_rolls_it_back(
     [
         ("fake-json", "{}", "not an OpenWrt backup"),
         (BACKUP_FORMAT, "{", "not valid JSON"),
-        (BACKUP_FORMAT, '{"system": {}}', "does not hold UCI configs"),
+        (BACKUP_FORMAT, '{"rpcd": {}}', "does not hold UCI configs"),
         (BACKUP_FORMAT, "[]", "does not hold UCI configs"),
     ],
 )

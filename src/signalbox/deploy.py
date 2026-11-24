@@ -34,10 +34,12 @@ from signalbox.changes import (
     WlanValue,
     observed_dhcp,
     observed_forward,
+    observed_log_target,
     observed_policy,
     observed_port,
     observed_router,
     observed_rule,
+    observed_snmp,
     observed_wlan,
     revert_plan,
 )
@@ -83,6 +85,10 @@ def current_value(net: Network, c: Change) -> Any:
         return observed_rule(net, c.device_id, c.key, c.adopt)
     if c.kind is ChangeKind.PORT_FORWARD:
         return observed_forward(net, c.device_id, c.key, c.adopt)
+    if c.kind is ChangeKind.LOG_TARGET:
+        return observed_log_target(net, c.device_id, c.key, c.adopt)
+    if c.kind is ChangeKind.SNMP_POLICY:
+        return observed_snmp(net, c.device_id)
     return observed_wlan(net, c.device_id, c.key)
 
 

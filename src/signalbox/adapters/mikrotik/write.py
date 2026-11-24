@@ -21,6 +21,7 @@ How a change is translated (details and open questions in ``docs/adapters/mikrot
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import time
@@ -40,7 +41,7 @@ from signalbox.adapters import (
     message_fields,
 )
 from signalbox.adapters.https import NotFound
-from signalbox.adapters.mikrotik import fwwrite
+from signalbox.adapters.mikrotik import fwwrite, logwrite
 from signalbox.changes import (
     Change,
     ChangeKind,
@@ -156,6 +157,7 @@ _READ_ONLY = {
     "active-agent-remote-id",
     "agent-circuit-id",
     "agent-remote-id",
+    "default",
 }
 
 
@@ -176,6 +178,8 @@ def _menus() -> tuple[str, ...]:
         m.FW_FILTER,
         m.FW_FILTER6,
         m.FW_NAT,
+        m.LOG_ACTION,
+        m.LOG_RULES,
     )
 
 
@@ -216,6 +220,8 @@ class _Op:
             return self.menu
         if self.method == "POST":
             return f"{self.menu}/unset"
+        if self.method == "SET":  # a single-value menu (/snmp)
+            return f"{self.menu}/set"
         return f"{self.menu}/{self.ref}"
 
     def call(self) -> VendorCall:
@@ -403,6 +409,10 @@ class MikrotikWrites:
                 fwwrite.zone_policy(cfg, c, cfg.revert)
             elif c.kind is ChangeKind.PORT_FORWARD:
                 fwwrite.port_forward(cfg, c, cfg.revert)
+            elif c.kind is ChangeKind.LOG_TARGET:
+                logwrite.log_target(cfg, c, cfg.revert)
+            elif c.kind is ChangeKind.SNMP_POLICY:
+                await self._snmp_policy(cfg, c)
             else:
                 if not wifi:
                     raise AdapterError(
@@ -411,6 +421,17 @@ class MikrotikWrites:
                     )
                 await self._wlan(cfg, layout, c, secrets, strict)
         return cfg
+
+    async def _snmp_policy(self, cfg: _Config, c: Change) -> None:
+        from signalbox.adapters import mikrotik as m
+
+        try:
+            conf = m._object(await m.get_menu(self.http, m.SNMP), m.SNMP)
+        except NotFound:
+            raise AdapterError("the router has no /snmp menu to change") from None
+        body = logwrite.snmp_policy(c, _flag(conf.get("enabled")), cfg.revert)
+        if body is not None:
+            cfg.ops.append(_Op("SET", m.SNMP, None, body, "switch the SNMP agent"))
 
     # WritesConfig -----------------------------------------------------------------------------
 
@@ -454,7 +475,7 @@ class MikrotikWrites:
         """Remove the revert timer. Gone already: it ran, and undid the change."""
         if not await self._disarm_revert():
             raise AdapterError(
-                "the revert timer of the firewall change is gone: it ran before the change was "
+                "the revert timer of the change is gone: it ran before the change was "
                 "confirmed, so the router has the old rules again"
             )
 
@@ -519,7 +540,12 @@ class MikrotikWrites:
             raise
         except AdapterError:  # only for people; the snapshot is what restore uses
             export = None
-        content = json.dumps({"version": 1, "export": export, "menus": menus}, sort_keys=True)
+        snmp: str | None = None
+        with contextlib.suppress(AdapterError):  # no /snmp menu: nothing to restore
+            snmp = _text(m._object(await m.get_menu(self.http, m.SNMP), m.SNMP).get("enabled"))
+        content = json.dumps(
+            {"version": 1, "export": export, "menus": menus, "snmp_enabled": snmp}, sort_keys=True
+        )
         return Backup(
             device_id=self.context.device_id,
             taken_at=datetime.now(UTC),
@@ -535,6 +561,8 @@ class MikrotikWrites:
             assert isinstance(saved, dict)
         except (ValueError, KeyError, TypeError, AssertionError):
             raise AdapterError("the backup holds no menu snapshot; it cannot be restored") from None
+        from signalbox.adapters import mikrotik as m
+
         await self._disarm_revert()  # the timer must not undo a change that is restored now
         cfg, _ = await self._snapshot()
         order = [m for m in _menus() if isinstance(saved.get(m), list)]
@@ -563,6 +591,15 @@ class MikrotikWrites:
                         cfg.patch(menu, have, {prop: "false"}, f"restore: enable {_label(old)}")
                     elif prop not in want:
                         cfg.unset(menu, have, prop, f"restore: unset {prop} of {_label(old)}")
+        saved_snmp = json.loads(backup.content).get("snmp_enabled")
+        if isinstance(saved_snmp, str) and saved_snmp:
+            try:
+                now = _text(m._object(await m.get_menu(self.http, m.SNMP), m.SNMP).get("enabled"))
+            except AdapterError:
+                now = saved_snmp
+            if _flag(now) != _flag(saved_snmp):
+                body = {"enabled": "true" if _flag(saved_snmp) else "false"}
+                cfg.ops.append(_Op("SET", m.SNMP, None, body, "restore: SNMP agent"))
         await self._send(cfg.ops, {})
         self._cache.clear()
         self._layout_cache = None
@@ -583,16 +620,19 @@ class MikrotikWrites:
             body: dict[str, Any] = dict(op.body)
             if "place-before" in body:
                 body["place-before"] = ids.get(body["place-before"], body["place-before"])
-            if op.method == "POST":
+            if op.method == "SET":  # a single-value menu: POST <menu>/set
+                path = f"{op.menu}/set"
+            elif op.method == "POST":
                 body["numbers"] = ref
                 path = f"{op.menu}/unset"
-            elif op.method == "PUT":
+            elif op.method == "PUT" or ref is None:
                 path = op.menu
             else:
                 path = f"{op.menu}/{ref}"
             kw: dict[str, Any] = {} if op.method == "DELETE" else {"json": body}
+            verb = "POST" if op.method == "SET" else op.method
             try:
-                response = await self.http.request(op.method, path, accept=(400, 500), **kw)
+                response = await self.http.request(verb, path, accept=(400, 500), **kw)
             except AdapterError as exc:
                 raise AdapterError(scrub(f"{op.description}: {exc}")) from None
             if response.status_code >= 400:
@@ -1219,11 +1259,9 @@ def _revert_op(revert: fwwrite.Revert, when: str) -> _Op:
         "interval": "0s",
         "policy": fwwrite.REVERT_POLICY,
         "on-event": revert.script(),
-        "comment": "signalbox: undoes the firewall change unless it is confirmed",
+        "comment": "signalbox: undoes the change unless it is confirmed",
     }
-    return _Op(
-        "PUT", SCHEDULER, "revert-timer", body, "arm the revert timer of the firewall change"
-    )
+    return _Op("PUT", SCHEDULER, "revert-timer", body, "arm the revert timer of the change")
 
 
 def _iface(row: dict[str, Any]) -> str:

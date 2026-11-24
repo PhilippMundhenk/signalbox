@@ -463,6 +463,10 @@ class LogTarget(Model):
     #: What is sent, in the device's words: syslog facilities, levels or topics, flow
     #: versions (``v9``), metric plugins. Empty: all or not known.
     topics: list[str] = Field(default_factory=list)
+    #: Signalbox created it (a desired state's ``logging``, #327): the device carries its tag
+    #: (OpenWrt ``signalbox_syslog`` option, MikroTik action named ``signalbox-...``). Only a
+    #: managed target is changed or removed without ``adopt``.
+    managed: bool = False
 
     @field_validator("address")
     @classmethod

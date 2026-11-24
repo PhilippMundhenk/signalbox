@@ -1394,6 +1394,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     enabled=name in topics,
                     name=name or None,
                     topics=topics.get(name, []),
+                    managed=name.startswith("signalbox"),
                 )
             )
         flow = await self._optional_object(TRAFFIC_FLOW)

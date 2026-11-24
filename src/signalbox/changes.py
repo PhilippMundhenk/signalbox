@@ -27,10 +27,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from signalbox import firewall as reachability
 from signalbox.desired import (
     DesiredState,
+    EffectiveLogging,
     EndpointSpec,
     FirewallSpec,
     SegmentRef,
     ZoneRef,
+    effective_logging,
     firewall_key,
     seg_key,
     seg_sid,
@@ -48,6 +50,9 @@ from signalbox.model import (
     IPAddress,
     IPInterface,
     IPNetwork,
+    LogKind,
+    LogTarget,
+    LogTransport,
     Membership,
     Network,
     Pmf,
@@ -58,6 +63,9 @@ from signalbox.model import (
     Reservation,
     Security,
     Segment,
+    ServiceKind,
+    SnmpSettings,
+    SnmpVersion,
     Subnet,
     Verdict,
     Wlan,
@@ -80,12 +88,18 @@ class ChangeKind(StrEnum):
     ZONE_POLICY = "zone-policy"  # default action between two firewall zones (#295)
     FIREWALL_RULE = "firewall-rule"  # one filter rule Signalbox owns
     PORT_FORWARD = "port-forward"  # one port forward (destination NAT) Signalbox owns
+    LOG_TARGET = "log-target"  # one remote syslog target of a device (#327)
+    SNMP_POLICY = "snmp-policy"  # the state of the SNMP agent of a device (#327)
 
 
 #: Kinds that change a device's firewall: their plans are checked for lost management access.
 FIREWALL_KINDS = frozenset(
     {ChangeKind.ZONE_POLICY, ChangeKind.FIREWALL_RULE, ChangeKind.PORT_FORWARD}
 )
+
+
+#: Kinds that change where a device logs to or what its SNMP agent does (#327).
+LOGGING_KINDS = frozenset({ChangeKind.LOG_TARGET, ChangeKind.SNMP_POLICY})
 
 
 class Value(BaseModel):
@@ -168,6 +182,25 @@ class PortForwardValue(Value):
     target_port: int | None = None
 
 
+class LogTargetValue(Value):
+    """A remote syslog target; the key of its change is ``syslog/<address>``."""
+
+    address: str
+    port: int = 514
+    transport: LogTransport = LogTransport.UDP
+    #: Sent at all (a target that is configured but switched off is not enabled).
+    enabled: bool = True
+
+
+class SnmpPolicyValue(Value):
+    """The state of a device's SNMP agent. Never a community or a password.
+
+    ``on``: the agent answers (v1/v2c, or unreported versions), ``v3-only``: only SNMPv3,
+    ``off``: no agent runs. The writers set ``off`` (and ``on``, to revert it)."""
+
+    mode: Literal["on", "v3-only", "off"]
+
+
 VALUE_TYPES: dict[ChangeKind, type[Value]] = {
     ChangeKind.ROUTER: RouterValue,
     ChangeKind.DHCP: DhcpValue,
@@ -177,6 +210,8 @@ VALUE_TYPES: dict[ChangeKind, type[Value]] = {
     ChangeKind.ZONE_POLICY: ZonePolicyValue,
     ChangeKind.FIREWALL_RULE: FirewallRuleValue,
     ChangeKind.PORT_FORWARD: PortForwardValue,
+    ChangeKind.LOG_TARGET: LogTargetValue,
+    ChangeKind.SNMP_POLICY: SnmpPolicyValue,
 }
 #: Order in which kinds are applied when objects are created or changed; removals run reversed.
 PHASE = {
@@ -188,6 +223,8 @@ PHASE = {
     ChangeKind.ZONE_POLICY: 5,
     ChangeKind.FIREWALL_RULE: 6,
     ChangeKind.PORT_FORWARD: 7,
+    ChangeKind.LOG_TARGET: 8,
+    ChangeKind.SNMP_POLICY: 9,
 }
 
 AnyValue = (
@@ -199,6 +236,8 @@ AnyValue = (
     | ZonePolicyValue
     | FirewallRuleValue
     | PortForwardValue
+    | LogTargetValue
+    | SnmpPolicyValue
 )
 
 
@@ -215,7 +254,8 @@ class Change(BaseModel):
     #: Why this change could cut a device off (shown in the review; needs a confirm timer).
     risk: str | None = None
     #: The device's own object (not created by Signalbox) this change may take over or
-    #: remove: the name of an adopted rule or forward, or the zone pair of a forwarding (#295).
+    #: remove: the name of an adopted rule or forward, or the zone pair of a forwarding (#295),
+    #: or the address of a syslog target the device had before (#327).
     adopt: str | None = None
 
     @model_validator(mode="after")
@@ -579,6 +619,175 @@ def firewall_changes(net: Network, site_id: str, spec: FirewallSpec) -> list[Cha
     return out
 
 
+# logging and SNMP (#327) ----------------------------------------------------------------------
+
+#: Where syslog goes when the declaration does not say.
+LOG_PORT = 514
+
+
+def _log_value(t: LogTarget) -> LogTargetValue:
+    return LogTargetValue(
+        address=t.address,
+        port=t.port or LOG_PORT,
+        transport=t.transport or LogTransport.UDP,
+        enabled=t.enabled,
+    )
+
+
+def _syslog_of(net: Network, device_id: str) -> list[LogTarget]:
+    dev = net.device(device_id)
+    return [t for t in (dev.log_targets if dev else None) or [] if t.kind is LogKind.SYSLOG]
+
+
+def observed_log_target(
+    net: Network, device_id: str, key: str, adopt: str | None
+) -> LogTargetValue | None:
+    """The syslog target ``syslog/<address>`` Signalbox created, or the device's own that the
+    change adopts; ``None`` for any other (the device's own are not Signalbox's to compare)."""
+    address = key.partition("/")[2]
+    for t in _syslog_of(net, device_id):
+        if t.address == address and (t.managed or adopt == address):
+            return _log_value(t)
+    return None
+
+
+def observed_snmp(net: Network, device_id: str) -> SnmpPolicyValue | None:
+    """The agent as ``on``, ``v3-only`` or ``off`` (no agent at all is off); ``None``: the
+    device's monitoring settings were not read."""
+    dev = net.device(device_id)
+    if dev is None or dev.log_targets is None:
+        return None
+    agent = next((s for s in net.services_of(device_id) if s.kind is ServiceKind.SNMP), None)
+    if agent is None or not agent.enabled:
+        return SnmpPolicyValue(mode="off")
+    versions = agent.snmp.versions if agent.snmp else []
+    return SnmpPolicyValue(mode="v3-only" if versions == [SnmpVersion.V3] else "on")
+
+
+def _log_change(
+    device: str,
+    site_id: str,
+    address: str,
+    old: LogTargetValue | None,
+    new: LogTargetValue | None,
+    adopt: str | None,
+) -> Change:
+    return Change(
+        kind=ChangeKind.LOG_TARGET,
+        device_id=device,
+        site_id=site_id,
+        key=f"syslog/{address}",
+        old=old,
+        new=new,
+        adopt=adopt,
+    )
+
+
+def logging_changes(net: Network, site_id: str, eff: EffectiveLogging) -> list[Change]:
+    """The changes that make one device's syslog targets and SNMP agent match the declaration.
+
+    Only targets Signalbox created (``managed``) or the declaration adopts are changed or
+    removed; the device's other targets are left alone, and a declared target at an address
+    where the device has its own, different one is refused until it is adopted."""
+    dev = net.device(eff.device)
+    if dev is None:
+        raise PlanError(f"device {eff.device} is not configured or has not been read yet")
+    if dev.log_targets is None:
+        raise PlanError(f"the log targets and SNMP agent of {eff.device} have not been read")
+    out: list[Change] = []
+    have = _syslog_of(net, eff.device)
+    if eff.syslog is not None:
+        wanted = []
+        for d in eff.syslog:
+            new = LogTargetValue(
+                address=d.address, port=d.port or LOG_PORT, transport=LogTransport(d.transport)
+            )
+            wanted.append(d.address)
+            old_t = next((t for t in have if t.address == d.address), None)
+            if old_t is None:
+                out.append(_log_change(eff.device, site_id, d.address, None, new, None))
+                continue
+            old = _log_value(old_t)
+            if old == new:
+                continue
+            if not old_t.managed and d.address not in eff.adopt:
+                raise PlanError(
+                    f"{eff.device} sends syslog to {d.address} ({old.transport.value} port "
+                    f"{old.port}) and Signalbox did not set that up: list the address under "
+                    "`adopt` to let a deployment change it"
+                )
+            adopt = None if old_t.managed else d.address
+            out.append(_log_change(eff.device, site_id, d.address, old, new, adopt))
+        for t in have:
+            if t.address not in wanted and (t.managed or t.address in eff.adopt):
+                adopt = None if t.managed else t.address
+                out.append(_log_change(eff.device, site_id, t.address, _log_value(t), None, adopt))
+    if eff.snmp is not None:
+        now = observed_snmp(net, eff.device)
+        assert now is not None
+        # off is stricter than v3-only: an agent that is off already satisfies both
+        if now.mode != "off" and (eff.snmp == "off" or now.mode == "on"):
+            out.append(
+                Change(
+                    kind=ChangeKind.SNMP_POLICY,
+                    device_id=eff.device,
+                    site_id=site_id,
+                    key="snmp",
+                    old=now,
+                    new=SnmpPolicyValue(mode=eff.snmp),
+                )
+            )
+    return out
+
+
+def _apply_logging(net: Network, c: Change) -> Network:
+    """A logging change on the predicted network."""
+    if c.kind is ChangeKind.LOG_TARGET:
+        address = c.key.partition("/")[2]
+        dev = net.device(c.device_id)
+        if dev is None or dev.log_targets is None:  # pragma: no cover - the planner refuses
+            return net
+        targets = [
+            t
+            for t in dev.log_targets
+            if not (
+                t.kind is LogKind.SYSLOG
+                and t.address == address
+                and (t.managed or c.adopt == address)
+            )
+        ]
+        if isinstance(c.new, LogTargetValue):
+            targets.append(
+                LogTarget(
+                    kind=LogKind.SYSLOG,
+                    address=c.new.address,
+                    port=c.new.port,
+                    transport=c.new.transport,
+                    enabled=c.new.enabled,
+                    name="signalbox",
+                    managed=True,
+                )
+            )
+        devices = [
+            d.model_copy(update={"log_targets": targets}) if d.id == c.device_id else d
+            for d in net.devices
+        ]
+        return net.model_copy(update={"devices": devices})
+    services = []
+    for svc in net.services:
+        if svc.device_id == c.device_id and svc.kind is ServiceKind.SNMP:
+            mode = c.new.mode if isinstance(c.new, SnmpPolicyValue) else "off"
+            update: dict[str, Any] = {"enabled": mode != "off"}
+            if mode == "v3-only":
+                base = svc.snmp or SnmpSettings()
+                update["snmp"] = base.model_copy(
+                    update={"versions": [SnmpVersion.V3], "default_community": False}
+                )
+            svc = svc.model_copy(update=update)
+        services.append(svc)
+    return net.model_copy(update={"services": services})
+
+
 # planner --------------------------------------------------------------------------------------
 
 SecretLookup = Callable[[str], str | None]
@@ -741,6 +950,13 @@ def changes_for(
                     )
         for fws in spec.firewalls:
             out += firewall_changes(net, site_id, fws)
+        if spec.logging is not None:
+            ids = [d.id for d in net.devices if d.site_id == site_id]
+            for eff in effective_logging(spec.logging, ids):
+                known = net.device(eff.device)
+                if not eff.explicit and (known is None or known.log_targets is None):
+                    continue  # a device whose integration does not read this: not touched
+                out += logging_changes(net, site_id, eff)
     return out
 
 
@@ -912,6 +1128,8 @@ def _apply(net: Network, c: Change) -> Network:
         return net.model_copy(update={"segments": segs, "ports": ports})
     if c.kind in FIREWALL_KINDS:
         return _apply_firewall(net, c)
+    if c.kind in LOGGING_KINDS:
+        return _apply_logging(net, c)
     # WLAN
     wl = [w for w in net.wlans if not (w.device_id == c.device_id and w.ssid == c.key)]
     if isinstance(c.new, WlanValue):

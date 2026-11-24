@@ -44,6 +44,8 @@ from signalbox.model import (
     IPAddress,
     IPInterface,
     IPNetwork,
+    LogKind,
+    LogTransport,
     Membership,
     Network,
     Pmf,
@@ -51,6 +53,7 @@ from signalbox.model import (
     PurposeSource,
     Security,
     SegmentPurpose,
+    ServiceKind,
     annotation_target,
     check_expected,
     is_native_segment,
@@ -416,6 +419,101 @@ class FirewallSpec(Spec):
     forwards: list[ForwardSpec] = Field(default_factory=list)
 
 
+# logging and SNMP (#327) -----------------------------------------------------------------------
+
+SnmpPolicy = Literal["off", "v3-only"]
+
+
+def _snmp_word(value: Any) -> Any:
+    """YAML 1.1 reads an unquoted ``off`` as false: that is the word the user wrote."""
+    return "off" if value is False else value
+
+
+class SyslogSpec(Spec):
+    """One remote syslog target of a device."""
+
+    address: str = Field(description="IP address or host name of the collector")
+    port: Annotated[int, Field(ge=1, le=65535)] | None = Field(None, description="Default 514")
+    transport: Literal["udp", "tcp"] = "udp"
+
+    @field_validator("address")
+    @classmethod
+    def _address(cls, value: str) -> str:
+        value = value.strip().removeprefix("[").removesuffix("]")
+        if not value:
+            raise ValueError("empty address")
+        return value
+
+
+class DeviceLoggingSpec(Spec):
+    """Logging of one device where it differs from the site's."""
+
+    device: str
+    syslog: list[SyslogSpec] | None = Field(
+        None, description="Replaces the site's targets for this device; [] means none"
+    )
+    snmp: SnmpPolicy | None = None
+    adopt: list[str] | None = Field(
+        None, description="Addresses of the device's own syslog targets Signalbox may change"
+    )
+
+    _word = field_validator("snmp", mode="before")(_snmp_word)
+
+
+class LoggingSpec(Spec):
+    """Where the devices of a site send their logs, and what their SNMP agents may do (#327,
+    ADR 0021). Only syslog targets Signalbox created (or ``adopt`` names) are changed."""
+
+    syslog: list[SyslogSpec] | None = Field(
+        None, description="Remote syslog targets of every device; [] means none"
+    )
+    snmp: SnmpPolicy | None = Field(
+        None, description="off: the SNMP agent is switched off; v3-only: no v1/v2c (drift only)"
+    )
+    devices: list[str] | None = Field(
+        None, description="Devices the site-wide settings apply to (default: every read device)"
+    )
+    adopt: list[str] = Field(
+        default_factory=list,
+        description="Addresses of the devices' own syslog targets Signalbox may change or remove",
+    )
+    overrides: list[DeviceLoggingSpec] = Field(default_factory=list)
+
+    _word = field_validator("snmp", mode="before")(_snmp_word)
+
+
+class EffectiveLogging(BaseModel):
+    """What applies to one device: the site's settings with the device's override."""
+
+    model_config = ConfigDict(frozen=True)
+
+    device: str
+    syslog: list[SyslogSpec] | None
+    snmp: SnmpPolicy | None
+    adopt: list[str]
+    explicit: bool
+
+
+def effective_logging(spec: LoggingSpec, device_ids: list[str]) -> list[EffectiveLogging]:
+    """Per device: the site's settings (on ``spec.devices`` or every ``device_ids`` entry) and
+    the override of the device, which replaces a setting it states."""
+    names = list(dict.fromkeys([*(spec.devices if spec.devices is not None else device_ids)]))
+    over = {o.device: o for o in spec.overrides}
+    out = []
+    for dev in dict.fromkeys([*names, *over]):
+        o = over.get(dev)
+        out.append(
+            EffectiveLogging(
+                device=dev,
+                syslog=o.syslog if o is not None and o.syslog is not None else spec.syslog,
+                snmp=o.snmp if o is not None and o.snmp is not None else spec.snmp,
+                adopt=[*spec.adopt, *(o.adopt or [] if o else [])],
+                explicit=dev in over or spec.devices is not None,
+            )
+        )
+    return out
+
+
 def _as_datetime(value: datetime | date | None) -> datetime | None:
     if value is None or isinstance(value, datetime):
         return value
@@ -428,6 +526,8 @@ class SiteSpec(Spec):
     ports: list[PortSpec] = Field(default_factory=list)
     #: Zone policies, rules and port forwards per device (#295).
     firewalls: list[FirewallSpec] = Field(default_factory=list)
+    #: Syslog targets and the SNMP policy of the devices (#327).
+    logging: LoggingSpec | None = None
     #: User annotations of objects of the site (#186).
     annotations: list[AnnotationSpec] = Field(default_factory=list)
     #: Accepted findings (#186).
@@ -441,6 +541,20 @@ class SiteSpec(Spec):
             if ack.finding is None and ack.target is None:
                 raise ValueError(f"acknowledgement of {ack.rule}: name a finding or a target")
         return self
+
+
+def _merge_logging(a: LoggingSpec | None, b: LoggingSpec | None) -> LoggingSpec | None:
+    """Two files declaring ``logging`` for one site: the later one's settings win, overrides
+    and adopted addresses add up."""
+    if a is None or b is None:
+        return a or b
+    return LoggingSpec(
+        syslog=b.syslog if b.syslog is not None else a.syslog,
+        snmp=b.snmp or a.snmp,
+        devices=b.devices if b.devices is not None else a.devices,
+        adopt=[*a.adopt, *b.adopt],
+        overrides=[*a.overrides, *b.overrides],
+    )
 
 
 class DesiredState(Spec):
@@ -458,6 +572,7 @@ class DesiredState(Spec):
                     wlans=[*old.wlans, *spec.wlans],
                     ports=[*old.ports, *spec.ports],
                     firewalls=[*old.firewalls, *spec.firewalls],
+                    logging=_merge_logging(old.logging, spec.logging),
                     annotations=[*old.annotations, *spec.annotations],
                     acknowledgements=[*old.acknowledgements, *spec.acknowledgements],
                 )
@@ -513,6 +628,8 @@ def _check_unique(state: DesiredState, source: str) -> None:
             raise DesiredError(
                 f"{source}: site {site}: firewall of {', '.join(dup)} declared twice"
             )
+        if spec.logging is not None:
+            _check_logging(spec.logging, source, site)
         for fw in spec.firewalls:
             for what, names in (
                 ("rule", [firewall_key(r.name) for r in fw.rules]),
@@ -530,6 +647,22 @@ def _check_unique(state: DesiredState, source: str) -> None:
                 raise DesiredError(
                     f"{source}: firewall of {fw.device}: policy declared twice: {', '.join(dup)}"
                 )
+
+
+def _check_logging(spec: LoggingSpec, source: str, site: str) -> None:
+    devs = [o.device for o in spec.overrides]
+    dup = sorted({d for d in devs if devs.count(d) > 1})
+    if dup:
+        raise DesiredError(f"{source}: site {site}: logging of {', '.join(dup)} declared twice")
+    lists = [("site", spec.syslog or [])] + [(o.device, o.syslog or []) for o in spec.overrides]
+    for who, targets in lists:
+        addresses = [t.address for t in targets]
+        dup = sorted({a for a in addresses if addresses.count(a) > 1})
+        if dup:
+            raise DesiredError(
+                f"{source}: site {site}: logging of {who}: syslog target declared twice: "
+                + ", ".join(dup)
+            )
 
 
 def load(data_dir: Path) -> DesiredState | None:
@@ -729,10 +862,49 @@ def from_network(net: Network, site_id: str) -> DesiredState:
     return DesiredState(
         sites={
             site_id: SiteSpec(
-                segments=segs, wlans=list(wlans.values()), ports=ports, firewalls=firewalls
+                segments=segs,
+                wlans=list(wlans.values()),
+                ports=ports,
+                firewalls=firewalls,
+                logging=_logging_spec(net, list(devices)),
             )
         }
     )
+
+
+def _logging_spec(net: Network, device_ids: list[str]) -> LoggingSpec | None:
+    """The syslog targets the devices send to (all of them are adopted: the device's own
+    targets become declared ones) and an agent that is off. Per device, so that a site-wide
+    default is a decision for the user."""
+    out = []
+    for dev in (net.device(i) for i in device_ids):
+        if dev is None or dev.log_targets is None:
+            continue
+        targets = [
+            t
+            for t in dev.log_targets
+            if t.kind is LogKind.SYSLOG and t.enabled and t.transport is not LogTransport.TLS
+        ]
+        agent = next((s for s in net.services_of(dev.id) if s.kind is ServiceKind.SNMP), None)
+        snmp: SnmpPolicy | None = "off" if agent is not None and not agent.enabled else None
+        if not targets and snmp is None:
+            continue
+        out.append(
+            DeviceLoggingSpec(
+                device=dev.id,
+                syslog=[
+                    SyslogSpec(
+                        address=t.address,
+                        port=t.port,
+                        transport="tcp" if t.transport is LogTransport.TCP else "udp",
+                    )
+                    for t in targets
+                ],
+                snmp=snmp,
+                adopt=[t.address for t in targets if not t.managed],
+            )
+        )
+    return LoggingSpec(devices=[], overrides=out) if out else None
 
 
 def _export_name(name: str | None, key: str) -> str:
@@ -1079,6 +1251,50 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                         message = f"Firewall of {fw.device}: {what} {name}: " + "; ".join(diffs)
                     yield found(message, [target.id], key=c.key)
 
+    def logging(net: Network) -> Iterator[Result]:
+        from signalbox.changes import PlanError, logging_changes
+
+        for site_id, spec in state.sites.items():
+            if spec.logging is None:
+                continue
+            ids = [d.id for d in net.devices if d.site_id == site_id]
+            for eff in effective_logging(spec.logging, ids):
+                dev = net.device(eff.device)
+                if dev is None or dev.log_targets is None:
+                    if eff.explicit:
+                        yield incomplete(
+                            f"logging of {eff.device}: not read", [eff.device], key=eff.device
+                        )
+                    continue
+                try:
+                    found_changes = logging_changes(net, site_id, eff)
+                except PlanError as exc:
+                    yield found(
+                        f"Logging of {eff.device} cannot be compared: {exc}",
+                        [eff.device],
+                        key=f"invalid/{eff.device}",
+                        fix="Correct the desired state, or adopt the device's own target.",
+                    )
+                    continue
+                for c in found_changes:
+                    what = "syslog target" if c.kind.value == "log-target" else "SNMP agent"
+                    name = c.key.partition("/")[2] or "policy"
+                    if c.old is None:
+                        message = f"Logging of {eff.device}: {what} {name} is missing"
+                    elif c.new is None:
+                        message = (
+                            f"Logging of {eff.device}: {what} {name} is not declared "
+                            "(a deployment removes it)"
+                        )
+                    else:
+                        old = c.old.model_dump(mode="json")
+                        new = c.new.model_dump(mode="json")
+                        diffs = [
+                            _differ(k, new[k], old.get(k)) for k in new if old.get(k) != new[k]
+                        ]
+                        message = f"Logging of {eff.device}: {what} {name}: " + "; ".join(diffs)
+                    yield found(message, [eff.device], key=f"{eff.device}/{c.key}")
+
     explanation = (
         "The observed configuration differs from the desired state. Either deploy the desired "
         "state, or change the desired state to accept what is there."
@@ -1113,6 +1329,15 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
             + " Only zone policies and the rules and port forwards Signalbox created are "
             "compared; the device's own rules are left alone.",
             firewalls,
+        ),
+        Rule(
+            "drift.logging",
+            "Logging or SNMP differs from the desired state",
+            Severity.WARNING,
+            explanation
+            + " Only the syslog targets Signalbox created or was told to adopt are compared "
+            "with a change; the SNMP policy is compared by the state of the agent.",
+            logging,
         ),
     ]
 

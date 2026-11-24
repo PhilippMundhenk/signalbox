@@ -21,7 +21,13 @@ from typing import Any
 
 from pydantic import JsonValue
 
-from signalbox.adapters import AdapterError, Described, VendorCall, message_fields
+from signalbox.adapters import (
+    AdapterError,
+    Described,
+    VendorCall,
+    logging_errors,
+    message_fields,
+)
 from signalbox.adapters import openwrt as h  # the read helpers (circular, used at run time)
 from signalbox.adapters.openwrt.firewall import FORWARD_TAG, POLICY_TAG, RULE_TAG
 from signalbox.adapters.openwrt.firewall import tag as fw_tag
@@ -30,9 +36,11 @@ from signalbox.changes import (
     ChangeKind,
     DhcpValue,
     FirewallRuleValue,
+    LogTargetValue,
     PortForwardValue,
     PortValue,
     ReservationValue,
+    SnmpPolicyValue,
     WlanValue,
     ZonePolicyValue,
 )
@@ -41,6 +49,7 @@ from signalbox.model import (
     FirewallAction,
     FirewallChain,
     FirewallProtocol,
+    LogTransport,
     Pmf,
     PortRange,
     Security,
@@ -48,7 +57,9 @@ from signalbox.model import (
 )
 
 #: The UCI configs Signalbox writes (and backs up); the rpcd ACL grants write access to these only.
-CONFIGS = ("network", "wireless", "dhcp", "firewall")
+CONFIGS = ("network", "wireless", "dhcp", "firewall", "system", "snmpd")
+#: Tag Signalbox puts on the ``system`` section when it set the remote syslog target (#327).
+LOG_TAG = "signalbox_syslog"
 BACKUP_FORMAT = "openwrt-uci-json"
 #: Inverse of the read mapping; enterprise needs RADIUS settings the change model does not carry.
 ENCRYPTION_OF = {
@@ -830,6 +841,63 @@ def _cleanup(cfg: Configs) -> None:
             cfg.delete("network", name, f"interface {name}: its VLAN was removed")
 
 
+def _first(value: Any) -> str:
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    return str(value).strip() if value is not None else ""
+
+
+def _log_target(cfg: Configs, c: Change, adopted: set[str], created: list[str]) -> None:
+    """The remote syslog target of logd: ``log_ip``, ``log_port`` and ``log_proto`` of the first
+    ``system`` section, tagged with ``signalbox_syslog`` (#327). The device has one slot."""
+    found = cfg.sections("system", "system")
+    if not found:
+        raise AdapterError("the router has no system section to set the syslog target in")
+    name, section = found[0]
+    address = c.key.partition("/")[2]
+    now = _first(section.get("log_ip"))
+    owned = _first(section.get(LOG_TAG)) == "1"
+    label = f"syslog target {address}"
+    if isinstance(c.new, LogTargetValue):
+        v = c.new
+        if v.transport not in (LogTransport.UDP, LogTransport.TCP):
+            raise logging_errors.transport(v.transport.value)
+        if created:
+            raise logging_errors.one_target(len(created) + 1)
+        if now and now != address and not owned and now not in adopted:
+            raise logging_errors.foreign_target(now)
+        created.append(address)
+        # putting back the device's own target (the undo of an adoption) leaves it untagged
+        theirs = c.adopt == address and c.old is None
+        values = {"log_ip": v.address, "log_port": str(v.port), "log_proto": v.transport.value}
+        cfg.set("system", name, values if theirs else {**values, LOG_TAG: "1"}, f"{label}: set")
+        if theirs:
+            cfg.drop("system", name, [LOG_TAG], f"{label}: not Signalbox's")
+        cfg.drop("system", name, ["log_remote"], f"{label}: send it")
+        return
+    # removal: only when the slot still holds this target (an update at another address came first)
+    if now != address:
+        return
+    if not owned and c.adopt != address:
+        raise logging_errors.foreign_target(address)
+    cfg.drop("system", name, ["log_ip", "log_port", "log_proto", LOG_TAG], f"{label}: remove")
+
+
+def _snmp_policy(cfg: Configs, c: Change) -> None:
+    """Switch the net-snmp agent (package ``snmpd``) on or off through ``snmpd.general``."""
+    if "snmpd" not in cfg.data:
+        raise logging_errors.no_agent("snmpd")
+    mode = c.new.mode if isinstance(c.new, SnmpPolicyValue) else "off"
+    if mode == "v3-only":
+        raise logging_errors.v3_only()
+    value = "0" if mode == "off" else "1"
+    found = cfg.sections("snmpd", "snmpd")
+    if found:
+        cfg.set("snmpd", found[0][0], {"enabled": value}, f"SNMP agent: {mode}")
+    else:
+        cfg.add("snmpd", "snmpd", "general", {"enabled": value}, f"SNMP agent: {mode}")
+
+
 def translate(
     changes: Iterable[Change],
     data: Mapping[str, Any],
@@ -843,8 +911,17 @@ def translate(
     for name in cfg.data:
         cfg.values(name)  # shape check
     created: list[str] = []
+    changes = list(changes)
+    adopted = {
+        c.adopt for c in changes if c.kind is ChangeKind.LOG_TARGET and c.new is None and c.adopt
+    }
+    syslog: list[str] = []
     for c in changes:
-        if c.kind is ChangeKind.ZONE_POLICY:
+        if c.kind is ChangeKind.LOG_TARGET:
+            _log_target(cfg, c, {a for a in adopted if a}, syslog)
+        elif c.kind is ChangeKind.SNMP_POLICY:
+            _snmp_policy(cfg, c)
+        elif c.kind is ChangeKind.ZONE_POLICY:
             _policy(cfg, c)
         elif c.kind is ChangeKind.FIREWALL_RULE:
             if (new := _rule_change(cfg, c)) is not None:

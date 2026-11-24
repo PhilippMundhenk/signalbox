@@ -42,7 +42,7 @@ from signalbox.adapters.mikrotik import (
     get_menu,
 )
 from signalbox.adapters.mikrotik.write import _label, _Op, _writable
-from signalbox.changes import Change, ChangeKind, ReservationValue, plan
+from signalbox.changes import Change, ChangeKind, ReservationValue, SnmpPolicyValue, plan
 from signalbox.deploy import Deployer
 from signalbox.desired import parse
 from signalbox.history import ChangeStatus, DeviceStatus
@@ -808,6 +808,68 @@ async def test_firewall_rule_and_port_forward_then_revert(
     finally:
         await revert(svc, d, cid)
     assert_same_menus(raw, menus(rt, *FIREWALL_MENUS))
+
+
+LOGGING_WANT = """
+sites:
+  home:
+    logging:
+      devices: [rt]
+      syslog: [{address: 192.0.2.77, port: 1514, transport: tcp}]
+"""
+LOGGING_MENUS = ("/rest/system/logging/action", "/rest/system/logging", "/rest/system/scheduler")
+
+
+async def test_syslog_target_then_revert(svc: Services, rt: dict[str, str]) -> None:
+    """#327: a remote action ``signalbox192x0x2x77`` and four logging rules, the revert timer
+    armed and removed again; read back as declared, then reverted to the router's own menus."""
+    raw = menus(rt, *LOGGING_MENUS)
+    d, cid = await deploy(svc, LOGGING_WANT, {ChangeKind.LOG_TARGET})
+    try:
+        net = await network(rt)
+        dev = net.device("rt")
+        assert dev is not None and dev.log_targets is not None
+        [ours] = [t for t in dev.log_targets if t.managed]
+        assert (ours.endpoint(), ours.transport.value, ours.enabled) == (
+            "192.0.2.77:1514",
+            "tcp",
+            True,
+        ), ours
+        assert ours.topics == ["info", "warning", "error", "critical"], ours
+        assert menus(rt, "/rest/system/scheduler")["/rest/system/scheduler"] == {}
+    finally:
+        await revert(svc, d, cid)
+    assert_same_menus(raw, menus(rt, *LOGGING_MENUS))
+
+
+async def test_snmp_agent_off_then_revert(svc: Services, rt: dict[str, str]) -> None:
+    """#327: CHR has the agent off; switch it on through the adapter (the revert of an
+    ``off``), declare ``snmp: off``, deploy and revert; the agent ends as it started (off)."""
+    want = "sites:\n  home:\n    logging:\n      devices: [rt]\n      snmp: off\n"
+    await svc.runner.observe_all()
+    net = svc.runner.network()
+    on = Change(
+        kind=ChangeKind.SNMP_POLICY,
+        device_id="rt",
+        site_id="home",
+        key="snmp",
+        old=SnmpPolicyValue(mode="off"),
+        new=SnmpPolicyValue(mode="on"),
+    )
+    assert net.device("rt") is not None
+    a = adapter(rt, write=True)
+    try:
+        await a.apply([on], {}, 60)
+        await a.confirm()
+        d, cid = await deploy(svc, want, {ChangeKind.SNMP_POLICY})
+        await revert(svc, d, cid)
+        await svc.runner.observe_all()
+        now = plan(parse(want), svc.runner.network(), RULES).changes
+        assert [c.kind for c in now] == [ChangeKind.SNMP_POLICY]  # the revert switched it on
+    finally:
+        await a.apply([on.inverse()], {}, 60)
+        await a.confirm()
+        await a.close()
 
 
 async def test_revert_timer_undoes_an_unconfirmed_change(rt: dict[str, str]) -> None:

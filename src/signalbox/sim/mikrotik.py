@@ -1449,6 +1449,17 @@ class MikrotikSimulator:
             menu, ref = path, ""
         else:
             menu, _, ref = path.rpartition("/")
+        if method == "POST" and path == SNMP + "/set":
+            if self.read_only:
+                return JSONResponse(NO_POLICY, status_code=500)
+            if SNMP in self.fail_write:
+                code = self.fail_write[SNMP]
+                return JSONResponse(
+                    {"error": code, "message": "simulated failure"}, status_code=code
+                )
+            if not self.ignore_writes and "enabled" in body:
+                self.data[SNMP]["enabled"] = _truth(str(body["enabled"]))
+            return JSONResponse(self.data[SNMP])
         if menu not in (EXPORT, EXECUTE) and (
             menu not in WRITABLE or not isinstance(self.answers().get(menu), list)
         ):
@@ -1538,6 +1549,10 @@ class MikrotikSimulator:
     def _script_line(self, line: str) -> None:
         words = _script_words(line)
         if not words:
+            return
+        if words[:2] == ["/snmp", "set"]:
+            values = dict(a.split("=", 1) for a in words[2:])
+            self.data[SNMP]["enabled"] = _truth(values.get("enabled", "yes"))
             return
         at = next((i for i, w in enumerate(words) if w in SCRIPT_VERBS), None)
         if at is None:
@@ -1658,6 +1673,15 @@ class MikrotikSimulator:
         for key in REQUIRED.get(menu, ()):
             if not row.get(key):
                 return f"missing value for {key}"
+        if menu == LOG_RULES and row["action"] not in self._names(LOG_ACTION):
+            return "input does not match any value of action"
+        if menu == LOG_ACTION and row["target"] == "remote":
+            try:
+                ip_address(row.get("remote", "0.0.0.0"))
+            except ValueError:
+                return "invalid value for argument remote"
+            if row.get("remote-protocol", "udp") not in ("udp", "tcp"):
+                return "input does not match any value of remote-protocol"
         if "name" in row and any(o.get("name") == row["name"] for o in others):
             return f"entry with name {row['name']} already exists"
         interfaces = self._names(INTERFACE)
@@ -1811,6 +1835,10 @@ def _ticking(clock: dict[str, Any]) -> dict[str, Any]:
     return {**clock, "date": now.date().isoformat(), "time": now.strftime("%H:%M:%S")}
 
 
+def _truth(text: str) -> str:
+    return "true" if text.lower() in ("yes", "true", "on") else "false"
+
+
 def _bad(detail: str) -> JSONResponse:
     return JSONResponse({"error": 400, "message": "Bad Request", "detail": detail}, status_code=400)
 
@@ -1819,6 +1847,9 @@ FW_FILTER = "/rest/ip/firewall/filter"
 FW_FILTER6 = "/rest/ipv6/firewall/filter"
 FW_NAT = "/rest/ip/firewall/nat"
 SCHEDULER = "/rest/system/scheduler"
+LOG_ACTION = "/rest/system/logging/action"
+LOG_RULES = "/rest/system/logging"
+SNMP = "/rest/snmp"
 INTERFACE_LIST = "/rest/interface/list"
 SCRIPT_VERBS = ("add", "remove", "set", "unset")
 SCRIPT_MENUS = {
@@ -1826,6 +1857,8 @@ SCRIPT_MENUS = {
     "/ipv6 firewall filter": FW_FILTER6,
     "/ip firewall nat": FW_NAT,
     "/system scheduler": SCHEDULER,
+    "/system logging action": LOG_ACTION,
+    "/system logging": LOG_RULES,
 }
 FILTER_ACTIONS = frozenset(
     {"accept", "drop", "reject", "jump", "return", "passthrough", "log", "tarpit"}
@@ -1915,6 +1948,8 @@ WRITABLE = (
     FW_FILTER6,
     FW_NAT,
     SCHEDULER,
+    LOG_ACTION,
+    LOG_RULES,
 )
 REQUIRED = {
     VLAN: ("name", "vlan-id", "interface"),
@@ -1929,6 +1964,8 @@ REQUIRED = {
     USER_MENU: ("name", "group"),
     USER_GROUP: ("name", "policy"),
     SCHEDULER: ("name",),
+    LOG_ACTION: ("name", "target"),
+    LOG_RULES: ("topics", "action"),
 }
 #: Properties that name interfaces (checked against ``/interface``).
 REFERENCES = {
@@ -1961,6 +1998,8 @@ DEFAULTS: dict[str, dict[str, str]] = {
     FW_FILTER: {"invalid": "false", "bytes": "0", "packets": "0", **_STATIC},
     FW_FILTER6: {"invalid": "false", "bytes": "0", "packets": "0", **_STATIC},
     FW_NAT: {"invalid": "false", "bytes": "0", "packets": "0", **_STATIC},
+    LOG_ACTION: {"default": "false"},
+    LOG_RULES: {"invalid": "false", **_STATIC},
     SCHEDULER: {"interval": "0s", "run-count": "0", "invalid": "false", **_STATIC},
 }
 COMPUTED = {
