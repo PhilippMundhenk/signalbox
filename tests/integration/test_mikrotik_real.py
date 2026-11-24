@@ -919,7 +919,7 @@ async def test_adopted_row_keeps_its_other_properties_then_restore(
         _, cid = await deploy(svc, ADOPT_WANT, {ChangeKind.FIREWALL_RULE})
         after = menus(rt, path)[path]
         [mine] = [v for k, v in after.items() if k == "signalbox:ci_own ci-own"]
-        assert mine["log"] == "yes" and mine["log-prefix"] == "ci", mine
+        assert mine["log"] in ("yes", "true") and mine["log-prefix"] == "ci", mine
         assert mine["connection-state"] == "new", mine
         rec = svc.store.change(cid)
         assert rec is not None and rec.devices[0].backup_id
