@@ -180,7 +180,7 @@ function zoneMembers(ix, z) {
 
 function policyMatrix(fw) {
   const names = fw.zones.map((z) => z.name);
-  const cell = (a) => h('td', { class: a === 'accept' ? 'ok-text' : a ? 'warn-text' : 'muted', 'data-testid': 'fw-policy' }, a || '?');
+  const cell = (a) => h('td', { class: a === 'accept' ? 'ok-text' : a ? 'warn-text' : 'muted', 'data-testid': 'fw-policy', title: a ? null : t('device.fw.notRead') }, a || '–');
   return h(
     'table',
     { class: 'fw-matrix', 'data-testid': 'fw-matrix' },
