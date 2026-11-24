@@ -260,6 +260,10 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`wifi.radar-hit`](rules/wifi_radio.md#wifiradar-hit)
 - [`wifi.legacy-standard`](rules/wifi_radio.md#wifilegacy-standard)
 
+## [Wi-Fi regulatory limits](rules/wifi_regulatory.md)
+
+- [`wifi.regulatory`](rules/wifi_regulatory.md#wifiregulatory)
+
 ## [Wi-Fi security](rules/wifi_security.md)
 
 - [`wifi.weak-security`](rules/wifi_security.md#wifiweak-security)
