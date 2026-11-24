@@ -43,6 +43,7 @@ switches = [
 signalbox = "signalbox.__main__:main"
 
 [project.entry-points."signalbox.adapters"]
+adguardhome = "signalbox.adapters.adguardhome:AdGuardHomeAdapter"
 easysmart = "signalbox.adapters.plusswitch:EasySmartAdapter"
 fritzbox = "signalbox.adapters.fritzbox:FritzboxAdapter"
 mikrotik = "signalbox.adapters.mikrotik:MikrotikAdapter"
@@ -50,6 +51,7 @@ omada = "signalbox.adapters.omada:OmadaAdapter"
 linux = "signalbox.adapters.linux:LinuxAdapter"
 openwrt = "signalbox.adapters.openwrt:OpenWrtAdapter"
 opnsense = "signalbox.adapters.opnsense:OpnsenseAdapter"
+pihole = "signalbox.adapters.pihole:PiholeAdapter"
 prosafe = "signalbox.adapters.plusswitch:ProsafeAdapter"
 
 [project.entry-points."signalbox.rules"]
