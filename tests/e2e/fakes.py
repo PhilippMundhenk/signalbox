@@ -47,6 +47,9 @@ from signalbox.model import (
     Firmware,
     HostRecord,
     LeaseState,
+    LogKind,
+    LogTarget,
+    LogTransport,
     ManagementService,
     Membership,
     Network,
@@ -313,8 +316,18 @@ class Lab(Adapter):
             ),
             svc(ServiceKind.HTTPS, name="remote", enabled=True, port=8443, from_wan=True),
         ]
+        logs = [  # #180: a syslog collector and a NetFlow target that is off
+            LogTarget(kind=LogKind.SYSLOG, address="203.0.113.50", transport=LogTransport.TLS,
+                      port=6514, name="collector", topics=["info", "warning"]),
+            LogTarget(kind=LogKind.NETFLOW, address="203.0.113.51", port=2055, enabled=False),
+        ]  # fmt: skip
         return Observation(
-            ports=ports, segments=segments, subnets=subnets, uplinks=[uplink], services=services
+            ports=ports,
+            segments=segments,
+            subnets=subnets,
+            uplinks=[uplink],
+            services=services,
+            log_targets={d: logs},
         )
 
     async def read_dhcp(self) -> Observation:

@@ -45,6 +45,7 @@ from signalbox.adapters import (
     AuthFailed,
     Backup,
     Capability,
+    Gap,
     Manifest,
     Observation,
     PreviewStep,
@@ -69,6 +70,7 @@ from signalbox.changes import FIREWALL_KINDS, Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     DNS_PORT,
+    LOG_PORTS,
     SERVICE_PORTS,
     WIREGUARD_KEY,
     AddressSource,
@@ -89,6 +91,9 @@ from signalbox.model import (
     IPInterface,
     IPNetwork,
     LeaseState,
+    LogKind,
+    LogTarget,
+    LogTransport,
     ManagementService,
     Membership,
     Port,
@@ -150,6 +155,12 @@ SYSTEM_TEMPERATURE = "/api/diagnostics/system/system_temperature"
 CPU_TYPE = "/api/diagnostics/cpu_usage/get_cpu_type"
 NTP_STATUS = "/api/ntpd/service/status"
 NETSNMP = "/api/netsnmp/general/get"
+#: Remote syslog destinations and NetFlow export (#180).
+SYSLOG_DESTINATIONS = "/api/syslog/settings/search_destinations"
+NETFLOW = "/api/diagnostics/netflow/getconfig"
+#: Privileges of those two pages (core ACL), for the fix text of a refused read.
+SYSLOG_PRIVILEGE = "System: Settings: Logging (page-diagnostics-logs-settings-targets)"
+NETFLOW_PRIVILEGE = "Diagnostics: Netflow configuration (page-diagnostics-netflow)"
 #: ``wg show all dump`` as records, private and pre-shared keys left out by OPNsense itself
 #: (privilege *VPN: WireGuard: Status*). No query string: the grid takes paging from POST only.
 WG_SHOW = "/api/wireguard/service/show"
@@ -394,6 +405,15 @@ def _flag(value: Any) -> bool:
 
 def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _privilege_gap(what: str, exc: AdapterError, privilege: str) -> Gap:
+    return Gap(
+        message=f"{what}: {exc}",
+        fix=f"Give the API user the privilege {privilege}, or use Fix it on the device page.",
+        remedy="privileges",
+        optional=True,
+    )
 
 
 def _selected(value: Any) -> list[str]:
@@ -1014,6 +1034,7 @@ class OpnsenseAdapter(_Adapter):
         return _Layout(ports=list(ports.values()), segments=segments, ifaces=ifaces)
 
     async def read_interfaces(self) -> Observation:
+        targets, gaps = await self._log_targets()
         layout = await self._layout()
         dev = self.context.device_id
         subnets = [
@@ -1044,7 +1065,70 @@ class OpnsenseAdapter(_Adapter):
             subnets=subnets,
             uplinks=uplinks,
             services=await self._services(),
+            log_targets={} if targets is None else {dev: targets},
+            incomplete=gaps,
         )
+
+    async def _log_targets(self) -> tuple[list[LogTarget] | None, list[Gap]]:
+        """Remote syslog destinations and the NetFlow export (#180). A page the API user may
+        not read is an optional gap naming its privilege; without the syslog page the targets
+        stay unread (None), without the NetFlow page they are the syslog ones only."""
+        gaps: list[Gap] = []
+        out: list[LogTarget] = []
+        try:
+            rows = _rows(await self._get(SYSLOG_DESTINATIONS, grid=True), SYSLOG_DESTINATIONS)
+        except NotFound:
+            rows = []
+        except AdapterError as exc:
+            return None, [_privilege_gap("log targets", exc, SYSLOG_PRIVILEGE)]
+        for r in rows:
+            host = _text(r.get("hostname"))
+            if not host:
+                continue
+            transport = _text(r.get("transport")).lower()
+            out.append(
+                LogTarget(
+                    kind=LogKind.SYSLOG,
+                    address=host,
+                    port=_port(r.get("port")) or LOG_PORTS[LogKind.SYSLOG],
+                    transport=LogTransport.TLS
+                    if "tls" in transport
+                    else LogTransport.TCP
+                    if "tcp" in transport
+                    else LogTransport.UDP,
+                    enabled=_text(r.get("enabled")) != "0",
+                    name=_text(r.get("description")) or None,
+                    topics=[
+                        *_listen_values(r.get("facility")),
+                        *_listen_values(r.get("level")),
+                    ],
+                )
+            )
+        try:
+            data = await self._optional(NETFLOW)
+        except AdapterError as exc:
+            gaps.append(_privilege_gap("NetFlow export", exc, NETFLOW_PRIVILEGE))
+            data = None
+        capture = _sub(_sub(data, "netflow"), "capture") if isinstance(data, dict) else {}
+        exporting = bool(_listen_values(capture.get("interfaces")))
+        version = next(iter(_selected(capture.get("version"))), "v9")
+        for value in _listen_values(capture.get("targets")):
+            host, _, port = value.rpartition(":")
+            host = host.strip("[]")
+            if not host or host.startswith("127."):  # the local Insight collector
+                continue
+            out.append(
+                LogTarget(
+                    kind=LogKind.NETFLOW,
+                    address=host,
+                    port=_port(port) or LOG_PORTS[LogKind.NETFLOW],
+                    transport=LogTransport.UDP,
+                    enabled=exporting,
+                    name="netflow",
+                    topics=[version],
+                )
+            )
+        return out, gaps
 
     async def _services(self) -> list[ManagementService]:
         """Management services (#173), as far as a narrow API tells.

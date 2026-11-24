@@ -140,6 +140,17 @@ One script (`signalbox.adapters.linux.collect.READ`) per observation, one more f
 Not read: Pi-hole's own DHCP server, dnsmasq IPv6 ranges (`constructor:`), firewalld and ufw
 as such (only what they put into nftables).
 
+### Remote syslog (#180)
+
+The read script prints `/etc/rsyslog.conf`, `/etc/rsyslog.d/*.conf`,
+`/etc/syslog-ng/syslog-ng.conf` and `/etc/syslog-ng/conf.d/*.conf`. rsyslog: `*.* @host:port`
+(UDP), `@@host` (TCP) and `action(type="omfwd" target=... port=... protocol=...)`, TLS with
+`StreamDriverMode="1"`; the selector of a legacy line is the topic. syslog-ng: each
+`destination` with `network()`, `syslog()`, `udp()` or `tcp()` (`transport()`, `port()`), enabled
+when a `log` statement names it. No file: nothing is forwarded (journald alone). A file the
+user may not read leaves the targets unread with an optional gap. *Guess:* targets in templates,
+includes outside those directories (#21).
+
 ## Automatic setup
 
 With *Set up automatically* in the device form ([ADR 0009](../adr/0009-automatic-setup-with-an-admin-login.md)),

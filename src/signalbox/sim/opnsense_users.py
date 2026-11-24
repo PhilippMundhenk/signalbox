@@ -37,6 +37,8 @@ PRIVILEGES = (
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory",
     "page-diagnostics-traceroute",
+    "page-diagnostics-logs-settings-targets",
+    "page-diagnostics-netflow",
 )
 GROUPS = ("admins",)
 

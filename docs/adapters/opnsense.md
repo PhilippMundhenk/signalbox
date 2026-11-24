@@ -217,6 +217,8 @@ remedy, the fix adds exactly that privilege and the same key reads the firewall 
    | Firewall: NAT: Destination NAT | `/api/firewall/d_nat/search_rule` (port forwards) |
    | Firewall: NAT: Source NAT | `/api/firewall/source_nat/search_rule` (outbound NAT) |
    | Firewall: NAT: 1:1 | `/api/firewall/one_to_one/search_rule` (one-to-one NAT) |
+   | System: Settings: Logging | `/api/syslog/settings/search_destinations` (remote syslog targets, #180; `page-diagnostics-logs-settings-targets` in the core ACL) |
+   | Diagnostics: Netflow configuration | `/api/diagnostics/netflow/getconfig` (NetFlow export, #180; `page-diagnostics-netflow`) |
 
    ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
    and are skipped. With the plugin, add its DHCP server and lease pages.
@@ -848,6 +850,22 @@ which needs a privilege that exposes every secret of the firewall: certificates'
 VPN and RADIUS secrets, password hashes. Signalbox does not download it for reading; the
 backup privilege stays with the write user that needs it for changes. A rule that needs to know
 whether SSH is on therefore has no answer for OPNsense.
+
+## Log and flow targets (#180)
+
+- **Remote syslog**: `GET /api/syslog/settings/search_destinations` (grid, privilege *System:
+  Settings: Logging*, `page-diagnostics-logs-settings-targets`): `hostname`, `port`,
+  `transport` (`udp4`, `tcp4`, `tls4`, ... or their display text `UDP(4)`), `enabled`, `level`,
+  `facility`, `description`.
+- **NetFlow**: `GET /api/diagnostics/netflow/getconfig` (privilege *Diagnostics: Netflow
+  configuration*, `page-diagnostics-netflow`): `capture.targets` (`host:port` list), exported
+  while `capture.interfaces` is not empty, `capture.version` (`v5`, `v9`). The local Insight
+  collector (127.0.0.1:2056) is left out.
+
+Both privileges are in the read user's list (automatic setup, *Fix it*). Without the syslog
+privilege the targets are not read (an optional gap names the privilege); without the NetFlow
+one only the flows are missing. *Verified in CI* with the destination and export the VM setup
+adds (see tests/integration/test_opnsense_real.py).
 
 ## MAC address table (#160)
 

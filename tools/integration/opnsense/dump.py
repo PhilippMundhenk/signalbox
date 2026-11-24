@@ -8,7 +8,7 @@ shapes can be compared with docs/adapters/opnsense.md and the simulator without 
 logs; the full answers go to DIR/api-<GROUP>.json (uploaded as an artifact). Only the
 throw-away VM's data is in there (documentation prefixes, the 02: MACs of the test setup).
 GROUP is ``read`` (the read user, camelCase and snake_case paths), ``kea``, ``vpn`` (WireGuard,
-#239, private keys redacted), ``health`` (the
+#239, private keys redacted), ``logging`` (syslog and NetFlow targets, #180), ``health`` (the
 dashboard and NTP endpoints of health and time, #178 and #179) or ``write`` (the write and
 the root user). At most ten notices per call (the limit of one step).
 """
@@ -75,6 +75,14 @@ GROUPS = {
         ("root", "/api/wireguard/server/search_server"),
         ("root", "/api/wireguard/client/search_client"),
         ("root", "/api/wireguard/general/get"),
+    ],
+    # log and flow targets (#180): the destination and NetFlow export vm.py adds
+    "logging": [
+        ("signalbox-read", "/api/syslog/settings/search_destinations"),
+        ("signalbox-read", "/api/syslog/settings/searchDestinations" + GRID),
+        ("signalbox-read", "/api/diagnostics/netflow/getconfig"),
+        ("signalbox-read", "/api/diagnostics/netflow/is_enabled"),
+        ("root", "/api/syslog/settings/get"),
     ],
     "write": [
         ("signalbox-write", "/api/interfaces/assignment/searchItem" + GRID),

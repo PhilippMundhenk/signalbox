@@ -122,6 +122,11 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`dhcp.option-121-without-router`](rules/leases.md#dhcpoption-121-without-router)
 - [`dhcp.relay-target-missing`](rules/leases.md#dhcprelay-target-missing)
 
+## [Logging and monitoring targets](rules/logging_checks.md)
+
+- [`log.target-unknown`](rules/logging_checks.md#logtarget-unknown)
+- [`log.inconsistent`](rules/logging_checks.md#loginconsistent)
+
 ## [Management services](rules/management.md)
 
 - [`security.insecure-services`](rules/management.md#securityinsecure-services)

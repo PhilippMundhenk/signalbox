@@ -320,6 +320,85 @@ class DeviceTime(Model):
         return (self.clock - self.read_at).total_seconds()
 
 
+class LogKind(StrEnum):
+    """What a device sends to a log or monitoring target (#180)."""
+
+    SYSLOG = "syslog"
+    NETFLOW = "netflow"  # NetFlow v1/v5/v9 flow records
+    IPFIX = "ipfix"
+    SFLOW = "sflow"
+    #: SNMP traps and informs the device's agent sends (the agent itself is a
+    #: :class:`ManagementService` of kind ``snmp``).
+    SNMP_TRAP = "snmp-trap"
+    #: Metrics pushed to a collector (collectd network plugin, Prometheus remote write).
+    METRICS = "metrics"
+    OTHER = "other"
+
+
+class LogTransport(StrEnum):
+    UDP = "udp"
+    TCP = "tcp"
+    #: TCP with TLS (syslog over TLS, RFC 5425): the only encrypted transport.
+    TLS = "tls"
+
+
+#: Usual port of a kind of target, for adapters that know a target but not its port.
+LOG_PORTS: dict[LogKind, int] = {
+    LogKind.SYSLOG: 514,
+    LogKind.NETFLOW: 2055,
+    LogKind.IPFIX: 4739,
+    LogKind.SFLOW: 6343,
+    LogKind.SNMP_TRAP: 162,
+    LogKind.METRICS: 25826,  # collectd's network plugin
+}
+
+
+class LogTarget(Model):
+    """A remote target a device sends logs, flow records, traps or metrics to (#180, ADR 0018).
+
+    Part of :attr:`Device.log_targets`; the address is the user's own collector (internal,
+    not a secret). Never a credential: no SNMP trap community, no TLS key.
+    """
+
+    kind: LogKind
+    #: Address or host name, as the device has it.
+    address: str
+    port: Annotated[int, Field(ge=1, le=65535)] | None = None
+    transport: LogTransport | None = None
+    #: Sent at all: ``False`` for a target that is configured but not used (a MikroTik remote
+    #: action no logging rule points to, a disabled OPNsense destination).
+    enabled: bool = True
+    #: The device's own name of the target (an action name, a destination's description).
+    name: str | None = None
+    #: What is sent, in the device's words: syslog facilities, levels or topics, flow
+    #: versions (``v9``), metric plugins. Empty: all or not known.
+    topics: list[str] = Field(default_factory=list)
+
+    @field_validator("address")
+    @classmethod
+    def _address(cls, value: str) -> str:
+        value = value.strip().removeprefix("[").removesuffix("]")
+        if not value:
+            raise ValueError("empty address")
+        return value
+
+    def ip(self) -> IPAddress | None:
+        """The address as an IP address; None for a host name."""
+        try:
+            return ip_address(self.address)
+        except ValueError:
+            return None
+
+    def endpoint(self) -> str:
+        """``192.0.2.5:514``, ``[2001:db8::5]:514``, ``logs.example``: for findings and the UI."""
+        port = self.port or LOG_PORTS.get(self.kind)
+        if port is None:
+            return self.address
+        ip = self.ip()
+        host = f"[{self.address}]" if ip is not None and ip.version == 6 else self.address
+        return f"{host}:{port}"
+
+
 class Device(Observed):
     site_id: str
     name: str
@@ -341,6 +420,14 @@ class Device(Observed):
     #: so the password it sends can be captured in that network. Set by the adapter
     #: (``SystemInfo.transport_encrypted``); ``None``: the adapter does not say.
     transport_encrypted: bool | None = None
+    #: Remote log, flow, trap and metrics targets (#180, ADR 0018), read with ``interfaces``
+    #: (``Observation.log_targets``). ``None``: not read; ``[]``: read, nothing is sent anywhere.
+    #: Disabled targets are listed too.
+    log_targets: list[LogTarget] | None = None
+
+    def sends_to(self, kind: LogKind) -> list[LogTarget]:
+        """The enabled targets of one kind (empty when not read)."""
+        return [t for t in self.log_targets or [] if t.enabled and t.kind is kind]
 
 
 class PortKind(StrEnum):

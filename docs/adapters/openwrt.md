@@ -508,7 +508,8 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "luci.lldpd": ["getStatus"],
         "luci.wireguard": ["getWgInstances"]
       },
-      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall"],
+      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
+              "snmpd", "luci_statistics", "softflowd"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -613,7 +614,8 @@ only allows the `uci` methods of a transaction on the four configs it changes:
         "luci.lldpd": ["getStatus"],
         "luci.wireguard": ["getWgInstances"]
       },
-      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall"],
+      "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
+              "snmpd", "luci_statistics", "softflowd"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -693,6 +695,27 @@ rest of the read is unaffected, add the two names to the ACL to read them).
 - No `snmpd` and no telnet are read. `from_wan` stays unknown (firewall: #135).
 - `transport_encrypted` is true for https, false for `allow_insecure_http`.
 
+
+## Log and monitoring targets (#180)
+
+- **logd**: `uci get system`, first `system` section: `log_ip` (a list on newer releases),
+  `log_port` (514), `log_proto` (`udp` or `tcp`), `log_remote` (`0` turns it off). Read with the
+  ACL as before (*verified in CI*: the image sets a TCP target on 1514).
+- **snmpd** (package `snmpd`): the agent becomes the management service `snmp` (name `snmpd`):
+  `com2sec`/`com2sec6` communities are only compared with `public` and `private` (never kept),
+  `source` other than `default` is `allowed_from` (`localhost` as 127.0.0.1/32), `group`
+  `version` (`v1`, `v2c`, `usm` is v3; none given: v1 and v2c), `access` `write` other than
+  `none` is write access, the port from `agent.agentaddress`, `general.enabled`. `trapsink`,
+  `trap2sink` and `informsink` are `snmp-trap` targets (port 162). *CI reads a config written by
+  the image in the package's layout; the package itself is not installed (guess, #21).*
+- **collectd** (luci-app-statistics): `uci get luci_statistics`, `collectd_network.enable` and
+  the `collectd_network_server` sections (`host`, `port` 25826) as `metrics` targets (*guess*).
+- **softflowd**: each `softflowd` section, `host_port` and `export_version` (10 is IPFIX),
+  enabled with `enabled=1` (*guess*).
+
+A package that is not installed has no config (nothing to report). The three configs are in the
+ACL's `uci` list since #180; a router set up with an older ACL answers "access denied" for them:
+an optional gap with the fix (*Fix it* updates the ACL), the rest is read.
 
 ## Firewall and NAT (#135)
 

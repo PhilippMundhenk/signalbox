@@ -43,6 +43,7 @@ from signalbox.adapters import (
     AdminLogin,
     AuthFailed,
     Capability,
+    Gap,
     Manifest,
     Observation,
     PreviewStep,
@@ -62,6 +63,7 @@ from signalbox.adapters.mikrotik import trace as _trace
 from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
+    LOG_PORTS,
     SERVICE_PORTS,
     TYPED_OPTION_CODES,
     WIREGUARD_KEY,
@@ -91,6 +93,9 @@ from signalbox.model import (
     IPInterface,
     IPNetwork,
     LeaseState,
+    LogKind,
+    LogTarget,
+    LogTransport,
     ManagementService,
     Membership,
     NatClass,
@@ -193,6 +198,11 @@ IP_SSH = "/rest/ip/ssh"
 UPNP = "/rest/ip/upnp"
 SNMP = "/rest/snmp"
 SNMP_COMMUNITY = "/rest/snmp/community"
+#: Remote log targets, flow export (#180).
+LOG_ACTION = "/rest/system/logging/action"
+LOG_RULES = "/rest/system/logging"
+TRAFFIC_FLOW = "/rest/ip/traffic-flow"
+TRAFFIC_FLOW_TARGET = "/rest/ip/traffic-flow/target"
 #: The packet filter (#135): filter rules, NAT, raw rules, interface and address lists.
 FW_FILTER = "/rest/ip/firewall/filter"
 FW_FILTER6 = "/rest/ipv6/firewall/filter"
@@ -1191,6 +1201,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
     async def read_interfaces(self) -> Observation:
         layout = await self._layout()
         dev = self.context.device_id
+        targets, gaps = await self._log_targets()
         gateway = self.context.role is DeviceRole.GATEWAY
         subnets = [
             Subnet(
@@ -1209,7 +1220,78 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             subnets=subnets,
             uplinks=await self._uplinks(layout),
             services=await self._services(layout),
+            log_targets={} if targets is None else {dev: targets},
+            incomplete=gaps,
         )
+
+    async def _log_targets(self) -> tuple[list[LogTarget] | None, list[Gap]]:
+        """Remote logging actions with the topics of the rules using them, traffic-flow
+        (NetFlow/IPFIX) targets and SNMP trap targets (#180). ``None`` with a gap when the
+        logging actions cannot be read; a missing flow or SNMP menu only leaves those out."""
+        try:
+            actions = await self._optional_rows(LOG_ACTION)
+            rules = await self._optional_rows(LOG_RULES)
+        except AdapterError as exc:
+            return None, [Gap(message=f"log targets: {exc}", optional=True)]
+        topics: dict[str, list[str]] = {}
+        for r in rules:
+            if _flag(r.get("disabled")) or _flag(r.get("invalid")):
+                continue
+            used = topics.setdefault(_text(r.get("action")), [])
+            used += [t for t in _text(r.get("topics")).split(",") if t and t not in used]
+        out: list[LogTarget] = []
+        for a in actions:
+            address = _text(a.get("remote"))
+            if _text(a.get("target")) != "remote" or address in ("", "0.0.0.0", "::"):
+                continue
+            name = _text(a.get("name"))
+            proto = _text(a.get("remote-protocol")).lower()
+            out.append(
+                LogTarget(
+                    kind=LogKind.SYSLOG,
+                    address=address,
+                    port=_int(a.get("remote-port")) or LOG_PORTS[LogKind.SYSLOG],
+                    transport=LogTransport.TCP if proto == "tcp" else LogTransport.UDP,
+                    enabled=name in topics,
+                    name=name or None,
+                    topics=topics.get(name, []),
+                )
+            )
+        flow = await self._optional_object(TRAFFIC_FLOW)
+        for t in await self._readable(TRAFFIC_FLOW_TARGET) or []:
+            address = _text(t.get("dst-address"))
+            if not address:
+                continue
+            version = _text(t.get("version")) or "9"
+            kind = LogKind.IPFIX if version == "ipfix" else LogKind.NETFLOW
+            out.append(
+                LogTarget(
+                    kind=kind,
+                    address=address,
+                    port=_int(t.get("port")) or LOG_PORTS[LogKind.NETFLOW],
+                    transport=LogTransport.UDP,
+                    enabled=_flag(flow.get("enabled")) and not _flag(t.get("disabled")),
+                    name="traffic-flow",
+                    topics=[] if kind is LogKind.IPFIX else [f"v{version}"],
+                )
+            )
+        snmp = await self._optional_object(SNMP)
+        generators = [g for g in _text(snmp.get("trap-generators")).split(",") if g]
+        for address in _text(snmp.get("trap-target")).split(","):
+            if address.strip() in ("", "0.0.0.0", "::"):
+                continue
+            out.append(
+                LogTarget(
+                    kind=LogKind.SNMP_TRAP,
+                    address=address,
+                    port=LOG_PORTS[LogKind.SNMP_TRAP],
+                    transport=LogTransport.UDP,
+                    enabled=_flag(snmp.get("enabled")) and bool(generators),
+                    name="snmp",
+                    topics=generators,
+                )
+            )
+        return out, []
 
     async def _services(self, layout: _Layout) -> list[ManagementService]:
         """Management services (#173): ``/ip/service`` plus MAC server, RoMON, SNMP. Empty
@@ -1331,7 +1413,9 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 v3_plain |= security != "private"
         settings = SnmpSettings(
             versions=sorted(versions),
-            default_community=any(_text(r.get("name")).lower() == "public" for r in rows),
+            default_community=any(
+                _text(r.get("name")).lower() in ("public", "private") for r in rows
+            ),
             v3_privacy=(not v3_plain) if SnmpVersion.V3 in versions else None,
             write_access=any(_flag(r.get("write-access")) for r in rows),
         )

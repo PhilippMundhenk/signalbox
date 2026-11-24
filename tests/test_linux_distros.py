@@ -116,6 +116,7 @@ async def test_arch_host_is_read_with_its_network() -> None:
     async with adapter_for(box) as adapter:
         snap = await adapter.observe()
     assert snap.status is DeviceStatus.PARTIAL  # only the firewall is not readable
+    assert snap.device.log_targets == []  # journald only: nothing forwarded (#180)
     assert {p.name for p in snap.ports} == {"eth0", "wlan0"}
     wlan = next(p for p in snap.ports if p.name == "wlan0")
     assert wlan.role is PortRole.WIRELESS and not wlan.up and wlan.admin_up is False

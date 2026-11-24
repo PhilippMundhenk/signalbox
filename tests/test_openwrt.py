@@ -33,6 +33,7 @@ from signalbox.adapters.openwrt import (
     group_cipher,
     lease_seconds,
     link_speeds,
+    monitoring,
     security,
     supported_from_features,
     supported_from_packages,
@@ -1052,9 +1053,10 @@ async def test_time_needs_the_system_config(sim: OpenWrtSim, adapter: OpenWrtAda
     sim.denied = {"uci:system"}
     snap = await adapter.observe()
     assert snap.status is DeviceStatus.PARTIAL
-    [error] = snap.errors
+    error, logs = sorted(snap.errors, key=lambda e: e.capability, reverse=True)
     assert error.capability == "time" and "uci.get (system)" in error.message
-    assert snap.device.health is not None
+    assert logs.capability == "interfaces" and logs.message.startswith("log targets")
+    assert snap.device.health is not None and snap.device.log_targets is None
 
 
 def test_time_mapping_without_zone_or_ntp() -> None:
@@ -1445,3 +1447,85 @@ def test_wireguard_routes_come_from_route_sections_and_route_allowed_ips() -> No
         "2001:db8:20::/64",
         "192.0.2.0/24",
     ]
+
+
+# --- log and monitoring targets (#180) -------------------------------------------------------
+
+
+async def test_log_targets_from_system_and_optional_packages(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    snap = await assert_contract(adapter)
+    assert [
+        (t.kind.value, t.endpoint(), t.transport.value, t.name)
+        for t in snap.device.log_targets or []
+    ] == [("syslog", "192.0.2.5:514", "udp", "logd")]
+    assert not any(s.kind.value == "snmp" for s in snap.services)  # snmpd not installed
+    sim.packages = {"snmpd", "luci_statistics", "softflowd"}
+    sim.configs = None
+    snap = await assert_contract(adapter)
+    by = {(t.kind.value, t.name): t for t in snap.device.log_targets or []}
+    trap = by[("snmp-trap", "trap2sink")]
+    assert (trap.endpoint(), trap.enabled, trap.topics) == ("192.0.2.5:162", True, ["v2c"])
+    assert by[("metrics", "collectd")].endpoint() == "192.0.2.5:25826"
+    flow = by[("netflow", "softflowd")]
+    assert (flow.endpoint(), flow.enabled, flow.topics) == ("192.0.2.5:9995", False, ["v5"])
+    (agent,) = [s for s in snap.services if s.kind.value == "snmp"]
+    assert agent.id == "ap1/service/snmp" and agent.enabled and agent.snmp is not None
+    assert agent.snmp.default_community and agent.snmp.write_access
+    assert [v.value for v in agent.snmp.versions] == ["1", "2c"] and agent.allowed_from == []
+    assert '"public"' not in snap.model_dump_json()  # the community is never kept
+
+
+async def test_log_targets_with_an_older_acl(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    sim.packages = {"snmpd"}
+    sim.denied = {"uci:snmpd", "uci:luci_statistics", "uci:softflowd"}
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.OK  # optional: the rest is read
+    (gap,) = snap.errors
+    assert gap.optional and gap.message.startswith("SNMP and monitoring targets (snmpd, ")
+    assert gap.remedy == "access" and snap.device.log_targets is not None
+
+
+def test_log_target_mapping_edge_cases() -> None:
+    def uci(*sections: tuple[str, str, dict[str, Any]]) -> dict[str, Any]:
+        return {"values": {n: {".type": k, ".name": n, **o} for k, n, o in sections}}
+
+    system = uci(
+        ("system", "cfg1", {"log_ip": ["192.0.2.5", ""], "log_proto": "tcp", "log_remote": "0"})
+    )
+    (t,) = monitoring.system_targets(system)
+    assert (t.transport.value, t.enabled, t.port) == ("tcp", False, 514)
+    assert monitoring.system_targets(uci()) == [] and monitoring.system_targets({}) == []
+    agent, traps = monitoring.snmpd(
+        "ap1",
+        uci(
+            ("com2sec", "lan", {"community": "s3cret", "source": "192.0.2.0/24"}),
+            ("com2sec", "lo", {"community": "other", "source": "localhost"}),
+            ("agent", "a", {"agentaddress": "UDP:1161"}),
+            ("snmpd", "general", {"enabled": "0"}),
+            ("trapsink", "t", {"host": ""}),
+        ),
+    )
+    assert agent is not None and not agent.enabled and agent.port == 1161 and traps == []
+    assert agent.snmp is not None and agent.snmp.default_community is False
+    assert [str(n) for n in agent.allowed_from] == ["192.0.2.0/24", "127.0.0.1/32"]
+    assert monitoring.snmpd("ap1", {"values": {}}) == (None, [])
+    assert monitoring.collectd(uci()) == []
+    (ipfix,) = monitoring.softflowd(
+        uci(
+            (
+                "softflowd",
+                "main",
+                {"enabled": "1", "host_port": "[2001:db8::5]:4739", "export_version": "10"},
+            )
+        )
+    )
+    assert (ipfix.kind.value, ipfix.endpoint(), ipfix.name, ipfix.topics) == (
+        "ipfix",
+        "[2001:db8::5]:4739",
+        "softflowd main",
+        [],
+    )
+    assert monitoring.host_port("collector") == ("collector", None)
+    assert monitoring.softflowd(uci(("softflowd", "x", {"host_port": ""}))) == []

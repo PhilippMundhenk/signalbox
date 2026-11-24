@@ -874,7 +874,8 @@
     },
     "ntp_server": null
    },
-   "transport_encrypted": true
+   "transport_encrypted": true,
+   "log_targets": null
   },
   "status": "ok",
   "ports": [

@@ -43,7 +43,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.openwrt import discovery as _discovery
-from signalbox.adapters.openwrt import firewall, provision, setup, vitals, wireguard
+from signalbox.adapters.openwrt import firewall, monitoring, provision, setup, vitals, wireguard
 from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import (
     AccessDenied,
@@ -77,6 +77,7 @@ from signalbox.model import (
     IPAddress,
     IPInterface,
     LeaseState,
+    LogTarget,
     ManagementService,
     Membership,
     Neighbour,
@@ -925,14 +926,63 @@ class OpenWrtAdapter(Adapter):
         except AccessDenied as exc:  # set up with an older ACL: the rest is read
             services = []
             gaps.append(Gap(message=f"management services: {exc}", fix=exc.fix, remedy=exc.remedy))
+        targets: list[LogTarget] | None = []
+        try:
+            targets = monitoring.system_targets(await self._uci("system"))
+        except AccessDenied as exc:
+            targets = None
+            gaps.append(Gap(message=f"log targets: {exc}", fix=exc.fix, remedy=exc.remedy))
+        extra, extra_gaps = await self._monitoring()
+        services += extra[0]
+        if targets is not None:
+            targets += extra[1]
+        gaps += extra_gaps
         return Observation(
             ports=list(ports.values()),
             segments=segments,
             subnets=subnets,
             uplinks=uplinks,
             services=services,
+            log_targets={} if targets is None else {d: targets},
             incomplete=gaps,
         )
+
+    async def _monitoring(
+        self,
+    ) -> tuple[tuple[list[ManagementService], list[LogTarget]], list[Gap]]:
+        """The optional packages snmpd, collectd (luci-app-statistics) and softflowd (#180): a
+        package that is not installed has no config (nothing to report); a config the ACL of an
+        older setup does not list is an optional gap, the rest is read."""
+        services: list[ManagementService] = []
+        targets: list[LogTarget] = []
+        denied: list[str] = []
+        fix: AccessDenied | None = None
+        for config in ("snmpd", "luci_statistics", "softflowd"):
+            try:
+                uci = await self._uci(config)
+            except AccessDenied as exc:
+                denied.append(config)
+                fix = exc
+                continue
+            if config == "snmpd":
+                agent, traps = monitoring.snmpd(self.context.device_id, uci)
+                services += [agent] if agent else []
+                targets += traps
+            elif config == "luci_statistics":
+                targets += monitoring.collectd(uci)
+            else:
+                targets += monitoring.softflowd(uci)
+        gaps = []
+        if fix is not None:
+            gaps.append(
+                Gap(
+                    message=f"SNMP and monitoring targets ({', '.join(denied)}): {fix}",
+                    fix=fix.fix,
+                    remedy=fix.remedy,
+                    optional=True,
+                )
+            )
+        return (services, targets), gaps
 
     async def _network_devices(self) -> tuple[dict[str, Any] | None, Gap | None]:
         """``luci-rpc getNetworkDevices`` for the port structure (#252): None without

@@ -331,6 +331,27 @@ async def test_firewall_rules_and_port_forward(fw: dict[str, str]) -> None:
     assert any(n.masquerade and "wan" in n.zones for n in fwl.nat), fwl.nat
 
 
+async def test_log_targets(fw: dict[str, str]) -> None:
+    """The syslog destination and the NetFlow export of the LAN that vm.py adds (#180), read
+    with the read user's privileges (System: Settings: Logging, Diagnostics: Netflow)."""
+    a = adapter(fw)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    rows = [
+        (t.kind.value, t.endpoint(), t.transport.value if t.transport else None, t.enabled)
+        for t in snap.device.log_targets or []
+    ]
+    assert rows == [
+        ("syslog", "192.0.2.5:514", "udp", True),
+        ("netflow", "192.0.2.5:2055", "udp", True),
+    ], snap.device.log_targets
+    syslog = (snap.device.log_targets or [])[0]
+    assert syslog.name == "collector" and "info" in syslog.topics, syslog
+
+
 async def test_refused_api_key_is_auth_failed(fw: dict[str, str]) -> None:
     a = adapter(fw, secret="not-the-secret")
     try:

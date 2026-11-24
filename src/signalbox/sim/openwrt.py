@@ -49,7 +49,9 @@ FIXED_MAC = "00:00:5e:00:53:{:02x}"
 #: UCI configs the simulator knows (and can write; firewall since #295)
 CONFIGS = ("network", "wireless", "dhcp", "firewall")
 #: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173)
-READ_ONLY = ("system", "dropbear", "uhttpd")
+READ_ONLY = ("system", "dropbear", "uhttpd", "snmpd", "luci_statistics", "softflowd")
+#: Of those, the configs of optional packages (#180): only there when installed
+PACKAGES = ("snmpd", "luci_statistics", "softflowd")
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
     "/tmp/dhcp.leases",
@@ -756,6 +758,49 @@ def uhttpd_config() -> dict[str, Any]:
     )
 
 
+def snmpd_config() -> dict[str, Any]:
+    """``/etc/config/snmpd`` of the snmpd package (shortened): v1/v2c with ``public`` from
+    anywhere and ``private`` from localhost, plus a v2c trap target. *Guess* (#21)."""
+    return _uci(
+        ("agent", "cfg01", {"agentaddress": "UDP:161,UDP6:161"}),
+        ("com2sec", "public", {"secname": "ro", "source": "default", "community": "public"}),
+        ("com2sec", "private", {"secname": "rw", "source": "localhost", "community": "private"}),
+        ("group", "public_v1", {"group": "public", "version": "v1", "secname": "ro"}),
+        ("group", "public_v2c", {"group": "public", "version": "v2c", "secname": "ro"}),
+        ("group", "private_v2c", {"group": "private", "version": "v2c", "secname": "rw"}),
+        ("access", "public_access", {"group": "public", "read": "all", "write": "none"}),
+        ("access", "private_access", {"group": "private", "read": "all", "write": "all"}),
+        ("system", "cfg02", {"sysLocation": "office", "sysContact": "admin@example.com"}),
+        ("trap2sink", "cfg03", {"host": "192.0.2.5", "community": "public", "port": "162"}),
+        ("snmpd", "general", {"enabled": "1"}),
+    )
+
+
+def statistics_config() -> dict[str, Any]:
+    """``/etc/config/luci_statistics`` (shortened): collectd's network plugin to one server."""
+    return _uci(
+        ("statistics", "collectd", {"BaseDir": "/var/run/collectd", "Interval": "30"}),
+        ("statistics", "collectd_network", {"enable": "1"}),
+        ("collectd_network_server", "cfg01", {"host": "192.0.2.5", "port": "25826"}),
+    )
+
+
+def softflowd_config() -> dict[str, Any]:
+    """``/etc/config/softflowd`` as the package ships it: off, NetFlow v5 to a collector."""
+    return _uci(
+        (
+            "softflowd",
+            "cfg01",
+            {
+                "enabled": "0",
+                "interface": "br-lan",
+                "host_port": "192.0.2.5:9995",
+                "export_version": "5",
+            },
+        ),
+    )
+
+
 def system_config(router: bool) -> dict[str, Any]:
     """``/etc/config/system`` as OpenWrt writes it for Europe/Berlin (LuCI's zone table)."""
     ntp: dict[str, Any] = {"enabled": "1", "enable_server": "0", "server": ["192.0.2.1"]}
@@ -772,6 +817,9 @@ def system_config(router: bool) -> dict[str, Any]:
                 "zonename": "Europe/Berlin",
                 "ttylogin": "0",
                 "log_size": "128",
+                "log_ip": "192.0.2.5",
+                "log_port": "514",
+                "log_proto": "udp",
                 "urandom_seed": "0",
             },
         ),
@@ -961,6 +1009,8 @@ class OpenWrtSim:
     denied: set[str] = field(default_factory=set)
     #: UCI configs that do not exist (a router without Wi-Fi has no ``wireless``)
     missing: set[str] = field(default_factory=set)
+    #: optional packages installed (#180): ``snmpd``, ``luci_statistics``, ``softflowd``
+    packages: set[str] = field(default_factory=set)
     #: no ``network.wireless`` ubus object (a device without Wi-Fi)
     no_wireless_object: bool = False
     #: UCI configs the ACL lets the user change (``write`` → ``uci`` in the rpcd ACL)
@@ -1033,6 +1083,9 @@ class OpenWrtSim:
                 "system": _sections(system_config(self.router)),
                 "dropbear": _sections(dropbear_config()),
                 "uhttpd": _sections(uhttpd_config()),
+                "snmpd": _sections(snmpd_config()),
+                "luci_statistics": _sections(statistics_config()),
+                "softflowd": _sections(softflowd_config()),
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
             }
         return self.configs
@@ -1098,7 +1151,11 @@ class OpenWrtSim:
         if method == "get":
             if f"uci:{config}" in self.denied:
                 return [DENIED]
-            if config not in CONFIGS + READ_ONLY or config in self.missing:
+            if (
+                config not in CONFIGS + READ_ONLY
+                or config in self.missing
+                or (config in PACKAGES and config not in self.packages)
+            ):
                 return [NOT_FOUND]
             sections = self.view(sid, config)
             if isinstance(args.get("section"), str):

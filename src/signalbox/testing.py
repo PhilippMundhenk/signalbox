@@ -33,6 +33,9 @@ from signalbox.model import (
     FirewallChain,
     FirewallProtocol,
     LeaseState,
+    LogKind,
+    LogTarget,
+    LogTransport,
     ManagementService,
     Membership,
     NatClass,
@@ -283,6 +286,22 @@ def service_problems(
     return out
 
 
+def log_target_problems(device_id: str, targets: list[LogTarget]) -> list[str]:
+    """Log targets (#180): a target listed twice, a port on a kind without one, TLS for flows."""
+    out: list[str] = []
+    seen: set[tuple[str, str, int | None, str | None]] = set()
+    for t in targets:
+        key = (t.kind.value, t.address, t.port, t.name)
+        if key in seen:
+            out.append(f"{device_id}: log target {t.kind.value} {t.endpoint()} listed twice")
+        seen.add(key)
+        if t.transport is LogTransport.TLS and t.kind is not LogKind.SYSLOG:
+            out.append(f"{device_id}: log target {t.endpoint()}: TLS on a {t.kind.value} target")
+        if "\n" in t.address or " " in t.address:
+            out.append(f"{device_id}: log target address {t.address!r} is not an address")
+    return out
+
+
 def dhcp_problems(server: DhcpServer) -> list[str]:
     """Inconsistent DHCP server data (#183): leases without an owner or with impossible times,
     one address leased to two clients, options that repeat a typed field."""
@@ -498,6 +517,10 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
     if snapshot.firewalls and Capability.FIREWALL.value not in caps:
         out.append(f"firewalls reported without declaring {Capability.FIREWALL.value}")
     for d in devices:
+        if d.log_targets is not None:
+            if Capability.INTERFACES.value not in caps:
+                out.append(f"log targets reported without declaring {Capability.INTERFACES.value}")
+            out += log_target_problems(d.id, d.log_targets)
         if d.health is not None:
             out += health_problems(d.id, d.health)
         if d.time is not None:

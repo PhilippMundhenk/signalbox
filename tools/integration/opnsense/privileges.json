@@ -16,7 +16,9 @@
     "page-interfaces-groups-edit",
     "page-firewall-nat-portforward-edit",
     "page-filter-snat-api",
-    "page-firewall-nat-1-1-edit"
+    "page-firewall-nat-1-1-edit",
+    "page-diagnostics-logs-settings-targets",
+    "page-diagnostics-netflow"
   ],
   "signalbox-write": [
     "page-system-firmware-manualupdate",
@@ -36,6 +38,8 @@
     "page-firewall-nat-portforward-edit",
     "page-filter-snat-api",
     "page-firewall-nat-1-1-edit",
+    "page-diagnostics-logs-settings-targets",
+    "page-diagnostics-netflow",
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory"
   ]

@@ -106,6 +106,7 @@ carries its source (adapter and device), the time it was observed and a stable i
 | Client | MAC, IP, hostname, segment, where it was seen (port or access point), last seen, source per address (`dhcp`, `dhcp-reserved`, `static`, `slaac`, `slaac-privacy`, `dhcpv6`, `link-local`, `unknown`) |
 | Firmware | Current, available, end of life |
 | DeviceHealth | Uptime and boot time, last restart reason, CPU load and load average, memory, storage per mount (kind, wear), temperatures with limits, fans, power supplies, monitored UPS |
+| LogTarget | Where a device sends syslog, flow records (NetFlow, IPFIX, sFlow), SNMP traps or metrics (#180, [ADR 0018](adr/0018-log-and-monitoring-targets.md)): kind, address, port, transport (UDP, TCP, TLS), enabled, the device's name, topics; `Device.log_targets`, `None` when not read |
 | DeviceTime | Device clock and Signalbox's time when it was read (offset, uncertainty), time zone, NTP client (servers, synchronised, stratum), NTP server (segments it serves) |
 | Annotation | User data per object id (device, port, segment, subnet, `client/<mac>`): label, purpose, owner, notes, tags, typed expectations (`static_address`, `category`, `may_be_unreachable`, `known_neighbour`, ...); declared or stored |
 | Acknowledgement | A finding accepted by the user: rule plus finding id or target object, reason, until, optional fingerprint of the message |
