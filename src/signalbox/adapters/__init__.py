@@ -56,6 +56,8 @@ from signalbox.model import (
     Port,
     Radio,
     ReadError,
+    Route,
+    RoutingRule,
     Segment,
     ServerSighting,
     Snapshot,
@@ -623,6 +625,14 @@ class Observation(BaseModel):
     #: says, on the physical port where it knows it; ``observe()`` keeps at most
     #: :data:`~signalbox.model.FDB_LIMIT` per device.
     fdb: list[FdbEntry] = Field(default_factory=list)
+    #: Routing table (#149), read with ``interfaces``; no API version needed. Report static,
+    #: default, VPN and dynamic routes; connected routes are derived from ``subnets`` and only
+    #: reported by a device that lists its whole table anyway. An integration that cannot read
+    #: the table reports nothing (and an optional read error), never an empty table it made up.
+    routes: list[Route] = Field(default_factory=list)
+    #: Policy routing rules (#149), read with ``interfaces``; no API version needed. Report
+    #: every rule, or none when the device cannot say.
+    routing_rules: list[RoutingRule] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239), read with ``vpn`` (API 1.3). Never a private or
     #: pre-shared key, also not in ``vendor_extra``.
     tunnels: list[Tunnel] = Field(default_factory=list)

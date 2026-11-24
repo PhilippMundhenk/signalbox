@@ -47,6 +47,9 @@ from signalbox.model import (
     Verdict,
     internet_reachable_network,
 )
+from signalbox.routing import address_owner as address_owner
+from signalbox.routing import address_segment as address_segment
+from signalbox.routing import own_addresses as own_addresses
 
 #: How many routers in front (double, triple NAT) are followed.
 _MAX_UPSTREAM = 3
@@ -96,50 +99,6 @@ def _host(address: IPAddress) -> IPNetwork:
 
 def _family(address: IPAddress | None) -> int | None:
     return address.version if address is not None else None
-
-
-def own_addresses(net: Network, device_id: str) -> dict[IPAddress, str]:
-    """The device's addresses with the object they are on: a subnet's segment, an uplink, a
-    tunnel."""
-    out: dict[IPAddress, str] = {}
-    for sub in net.subnets:
-        if sub.device_id == device_id:
-            out.setdefault(sub.interface.ip, sub.segment_id)
-    for up in net.uplinks_of(device_id):
-        for a in up.addresses:
-            out.setdefault(a.ip, up.id)
-    for t in net.tunnels_of(device_id):
-        for a in t.addresses:
-            out.setdefault(a.ip, t.id)
-    return out
-
-
-def address_owner(net: Network, address: IPAddress) -> str | None:
-    """The device that has *address* as one of its own (or as its management address)."""
-    for dev in sorted(net.devices, key=lambda d: d.id):
-        if address in own_addresses(net, dev.id):
-            return dev.id
-    for dev in sorted(net.devices, key=lambda d: d.id):
-        try:
-            if ip_address((dev.management_address or "").strip("[]")) == address:
-                return dev.id
-        except ValueError:
-            continue
-    return None
-
-
-def address_segment(net: Network, address: IPAddress) -> str | None:
-    """The segment whose subnet holds *address* (the most specific subnet wins)."""
-    best: tuple[int, str] | None = None
-    for sub in net.subnets:
-        n = sub.interface.network
-        if (
-            n.version == address.version
-            and address in n
-            and (best is None or n.prefixlen > best[0])
-        ):
-            best = (n.prefixlen, sub.segment_id)
-    return best[1] if best else None
 
 
 def _source_networks(net: Network, source: str, family: int | None) -> list[IPNetwork | None]:
