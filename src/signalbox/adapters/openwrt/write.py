@@ -24,6 +24,7 @@ from pydantic import JsonValue
 from signalbox.adapters import (
     AdapterError,
     Described,
+    Label,
     VendorCall,
     logging_errors,
     message_fields,
@@ -119,11 +120,17 @@ class Configs:
     def values(self, config: str) -> dict[str, Any]:
         if config not in self.data:
             raise AdapterError(
-                f"uci {config} could not be read (the rpcd ACL of the login does not allow it)"
+                f"uci {config} could not be read (the rpcd ACL of the login does not allow it)",
+                message_id="openwrt.uciUnreadable",
+                params={"config": config},
             )
         values = self.data[config].get("values")
         if not isinstance(values, dict):
-            raise AdapterError(f"unexpected answer to uci.get ({config})")
+            raise AdapterError(
+                f"unexpected answer to uci.get ({config})",
+                message_id="openwrt.unexpected",
+                params={"what": f"uci.get ({config})"},
+            )
         return values
 
     def sections(self, config: str, kind: str) -> list[tuple[str, dict[str, Any]]]:
@@ -189,6 +196,26 @@ def _seg(site: str, vid: int) -> str:
     return segment_id(site, None if vid == h._NATIVE else vid)
 
 
+def _remove(label: str) -> Described:
+    return Described(f"{label}: remove", "plan.openwrt.remove", label=label)
+
+
+def _new(label: str) -> Described:
+    return Described(f"{label}: new", "plan.openwrt.new", label=label)
+
+
+def _options_set(label: str, options: Iterable[str]) -> Described:
+    shown = ", ".join(options)
+    return Described(f"{label}: {shown}", "plan.openwrt.setOptions", label=label, options=shown)
+
+
+def _options_removed(label: str, options: Iterable[str]) -> Described:
+    shown = ", ".join(options)
+    return Described(
+        f"{label}: remove {shown}", "plan.openwrt.removeOptions", label=label, options=shown
+    )
+
+
 # --- PORT -----------------------------------------------------------------------------------
 
 
@@ -202,9 +229,15 @@ def _port(cfg: Configs, c: Change) -> None:
         if bridges:
             raise AdapterError(
                 f"port {name}: bridge {bridges[0]} has no bridge VLANs (VLAN filtering); "
-                "set up bridge-vlan sections first"
+                "set up bridge-vlan sections first",
+                message_id="openwrt.noBridgeVlans",
+                params={"port": name, "bridge": bridges[0]},
             )
-        raise AdapterError(f"port {name} is not a port of a bridge on this device")
+        raise AdapterError(
+            f"port {name} is not a port of a bridge on this device",
+            message_id="openwrt.notBridgePort",
+            params={"port": name},
+        )
     bridge = filtered[0]
     wanted: dict[int, str] = {}
     if new.untagged is not None:
@@ -226,9 +259,29 @@ def _port(cfg: Configs, c: Change) -> None:
             continue
         keep = [e for e in entries if e.partition(":")[0] != name] + target
         if keep:
-            cfg.set("network", section, {"ports": keep}, f"{what}: VLAN {vid} ports {keep}")
+            cfg.set(
+                "network",
+                section,
+                {"ports": keep},
+                Described(
+                    f"{what}: VLAN {vid} ports {keep}",
+                    "plan.openwrt.portVlanPorts",
+                    port=name,
+                    vlan=str(vid),
+                    ports=str(keep),
+                ),
+            )
         else:
-            cfg.delete("network", section, f"{what}: VLAN {vid} has no ports left, remove it")
+            cfg.delete(
+                "network",
+                section,
+                Described(
+                    f"{what}: VLAN {vid} has no ports left, remove it",
+                    "plan.openwrt.portVlanRemove",
+                    port=name,
+                    vlan=str(vid),
+                ),
+            )
             cfg.removed_vlans.add(f"{bridge}.{vid}")
     for vid in sorted(set(wanted) - done):
         cfg.add(
@@ -236,7 +289,13 @@ def _port(cfg: Configs, c: Change) -> None:
             "bridge-vlan",
             f"{_slug(bridge)}_{vid}",
             {"device": bridge, "vlan": str(vid), "ports": [name + wanted[vid]]},
-            f"{what}: new VLAN {vid} on {bridge}",
+            Described(
+                f"{what}: new VLAN {vid} on {bridge}",
+                "plan.openwrt.portVlanNew",
+                port=name,
+                vlan=str(vid),
+                bridge=bridge,
+            ),
         )
         cfg.removed_vlans.discard(f"{bridge}.{vid}")
 
@@ -255,17 +314,28 @@ def _interface_for(cfg: Configs, site: str, ref: SegmentRef, label: str) -> str:
     vid = seg_key(ref)
     bridge = next((b for b, vlans in view.vlans.items() if vid is not None and vid in vlans), None)
     if vid is None or bridge is None:
-        where = "the untagged network" if vid is None else f"VLAN {vid}"
+        where = (
+            Label("the untagged network", "untaggedNetwork")
+            if vid is None
+            else Label(f"VLAN {vid}", "vlan", vid)
+        )
         raise AdapterError(
             f"{label}: {where} is not on any port of this device; add it to a port (for "
-            "example tag the uplink) in the same plan"
+            "example tag the uplink) in the same plan",
+            message_id="openwrt.vlanNotOnPort",
+            params={"label": label, "where": where},
         )
     return cfg.add(
         "network",
         "interface",
         f"vlan{vid}",
         {"device": f"{bridge}.{vid}", "proto": "none"},
-        f"{label}: new interface for VLAN {vid} (no address)",
+        Described(
+            f"{label}: new interface for VLAN {vid} (no address)",
+            "plan.openwrt.vlanInterfaceNew",
+            label=label,
+            vlan=str(vid),
+        ),
     )
 
 
@@ -304,7 +374,7 @@ def _wifi_values(
 
 def _wlan(cfg: Configs, c: Change, site: str, secrets: Mapping[str, str]) -> None:
     ssid = c.key
-    label = f"SSID {ssid}"
+    label = Label(f"SSID {ssid}", "ssid", ssid)
     radios = [n for n, s in cfg.sections("wireless", "wifi-device") if h.band(s) is not None]
     existing = [
         (n, s)
@@ -313,24 +383,44 @@ def _wlan(cfg: Configs, c: Change, site: str, secrets: Mapping[str, str]) -> Non
     ]
     if not isinstance(c.new, WlanValue):
         for n, _ in existing:
-            cfg.delete("wireless", n, f"{label}: remove from {n}")
+            cfg.delete(
+                "wireless",
+                n,
+                Described(
+                    f"{label}: remove from {n}", "plan.openwrt.removeFrom", label=label, section=n
+                ),
+            )
         return
     w = c.new
     if w.security not in ENCRYPTION_OF:
         raise AdapterError(
             f"{label}: {w.security.value} is not supported by the OpenWrt integration "
-            "(enterprise networks need RADIUS settings)"
+            "(enterprise networks need RADIUS settings)",
+            message_id="openwrt.securityUnsupported",
+            params={"label": label, "security": w.security.value},
         )
     key = None
     if w.security in h.PERSONAL:
         if w.passphrase_secret:
             if w.passphrase_secret not in secrets:
-                raise AdapterError(f"{label}: secret {w.passphrase_secret!r} was not provided")
+                raise AdapterError(
+                    f"{label}: secret {w.passphrase_secret!r} was not provided",
+                    message_id="openwrt.secretMissing",
+                    params={"label": label, "name": repr(w.passphrase_secret)},
+                )
             key = secrets[w.passphrase_secret]
         elif not existing:
-            raise AdapterError(f"{label}: a new {w.security.value} network needs a passphrase")
+            raise AdapterError(
+                f"{label}: a new {w.security.value} network needs a passphrase",
+                message_id="openwrt.passphraseNeeded",
+                params={"label": label, "security": w.security.value},
+            )
     if not radios:
-        raise AdapterError(f"{label}: this device has no radios")
+        raise AdapterError(
+            f"{label}: this device has no radios",
+            message_id="openwrt.noRadios",
+            params={"label": label},
+        )
     network = _interface_for(cfg, site, w.segment, label)
     if not existing:
         for radio in radios:
@@ -341,7 +431,9 @@ def _wlan(cfg: Configs, c: Change, site: str, secrets: Mapping[str, str]) -> Non
                 "wifi-iface",
                 f"{_slug(ssid)}_{radio}",
                 base | values,
-                f"{label}: new on {radio}",
+                Described(
+                    f"{label}: new on {radio}", "plan.openwrt.wlanNew", label=label, radio=radio
+                ),
             )
         return
     view = cfg.view()
@@ -354,8 +446,32 @@ def _wlan(cfg: Configs, c: Change, site: str, secrets: Mapping[str, str]) -> Non
             else network
         )
         values, drop = _wifi_values(s, w, key, here)
-        cfg.set("wireless", n, values, f"{label} on {n}: " + ", ".join(sorted(values)))
-        cfg.drop("wireless", n, drop, f"{label} on {n}: remove " + ", ".join(drop))
+        shown = ", ".join(sorted(values))
+        cfg.set(
+            "wireless",
+            n,
+            values,
+            Described(
+                f"{label} on {n}: {shown}",
+                "plan.openwrt.wlanSet",
+                label=label,
+                section=n,
+                options=shown,
+            ),
+        )
+        gone = ", ".join(drop)
+        cfg.drop(
+            "wireless",
+            n,
+            drop,
+            Described(
+                f"{label} on {n}: remove {gone}",
+                "plan.openwrt.wlanDrop",
+                label=label,
+                section=n,
+                options=gone,
+            ),
+        )
 
 
 # --- DHCP and reservations ------------------------------------------------------------------
@@ -389,7 +505,9 @@ def _routed(cfg: Configs, dump: Mapping[str, Any], site: str, sid: str) -> tuple
             return name, addr.network
     raise AdapterError(
         f"{sid}: no interface with an IPv4 address on this device (Signalbox does not create "
-        "routed interfaces on OpenWrt)"
+        "routed interfaces on OpenWrt)",
+        message_id="openwrt.noRoutedInterface",
+        params={"segment": sid},
     )
 
 
@@ -403,21 +521,25 @@ def lease_text(seconds: int) -> str:
 
 def _dhcp(cfg: Configs, c: Change, site: str, dump: Mapping[str, Any]) -> None:
     iface, net = _routed(cfg, dump, site, c.key)
-    label = f"DHCP on {iface}"
+    label = Label(f"DHCP on {iface}", "dhcpOn", iface)
     sections = [
         (n, s) for n, s in cfg.sections("dhcp", "dhcp") if str(s.get("interface", n)) == iface
     ]
     if not isinstance(c.new, DhcpValue):
         for n, _ in sections:
-            cfg.delete("dhcp", n, f"{label}: remove")
+            cfg.delete("dhcp", n, _remove(label))
         return
     d = c.new
     if d.enabled and d.pool is None:
-        raise AdapterError(f"{label}: give the pool (first and last address)")
+        raise AdapterError(
+            f"{label}: give the pool (first and last address)",
+            message_id="openwrt.poolNeeded",
+            params={"label": label},
+        )
     if sections:
         name = sections[0][0]
     else:
-        name = cfg.add("dhcp", "dhcp", iface, {"interface": iface}, f"{label}: new")
+        name = cfg.add("dhcp", "dhcp", iface, {"interface": iface}, _new(label))
     s = cfg.values("dhcp")[name]
     out: dict[str, Any] = {}
     drop: list[str] = []
@@ -436,7 +558,11 @@ def _dhcp(cfg: Configs, c: Change, site: str, dump: Mapping[str, Any]) -> None:
             and first != net.network_address
             and last != net.broadcast_address
         ):
-            raise AdapterError(f"{label}: pool {first}-{last} is not inside {net}")
+            raise AdapterError(
+                f"{label}: pool {first}-{last} is not inside {net}",
+                message_id="openwrt.poolOutside",
+                params={"label": label, "first": str(first), "last": str(last), "net": str(net)},
+            )
         start = int(first) - int(net.network_address)
         limit = int(last) - int(first) + 1
         if h._int(s.get("start", 100)) != start:
@@ -459,13 +585,13 @@ def _dhcp(cfg: Configs, c: Change, site: str, dump: Mapping[str, Any]) -> None:
             out["dhcp_option"] = rest
         else:
             drop.append("dhcp_option")
-    cfg.set("dhcp", name, out, f"{label}: " + ", ".join(sorted(out)))
-    cfg.drop("dhcp", name, drop, f"{label}: remove " + ", ".join(drop))
+    cfg.set("dhcp", name, out, _options_set(label, sorted(out)))
+    cfg.drop("dhcp", name, drop, _options_removed(label, drop))
 
 
 def _reservation(cfg: Configs, c: Change) -> None:
     mac = c.key.rsplit("/", 1)[1]
-    label = f"reservation {mac}"
+    label = Label(f"reservation {mac}", "reservation", mac)
     hosts = [
         (n, s)
         for n, s in cfg.sections("dhcp", "host")
@@ -476,13 +602,20 @@ def _reservation(cfg: Configs, c: Change) -> None:
         """Take ``mac`` out of a host section shared with other MACs; False if it is only ours."""
         others = [m for m in h._list(s.get("mac")) if h._mac(m) != mac]
         if others:
-            cfg.set("dhcp", n, {"mac": others}, f"{label}: remove from {n}")
+            cfg.set(
+                "dhcp",
+                n,
+                {"mac": others},
+                Described(
+                    f"{label}: remove from {n}", "plan.openwrt.removeFrom", label=label, section=n
+                ),
+            )
         return bool(others)
 
     if not isinstance(c.new, ReservationValue):
         for n, s in hosts:
             if not release(n, s):
-                cfg.delete("dhcp", n, f"{label}: remove")
+                cfg.delete("dhcp", n, _remove(label))
         return
     r = c.new
     want: dict[str, Any] = {"ip": str(r.address)}
@@ -492,14 +625,17 @@ def _reservation(cfg: Configs, c: Change) -> None:
     if own is None:
         for n, s in hosts:
             release(n, s)
-        cfg.add(
-            "dhcp", "host", f"host_{mac.replace(':', '')}", {"mac": mac, **want}, f"{label}: new"
-        )
+        cfg.add("dhcp", "host", f"host_{mac.replace(':', '')}", {"mac": mac, **want}, _new(label))
         return
     n, s = own
-    cfg.set("dhcp", n, want, f"{label}: " + ", ".join(f"{k} {v}" for k, v in want.items()))
+    cfg.set("dhcp", n, want, _options_set(label, [f"{k} {v}" for k, v in want.items()]))
     if not r.hostname:
-        cfg.drop("dhcp", n, ["name"], f"{label}: no host name")
+        cfg.drop(
+            "dhcp",
+            n,
+            ["name"],
+            Described(f"{label}: no host name", "plan.openwrt.noHostName", label=label),
+        )
 
 
 # --- firewall (#295) ------------------------------------------------------------------------
@@ -568,7 +704,11 @@ def _zone_section(cfg: Configs, name: str, label: str) -> str:
     for section, z in cfg.sections("firewall", "zone"):
         if str(z.get("name")) == name:
             return section
-    raise AdapterError(f"{label}: the firewall has no zone {name!r}")
+    raise AdapterError(
+        f"{label}: the firewall has no zone {name!r}",
+        message_id="openwrt.noZone",
+        params={"label": label, "zone": repr(name)},
+    )
 
 
 def _show(value: Any) -> str:
@@ -654,21 +794,21 @@ def _replace(
             adopted_note = f" (keeps {shown})" if shown else ""
     if values is None:
         if section in have:
-            cfg.delete("firewall", section, f"{label}: remove")
+            cfg.delete("firewall", section, _remove(label))
         return False
     if section in have:
-        cfg.set("firewall", section, values, f"{label}: " + ", ".join(sorted(values)))
+        cfg.set("firewall", section, values, _options_set(label, sorted(values)))
         cfg.drop(
             "firewall",
             section,
             [o for o in managed if o not in values],
-            f"{label}: remove options",
+            Described(f"{label}: remove options", "plan.openwrt.removeUnmodelled", label=label),
         )
         return False
     note = (
         Described(f"{label}: new{adopted_note}", "plan.newKeeps", label=label, kept=shown)
         if adopted_note
-        else f"{label}: new"
+        else _new(label)
     )
     cfg.add("firewall", kind, section, values, note)
     return True
@@ -677,14 +817,26 @@ def _replace(
 def _policy(cfg: Configs, c: Change) -> None:
     _, source, dest_text = c.key.split("/", 2)
     dest = None if dest_text == "device" else dest_text
-    label = f"policy {source} → {dest or 'device'}"
+    label = Label(f"policy {source} → {dest or 'device'}", "policy", source, dest or "device")
     if not isinstance(c.new, ZonePolicyValue):  # pragma: no cover - policies are never removed
         return
     action = c.new.action.value.upper()
     zone = _zone_section(cfg, source, label)
     if dest is None or dest == source:
         option = "input" if dest is None else "forward"
-        cfg.set("firewall", zone, {option: action}, f"{label}: zone {source} {option} {action}")
+        cfg.set(
+            "firewall",
+            zone,
+            {option: action},
+            Described(
+                f"{label}: zone {source} {option} {action}",
+                "plan.openwrt.zoneOption",
+                label=label,
+                zone=source,
+                option=option,
+                action=action,
+            ),
+        )
         return
     _zone_section(cfg, dest, label)
     pair = [
@@ -701,21 +853,34 @@ def _policy(cfg: Configs, c: Change) -> None:
                 "forwarding",
                 f"{POLICY_TAG}{source}_{dest}",
                 {"src": source, "dest": dest},
-                f"{label}: new forwarding",
+                Described(f"{label}: new forwarding", "plan.openwrt.newForwarding", label=label),
             )
         return
     if c.new.action is FirewallAction.DROP:
         raise AdapterError(
             f"{label}: OpenWrt rejects traffic between two zones without a forwarding; declare "
-            "reject, or a rule that drops"
+            "reject, or a rule that drops",
+            message_id="openwrt.dropNeedsForwarding",
+            params={"label": label},
         )
     for n, x in pair:
         if fw_tag(x, POLICY_TAG) is None and not c.adopt:
             raise AdapterError(
                 f"{label}: the forwarding {n} is the device's own, not created by Signalbox; "
-                "remove it on the device, or declare the policy with `adopt: true`"
+                "remove it on the device, or declare the policy with `adopt: true`",
+                message_id="openwrt.foreignForwarding",
+                params={"label": label, "section": n},
             )
-        cfg.delete("firewall", n, f"{label}: remove forwarding {n}")
+        cfg.delete(
+            "firewall",
+            n,
+            Described(
+                f"{label}: remove forwarding {n}",
+                "plan.openwrt.removeForwarding",
+                label=label,
+                section=n,
+            ),
+        )
 
 
 def _rule_values(v: FirewallRuleValue) -> dict[str, Any]:
@@ -751,7 +916,7 @@ def _rule_change(cfg: Configs, c: Change) -> str | None:
         c.adopt,
         _rule_values(v) if v else None,
         RULE_OPTIONS,
-        f"firewall rule {key}",
+        Label(f"firewall rule {key}", "fwRule", key),
         RULE_MODELLED,
     )
     return section if created else None
@@ -767,12 +932,16 @@ def _zone_of_address(cfg: Configs, dump: Mapping[str, Any], address: Any, label:
             nets = h._list(z.get("network")) or [str(z.get("name"))]
             if name in nets:
                 return str(z.get("name"))
-    raise AdapterError(f"{label}: {address} is in no network of a firewall zone on this router")
+    raise AdapterError(
+        f"{label}: {address} is in no network of a firewall zone on this router",
+        message_id="openwrt.noZoneForAddress",
+        params={"label": label, "address": str(address)},
+    )
 
 
 def _forward_change(cfg: Configs, c: Change, dump: Mapping[str, Any]) -> None:
     key = c.key.partition("/")[2]
-    label = f"port forward {key}"
+    label = Label(f"port forward {key}", "portForward", key)
     v = c.new if isinstance(c.new, PortForwardValue) else None
     values: dict[str, Any] | None = None
     if v is not None:
@@ -820,7 +989,8 @@ def _order_rules(cfg: Configs, created: list[str]) -> None:
     for i, name in enumerate(order):
         values[name][".index"] = i
     args = {"config": "firewall", "sections": order}
-    cfg.ops.append(UciOp("order", "firewall", "*", args, "Signalbox's rules before the others"))
+    note = Described("Signalbox's rules before the others", "plan.openwrt.rulesFirst")
+    cfg.ops.append(UciOp("order", "firewall", "*", args, note))
 
 
 # --- whole change sets ------------------------------------------------------------------------
@@ -838,7 +1008,15 @@ def _cleanup(cfg: Configs) -> None:
             and s.get("proto", "none") == "none"
             and name not in used
         ):
-            cfg.delete("network", name, f"interface {name}: its VLAN was removed")
+            cfg.delete(
+                "network",
+                name,
+                Described(
+                    f"interface {name}: its VLAN was removed",
+                    "plan.openwrt.vlanInterfaceRemoved",
+                    name=name,
+                ),
+            )
 
 
 def _first(value: Any) -> str:
@@ -852,12 +1030,15 @@ def _log_target(cfg: Configs, c: Change, adopted: set[str], created: list[str]) 
     ``system`` section, tagged with ``signalbox_syslog`` (#327). The device has one slot."""
     found = cfg.sections("system", "system")
     if not found:
-        raise AdapterError("the router has no system section to set the syslog target in")
+        raise AdapterError(
+            "the router has no system section to set the syslog target in",
+            message_id="openwrt.noSystemSection",
+        )
     name, section = found[0]
     address = c.key.partition("/")[2]
     now = _first(section.get("log_ip"))
     owned = _first(section.get(LOG_TAG)) == "1"
-    label = f"syslog target {address}"
+    label = Label(f"syslog target {address}", "syslogTarget", address)
     if isinstance(c.new, LogTargetValue):
         v = c.new
         if v.transport not in (LogTransport.UDP, LogTransport.TCP):
@@ -870,17 +1051,32 @@ def _log_target(cfg: Configs, c: Change, adopted: set[str], created: list[str]) 
         # putting back the device's own target (the undo of an adoption) leaves it untagged
         theirs = c.adopt == address and c.old is None
         values = {"log_ip": v.address, "log_port": str(v.port), "log_proto": v.transport.value}
-        cfg.set("system", name, values if theirs else {**values, LOG_TAG: "1"}, f"{label}: set")
+        cfg.set(
+            "system",
+            name,
+            values if theirs else {**values, LOG_TAG: "1"},
+            Described(f"{label}: set", "plan.openwrt.targetSet", label=label),
+        )
         if theirs:
-            cfg.drop("system", name, [LOG_TAG], f"{label}: not Signalbox's")
-        cfg.drop("system", name, ["log_remote"], f"{label}: send it")
+            cfg.drop(
+                "system",
+                name,
+                [LOG_TAG],
+                Described(f"{label}: not Signalbox's", "plan.openwrt.targetNotOurs", label=label),
+            )
+        cfg.drop(
+            "system",
+            name,
+            ["log_remote"],
+            Described(f"{label}: send it", "plan.openwrt.targetSend", label=label),
+        )
         return
     # removal: only when the slot still holds this target (an update at another address came first)
     if now != address:
         return
     if not owned and c.adopt != address:
         raise logging_errors.foreign_target(address)
-    cfg.drop("system", name, ["log_ip", "log_port", "log_proto", LOG_TAG], f"{label}: remove")
+    cfg.drop("system", name, ["log_ip", "log_port", "log_proto", LOG_TAG], _remove(label))
 
 
 def _snmp_policy(cfg: Configs, c: Change) -> None:
@@ -892,10 +1088,11 @@ def _snmp_policy(cfg: Configs, c: Change) -> None:
         raise logging_errors.v3_only()
     value = "0" if mode == "off" else "1"
     found = cfg.sections("snmpd", "snmpd")
+    note = Described(f"SNMP agent: {mode}", "plan.openwrt.snmpAgent", mode=mode)
     if found:
-        cfg.set("snmpd", found[0][0], {"enabled": value}, f"SNMP agent: {mode}")
+        cfg.set("snmpd", found[0][0], {"enabled": value}, note)
     else:
-        cfg.add("snmpd", "snmpd", "general", {"enabled": value}, f"SNMP agent: {mode}")
+        cfg.add("snmpd", "snmpd", "general", {"enabled": value}, note)
 
 
 def translate(
@@ -937,7 +1134,11 @@ def translate(
         elif c.kind is ChangeKind.RESERVATION:
             _reservation(cfg, c)
         else:
-            raise AdapterError(f"the OpenWrt integration cannot change {c.kind.value}")
+            raise AdapterError(
+                f"the OpenWrt integration cannot change {c.kind.value}",
+                message_id="openwrt.unsupportedKind",
+                params={"kind": c.kind.value},
+            )
     _order_rules(cfg, created)
     _cleanup(cfg)
     return cfg
@@ -955,21 +1156,45 @@ def restore_ops(saved: Mapping[str, Any], current: Mapping[str, Any]) -> list[Uc
         cfg = Configs({config: {"values": copy.deepcopy(have)}})
         for name, s in list(have.items()):
             if name not in want or want[name].get(".type") != s.get(".type"):
-                cfg.delete(config, name, f"restore {config}: remove {name}")
+                cfg.delete(
+                    config,
+                    name,
+                    Described(
+                        f"restore {config}: remove {name}",
+                        "plan.openwrt.restoreRemove",
+                        config=config,
+                        name=name,
+                    ),
+                )
         for name, s in want.items():
             options = _options(s)
             if name in cfg.values(config):
                 old = _options(cfg.values(config)[name])
-                cfg.set(config, name, options, f"restore {config}.{name}")
-                cfg.drop(
-                    config, name, [k for k in old if k not in options], f"restore {config}.{name}"
+                note = Described(
+                    f"restore {config}.{name}", "plan.openwrt.restoreSet", config=config, name=name
                 )
+                cfg.set(config, name, options, note)
+                cfg.drop(config, name, [k for k in old if k not in options], note)
             else:
-                cfg.add(config, str(s.get(".type")), name, options, f"restore {config}: {name}")
+                cfg.add(
+                    config,
+                    str(s.get(".type")),
+                    name,
+                    options,
+                    Described(
+                        f"restore {config}: {name}",
+                        "plan.openwrt.restoreAdd",
+                        config=config,
+                        name=name,
+                    ),
+                )
         ops += cfg.ops
         order = sorted(want, key=lambda n: _index(want[n]))
         now = sorted(cfg.values(config), key=lambda n: _index(cfg.values(config)[n]))
         if now != order:
             args = {"config": config, "sections": order}
-            ops.append(UciOp("order", config, "*", args, f"restore {config}: section order"))
+            note = Described(
+                f"restore {config}: section order", "plan.openwrt.restoreOrder", config=config
+            )
+            ops.append(UciOp("order", config, "*", args, note))
     return ops

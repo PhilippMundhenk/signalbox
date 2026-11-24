@@ -35,7 +35,15 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import JsonValue
 
-from signalbox.adapters import AdapterError, ApplyResult, Backup, VendorCall
+from signalbox.adapters import (
+    AdapterError,
+    ApplyResult,
+    Backup,
+    Described,
+    Label,
+    VendorCall,
+    message_fields,
+)
 from signalbox.adapters.omada import (
     OmadaError,
     TokenRefused,
@@ -107,7 +115,11 @@ class Op:
 
     def call(self) -> VendorCall:
         return VendorCall(
-            description=self.description, method=self.method, target=self.path, payload=self.shown
+            description=self.description,
+            **message_fields(self.description),
+            method=self.method,
+            target=self.path,
+            payload=self.shown,
         )
 
 
@@ -127,7 +139,11 @@ def _vlan_of_key(site: str, change: Change) -> int | None:
     prefix = f"{site}/segment/"
     rest = change.key.removeprefix(prefix)
     if rest == change.key or not (rest == "native" or rest.isdigit()):
-        raise AdapterError(f"{change.id}: {change.key} is not a segment of site {site}")
+        raise AdapterError(
+            f"{change.id}: {change.key} is not a segment of site {site}",
+            message_id="omada.notSegment",
+            params={"subject": change.id, "key": change.key, "site": site},
+        )
     return None if rest == "native" else int(rest)
 
 
@@ -187,7 +203,11 @@ class Writer:
                 if exc.code in PERMISSION_CODES or "ermission" in str(exc)
                 else ""
             )
-            raise AdapterError(f"{method} {path}: the controller refused: {exc}{hint}") from exc
+            raise AdapterError(
+                f"{method} {path}: the controller refused: {exc}{hint}",
+                message_id="omada.refusedPermission" if hint else "omada.refused",
+                params={"request": f"{method} {path}", "detail": str(exc)},
+            ) from exc
         finally:
             self.a._cache.clear()
             self.a._wireless_cache = None
@@ -208,7 +228,9 @@ class Writer:
         if kind == "gateway" and change.device_id == self.a.context.device_id and no_gateway:
             return None
         raise AdapterError(
-            f"{change.id}: {change.device_id} is not a {kind} managed by this controller"
+            f"{change.id}: {change.device_id} is not a {kind} managed by this controller",
+            message_id="omada.notManaged",
+            params={"subject": change.id, "device": change.device_id, "kind": kind},
         )
 
     async def _uses(self, net_id: str, vlan: int | None) -> bool:
@@ -262,7 +284,11 @@ class Writer:
             elif c.kind is ChangeKind.WLAN:
                 out += await self._wlan(c, secrets, strict)
             else:
-                raise AdapterError(f"{c.id}: the Omada integration cannot change {c.kind.value}")
+                raise AdapterError(
+                    f"{c.id}: the Omada integration cannot change {c.kind.value}",
+                    message_id="omada.cannotChange",
+                    params={"subject": c.id, "kind": c.kind.value},
+                )
         nets = [await self._network(key, by_kind) for key, by_kind in networks.items()]
         return [op for group in nets for op in group] + out
 
@@ -277,37 +303,69 @@ class Writer:
         r_new = router.new if router and isinstance(router.new, RouterValue) else None
         d_new = dhcp.new if dhcp and isinstance(dhcp.new, DhcpValue) else None
         if r_new is not None and segment_id(self.a.context.site_id, r_new.vlan) != key:
-            raise AdapterError(f"{first.id}: VLAN {r_new.vlan} does not match {key}")
+            raise AdapterError(
+                f"{first.id}: VLAN {r_new.vlan} does not match {key}",
+                message_id="omada.vlanMismatch",
+                params={"subject": first.id, "vlan": r_new.vlan, "key": key},
+            )
         nets = await self.a._networks()
         net = next((n for n in nets.values() if n.segment == key), None)
-        label = f"VLAN {vlan}" if vlan else "the native network"
+        label = (
+            Label(f"VLAN {vlan}", "vlan", vlan)
+            if vlan
+            else Label("the native network", "nativeNetwork")
+        )
         lan = f"{self.site}/lan-networks"
 
         if router is not None and r_new is None:  # remove the router interface
             if d_new is not None:
-                raise AdapterError(f"{first.id}: DHCP needs the network's gateway address")
+                raise AdapterError(
+                    f"{first.id}: DHCP needs the network's gateway address",
+                    message_id="omada.dhcpNeedsGateway",
+                    params={"subject": first.id},
+                )
             if net is None:
                 return []
             if vlan is None:
-                raise AdapterError(f"{first.id}: the native network cannot be removed")
+                raise AdapterError(
+                    f"{first.id}: the native network cannot be removed",
+                    message_id="omada.nativeNotRemovable",
+                    params={"subject": first.id},
+                )
             if await self._uses(net.id, net.vlan):
                 body = _config(net.raw)
                 body["purpose"] = 0
                 for gone in ("gatewaySubnet", "dhcpSettingsVO"):
                     body.pop(gone, None)
-                desc = f"network {net.name} ({label}): VLAN only, no gateway address or DHCP"
+                desc = Described(
+                    f"network {net.name} ({label}): VLAN only, no gateway address or DHCP",
+                    "plan.omada.networkVlanOnly",
+                    name=net.name,
+                    label=label,
+                )
                 shown: dict[str, Any] = {"purpose": 0, "gatewaySubnet": None}
                 return [Op(desc, "PATCH", f"{lan}/{net.id}", body, _shown(shown))]
-            desc = f"delete network {net.name} ({label})"
+            desc = Described(
+                f"delete network {net.name} ({label})",
+                "plan.omada.networkDelete",
+                name=net.name,
+                label=label,
+            )
             return [Op(desc, "DELETE", f"{lan}/{net.id}")]
 
         own = self._own(r_new, net)
         if net is None:
             if r_new is None:
-                raise AdapterError(f"{first.id}: there is no LAN network for {label}")
+                raise AdapterError(
+                    f"{first.id}: there is no LAN network for {label}",
+                    message_id="omada.noLanNetwork",
+                    params={"subject": first.id, "label": label},
+                )
             if not r_new.name:
                 raise AdapterError(
-                    f"{first.id}: an Omada network needs a name (set name: in the desired state)"
+                    f"{first.id}: an Omada network needs a name (set name: in the desired state)",
+                    message_id="omada.networkNeedsName",
+                    params={"subject": first.id},
                 )
             body = {
                 "name": r_new.name,
@@ -320,13 +378,20 @@ class Writer:
             }
             if d_new is not None:
                 body["dhcpSettingsVO"] = self._dhcp(first, d_new, {}, own)
-            desc = f"create network {r_new.name} ({label}, {r_new.address})"
+            desc = Described(
+                f"create network {r_new.name} ({label}, {r_new.address})",
+                "plan.omada.networkCreate",
+                name=r_new.name,
+                label=label,
+                address=str(r_new.address),
+            )
             shown = {k: v for k, v in body.items() if k != "interfaceIds"}
             return [Op(desc, "POST", lan, body, _shown(shown))]
 
         body = _config(net.raw)
         changed: dict[str, Any] = {}
-        parts = []
+        parts: list[str] = []
+        dhcp_label: Label | None = None
         if r_new is not None:
             changed.update(
                 name=r_new.name or net.name,
@@ -343,11 +408,21 @@ class Writer:
             if d_new is None:
                 changed["dhcpSettingsVO"] = None
                 parts.append("no DHCP")
+                dhcp_label = Label("no DHCP", "omadaNoDhcp")
             else:
                 if own is None:
-                    raise AdapterError(f"{first.id}: DHCP needs the network's gateway address")
+                    raise AdapterError(
+                        f"{first.id}: DHCP needs the network's gateway address",
+                        message_id="omada.dhcpNeedsGateway",
+                        params={"subject": first.id},
+                    )
                 changed["dhcpSettingsVO"] = self._dhcp(first, d_new, old_dhcp, own)
                 parts.append("DHCP " + ("on" if d_new.enabled else "off"))
+                dhcp_label = (
+                    Label("DHCP on", "omadaDhcpOn")
+                    if d_new.enabled
+                    else Label("DHCP off", "omadaDhcpOff")
+                )
         elif r_new is not None and old_dhcp:
             old_own = self._own(None, net)
             settings = dict(old_dhcp)
@@ -355,7 +430,18 @@ class Writer:
                 settings["gateway"] = str(own)  # the DHCP router follows the new address
                 changed["dhcpSettingsVO"] = settings
         body.update(changed)
-        desc = f"network {body.get('name', net.name)} ({label}): " + ", ".join(parts)
+        text = f"network {body.get('name', net.name)} ({label}): " + ", ".join(parts)
+        fields: dict[str, str] = {"name": str(body.get("name", net.name)), "label": label}
+        if r_new is not None and dhcp_label is not None:
+            fields |= {"gateway": str(r_new.address), "dhcp": dhcp_label}
+            desc = Described(text, "plan.omada.networkGatewayDhcp", **fields)
+        elif r_new is not None:
+            fields["gateway"] = str(r_new.address)
+            desc = Described(text, "plan.omada.networkGateway", **fields)
+        else:
+            assert dhcp_label is not None
+            fields["dhcp"] = dhcp_label
+            desc = Described(text, "plan.omada.networkDhcp", **fields)
         shown = {k: v for k, v in changed.items() if k != "interfaceIds"}
         return [Op(desc, "PATCH", f"{lan}/{net.id}", body, _shown(shown))]
 
@@ -394,13 +480,21 @@ class Writer:
             out["dhcpns"] = "auto"  # the controller hands out the gateway
         else:
             if len(dns) > 2:
-                raise AdapterError(f"{c.id}: Omada hands out at most two DNS servers")
+                raise AdapterError(
+                    f"{c.id}: Omada hands out at most two DNS servers",
+                    message_id="omada.dnsMax",
+                    params={"subject": c.id},
+                )
             out["dhcpns"] = "manual"
             for key, addr in zip(("priDns", "sndDns"), dns, strict=False):
                 out[key] = str(addr)
         if v.lease_seconds is not None:
             if v.lease_seconds <= 0 or v.lease_seconds % 60:
-                raise AdapterError(f"{c.id}: Omada lease times are whole minutes")
+                raise AdapterError(
+                    f"{c.id}: Omada lease times are whole minutes",
+                    message_id="omada.leaseMinutes",
+                    params={"subject": c.id},
+                )
             out["leasetime"] = v.lease_seconds // 60
         out.setdefault("leasetime", 120)  # the controller's default, 2 hours
         return out
@@ -411,17 +505,21 @@ class Writer:
         """Network ids for VLANs (1: the native network) and the networks' names by id."""
         by_vlan = {n.vlan or 1: n for n in (await self.a._networks()).values()}
         ids = []
-        names = {}
+        names: dict[str, str] = {}
         for vlan in vlans:
             net = by_vlan.get(vlan)
             if net is None:
                 if strict:
                     raise AdapterError(
                         f"{c.id}: the controller has no LAN network for VLAN {vlan} (create it "
-                        "first: a segment with a gateway in the desired state)"
+                        "first: a segment with a gateway in the desired state)",
+                        message_id="omada.noLanNetworkFor",
+                        params={"subject": c.id, "vlan": vlan},
                     )
                 ids.append(f"<network of VLAN {vlan}>")
-                names[ids[-1]] = f"VLAN {vlan} (created earlier in this change)"
+                names[ids[-1]] = Label(
+                    f"VLAN {vlan} (created earlier in this change)", "omadaVlanPending", vlan
+                )
                 continue
             ids.append(net.id)
             names[net.id] = net.name
@@ -434,17 +532,31 @@ class Writer:
         rows = await self.a._ports(sw.raw_mac)
         row = next((r for r in rows if str(r.get("port")) == number), None)
         if row is None or number == c.key:
-            raise AdapterError(f"{c.id}: {sw.name} has no port {number}")
+            raise AdapterError(
+                f"{c.id}: {sw.name} has no port {number}",
+                message_id="omada.noPort",
+                params={"subject": c.id, "switch": sw.name, "number": number},
+            )
         new = c.new if isinstance(c.new, PortValue) else PortValue()
         if new.untagged is None:
             raise AdapterError(
-                f"{c.id}: an Omada switch port always has a native (untagged) network"
+                f"{c.id}: an Omada switch port always has a native (untagged) network",
+                message_id="omada.portNeedsNative",
+                params={"subject": c.id},
             )
         native = 1 if new.untagged == "native" else new.untagged
         if 1 in new.tagged:
-            raise AdapterError(f"{c.id}: the native network (VLAN 1) cannot be sent tagged")
+            raise AdapterError(
+                f"{c.id}: the native network (VLAN 1) cannot be sent tagged",
+                message_id="omada.nativeNotTagged",
+                params={"subject": c.id},
+            )
         if native in new.tagged:
-            raise AdapterError(f"{c.id}: VLAN {native} cannot be both untagged and tagged")
+            raise AdapterError(
+                f"{c.id}: VLAN {native} cannot be both untagged and tagged",
+                message_id="write.vlanTaggedUntagged",
+                params={"subject": c.id, "vlan": native},
+            )
         tagged = sorted(set(new.tagged))
         ids, names = await self._network_ids(c, [native, *tagged], strict)
         nid, tids = ids[0], ids[1:]
@@ -464,11 +576,25 @@ class Writer:
             "nativeNetworkId": nid,
             "tagNetworkIds": tids,
         }
-        how = f"profile {match.get('name')}" if match else "override of the profile"
-        desc = (
-            f"{sw.name} port {number}: native {names[nid]}, tagged "
-            + (", ".join(names[t] for t in tids) or "nothing")
-            + f" ({how})"
+        how = (
+            Label(f"profile {match.get('name')}", "omadaProfile", match.get("name"))
+            if match
+            else Label("override of the profile", "omadaOverride")
+        )
+        tagged_names = [names[t] for t in tids]
+        shown_tagged: str = (
+            ", ".join(tagged_names)
+            if len(tagged_names) > 1
+            else (tagged_names[0] if tagged_names else Label("nothing", "omadaNothing"))
+        )
+        desc = Described(
+            f"{sw.name} port {number}: native {names[nid]}, tagged {shown_tagged} ({how})",
+            "plan.omada.port",
+            switch=sw.name,
+            number=number,
+            native=names[nid],
+            tagged=shown_tagged,
+            how=how,
         )
         path = f"{self.site}/switches/{sw.raw_mac}/ports/{number}"
         return Op(desc, "PATCH", path, body, _shown(body))
@@ -479,7 +605,11 @@ class Writer:
         groups, primary = await self.a._wlan_groups()
         gid = ap.wlan_id if ap.wlan_id in groups else primary
         if gid is None:
-            raise AdapterError(f"{c.id}: the site has no WLAN group")
+            raise AdapterError(
+                f"{c.id}: the site has no WLAN group",
+                message_id="omada.noWlanGroup",
+                params={"subject": c.id},
+            )
         path = f"{self.site}/wireless-network/wlans/{gid}/ssids"
         ssids = await self.a._ssids(gid)
         row = next((s for s in ssids if _text(s.get("name")) == c.key), None)
@@ -488,30 +618,52 @@ class Writer:
             for d in await self.a._devices()
             if d.kind == "eap" and (d.wlan_id if d.wlan_id in groups else primary) == gid
         )
-        where = f"in WLAN group {groups[gid]} (EAPs {', '.join(sharing)})"
+        where = Label(
+            f"in WLAN group {groups[gid]} (EAPs {', '.join(sharing)})",
+            "omadaWlanWhere",
+            groups[gid],
+            ", ".join(sharing),
+        )
         new = c.new if isinstance(c.new, WlanValue) else None
         if new is None:
             if row is None:
                 return []
             sid = _text(row.get("ssidId") or row.get("id"))
-            return [Op(f"delete SSID {c.key} {where}", "DELETE", f"{path}/{sid}")]
+            desc = Described(
+                f"delete SSID {c.key} {where}", "plan.omada.ssidDelete", ssid=c.key, where=where
+            )
+            return [Op(desc, "DELETE", f"{path}/{sid}")]
         if new.security is Security.WPA3:
             raise AdapterError(
-                f"{c.id}: Omada sets WPA3 only together with WPA2 (security wpa2-wpa3)"
+                f"{c.id}: Omada sets WPA3 only together with WPA2 (security wpa2-wpa3)",
+                message_id="omada.wpa3Alone",
+                params={"subject": c.id},
             )
         if new.security is Security.OWE:
             raise AdapterError(
                 f"{c.id}: the controller does not report OWE back, so Signalbox cannot verify "
-                "it and does not set it"
+                "it and does not set it",
+                message_id="omada.oweUnverifiable",
+                params={"subject": c.id},
             )
         if new.security not in SECURITY:
             raise AdapterError(
-                f"{c.id}: Signalbox cannot set {new.security.value} security on Omada"
+                f"{c.id}: Signalbox cannot set {new.security.value} security on Omada",
+                message_id="omada.securityUnsupported",
+                params={"subject": c.id, "security": new.security.value},
             )
         if any(x is not None for x in (new.roaming_80211r, new.roaming_80211k, new.roaming_80211v)):
-            raise AdapterError(f"{c.id}: fast roaming (802.11r/k/v) is not changed on Omada")
+            raise AdapterError(
+                f"{c.id}: fast roaming (802.11r/k/v) is not changed on Omada",
+                message_id="omada.roamingNotChanged",
+                params={"subject": c.id},
+            )
         if new.client_isolation is not None:
-            raise AdapterError(f"{c.id}: client isolation is not read or changed on Omada")
+            raise AdapterError(
+                f"{c.id}: client isolation is not read or changed on Omada",
+                message_id="omada.isolationNotChanged",
+                params={"subject": c.id},
+            )
         mode, version = SECURITY[new.security]
         vlan = None if new.segment == "native" else new.segment
         if vlan is not None and vlan != 1:
@@ -539,15 +691,25 @@ class Writer:
             name = new.passphrase_secret
             if name:
                 if name not in secrets:
-                    raise AdapterError(f"{c.id}: the secret {name!r} was not provided")
+                    raise AdapterError(
+                        f"{c.id}: the secret {name!r} was not provided",
+                        message_id="omada.secretMissing",
+                        params={"subject": c.id, "name": repr(name)},
+                    )
                 key = secrets[name]
                 if not 8 <= len(key) <= 63:
-                    raise AdapterError(f"{c.id}: a WPA passphrase has 8 to 63 characters")
+                    raise AdapterError(
+                        f"{c.id}: a WPA passphrase has 8 to 63 characters",
+                        message_id="omada.passphraseLength",
+                        params={"subject": c.id},
+                    )
                 psk["securityKey"] = key
             elif not psk.get("securityKey"):  # the controller takes no WPA SSID without a key
                 raise AdapterError(
                     f"{c.id}: a WPA SSID needs a passphrase (passphrase_secret in the desired "
-                    "state)"
+                    "state)",
+                    message_id="omada.passphraseNeeded",
+                    params={"subject": c.id},
                 )
             body["pskSetting"] = psk
         else:
@@ -556,15 +718,26 @@ class Writer:
         body["pmfMode"] = pmf or old.get("pmfMode") or (2 if version else 3)
         if row is None:
             create = {**body, "deviceType": 1, "hidePwd": False, "ssidEnable": new.enabled}
-            return [Op(f"create SSID {c.key} {where}", "POST", path, create, _shown(create))]
+            desc = Described(
+                f"create SSID {c.key} {where}", "plan.omada.ssidCreate", ssid=c.key, where=where
+            )
+            return [Op(desc, "POST", path, create, _shown(create))]
         sid = _text(row.get("ssidId") or row.get("id"))
         out = []
         if body != _basic(row):
             update = f"{path}/{sid}/update-basic-config"
-            out.append(Op(f"SSID {c.key} {where}", "PATCH", update, body, _shown(body)))
+            desc = Described(
+                f"SSID {c.key} {where}", "plan.omada.ssidUpdate", ssid=c.key, where=where
+            )
+            out.append(Op(desc, "PATCH", update, body, _shown(body)))
         if new.enabled != (row.get("ssidEnable") is not False):
             on = {"ssidEnable": new.enabled}
-            desc = f"SSID {c.key} {where}: " + ("on" if new.enabled else "off")
+            desc = Described(
+                f"SSID {c.key} {where}: " + ("on" if new.enabled else "off"),
+                "plan.omada.ssidOn" if new.enabled else "plan.omada.ssidOff",
+                ssid=c.key,
+                where=where,
+            )
             enable = f"{self.site}/wireless-network/ssids/{sid}/enable"
             out.append(Op(desc, "PATCH", enable, on, _shown(on)))
         return out
@@ -610,7 +783,11 @@ class Writer:
 
     async def restore(self, backup: Backup) -> None:
         if backup.format != BACKUP_FORMAT:
-            raise AdapterError(f"cannot restore a backup in the format {backup.format!r}")
+            raise AdapterError(
+                f"cannot restore a backup in the format {backup.format!r}",
+                message_id="omada.restoreFormat",
+                params={"format": repr(backup.format)},
+            )
         try:
             saved = _dict(json.loads(backup.content), "backup", "the backup")
             nets_saved = [_dict(r, "backup", "a network") for r in saved["lan_networks"]]
@@ -623,10 +800,16 @@ class Writer:
                 for m, rows in _dict(saved["ports"], "backup", "ports").items()
             }
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
-            raise AdapterError(f"the backup is not an Omada backup: {exc}") from exc
+            raise AdapterError(
+                f"the backup is not an Omada backup: {exc}",
+                message_id="omada.restoreInvalid",
+                params={"detail": str(exc)},
+            ) from exc
         await self.connect()
         if saved.get("site") != self.site:
-            raise AdapterError("the backup is of another controller or site")
+            raise AdapterError(
+                "the backup is of another controller or site", message_id="omada.restoreOther"
+            )
         ids = await self._restore_networks(nets_saved)
         for mac, rows in ports_saved.items():
             await self._restore_ports(mac, rows, ids)
@@ -679,7 +862,11 @@ class Writer:
         else:
             new = _text(result)
         if not new:
-            raise AdapterError(f"{path}: the controller did not say which id it created")
+            raise AdapterError(
+                f"{path}: the controller did not say which id it created",
+                message_id="omada.noCreatedId",
+                params={"path": path},
+            )
         return new
 
     async def _restore_ports(

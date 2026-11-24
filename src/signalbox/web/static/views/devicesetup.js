@@ -4,7 +4,7 @@
 // the one request; it is cleared right after it, on navigation and when left unused.
 import { ApiError, get, post } from '../api.js';
 import { t } from '../i18n.js';
-import { apiFix, apiMessage, stepTitle } from '../texts.js';
+import { apiFix, apiMessage, stepMessage, stepTitle } from '../texts.js';
 import { clear, groupHex, h, place } from '../util.js';
 import { busy, checkField, clearNotice, confirmDialog, field, notice, run, setNotice, slot, toast } from '../ui.js';
 import { adminStep, previewList, previewSteps } from './adminstep.js';
@@ -23,7 +23,7 @@ export function stepList(steps, testid) {
         h('span', { class: `badge step-${s.state}` }, stateText(s.state)),
         ' ',
         h('strong', {}, stepTitle(s)),
-        s.message ? h('p', { class: s.state === 'failed' ? 'error' : 'muted small' }, s.message) : null,
+        s.message ? h('p', { class: s.state === 'failed' ? 'error' : 'muted small' }, stepMessage(s)) : null,
         s.detail ? h('details', {}, h('summary', { class: 'small' }, t('setup.whatIsSent')), h('pre', { class: 'commands' }, s.detail)) : null,
       ),
     ),
@@ -47,7 +47,7 @@ function progressList(planned, view) {
         h('span', { class: `badge step-${state}` }, stateText(state)),
         ' ',
         h('strong', {}, stepTitle(s)),
-        s.message ? h('p', { class: s.state === 'failed' ? 'error' : 'muted small' }, s.message) : null,
+        s.message ? h('p', { class: s.state === 'failed' ? 'error' : 'muted small' }, stepMessage(s)) : null,
       );
     }),
   );

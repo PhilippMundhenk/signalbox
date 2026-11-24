@@ -49,7 +49,17 @@ def _english(mid: str, params: dict[str, object]) -> str:
     assert key in catalogue, f"{mid}: no entry in en.json"
     missing = set(re.findall(r"\{(\w+)\}", catalogue[key])) - set(params)
     assert not missing, f"{mid}: params lack {sorted(missing)}"
-    return re.sub(r"\{(\w+)\}", lambda m: str(params[m.group(1)]), catalogue[key])
+
+    def value(v: object) -> str:
+        """A name Signalbox gives a thing travels as ``@lbl.<key>:<arg>\x1f<arg>``."""
+        match = re.fullmatch(r"@(lbl\.[\w.]+)(?::(.*))?", v, re.S) if isinstance(v, str) else None
+        if match is None:
+            return str(v)
+        args = match.group(2).split("\x1f") if match.group(2) is not None else []
+        entry = catalogue[match.group(1)]
+        return re.sub(r"\{(\d+)\}", lambda m: args[int(m.group(1)) - 1], entry)
+
+    return re.sub(r"\{(\w+)\}", lambda m: value(params[m.group(1)]), catalogue[key])
 
 
 @pytest.fixture(autouse=True)

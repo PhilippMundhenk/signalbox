@@ -46,6 +46,7 @@ from signalbox.adapters import (
     AuthFailed,
     Backup,
     Capability,
+    Described,
     Gap,
     Manifest,
     Observation,
@@ -2005,7 +2006,9 @@ class OpnsenseAdapter(_Adapter):
             if nat is None:
                 raise AdapterError(
                     f"{DNAT_RULES}: not available on this firewall (HTTP 404); OPNsense before "
-                    "26.7 has no API for port forwards"
+                    "26.7 has no API for port forwards",
+                    message_id="opnsense.noForwardApi",
+                    params={"path": DNAT_RULES},
                 )
             st.dnat_rows = [r for r in _rows(nat, DNAT_RULES) if not r.get("is_automatic")]
         groups = _rows(await self._get(IFACE_GROUPS, grid=True), IFACE_GROUPS)
@@ -2019,7 +2022,8 @@ class OpnsenseAdapter(_Adapter):
             return
         too_old = AdapterError(
             "this OPNsense version has no interface assignment API with addresses (OPNsense "
-            "26.7.6 or newer is needed to change router interfaces)"
+            "26.7.6 or newer is needed to change router interfaces)",
+            message_id="opnsense.noAssignmentApi",
         )
         try:
             rows = _rows(
@@ -2047,28 +2051,42 @@ class OpnsenseAdapter(_Adapter):
         """The calls that make the saved configuration run: Kea, the packet filter."""
         out = []
         if any(call.kea for call in calls):
-            out.append(w.Call("apply the Kea DHCP configuration", w.KEA_APPLY))
+            text = Described("apply the Kea DHCP configuration", "plan.opnsense.applyKea")
+            out.append(w.Call(text, w.KEA_APPLY))
         if any(call.filter for call in calls):
-            out.append(w.Call("apply the packet filter rules", w.FILTER_APPLY))
+            text = Described("apply the packet filter rules", "plan.opnsense.applyFilter")
+            out.append(w.Call(text, w.FILTER_APPLY))
         if any(call.dnat for call in calls):
-            out.append(w.Call("apply the port forwards", w.DNAT_APPLY))
+            text = Described("apply the port forwards", "plan.opnsense.applyForwards")
+            out.append(w.Call(text, w.DNAT_APPLY))
         return out
 
     async def _send(self, call: w.Call) -> dict[str, Any]:
         try:
             answer = await self.http.post_json(call.path, call.payload)
         except NotFound as exc:
-            raise AdapterError(f"{call.path}: not available on this firewall (HTTP 404)") from exc
+            raise AdapterError(
+                f"{call.path}: not available on this firewall (HTTP 404)",
+                message_id="opnsense.notAvailable",
+                params={"path": call.path},
+            ) from exc
         if not isinstance(answer, dict):
             raise _unexpected(call.path, "not an object")
         if answer.get("errorMessage"):
-            raise AdapterError(f"{call.path}: {_text(answer.get('errorMessage'))}")
+            raise AdapterError(
+                f"{call.path}: {_text(answer.get('errorMessage'))}",
+                message_id="opnsense.errorMessage",
+                params={"request": call.path, "detail": _text(answer.get("errorMessage"))},
+            )
         validations = answer.get("validations")
         if answer.get("result") == "failed" or validations:
             found = validations if isinstance(validations, dict) else {}
             detail = "; ".join(f"{k}: {_text(v) or v}" for k, v in found.items())
             raise AdapterError(
-                f"{call.path}: the firewall refused the change" + (f" ({detail})" if detail else "")
+                f"{call.path}: the firewall refused the change"
+                + (f" ({detail})" if detail else ""),
+                message_id="opnsense.refusedChange" if detail else "opnsense.refusedChangeBare",
+                params={"path": call.path, "detail": detail} if detail else {"path": call.path},
             )
         result = answer.get("result", answer.get("status"))
         if _text(result).lower() not in ("saved", "deleted", "ok", "done"):
@@ -2123,7 +2141,8 @@ class OpnsenseAdapter(_Adapter):
         if not history:
             raise AdapterError(
                 "the configuration history is empty; set System > Configuration > History to "
-                "keep backups"
+                "keep backups",
+                message_id="opnsense.historyEmpty",
             )
         return Backup(
             device_id=self.context.device_id,
@@ -2138,7 +2157,11 @@ class OpnsenseAdapter(_Adapter):
         Idempotent: reverting twice to the same revision leaves the same configuration.
         """
         if backup.format != "opnsense-config-xml":
-            raise AdapterError(f"not an OPNsense backup (format {backup.format})")
+            raise AdapterError(
+                f"not an OPNsense backup (format {backup.format})",
+                message_id="opnsense.notBackup",
+                params={"format": backup.format},
+            )
         when = _revision_time(backup.content, "the backup")
         same_time = [i for i in await self._history() if _text(i.get("time")) == when]
         revision = None
@@ -2151,14 +2174,20 @@ class OpnsenseAdapter(_Adapter):
         if revision is None:
             raise AdapterError(
                 "the backed-up revision is no longer in the configuration history; restore "
-                "the stored config.xml in System > Configuration > Backups"
+                "the stored config.xml in System > Configuration > Backups",
+                message_id="opnsense.revisionGone",
             )
         answer = _dict(await self.http.post_json(w.REVERT + revision, {}), w.REVERT, "the answer")
         if _text(answer.get("status")) != "reverted":
-            raise AdapterError(f"{w.REVERT}{revision}: revert refused ({answer.get('status')!r})")
+            raise AdapterError(
+                f"{w.REVERT}{revision}: revert refused ({answer.get('status')!r})",
+                message_id="opnsense.revertRefused",
+                params={"path": f"{w.REVERT}{revision}", "status": repr(answer.get("status"))},
+            )
         for path in (w.VLAN_APPLY, w.ASSIGN_APPLY, w.KEA_APPLY, w.FILTER_APPLY):
             try:
-                await self._send(w.Call("apply the restored configuration", path))
+                text = Described("apply the restored configuration", "plan.opnsense.applyRestored")
+                await self._send(w.Call(text, path))
             except AdapterError as exc:
                 if "HTTP 404" not in str(exc):
                     raise
@@ -2170,10 +2199,18 @@ def _revision_time(text: str, where: str) -> str:
     try:
         root = ET.fromstring(text)
     except ET.ParseError as exc:
-        raise AdapterError(f"{where}: not a config.xml ({exc})") from exc
+        raise AdapterError(
+            f"{where}: not a config.xml ({exc})",
+            message_id="opnsense.notConfigXml",
+            params={"where": where, "detail": str(exc)},
+        ) from exc
     when = root.findtext("revision/time")
     if root.tag != "opnsense" or not when:
-        raise AdapterError(f"{where}: not an OPNsense config.xml (no revision time)")
+        raise AdapterError(
+            f"{where}: not an OPNsense config.xml (no revision time)",
+            message_id="opnsense.noRevisionTime",
+            params={"where": where},
+        )
     return when.strip()
 
 

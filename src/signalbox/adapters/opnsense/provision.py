@@ -32,6 +32,7 @@ from pydantic import SecretStr
 
 from signalbox.adapters import (
     AdapterError,
+    Label,
     PreviewStep,
     Remedy,
     RemedyRequest,
@@ -197,9 +198,17 @@ def _saved(path: str, answer: Any) -> dict[str, Any]:
         return answer
     if isinstance(answer, dict) and answer.get("validations"):
         problems = "; ".join(f"{k}: {v}" for k, v in sorted(answer["validations"].items()))
-        raise AdapterError(f"{path}: refused: {problems}")
+        raise AdapterError(
+            f"{path}: refused: {problems}",
+            message_id="opnsense.setupRefused",
+            params={"path": path, "detail": problems},
+        )
     result = answer.get("result") if isinstance(answer, dict) else None
-    raise AdapterError(f"{path}: unexpected answer (result {result!r})")
+    raise AdapterError(
+        f"{path}: unexpected answer (result {result!r})",
+        message_id="opnsense.setupUnexpected",
+        params={"path": path, "result": repr(result)},
+    )
 
 
 class OpnsenseSetup:
@@ -209,13 +218,20 @@ class OpnsenseSetup:
         self.redact.add(request.admin_user, request.admin_secret.get_secret_value())
         raw = str(request.config.get("url") or "").strip()
         if not raw:
-            raise AdapterError("give the firewall's address first")
+            raise AdapterError(
+                "give the firewall's address first", message_id="opnsense.setupNoUrl"
+            )
         try:
             self.url = device_url(raw)
         except ValueError as exc:
-            raise AdapterError(str(exc)) from None
+            raise AdapterError(
+                str(exc), message_id="opnsense.setupBadUrl", params={"detail": str(exc)}
+            ) from None
         if not self.url.startswith("https://"):
-            raise AdapterError("the automatic setup sends root's API key only over https")
+            raise AdapterError(
+                "the automatic setup sends root's API key only over https",
+                message_id="opnsense.setupHttpsOnly",
+            )
         self.privileges = sorted(
             {
                 *(WRITE_PRIVILEGES if request.allow_writes else READ_PRIVILEGES),
@@ -231,7 +247,10 @@ class OpnsenseSetup:
         self.ssh_private = ""
         if self.ssh_step and not request.identity_only:
             if request.ssh_secret is None or not request.ssh_secret.get_secret_value():
-                raise AdapterError("enter the SSH password of root for the ISC DHCP script")
+                raise AdapterError(
+                    "enter the SSH password of root for the ISC DHCP script",
+                    message_id="opnsense.setupSshPassword",
+                )
             self.redact.add(request.ssh_secret.get_secret_value())
             if not request.remove:
                 self.ssh_key = asyncssh.generate_private_key("ssh-ed25519")
@@ -256,13 +275,21 @@ class OpnsenseSetup:
                 answer = await http.get_json(f"/api/auth/user/get/{quote(uuid)}")
                 user = answer.get("user") if isinstance(answer, dict) else None
                 if not isinstance(user, dict):
-                    raise AdapterError(f"/api/auth/user/get/{uuid}: unexpected answer")
+                    raise AdapterError(
+                        f"/api/auth/user/get/{uuid}: unexpected answer",
+                        message_id="opnsense.userAnswer",
+                        params={"path": f"/api/auth/user/get/{uuid}"},
+                    )
                 return uuid, user
         return None, {}
 
     def steps(self, http: DeviceHttp, uuid: str | None, user: dict[str, Any]) -> list[Step]:
         if user and str(user.get("scope", "user")) == "system":
-            raise AdapterError(f"the user {LOGIN} is a system user; Signalbox leaves it alone")
+            raise AdapterError(
+                f"the user {LOGIN} is a system user; Signalbox leaves it alone",
+                message_id="opnsense.systemUser",
+                params={"user": LOGIN},
+            )
         if self.request.remove:
             return [
                 Step(
@@ -350,7 +377,11 @@ class OpnsenseSetup:
             secret = answer.get("secret") if isinstance(answer, dict) else None
             if not (isinstance(key, str) and key and isinstance(secret, str) and secret):
                 result = answer.get("result") if isinstance(answer, dict) else None
-                raise AdapterError(f"{path}: no key in the answer (result {result!r})")
+                raise AdapterError(
+                    f"{path}: no key in the answer (result {result!r})",
+                    message_id="opnsense.noKeyAnswer",
+                    params={"path": path, "result": repr(result)},
+                )
             self.redact.add(key, secret)
             self.key = {"key": key, "secret": secret}
             old = [
@@ -383,13 +414,16 @@ class OpnsenseSetup:
         res = await ssh.run(INSPECT_SSH)
         parts = _parts(res.text)
         if "end" not in parts:
+            detail = self.redact((res.err or res.text).strip())[:300]
             raise AdapterError(
-                "the device did not answer like OPNsense over SSH: "
-                + self.redact((res.err or res.text).strip())[:300]
+                "the device did not answer like OPNsense over SSH: " + detail,
+                message_id="opnsense.sshNotOpnsense",
+                params={"detail": detail},
             )
         if not self.request.remove and not parts.get("python", "").strip():
             raise AdapterError(
-                "/usr/local/bin/python3 is missing on the firewall, which the script needs"
+                "/usr/local/bin/python3 is missing on the firewall, which the script needs",
+                message_id="opnsense.pythonMissing",
             )
         return parts.get("script", ""), bool(parts.get("keys", "").strip())
 
@@ -440,7 +474,11 @@ class OpnsenseSetup:
         async def run() -> str | None:
             res = await ssh.run(script)
             if res.code != 0:
-                raise AdapterError(f"SSH command failed ({res.code}): {res.err[:300]}")
+                raise AdapterError(
+                    f"SSH command failed ({res.code}): {res.err[:300]}",
+                    message_id="opnsense.sshCommandFailed",
+                    params={"code": res.code, "detail": res.err[:300]},
+                )
             return None
 
         return run
@@ -456,7 +494,10 @@ class OpnsenseSetup:
         except AdapterError as exc:
             raise exc.redacted(self.redact) from None
         else:  # pragma: no cover - without a pin the certificate is never trusted
-            raise AdapterError("the certificate was accepted without being confirmed")
+            raise AdapterError(
+                "the certificate was accepted without being confirmed",
+                message_id="opnsense.certUnconfirmed",
+            )
         finally:
             await http.close()
         ssh_fingerprint: str | None = None
@@ -571,7 +612,11 @@ class OpnsenseFix(OpnsenseSetup):
 
     def __init__(self, request: RemedyRequest) -> None:
         if request.remedy not in {r.id for r in REMEDIES}:
-            raise AdapterError(f"OPNsense has no remedy {request.remedy!r}")
+            raise AdapterError(
+                f"OPNsense has no remedy {request.remedy!r}",
+                message_id="opnsense.noRemedy",
+                params={"remedy": repr(request.remedy)},
+            )
         super().__init__(
             SetupRequest(
                 config={"url": request.config.get("url")},
@@ -592,7 +637,9 @@ class OpnsenseFix(OpnsenseSetup):
         """The uuid and settings of the user the stored API key belongs to."""
         await http.get_json("/api/core/firmware/status")
         if not self.stored_key:
-            raise AdapterError("the device has no stored API key")
+            raise AdapterError(
+                "the device has no stored API key", message_id="opnsense.noStoredKey"
+            )
         owner = next(
             (
                 str(r.get("username") or r.get("user") or r.get("name") or "")
@@ -615,16 +662,26 @@ class OpnsenseFix(OpnsenseSetup):
                 answer = await http.get_json(f"/api/auth/user/get/{quote(uuid)}")
                 user = answer.get("user") if isinstance(answer, dict) else None
                 if not isinstance(user, dict):
-                    raise AdapterError(f"/api/auth/user/get/{uuid}: unexpected answer")
+                    raise AdapterError(
+                        f"/api/auth/user/get/{uuid}: unexpected answer",
+                        message_id="opnsense.userAnswer",
+                        params={"path": f"/api/auth/user/get/{uuid}"},
+                    )
                 return uuid, {**user, "name": user.get("name") or owner}
-        raise AdapterError(f"the firewall lists no user {owner!r}")
+        raise AdapterError(
+            f"the firewall lists no user {owner!r}",
+            message_id="opnsense.noUser",
+            params={"user": repr(owner)},
+        )
 
     def steps(self, http: DeviceHttp, uuid: str | None, user: dict[str, Any]) -> list[Step]:
         name = str(user.get("name", ""))
         if name == "root" or str(user.get("scope", "user")) == "system":
+            owner: str = name or Label("a system user", "systemUser")
             raise AdapterError(
-                f"the stored API key belongs to {name or 'a system user'}; Signalbox changes "
-                "only a user of its own"
+                f"the stored API key belongs to {owner}; Signalbox changes only a user of its own",
+                message_id="opnsense.foreignUser",
+                params={"user": owner},
             )
         privs = _selected(user.get("priv"))
         missing = [p for p in self.privileges if p not in privs]

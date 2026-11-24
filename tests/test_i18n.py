@@ -12,7 +12,7 @@ STATIC = Path(__file__).parent.parent / "src" / "signalbox" / "web" / "static"
 I18N = STATIC / "i18n"
 #: Keys that are not written out in the UI code: the catalogue entries for texts the server
 #: sends with an id (``msg.*``), for rules (``rule.<id>.title``) and for dynamic groups.
-SERVER_PREFIXES = ("msg.", "rule.", "step.", "vendor.")
+SERVER_PREFIXES = ("msg.", "rule.", "step.", "vendor.", "lbl.")
 PLURAL = re.compile(r"\.(zero|one|two|few|many|other)$")
 
 

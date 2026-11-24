@@ -129,7 +129,11 @@ class Ubus:
             if code == RPC_ACCESS_DENIED:
                 raise _Denied
             if code in (RPC_OBJECT_NOT_FOUND, RPC_METHOD_NOT_FOUND):
-                raise NotFound(f"ubus {what} not found")
+                raise NotFound(
+                    f"ubus {what} not found",
+                    message_id="openwrt.ubusNotFound",
+                    params={"what": what},
+                )
             detail = str(error.get("message", code))
             raise AdapterError(
                 f"ubus {what} failed: {detail}",
@@ -143,13 +147,29 @@ class Ubus:
         if status == UBUS_PERMISSION_DENIED:
             raise _Denied
         if status in (UBUS_NOT_FOUND, UBUS_METHOD_NOT_FOUND):
-            raise NotFound(f"ubus {what}: {UBUS_STATUS[status]}")
+            raise NotFound(
+                f"ubus {what}: {UBUS_STATUS[status]}",
+                message_id="openwrt.ubusStatus",
+                params={"what": what, "detail": UBUS_STATUS[status]},
+            )
         if status == UBUS_INVALID_ARGUMENT:
-            raise InvalidArgument(f"ubus {what} failed: {UBUS_STATUS[status]}")
+            raise InvalidArgument(
+                f"ubus {what} failed: {UBUS_STATUS[status]}",
+                message_id="openwrt.ubusFailed",
+                params={"what": what, "detail": UBUS_STATUS[status]},
+            )
         if status == UBUS_NO_DATA:
-            raise NoData(f"ubus {what} failed: {UBUS_STATUS[status]}")
+            raise NoData(
+                f"ubus {what} failed: {UBUS_STATUS[status]}",
+                message_id="openwrt.ubusFailed",
+                params={"what": what, "detail": UBUS_STATUS[status]},
+            )
         if status == UBUS_UNKNOWN_ERROR:
-            raise CallFailed(f"ubus {what} failed: {UBUS_STATUS[status]}")
+            raise CallFailed(
+                f"ubus {what} failed: {UBUS_STATUS[status]}",
+                message_id="openwrt.ubusFailed",
+                params={"what": what, "detail": UBUS_STATUS[status]},
+            )
         if status != UBUS_OK:
             detail = str(UBUS_STATUS.get(status, status))
             raise AdapterError(

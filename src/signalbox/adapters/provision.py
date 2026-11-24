@@ -17,6 +17,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from signalbox.adapters import AdapterError, SetupStep, StepState
+from signalbox.messages import plain_params
 
 #: Characters of generated passwords: safe in UCI, RouterOS and shell quoting alike.
 ALPHABET = string.ascii_letters + string.digits
@@ -67,7 +68,10 @@ class Step:
             state=StepState.TODO if self.needed else StepState.UNCHANGED,
             message=redact(self.note),
             title_id=self.title_id,
-            params={k: redact(v) if isinstance(v, str) else v for k, v in self.params.items()},
+            params={
+                k: redact(v) if isinstance(v, str) else v
+                for k, v in plain_params(self.params).items()
+            },
         )
 
 
@@ -101,6 +105,11 @@ async def run_steps(steps: Iterable[Step], redact: Redactor) -> tuple[bool, list
                 failed = True
                 report.state = StepState.FAILED
                 report.message = redact(str(exc) or type(exc).__name__)
+                if isinstance(exc, AdapterError) and exc.message_id:
+                    report.message_id = exc.message_id
+                    report.message_params = {
+                        k: redact(v) if isinstance(v, str) else v for k, v in exc.params.items()
+                    }
             else:
                 report.state = StepState.DONE
                 report.message = redact(message or step.note)

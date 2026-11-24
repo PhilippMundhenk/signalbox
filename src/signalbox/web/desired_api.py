@@ -100,7 +100,10 @@ def router(services: Services) -> APIRouter:
                 signalbox_address=services.config.deploy.signalbox_address,
             )
         except changes.PlanError as exc:
-            return _error(422, "plan_error", str(exc))
+            body: dict[str, Any] = {"error": "plan_error", "message": str(exc)}
+            if exc.message_id:
+                body.update(message_id=exc.message_id, params=dict(exc.params))
+            return JSONResponse(body, status_code=422)
         return plan_json(p)
 
     @api.get("/secrets")

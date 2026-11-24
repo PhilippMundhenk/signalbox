@@ -37,6 +37,7 @@ from signalbox.desired import (
     seg_key,
     seg_sid,
 )
+from signalbox.messages import Label, plain_params
 from signalbox.model import (
     DeviceRole,
     DhcpPool,
@@ -54,6 +55,7 @@ from signalbox.model import (
     LogTarget,
     LogTransport,
     Membership,
+    MessageParams,
     Network,
     Pmf,
     PortForward,
@@ -496,8 +498,12 @@ def _zone(net: Network, fw: Firewall, site_id: str, ref: ZoneRef | None, label: 
         return None
     if isinstance(ref, str):
         if fw.zone(ref) is None:
-            names = ", ".join(sorted(z.name for z in fw.zones)) or "none"
-            raise PlanError(f"{label}: {fw.device_id} has no zone {ref!r} (zones: {names})")
+            names = ", ".join(sorted(z.name for z in fw.zones)) or Label("none", "none")
+            raise PlanError(
+                f"{label}: {fw.device_id} has no zone {ref!r} (zones: {names})",
+                message_id="plan.noZone",
+                params={"label": label, "device": fw.device_id, "zone": repr(ref), "zones": names},
+            )
         return ref
     sid = seg_sid(site_id, ref.segment)
     if ref.segment in ("native", 1):  # the router's own untagged network (#205)
@@ -505,7 +511,16 @@ def _zone(net: Network, fw: Firewall, site_id: str, ref: ZoneRef | None, label: 
     zones = sorted(fw.zones_of(sid))
     if len(zones) != 1:
         where = "no zone" if not zones else "several zones (" + ", ".join(zones) + ")"
-        raise PlanError(f"{label}: segment {ref.segment} is in {where} on {fw.device_id}")
+        raise PlanError(
+            f"{label}: segment {ref.segment} is in {where} on {fw.device_id}",
+            message_id="plan.segmentZones",
+            params={
+                "label": label,
+                "segment": str(ref.segment),
+                "device": fw.device_id,
+                "zones": ", ".join(zones),
+            },
+        )
     return zones[0]
 
 
@@ -520,7 +535,11 @@ def firewall_changes(net: Network, site_id: str, spec: FirewallSpec) -> list[Cha
     _known(net, spec.device)
     fw = net.firewall_of(spec.device)
     if fw is None:
-        raise PlanError(f"the firewall of {spec.device} has not been read")
+        raise PlanError(
+            f"the firewall of {spec.device} has not been read",
+            message_id="plan.firewallNotRead",
+            params={"device": spec.device},
+        )
     out: list[Change] = []
 
     def add(kind: ChangeKind, key: str, old: Any, new: Any, adopt: str | None = None) -> None:
@@ -538,7 +557,7 @@ def firewall_changes(net: Network, site_id: str, spec: FirewallSpec) -> list[Cha
             )
 
     for p in spec.policies:
-        label = f"policy on {spec.device}"
+        label = Label(f"policy on {spec.device}", "declPolicy", spec.device)
         source = _zone(net, fw, site_id, p.from_, label)
         dest = None if p.to == "device" else _zone(net, fw, site_id, p.to, label)
         assert source is not None
@@ -552,7 +571,7 @@ def firewall_changes(net: Network, site_id: str, spec: FirewallSpec) -> list[Cha
         )
     keys: set[str] = set()
     for r in spec.rules:
-        label = f"rule {r.name}"
+        label = Label(f"rule {r.name}", "declRule", r.name)
         source, src_nets = _endpoint(net, fw, site_id, r.from_, label)
         if r.to == "device":
             dst_nets: list[IPNetwork] = []
@@ -582,14 +601,16 @@ def firewall_changes(net: Network, site_id: str, spec: FirewallSpec) -> list[Cha
             r.adopt,
         )
     for f in spec.forwards:
-        label = f"forward {f.name}"
+        label = Label(f"forward {f.name}", "declForward", f.name)
         zone = _zone(net, fw, site_id, f.from_, label)
         if zone is None:
             wan = sorted(fw.uplink_zones())
             if len(wan) != 1:
                 raise PlanError(
                     f"{label}: say which zone it listens on (`from`); {spec.device} has "
-                    + (f"several internet zones ({', '.join(wan)})" if wan else "none")
+                    + (f"several internet zones ({', '.join(wan)})" if wan else "none"),
+                    message_id="plan.forwardZone" if wan else "plan.forwardZoneNone",
+                    params={"label": label, "device": spec.device, "zones": ", ".join(wan)},
                 )
             zone = wan[0]
         key = "forward/" + firewall_key(f.name)
@@ -691,9 +712,17 @@ def logging_changes(net: Network, site_id: str, eff: EffectiveLogging) -> list[C
     where the device has its own, different one is refused until it is adopted."""
     dev = net.device(eff.device)
     if dev is None:
-        raise PlanError(f"device {eff.device} is not configured or has not been read yet")
+        raise PlanError(
+            f"device {eff.device} is not configured or has not been read yet",
+            message_id="plan.deviceUnknown",
+            params={"device": eff.device},
+        )
     if dev.log_targets is None:
-        raise PlanError(f"the log targets and SNMP agent of {eff.device} have not been read")
+        raise PlanError(
+            f"the log targets and SNMP agent of {eff.device} have not been read",
+            message_id="plan.logNotRead",
+            params={"device": eff.device},
+        )
     out: list[Change] = []
     have = _syslog_of(net, eff.device)
     if eff.syslog is not None:
@@ -714,7 +743,14 @@ def logging_changes(net: Network, site_id: str, eff: EffectiveLogging) -> list[C
                 raise PlanError(
                     f"{eff.device} sends syslog to {d.address} ({old.transport.value} port "
                     f"{old.port}) and Signalbox did not set that up: list the address under "
-                    "`adopt` to let a deployment change it"
+                    "`adopt` to let a deployment change it",
+                    message_id="plan.syslogForeign",
+                    params={
+                        "device": eff.device,
+                        "address": d.address,
+                        "transport": old.transport.value,
+                        "port": old.port,
+                    },
                 )
             adopt = None if old_t.managed else d.address
             out.append(_log_change(eff.device, site_id, d.address, old, new, adopt))
@@ -794,7 +830,18 @@ SecretLookup = Callable[[str], str | None]
 
 
 class PlanError(Exception):
-    pass
+    """The desired state cannot be planned. ``message_id`` and ``params`` translate it (#204)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        message_id: str | None = None,
+        params: MessageParams | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message_id = message_id
+        self.params: MessageParams = plain_params(params)
 
 
 def changes_for(
@@ -833,7 +880,11 @@ def changes_for(
                 dev = s.dhcp.device or (s.gateway.device if s.gateway else None)
                 if dev is None:
                     if len(gateways) != 1:
-                        raise PlanError(f"{sid}: DHCP needs a device (no single gateway)")
+                        raise PlanError(
+                            f"{sid}: DHCP needs a device (no single gateway)",
+                            message_id="plan.dhcpNoDevice",
+                            params={"segment": sid},
+                        )
                     dev = gateways[0]
                 _known(net, dev)
                 old_d = observed_dhcp(net, dev, sid)
@@ -886,7 +937,11 @@ def changes_for(
             _known(net, p.device)
             pid = port_id(p.device, p.port)
             if net.port(pid) is None:
-                raise PlanError(f"port {pid} does not exist on the device")
+                raise PlanError(
+                    f"port {pid} does not exist on the device",
+                    message_id="plan.noPort",
+                    params={"port": pid},
+                )
             old_p = observed_port(net, pid)
             new_p = PortValue(
                 untagged="native" if p.untagged == 1 else p.untagged, tagged=sorted(p.tagged)
@@ -904,7 +959,11 @@ def changes_for(
                 )
         for w in spec.wlans:
             if w.passphrase_secret and secret is not None and secret(w.passphrase_secret) is None:
-                raise PlanError(f"SSID {w.ssid}: secret {w.passphrase_secret!r} is not stored")
+                raise PlanError(
+                    f"SSID {w.ssid}: secret {w.passphrase_secret!r} is not stored",
+                    message_id="plan.secretNotStored",
+                    params={"ssid": w.ssid, "name": repr(w.passphrase_secret)},
+                )
             for dev in w.devices if w.devices is not None else aps:
                 _known(net, dev)
                 old_w = observed_wlan(net, dev, w.ssid)
@@ -974,7 +1033,11 @@ def _passphrase_differs(
 
 def _known(net: Network, device_id: str) -> None:
     if net.device(device_id) is None:
-        raise PlanError(f"device {device_id} is not configured or has not been read yet")
+        raise PlanError(
+            f"device {device_id} is not configured or has not been read yet",
+            message_id="plan.deviceUnknown",
+            params={"device": device_id},
+        )
 
 
 def mark_risks(changes: list[Change], net: Network) -> list[Change]:

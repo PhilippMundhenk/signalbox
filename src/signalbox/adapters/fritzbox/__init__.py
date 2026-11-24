@@ -70,6 +70,7 @@ from signalbox.adapters.fritzbox.write import (
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.changes import Change, ChangeKind, WlanValue
 from signalbox.discovery import Candidate, HostProbe
+from signalbox.messages import Label
 from signalbox.model import (
     SERVICE_PORTS,
     AccountPrivilege,
@@ -1431,13 +1432,17 @@ class FritzboxAdapter(Adapter):
             if c.kind not in self.manifest.writes:
                 raise AdapterError(
                     f"{c.key}: the Fritz!Box integration cannot change {c.kind.value} "
-                    "(not offered by TR-064)"
+                    "(not offered by TR-064)",
+                    message_id="fritzbox.kindNotOffered",
+                    params={"subject": c.key, "kind": c.kind.value},
                 )
             if c.kind is ChangeKind.WLAN:
                 check_wlan(c)
             elif c.key != self._native:
                 raise AdapterError(
-                    f"{c.key}: the Fritz!Box has one DHCP server, on its LAN ({self._native})"
+                    f"{c.key}: the Fritz!Box has one DHCP server, on its LAN ({self._native})",
+                    message_id="fritzbox.oneDhcpServer",
+                    params={"subject": c.key, "lan": self._native},
                 )
         calls: list[Call] = []
         lan: dict[str, str] | None = None
@@ -1454,7 +1459,11 @@ class FritzboxAdapter(Adapter):
             assert isinstance(c.old, WlanValue)
             targets = [i for i, cur in wlans.items() if cur.get("NewSSID") == c.old.ssid]
             if not targets:
-                raise AdapterError(f"SSID {c.old.ssid}: no Wi-Fi network of the Fritz!Box has it")
+                raise AdapterError(
+                    f"SSID {c.old.ssid}: no Wi-Fi network of the Fritz!Box has it",
+                    message_id="fritzbox.noSuchSsid",
+                    params={"subject": Label(f"SSID {c.old.ssid}", "ssid", c.old.ssid)},
+                )
             for index in targets:
                 service = f"WLANConfiguration{index}"
                 current = wlans[index]
@@ -1478,7 +1487,11 @@ class FritzboxAdapter(Adapter):
             try:
                 await self.tr064.call(call.service, call.action, **call.args)
             except SoapFault as exc:
-                raise AdapterError(f"{call.description}: refused by the Fritz!Box ({exc})") from exc
+                raise AdapterError(
+                    f"{call.description}: refused by the Fritz!Box ({exc})",
+                    message_id="fritzbox.refused",
+                    params={"request": str(call.description), "detail": str(exc)},
+                ) from exc
             sent.append(call.vendor())
         return sent
 
@@ -1524,7 +1537,11 @@ class FritzboxAdapter(Adapter):
 
     async def restore(self, backup: Backup) -> None:
         if backup.format != BACKUP_FORMAT:
-            raise AdapterError(f"backup format {backup.format!r} is not {BACKUP_FORMAT!r}")
+            raise AdapterError(
+                f"backup format {backup.format!r} is not {BACKUP_FORMAT!r}",
+                message_id="fritzbox.restoreFormat",
+                params={"format": repr(backup.format), "expected": repr(BACKUP_FORMAT)},
+            )
         lan_wanted, wlans_wanted = parse_backup(backup.content)
         calls = lan_calls(await self._lan_values(), lan_wanted)
         have = {w.index: w for w in await self._wlans()}
@@ -1533,7 +1550,9 @@ class FritzboxAdapter(Adapter):
             raise AdapterError(
                 "the backup holds WLANConfiguration "
                 + ", ".join(str(i) for i in missing)
-                + ", which this Fritz!Box does not have"
+                + ", which this Fritz!Box does not have",
+                message_id="fritzbox.backupMissingWlan",
+                params={"indexes": ", ".join(str(i) for i in missing)},
             )
         for index, wanted in sorted(wlans_wanted.items()):
             wlan = have[index]

@@ -25,7 +25,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from signalbox.adapters import Adapter, AdapterContext, AdapterError, WritesConfig
+from signalbox.adapters import Adapter, AdapterContext, AdapterError, Described, WritesConfig
 from signalbox.changes import (
     Change,
     ChangeKind,
@@ -44,8 +44,9 @@ from signalbox.changes import (
     revert_plan,
 )
 from signalbox.history import ChangeRecord, ChangeStatus, DeviceResult, DeviceStatus
+from signalbox.messages import plain_params
 from signalbox.model import DeviceStatus as ReadStatus
-from signalbox.model import Network, Snapshot, passphrase_fingerprint
+from signalbox.model import MessageParams, Network, Snapshot, passphrase_fingerprint
 from signalbox.rules import Severity, evaluate
 from signalbox.runner import Runner
 from signalbox.store import Store
@@ -54,7 +55,22 @@ log = logging.getLogger(__name__)
 
 
 class DeployError(Exception):
-    """A deployment cannot start (not approved, writes off, device not writable, ...)."""
+    """A deployment cannot start (not approved, writes off, device not writable, ...).
+
+    ``message_id`` and ``params`` translate the text (#204); ``device`` is shown before it."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        message_id: str | None = None,
+        params: MessageParams | None = None,
+        device: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message_id = message_id
+        self.params: MessageParams = plain_params(params)
+        self.device = device
 
 
 def _now() -> datetime:
@@ -157,7 +173,11 @@ class Deployer:
         for name in names:
             value = self.store.get_secret(name)
             if value is None:
-                raise DeployError(f"secret {name!r} is not stored")
+                raise DeployError(
+                    f"secret {name!r} is not stored",
+                    message_id="deploy.secretNotStored",
+                    params={"name": repr(name)},
+                )
             out[name] = value
         return out
 
@@ -169,10 +189,18 @@ class Deployer:
     def adapter(self, device_id: str) -> Adapter:
         rec = self.store.device(self.owner(device_id))
         if rec is None:
-            raise DeployError(f"device {device_id} is not configured")
+            raise DeployError(
+                f"device {device_id} is not configured",
+                message_id="deploy.deviceNotConfigured",
+                params={"device": device_id},
+            )
         cls = self.runner.adapters.get(rec.adapter)
         if cls is None:
-            raise DeployError(f"adapter {rec.adapter!r} is not installed")
+            raise DeployError(
+                f"adapter {rec.adapter!r} is not installed",
+                message_id="deploy.adapterMissing",
+                params={"adapter": rec.adapter},
+            )
         ctx = AdapterContext(
             site_id=rec.site_id,
             device_id=rec.id,
@@ -187,17 +215,31 @@ class Deployer:
     def _writable(self, device_id: str, kinds: set[ChangeKind]) -> None:
         rec = self.store.device(self.owner(device_id))
         if rec is None:
-            raise DeployError(f"device {device_id} is not configured")
+            raise DeployError(
+                f"device {device_id} is not configured",
+                message_id="deploy.deviceNotConfigured",
+                params={"device": device_id},
+            )
         if not rec.allow_writes:
-            raise DeployError(f"{rec.name}: changes are not allowed on this device (settings)")
+            raise DeployError(
+                f"{rec.name}: changes are not allowed on this device (settings)",
+                message_id="deploy.writesOff",
+                params={"device": rec.name},
+            )
         cls = self.runner.adapters.get(rec.adapter)
         if cls is None:
-            raise DeployError(f"adapter {rec.adapter!r} is not installed")
+            raise DeployError(
+                f"adapter {rec.adapter!r} is not installed",
+                message_id="deploy.adapterMissing",
+                params={"adapter": rec.adapter},
+            )
         missing = kinds - set(cls.manifest.writes)
         if missing:
             names = ", ".join(sorted(k.value for k in missing))
             raise DeployError(
-                f"{rec.name}: the {cls.manifest.name} integration cannot change {names}"
+                f"{rec.name}: the {cls.manifest.name} integration cannot change {names}",
+                message_id="deploy.cannotChange",
+                params={"device": rec.name, "integration": cls.manifest.name, "kinds": names},
             )
 
     async def prepare(
@@ -211,9 +253,11 @@ class Deployer:
     ) -> ChangeRecord:
         """Record a planned change and ask each integration for its vendor calls."""
         if not plan.changes and restore_backup_id is None:
-            raise DeployError("the plan contains no changes")
+            raise DeployError("the plan contains no changes", message_id="deploy.noChanges")
         if not reason.strip():
-            raise DeployError("say why (the reason is kept in the change log)")
+            raise DeployError(
+                "say why (the reason is kept in the change log)", message_id="deploy.reasonNeeded"
+            )
         secrets = self.secrets(plan)
         results = []
         for dev in plan.devices():
@@ -224,7 +268,12 @@ class Deployer:
             try:
                 calls = await adapter.plan_changes(plan.for_device(dev), secrets)
             except (AdapterError, OSError, TimeoutError) as exc:
-                raise DeployError(f"{dev}: {exc}") from exc
+                raise DeployError(
+                    f"{dev}: {exc}",
+                    message_id=getattr(exc, "message_id", None),
+                    params=getattr(exc, "params", None),
+                    device=dev,
+                ) from exc
             finally:
                 await adapter.close()
             results.append(DeviceResult(device_id=dev, calls=calls))
@@ -256,16 +305,23 @@ class Deployer:
         firewall changes may cut Signalbox off from a device also needs ``allow_lockout``."""
         rec = self._get(change_id)
         if rec.status is not ChangeStatus.PLANNED:
-            raise DeployError(f"the change is {rec.status.value}, not planned")
+            raise DeployError(
+                f"the change is {rec.status.value}, not planned",
+                message_id="deploy.notPlanned",
+                params={"status": rec.status.value},
+            )
         if rec.plan.blocking and not (override and override.strip()):
             raise DeployError(
-                "the plan creates error findings; give a reason to override, or fix the plan"
+                "the plan creates error findings; give a reason to override, or fix the plan",
+                message_id="deploy.blocking",
             )
         if rec.plan.lockouts and not allow_lockout:
             raise DeployError(
                 "the plan may cut Signalbox off from a device: "
                 + "; ".join(rec.plan.lockouts)
-                + ". Fix the plan, or approve with the explicit override to allow losing access"
+                + ". Fix the plan, or approve with the explicit override to allow losing access",
+                message_id="deploy.lockout",
+                params={"lockouts": "; ".join(rec.plan.lockouts)},
             )
         rec.status = ChangeStatus.APPROVED
         rec.override = override.strip() if override else None
@@ -280,7 +336,11 @@ class Deployer:
     def reject(self, change_id: str, author: str) -> ChangeRecord:
         rec = self._get(change_id)
         if rec.status not in (ChangeStatus.PLANNED, ChangeStatus.APPROVED):
-            raise DeployError(f"the change is {rec.status.value}")
+            raise DeployError(
+                f"the change is {rec.status.value}",
+                message_id="deploy.statusIs",
+                params={"status": rec.status.value},
+            )
         rec.status = ChangeStatus.REJECTED
         self._save(rec)
         self._event(rec, None, "rejected", f"by {author}")
@@ -289,7 +349,7 @@ class Deployer:
     def _get(self, change_id: str) -> ChangeRecord:
         rec = self.store.change(change_id)
         if rec is None:
-            raise DeployError("no such change")
+            raise DeployError("no such change", message_id="deploy.noChange")
         return rec
 
     # deployment ---------------------------------------------------------------------------
@@ -302,10 +362,17 @@ class Deployer:
     async def deploy(self, change_id: str) -> ChangeRecord:
         """Apply an approved change. Never raises for device problems: see the record."""
         if not self.runner.config.deploy.enabled:
-            raise DeployError("deploying is turned off (deploy.enabled in the configuration)")
+            raise DeployError(
+                "deploying is turned off (deploy.enabled in the configuration)",
+                message_id="deploy.disabled",
+            )
         rec = self._get(change_id)
         if rec.status is not ChangeStatus.APPROVED:
-            raise DeployError(f"the change is {rec.status.value}; it must be approved first")
+            raise DeployError(
+                f"the change is {rec.status.value}; it must be approved first",
+                message_id="deploy.notApproved",
+                params={"status": rec.status.value},
+            )
         devices = [r.device_id for r in rec.devices]
         for dev in devices:
             self._writable(dev, {c.kind for c in rec.plan.for_device(dev)})
@@ -361,7 +428,7 @@ class Deployer:
         try:
             snap = await self._observe(dev)
             if snap.status not in (ReadStatus.OK, ReadStatus.PARTIAL):
-                return self._fail(rec, result, f"device could not be read: {snap.status.value}")
+                return self._fail(rec, result, "unread", snap.status.value)
             net = self.runner.network()
             if rec.restore_backup_id is None:
                 # A change already at its new value is not stale: an object shared by several
@@ -373,16 +440,11 @@ class Deployer:
                     if not matches(net, c, c.old, secrets) and not matches(net, c, c.new, secrets)
                 ]
                 if stale:
-                    return self._fail(
-                        rec,
-                        result,
-                        "the device changed since the plan was made: "
-                        + "; ".join(c.describe() for c in stale),
-                    )
+                    return self._fail(rec, result, "stale", "; ".join(c.describe() for c in stale))
             try:
                 backup = await adapter.backup()
             except Exception as exc:
-                return self._fail(rec, result, f"backup failed: {exc}")
+                return self._fail(rec, result, "backup", str(exc), exc)
             result.backup_id = self.store.put_backup(backup, rec.id)
             result.status = DeviceStatus.BACKED_UP
             self._event(rec, dev, "backed-up", result.backup_id)
@@ -404,7 +466,7 @@ class Deployer:
                     result.calls = applied.calls or result.calls
                     deadline = applied.confirm_deadline
             except Exception as exc:
-                result.error = f"apply failed: {exc}"
+                self._set_error(result, "apply", str(exc), exc)
                 self._event(rec, dev, "apply-failed", str(exc))
                 await self._restore(rec, dev, adapter)
                 return False
@@ -414,7 +476,7 @@ class Deployer:
             )
             problem = await self._verify(rec, dev, changes, secrets, before)
             if problem:
-                result.error = f"verification failed: {problem}"
+                self._set_error(result, "verify", str(problem), problem)
                 self._event(rec, dev, "verify-failed", problem)
                 await self._restore(rec, dev, adapter)
                 return False
@@ -422,7 +484,7 @@ class Deployer:
                 try:
                     await adapter.confirm()
                 except Exception as exc:
-                    result.error = f"confirm failed: {exc}"
+                    self._set_error(result, "confirm", str(exc), exc)
                     self._event(rec, dev, "confirm-failed", str(exc))
                     await self._restore(rec, dev, adapter)
                     return False
@@ -433,10 +495,39 @@ class Deployer:
             result.finished_at = _now()
             await adapter.close()
 
-    def _fail(self, rec: ChangeRecord, result: DeviceResult, message: str) -> bool:
+    #: English wording of each stage that fails; ``msg.deploy.stage.<stage>`` translates it.
+    STAGES = {
+        "unread": "device could not be read: {}",
+        "stale": "the device changed since the plan was made: {}",
+        "backup": "backup failed: {}",
+        "apply": "apply failed: {}",
+        "verify": "verification failed: {}",
+        "confirm": "confirm failed: {}",
+    }
+
+    def _set_error(
+        self, result: DeviceResult, stage: str, detail: str, cause: object = None
+    ) -> None:
+        """Record what failed (#204): the English text, and the parts the UI translates."""
+        result.error = self.STAGES[stage].format(detail)
+        result.error_stage = stage
+        result.error_detail = detail
+        mid = getattr(cause, "message_id", None)
+        result.error_id = mid if isinstance(mid, str) else None
+        params = getattr(cause, "params", None)
+        result.error_params = plain_params(params) if result.error_id and params else {}
+
+    def _fail(
+        self,
+        rec: ChangeRecord,
+        result: DeviceResult,
+        stage: str,
+        detail: str,
+        cause: object = None,
+    ) -> bool:
         result.status = DeviceStatus.FAILED
-        result.error = message
-        self._event(rec, result.device_id, "failed", message)
+        self._set_error(result, stage, detail, cause)
+        self._event(rec, result.device_id, "failed", result.error or "")
         return False
 
     async def _verify(
@@ -449,12 +540,19 @@ class Deployer:
     ) -> str | None:
         snap = await self._observe(dev)
         if snap.status not in (ReadStatus.OK, ReadStatus.PARTIAL):
-            return f"the device does not answer after the change ({snap.status.value})"
+            return Described(
+                f"the device does not answer after the change ({snap.status.value})",
+                "deploy.verify.noAnswer",
+                status=snap.status.value,
+            )
         net = self.runner.network()
         if rec.restore_backup_id is None:
             wrong = [c for c in changes if not matches(net, c, c.new, secrets)]
             if wrong:
-                return "not applied as planned: " + "; ".join(c.describe() for c in wrong)
+                text = "; ".join(c.describe() for c in wrong)
+                return Described(
+                    "not applied as planned: " + text, "deploy.verify.notAsPlanned", changes=text
+                )
         new_errors = [
             f
             for f in evaluate(net, self.runner.active_rules(), self.runner.config.rules)
@@ -464,7 +562,8 @@ class Deployer:
             and f.rule_id not in {x.rule_id for x in rec.plan.new_findings}
         ]
         if new_errors and not rec.override:
-            return "new errors: " + "; ".join(f.message for f in new_errors)
+            text = "; ".join(f.message for f in new_errors)
+            return Described("new errors: " + text, "deploy.verify.newErrors", findings=text)
         return None
 
     async def _restore(self, rec: ChangeRecord, dev: str, adapter: WritesConfig) -> bool:
@@ -649,18 +748,29 @@ class Deployer:
         """A new planned change that undoes an applied one (checked like any plan)."""
         rec = self._get(change_id)
         if rec.status is not ChangeStatus.APPLIED:
-            raise DeployError("only an applied change can be reverted")
+            raise DeployError(
+                "only an applied change can be reverted", message_id="deploy.notApplied"
+            )
         if rec.reverted_by:
-            raise DeployError(f"already reverted by {rec.reverted_by}")
+            raise DeployError(
+                f"already reverted by {rec.reverted_by}",
+                message_id="deploy.alreadyReverted",
+                params={"change": rec.reverted_by},
+            )
         if rec.restore_backup_id is not None:
-            raise DeployError("a backup restore cannot be reverted; restore another backup")
+            raise DeployError(
+                "a backup restore cannot be reverted; restore another backup",
+                message_id="deploy.restoreNotReverted",
+            )
         net = self.runner.network()
         secrets = self.secrets(rec.plan)
         moved = [c for c in rec.plan.changes if not matches(net, c, c.new, secrets)]
         if moved:
             raise DeployError(
                 "the devices changed since; a revert would overwrite that: "
-                + "; ".join(c.describe() for c in moved)
+                + "; ".join(c.describe() for c in moved),
+                message_id="deploy.moved",
+                params={"changes": "; ".join(c.describe() for c in moved)},
             )
         try:
             back = revert_plan(
@@ -671,14 +781,14 @@ class Deployer:
                 self.runner.config.deploy.signalbox_address,
             )
         except PlanError as exc:  # pragma: no cover - inverses of applied changes always plan
-            raise DeployError(str(exc)) from exc
+            raise DeployError(str(exc), message_id=exc.message_id, params=exc.params) from exc
         return await self.prepare(back, reason, author, reverts=rec.id)
 
     async def restore_backup(self, backup_id: str, reason: str, author: str) -> ChangeRecord:
         """A planned change that puts a stored backup back on its device."""
         info = next((b for b in self.store.backups() if b.id == backup_id), None)
         if info is None:
-            raise DeployError("no such backup")
+            raise DeployError("no such backup", message_id="deploy.noBackup")
         self._writable(info.device_id, set())
         plan = Plan(id=f"restore-{backup_id}", created_at=_now(), changes=[])
         rec = await self.prepare(plan, reason, author, restore_backup_id=backup_id)

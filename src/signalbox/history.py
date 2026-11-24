@@ -45,6 +45,12 @@ class DeviceResult(BaseModel):
     calls: list[VendorCall] = Field(default_factory=list)
     backup_id: str | None = None
     error: str | None = None
+    #: Translation of ``error`` (#204): the stage that failed (``msg.deploy.stage.<stage>`` wraps
+    #: the cause), the cause in English and, where it has one, its id and values.
+    error_stage: str | None = None
+    error_detail: str | None = None
+    error_id: str | None = None
+    error_params: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
     started_at: datetime | None = None
     finished_at: datetime | None = None
 

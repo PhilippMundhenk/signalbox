@@ -14,6 +14,16 @@ export const findingFix = (f) => (f.fix ? tServer(f.fix_id ? `msg.${f.fix_id}` :
 // Read errors and gaps share the shape {message, message_id, params, fix, fix_id, fix_params}.
 export const stepTitle = (s) => tServer(s.title_id ? `msg.${s.title_id}` : '', s.params, s.title);
 
+// The message of a setup step, and the problem of a device in a change (#204): the stage that
+// failed wraps the cause, which has its own id when the integration gave one.
+export const stepMessage = (s) => tServer(s.message_id ? `msg.${s.message_id}` : '', s.message_params, s.message);
+export const deviceProblem = (d) => {
+  if (!d.error) return '';
+  if (!d.error_stage) return d.error;
+  const detail = tServer(d.error_id ? `msg.${d.error_id}` : '', d.error_params, d.error_detail);
+  return tServer(`msg.deploy.stage.${d.error_stage}`, { detail }, d.error);
+};
+
 export const errorMessage = findingMessage;
 export const errorFix = findingFix;
 

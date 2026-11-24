@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
-from signalbox.adapters import logging_errors
+from signalbox.adapters import Described, Label, logging_errors
 from signalbox.adapters.mikrotik.fwwrite import Revert, ros_quote
 from signalbox.changes import Change, LogTargetValue, SnmpPolicyValue
 from signalbox.model import LogTransport
@@ -102,7 +102,7 @@ def log_target(cfg: _Config, c: Change, revert: Revert) -> None:
     from signalbox.adapters import mikrotik as m
 
     address = c.key.partition("/")[2]
-    label = f"syslog target {address}"
+    label = Label(f"syslog target {address}", "syslogTarget", address)
     row = _ours(cfg, address, c.adopt)
     new = c.new if isinstance(c.new, LogTargetValue) else None
     if new is None:
@@ -112,14 +112,27 @@ def log_target(cfg: _Config, c: Change, revert: Revert) -> None:
         lines = []
         for rule in _rules(cfg, name):
             values = {k: _text(rule[k]) for k in _RULE_PROPS if _text(rule.get(k))}
-            cfg.delete(m.LOG_RULES, rule, f"{label}: remove the logging rule {rule.get('topics')}")
+            cfg.delete(
+                m.LOG_RULES,
+                rule,
+                Described(
+                    f"{label}: remove the logging rule {rule.get('topics')}",
+                    "plan.mikrotik.logRuleRemove",
+                    label=label,
+                    topics=str(rule.get("topics")),
+                ),
+            )
             lines.append(
                 f"{_RULE_CLI} add " + " ".join(f"{k}={ros_quote(v)}" for k, v in values.items())
             )
         if lines:  # one block: the rules come back in their order
             revert.add(*lines)
         values = {k: _text(row[k]) for k in _ACTION_PROPS if _text(row.get(k))}
-        cfg.delete(m.LOG_ACTION, row, f"{label}: remove")
+        cfg.delete(
+            m.LOG_ACTION,
+            row,
+            Described(f"{label}: remove", "plan.mikrotik.logTargetRemove", label=label),
+        )
         revert.add(
             f"{_ACTION_CLI} add " + " ".join(f"{k}={ros_quote(v)}" for k, v in values.items())
         )
@@ -131,7 +144,13 @@ def log_target(cfg: _Config, c: Change, revert: Revert) -> None:
         name, n = action_name(address), 2
         while name in taken:
             name, n = f"{action_name(address)}-{n}", n + 1
-        cfg.put(m.LOG_ACTION, _action_body(new, name), f"{label}: create the logging action")
+        cfg.put(
+            m.LOG_ACTION,
+            _action_body(new, name),
+            Described(
+                f"{label}: create the logging action", "plan.mikrotik.logActionCreate", label=label
+            ),
+        )
         revert.add(f"{_ACTION_CLI} remove [find where name={ros_quote(name)}]")
         _rules_on(cfg, name, label, revert)
         return
@@ -140,7 +159,14 @@ def log_target(cfg: _Config, c: Change, revert: Revert) -> None:
     old = {k: _text(row.get(k)) for k in ("remote-port", "remote-protocol")}
     changed = {k: want[k] for k in old if old[k] != want[k]}
     if changed:
-        cfg.patch(m.LOG_ACTION, row, changed, f"{label}: change the logging action")
+        cfg.patch(
+            m.LOG_ACTION,
+            row,
+            changed,
+            Described(
+                f"{label}: change the logging action", "plan.mikrotik.logActionChange", label=label
+            ),
+        )
         revert.add(
             _set_line(
                 _ACTION_CLI,
@@ -155,7 +181,12 @@ def log_target(cfg: _Config, c: Change, revert: Revert) -> None:
         disabled = "false" if new.enabled else "true"
         flipped = [r for r in rules if (not _flag(r.get("disabled"))) != new.enabled]
         for r in flipped:
-            cfg.patch(m.LOG_RULES, r, {"disabled": disabled}, f"{label}: switch the rule")
+            cfg.patch(
+                m.LOG_RULES,
+                r,
+                {"disabled": disabled},
+                Described(f"{label}: switch the rule", "plan.mikrotik.logRuleSwitch", label=label),
+            )
         if flipped:
             back = "no" if new.enabled else "yes"
             revert.add(
@@ -170,7 +201,12 @@ def _rules_on(cfg: _Config, name: str, label: str, revert: Revert) -> None:
         cfg.put(
             m.LOG_RULES,
             {"topics": topic, "action": name},
-            f"{label}: send {topic} messages",
+            Described(
+                f"{label}: send {topic} messages",
+                "plan.mikrotik.logSend",
+                label=label,
+                topic=topic,
+            ),
         )
     revert.add(f"{_RULE_CLI} remove [find where action={ros_quote(name)}]")
 

@@ -16,13 +16,43 @@ SRC = Path(__file__).parent.parent / "src" / "signalbox"
 EN = json.loads((SRC / "web" / "static" / "i18n" / "en.json").read_text(encoding="utf-8"))
 ID_LITERAL = re.compile(r"""\b(?:mid|fix_id|title_id|message_id)\s*=\s*["']([\w.\-]+)["']""")
 MSG = re.compile(r"\{(\w+)\}")
+_FIRST_ARG = r"""(?:f?"(?:[^"\\]|\\.)*"|f?'(?:[^'\\]|\\.)*'|\w+)"""
+#: ``Described("text", "id", ...)``: the id is the second argument (a plan description).
+DESCRIBED = re.compile(r"\bDescribed\(\s*" + _FIRST_ARG + r"""\s*,\s*["']([\w.\-]+)["']""")
+#: ``Label("text", "key", ...)``: the key is the second argument (a name Signalbox gives a thing).
+LABEL = re.compile(r"\bLabel\(\s*" + _FIRST_ARG + r"""\s*,\s*["']([\w.\-]+)["']""")
 
 
 def _used_ids() -> set[str]:
     ids = set()
     for path in SRC.rglob("*.py"):
-        ids.update(ID_LITERAL.findall(path.read_text(encoding="utf-8")))
+        text = path.read_text(encoding="utf-8")
+        ids.update(ID_LITERAL.findall(text))
+        ids.update(DESCRIBED.findall(text))
     return ids
+
+
+def test_every_label_in_the_code_has_a_catalogue_entry_in_every_language() -> None:
+    """A name Signalbox gives a thing (``Label``) is translated by ``lbl.<key>`` (#204)."""
+    labels = set()
+    for path in SRC.rglob("*.py"):
+        labels.update(LABEL.findall(path.read_text(encoding="utf-8")))
+    assert labels
+    i18n = SRC / "web" / "static" / "i18n"
+    for entry in json.loads((i18n / "index.json").read_text("utf-8")):
+        cat = json.loads((i18n / f"{entry['code']}.json").read_text("utf-8"))
+        missing = sorted(k for k in labels if f"lbl.{k}" not in cat)
+        assert not missing, f"{entry['code']}.json lacks labels: {missing}"
+
+
+def test_every_plan_and_deploy_error_carries_a_message_id() -> None:
+    """The errors of planning the desired state and of deploying are shown in the UI (#204)."""
+    bad = []
+    for name in ("changes.py", "deploy.py"):
+        for node, kw in _calls(SRC / name, {"PlanError", "DeployError"}):
+            if "message_id" not in kw:
+                bad.append(f"{name}:{node.lineno}")
+    assert not bad, f"PlanError/DeployError without message_id=: {bad}"
 
 
 def test_every_message_id_in_the_code_has_an_english_catalogue_entry() -> None:
@@ -112,39 +142,23 @@ def test_rule_catalogue_keys_name_existing_rules(key: str) -> None:
     assert rule_id in ids
 
 
-#: Adapter modules that only plan and apply changes (a declaration refused, a write failed): their
-#: errors show in the plan and the change record, not on the device page, and stay English.
-WRITE_MODULES = ("write.py", "writes.py", "fwwrite.py", "provision.py")
-#: Functions of the other modules with the same role (apply, confirm, backup, restore), or whose
-#: error is caught and logged or only steers the control flow; their texts stay English.
+#: Functions whose error is caught and logged, or only steers the control flow, and is never shown
+#: to a user: their texts stay English. Every other error (reading, planning, applying,
+#: restoring, provisioning) needs ``message_id=``.
 APPLY_FUNCTIONS = {
-    "fritzbox/__init__.py": {"restore", "_calls", "_send"},
-    "openwrt/__init__.py": {"_clear_staging", "restore", "confirm", "attempt"},
-    "openwrt/ubus.py": {"_rpc"},  # NotFound, InvalidArgument, ...: caught by the readers
-    "opnsense/__init__.py": {
-        "_needs_assignments",
-        "_revision_time",
-        "_send",
-        "backup",
-        "restore",
-        "_isc_settings",  # logged, not shown
-        "_firewall_state",
-    },
-    "plusswitch/__init__.py": {"read_interfaces", "restore"},  # internal check, backup format
+    "opnsense/__init__.py": {"_isc_settings"},  # logged, not shown
+    "plusswitch/__init__.py": {"read_interfaces"},  # internal check
 }
 CHECKED_ERRORS = {"AdapterError", "AuthFailed", "Unreachable"}
 
 
 def test_every_read_error_of_the_adapters_carries_a_message_id() -> None:
-    """A new ``raise AdapterError("...")`` in a read path needs ``message_id=`` (and a catalogue
-    entry, see the first test) or it stays English on the device page (#204). Planning and
-    applying (:data:`WRITE_MODULES`, :data:`APPLY_FUNCTIONS`) are exempt."""
+    """A new ``raise AdapterError("...")`` needs ``message_id=`` (and a catalogue entry, see the
+    first test) or it stays English in the UI (#204). Only :data:`APPLY_FUNCTIONS` are exempt."""
     bad = []
     adapters = SRC / "adapters"
     for path in sorted(adapters.rglob("*.py")):
         rel = path.relative_to(adapters).as_posix()
-        if path.name in WRITE_MODULES:
-            continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         parents = {c: n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
         for node in ast.walk(tree):

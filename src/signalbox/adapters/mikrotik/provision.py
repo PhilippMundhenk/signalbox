@@ -65,20 +65,32 @@ class MikrotikSetup:
         self.redact.add(request.admin_secret.get_secret_value())
         raw = str(request.config.get("url") or "").strip()
         if not raw:
-            raise AdapterError("give the router's address first")
+            raise AdapterError(
+                "give the router's address first", message_id="mikrotik.addressFirst"
+            )
         try:
             self.url = device_url(raw)
         except ValueError as exc:
-            raise AdapterError(str(exc)) from None
+            raise AdapterError(
+                str(exc), message_id="mikrotik.badAddress", params={"detail": str(exc)}
+            ) from None
         if not self.url.startswith("https://"):
-            raise AdapterError("the automatic setup sends the admin password only over https")
+            raise AdapterError(
+                "the automatic setup sends the admin password only over https",
+                message_id="mikrotik.setupHttpsOnly",
+            )
         self.login = str(request.config.get("username") or "signalbox").strip()
         if not LOGIN_NAME.match(self.login):
-            raise AdapterError(f"not a RouterOS user name: {self.login!r}")
+            raise AdapterError(
+                f"not a RouterOS user name: {self.login!r}",
+                message_id="mikrotik.badUserName",
+                params={"login": repr(self.login)},
+            )
         if self.login in ("admin", request.admin_user):
             raise AdapterError(
                 "the user to set up must not be the admin login: give Signalbox a user of its "
-                "own, for example signalbox"
+                "own, for example signalbox",
+                message_id="mikrotik.userIsAdmin",
             )
         self.group, self.policy = GROUPS[request.allow_writes]
         if request.traces:  # path traces (#253): traceroute needs the policy test
@@ -98,7 +110,9 @@ class MikrotikSetup:
         users = await get_menu(http, "/rest/user")
         groups = await get_menu(http, "/rest/user/group")
         if not isinstance(users, list) or not isinstance(groups, list):
-            raise AdapterError("/rest/user: unexpected answer")
+            raise AdapterError(
+                "/rest/user: unexpected answer", message_id="mikrotik.usersUnexpected"
+            )
         return (
             [u for u in users if isinstance(u, dict)],
             [g for g in groups if isinstance(g, dict)],
@@ -319,7 +333,11 @@ class MikrotikFix:
 
     def __init__(self, request: RemedyRequest) -> None:
         if request.remedy not in {r.id for r in REMEDIES}:
-            raise AdapterError(f"MikroTik has no remedy {request.remedy!r}")
+            raise AdapterError(
+                f"MikroTik has no remedy {request.remedy!r}",
+                message_id="mikrotik.noRemedy",
+                params={"remedy": repr(request.remedy)},
+            )
         self.fix = request
         self.redact = Redactor()
         self.redact.add(request.admin_secret.get_secret_value())
@@ -327,11 +345,15 @@ class MikrotikFix:
             self.redact.add(secret.get_secret_value())
         raw = str(request.config.get("url") or "").strip()
         if not raw:
-            raise AdapterError("give the router's address first")
+            raise AdapterError(
+                "give the router's address first", message_id="mikrotik.addressFirst"
+            )
         try:
             self.url = device_url(raw)
         except ValueError as exc:
-            raise AdapterError(str(exc)) from None
+            raise AdapterError(
+                str(exc), message_id="mikrotik.badAddress", params={"detail": str(exc)}
+            ) from None
         self.host = urlsplit(self.url).hostname or ""
         self.login = str(request.config.get("username") or "signalbox").strip()
 
@@ -351,7 +373,10 @@ class MikrotikFix:
 
     def _http(self) -> DeviceHttp:
         if not self.url.startswith("https://"):
-            raise AdapterError("Fix it sends the admin password only over https")
+            raise AdapterError(
+                "Fix it sends the admin password only over https",
+                message_id="mikrotik.fixHttpsOnly",
+            )
         return DeviceHttp(
             self.url,
             pinned_fingerprint=self.fix.trust,
@@ -423,7 +448,9 @@ class MikrotikFix:
             users = await get_menu(http, "/rest/user")
             groups = await get_menu(http, "/rest/user/group")
             if not isinstance(users, list) or not isinstance(groups, list):
-                raise AdapterError("/rest/user: unexpected answer")
+                raise AdapterError(
+                    "/rest/user: unexpected answer", message_id="mikrotik.usersUnexpected"
+                )
             steps = self.policy_steps(
                 http,
                 [u for u in users if isinstance(u, dict)],
@@ -470,7 +497,12 @@ class MikrotikFix:
         res = await ssh.command(command, timeout=timeout)
         text = res.text.strip()
         if res.code != 0 or ROS_FAILURE.search(text) or ROS_FAILURE.search(res.err):
-            raise AdapterError(f"{command}: {(res.err or text)[:300]}")
+            detail = (res.err or text)[:300]
+            raise AdapterError(
+                f"{command}: {detail}",
+                message_id="mikrotik.commandFailed",
+                params={"command": command, "detail": detail},
+            )
         return text
 
     async def _available(self, ssh: PinnedSsh, get: Callable[[str], str]) -> str:
@@ -606,7 +638,10 @@ class MikrotikFix:
         async def run() -> str | None:
             state = await self.inspect(ssh)
             if state["disabled"] or not state["certificate"]:
-                raise AdapterError("www-ssl is still disabled or has no certificate")
+                raise AdapterError(
+                    "www-ssl is still disabled or has no certificate",
+                    message_id="mikrotik.wwwSslStillOff",
+                )
             return "www-ssl is enabled with a certificate"
 
         return run

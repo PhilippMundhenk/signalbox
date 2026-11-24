@@ -95,7 +95,16 @@ class SoapFault(AdapterError):
             text += f" ({description})"
         if meaning:
             text += f": {meaning}"
-        super().__init__(text)
+        head = f"{what}: UPnP error {code if code is not None else '?'}"
+        super().__init__(
+            text,
+            message_id="fritzbox.upnpFault",
+            params={
+                "what": what,
+                "code": code if code is not None else "?",
+                "detail": text[len(head) :],
+            },
+        )
 
 
 def _local(tag: str) -> str:
