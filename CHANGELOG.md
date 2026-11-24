@@ -139,6 +139,7 @@ All notable changes to this project are documented here. The format follows
 
 - Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
+- Fritz!Box in password-only login mode: an empty user name is looked up from `/login_sid.lua?version=2` (pinned https, no password sent) before the first TR-064 call; a failed lookup and a 401 with a user name get specific messages (right "FRITZ!Box Einstellungen", case-sensitive name, login block) in all 15 languages; form help, docs and simulator updated (#373)
 - Moving a device to another site (or renaming it, or changing its role) in its settings now updates the topology, segments and other views at once: the stored snapshot is re-stamped (site, segment ids, name, role) and the device is read right after the save, instead of waiting for the next read (#368)
 - Omada 6.3: the controller's users cannot be read in client mode (`/users`, `/all-users`, `/roles/available` answer -44118, `/users/local` and `/users/cloud` -1007; confirmed from the controller's own API description in CI), so the optional accounts gap now says so (`omada.accounts.client_mode`, all 15 catalogues), `/users` is not asked again after -44118, and the limit is documented (#354)
 - Accounts: when OPNsense, Omada or FRITZ!Box refuse the account list, Signalbox reports an optional gap naming the missing privilege instead of showing no accounts; the OPNsense user-manager privilege is an optional, off-by-default setup extra (#349)
