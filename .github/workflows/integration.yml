@@ -499,7 +499,7 @@ jobs:
       - name: Integration tests
         run: |
           set -o pipefail
-          pytest tests/integration/test_linux_real.py -v -p no:cacheprovider 2>&1 \
+          pytest tests/integration/test_linux_real.py -v -rs -p no:cacheprovider 2>&1 \
             | tee "$TARGET_DIR/pytest.log" || {
               code=$?
               summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$TARGET_DIR/pytest.log" | cut -c1-600 | tail -n 60)
@@ -509,6 +509,30 @@ jobs:
               echo "::error title=Linux integration tests failed::$body"
               exit $code
             }
+      - name: Legacy iptables test in the job summary (#404)
+        if: always()
+        run: |
+          {
+            echo "### Linux legacy iptables end-to-end test"
+            echo
+            line=$(grep -E 'test_legacy_iptables_is_read_with_iptables_save .*(PASSED|FAILED|ERROR|SKIPPED)' "$TARGET_DIR/pytest.log" 2>/dev/null | head -n 1)
+            if [ -z "$line" ]; then
+              echo "**Did not run** (no result in the log: the integration step failed or was skipped earlier)."
+            elif echo "$line" | grep -q PASSED; then
+              echo "**Ran and passed.**"
+            elif echo "$line" | grep -q SKIPPED; then
+              echo "**Skipped**, reason:"
+              echo '```'
+              grep -E '^SKIPPED .*legacy iptables' "$TARGET_DIR/pytest.log" | head -n 3
+              echo '```'
+            else
+              echo "**Ran and failed.**"
+            fi
+            echo
+            echo '```'
+            echo "$line"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: A second DHCP server and IPv6 router (dnsmasq in a network namespace, #184)
         run: |
           sudo apt-get update -q
