@@ -355,7 +355,7 @@ async def test_log_targets_and_snmpd(ow: Target, pin: str) -> None:
     (agent,) = [s for s in snap.services if s.kind.value == "snmp"]
     assert agent.enabled and agent.snmp is not None and agent.snmp.default_community, agent
     assert [v.value for v in agent.snmp.versions] == ["2c"], agent
-    assert "public" not in snap.model_dump_json()
+    assert '"public"' not in snap.model_dump_json()  # not public_ipv4
 
 
 async def test_firewall_of_the_default_config(ow: Target, pin: str) -> None:

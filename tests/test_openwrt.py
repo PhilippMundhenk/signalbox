@@ -1474,7 +1474,7 @@ async def test_log_targets_from_system_and_optional_packages(
     assert agent.id == "ap1/service/snmp" and agent.enabled and agent.snmp is not None
     assert agent.snmp.default_community and agent.snmp.write_access
     assert [v.value for v in agent.snmp.versions] == ["1", "2c"] and agent.allowed_from == []
-    assert "public" not in snap.model_dump_json()  # the community is never kept
+    assert '"public"' not in snap.model_dump_json()  # the community is never kept
 
 
 async def test_log_targets_with_an_older_acl(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
