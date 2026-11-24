@@ -95,6 +95,7 @@ All notable changes to this project are documented here. The format follows
 - Wi-Fi security rules: open, WEP, WPA1 and TKIP networks, WPA3 available, passphrase reuse across networks, WPS, hash-to-element on 6 GHz (#86, #89, #101, #104)
 - DHCP leases in the model: lease table per DHCP server (state, expiry, client id, vendor class), source per client address (DHCP, reservation, static, SLAAC, link-local), search domains, option 121 routes, network boot, further options, authoritative, failover peer, DHCP relays; lease addresses marked as DHCP by OPNsense, OpenWrt, MikroTik and Fritz!Box; shown on the clients and DHCP pages (#183, model stage)
 - DHCP lease checks: static address inside the DHCP pool, declined leases (address conflicts), classless static routes without a default route, relays pointing to no known DHCP server; pool usage counts active leases; `dhcp.one-server` is quiet where a relay serves the network (#67, #183)
+- Translations: the UI is translatable (language from the browser or Settings), German is complete; server texts carry translatable ids, starting with the device form, setup, read errors and DHCP/address checks (#204)
 
 ### Changed
 - Setup preview: a test per integration (Linux, OpenWrt, MikroTik, OPNsense with its ISC SSH script, every *Fix it* remedy) checks that the credential-free preview lists every step the real plan can contain (fixing three missing ones); OPNsense with the optional SSH step now fetches the HTTPS certificate and the SSH host key together before any password, so the passwords are asked once (#290)
