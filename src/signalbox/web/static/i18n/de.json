@@ -3006,5 +3006,13 @@
  "device.inferredLinks": "Abgeleitete Kabel",
  "msg.openwrt.fdbRead": "MAC-Adresstabelle (welches Gerät hinter welchem Port liegt): {cause}",
  "msg.plusswitch.noMacTable": "{host}: Das Protokoll des Switches hat keine MAC-Adresstabelle; Kabel über diesen Switch werden aus den Tabellen der Geräte um ihn herum abgeleitet",
- "msg.plusswitch.noMacTable.fix": "Hier ist nichts zu beheben: NSDP und das Easy-Smart-Protokoll melden nicht, welche Adresse an welchem Port gelernt wurde. Kabel über diesen Switch werden gestrichelt (abgeleitet) aus den Tabellen der anderen Geräte gezeichnet; tragen Sie sie unter Topologie ein, um sie genau zu machen."
+ "msg.plusswitch.noMacTable.fix": "Hier ist nichts zu beheben: NSDP und das Easy-Smart-Protokoll melden nicht, welche Adresse an welchem Port gelernt wurde. Kabel über diesen Switch werden gestrichelt (abgeleitet) aus den Tabellen der anderen Geräte gezeichnet; tragen Sie sie unter Topologie ein, um sie genau zu machen.",
+ "msg.snmp.install": "Dieser Adapter benötigt pysnmp: Installieren Sie signalbox-net[snmp] (das Container-Image enthält es)",
+ "msg.snmp.noAnswer": "{host}: keine SNMP-Antwort",
+ "msg.snmp.noAnswer.fix": "Prüfen Sie die Adresse und den Port, ob SNMP am Switch aktiviert ist und diesen Host zulässt, sowie die Zugangsdaten: Bei falscher v2c-Community oder falschem v3-Benutzernamen antwortet der Switch gar nicht.",
+ "msg.snmp.authFailed": "{host}: der Switch hat die SNMP-Anmeldung abgelehnt ({detail})",
+ "msg.snmp.authFailed.fix": "Prüfen Sie in den Geräteeinstellungen den SNMPv3-Benutzernamen, den Authentifizierungsalgorithmus (SHA oder SHA-256) und beide Passwörter sowie, ob der Benutzer eine Sicht auf die MIBs hat. Prüfen Sie bei v2c den Community-String.",
+ "msg.snmp.error": "{host}: SNMP-Anfrage fehlgeschlagen ({detail})",
+ "msg.snmp.gapMib": "{host}: der Switch bietet {mib} nicht über SNMP an; was davon abhängt, wird nicht gelesen",
+ "msg.snmp.gapMib.fix": "An Signalbox liegt es nicht: Der Switch hat diese Daten nicht, die Funktion ist ausgeschaltet (aktivieren Sie LLDP oder Spanning Tree am Switch) oder die Sicht des SNMP-Benutzers enthält sie nicht (SNMPv3: die MIB zur Sicht hinzufügen). Die Prüfungen, die sie brauchen, melden \"unvollständig\", bis sie vorhanden ist."
 }

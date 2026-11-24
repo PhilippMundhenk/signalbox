@@ -3006,5 +3006,13 @@
  "device.inferredLinks": "推断的线缆",
  "msg.openwrt.fdbRead": "MAC 地址表（哪个设备位于哪个端口之后）：{cause}",
  "msg.plusswitch.noMacTable": "{host}：该交换机的协议没有 MAC 地址表；经过此交换机的线缆由周围设备的表推断",
- "msg.plusswitch.noMacTable.fix": "无需修复：NSDP 和 Easy Smart 协议不报告哪个地址在哪个端口上学习到。经过此交换机的线缆根据其他设备的表以虚线（推断）绘制；在“拓扑”下录入即可使其准确。"
+ "msg.plusswitch.noMacTable.fix": "无需修复：NSDP 和 Easy Smart 协议不报告哪个地址在哪个端口上学习到。经过此交换机的线缆根据其他设备的表以虚线（推断）绘制；在“拓扑”下录入即可使其准确。",
+ "msg.snmp.install": "此适配器需要 pysnmp:请安装 signalbox-net[snmp](容器镜像已包含)",
+ "msg.snmp.noAnswer": "{host}:没有 SNMP 应答",
+ "msg.snmp.noAnswer.fix": "请检查地址和端口、交换机上是否启用了 SNMP 并允许此主机,以及凭据:v2c 团体字或 v3 用户名错误时,交换机完全不会应答。",
+ "msg.snmp.authFailed": "{host}:交换机拒绝了 SNMP 登录({detail})",
+ "msg.snmp.authFailed.fix": "请在设备设置中检查 SNMPv3 用户名、认证算法(SHA 或 SHA-256)和两个密码,并确认该用户有 MIB 的视图。使用 v2c 时请检查团体字符串。",
+ "msg.snmp.error": "{host}:SNMP 请求失败({detail})",
+ "msg.snmp.gapMib": "{host}:交换机不通过 SNMP 提供 {mib};依赖它的内容不会被读取",
+ "msg.snmp.gapMib.fix": "Signalbox 没有问题:交换机没有这些数据,或该功能已关闭(请在交换机上启用 LLDP 或生成树),或 SNMP 用户的视图不包含它(SNMPv3:将该 MIB 加入视图)。需要这些数据的检查在数据出现之前会报告“不完整”。"
 }

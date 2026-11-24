@@ -3006,5 +3006,13 @@
  "device.inferredLinks": "Çıkarılan kablolar",
  "msg.openwrt.fdbRead": "MAC adres tablosu (hangi cihaz hangi portun arkasında): {cause}",
  "msg.plusswitch.noMacTable": "{host}: anahtarın protokolünde MAC adres tablosu yok; bu anahtardan geçen kablolar çevresindeki cihazların tablolarından çıkarılır",
- "msg.plusswitch.noMacTable.fix": "Düzeltilecek bir şey yok: NSDP ve Easy Smart protokolü hangi adresin hangi portta öğrenildiğini bildirmez. Bu anahtardan geçen kablolar diğer cihazların tablolarından kesik çizgiyle (çıkarım) çizilir; kesin olmaları için Topoloji altında girin."
+ "msg.plusswitch.noMacTable.fix": "Düzeltilecek bir şey yok: NSDP ve Easy Smart protokolü hangi adresin hangi portta öğrenildiğini bildirmez. Bu anahtardan geçen kablolar diğer cihazların tablolarından kesik çizgiyle (çıkarım) çizilir; kesin olmaları için Topoloji altında girin.",
+ "msg.snmp.install": "bu bağdaştırıcı pysnmp gerektirir: signalbox-net[snmp] paketini kurun (kapsayıcı imajında vardır)",
+ "msg.snmp.noAnswer": "{host}: SNMP yanıtı yok",
+ "msg.snmp.noAnswer.fix": "Adresi ve bağlantı noktasını, SNMP'nin switch'te açık olup bu ana makineye izin verdiğini ve kimlik bilgilerini kontrol edin: yanlış v2c community'si veya yanlış v3 kullanıcı adıyla switch hiç yanıt vermez.",
+ "msg.snmp.authFailed": "{host}: switch SNMP girişini reddetti ({detail})",
+ "msg.snmp.authFailed.fix": "Cihaz ayarlarında SNMPv3 kullanıcı adını, kimlik doğrulama algoritmasını (SHA veya SHA-256) ve her iki parolayı, ayrıca kullanıcının MIB'leri görebildiğini kontrol edin. v2c'de community dizesini kontrol edin.",
+ "msg.snmp.error": "{host}: SNMP isteği başarısız oldu ({detail})",
+ "msg.snmp.gapMib": "{host}: switch {mib} verisini SNMP üzerinden sunmuyor; buna bağlı olanlar okunmaz",
+ "msg.snmp.gapMib.fix": "Sorun Signalbox'ta değil: switch'te bu veriler yok, özellik kapalı (switch'te LLDP veya spanning tree'yi açın) ya da SNMP kullanıcısının görünümü bunları içermiyor (SNMPv3: MIB'i görünüme ekleyin). Bunlara ihtiyaç duyan denetimler, veriler gelene kadar \"eksik\" bildirir."
 }

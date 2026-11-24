@@ -34,9 +34,14 @@ dev = [
   "pytest-playwright>=0.5",
   "amqtt>=0.11",
   "aiosmtpd>=1.4",
+  "pysnmp>=7.1,<8",
+  "snmpsim>=1.2.2",
+  "pysmi>=2,<3",  # snmpsim imports it without declaring it
 ]
 # Apprise URLs as one more notification channel kind (docs/NOTIFICATIONS.md)
 apprise = ["apprise>=1.8"]
+# Generic read-only SNMP switches (docs/adapters/snmp.md)
+snmp = ["pysnmp>=7.1,<8"]
 # NETGEAR ProSAFE Plus and TP-Link Easy Smart switches (docs/adr/0003-switchyard-library.md)
 switches = [
   "switchyard @ git+https://github.com/PhilippMundhenk/switchyard@4f8e93fd196c408fa45338a45837f61c97cf32a9",
@@ -56,6 +61,7 @@ openwrt = "signalbox.adapters.openwrt:OpenWrtAdapter"
 opnsense = "signalbox.adapters.opnsense:OpnsenseAdapter"
 pihole = "signalbox.adapters.pihole:PiholeAdapter"
 prosafe = "signalbox.adapters.plusswitch:ProsafeAdapter"
+snmp = "signalbox.adapters.snmp:SnmpAdapter"
 
 [project.entry-points."signalbox.rules"]
 builtin = "signalbox.rules.builtin:RULES"
@@ -94,7 +100,7 @@ exclude = ["^\\.claude/"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["paho.*", "switchyard.*"]
+module = ["paho.*", "switchyard.*", "pysnmp.*", "snmpsim.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

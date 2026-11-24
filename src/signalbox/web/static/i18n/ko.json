@@ -3006,5 +3006,13 @@
  "device.inferredLinks": "추론된 케이블",
  "msg.openwrt.fdbRead": "MAC 주소 테이블 (어떤 장치가 어떤 포트 뒤에 있는지): {cause}",
  "msg.plusswitch.noMacTable": "{host}: 스위치의 프로토콜에는 MAC 주소 테이블이 없습니다. 이 스위치를 지나는 케이블은 주변 장치의 테이블에서 추론됩니다",
- "msg.plusswitch.noMacTable.fix": "고칠 것이 없습니다: NSDP와 Easy Smart 프로토콜은 어떤 주소가 어떤 포트에서 학습되었는지 알려 주지 않습니다. 이 스위치를 지나는 케이블은 다른 장치의 테이블에서 점선(추론)으로 그려집니다. 정확하게 하려면 토폴로지에서 입력하세요."
+ "msg.plusswitch.noMacTable.fix": "고칠 것이 없습니다: NSDP와 Easy Smart 프로토콜은 어떤 주소가 어떤 포트에서 학습되었는지 알려 주지 않습니다. 이 스위치를 지나는 케이블은 다른 장치의 테이블에서 점선(추론)으로 그려집니다. 정확하게 하려면 토폴로지에서 입력하세요.",
+ "msg.snmp.install": "이 어댑터에는 pysnmp가 필요합니다: signalbox-net[snmp]를 설치하세요(컨테이너 이미지에는 포함되어 있습니다)",
+ "msg.snmp.noAnswer": "{host}: SNMP 응답 없음",
+ "msg.snmp.noAnswer.fix": "주소와 포트, 스위치에서 SNMP가 켜져 있고 이 호스트를 허용하는지, 그리고 자격 증명을 확인하세요. v2c 커뮤니티나 v3 사용자 이름이 틀리면 스위치는 전혀 응답하지 않습니다.",
+ "msg.snmp.authFailed": "{host}: 스위치가 SNMP 로그인을 거부했습니다({detail})",
+ "msg.snmp.authFailed.fix": "장치 설정에서 SNMPv3 사용자 이름, 인증 알고리즘(SHA 또는 SHA-256), 두 비밀번호를 확인하고, 사용자에게 MIB 뷰가 있는지 확인하세요. v2c에서는 커뮤니티 문자열을 확인하세요.",
+ "msg.snmp.error": "{host}: SNMP 요청 실패({detail})",
+ "msg.snmp.gapMib": "{host}: 스위치가 SNMP로 {mib}을(를) 제공하지 않습니다. 이에 의존하는 항목은 읽지 않습니다",
+ "msg.snmp.gapMib.fix": "Signalbox에는 문제가 없습니다. 스위치에 해당 데이터가 없거나, 기능이 꺼져 있거나(스위치에서 LLDP 또는 스패닝 트리를 켜세요), SNMP 사용자의 뷰에 포함되어 있지 않습니다(SNMPv3: 뷰에 MIB를 추가하세요). 이를 필요로 하는 검사는 데이터가 생길 때까지 \"불완전\"으로 보고합니다."
 }
