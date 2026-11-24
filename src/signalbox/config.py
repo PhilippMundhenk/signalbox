@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from ipaddress import ip_address
+from ipaddress import IPv4Address, IPv6Address, ip_address
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +69,12 @@ class DeployConfig(Section):
         ge=30,
         le=900,
         description="Devices that support it roll back by themselves unless confirmed in time.",
+    )
+    signalbox_address: IPv4Address | IPv6Address | None = Field(
+        None,
+        description="Signalbox's own address as the devices see it. Firewall changes are "
+        "checked against it so they do not cut Signalbox off; default: each device is reached "
+        "from the network of its management address.",
     )
 
 

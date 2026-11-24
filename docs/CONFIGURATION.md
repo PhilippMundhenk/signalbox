@@ -53,6 +53,7 @@ Generated from the code by `tools/gen_docs.py`.
 | --- | --- | --- | --- |
 | `deploy.enabled` | `SIGNALBOX_DEPLOY_ENABLED` | false | Allow deploying changes at all (devices also need 'allow changes'). |
 | `deploy.confirm_seconds` | `SIGNALBOX_DEPLOY_CONFIRM_SECONDS` | `120` | Devices that support it roll back by themselves unless confirmed in time. |
+| `deploy.signalbox_address` | `SIGNALBOX_DEPLOY_SIGNALBOX_ADDRESS` | empty | Signalbox's own address as the devices see it. Firewall changes are checked against it so they do not cut Signalbox off; default: each device is reached from the network of its management address. |
 
 ## `history`
 

@@ -40,7 +40,9 @@ READ_ACL: dict[str, Any] = {
 #: The ACL with write access of docs/adapters/openwrt.md ("Login with write access").
 WRITE_ACL: dict[str, Any] = {
     "signalbox": {
-        "description": "Signalbox: network inventory, changes to network, wireless and dhcp",
+        "description": (
+            "Signalbox: network inventory, changes to network, wireless, dhcp and firewall"
+        ),
         "read": READ_ACL["signalbox"]["read"],
         "write": {
             "ubus": {
@@ -56,7 +58,7 @@ WRITE_ACL: dict[str, Any] = {
                     "rollback",
                 ]
             },
-            "uci": ["network", "wireless", "dhcp"],
+            "uci": ["network", "wireless", "dhcp", "firewall"],
         },
     }
 }

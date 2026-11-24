@@ -36,6 +36,7 @@ def plan_json(p: changes.Plan) -> dict[str, Any]:
         "new_findings": [f.model_dump(mode="json") for f in p.new_findings],
         "resolved_findings": [f.model_dump(mode="json") for f in p.resolved_findings],
         "blocking": [f.model_dump(mode="json") for f in p.blocking],
+        "lockouts": p.lockouts,
         "devices": p.devices(),
     }
 
@@ -96,6 +97,7 @@ def router(services: Services) -> APIRouter:
                 services.rules,
                 services.config.rules,
                 secret=store.get_secret,
+                signalbox_address=services.config.deploy.signalbox_address,
             )
         except changes.PlanError as exc:
             return _error(422, "plan_error", str(exc))

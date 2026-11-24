@@ -1211,6 +1211,9 @@ class ZonePolicy(Model):
     #: Destination zone; ``None``: the device itself (the input policy of the zone).
     destination: str | None = None
     action: FirewallAction
+    #: Signalbox's own key when Signalbox created the object (tagged on the device, #295);
+    #: ``None``: the device's own, which Signalbox never changes unless it is adopted.
+    signalbox_key: str | None = None
 
 
 class FirewallMatch(Model):
@@ -1305,6 +1308,9 @@ class FirewallRule(Model):
     #: (schedule, GeoIP, connection mark or limit, an alias or user chain the adapter could not
     #: resolve), so the rule can only ever "maybe" match.
     exact: bool = True
+    #: Signalbox's own key when Signalbox created the object (tagged on the device, #295);
+    #: ``None``: the device's own, which Signalbox never changes unless it is adopted.
+    signalbox_key: str | None = None
 
     def matches(self, flow: Flow) -> Match:
         if not self.enabled:
@@ -1386,6 +1392,9 @@ class PortForward(Model):
     #: NAT reflection (hairpin): reachable at the external address from inside too.
     reflection: bool | None = None
     exact: bool = True
+    #: Signalbox's own key when Signalbox created the object (tagged on the device, #295);
+    #: ``None``: the device's own, which Signalbox never changes unless it is adopted.
+    signalbox_key: str | None = None
 
     def matches(
         self, zones: set[str] | None, protocol: FirewallProtocol | None, port: int | None

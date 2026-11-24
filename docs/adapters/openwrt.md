@@ -2,8 +2,9 @@
 
 Reads an OpenWrt device (21.02 or later; DSA bridge VLANs or plain bridges) over ubus JSON-RPC,
 the API that LuCI uses: `rpcd` behind `uhttpd` at `https://<device>/ubus`. With a read-only login
-nothing on the device is changed; with write access to UCI `network`, `wireless` and `dhcp`
-Signalbox can deploy port VLANs, SSIDs, DHCP pools and reservations ([Writing](#writing)).
+nothing on the device is changed; with write access to UCI `network`, `wireless`, `dhcp` and `firewall`
+Signalbox can deploy port VLANs, SSIDs, DHCP pools, reservations, firewall zone policies, rules and
+port forwards ([Writing](#writing)).
 
 | | |
 | --- | --- |
@@ -537,11 +538,11 @@ Off unless `deploy.enabled` is on, *Allow changes* is set on the device and the 
 write ACL below (see [CHANGES.md](../CHANGES.md)). Every change goes through rpcd's `uci` object
 in the login's session, as LuCI does it:
 
-1. `uci get` of `network`, `wireless`, `dhcp` and `network.interface dump`; the changes are
+1. `uci get` of `network`, `wireless`, `dhcp`, `firewall` and `network.interface dump`; the changes are
    translated one after another on that copy, so a later change sees an earlier one (the WLAN on
    VLAN 30 finds the VLAN the port change creates). The review shows exactly these calls
    (`plan_changes`); Wi-Fi keys appear as `***`.
-2. **Backup**: the `uci get` answers of the three configs as one JSON document (format
+2. **Backup**: the `uci get` answers of the four configs as one JSON document (format
    `openwrt-uci-json`, stored encrypted with the change).
 3. **Stage**: `uci set` / `add` / `delete` into the session's staging area. Nothing is live yet;
    another session does not see it.
@@ -583,17 +584,20 @@ Failures:
 | `wlan` network | The interface on the segment's VLAN (the first by name). If the VLAN is on the bridge but has no interface, Signalbox adds `config interface vlan<vid>` with `device <bridge>.<vid>` and `proto none` (DSA creates the VLAN device itself, no `config device` is needed). If the VLAN is on no port of the access point, the change is refused: tag it on the uplink in the same plan. When a later change removes that VLAN, an unused `proto none` interface on it is deleted too. |
 | `dhcp` | The `dhcp` section of the segment's interface (created if missing): `ignore`, `start` and `limit` from the pool (offsets in the interface's IPv4 subnet), `leasetime`, DNS as `dhcp_option 6,…` (other options kept). The interface must already have an IPv4 address. Enabling without a pool is refused. |
 | `reservation` | The `host` section with that MAC: `ip`, `name`; a new one is `host_<mac>`. A host section shared by several MACs keeps the others. |
-| `router` | Not supported: a routed VLAN on OpenWrt also needs a firewall zone and forwarding rules, which are policy Signalbox does not model, and the write ACL deliberately excludes `firewall`. Create routed interfaces by hand (or in LuCI); DHCP and reservations on them can then be deployed. |
+| `zone-policy` | Between a zone and the router (`to: device`): the zone's `input`; inside a zone: its `forward`. Between two zones: `accept` adds `config forwarding 'sb_pol_<src>_<dest>'` unless one exists; `reject` deletes Signalbox's forwardings of the pair, and the device's own one only when the policy says `adopt: true` (else refused); `drop` between two zones is refused (OpenWrt rejects what no forwarding allows). Zones themselves are never created or removed. |
+| `firewall-rule` | `config rule 'sb_rule_<key>'`: `name`, `src` (zone or `*`), `dest` (forward rules; zone or `*`), `src_ip`, `dest_ip`, `dest_port`, `proto` (`all` for every protocol), `family`, `target`, `enabled`. A new rule is moved before the device's own rules (`uci order`), after Signalbox's older ones. `adopt: <name>` deletes the device's own rule of that name and creates Signalbox's instead. |
+| `port-forward` | `config redirect 'sb_fwd_<key>'` with `target DNAT`: `name`, `src` (the internet zone), `src_dport`, `dest` (the zone of the interface whose subnet holds the target), `dest_ip`, `dest_port`, `proto`, `enabled`. `adopt: <name>` as for rules. |
+| `router` | Not supported: a routed VLAN on OpenWrt also needs its own firewall zone, which Signalbox does not create. Create routed interfaces and their zones by hand (or in LuCI); DHCP, reservations and the zone's policies and rules can then be deployed. |
 
 ### Login with write access
 
 Same packages as for reading. `/usr/share/rpcd/acl.d/signalbox.json` with a `write` part that
-only allows the `uci` methods of a transaction on the three configs:
+only allows the `uci` methods of a transaction on the four configs it changes:
 
 ```json
 {
   "signalbox": {
-    "description": "Signalbox: network inventory, changes to network, wireless and dhcp",
+    "description": "Signalbox: network inventory, changes to network, wireless, dhcp and firewall",
     "read": {
       "ubus": {
         "system": ["board", "info"],
@@ -620,7 +624,7 @@ only allows the `uci` methods of a transaction on the three configs:
       "ubus": {
         "uci": ["set", "add", "delete", "order", "revert", "changes", "apply", "confirm", "rollback"]
       },
-      "uci": ["network", "wireless", "dhcp"]
+      "uci": ["network", "wireless", "dhcp", "firewall"]
     }
   }
 }
@@ -694,7 +698,7 @@ rest of the read is unaffected, add the two names to the ACL to read them).
 
 Read with the `firewall` capability (adapter API 1.4, [ADR 0013](../adr/0013-firewall-zones-rules-and-reachability.md))
 from `uci get firewall`; `firewall` is in the **read** ACL's `uci` list (above, in
-`setup.py` `READ_ACL`, and so in the setup and *Fix it* steps; the write ACL keeps leaving it out).
+`setup.py` `READ_ACL`, and so in the setup and *Fix it* steps; since #295 the write ACL has it too).
 A router set up with an older ACL answers "access denied for uci.get (firewall)": the capability
 reports a gap with the usual fix (update the ACL file, `service rpcd restart`), the rest is read.
 

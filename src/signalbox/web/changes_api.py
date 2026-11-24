@@ -25,6 +25,8 @@ class ReasonBody(BaseModel):
 
 class ApproveBody(BaseModel):
     override: str | None = Field(None, max_length=1000)
+    #: Explicitly allow a plan that may cut Signalbox off from a device (#295).
+    allow_lockout: bool = False
 
 
 def _commit(services: Services) -> str | None:
@@ -97,6 +99,7 @@ def router(services: Services, deployer: Deployer) -> APIRouter:
                 runner.active_rules(),
                 services.config.rules,
                 secret=store.get_secret,
+                signalbox_address=services.config.deploy.signalbox_address,
             )
             rec = await deployer.prepare(p, body.reason, AUTHOR, desired_commit=_commit(services))
         except (changes.PlanError, DeployError) as exc:
@@ -115,7 +118,9 @@ def router(services: Services, deployer: Deployer) -> APIRouter:
     def approve(change_id: str, body: ApproveBody) -> dict[str, Any] | JSONResponse:
         """Approve a planned change (an override reason is needed when it creates errors)."""
         try:
-            return record_json(deployer.approve(change_id, AUTHOR, body.override), services)
+            return record_json(
+                deployer.approve(change_id, AUTHOR, body.override, body.allow_lockout), services
+            )
         except DeployError as exc:
             return err(409, str(exc))
 

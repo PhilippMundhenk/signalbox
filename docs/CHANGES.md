@@ -29,6 +29,19 @@ Signalbox reads by default. Deploying changes needs three things:
    or *failed* if a device could not be restored; then act at once: the change page says which
    device and why.
 
+## Firewall changes and management access
+
+A firewall change can cut Signalbox off from the device it changes or from devices behind
+it. For every plan with firewall changes Signalbox asks its reachability model
+(`signalbox.firewall.reach`) whether each device of the site stays reachable at its
+management address and port, before and after the plan: from `deploy.signalbox_address`
+(Signalbox's own address as the devices see it), or, without it, from the network of the
+management address. Where the answer gets worse (allowed becomes denied or "cannot tell",
+"cannot tell" becomes denied), the plan shows a red **May cut Signalbox off** list and can only
+be approved with the explicit override *Allow losing management access* (`allow_lockout` in
+`POST /api/changes/<id>/approve`). The change log keeps the override and the reasons. The
+device's confirm timer is still the last safeguard: a change that cuts the access undoes itself.
+
 ## Tracking
 
 The *Changes* page is the change log: who, when, why, the desired-state version (git commit),

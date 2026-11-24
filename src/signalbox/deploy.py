@@ -33,8 +33,11 @@ from signalbox.changes import (
     PlanError,
     WlanValue,
     observed_dhcp,
+    observed_forward,
+    observed_policy,
     observed_port,
     observed_router,
+    observed_rule,
     observed_wlan,
     revert_plan,
 )
@@ -74,6 +77,12 @@ def current_value(net: Network, c: Change) -> Any:
         return None
     if c.kind is ChangeKind.PORT:
         return observed_port(net, c.key)
+    if c.kind is ChangeKind.ZONE_POLICY:
+        return observed_policy(net, c.device_id, c.key)
+    if c.kind is ChangeKind.FIREWALL_RULE:
+        return observed_rule(net, c.device_id, c.key, c.adopt)
+    if c.kind is ChangeKind.PORT_FORWARD:
+        return observed_forward(net, c.device_id, c.key, c.adopt)
     return observed_wlan(net, c.device_id, c.key)
 
 
@@ -230,7 +239,15 @@ class Deployer:
         self._event(rec, None, "planned", f"{len(plan.changes)} change(s), {reason.strip()}")
         return rec
 
-    def approve(self, change_id: str, author: str, override: str | None = None) -> ChangeRecord:
+    def approve(
+        self,
+        change_id: str,
+        author: str,
+        override: str | None = None,
+        allow_lockout: bool = False,
+    ) -> ChangeRecord:
+        """Approve a planned change. Error findings need an ``override`` reason; a plan whose
+        firewall changes may cut Signalbox off from a device also needs ``allow_lockout``."""
         rec = self._get(change_id)
         if rec.status is not ChangeStatus.PLANNED:
             raise DeployError(f"the change is {rec.status.value}, not planned")
@@ -238,12 +255,20 @@ class Deployer:
             raise DeployError(
                 "the plan creates error findings; give a reason to override, or fix the plan"
             )
+        if rec.plan.lockouts and not allow_lockout:
+            raise DeployError(
+                "the plan may cut Signalbox off from a device: "
+                + "; ".join(rec.plan.lockouts)
+                + ". Fix the plan, or approve with the explicit override to allow losing access"
+            )
         rec.status = ChangeStatus.APPROVED
         rec.override = override.strip() if override else None
+        rec.allow_lockout = bool(rec.plan.lockouts and allow_lockout)
         self._save(rec)
-        self._event(
-            rec, None, "approved", f"by {author}" + (f"; override: {override}" if override else "")
-        )
+        detail = f"by {author}" + (f"; override: {override}" if override else "")
+        if rec.allow_lockout:
+            detail += "; ALLOWS LOSING MANAGEMENT ACCESS: " + "; ".join(rec.plan.lockouts)
+        self._event(rec, None, "approved", detail)
         return rec
 
     def reject(self, change_id: str, author: str) -> ChangeRecord:
@@ -637,6 +662,7 @@ class Deployer:
                 net,
                 self.runner.active_rules(),
                 self.runner.config.rules,
+                self.runner.config.deploy.signalbox_address,
             )
         except PlanError as exc:  # pragma: no cover - inverses of applied changes always plan
             raise DeployError(str(exc)) from exc

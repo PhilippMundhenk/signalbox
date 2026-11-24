@@ -66,6 +66,64 @@ untagged network (the one of the router it is behind); a `vlan: native` segment 
 has its own key, `vlan: native-<router id>` (for example `native-isp`); an import writes one
 entry per untagged network, and each key may appear once per site.
 
+## Firewall
+
+Zone policies, filter rules and port forwards of a router (#295,
+[ADR 0017](adr/0017-firewall-desired-state-and-deployments.md)). Deployed on OpenWrt; other
+integrations refuse a plan with firewall changes for now.
+
+```yaml
+sites:
+  home:
+    firewalls:
+      - device: gateway              # the router whose firewall this is
+        policies:                    # what applies when no rule decides
+          - {from: iot, to: lan, action: reject}           # zone names of the device ...
+          - {from: {segment: 30}, to: device, action: drop} # ... or the zone of a segment
+          - {from: guest, to: wan, action: accept}
+        rules:                       # Signalbox's own rules, checked before the device's own
+          - name: iot-printer        # identifies the rule: a-z, 0-9, - and _
+            from: {segment: 20}
+            to: {zone: lan, network: 192.0.2.10}           # one address/prefix or a list
+            protocol: tcp            # tcp, udp, icmp, esp, gre, a list, or all
+            port: 631                # destination port(s): 631, 8000-8100 or a list
+            action: accept           # accept, drop or reject
+          - name: no-ssh-from-iot
+            from: {zone: iot}
+            to: device               # the router itself
+            port: 22
+            action: reject
+        forwards:                    # port forwards from the internet
+          - name: web
+            protocol: tcp            # default: tcp and udp
+            port: 443                # external port (or one range)
+            to: {address: 192.0.2.20, port: 8443}          # port: default the external one
+```
+
+- **Zones** are the device's own (`lan`, `wan`, `iot` on OpenWrt); `{segment: <vlan>}` (or
+  `native`) is the one zone that holds that segment on the device. `to: device` is traffic to
+  the router itself (its web interface, SSH, DNS). A forward listens on the device's internet
+  zone unless `from` names one; `family: 4` or `6` limits a rule to one IP version; `enabled:
+  false` keeps a rule or forward but switches it off.
+- **Without `protocol`** a rule with a port matches TCP and UDP, one without a port every
+  protocol.
+- **Signalbox only changes what it created.** Each rule and forward is tagged on the device
+  with its name; a declared firewall owns its device's tagged rules and forwards, so one you
+  delete from the desired state is removed by the next deployment. The device's own rules,
+  forwards and forwardings (vendor defaults, rules made in LuCI) are never changed or removed:
+  - `adopt: <name>` on a rule or forward takes over the device's object of that name: it is
+    replaced by Signalbox's tagged one (that is how you *import* an existing rule).
+  - `adopt: true` on a policy lets a deployment remove the device's own forwarding between the
+    two zones for `reject`; without it the plan is refused with that hint.
+  - A policy to the device or inside one zone sets that zone's own setting (OpenWrt `input`,
+    `forward`). Zones are never created or removed.
+- **Order**: Signalbox's rules come before the device's own ones, in the order they were
+  created.
+- **Lost access**: a plan with firewall changes is checked for Signalbox's own access to every
+  device of the site ([CHANGES.md](CHANGES.md#firewall-changes-and-management-access)).
+- *Import what the devices report* exports the zone policies the devices state explicitly and
+  the rules and forwards Signalbox created, not the device's own rules.
+
 ## Network purposes
 
 `purpose` says what a segment or SSID is for: `main`, `guest`, `iot`, `management`, `servers`,
@@ -93,6 +151,7 @@ device does not report it the finding is incomplete. Deployments write it on Ope
 | `drift.segment` | segment exists, name, purpose against a reported one, router address, DHCP on/off, pool, DNS servers, lease time, reservations |
 | `drift.wlan` | SSID present on each access point, security, PMF, VLAN, hidden, on/off, 802.11r/k/v, client isolation, purpose against a reported one, passphrase (by fingerprint against the stored secret) |
 | `drift.port` | untagged and tagged VLANs of each declared port |
+| `drift.firewall` | every declared zone policy (the action the device applies), rule and port forward Signalbox created (all fields), and tagged ones that are no longer declared; a reference to a zone or segment that does not resolve |
 
 A device that was not read gives an "incomplete" finding instead. An unreadable desired-state
 file gives the error finding `desired.invalid` with the reason.

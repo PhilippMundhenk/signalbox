@@ -61,6 +61,8 @@ class ChangeRecord(BaseModel):
     desired_commit: str | None = None
     #: Override of blocking findings, with the reason the approver gave.
     override: str | None = None
+    #: The approver allowed a plan that may cut Signalbox off from a device (#295).
+    allow_lockout: bool = False
     devices: list[DeviceResult] = Field(default_factory=list)
     #: This record undoes another one.
     reverts: str | None = None

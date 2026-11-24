@@ -63,7 +63,7 @@ NATIVE = f"{SITE}/segment/native"
 SSID = "Example-IT"
 PSK = "example-it-passphrase"
 SECRETS = {"it-guest": "integration guest passphrase"}
-CONFIGS = ("network", "wireless", "dhcp")
+CONFIGS = ("network", "wireless", "dhcp", "firewall")
 
 pytestmark = pytest.mark.integration
 
@@ -456,6 +456,50 @@ async def test_deploy_and_revert(
     back = await lab.revert(rec)
     assert back.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in back.devices]
     # the fixture compares the UCI state with the one before
+
+
+FIREWALL = f"""
+sites:
+  {SITE}:
+    firewalls:
+      - device: {DEV}
+        rules:
+          - name: it-web
+            from: {{zone: wan}}
+            to: {{zone: lan, network: 192.0.2.50}}
+            protocol: tcp
+            port: 8080
+            action: accept
+        forwards:
+          - name: it-forward
+            from: wan
+            protocol: tcp
+            port: 8081
+            to: {{address: 192.0.2.50, port: 80}}
+"""
+
+
+async def test_firewall_rule_and_forward_deploy_and_revert(
+    lab: Lab, ow: Target, pin: str, unchanged: dict[str, Any]
+) -> None:
+    """#295: a rule and a port forward as Signalbox's tagged sections (fw4 reloads them), read
+    back exactly as planned, then the revert leaves UCI exactly as before."""
+    rec = await lab.deploy(FIREWALL)
+    assert [c.kind for c in rec.plan.changes] == [ChangeKind.FIREWALL_RULE, ChangeKind.PORT_FORWARD]
+    assert rec.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in rec.devices]
+    assert rec.devices[0].status is DeployStatus.CONFIRMED
+    now = (await uci(ow, pin))["firewall"]
+    assert now["sb_rule_it_web"][".index"] == 0 and now["sb_rule_it_web"]["target"] == "ACCEPT"
+    assert now["sb_fwd_it_forward"]["dest"] == "lan", now["sb_fwd_it_forward"]
+    snap = await observe(context(ow, pin))
+    [fw] = snap.firewalls
+    rule = next(r for r in fw.rules if r.signalbox_key == "it_web")
+    assert fw.rules[0] == rule and rule.exact, fw.rules
+    [forward] = [f for f in fw.port_forwards if f.signalbox_key == "it_forward"]
+    assert forward.target_port == 80 and str(forward.target_address) == "192.0.2.50"
+    assert (await lab.plan(FIREWALL)).changes == []
+    back = await lab.revert(rec)
+    assert back.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in back.devices]
 
 
 async def test_restore_of_the_backup(lab: Lab, ow: Target, pin: str, unchanged: Any) -> None:

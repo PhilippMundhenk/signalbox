@@ -12,6 +12,9 @@ yet confirmed against a router where marked):
   of a zone is its intra-zone policy, ``input`` its policy towards the router itself;
 - ``redirect`` with target DNAT is let through without a filter rule (``passes_filter``);
 - the target of a ``rule`` defaults to DROP.
+
+Sections Signalbox created (#295) are named sections with a prefix (:data:`RULE_TAG`,
+:data:`FORWARD_TAG`, :data:`POLICY_TAG`); the rest of the name is ``signalbox_key``.
 """
 
 from __future__ import annotations
@@ -36,6 +39,20 @@ from signalbox.model import (
     ZonePolicy,
     firewall_id,
 )
+
+#: Section name prefixes of what Signalbox created (``config rule 'sb_rule_<key>'``).
+RULE_TAG = "sb_rule_"
+FORWARD_TAG = "sb_fwd_"
+POLICY_TAG = "sb_pol_"
+
+
+def tag(section: dict[str, Any], prefix: str) -> str | None:
+    """Signalbox's key of a section it created (``None``: the device's own)."""
+    name = str(section.get(".name") or "")
+    if section.get(".anonymous") or not name.startswith(prefix) or len(name) == len(prefix):
+        return None
+    return name[len(prefix) :]
+
 
 #: A UCI network name to ``(segments, uplinks, tunnels)``; ``None``: not mapped to anything.
 Mapper = Callable[[str], tuple[list[str], list[str], list[str]] | None]
@@ -239,6 +256,7 @@ def _rule(s: dict[str, Any], known: set[str]) -> FirewallRule | None:
         destination=destination,
         action=_ACTIONS[target],
         exact=exact,
+        signalbox_key=tag(s, RULE_TAG),
     )
 
 
@@ -268,6 +286,7 @@ def _forward(s: dict[str, Any], zones: dict[str, FirewallZone]) -> tuple[PortFor
             passes_filter=True,
             reflection=_flag(s.get("reflection"), default=True),
             exact=exact and not _has_inexact(s, "device"),
+            signalbox_key=tag(s, FORWARD_TAG),
         ),
         True,
     )
@@ -319,6 +338,9 @@ def build(uci: dict[str, Any], device_id: str, mapper: Mapper) -> Firewall:
             ZonePolicy(source=name, destination=name, action=_action(s.get("forward"), d_forward))
         )
     pairs = {(p.source, p.destination) for p in policies}
+    # one accept per pair; the device's own forwarding wins over Signalbox's (it is the one
+    # Signalbox may not remove)
+    forwardings: dict[tuple[str, str], str | None] = {}
     for s in _sections(uci, "forwarding"):
         src, dest = str(s.get("src") or ""), str(s.get("dest") or "")
         if (
@@ -327,8 +349,15 @@ def build(uci: dict[str, Any], device_id: str, mapper: Mapper) -> Firewall:
             and dest in names
             and (src, dest) not in pairs
         ):
-            pairs.add((src, dest))
-            policies.append(ZonePolicy(source=src, destination=dest, action=FirewallAction.ACCEPT))
+            key = tag(s, POLICY_TAG)
+            if (src, dest) not in forwardings or key is None:
+                forwardings[(src, dest)] = key
+    for (src, dest), key in forwardings.items():
+        policies.append(
+            ZonePolicy(
+                source=src, destination=dest, action=FirewallAction.ACCEPT, signalbox_key=key
+            )
+        )
 
     rules = [r for s in _sections(uci, "rule") if (r := _rule(s, names)) is not None]
     forwards: list[PortForward] = []

@@ -40,6 +40,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import NotFound
 from signalbox.changes import (
+    FIREWALL_KINDS,
     Change,
     ChangeKind,
     DhcpValue,
@@ -61,7 +62,8 @@ if TYPE_CHECKING:  # pragma: no cover
 SETTLE_SECONDS = 15.0
 
 #: Kinds of change the integration applies (all of them, on the RouterOS 7 ``wifi`` package).
-WRITES = frozenset(ChangeKind)
+#: Firewall kinds (#295) come later (docs/adr/0017).
+WRITES = frozenset(ChangeKind) - FIREWALL_KINDS
 
 BACKUP_FORMAT = "routeros-export"
 #: ``POST /rest/export`` answers ``[]`` (the text goes to a terminal that REST does not have);

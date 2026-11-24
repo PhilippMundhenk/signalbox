@@ -1572,47 +1572,56 @@
      {
       "source": "lan",
       "destination": null,
-      "action": "accept"
+      "action": "accept",
+      "signalbox_key": null
      },
      {
       "source": "lan",
       "destination": "wan",
-      "action": "accept"
+      "action": "accept",
+      "signalbox_key": null
      },
      {
       "source": "wan",
       "destination": null,
-      "action": "drop"
+      "action": "drop",
+      "signalbox_key": null
      },
      {
       "source": "wan",
       "destination": "lan",
-      "action": "drop"
+      "action": "drop",
+      "signalbox_key": null
      },
      {
       "source": "guest",
       "destination": null,
-      "action": "drop"
+      "action": "drop",
+      "signalbox_key": null
      },
      {
       "source": "guest",
       "destination": "lan",
-      "action": "drop"
+      "action": "drop",
+      "signalbox_key": null
      },
      {
       "source": "lan",
       "destination": "guest",
-      "action": "drop"
+      "action": "drop",
+      "signalbox_key": null
      },
      {
       "source": "guest",
       "destination": "wan",
-      "action": "accept"
+      "action": "accept",
+      "signalbox_key": null
      },
      {
       "source": "wan",
       "destination": "guest",
-      "action": "drop"
+      "action": "drop",
+      "signalbox_key": null
      }
     ],
     "input_policy": null,
@@ -1654,7 +1663,8 @@
       },
       "action": "accept",
       "forwarded": null,
-      "exact": true
+      "exact": true,
+      "signalbox_key": null
      }
     ],
     "rules_complete": true,
@@ -1681,7 +1691,8 @@
       "target_port": 443,
       "passes_filter": true,
       "reflection": null,
-      "exact": true
+      "exact": true,
+      "signalbox_key": null
      },
      {
       "name": "Game server",
@@ -1704,7 +1715,8 @@
       "target_port": 27015,
       "passes_filter": true,
       "reflection": null,
-      "exact": true
+      "exact": true,
+      "signalbox_key": null
      },
      {
       "name": "SSH (off)",
@@ -1727,7 +1739,8 @@
       "target_port": 22,
       "passes_filter": true,
       "reflection": null,
-      "exact": true
+      "exact": true,
+      "signalbox_key": null
      },
      {
       "name": "Phone",
@@ -1752,7 +1765,8 @@
       "target_port": 5060,
       "passes_filter": true,
       "reflection": null,
-      "exact": true
+      "exact": true,
+      "signalbox_key": null
      }
     ],
     "port_forwards_complete": false

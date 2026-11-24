@@ -109,6 +109,7 @@ export function renderPlan(box, p) {
       { 'data-testid': 'plan-changes' },
       p.changes.map((c) => h('li', {}, c.text, c.risk ? h('div', { class: 'error' }, t('desired.plan.risk', { risk: c.risk })) : null)),
     ),
+    (p.lockouts || []).length ? h('div', { class: 'error', 'data-testid': 'plan-lockouts' }, h('strong', {}, t('desired.plan.lockouts')), h('ul', {}, p.lockouts.map((x) => h('li', {}, x)))) : null,
     p.blocking.length ? h('p', { class: 'error', 'data-testid': 'plan-blocked' }, t('desired.plan.blocked')) : null,
     findingList(t('desired.plan.newFindings'), p.new_findings, 'plan-new'),
     findingList(t('desired.plan.resolvedFindings'), p.resolved_findings, 'plan-resolved'),

@@ -685,11 +685,20 @@ class OpenWrtAdapter(Adapter):
         ),
         config=OpenWrtConfig,
         description=(
-            "Reads OpenWrt 21.02+ over ubus JSON-RPC (rpcd); writes bridge VLANs, SSIDs and "
-            "dnsmasq DHCP through UCI with rpcd's confirm-or-revert apply."
+            "Reads OpenWrt 21.02+ over ubus JSON-RPC (rpcd); writes bridge VLANs, SSIDs, "
+            "dnsmasq DHCP and firewall policies, rules and port forwards through UCI with "
+            "rpcd's confirm-or-revert apply."
         ),
         writes=frozenset(
-            {ChangeKind.PORT, ChangeKind.WLAN, ChangeKind.DHCP, ChangeKind.RESERVATION}
+            {
+                ChangeKind.PORT,
+                ChangeKind.WLAN,
+                ChangeKind.DHCP,
+                ChangeKind.RESERVATION,
+                ChangeKind.ZONE_POLICY,
+                ChangeKind.FIREWALL_RULE,
+                ChangeKind.PORT_FORWARD,
+            }
         ),
         admin_login=AdminLogin(
             transport="SSH as root",
@@ -1533,7 +1542,17 @@ class OpenWrtAdapter(Adapter):
     # writing --------------------------------------------------------------------------
 
     async def _configs(self) -> dict[str, Any]:
-        return {c: await self.ubus.call("uci", "get", {"config": c}) for c in write.CONFIGS}
+        """``uci get`` of the written configs; ``firewall`` is left out where the login may
+        not read it (an ACL from before #135): changes to it are refused then, the others
+        work as before, and the backup does not hold it (a restore leaves it alone)."""
+        out = {}
+        for c in write.CONFIGS:
+            try:
+                out[c] = await self.ubus.call("uci", "get", {"config": c})
+            except AccessDenied:
+                if c != "firewall":
+                    raise
+        return out
 
     async def _translate(self, changes: list[Change], secrets: Mapping[str, str]) -> write.Configs:
         data = await self._configs()
@@ -1546,10 +1565,7 @@ class OpenWrtAdapter(Adapter):
         return [op.call() for op in (await self._translate(changes, secrets)).ops]
 
     async def backup(self) -> Backup:
-        data = {
-            c: (await self.ubus.call("uci", "get", {"config": c})).get("values")
-            for c in write.CONFIGS
-        }
+        data = {c: answer.get("values") for c, answer in (await self._configs()).items()}
         if not all(isinstance(v, dict) for v in data.values()):
             raise AdapterError("unexpected answer to uci.get")
         return Backup(
