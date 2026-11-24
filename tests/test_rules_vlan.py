@@ -132,7 +132,7 @@ def test_ssid_vlan_missing_on_uplink() -> None:
     assert f.severity == "error" and not f.incomplete
     assert f.objects == [IOT, GW_SW.id, port_id("sw", "1")]
     assert f.message == (
-        "IoT (VLAN 20), used on ap, is not carried on the link gw port 1 to sw port 1 "
+        "IoT (VLAN 20), used on ap, is not carried on the link gw port 1 ↔ sw port 1 "
         "(missing on sw port 1)."
     )
     assert f.fix == "Add IoT (VLAN 20) as tagged VLAN to sw port 1."
@@ -147,7 +147,7 @@ def test_vlan_missing_on_both_ends_is_one_finding() -> None:
     sw = switch(segments=[seg("sw", None, **{"1": U, "2": U}), seg("sw", 20, **{"2": T})])
     (f,) = run(net(gw, sw, ap()), path_to_gateway)
     assert f.objects == [IOT, GW_SW.id, port_id("gw", "1"), port_id("sw", "1")]
-    assert "missing on gw port 1 and sw port 1" in f.message
+    assert "missing on gw port 1, sw port 1" in f.message
     # the segment exists without members on the gateway: not "unused", the AP uses it
     assert run(net(gw, sw, ap()), unused) == []
 
@@ -215,12 +215,12 @@ def test_native_mismatch() -> None:
     (f,) = out
     assert f.severity == "error" and f.objects == [GW_SW.id, port_id("gw", "1"), port_id("sw", "1")]
     assert f.message == (
-        "gw port 1 to sw port 1: gw port 1 sends LAN untagged, sw port 1 sends IoT (VLAN 20) "
+        "gw port 1 ↔ sw port 1: gw port 1 sends LAN untagged, sw port 1 sends IoT (VLAN 20) "
         "untagged."
     )
     sw2 = switch(segments=[seg("sw", None, **{"2": U}), seg("sw", 20, **{"1": T, "2": T})])
     (g,) = run(net(gateway(), sw2, ap()), native_mismatch)
-    assert "sw port 1 sends nothing untagged" in g.message
+    assert "sw port 1 sends – untagged" in g.message
 
 
 def test_tagged_on_one_end_only() -> None:
@@ -272,8 +272,8 @@ def test_speed_and_duplex_mismatch() -> None:
     assert [f.severity for f in out] == ["warning", "warning"]
     assert len({f.id for f in out}) == 2
     assert {f.message for f in out} == {
-        "gw port 1 to sw port 1: gw port 1 runs at 1000 Mbit/s, sw port 1 at 100 Mbit/s.",
-        "gw port 1 to sw port 1: gw port 1 runs full duplex, sw port 1 half duplex.",
+        "gw port 1 ↔ sw port 1: gw port 1 runs at 1000 Mbit/s, sw port 1 at 100 Mbit/s.",
+        "gw port 1 ↔ sw port 1: gw port 1 runs FDX, sw port 1 HDX.",
     }
 
 
@@ -313,7 +313,7 @@ def test_unknown_ports_and_unnamed_vlans_are_described() -> None:
     out = run(n, tagged_both_ends)
     assert [f.message for f in out] == [
         "IoT (VLAN 20) is tagged on gw port 1 but not configured on other port 9 "
-        "(gw port 1 to other port 9).",
+        "(gw port 1 ↔ other port 9).",
         "VLAN 40 is tagged on other port 9 but not configured on gw port 1 "
-        "(gw port 1 to other port 9).",
+        "(gw port 1 ↔ other port 9).",
     ]
