@@ -27,6 +27,11 @@ body { background: var(--bg); color: var(--text); font: 15px/1.5 var(--font); }
 :root:lang(zh) { --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
 :root:lang(ko) { --font: system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", sans-serif; }
 :lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }
+/* Devanagari and Bengali have tall glyphs (headline bar, vowel signs above and below): more line height. */
+:root:lang(hi) { --font: system-ui, -apple-system, "Segoe UI", "Noto Sans Devanagari", "Nirmala UI", "Kohinoor Devanagari", sans-serif; }
+:root:lang(bn) { --font: system-ui, -apple-system, "Segoe UI", "Noto Sans Bengali", "Nirmala UI", "Kohinoor Bangla", sans-serif; }
+:lang(hi) body, :lang(bn) body { line-height: 1.7; overflow-wrap: break-word; }
+:lang(hi) :is(h1, h2, h3), :lang(bn) :is(h1, h2, h3) { line-height: 1.45; }
 a { color: var(--accent); }
 code, pre, .mono { font-family: var(--mono); font-size: 0.9em; }
 code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
