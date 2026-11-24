@@ -143,6 +143,7 @@ All notable changes to this project are documented here. The format follows
 
 - Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
+- Wi-Fi map readability: one framed cluster per site side by side without attraction across sites, the radios of one access point adjacent with one label per access point (outside, with a leader line, clear of bubbles and other labels), smaller neighbours drawn behind our radios, a minimum gap between radios that do not hear each other, Fit leaves a margin (#392)
 - Fix it no longer labels the package it installs as an extra "you ticked"; the step says it belongs to the fix (#395)
 - Router behind router (double NAT): a Fritz!Box on "internet via LAN 1" reads its LAN 1 address as uplink (WANIPConnection even when disabled, GetExternalIPAddress, gateway from the Layer3Forwarding default route; guesses for #21), and the topology draws a dashed "inferred from addresses" link from any integration's gateway uplink to the router in front of it (to the port LLDP/MAC/host tables name, else to the device), inner router placed below; texts in all 15 languages (#375)
 - Firewall zone matrix: pairs of a firewall whose rules were not all read show "–" (not read) instead of "drop"; OPNsense reports an optional gap when the filter API lists no legacy rules (guess for 25.x: only Firewall: Automation rules, no privilege missing; 26.7 lists them), reachability stays unknown (#379)
