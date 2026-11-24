@@ -366,3 +366,103 @@ def test_fix_password_comes_last(
         json={**fix(port, fingerprint, remedy="lldp"), "plan_ids": seen},
     )
     assert done.status_code == 200 and done.json()["ok"], done.text
+
+
+def wait_run(client: TestClient, run: str) -> dict[str, Any]:
+    import time
+
+    for _ in range(300):
+        view: dict[str, Any] = client.get(f"/api/fixes/jobs/{run}").json()
+        if view["state"] == "finished":
+            return view
+        time.sleep(0.1)
+    raise AssertionError("the run did not finish")
+
+
+def test_all_fixes_listed_and_run_together(
+    client: TestClient,
+    ssh: tuple[int, str],
+    https_url: str,
+    device: OpenWrtSsh,
+    http: OpenWrtSim,
+) -> None:
+    """#376: one list with mandatory and optional fixes, one run, a failure does not stop it."""
+    port, fingerprint = ssh
+    set_up(client, https_url, port, fingerprint, writes=True)
+    assert client.get("/api/fixes").json()["devices"] == []
+    # optional: LLDP missing; mandatory: a refused call the access remedy repairs
+    device.installed -= LLDP_PACKAGES
+    device.lldpd_running = False
+    http.lldpd = False
+    http.denied = {"luci-rpc.getNetworkDevices"}
+    client.post("/api/devices/access-point/test")
+    listed = client.get("/api/fixes").json()
+    assert listed["enabled"]
+    fixes = {f["remedy"]: f for f in listed["devices"][0]["fixes"]}
+    assert fixes["lldp"]["mandatory"] is False and fixes["lldp"]["manual"] is False
+    assert fixes["access"]["mandatory"] is True and fixes["access"]["causes"]
+    assert listed["counts"]["optional"] == 1 and listed["counts"]["mandatory"] == 1
+
+    # a wrong password fails that fix, the other one still runs
+    body = {
+        "items": [
+            {"device_id": "access-point", "body": fix(port, fingerprint, secret="wrong")},
+            {"device_id": "access-point", "body": fix(port, fingerprint, remedy="lldp")},
+        ]
+    }
+    started = client.post("/api/fixes/jobs", json=body)
+    assert started.status_code == 202, started.text
+    view = wait_run(client, started.json()["id"])
+    states = {i["remedy"]: i["state"] for i in view["items"]}
+    assert states == {"access": "failed", "lldp": "done"} and view["done"] == 1
+    assert device.installed >= LLDP_PACKAGES
+    done = next(i for i in view["items"] if i["remedy"] == "lldp")
+    assert done["reading"] is not None
+    assert ROOT_PASSWORD not in json.dumps(view) and "wrong" not in json.dumps(view)
+
+    # refusals come at once and nothing runs
+    twice = {"items": [body["items"][1], body["items"][1]]}
+    assert client.post("/api/fixes/jobs", json=twice).status_code == 422
+    no_trust = {"items": [{"device_id": "access-point", "body": fix(port)}]}
+    assert client.post("/api/fixes/jobs", json=no_trust).status_code == 422
+    ghost = {"items": [{"device_id": "ghost", "body": fix(port, fingerprint)}]}
+    assert client.post("/api/fixes/jobs", json=ghost).status_code == 404
+    assert client.get("/api/fixes/jobs/nope").status_code == 404
+
+
+def test_fixes_are_manual_steps_without_allow_changes(
+    client: TestClient,
+    ssh: tuple[int, str],
+    https_url: str,
+    device: OpenWrtSsh,
+    http: OpenWrtSim,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    port, fingerprint = ssh
+    manifest = OpenWrtAdapter.manifest
+    plain = tuple(Remedy(id=r.id, title=r.title) for r in manifest.remedies)
+    monkeypatch.setattr(OpenWrtAdapter, "manifest", manifest.model_copy(update={"remedies": plain}))
+    set_up(client, https_url, port, fingerprint, writes=False)
+    device.installed -= LLDP_PACKAGES
+    device.lldpd_running = False
+    http.lldpd = False
+    client.post("/api/devices/access-point/test")
+    listed = client.get("/api/fixes").json()
+    assert listed["counts"]["available"] == 0 and listed["counts"]["manual"] == 1
+    fix_item = listed["devices"][0]["fixes"][0]
+    assert fix_item["manual"] is True and fix_item["causes"][0]["fix"]
+    body = {"items": [{"device_id": "access-point", "body": fix(port, fingerprint, remedy="lldp")}]}
+    assert client.post("/api/fixes/jobs", json=body).json()["error"] == "not_allowed"
+
+
+def test_fixes_listing_is_off_with_the_switch(tmp_path: Path) -> None:
+    svc = make_services(tmp_path / "off", SIGNALBOX_SETUP_ENABLED="false")
+    try:
+        with TestClient(web_app(svc, run_background=False)) as c:
+            assert c.post("/api/login", json={"password": PW}).status_code == 200
+            data = c.get("/api/fixes").json()
+            assert data["enabled"] is False and data["devices"] == []
+            body = {"items": [{"device_id": "x", "body": fix(22, "SHA256:" + "A" * 43)}]}
+            assert c.post("/api/fixes/jobs", json=body).status_code == 403
+    finally:
+        svc.close()

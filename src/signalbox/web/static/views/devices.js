@@ -7,6 +7,7 @@ import { busy, checkField, clearNotice, empty, field, manageLink, notice, pageHe
 import { linked, testResult, trustPanel } from './devicetest.js';
 import { discoveryPanel, findButton, takePrefill } from './discovery.js';
 import { autoSetup } from './devicesetup.js';
+import { fixesNotice } from './fixes.js';
 
 // What to prepare on the device before adding it (steps, commands to paste, setup guide).
 function setupGuide(a, open) {
@@ -45,7 +46,7 @@ export const testOnOpen = new Set();
 
 export async function renderDevices(main, ctx) {
   const id = ctx.renderId;
-  const [devices, sites, adapters, found] = await Promise.all([get('/devices'), get('/sites'), get('/adapters'), get('/discovery')]);
+  const [devices, sites, adapters, found, fixes] = await Promise.all([get('/devices'), get('/sites'), get('/adapters'), get('/discovery'), fixesNotice()]);
   if (!ctx.alive(id)) return;
   // Find devices (#203): the panel stays hidden until asked for, or shows the last search
   const panel = discoveryPanel(ctx, found, false);
@@ -53,6 +54,7 @@ export async function renderDevices(main, ctx) {
   const siteName = (sid) => (sites.find((x) => x.id === sid) || {}).name || sid;
   const adapterName = (aid) => (adapters.find((x) => x.id === aid) || {}).name || aid;
   place(main, pageHead(t('devices.title'), find(), h('a', { class: 'btn primary', href: '#/devices/new', 'data-testid': 'add-device' }, t('devices.add'))));
+  place(main, fixes);
   place(main, panel);
   if (!devices.length) {
     place(main, 

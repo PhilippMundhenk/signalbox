@@ -93,3 +93,21 @@ plans with it: a step that was not among them stops the run with 409 `plan_chang
 plan, to be confirmed again; an unconfirmed SSH host key of the optional SSH step answers 409
 `untrusted_ssh` before the SSH password is used. API clients that send no `plan_ids` keep the
 old behaviour. Nothing stores the password, as before.
+
+## Note (#376): all fixes in one view, several run together
+
+`GET /api/fixes` lists, from the last readings, the remedies that the read problems and gaps of
+every stored device name. A fix is *mandatory* when a read error that blocks checks offers it and
+*optional* when only a missing extra does (`optional` gaps such as LLDP). A remedy that needs
+*Allow changes* on a device without it is `manual`: only its manual steps are shown. With
+`setup.enabled` or `setup.fixes` off the list is empty (`enabled: false`) and the jobs answer 403.
+
+The *Fixes* view (`#/fixes`, linked with a count from the devices and findings pages) selects
+fixes and runs them in one dialog that keeps every rule above: the dialog lists each device and
+what changes on it (the remedy's static preview) and each can be unticked; the identity (SSH host
+key or certificate) of each ticked device is fetched without any login and confirmed; the admin
+logins come last, one per device or one for the devices of a type if the user ticks that. The run
+is `POST /api/fixes/jobs` (the logins are in that request only and dropped as each device is
+done) and `GET /api/fixes/jobs/{id}`: sequential, live state and steps per device, a failure
+does not stop the run, every device whose fix ran is read again, and the dialog ends with a
+summary. A run that was started cannot be changed, only left; it finishes on the server.

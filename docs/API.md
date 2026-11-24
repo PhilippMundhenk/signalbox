@@ -81,3 +81,6 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | GET | `/api/devices/setup/jobs/{job_id}` | The state of a setup job: the steps so far, the one running, and the outcome. |
 | POST | `/api/devices/{device_id}/fix` | What *Fix it* would do on this device with the admin login; nothing is changed. |
 | POST | `/api/devices/{device_id}/fix/apply` | Run the remedy, then read the device again (`reading`, as Test connection answers). |
+| GET | `/api/fixes` | Every fix available across the stored devices (#376), from their last reading. |
+| POST | `/api/fixes/jobs` | Run several fixes one after the other and return a job to poll (#376). |
+| GET | `/api/fixes/jobs/{run_id}` | The state of a run of several fixes: per device `pending`, `running`, `done` or |
