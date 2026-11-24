@@ -27,7 +27,9 @@ MAX_ROWS = 200_000
 #: values per GETBULK answer
 BULK = 25
 
-INSTALL_HINT = "this adapter needs pysnmp: install signalbox-net[snmp] (the container image has it)"
+INSTALL_HINT = (
+    "this adapter needs pysnmp: install signalbox-net[snmp] (the container image includes it)"
+)
 
 #: error indications of pysnmp that mean "the credentials were refused" (SNMPv3)
 _AUTH_ERRORS = {
@@ -112,12 +114,14 @@ def convert(value: Any, hlapi: Any) -> Value | None:
 
 
 def _failure(indication: Any) -> SnmpError:
-    text = str(indication)
-    if text in _AUTH_ERRORS:
-        return SnmpError("auth", text)
-    if text == "requestTimedOut":
-        return SnmpError("timeout", text)
-    return SnmpError("other", text)
+    """pysnmp's error indication (an object whose class names the failure) as an SnmpError."""
+    name = type(indication).__name__
+    name = name[:1].lower() + name[1:]
+    if name in _AUTH_ERRORS:
+        return SnmpError("auth", name)
+    if name == "requestTimedOut":
+        return SnmpError("timeout", name)
+    return SnmpError("other", str(indication) or name)
 
 
 class PysnmpTransport:

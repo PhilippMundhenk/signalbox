@@ -138,7 +138,7 @@ def _sorted_by_number(keys: list[str]) -> list[str]:
 def vendor_of(object_id_value: Value | None) -> str | None:
     """The vendor name from the enterprise number of sysObjectID."""
     if isinstance(object_id_value, str) and object_id_value.startswith("1.3.6.1.4.1."):
-        number = object_id_value.split(".")[7:8]
+        number = object_id_value.split(".")[6:7]
         if number and number[0].isdigit():
             return mib.ENTERPRISES.get(int(number[0]))
     return None

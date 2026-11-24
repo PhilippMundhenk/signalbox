@@ -270,7 +270,7 @@ class SnmpAdapter(Adapter):
         scalars = await self._get(mib.SYS_DESCR, mib.SYS_OBJECT_ID, mib.SYS_UPTIME, mib.SYS_NAME)
         if mib.SYS_DESCR not in scalars:
             raise AdapterError(
-                f"{self._cfg.address}: the agent answers, but not with sysDescr",
+                f"{self._cfg.address}: SNMP request failed (no sysDescr)",
                 message_id="snmp.error",
                 params={"host": self._cfg.address, "detail": "no sysDescr"},
             )
@@ -368,7 +368,7 @@ class SnmpAdapter(Adapter):
         pmap = await self._ports()
         if not pmap.ports:
             raise AdapterError(
-                f"{self._cfg.address}: the switch lists no Ethernet interfaces (IF-MIB)",
+                f"{self._cfg.address}: SNMP request failed (no interfaces)",
                 message_id="snmp.error",
                 params={"host": self._cfg.address, "detail": "no interfaces"},
             )

@@ -368,7 +368,7 @@ async def test_errors_are_translated(
 
 async def test_an_agent_without_sysdescr_is_not_a_switch() -> None:
     a = adapter("1.3.6.1.2.1.1.5.0|4|x\n")
-    with pytest.raises(AdapterError, match="sysDescr"):
+    with pytest.raises(AdapterError, match="no sysDescr"):
         await a.read_system()
 
 
