@@ -105,6 +105,7 @@ async def record(args: argparse.Namespace) -> int:
         username=args.username,
         note=args.note,
         device=device,
+        secret_names=list(secrets),
     )
     data["snapshot"], unmatched = await replay_snapshot(data)
     for line in unmatched:

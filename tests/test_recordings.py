@@ -215,11 +215,20 @@ def _http_simulators() -> list[tuple[str, Any, str, list[str], dict[str, str]]]:
             [],
             {"SIGNALBOX_RECORD_PASSWORD": dnsfilter.PH_PASSWORD},
         ),
+        (
+            "pihole",  # Pi-hole v5: only the API token, in the query string (#385)
+            dnsfilter.PiholeSim(version="v5").app(),
+            "",
+            [],
+            {"SIGNALBOX_RECORD_API_TOKEN": dnsfilter.PH_TOKEN},
+        ),
     ]
 
 
 @pytest.mark.parametrize(
-    "index", range(6), ids=["openwrt", "opnsense", "mikrotik", "omada", "adguardhome", "pihole"]
+    "index",
+    range(7),
+    ids=["openwrt", "opnsense", "mikrotik", "omada", "adguardhome", "pihole", "pihole-v5"],
 )
 def test_every_http_adapter_records_and_replays(
     index: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
