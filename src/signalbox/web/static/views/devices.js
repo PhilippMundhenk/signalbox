@@ -3,7 +3,7 @@ import { enc, get, post, put } from '../api.js';
 import { compare, t } from '../i18n.js';
 import { schemaForm } from '../schemaform.js';
 import { clear, fmtAgo, fmtTime, h, place } from '../util.js';
-import { checkField, empty, field, manageLink, pageHead, run, select, statusBadge, table, toast } from '../ui.js';
+import { busy, checkField, clearNotice, empty, field, manageLink, notice, pageHead, run, select, setNotice, slot, statusBadge, table, toast } from '../ui.js';
 import { linked, testResult, trustPanel } from './devicetest.js';
 import { discoveryPanel, findButton, takePrefill } from './discovery.js';
 import { autoSetup } from './devicesetup.js';
@@ -122,10 +122,7 @@ function firstSite(onCreated) {
       onCreated(site);
     }),
   );
-  return h(
-    'div',
-    { class: 'notice', 'data-testid': 'first-site' },
-    h('p', {}, h('strong', {}, t('devices.firstSite.heading')), t('devices.firstSite.text')),
+  return notice('warn', 'first-site', h('p', {}, h('strong', {}, t('devices.firstSite.heading')), t('devices.firstSite.text')),
     field(t('devices.firstSite.name'), name),
     btn,
   );
@@ -157,7 +154,8 @@ export async function renderDeviceForm(main, ctx, device) {
   const enabled = h('input', { type: 'checkbox', checked: device ? device.enabled : true, 'data-testid': 'device-enabled' });
   const allowWrites = h('input', { type: 'checkbox', checked: device ? device.allow_writes : false, 'data-testid': 'device-allow-writes' });
   const configBox = h('div', {});
-  const errors = h('div', { class: 'error', role: 'alert', 'data-testid': 'form-errors' });
+  const errors = slot(); // the form's one place for problems: missing fields, a failed test or save
+  const formError = (content) => setNotice(errors, 'error', 'form-errors', content);
   const testBox = h('div', { 'data-testid': 'form-test', 'aria-live': 'polite' });
   let cfg = null;
   // a certificate trusted while testing: pinned when the device is saved
@@ -224,7 +222,7 @@ export async function renderDeviceForm(main, ctx, device) {
     const { config, errors: cfgErrors, clear: cleared } = cfg.collect({ noSecrets: forSetup });
     problems.push(...cfgErrors);
     if (problems.length) {
-      place(errors, h('ul', {}, problems.map((p) => h('li', {}, p))));
+      formError(h('ul', {}, problems.map((p) => h('li', {}, p))));
       return null;
     }
     const body = { name: name.value.trim() || t('devices.defaultName'), site_id: site.value, role: role.value, adapter: adapter.value, enabled: enabled.checked, allow_writes: allowWrites.checked, config };
@@ -239,7 +237,7 @@ export async function renderDeviceForm(main, ctx, device) {
     const body = collect(true);
     if (!body) return;
     if (editing) body.device_id = device.id;
-    place(clear(testBox), h('p', { class: 'muted', 'data-testid': 'testing' }, t('devices.testing')));
+    place(clear(testBox), busy('testing', t('devices.testing')));
     try {
       const res = await post('/devices/test', body);
       if (!ctx.alive(id)) return;
@@ -259,7 +257,7 @@ export async function renderDeviceForm(main, ctx, device) {
       }
     } catch (err) {
       clear(testBox);
-      errors.textContent = err.message;
+      formError(err.message);
     }
   }
   testBtn.addEventListener('click', () => run(testBtn, test));
@@ -277,17 +275,14 @@ export async function renderDeviceForm(main, ctx, device) {
         if (!editing) testOnOpen.add(saved.id);
         ctx.navigate(`#/device/${enc(saved.id)}`);
       } catch (err) {
-        errors.textContent = err.message;
+        formError(err.message);
       }
     });
   });
 
   place(form, 
     prefill
-      ? h(
-          'div',
-          { class: 'notice', 'data-testid': 'prefill-notice' },
-          h('p', {}, h('strong', {}, t('devices.prefill.heading')), t('devices.prefill.text')),
+      ? notice('info', 'prefill-notice', h('p', {}, h('strong', {}, t('devices.prefill.heading')), t('devices.prefill.text')),
           prefill.note ? h('p', { 'data-testid': 'prefill-note' }, prefill.note) : null,
         )
       : null,

@@ -6,7 +6,7 @@
 import { enc, post } from '../api.js';
 import { t } from '../i18n.js';
 import { clear, h, place } from '../util.js';
-import { confirmDialog, field, run, toast } from '../ui.js';
+import { clearNotice, confirmDialog, field, notice, run, setNotice, slot, toast } from '../ui.js';
 import { fingerprintText, stepList } from './devicesetup.js';
 import { adminStep, previewList } from './adminstep.js';
 import { testResult } from './devicetest.js';
@@ -31,8 +31,9 @@ export function fixPanel(device, adapter, remedy, onDone) {
   let step = null;
   let acked = (remedy.preview || []).map((s) => s.id);
 
+  const missBox = slot(); // "enter the password": one place, replaced by the next result
   const showError = (err) => {
-    place(clear(out), h('p', { class: 'error', role: 'alert', 'data-testid': 'fix-error' }, err.message), err.body && err.body.fix ? h('p', { class: 'fix' }, t('fix.whatToDo'), err.body.fix) : null);
+    place(clear(out), notice('error', 'fix-error', h('p', {}, err.message), err.body && err.body.fix ? h('p', { class: 'fix' }, t('fix.whatToDo'), err.body.fix) : null));
     if (err.code === 'untrusted') trusted = null;
   };
 
@@ -63,10 +64,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
       trust.addEventListener('click', () => { trusted = plan.fingerprint; showFinal(null); });
       place(
         clear(out),
-        h(
-          'div',
-          { class: 'notice', 'data-testid': 'fix-untrusted' },
-          h('h3', {}, t(cert ? 'fix.presentedCertificate' : 'fix.presentedSshKey')),
+        notice('warn', 'fix-untrusted', h('h3', {}, t(cert ? 'fix.presentedCertificate' : 'fix.presentedSshKey')),
           h('p', {}, t('fix.compare')),
           h('p', { class: 'fingerprint mono', 'data-testid': 'fix-fingerprint' }, fingerprintText(plan)),
           plan.compare ? h('p', { class: 'muted small' }, plan.compare) : null,
@@ -89,6 +87,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
       extraNote,
       h('p', { class: 'muted small' }, t('fix.confirmed')),
       step.el,
+      clearNotice(missBox),
       h('div', { class: 'row' }, go),
     );
   }
@@ -96,6 +95,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
   // 4. Run: one request with the password, then it is gone
   async function doApply() {
     if (!step) return;
+    clearNotice(missBox);
     if (!step.secret()) return showMissing();
     const ok = await confirmDialog({ title: t('fix.confirmTitle', { title: remedy.title, name: device.name }), message: t('fix.confirmMessage'), confirmLabel: t('fix.fixIt') });
     if (!ok) {
@@ -117,7 +117,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
     step = null;
     place(
       clear(out),
-      h('p', { 'data-testid': 'fix-outcome', class: res.ok ? '' : 'error' }, res.ok ? t('fix.done') : t('fix.failedStep')),
+      notice(res.ok ? 'info' : 'error', 'fix-outcome', res.ok ? t('fix.done') : t('fix.failedStep')),
       stepList(res.steps, 'fix-done-steps'),
       res.reading ? testResult(res.reading, { errors: false }) : null,
     );
@@ -128,15 +128,14 @@ export function fixPanel(device, adapter, remedy, onDone) {
   }
 
   function showMissing() {
-    const note = h('p', { class: 'error', role: 'alert', 'data-testid': 'fix-error' }, t('fix.enterSecret', { label: login.secret_label }));
-    step.el.append(note);
+    setNotice(missBox, 'error', 'fix-error', t('fix.enterSecret', { label: login.secret_label }));
   }
 
   // a refusal: a changed plan goes back to the last step, with no password kept
   function failed(err) {
     if (err.code === 'plan_changed' && err.body && err.body.plan) {
       acked = err.body.plan.steps.filter((s) => s.state === 'todo').map((s) => s.id);
-      return showFinal(h('div', { class: 'notice', 'data-testid': 'fix-plan-changed' }, h('p', {}, t('fix.planChanged')), stepList(err.body.plan.steps, 'fix-plan-steps')));
+      return showFinal(notice('warn', 'fix-plan-changed', h('p', {}, t('fix.planChanged')), stepList(err.body.plan.steps, 'fix-plan-steps')));
     }
     showError(err);
   }

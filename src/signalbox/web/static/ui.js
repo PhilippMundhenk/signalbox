@@ -3,19 +3,42 @@ import { ApiError } from './api.js';
 import { clear, h } from './util.js';
 import { has, t } from './i18n.js';
 
+// A toast confirms something that worked and goes away by itself. Problems are never toasts:
+// they are notices (below), so they stay until resolved.
 export function toast(message, kind = 'ok') {
   const root = document.getElementById('toasts');
-  const el = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status', 'data-testid': 'toast' }, message);
+  const el = h('div', { class: `toast ${kind}`, role: 'status', 'data-testid': 'toast' }, message);
   root.append(el);
-  setTimeout(() => el.remove(), kind === 'error' ? 8000 : 3500);
+  setTimeout(() => el.remove(), 3500);
   return el;
 }
 
-// One notice for every page (#300): kind "info" (default), "warn" or "error"; an error is an
-// alert for screen readers, the others a polite status. Resolved notices are removed by the
-// code that owns them (place(clear(box), ...)), never left next to a newer result.
+// One notice for every page (#300, #311): kind "info" (default), "warn" or "error"; an error is an
+// alert for screen readers, the others a polite status.
 export function notice(kind, testid, ...children) {
   return h('div', { class: `notice ${kind}`, role: kind === 'error' ? 'alert' : 'status', 'data-testid': testid }, ...children);
+}
+
+// The one rule for notices (#311): every context (the page, a form, a dialog, a panel) has ONE
+// slot. A newer result replaces what is there (setNotice), a success or a new attempt clears it
+// (clearNotice), and a notice that is only information can be dismissed.
+export function slot(testid) {
+  return h('div', { class: 'notice-slot', 'data-slot': testid || null });
+}
+
+export function clearNotice(box) {
+  if (box) clear(box);
+  return box;
+}
+
+// kind, testid, content (text or nodes). opts.dismiss adds a close button.
+export function setNotice(box, kind, testid, content, opts = {}) {
+  if (!box) return null;
+  const el = notice(kind, testid, content);
+  if (opts.dismiss) el.prepend(h('button', { class: 'notice-close', type: 'button', 'aria-label': t('common.dismiss'), title: t('common.dismiss'), 'data-testid': 'notice-dismiss', onclick: () => el.remove() }, '×'));
+  clear(box);
+  box.append(el);
+  return el;
 }
 
 // A running state: spinner and text (the text says what is going on).
@@ -23,9 +46,22 @@ export function busy(testid, ...children) {
   return h('div', { class: 'busy', role: 'status', 'aria-live': 'polite', 'data-testid': testid }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), h('div', { class: 'busy-text' }, ...children));
 }
 
-export function showError(err) {
+// The page's own slot, above the content; errors without a closer context land here.
+let pageBox = null;
+export function setPageSlot(box) {
+  pageBox = box;
+}
+export function pageSlot() {
+  return pageBox;
+}
+
+// Show an error in `box` (default: the page slot). A refused login is the login page's job.
+export function showError(err, box) {
   if (err instanceof ApiError && err.code === 'login_required') return;
-  toast(err && err.message ? err.message : String(err), 'error');
+  const target = box || pageBox;
+  const text = err && err.message ? err.message : String(err);
+  if (target) setNotice(target, 'error', target === pageBox ? 'page-error' : 'error', text, { dismiss: target === pageBox });
+  else toast(text, 'error');
 }
 
 export function modal({ title, body, actions, onClose }) {
@@ -96,12 +132,16 @@ export function select(options, value, attrs = {}) {
   return el;
 }
 
-export async function run(button, fn) {
+// Runs an action with its button disabled. A failure is shown in `box` (default: the page slot),
+// replacing an older one; a success clears it.
+export async function run(button, fn, box) {
   if (button) button.disabled = true;
   try {
-    return await fn();
+    const result = await fn();
+    clearNotice(box || pageBox);
+    return result;
   } catch (err) {
-    showError(err);
+    showError(err, box);
     return undefined;
   } finally {
     if (button) button.disabled = false;

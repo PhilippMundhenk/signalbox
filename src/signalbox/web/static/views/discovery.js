@@ -4,7 +4,7 @@
 import { enc, get, post } from '../api.js';
 import { fmtNumber, t } from '../i18n.js';
 import { clear, h, place } from '../util.js';
-import { field, run, table, tag } from '../ui.js';
+import { field, notice, run, table, tag } from '../ui.js';
 
 // The candidate the device form takes its values from (set by "Add", taken once by the form).
 let pending = null;
@@ -151,7 +151,7 @@ export function discoveryPanel(ctx, status, open) {
       place(box, details);
     }
     if (status.notes.length) {
-      place(box, h('div', { class: 'notice', 'data-testid': 'discovery-notes' }, h('ul', {}, status.notes.map((n) => h('li', {}, n)))));
+      place(box, notice('warn', 'discovery-notes', h('ul', {}, status.notes.map((n) => h('li', {}, n)))));
     }
     if (status.state !== 'idle') place(box, ...results(status));
   }

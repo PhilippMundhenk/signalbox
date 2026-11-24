@@ -776,7 +776,11 @@ def test_acknowledge_a_finding_and_annotate_objects(app: Any) -> None:
     open_wifi.get_by_test_id("acknowledge").click()
     app.get_by_test_id("ack-until").fill("2020-01-01")
     app.get_by_test_id("ack-save").click()
-    expect(app.get_by_test_id("toast").last).to_contain_text("in the past")
+    expect(
+        app.get_by_test_id("ack-save")
+        .locator("xpath=ancestor::div[@data-testid='modal']")
+        .get_by_test_id("error")
+    ).to_contain_text("in the past")
     app.get_by_test_id("ack-cancel").click()
 
     # notes on a device

@@ -3,7 +3,7 @@
 // The drawing is layered (topolayout.js), wires end at the port squares (#303).
 import { del, enc, get, post } from '../api.js';
 import { PORT_ROLE, by, clear, h, place, portDetails, portSpeed, s } from '../util.js';
-import { card, confirmDialog, field, pageHead, run, select, statusBadge, table, tag, toast } from '../ui.js';
+import { card, clearNotice, confirmDialog, field, notice, pageHead, run, select, setNotice, slot, statusBadge, table, tag, toast } from '../ui.js';
 import { routedPathsCard } from './traces.js';
 import { layoutTopology } from '../topolayout.js';
 import { attachZoom } from '../topozoom.js';
@@ -353,26 +353,27 @@ function addLinkForm(ctx, nodes) {
   const a = pick('a');
   const b = pick('b');
   const kind = select([['cable', t('topology.kind.cable')], ['wireless', t('topology.kind.wireless')]], 'cable', { 'data-testid': 'link-kind' });
-  const msg = h('p', { class: 'error', role: 'alert', 'data-testid': 'link-error' });
+  const msg = slot(); // the form's one place for problems
+  const problem = (text) => setNotice(msg, 'error', 'link-error', text);
   const save = h('button', { class: 'btn primary', type: 'submit', 'data-testid': 'link-add' }, t('topology.addCable'));
   const form = h('form', {
     class: 'link-form',
     onsubmit: (e) => {
       e.preventDefault();
-      msg.textContent = '';
+      clearNotice(msg);
       if (!a.port.value || !b.port.value) {
-        msg.textContent = t('topology.err.chooseBoth');
+        problem(t('topology.err.chooseBoth'));
         return;
       }
       if (a.port.value === b.port.value) {
-        msg.textContent = t('topology.err.samePort');
+        problem(t('topology.err.samePort'));
         return;
       }
       run(save, async () => {
         await post('/links', { a: a.port.value, b: b.port.value, kind: kind.value });
         toast(t('topology.cableAdded'));
         ctx.refresh();
-      });
+      }, msg);
     },
   });
   place(form, 
@@ -519,7 +520,7 @@ export async function renderTopology(main, ctx) {
   const problems = data.nodes.filter((n) => n.status !== 'ok');
   place(main, 
     h('div', { class: 'filters' }, siteSelect, segSelect, hasInternal ? h('label', { class: 'check', title: t('topology.internalTitle') }, internalBox, t('topology.showInternal')) : null),
-    problems.length ? h('p', { class: 'notice small' }, t('topology.notRead'), problems.map((n, i) => [i ? ', ' : '', n.name, ' ', statusBadge(n.status)])) : null,
+    problems.length ? notice('warn', 'topo-not-read', t('topology.notRead'), problems.map((n, i) => [i ? ', ' : '', n.name, ' ', statusBadge(n.status)])) : null,
     card_,
     card(t('topology.links'), linkList(ctx, data, data.nodes)),
     routedPathsCard(ctx, data.nodes),

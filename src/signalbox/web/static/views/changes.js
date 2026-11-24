@@ -2,7 +2,7 @@
 import { t } from '../i18n.js';
 import { enc, get, post } from '../api.js';
 import { clear, fmtTime, h, place, sleep } from '../util.js';
-import { card, confirmDialog, empty, field, pageHead, run, table, tag, toast } from '../ui.js';
+import { busy, card, confirmDialog, empty, field, notice, pageHead, run, table, tag, toast } from '../ui.js';
 import { renderPlan } from './desired.js';
 
 const STATUS_KEY = { applied: 'changes.status.applied', 'rolled-back': 'changes.status.rolled-back', failed: 'changes.status.failed', rejected: 'changes.status.rejected', planned: 'changes.status.planned', approved: 'changes.status.approved', deploying: 'changes.status.deploying' };
@@ -19,7 +19,7 @@ export async function renderChanges(main, ctx) {
   place(
     clear(main),
     pageHead(t('changes.title'), create),
-    log.deploy_enabled ? null : h('p', { class: 'card', 'data-testid': 'deploy-off' }, t('changes.deployOff')),
+    log.deploy_enabled ? null : notice('info', 'deploy-off', t('changes.deployOff')),
     log.changes.length
       ? table(
           [
@@ -85,12 +85,12 @@ function askReason(title, message, fn) {
 }
 
 export async function renderNewChange(main, ctx) {
-  const plan = h('div', { 'data-testid': 'plan' }, h('p', { class: 'muted' }, t('changes.new.planning')));
+  const plan = h('div', { 'data-testid': 'plan' }, busy('plan-busy', t('changes.new.planning')));
   place(clear(main), pageHead(t('changes.new.title')), card(t('changes.plan'), plan));
   try {
     renderPlan(plan, await post('/plan'));
   } catch (err) {
-    place(clear(plan), h('p', { class: 'error', 'data-testid': 'plan-error' }, err.message));
+    place(clear(plan), notice('error', 'plan-error', err.message));
     return;
   }
   const reason = h('input', { type: 'text', maxlength: '1000', 'data-testid': 'change-reason' });
@@ -106,6 +106,7 @@ export async function renderNewChange(main, ctx) {
 export async function renderChange(main, ctx, route) {
   const rec = await get(`/changes/${enc(route.id)}`);
   const actions = h('div', { class: 'row' });
+  const progress = h('div', {}); // the running deploy: one state, gone when it ends
   if (rec.status === 'planned') {
     const override = rec.plan.blocking.length ? h('input', { type: 'text', 'data-testid': 'override', placeholder: t('changes.override.placeholder') }) : null;
     const lockout = (rec.plan.lockouts || []).length ? h('input', { type: 'checkbox', 'data-testid': 'allow-lockout' }) : null;
@@ -125,11 +126,17 @@ export async function renderChange(main, ctx, route) {
     const deploy = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'change-deploy' }, t('changes.deploy.now'));
     deploy.addEventListener('click', () => run(deploy, async () => {
       if (!(await confirmDialog({ title: t('changes.deploy.title'), message: t('changes.deploy.message', { count: rec.devices.length }), confirmLabel: t('changes.deploy.confirm') }))) return;
-      await post(`/changes/${enc(rec.id)}/deploy`);
-      for (let i = 0; i < 120; i += 1) {
-        await sleep(500);
-        const now = await get(`/changes/${enc(rec.id)}`);
-        if (!['approved', 'deploying'].includes(now.status)) break;
+      place(clear(progress), busy('deploy-busy', t('changes.deploying')));
+      try {
+        await post(`/changes/${enc(rec.id)}/deploy`);
+        for (let i = 0; i < 120; i += 1) {
+          await sleep(500);
+          const now = await get(`/changes/${enc(rec.id)}`);
+          if (!['approved', 'deploying'].includes(now.status)) break;
+        }
+      } catch (err) {
+        clear(progress);
+        throw err;
       }
       ctx.refresh();
     }));
@@ -160,6 +167,7 @@ export async function renderChange(main, ctx, route) {
       rec.reverts ? h('p', {}, t('changes.reverts'), h('a', { href: `#/change/${enc(rec.reverts)}` }, rec.reverts)) : null,
       rec.reverted_by ? h('p', {}, t('changes.revertedBy'), h('a', { href: `#/change/${enc(rec.reverted_by)}` }, rec.reverted_by)) : null,
       actions,
+      progress,
     ),
     rec.restore_backup_id ? card(t('changes.restore.title'), h('p', {}, t('changes.restore.backup', { id: rec.restore_backup_id }))) : card(t('changes.plan'), planBox),
     card(
