@@ -27,7 +27,13 @@ from signalbox.model import (
     PortRole,
     StorageKind,
     StorageUsage,
+    StpBridge,
+    StpPort,
+    StpPortRole,
+    StpPortState,
+    StpProtocol,
     TemperatureSensor,
+    parse_stp_bridge_id,
 )
 
 TUNNEL_KINDS = frozenset(
@@ -540,3 +546,97 @@ def network_of(addresses: list[IPInterface], address: IPAddress) -> IPInterface 
         ):
             return a
     return None
+
+
+def _obj(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+# --- spanning tree (#155) ----------------------------------------------------------------
+
+_STP_STATES = {s.value: s for s in StpPortState}
+
+
+def stp(
+    links: dict[str, Link], port_ids: dict[str, str]
+) -> tuple[list[StpBridge], dict[str, StpPort]]:
+    """Spanning tree from ``ip -j -d link show`` (no other command): a bridge's ``info_data``
+    (``stp_state`` 0 off, 1 the kernel's 802.1D STP, 2 a user-space daemon such as mstpd, read as
+    RSTP; ``priority``, ``bridge_id``, ``root_id``, ``root_port``, ``root_path_cost``) and a
+    member's ``info_slave_data`` (``state``, ``cost``, ``guard`` = BPDU guard, ``root_block`` =
+    root guard, ``no`` = port number). The kernel has no edge ports and no port roles; the role
+    is derived from the root port and the designated bridge."""
+    bridges: list[StpBridge] = []
+    ports: dict[str, StpPort] = {}
+    for name, link in sorted(links.items()):
+        if link.kind != "bridge":
+            continue
+        info = _obj(link.raw.get("linkinfo"))
+        data = _obj(info.get("info_data"))
+        state = _int(str(data.get("stp_state", "")))
+        proto = {0: StpProtocol.NONE, 1: StpProtocol.STP, 2: StpProtocol.RSTP}.get(
+            state if state is not None else -1
+        )
+        if proto is None:
+            continue
+        on = proto is not StpProtocol.NONE
+        prio = _int(str(data.get("priority", "")))
+        own = parse_stp_bridge_id(data.get("bridge_id"))
+        root_no = _int(str(data.get("root_port", "")))
+        members = {n: x for n, x in links.items() if x.master == name}
+        numbers: dict[int, str] = {}
+        for mname, member in members.items():
+            sdata = _obj(_obj(member.raw.get("linkinfo")).get("info_slave_data"))
+            if not sdata:
+                continue
+            no = _number(sdata.get("no"))
+            if no is not None:
+                numbers[no] = mname
+            pstate = _STP_STATES.get(str(sdata.get("state") or ""))
+            role: StpPortRole | None = None
+            if on and pstate is StpPortState.DISABLED:
+                role = StpPortRole.DISABLED
+            elif on and root_no and no == root_no:
+                role = StpPortRole.ROOT
+            elif on and own and parse_stp_bridge_id(sdata.get("designated_bridge")) == own:
+                role = StpPortRole.DESIGNATED
+            elif on and pstate is StpPortState.BLOCKING:
+                role = StpPortRole.ALTERNATE
+            cost = _int(str(sdata.get("cost", "")))
+            guard, block = sdata.get("guard"), sdata.get("root_block")
+            ports[mname] = StpPort(
+                state=pstate if on else None,
+                role=role,
+                path_cost=cost if on and cost is not None and cost >= 0 else None,
+                bpdu_guard=guard if isinstance(guard, bool) else None,
+                root_guard=block if isinstance(block, bool) else None,
+            )
+        root_cost = _int(str(data.get("root_path_cost", "")))
+        bridges.append(
+            StpBridge(
+                name=name,
+                port_id=port_ids.get(name),
+                protocol=proto,
+                priority=prio if prio is not None and 0 <= prio <= 0xFFFF else None,
+                bridge_id=own,
+                root_bridge_id=parse_stp_bridge_id(data.get("root_id")) if on else None,
+                root_port_id=port_ids.get(numbers.get(root_no or 0, "")) if on else None,
+                root_path_cost=root_cost
+                if on and root_cost is not None and root_cost >= 0
+                else None,
+            )
+        )
+    return bridges, ports
+
+
+def _number(value: Any) -> int | None:
+    """``0x1`` (iproute2's port numbers) or a plain number."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value or "").strip().lower()
+    try:
+        return int(text, 16) if text.startswith("0x") else int(text)
+    except ValueError:
+        return None

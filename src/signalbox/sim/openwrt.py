@@ -61,6 +61,8 @@ FILES = (
     "/sys/class/thermal/thermal_zone*/type",
     "/sys/class/net/*/bonding/*",
     "/sys/class/net/*/bonding_slave/*",
+    "/sys/class/net/*/bridge/*",
+    "/sys/class/net/*/brport/*",
 )
 
 Sections = dict[str, dict[str, Any]]
@@ -410,6 +412,15 @@ def device_status(network: Sections, wireless: Sections) -> dict[str, Any]:
                 "macaddr": _mac(0, 1),
                 "mtu": 1500,
                 "bridge-members": [*_words(s.get("ports")), *wifi],
+                # netifd 22.03+: the bridge's settings (``bridge_dump_info``)
+                "bridge-attributes": {
+                    "stp": str(s.get("stp", "0")) == "1",
+                    "forward_delay": 8,
+                    "priority": int(str(s.get("priority", 0x7FFF))),
+                    "ageing_time": 30,
+                    "hello_time": 2,
+                    "max_age": 20,
+                },
             }
     for _, s in _of(network, "device"):
         if s.get("type") == "bonding" and s.get("name"):
@@ -1242,6 +1253,8 @@ class OpenWrtSim:
     clock_skew: float = 0.0
     #: thermal zones (``type``, milli-degrees Celsius) under /sys/class/thermal
     thermal_zones: list[tuple[str, int]] = field(default_factory=lambda: [("cpu-thermal", 47823)])
+    #: bridge members without ``/sys/class/net/<port>/brport`` (#155)
+    no_brport: set[str] = field(default_factory=set)
     sessions: dict[str, float] = field(default_factory=dict)
     #: more logins, username -> md5-crypt hash (set by the SSH side, ``openwrt_ssh``)
     login_hashes: dict[str, str] = field(default_factory=dict)
@@ -1514,7 +1527,10 @@ class OpenWrtSim:
             if not any(fnmatchcase(path, allowed) for allowed in FILES):
                 return [DENIED]
             if path.startswith("/sys/class/net/"):
-                return self.bond_file(path.removeprefix("/sys/class/net/"))
+                if "/bonding" in path:
+                    return self.bond_file(path.removeprefix("/sys/class/net/"))
+                value = self.sysfs_net(path)
+                return [NOT_FOUND] if value is None else [0, {"data": f"{value}\n"}]
             if path.startswith("/sys/class/thermal/thermal_zone"):
                 n, _, leaf = path.removeprefix("/sys/class/thermal/thermal_zone").partition("/")
                 if not n.isdigit() or int(n) >= len(self.thermal_zones):
@@ -1539,6 +1555,45 @@ class OpenWrtSim:
         if rel not in BOND_SYSFS:
             return [NOT_FOUND]
         return [0, {"data": BOND_SYSFS[rel] + "\n"}]
+
+    def sysfs_net(self, path: str) -> str | None:
+        """``/sys/class/net/<bridge>/bridge/*`` and ``/sys/class/net/<port>/brport/*`` (#155):
+        the kernel's STP of a bridge with ``option stp 1``, the bridge the root; None where the
+        kernel has no such file (no bridge, a port in none, ``no_brport``)."""
+        name, _, rest = path.removeprefix("/sys/class/net/").partition("/")
+        group, _, leaf = rest.partition("/")
+        status = device_status(self.state["network"], self.state["wireless"])
+        bridges = {n: st for n, st in status.items() if st.get("type") == "bridge"}
+        settings = {
+            str(sec.get("name")): sec
+            for _, sec in _of(self.state["network"], "device")
+            if sec.get("type") == "bridge"
+        }
+        if group == "bridge" and name in bridges:
+            prio = int(str(settings.get(name, {}).get("priority", 0x7FFF)))
+            own = f"{prio:04x}." + str(bridges[name]["macaddr"]).replace(":", "")
+            on = str(settings.get(name, {}).get("stp", "0")) == "1"
+            values = {
+                "bridge_id": own,
+                "root_id": own,
+                "root_port": "0",
+                "root_path_cost": "0",
+                "stp_state": "1" if on else "0",
+                "priority": str(prio),
+            }
+            return values.get(leaf)
+        for st in bridges.values():
+            members = list(st.get("bridge-members", []))
+            if group == "brport" and name in members and name not in self.no_brport:
+                values = {
+                    "state": "3",
+                    "port_no": f"0x{members.index(name) + 1:x}",
+                    "path_cost": "100" if name.startswith("phy") else "4",
+                    "bpdu_guard": "0",
+                    "root_block": "0",
+                }
+                return values.get(leaf)
+        return None
 
     def wg_instances(self) -> dict[str, Any]:
         """``luci.wireguard getWgInstances``: running state, public data only."""

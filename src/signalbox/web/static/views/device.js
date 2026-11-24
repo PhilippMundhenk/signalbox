@@ -497,6 +497,50 @@ function lagFacts(ix, p) {
   return out;
 }
 
+// Spanning tree (#155): protocols, port roles and states as the device reports them.
+const STP_PROTOCOL = { stp: 'STP', rstp: 'RSTP', mstp: 'MSTP', 'loop-detect': 'device.stp.loopDetect', none: 'device.stp.off' };
+const STP_ROLE = { root: 'device.stp.role.root', designated: 'device.stp.role.designated', alternate: 'device.stp.role.alternate', backup: 'device.stp.role.backup', disabled: 'device.stp.role.disabled' };
+const STP_STATE = { forwarding: 'device.stp.state.forwarding', blocking: 'device.stp.state.blocking', discarding: 'device.stp.state.discarding', learning: 'device.stp.state.learning', listening: 'device.stp.state.listening', disabled: 'device.stp.state.disabled' };
+const stpProtocol = (p) => (p.startsWith('device.') ? t(p) : p);
+
+// The spanning tree facts of one bridge port, for its entry in the port tree.
+function stpFacts(stp) {
+  if (!stp) return [];
+  return [
+    stp.role ? t(STP_ROLE[stp.role]) : null,
+    stp.state ? t(STP_STATE[stp.state]) : null,
+    stp.edge ? t('device.stp.edge') : null,
+    stp.bpdu_guard ? t('device.stp.bpduGuard') : null,
+    stp.root_guard ? t('device.stp.rootGuard') : null,
+    stp.loop_protect ? t('device.stp.loopProtect') : null,
+    opt(stp.path_cost, (v) => t('device.stp.cost', { cost: v })),
+  ].filter(Boolean);
+}
+
+// The device's bridges with their spanning tree (#155): protocol, priority, the root bridge.
+function stpCard(ix, observed) {
+  const bridges = observed.stp_bridges || [];
+  if (!bridges.length) return null;
+  const roots = new Set((ix.net.devices || []).flatMap((d) => (d.stp_bridges || []).map((b) => b.root_bridge_id).filter(Boolean)));
+  const rows = bridges.map((b) => {
+    const isRoot = b.bridge_id && (b.root_bridge_id === b.bridge_id || (!b.root_bridge_id && roots.has(b.bridge_id)));
+    const root = b.root_bridge_id && b.root_bridge_id !== b.bridge_id ? b.root_bridge_id : null;
+    const facts = [
+      stpProtocol(STP_PROTOCOL[b.protocol] || b.protocol),
+      opt(b.priority, (v) => t('device.stp.priority', { priority: v })),
+      b.bridge_id ? h('span', { class: 'mono' }, b.bridge_id) : null,
+      isRoot ? h('span', { class: 'tag', 'data-testid': 'stp-root' }, t('device.stp.isRoot')) : null,
+      root ? t('device.stp.root', { root }) : null,
+      b.root_port_id ? t('device.stp.rootPort', { port: ix.portName(b.root_port_id) }) : null,
+      opt(b.root_path_cost, (v) => t('device.stp.cost', { cost: v })),
+    ].filter(Boolean);
+    const parts = [];
+    facts.forEach((f, i) => parts.push(...(i ? [' · ', f] : [f])));
+    return [b.name, h('span', { 'data-testid': 'stp-bridge', 'data-name': b.name }, ...parts)];
+  });
+  return h('section', { class: 'card', 'data-testid': 'device-stp' }, h('h2', {}, t('device.stp.title')), kv(rows));
+}
+
 // One entry of the port tree (#252): the port (or radio), what it is, and what runs on it.
 function portNode(ix, node) {
   const name = (pid) => (ix.ports.get(pid) || {}).name || pid.split('/port/').pop();
@@ -516,6 +560,7 @@ function portNode(ix, node) {
       p.up !== false ? portSpeed(p) : null,
       ...portDetails(p),
       ...lagFacts(ix, p),
+      ...stpFacts(p.stp),
       node.members.length ? t('device.port.over', { members: node.members.map(name).join(', ') }) : null,
     ];
   }
@@ -688,6 +733,7 @@ async function overview(main, ctx, device, adapters, sites) {
     notesCard(ix, device.id, 'device', t('device.notes', { name: device.name }), () => ctx.refresh()),
     internetCard(ix, device.id),
     portsCard(ix, tree),
+    observed ? stpCard(ix, observed) : null,
     radiosCard(ix, device.id),
     learnedCard(ix, learned),
     tunnelsCard(ix, device.id),

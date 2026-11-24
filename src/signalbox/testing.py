@@ -52,12 +52,14 @@ from signalbox.model import (
     ServiceKind,
     ServiceTransport,
     Snapshot,
+    StpBridge,
     Tunnel,
     Uplink,
     UplinkKind,
     Wlan,
     address_nat_class,
     firewall_id,
+    parse_stp_bridge_id,
     set_passphrase_digest_key,
     source_fits,
 )
@@ -354,6 +356,28 @@ def account_problems(device_id: str, accounts: list[DeviceAccount]) -> list[str]
     return out
 
 
+def stp_problems(device_id: str, bridges: list[StpBridge], ports: dict[str, Port]) -> list[str]:
+    """Spanning tree (#155): a bridge named twice, bridge and root ports of the device, bridge
+    ids in the canonical form, a bridge port with the bridge role."""
+    out: list[str] = []
+    names = [b.name for b in bridges]
+    for name in sorted({n for n in names if names.count(n) > 1}):
+        out.append(f"{device_id}: spanning tree bridge {name!r} listed twice")
+    for b in bridges:
+        for attr in ("port_id", "root_port_id"):
+            pid = getattr(b, attr)
+            if pid is not None and (pid not in ports or ports[pid].device_id != device_id):
+                out.append(f"{device_id}: bridge {b.name} {attr} {pid} is not a port of it")
+        bport = ports.get(b.port_id or "")
+        if bport is not None and bport.role not in (None, PortRole.BRIDGE):
+            out.append(f"{device_id}: bridge {b.name} names {bport.name}, not a bridge port")
+        for attr in ("bridge_id", "root_bridge_id"):
+            value = getattr(b, attr)
+            if value is not None and parse_stp_bridge_id(value) != value:
+                out.append(f"{device_id}: bridge {b.name} {attr} {value!r} is not canonical")
+    return out
+
+
 def credential_problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
     """No configured secret and no password hash anywhere in the snapshot (#175): only the
     booleans derived from them may leave the integration."""
@@ -618,6 +642,10 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             if Capability.INTERFACES.value not in caps:
                 out.append(f"accounts reported without declaring {Capability.INTERFACES.value}")
             out += account_problems(d.id, d.accounts)
+        if d.stp_bridges is not None:
+            if Capability.INTERFACES.value not in caps:
+                out.append(f"stp_bridges reported without declaring {Capability.INTERFACES.value}")
+            out += stp_problems(d.id, d.stp_bridges, {p.id: p for p in snapshot.ports})
         if d.health is not None:
             out += health_problems(d.id, d.health)
         if d.time is not None:

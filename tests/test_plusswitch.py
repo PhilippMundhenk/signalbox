@@ -32,7 +32,14 @@ from signalbox.adapters.plusswitch import (
     ProsafeConfig,
 )
 from signalbox.adapters.plusswitch.mapping import interfaces, system_info
-from signalbox.model import DeviceRole, DeviceStatus, LagMode, Membership, PortRole
+from signalbox.model import (
+    DeviceRole,
+    DeviceStatus,
+    LagMode,
+    Membership,
+    PortRole,
+    StpProtocol,
+)
 from signalbox.sim.server import free_port
 from signalbox.testing import assert_contract
 
@@ -783,3 +790,57 @@ async def test_factory_password_is_compared_in_memory(nsdp: Start, easysmart: St
     assert dev.default_credentials is True
     (acc,) = dev.accounts or []
     assert (acc.name, acc.privilege, acc.is_signalbox) == ("admin", AccountPrivilege.ADMIN, True)
+
+
+# --- spanning tree (#155) ------------------------------------------------------------
+
+
+@needs_switchyard
+async def test_netgear_loop_detection(nsdp: Start) -> None:
+    switch = netgear()
+    switch.loop_detection = True
+    _, port = await nsdp(switch)
+    snap = await assert_contract(ProsafeAdapter(_context(ProsafeAdapter, port)))
+    assert snap.device.stp_bridges is not None
+    (b,) = snap.device.stp_bridges
+    assert (b.name, b.port_id, b.protocol) == ("switch", None, StpProtocol.LOOP_DETECT)
+
+
+@needs_switchyard
+async def test_netgear_without_loop_detection_answer(nsdp: Start) -> None:
+    from switchyard.nsdp import tags as T
+
+    _, port = await nsdp(netgear(unsupported={T.LOOP_DETECTION}))
+    snap = await assert_contract(ProsafeAdapter(_context(ProsafeAdapter, port)))
+    assert snap.device.stp_bridges is None
+
+
+@needs_switchyard
+async def test_tplink_loop_prevention_off(easysmart: Start) -> None:
+    _, port = await easysmart(tplink())
+    snap = await assert_contract(EasySmartAdapter(es_context(port)))
+    assert snap.device.stp_bridges is not None
+    assert [b.protocol for b in snap.device.stp_bridges] in (
+        [StpProtocol.NONE],
+        [StpProtocol.LOOP_DETECT],
+    )
+
+
+async def test_features_that_fail_leave_the_rest() -> None:
+    class Broken:
+        async def read_features(self) -> Any:
+            raise ValueError("garbled")
+
+    a = ProsafeAdapter(_context(ProsafeAdapter, 9))
+    a._switchyard()
+    reading = plus._Reading(info={})
+    await plus._PlusSwitch._read_features(a, reading, Broken())
+    assert reading.loop_detection is None and a._stp(reading) == {}
+    reading.error = None
+
+    class Odd:
+        async def read_features(self) -> Any:
+            return ["not", "a", "mapping"]
+
+    await plus._PlusSwitch._read_features(a, reading, Odd())
+    assert reading.loop_detection is None

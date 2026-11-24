@@ -16,6 +16,7 @@ import pytest
 from pydantic import SecretStr
 
 import signalbox.adapters.https as https_mod
+import signalbox.sim.openwrt as openwrt_sim
 from signalbox.adapters import (
     AdapterContext,
     AdapterError,
@@ -42,6 +43,7 @@ from signalbox.adapters.openwrt import (
     wireguard,
 )
 from signalbox.adapters.openwrt import radio as radio_state
+from signalbox.adapters.openwrt import stp as ostp
 from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
 from signalbox.model import (
@@ -61,6 +63,9 @@ from signalbox.model import (
     PortRole,
     SaePwe,
     Security,
+    StpPortRole,
+    StpPortState,
+    StpProtocol,
     WifiStandard,
     WpsMethod,
     passphrase_digest,
@@ -1712,3 +1717,93 @@ def test_radio_utilisation_and_status_parsing() -> None:
         "channel_utilisation_pct": 100.0,
     }
     assert radio_state.status(cac, False) == {"channel_utilisation_pct": 100.0}
+
+
+# --- spanning tree (#155) ------------------------------------------------------------
+
+
+def _stp_on(sim: OpenWrtSim, priority: str | None = "4096") -> None:
+    for section in sim.state["network"].values():
+        if section.get("name") == "br-lan":
+            section["stp"] = "1"
+            if priority is not None:
+                section["priority"] = priority
+
+
+async def test_stp_off_is_the_default(adapter: OpenWrtAdapter) -> None:
+    snap = await assert_contract(adapter)
+    assert snap.device.stp_bridges is not None
+    (b,) = snap.device.stp_bridges
+    assert (b.name, b.protocol, b.priority, b.port_id) == (
+        "br-lan",
+        StpProtocol.NONE,
+        0x7FFF,
+        "ap1/port/br-lan",
+    )
+    assert b.bridge_id is not None and b.bridge_id.startswith("7fff.02:")
+    assert b.root_bridge_id is None
+    assert all(p.stp is None for p in snap.ports)
+
+
+async def test_stp_on_reads_sysfs(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    _stp_on(sim)
+    snap = await assert_contract(adapter)
+    assert snap.device.stp_bridges is not None
+    (b,) = snap.device.stp_bridges
+    assert b.protocol is StpProtocol.STP and b.priority == 4096 and b.is_root is True
+    assert b.bridge_id is not None and b.bridge_id.startswith("1000.02:")
+    lan1 = next(p for p in snap.ports if p.name == "lan1")
+    assert lan1.stp is not None
+    assert (lan1.stp.state, lan1.stp.path_cost, lan1.stp.bpdu_guard) == (
+        StpPortState.FORWARDING,
+        4,
+        False,
+    )
+    assert not [e for e in snap.errors if e.message_id == "openwrt.stpState"]
+
+
+async def test_old_acl_keeps_the_setting(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stp_on(sim, priority=None)
+    monkeypatch.setattr(openwrt_sim, "FILES", ("/tmp/dhcp.leases",))
+    obs = await adapter.read_interfaces()
+    (b,) = obs.stp_bridges["ap1"]
+    assert b.protocol is StpProtocol.STP and b.root_bridge_id is None
+    assert b.bridge_id is not None and b.bridge_id.startswith("7fff.")  # from netifd's MAC
+    (gap,) = [g for g in obs.incomplete if g.message_id == "openwrt.stpState"]
+    assert gap.optional and gap.remedy
+
+
+async def test_port_without_brport(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    _stp_on(sim)
+    sim.no_brport = {"lan2"}
+    obs = await adapter.read_interfaces()
+    ports = {p.name: p for p in obs.ports}
+    assert ports["lan2"].stp is None and ports["lan1"].stp is not None
+
+
+def test_settings_and_parsers() -> None:
+    devices = [
+        {"type": "bridge", "name": "br-x", "stp": "1", "priority": "x"},
+        {"type": "bridge"},
+        {"type": "8021q", "name": "eth0.2"},
+    ]
+    (s,) = ostp.settings(devices, {"br-x": {"bridge-attributes": {"priority": 70000}}})
+    assert s.on and s.priority is None and s.mac is None and s.members == []
+    b = ostp.bridge(s, {}, {}, {})
+    assert b.bridge_id is None and b.protocol is StpProtocol.STP
+    s.priority, s.mac = 4096, "bogus"
+    assert ostp.bridge(s, {}, {}, {}).bridge_id is None
+    b = ostp.bridge(
+        s, {"root_id": "8000.020000000001", "root_port": "2", "root_path_cost": "4"},
+        {"lan2": "d/port/lan2"}, {2: "lan2"},
+    )  # fmt: skip
+    assert b.root_port_id == "d/port/lan2" and b.root_path_cost == 4 and b.is_root is None
+    root = ostp.port({"state": "3", "port_no": "0x2"}, 2)
+    assert root.role is StpPortRole.ROOT
+    assert ostp.port({"state": "4"}, 2).role is StpPortRole.ALTERNATE
+    assert ostp.port({"state": "0"}, None).role is StpPortRole.DISABLED
+    assert ostp.port({}, None).state is None
+    assert ostp._flag(True) is True and ostp._flag("maybe") is None and ostp._flag("0") is False
+    assert ostp._number(True) is None and ostp._number(5) == 5 and ostp._number("x") is None

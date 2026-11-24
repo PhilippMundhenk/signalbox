@@ -307,6 +307,13 @@ def test_concept_views_show_the_network(app: Any) -> None:
     two = radios.locator('[data-id="router/radio/radio0"]')
     expect(two).to_have_text("2.4 GHz · channel 6 · 20 MHz · 20 dBm")
 
+    # spanning tree (#155): the bridge is the root, lan1 an edge port
+    stp = app.get_by_test_id("device-stp")
+    expect(stp.get_by_test_id("stp-bridge")).to_contain_text("RSTP · priority 4096")
+    expect(stp.get_by_test_id("stp-root")).to_have_text("root bridge")
+    lan1_node = app.get_by_test_id("port-node").filter(has_text="Desk").first
+    expect(lan1_node).to_contain_text("designated port · forwarding · edge port")
+
     go(app, "#/device/router/advanced")
     expect(app.get_by_test_id("raw-services")).to_contain_text("services (6)")
     expect(app.get_by_test_id("raw-uplinks")).to_contain_text("uplinks (1)")

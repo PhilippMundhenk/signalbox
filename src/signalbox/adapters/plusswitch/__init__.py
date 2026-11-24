@@ -62,6 +62,8 @@ from signalbox.model import (
     DeviceRole,
     ManagementService,
     ServiceKind,
+    StpBridge,
+    StpProtocol,
     object_id,
 )
 
@@ -129,6 +131,8 @@ class _Reading:
     error: AdapterError | None = None
     #: optional parts the switch refused to read (old firmware protects some settings)
     skipped: list[str] = field(default_factory=list)
+    #: loop detection / loop prevention on (#155); None: not answered
+    loop_detection: bool | None = None
 
 
 # -- sessions take turns per UDP port; refused passwords are not resent ------------------
@@ -304,7 +308,12 @@ class _PlusSwitch(Adapter):
                 params={"host": self._host, "detail": str(exc)},
             ) from exc
         return observed.model_copy(
-            update={"services": self._services(), "incomplete": gaps, **self._login_facts()}
+            update={
+                "services": self._services(),
+                "incomplete": gaps,
+                "stp_bridges": self._stp(reading),
+                **self._login_facts(),
+            }
         )
 
     def _login_facts(self) -> dict[str, Any]:
@@ -434,6 +443,7 @@ class _PlusSwitch(Adapter):
 
         await self._read_rest(reading, client.read_ports, vlan, client.read_lag)
         await self._read_admin(reading, client)
+        await self._read_features(reading, client)
         return reading
 
     async def _login(self, login: Callable[[], Awaitable[None]]) -> None:
@@ -495,6 +505,26 @@ class _PlusSwitch(Adapter):
                 reading.vlan = value
             else:
                 reading.lag = value
+
+    async def _read_features(self, reading: _Reading, client: Any) -> None:
+        """Loop detection (NETGEAR) or loop prevention (TP-Link), read through Switchyard's
+        ``read_features`` (#155): optional, the rest stands without."""
+        if reading.error is not None:
+            return
+        try:
+            features = await client.read_features()
+        except (self._errors.SwitchError, self._errors.Unreachable, *_PARSE_ERRORS):
+            return
+        loop = features.get("loop_detection") if isinstance(features, Mapping) else None
+        reading.loop_detection = loop if isinstance(loop, bool) else None
+
+    def _stp(self, reading: _Reading) -> dict[str, list[StpBridge]]:
+        """These switches have no spanning tree: the whole switch is one bridge with loop
+        detection on or nothing (#155). Nothing when the switch did not say."""
+        if reading.loop_detection is None:
+            return {}
+        proto = StpProtocol.LOOP_DETECT if reading.loop_detection else StpProtocol.NONE
+        return {self.context.device_id: [StpBridge(name="switch", protocol=proto)]}
 
     async def _read_admin(self, reading: _Reading, client: Any) -> None:
         """Port settings (enabled, speed, flow control): optional, the rest stands without."""
@@ -581,6 +611,7 @@ class ProsafeAdapter(_PlusSwitch):
 
         await self._read_rest(reading, client.read_ports, vlan, client.read_lag)
         await self._read_admin(reading, client)
+        await self._read_features(reading, client)
         return reading
 
     async def _session(
@@ -737,4 +768,5 @@ class EasySmartAdapter(_PlusSwitch):
 
         await self._read_rest(reading, client.read_ports, vlan, lag)
         await self._read_admin(reading, client)
+        await self._read_features(reading, client)
         return reading

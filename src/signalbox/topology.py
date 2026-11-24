@@ -270,6 +270,9 @@ def view(net: Network) -> dict[str, Any]:
             clients.setdefault(c.seen_on, []).append(
                 {"mac": c.mac, "hostname": c.hostname, "segment_id": c.segment_id}
             )
+    from signalbox.rules.stp_checks import root_bridges  # the rules import this module
+
+    stp_roots = {dev for dev, _ in root_bridges(net)}
     nodes = [
         {
             "id": d.id,
@@ -277,6 +280,8 @@ def view(net: Network) -> dict[str, Any]:
             "role": d.role.value,
             "site_id": d.site_id,
             "status": net.statuses.get(d.id, "ok"),
+            # the root bridge of a spanning tree (#155)
+            "stp_root": d.id in stp_roots,
             "ports": [
                 {
                     "id": p.id,
@@ -296,6 +301,7 @@ def view(net: Network) -> dict[str, Any]:
                     "external": p.external,
                     "lower": p.lower,
                     "lag": lags[p.id].name if p.id in lags else None,
+                    "stp_state": p.stp.state.value if p.stp and p.stp.state else None,
                     "untagged": [s for s, m in modes.get(p.id, {}).items() if m == "untagged"],
                     "tagged": [s for s, m in modes.get(p.id, {}).items() if m == "tagged"],
                 }

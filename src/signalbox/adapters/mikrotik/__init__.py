@@ -69,6 +69,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
+from signalbox.adapters.mikrotik import stp as _stp
 from signalbox.adapters.mikrotik import trace as _trace
 from signalbox.adapters.mikrotik.certificates import USERS as CERT_USERS
 from signalbox.adapters.mikrotik.certificates import attach_users
@@ -79,6 +80,7 @@ from signalbox.factory_defaults import is_factory_default
 from signalbox.model import (
     LOG_PORTS,
     SERVICE_PORTS,
+    SPANNING_TREE,
     STANDARD_RANK,
     TYPED_OPTION_CODES,
     WIREGUARD_KEY,
@@ -146,6 +148,9 @@ from signalbox.model import (
     SnmpVersion,
     StorageKind,
     StorageUsage,
+    StpBridge,
+    StpPort,
+    StpProtocol,
     Subnet,
     TemperatureSensor,
     Tunnel,
@@ -1370,8 +1375,13 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         cfg = self.context.config
         assert isinstance(cfg, MikrotikConfig)
         default = is_factory_default("mikrotik", cfg.password.get_secret_value(), cfg.username)
+        bridges, port_stp, stp_gaps = await self._stp(layout)
+        ports = [
+            p.model_copy(update={"stp": port_stp[n]}) if n in port_stp else p
+            for n, p in layout.ports.items()
+        ]
         return Observation(
-            ports=list(layout.ports.values()),
+            ports=ports,
             segments=list(layout.segments.values()),
             subnets=subnets,
             uplinks=await self._uplinks(layout),
@@ -1379,10 +1389,76 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             certificates=await self._certificates(),
             log_targets={} if targets is None else {dev: targets},
             accounts={} if accounts is None else {dev: accounts},
+            stp_bridges={dev: bridges},
             default_credentials={dev: default},
             signalbox_privilege={} if privilege is None else {dev: privilege},
-            incomplete=gaps + account_gaps,
+            incomplete=gaps + account_gaps + stp_gaps,
         )
+
+    async def _stp(self, layout: _Layout) -> tuple[list[StpBridge], dict[str, StpPort], list[Gap]]:
+        """Spanning tree per bridge and bridge port (#155). The running state comes from the
+        print of the bridge ports (RouterOS 7) or the read-only ``monitor ... once``; when
+        RouterOS refuses the monitor, the configuration is kept with an optional gap."""
+        ids = {n: p.id for n, p in layout.ports.items()}
+        rows = [r for r in await self._rows(BRIDGE) if _active(r)]
+        bport_rows = [r for r in await self._rows(BRIDGE_PORT) if _active(r)]
+        ethernet = {_text(r.get("name")): r for r in await self._optional_rows(ETHERNET)}
+        refused: AdapterError | None = None
+
+        async def monitor(path: str, numbers: str) -> list[dict[str, Any]]:
+            nonlocal refused
+            try:
+                answer = await self.http.post_json(path, {"numbers": numbers, "once": ""})
+            except AdapterError as exc:
+                refused = refused or exc
+                return []
+            return _stp.monitor_rows(answer)
+
+        bridges: list[StpBridge] = []
+        protocols: dict[str, StpProtocol] = {}
+        for row in rows:
+            proto = _stp.protocol(row)
+            name = _text(row.get("name"))
+            seen: dict[str, Any] = {}
+            if proto in SPANNING_TREE:
+                answer = await monitor(_stp.BRIDGE_MONITOR, _text(row.get(".id")) or name)
+                seen = answer[0] if answer else {}
+            b = _stp.bridge(row, seen, ids)
+            if b is not None:
+                bridges.append(b)
+                protocols[b.name] = b.protocol
+        in_tree = [r for r in bport_rows if protocols.get(_text(r.get("bridge"))) is not None]
+        monitors: dict[str, dict[str, Any]] = {}
+        spanning = [r for r in in_tree if protocols[_text(r.get("bridge"))] in SPANNING_TREE]
+        if _stp.needs_monitor(spanning):
+            numbers = ",".join(_text(r.get(".id")) or _text(r.get("interface")) for r in spanning)
+            answer = await monitor(_stp.BRIDGE_PORT_MONITOR, numbers)
+            for i, m in enumerate(answer):
+                name = _text(m.get("interface"))
+                if not name and len(answer) == len(spanning):
+                    name = _text(spanning[i].get("interface"))
+                monitors[name] = m
+        out: dict[str, StpPort] = {}
+        for r in in_tree:
+            name = _text(r.get("interface"))
+            if name in layout.ports:
+                proto = protocols[_text(r.get("bridge"))]
+                out[name] = _stp.port(r, monitors.get(name, {}), proto, ethernet.get(name))
+        gaps: list[Gap] = []
+        if refused is not None:
+            gaps.append(
+                Gap(
+                    message=f"spanning tree state (root bridge, port roles): {refused}",
+                    fix="Give Signalbox's group on the router the policies of the setup guide "
+                    "so it may run the bridge monitor; without it only the settings of the "
+                    "bridges are read.",
+                    optional=True,
+                    message_id="mikrotik.stpMonitor",
+                    fix_id="mikrotik.stpMonitor.fix",
+                    params={"cause": str(refused)},
+                )
+            )
+        return bridges, out, gaps
 
     async def _accounts(
         self,

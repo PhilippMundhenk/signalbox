@@ -66,6 +66,27 @@ def _link(
     return row
 
 
+def _brport(number: int, state: str = "forwarding") -> dict[str, Any]:
+    """``info_slave_data`` of a bridge member in ``ip -j -d link show`` (iproute2 6.x)."""
+    return {
+        "state": state,
+        "priority": 32,
+        "cost": 100,
+        "hairpin": False,
+        "guard": False,
+        "root_block": False,
+        "fastleave": False,
+        "learning": True,
+        "flood": True,
+        "id": f"0x{0x8000 + number:x}",
+        "no": f"0x{number:x}",
+        "designated_port": 0x8000 + number,
+        "designated_cost": 0,
+        "designated_bridge": "8000.2:5b:0:0:0:2",
+        "designated_root": "8000.2:5b:0:0:0:2",
+    }
+
+
 def default_links() -> list[dict[str, Any]]:
     return [
         {
@@ -78,19 +99,39 @@ def default_links() -> list[dict[str, Any]]:
             "address": "00:00:00:00:00:00",
         },
         _link(2, "eth0", "02:5b:00:00:00:01", parentbus="platform", parentdev="fd580000.ethernet"),
-        _link(3, "eth1", "02:5b:00:00:00:02", master="br0", parentbus="usb"),
+        _link(
+            3,
+            "eth1",
+            "02:5b:00:00:00:02",
+            master="br0",
+            parentbus="usb",
+            linkinfo={"info_slave_kind": "bridge", "info_slave_data": _brport(1)},
+        ),
         _link(
             4,
             "wlan0",
             "02:5b:00:00:00:03",
             master="br0",
             parentbus="mmc",
+            linkinfo={"info_slave_kind": "bridge", "info_slave_data": _brport(2)},
         ),
         _link(
             5,
             "br0",
             "02:5b:00:00:00:02",
-            linkinfo={"info_kind": "bridge", "info_data": {"vlan_filtering": 0, "stp_state": 0}},
+            linkinfo={
+                "info_kind": "bridge",
+                "info_data": {
+                    "vlan_filtering": 0,
+                    "stp_state": 0,
+                    "priority": 32768,
+                    "bridge_id": "8000.2:5b:0:0:0:2",
+                    "root_id": "8000.2:5b:0:0:0:2",
+                    "root_port": 0,
+                    "root_path_cost": 0,
+                    "topology_change": 0,
+                },
+            },
         ),
         _link(
             6,

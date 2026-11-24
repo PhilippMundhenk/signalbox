@@ -281,6 +281,9 @@ def demo_devices(services: Services, *, compact: bool = False) -> Iterator[dict[
             no_wireless_object=True,
             bond="balance-xor",
         )
+        for section in core.state["network"].values():  # spanning tree on, the root (#155)
+            if section.get("name") == "br-lan":
+                section |= {"stp": "1", "priority": "4096"}
         openwrt("core-switch", SITE_A, "Core switch", sw, core)
         openwrt("ap-1", SITE_A, "Office AP", ap, _openwrt(1, "192.0.2.2", "2001:db8::2", "ap-1"))
         openwrt("ap-2", SITE_A, "Hall AP", ap, _openwrt(2, "192.0.2.4", "2001:db8::4", "ap-2"))

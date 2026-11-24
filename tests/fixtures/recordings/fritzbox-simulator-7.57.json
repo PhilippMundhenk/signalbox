@@ -962,7 +962,8 @@
    ],
    "default_credentials": false,
    "signalbox_account_privilege": "admin",
-   "signalbox_account_needed": "admin"
+   "signalbox_account_needed": "admin",
+   "stp_bridges": null
   },
   "status": "ok",
   "ports": [
@@ -1008,7 +1009,8 @@
     "hash_policy": null,
     "min_links": null,
     "lacp_rate": null,
-    "lag_member_state": null
+    "lag_member_state": null,
+    "stp": null
    }
   ],
   "segments": [

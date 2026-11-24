@@ -461,6 +461,28 @@ async def test_log_targets_of_chr(rt: dict[str, str]) -> None:
     assert snap.device.log_targets == [], snap.device.log_targets
 
 
+async def test_spanning_tree_of_chr(rt: dict[str, str]) -> None:
+    """The bridge's spanning tree (#155): RSTP, RouterOS' default; the only bridge is its own
+    root. The monitor runs with the read-only group (no gap), the ports in the bridge report
+    their spanning tree."""
+    a = adapter(rt)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert not [e for e in snap.errors if e.message_id == "mikrotik.stpMonitor"], snap.errors
+    bridges = {b.name: b for b in snap.device.stp_bridges or []}
+    b = bridges["bridge"]
+    assert b.protocol.value == "rstp" and b.port_id == "rt/port/bridge", b
+    assert b.priority == 0x8000 and b.bridge_id is not None, b
+    assert b.root_bridge_id == b.bridge_id and b.is_root is True, b
+    ports = {p.name: p for p in snap.ports}
+    for name in ("ether2", "ether3"):
+        stp = ports[name].stp
+        assert stp is not None and stp.bpdu_guard is False, (name, stp)
+    assert ports["ether1"].stp is None
+
+
 async def test_refused_password_is_auth_failed(rt: dict[str, str]) -> None:
     a = adapter(rt, password="not-the-password")
     try:
