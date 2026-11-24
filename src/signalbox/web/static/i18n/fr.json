@@ -3014,5 +3014,13 @@
  "msg.snmp.authFailed.fix": "Vérifiez dans les paramètres de l'appareil le nom d'utilisateur SNMPv3, l'algorithme d'authentification (SHA ou SHA-256) et les deux mots de passe, et que l'utilisateur a une vue des MIB. Avec v2c, vérifiez la chaîne de communauté.",
  "msg.snmp.error": "{host} : la requête SNMP a échoué ({detail})",
  "msg.snmp.gapMib": "{host} : le switch n'offre pas {mib} via SNMP ; ce qui en dépend n'est pas lu",
- "msg.snmp.gapMib.fix": "Signalbox n'est pas en cause : le switch n'a pas ces données, la fonction est désactivée (activez LLDP ou le spanning tree sur le switch) ou la vue de l'utilisateur SNMP ne les inclut pas (SNMPv3 : ajoutez la MIB à la vue). Les vérifications qui en ont besoin indiquent « incomplet » tant qu'elles manquent."
+ "msg.snmp.gapMib.fix": "Signalbox n'est pas en cause : le switch n'a pas ces données, la fonction est désactivée (activez LLDP ou le spanning tree sur le switch) ou la vue de l'utilisateur SNMP ne les inclut pas (SNMPv3 : ajoutez la MIB à la vue). Les vérifications qui en ont besoin indiquent « incomplet » tant qu'elles manquent.",
+ "msg.unifi.error": "{path} : erreur UniFi {detail}",
+ "msg.unifi.loginRefused": "l'application Network a refusé la connexion : {detail}",
+ "msg.unifi.loginRefused.fix": "Vérifiez le nom d'utilisateur et le mot de passe du compte local (un compte cloud Ubiquiti ou un compte avec connexion en deux étapes ne peut pas être utilisé) ou utilisez une clé d'API.",
+ "msg.unifi.noSite": "l'application Network n'a pas de site {site} (sites : {sites})",
+ "msg.unifi.version": "l'application Network est en version {version} ; Signalbox est écrit pour les versions {tested} : la lecture continue, mais un champ peut manquer",
+ "msg.unifi.integrationOnly": "l'application Network n'accepte cette clé d'API que pour l'API d'intégration : les appareils, réseaux et clients sont lus, mais pas les ports, radios, réseaux Wi-Fi ni liaisons montantes",
+ "msg.unifi.integrationOnly.fix": "Utilisez un compte local avec un rôle en lecture seule pour une lecture complète.",
+ "msg.unifi.optional": "{what} : non lu ({cause})"
 }

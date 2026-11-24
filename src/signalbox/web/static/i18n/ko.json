@@ -3014,5 +3014,13 @@
  "msg.snmp.authFailed.fix": "장치 설정에서 SNMPv3 사용자 이름, 인증 알고리즘(SHA 또는 SHA-256), 두 비밀번호를 확인하고, 사용자에게 MIB 뷰가 있는지 확인하세요. v2c에서는 커뮤니티 문자열을 확인하세요.",
  "msg.snmp.error": "{host}: SNMP 요청 실패({detail})",
  "msg.snmp.gapMib": "{host}: 스위치가 SNMP로 {mib}을(를) 제공하지 않습니다. 이에 의존하는 항목은 읽지 않습니다",
- "msg.snmp.gapMib.fix": "Signalbox에는 문제가 없습니다. 스위치에 해당 데이터가 없거나, 기능이 꺼져 있거나(스위치에서 LLDP 또는 스패닝 트리를 켜세요), SNMP 사용자의 뷰에 포함되어 있지 않습니다(SNMPv3: 뷰에 MIB를 추가하세요). 이를 필요로 하는 검사는 데이터가 생길 때까지 \"불완전\"으로 보고합니다."
+ "msg.snmp.gapMib.fix": "Signalbox에는 문제가 없습니다. 스위치에 해당 데이터가 없거나, 기능이 꺼져 있거나(스위치에서 LLDP 또는 스패닝 트리를 켜세요), SNMP 사용자의 뷰에 포함되어 있지 않습니다(SNMPv3: 뷰에 MIB를 추가하세요). 이를 필요로 하는 검사는 데이터가 생길 때까지 \"불완전\"으로 보고합니다.",
+ "msg.unifi.error": "{path}: UniFi 오류 {detail}",
+ "msg.unifi.loginRefused": "Network 애플리케이션이 로그인을 거부했습니다: {detail}",
+ "msg.unifi.loginRefused.fix": "로컬 계정의 사용자 이름과 비밀번호를 확인하세요 (Ubiquiti 클라우드 계정이나 2단계 로그인 계정은 사용할 수 없습니다). 또는 API 키를 사용하세요.",
+ "msg.unifi.noSite": "Network 애플리케이션에 사이트 {site}이(가) 없습니다 (사이트: {sites})",
+ "msg.unifi.version": "Network 애플리케이션 버전은 {version}입니다. Signalbox는 {tested} 버전용으로 작성되었으며 계속 읽지만 일부 필드가 없을 수 있습니다",
+ "msg.unifi.integrationOnly": "Network 애플리케이션이 이 API 키를 Integration API에만 허용합니다. 장치, 네트워크, 클라이언트는 읽지만 포트, 라디오, Wi-Fi 네트워크, 업링크는 읽지 못합니다",
+ "msg.unifi.integrationOnly.fix": "전체를 읽으려면 읽기 전용 역할의 로컬 계정을 사용하세요.",
+ "msg.unifi.optional": "{what}: 읽지 못함 ({cause})"
 }

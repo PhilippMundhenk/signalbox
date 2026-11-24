@@ -32,4 +32,4 @@ Generated from the adapter manifests by `tools/gen_docs.py`.
 | OPNsense (`opnsense`) | simulator | simulator | simulator | - | simulator | - | simulator | simulator | simulator | simulator | router, dhcp, reservation, port, zone-policy, firewall-rule, port-forward | nothing yet |
 | Pi-hole (`pihole`) | - | simulator | simulator | - | simulator | - | - | - | - | - | - | nothing yet |
 | NETGEAR ProSAFE Plus (`prosafe`) | simulator | - | - | - | - | - | - | - | - | - | port | nothing yet |
-| SNMP switch (generic, read only) (`snmp`) | simulator | - | - | - | - | simulator | simulator | - | - | - | - | nothing yet |
+| Ubiquiti UniFi (`unifi`) | simulator | simulator | - | simulator | simulator | simulator | simulator | simulator | - | - | - | nothing yet |

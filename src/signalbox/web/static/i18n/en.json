@@ -3014,5 +3014,13 @@
  "msg.snmp.authFailed.fix": "Check the SNMPv3 user name, the authentication algorithm (SHA or SHA-256) and both passwords in the device settings, and that the user has a view of the MIBs. With v2c check the community string.",
  "msg.snmp.error": "{host}: SNMP request failed ({detail})",
  "msg.snmp.gapMib": "{host}: the switch does not offer {mib} over SNMP; what depends on it is not read",
- "msg.snmp.gapMib.fix": "Nothing is wrong with Signalbox: the switch has no such data, or the feature is off (enable LLDP or spanning tree on the switch), or the SNMP user's view does not include it (SNMPv3: add the MIB to the view). The checks that need it report \"incomplete\" until it is there."
+ "msg.snmp.gapMib.fix": "Nothing is wrong with Signalbox: the switch has no such data, or the feature is off (enable LLDP or spanning tree on the switch), or the SNMP user's view does not include it (SNMPv3: add the MIB to the view). The checks that need it report \"incomplete\" until it is there.",
+ "msg.unifi.error": "{path}: UniFi error {detail}",
+ "msg.unifi.loginRefused": "the Network application refused the login: {detail}",
+ "msg.unifi.loginRefused.fix": "Check the user name and password of the local account (a Ubiquiti cloud account or one with two-factor login cannot be used), or use an API key.",
+ "msg.unifi.noSite": "the Network application has no site {site} (sites: {sites})",
+ "msg.unifi.version": "the Network application is version {version}; Signalbox is written for versions {tested}: it reads on, but a field may be missing",
+ "msg.unifi.integrationOnly": "the Network application accepts this API key for the Integration API only: devices, networks and clients are read, ports, radios, Wi-Fi networks and uplinks are not",
+ "msg.unifi.integrationOnly.fix": "Use a local account with a read-only role for the full read.",
+ "msg.unifi.optional": "{what}: not read ({cause})"
 }

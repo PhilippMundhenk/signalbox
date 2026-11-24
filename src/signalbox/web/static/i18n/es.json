@@ -3014,5 +3014,13 @@
  "msg.snmp.authFailed.fix": "Compruebe en los ajustes del dispositivo el usuario SNMPv3, el algoritmo de autenticación (SHA o SHA-256) y ambas contraseñas, y que el usuario tenga una vista de las MIB. Con v2c compruebe la cadena de comunidad.",
  "msg.snmp.error": "{host}: la solicitud SNMP falló ({detail})",
  "msg.snmp.gapMib": "{host}: el switch no ofrece {mib} por SNMP; lo que depende de ello no se lee",
- "msg.snmp.gapMib.fix": "Signalbox no tiene ningún problema: el switch no tiene esos datos, la función está desactivada (active LLDP o spanning tree en el switch) o la vista del usuario SNMP no los incluye (SNMPv3: añada la MIB a la vista). Las comprobaciones que los necesitan indican \"incompleto\" hasta que estén disponibles."
+ "msg.snmp.gapMib.fix": "Signalbox no tiene ningún problema: el switch no tiene esos datos, la función está desactivada (active LLDP o spanning tree en el switch) o la vista del usuario SNMP no los incluye (SNMPv3: añada la MIB a la vista). Las comprobaciones que los necesitan indican \"incompleto\" hasta que estén disponibles.",
+ "msg.unifi.error": "{path}: error de UniFi {detail}",
+ "msg.unifi.loginRefused": "la aplicación Network rechazó el inicio de sesión: {detail}",
+ "msg.unifi.loginRefused.fix": "Compruebe el nombre de usuario y la contraseña de la cuenta local (no se puede usar una cuenta en la nube de Ubiquiti ni una con inicio de sesión en dos pasos) o use una clave de API.",
+ "msg.unifi.noSite": "la aplicación Network no tiene el sitio {site} (sitios: {sites})",
+ "msg.unifi.version": "la aplicación Network es la versión {version}; Signalbox está escrito para las versiones {tested}: sigue leyendo, pero puede faltar algún campo",
+ "msg.unifi.integrationOnly": "la aplicación Network acepta esta clave de API solo para la API de integración: se leen dispositivos, redes y clientes, pero no puertos, radios, redes Wi-Fi ni enlaces ascendentes",
+ "msg.unifi.integrationOnly.fix": "Use una cuenta local con un rol de solo lectura para la lectura completa.",
+ "msg.unifi.optional": "{what}: no se lee ({cause})"
 }
