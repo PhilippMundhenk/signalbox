@@ -851,8 +851,11 @@ on [OpenWrt](openwrt.md) and [OPNsense](opnsense.md)):
 - **Ownership**: Signalbox creates rows with the comment `signalbox:<key>` (` <name>` follows when
   the name is not the key; zone policies `signalbox:policy/<from>/<to|device>`). Only rows with
   that comment are changed or removed. The device's own rows are touched only when a change says
-  `adopt` (the row with that comment is deleted and replaced by a tagged one at the same place;
-  the comment must match exactly one row). A tagged row that is no longer declared is removed.
+  `adopt` (the row with that comment is changed in place: new comment and the declared properties,
+  every other property such as `log` or `connection-state` stays and is listed in the plan;
+  `in-interface` and the address lists are replaced by the declared zone and networks; a kept
+  property that does not fit the declaration, e.g. `reject-with` for a non-reject action, refuses
+  the adoption with the list; the comment must match exactly one row). A tagged row that is no longer declared is removed.
   The lockout check of the plan runs before (the plan needs the override if it cuts Signalbox
   off) and after (the verification reads the router again and the findings are evaluated).
 - **Mapping**: a rule is a row of `/ip/firewall/filter` (`family: 4`) or
@@ -912,10 +915,13 @@ What that does not cover ([#21](https://github.com/PhilippMundhenk/signalbox/iss
 - *Guess*: the policies `read,write` suffice to create the scheduler entry and for its script on
   other RouterOS versions and with the group above; the clock format of older versions.
 - *Guess*: `place-before` in the body of `PUT` (CI covers the plain case, not other chains).
-- *Guess*: re-adding a removed row (adoption, revert) puts it in its place only when the row
-  after it has a comment to find it by; otherwise at the end of its menu.
-- *Guess*: rows with properties the writer does not know (`log`, `connection-state`, ...) on an
-  adopted rule are replaced by a rule without them; `adopt` shows the old rule in the plan.
+- Re-adding a removed row in the revert script puts it before the row that followed it, found
+  by its comment or, without one, by that row's `.id` (a deployment only removes rows with a
+  comment, so the id is still valid). *Guess*: `place-before=*<id>` in a script line, which the
+  simulator accepts, needs a real device.
+- *Guess*: which kept properties RouterOS refuses next to the declared ones (the writer knows
+  `reject-with`, `jump-target` and ports without tcp/udp); any other clash shows up as the
+  router's error during the apply (then the change is undone).
 - A timer that runs while Signalbox is still working (a very slow router) undoes the change and
   `confirm` reports it.
 

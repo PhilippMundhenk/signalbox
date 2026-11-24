@@ -725,3 +725,92 @@ def test_simulator_validates_like_routeros(sim: MikrotikSimulator, url: str) -> 
     for line in ('/odd menu remove [find where a="b"]', "/ip firewall filter remove [x]"):
         with pytest.raises(ValueError):
             sim._script_line(line)
+
+
+# --- adopted rows keep their other properties (#331) ------------------------------------------
+
+EXTRAS = {"log": "yes", "log-prefix": "dns", "connection-state": "new", "limit": "50,5:packet"}
+
+
+def _own_dns(sim: MikrotikSimulator) -> dict[str, Any]:
+    return next(r for r in sim.data[FW_FILTER] if r["comment"] == "IoT: DNS")
+
+
+async def test_adopting_keeps_the_properties_the_declaration_does_not_model(
+    sim: MikrotikSimulator, svc: Services
+) -> None:
+    _own_dns(sim).update(EXTRAS)
+    next(r for r in sim.data[FW_NAT] if r["comment"] == "NAS web interface")["log"] = "yes"
+    await net_of(svc)
+    d = Deployer(svc.runner)
+    rec, done = await deploy(d, svc, ADOPT)
+    assert done.status is ChangeStatus.APPLIED, [r.error for r in done.devices]
+    row = next(r for r in sim.data[FW_FILTER] if r["comment"] == "signalbox:iot_dns iot-dns")
+    assert {k: row[k] for k in EXTRAS} == EXTRAS
+    fwd = next(r for r in sim.data[FW_NAT] if r["comment"].startswith("signalbox:nas_web"))
+    assert fwd["log"] == "yes"
+    # the plan says what stays
+    shown = " ".join(str(c.description) for c in rec.devices[0].calls)
+    assert "adopt the device's own row in place" in shown
+    assert "log=yes" in shown and "connection-state=new" in shown
+
+
+async def test_adopted_rows_come_back_identical_by_timer_and_backup(
+    sim: MikrotikSimulator, svc: Services, url: str
+) -> None:
+    _own_dns(sim).update(EXTRAS)
+    before = rows(sim)
+    _, a = await apply_plan(url, svc, ADOPT)
+    try:
+        assert rows(sim) != before
+        sim.fire_scheduler()
+        assert not sim.script_errors, sim.script_errors
+        assert rows(sim) == before
+    finally:
+        await a.close()
+    d = Deployer(svc.runner)
+    _, done = await deploy(d, svc, ADOPT)
+    assert done.status is ChangeStatus.APPLIED, [r.error for r in done.devices]
+    rec = svc.store.change(done.id)
+    assert rec is not None and rec.devices[0].backup_id
+    restore = await d.restore_backup(rec.devices[0].backup_id, "not wanted", "tester")
+    d.approve(restore.id, "tester")
+    assert (await d.deploy(restore.id)).status is ChangeStatus.APPLIED
+    assert rows(sim) == before
+
+
+async def test_adoption_that_cannot_keep_a_property_is_refused_with_the_list(
+    sim: MikrotikSimulator, url: str, svc: Services
+) -> None:
+    _own_dns(sim).update({"log": "yes", "reject-with": "icmp-host-unreachable"})
+    before = rows(sim)
+    await net_of(svc)
+    p = plan(parse(ADOPT), svc.runner.network(), RULES)
+    a = adapter(url)
+    try:
+        with pytest.raises(AdapterError, match=r"reject-with.*log=yes"):
+            await a.apply(p.changes, {}, 120)
+    finally:
+        await a.close()
+    assert rows(sim) == before
+
+
+async def test_a_removed_row_returns_to_its_place_when_the_next_row_has_no_comment(
+    sim: MikrotikSimulator, svc: Services, url: str
+) -> None:
+    await net_of(svc)
+    d = Deployer(svc.runner)
+    _, first = await deploy(d, svc, WANT)
+    assert first.status is ChangeStatus.APPLIED
+    chain = sim.data[FW_FILTER]
+    at = next(i for i, r in enumerate(chain) if r["comment"] == "signalbox:no_telnet no-telnet")
+    chain.insert(at + 1, {**chain[at], "comment": "", "action": "accept", "dst-port": "22"})
+    before = rows(sim)
+    _, a = await apply_plan(url, svc, WANT.replace("name: no-telnet", "name: gone-telnet"))
+    try:
+        assert rows(sim) != before
+        sim.fire_scheduler()
+        assert not sim.script_errors, sim.script_errors
+        assert rows(sim) == before
+    finally:
+        await a.close()

@@ -674,6 +674,39 @@ def _rule_item(
     }
 
 
+_NOT_PROPERTIES = {
+    "uuid",
+    "sort_order",
+    "sequence",
+    "descr",
+    "description",
+    "legacy",
+    "is_automatic",
+}
+
+
+def _flat(item: dict[str, Any]) -> set[str]:
+    out: set[str] = set()
+    for k, v in item.items():
+        out |= {f"{k}.{x}" for x in v} if isinstance(v, dict) else {k}
+    return out
+
+
+def _kept(adopted: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+    """The fields of an adopted row that the declaration does not set: they stay as they are.
+    Display copies (``%interface``) and empty values are left out of the list."""
+    written = _flat(item)
+    return {
+        k: v
+        for k, v in adopted.items()
+        if k not in written
+        and k not in _NOT_PROPERTIES
+        and not k.startswith("%")
+        and not isinstance(v, (dict, list))
+        and _text(v) not in ("", "0")
+    }
+
+
 def _write_row(
     rows: list[dict[str, Any]],
     ours: dict[str, Any] | None,
@@ -687,10 +720,18 @@ def _write_row(
     add, set_, del_ = paths
     calls: list[Call] = []
     if adopted is not None and ours is None and item is not None:
-        calls.append(
-            Call(f"{label}: adopt the device's {_descr(adopted)!r}", del_ + _uuid_of(adopted))
+        # in place: set_rule changes only the fields it is sent, so every other field of the
+        # device's row (log, state type, gateway, category ...) stays; so does its place
+        kept = _kept(adopted, item)
+        item = {**item, "sequence": str(adopted.get("sequence", item["sequence"]))}
+        listed = ", ".join(f"{k}={v}" for k, v in kept.items())
+        what = f"adopt the device's {_descr(adopted)!r} in place" + (
+            f" (keeps {listed})" if listed else ""
         )
-        rows.remove(adopted)
+        merged = {**adopted, **{k: v for k, v in item.items() if not isinstance(v, dict)}}
+        merged["descr"] = _descr(item)
+        rows[rows.index(adopted)] = merged
+        return [Call(f"{label}: {what}", set_ + _uuid_of(adopted), {"rule": item})]
     if item is None:
         if ours is None:
             return calls

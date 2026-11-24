@@ -377,7 +377,9 @@ What Signalbox owns is tagged by the **description** of the row, and nothing els
 - Rules, forwards and policies that carry the tag and are no longer declared are removed
   (policies stay until declared away, like on OpenWrt). The device's own rules and forwards are
   never touched, except `adopt: <name>`: the one row of the **new** pages with that description is
-  deleted and replaced by a tagged one in its place. Rows of the legacy pages and the automatic
+  changed in place (`set_rule`, which only sets the fields it is sent): it keeps its place and
+  every field the declaration does not set (`log`, `statetype`, `category`, ...); the plan lists
+  them. Rows of the legacy pages and the automatic
   ones cannot be deleted through the API, so adopting one is refused. `adopt: true` on a policy
   changes nothing here (a policy never removes the device's own rules).
   Undoing an adoption by *revert* is refused by the firewall (the old rule read back has the

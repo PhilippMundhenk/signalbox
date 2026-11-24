@@ -114,7 +114,10 @@ sites:
   delete from the desired state is removed by the next deployment. The device's own rules,
   forwards and forwardings (vendor defaults, rules made in LuCI) are never changed or removed:
   - `adopt: <name>` on a rule or forward takes over the device's object of that name: it is
-    replaced by Signalbox's tagged one (that is how you *import* an existing rule).
+    taken over as Signalbox's tagged one (that is how you *import* an existing rule). Every
+    property of the object that the desired state does not model (`log`, a rate limit, a
+    state type, a category ...) is kept and listed in the plan; where it cannot be kept the
+    adoption is refused with the list. Never dropped silently.
   - `adopt: true` on a policy lets a deployment remove the device's own forwarding between the
     two zones for `reject`; without it the plan is refused with that hint.
   - A policy to the device or inside one zone sets that zone's own setting (OpenWrt `input`,

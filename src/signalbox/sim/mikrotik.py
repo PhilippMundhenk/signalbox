@@ -1455,7 +1455,10 @@ class MikrotikSimulator:
         if verb == "add":
             props = dict(a.split("=", 1) for a in args)
             before = props.pop("place-before", None)
-            found = self._found(rows, before) if before else []
+            if before and before.startswith("*"):
+                found = [r for r in rows if r.get(".id") == before]
+            else:
+                found = self._found(rows, before) if before else []
             row = {".id": self._id(), **DEFAULTS.get(menu, {}), **props}
             problem = self._check(menu, row, rows)
             if problem:

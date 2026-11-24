@@ -364,6 +364,24 @@ jobs:
           body=${body//'%'/'%25'}
           body=${body//$'\n'/'%0A'}
           echo "::notice title=MikroTik integration test results::$body"
+      - name: Collected tests and results in the job summary
+        if: always()
+        run: |
+          {
+            echo "### MikroTik integration tests"
+            echo
+            echo "Collected test ids (what pytest found in the file):"
+            echo '```'
+            pytest tests/integration/test_mikrotik_real.py --collect-only -q -p no:cacheprovider 2>&1 | grep '::' || true
+            echo '```'
+            echo
+            echo "Outcome per test (from the run above; a test missing here did not run):"
+            echo '```'
+            grep -E ' (PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)' "$VM_DIR/pytest.log" 2>/dev/null | sed 's/^tests.integration.test_mikrotik_real.py:://' || true
+            echo '```'
+            echo
+            echo "Firewall tests that ran: $(grep -cE 'test_(firewall|adopted|revert_timer).* PASSED' "$VM_DIR/pytest.log" 2>/dev/null || true)"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Serial console on failure
         if: failure()
         run: |
