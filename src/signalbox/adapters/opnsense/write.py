@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from ipaddress import IPv4Interface, ip_network
 from typing import TYPE_CHECKING, Any
 
-from signalbox.adapters import AdapterError, VendorCall
+from signalbox.adapters import AdapterError, Described, VendorCall, message_fields
 from signalbox.adapters.opnsense.firewall import POLICY_MARK, TAG, describe, split_mark, tagged
 from signalbox.changes import (
     Change,
@@ -89,7 +89,11 @@ class Call:
 
     def vendor(self) -> VendorCall:
         return VendorCall(
-            description=self.description, method=self.method, target=self.path, payload=self.payload
+            description=self.description,
+            **message_fields(self.description),
+            method=self.method,
+            target=self.path,
+            payload=self.payload,
         )
 
     @property
@@ -578,10 +582,16 @@ def _adopted(rows: list[dict[str, Any]], name: str, what: str, label: str) -> di
     if not own and named:
         raise AdapterError(
             f"{label}: {name!r} belongs to the legacy or automatic rules, which the API cannot "
-            "delete; only rows of the new rules and NAT pages can be adopted"
+            "delete; only rows of the new rules and NAT pages can be adopted",
+            message_id="opnsense.adoptLegacy",
+            params={"label": label, "name": repr(name)},
         )
     found = "no" if not own else "several"
-    raise AdapterError(f"{label}: the device has {found} {what} named {name!r} to adopt")
+    raise AdapterError(
+        f"{label}: the device has {found} {what} named {name!r} to adopt",
+        message_id="opnsense.adoptNone" if not own else "opnsense.adoptSeveral",
+        params={"label": label, "what": what, "name": repr(name)},
+    )
 
 
 def _next(rows: list[dict[str, Any]], base: int, limit: int) -> int:
@@ -725,13 +735,26 @@ def _write_row(
         kept = _kept(adopted, item)
         item = {**item, "sequence": str(adopted.get("sequence", item["sequence"]))}
         listed = ", ".join(f"{k}={v}" for k, v in kept.items())
-        what = f"adopt the device's {_descr(adopted)!r} in place" + (
-            f" (keeps {listed})" if listed else ""
-        )
+        name = repr(_descr(adopted))
+        if listed:
+            what: str = Described(
+                f"{label}: adopt the device's {name} in place (keeps {listed})",
+                "plan.adoptNamedKeeps",
+                label=label,
+                name=name,
+                kept=listed,
+            )
+        else:
+            what = Described(
+                f"{label}: adopt the device's {name} in place",
+                "plan.adoptNamed",
+                label=label,
+                name=name,
+            )
         merged = {**adopted, **{k: v for k, v in item.items() if not isinstance(v, dict)}}
         merged["descr"] = _descr(item)
         rows[rows.index(adopted)] = merged
-        return [Call(f"{label}: {what}", set_ + _uuid_of(adopted), {"rule": item})]
+        return [Call(what, set_ + _uuid_of(adopted), {"rule": item})]
     if item is None:
         if ours is None:
             return calls

@@ -21,7 +21,7 @@ from typing import Any
 
 from pydantic import JsonValue
 
-from signalbox.adapters import AdapterError, VendorCall
+from signalbox.adapters import AdapterError, Described, VendorCall, message_fields
 from signalbox.adapters import openwrt as h  # the read helpers (circular, used at run time)
 from signalbox.adapters.openwrt.firewall import FORWARD_TAG, POLICY_TAG, RULE_TAG
 from signalbox.adapters.openwrt.firewall import tag as fw_tag
@@ -85,6 +85,7 @@ class UciOp:
                     values[name] = MASK
         return VendorCall(
             description=self.description,
+            **message_fields(self.description),
             method=f"uci.{self.method}",
             target=f"{self.config}.{self.section}",
             payload=payload,
@@ -587,7 +588,9 @@ def _refuse_kept(kept: dict[str, Any], values: dict[str, Any], label: str) -> No
         raise AdapterError(
             f"{label}: the device's section has options the declaration does not model and that "
             f"do not fit it: {'; '.join(clash)}. Adopting would keep: {everything}. "
-            "Change the declaration or the section on the device"
+            "Change the declaration or the section on the device",
+            message_id="openwrt.keptClash",
+            params={"label": label, "clash": "; ".join(clash), "kept": everything},
         )
 
 
@@ -615,13 +618,25 @@ def _replace(
         if len(own) != 1:
             raise AdapterError(
                 f"{label}: the device has {'no' if not own else 'several'} {kind} named {adopt!r} "
-                "to adopt"
+                "to adopt",
+                message_id="openwrt.adoptNone" if not own else "openwrt.adoptSeveral",
+                params={"label": label, "kind": kind, "name": repr(adopt)},
             )
         kept = _kept(have[own[0]], values, modelled)
         if values is not None:
             _refuse_kept(kept, values, label)
         shown = ", ".join(f"{k}={_show(v)}" for k, v in kept.items())
-        cfg.delete("firewall", own[0], f"{label}: adopt the device's {kind} {adopt!r}")
+        cfg.delete(
+            "firewall",
+            own[0],
+            Described(
+                f"{label}: adopt the device's {kind} {adopt!r}",
+                "plan.adoptSection",
+                label=label,
+                kind=kind,
+                name=repr(adopt),
+            ),
+        )
         if values is not None:
             # the section is created again with the options the declaration does not model
             values = {**kept, **values}
@@ -639,7 +654,12 @@ def _replace(
             f"{label}: remove options",
         )
         return False
-    cfg.add("firewall", kind, section, values, f"{label}: new{adopted_note}")
+    note = (
+        Described(f"{label}: new{adopted_note}", "plan.newKeeps", label=label, kept=shown)
+        if adopted_note
+        else f"{label}: new"
+    )
+    cfg.add("firewall", kind, section, values, note)
     return True
 
 

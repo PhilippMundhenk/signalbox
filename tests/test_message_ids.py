@@ -110,3 +110,59 @@ def test_rule_catalogue_keys_name_existing_rules(key: str) -> None:
     ids = {r.id for r in [*load_rules(), *ENGINE_RULES]}
     rule_id = key.removeprefix("rule.").rsplit(".", 1)[0]
     assert rule_id in ids
+
+
+#: Adapter modules that only plan and apply changes (a declaration refused, a write failed): their
+#: errors show in the plan and the change record, not on the device page, and stay English.
+WRITE_MODULES = ("write.py", "writes.py", "fwwrite.py", "provision.py")
+#: Functions of the other modules with the same role (apply, confirm, backup, restore), or whose
+#: error is caught and logged or only steers the control flow; their texts stay English.
+APPLY_FUNCTIONS = {
+    "fritzbox/__init__.py": {"restore", "_calls", "_send"},
+    "openwrt/__init__.py": {"_clear_staging", "restore", "confirm", "attempt"},
+    "openwrt/ubus.py": {"_rpc"},  # NotFound, InvalidArgument, ...: caught by the readers
+    "opnsense/__init__.py": {
+        "_needs_assignments",
+        "_revision_time",
+        "_send",
+        "backup",
+        "restore",
+        "_isc_settings",  # logged, not shown
+        "_firewall_state",
+    },
+    "plusswitch/__init__.py": {"read_interfaces", "restore"},  # internal check, backup format
+}
+CHECKED_ERRORS = {"AdapterError", "AuthFailed", "Unreachable"}
+
+
+def test_every_read_error_of_the_adapters_carries_a_message_id() -> None:
+    """A new ``raise AdapterError("...")`` in a read path needs ``message_id=`` (and a catalogue
+    entry, see the first test) or it stays English on the device page (#204). Planning and
+    applying (:data:`WRITE_MODULES`, :data:`APPLY_FUNCTIONS`) are exempt."""
+    bad = []
+    adapters = SRC / "adapters"
+    for path in sorted(adapters.rglob("*.py")):
+        rel = path.relative_to(adapters).as_posix()
+        if path.name in WRITE_MODULES:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        parents = {c: n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if (func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")) not in (
+                CHECKED_ERRORS
+            ):
+                continue
+            if any(k.arg == "message_id" for k in node.keywords):
+                continue
+            scope: ast.AST = node
+            while scope in parents and not isinstance(
+                scope, ast.FunctionDef | ast.AsyncFunctionDef
+            ):
+                scope = parents[scope]
+            name = getattr(scope, "name", "")
+            if name not in APPLY_FUNCTIONS.get(rel, set()):
+                bad.append(f"{rel}:{node.lineno} ({name})")
+    assert not bad, f"adapter errors without message_id=: {bad}"

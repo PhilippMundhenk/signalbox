@@ -162,7 +162,11 @@ def _translate(exc: BaseException, errors: Any, address: str) -> AdapterError:
             params={"address": address, "cause": str(exc)},
         )
     if isinstance(exc, errors.Unreachable | TimeoutError):
-        return Unreachable(f"{address}: the switch does not answer")
+        return Unreachable(
+            f"{address}: the switch does not answer",
+            message_id="plusswitch.noAnswer",
+            params={"address": address},
+        )
     if isinstance(exc, errors.SwitchError):
         tag = getattr(exc, "tag", 0)
         if tag and getattr(exc, "status", None) in (7, 9, 13, 14):  # NSDP "password" answers
@@ -179,8 +183,16 @@ def _translate(exc: BaseException, errors: Any, address: str) -> AdapterError:
                 fix_id="plusswitch.needsPassword.fix",
                 params={"address": address, "setting": name, "cause": str(exc)},
             )
-        return AdapterError(f"{address}: {exc}")
-    return AdapterError(f"{address}: unexpected answer from the switch ({type(exc).__name__})")
+        return AdapterError(
+            f"{address}: {exc}",
+            message_id="plusswitch.error",
+            params={"address": address, "detail": str(exc)},
+        )
+    return AdapterError(
+        f"{address}: unexpected answer from the switch ({type(exc).__name__})",
+        message_id="plusswitch.badAnswer",
+        params={"address": address, "detail": type(exc).__name__},
+    )
 
 
 #: what a garbled answer raises inside Switchyard's parsers
@@ -231,7 +243,7 @@ class _PlusSwitch(Adapter):
         try:
             import switchyard.drivers.base as errors
         except ImportError:
-            raise AdapterError(INSTALL_HINT) from None
+            raise AdapterError(INSTALL_HINT, message_id="plusswitch.install") from None
         self._errors = errors
         return errors
 
@@ -246,7 +258,11 @@ class _PlusSwitch(Adapter):
             except (errors.SwitchError, errors.Unreachable, TimeoutError, *_PARSE_ERRORS) as exc:
                 raise _translate(exc, errors, self._host) from exc
             except OSError as exc:
-                raise AdapterError(f"cannot use UDP port {client_port}: {exc}") from exc
+                raise AdapterError(
+                    f"cannot use UDP port {client_port}: {exc}",
+                    message_id="plusswitch.udpPort",
+                    params={"port": client_port, "detail": str(exc)},
+                ) from exc
 
     async def read_system(self) -> SystemInfo:
         self._reading = await self._with_switch(self._read_all, login=False)
@@ -282,7 +298,11 @@ class _PlusSwitch(Adapter):
                 for what in reading.skipped
             ]
         except (ValueError, TypeError, AttributeError) as exc:
-            raise AdapterError(f"{self._host}: unexpected port or VLAN answer: {exc}") from exc
+            raise AdapterError(
+                f"{self._host}: unexpected port or VLAN answer: {exc}",
+                message_id="plusswitch.badPorts",
+                params={"host": self._host, "detail": str(exc)},
+            ) from exc
         return observed.model_copy(
             update={"services": self._services(), "incomplete": gaps, **self._login_facts()}
         )
@@ -351,7 +371,11 @@ class _PlusSwitch(Adapter):
         try:
             await client.apply_dot1q(table.rows(), table.pvid)
         except ValueError as exc:  # Switchyard's checks before anything is written
-            raise AdapterError(f"{self._host}: VLAN table refused: {exc}") from exc
+            raise AdapterError(
+                f"{self._host}: VLAN table refused: {exc}",
+                message_id="plusswitch.vlanRefused",
+                params={"host": self._host, "detail": str(exc)},
+            ) from exc
 
     async def backup(self) -> Backup:
         table = await self._with_switch(self._table)  # part of a change: password checked
@@ -420,7 +444,9 @@ class _PlusSwitch(Adapter):
             raise AuthFailed(
                 f"{self._host}: the switch refused this password; not sent again for "
                 f"{REFUSED_FOR / 60:.0f} minutes so that the switch does not lock (change "
-                "the password in the device settings to try again)"
+                "the password in the device settings to try again)",
+                message_id="plusswitch.passwordRefused",
+                params={"host": self._host, "minutes": f"{REFUSED_FOR / 60:.0f}"},
             )
         try:
             await login()
@@ -580,7 +606,11 @@ class ProsafeAdapter(_PlusSwitch):
         try:
             identity = await probe(transport, self._host, timeout)
             if identity is None:
-                raise Unreachable(f"{self._host}: no NETGEAR Plus switch answers (NSDP)")
+                raise Unreachable(
+                    f"{self._host}: no NETGEAR Plus switch answers (NSDP)",
+                    message_id="plusswitch.noNetgear",
+                    params={"host": self._host},
+                )
             client = SwitchClient(transport, parse_mac(identity["mac"]), self._host)
             # like Switchyard: read the identity first; it tells the password scheme
             # (old firmware does not answer a lone password-scheme read reliably)
@@ -667,9 +697,17 @@ class EasySmartAdapter(_PlusSwitch):
                 if addr[0] == self._host
             }
             if not found:
-                raise Unreachable(f"{self._host}: no TP-Link Easy Smart switch answers")
+                raise Unreachable(
+                    f"{self._host}: no TP-Link Easy Smart switch answers",
+                    message_id="plusswitch.noTplink",
+                    params={"host": self._host},
+                )
             if len(found) > 1:
-                raise AdapterError(f"{self._host}: {len(found)} switches answer for this address")
+                raise AdapterError(
+                    f"{self._host}: {len(found)} switches answer for this address",
+                    message_id="plusswitch.several",
+                    params={"host": self._host, "count": len(found)},
+                )
             identity = next(iter(found.values()))
             client = EasySmartClient(
                 transport,

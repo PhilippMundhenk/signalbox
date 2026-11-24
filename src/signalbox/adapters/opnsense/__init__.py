@@ -60,6 +60,7 @@ from signalbox.adapters import (
     TraceAnswer,
     TraceSupport,
     VendorCall,
+    unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.opnsense import discovery as _discovery
@@ -386,7 +387,7 @@ class OpnsenseConfig(AdapterConfig):
 
 
 def _unexpected(endpoint: str, what: str) -> AdapterError:
-    return AdapterError(f"unexpected answer from {endpoint}: {what}")
+    return unexpected_answer(endpoint, what)
 
 
 def _dict(value: Any, endpoint: str, what: str) -> dict[str, Any]:
@@ -1929,7 +1930,11 @@ class OpnsenseAdapter(_Adapter):
         try:
             answer = response.json()
         except ValueError as exc:
-            raise AdapterError(f"{SYSTEM_TIME}: answer is not valid JSON") from exc
+            raise AdapterError(
+                f"{SYSTEM_TIME}: answer is not valid JSON",
+                message_id="transport.notJson",
+                params={"path": SYSTEM_TIME},
+            ) from exc
         time = _dict(answer, SYSTEM_TIME, "the answer")
         # no query string: the privilege's pattern is the bare path (26.7 refuses ?current=1)
         status = await self._optional(NTP_STATUS)  # NotFound: ntpd not there

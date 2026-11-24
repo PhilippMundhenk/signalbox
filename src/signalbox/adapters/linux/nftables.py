@@ -172,7 +172,20 @@ class Parsed:
     enabled: bool = False
     complete: bool = True
     port_forwards_complete: bool = True
-    gaps: list[str] = field(default_factory=list)
+    gaps: list[NftGap] = field(default_factory=list)
+
+
+class NftGap(str):
+    """A gap text with its translation id and values (#204); it is the English text as a string."""
+
+    message_id: str
+    params: dict[str, str]
+
+    def __new__(cls, message: str, message_id: str, **params: str) -> NftGap:
+        gap = super().__new__(cls, message)
+        gap.message_id = message_id
+        gap.params = params
+        return gap
 
 
 @dataclass
@@ -238,7 +251,7 @@ class _Reader:
         self.chains: dict[ChainKey, _Chain] = {}
         self.rules: dict[ChainKey, list[dict[str, Any]]] = {}
         self.sets: dict[tuple[str, str, str], list[Any]] = {}
-        self.gaps: list[str] = []
+        self.gaps: list[NftGap] = []
         self.parsed = Parsed()
         for obj in objects:
             if "chain" in obj:
@@ -404,8 +417,13 @@ class _Reader:
                 target = (key[0], key[1], str(t.arg))
                 if target in stack or len(stack) >= MAX_DEPTH or target not in self.chains:
                     self.gaps.append(
-                        f"nftables: {t.kind} to chain {t.arg!r} cannot be followed "
-                        "(unknown chain or a loop)"
+                        NftGap(
+                            f"nftables: {t.kind} to chain {t.arg!r} cannot be followed "
+                            "(unknown chain or a loop)",
+                            "linux.nft.chainJump",
+                            kind=str(t.kind),
+                            chain=repr(t.arg),
+                        )
                     )
                     self.parsed.complete = False
                     continue
@@ -422,7 +440,9 @@ class _Reader:
                 degraded = True
                 continue
             if t.kind == "vmap":
-                self.gaps.append("nftables: a verdict map (vmap) is not read")
+                self.gaps.append(
+                    NftGap("nftables: a verdict map (vmap) is not read", "linux.nft.vmap")
+                )
                 self.parsed.complete = False
                 continue
             out.append(Item(c, t, item.comment))
@@ -512,9 +532,15 @@ def _filter(reader: _Reader, out: Parsed) -> None:
             if later and not only_drops:
                 out.complete = False
                 reader.gaps.append(
-                    f"nftables: several base chains on the {hook} hook "
-                    f"({c.key[1]} {c.key[2]} and {later[0].key[1]} {later[0].key[2]}) "
-                    "cannot be merged"
+                    NftGap(
+                        f"nftables: several base chains on the {hook} hook "
+                        f"({c.key[1]} {c.key[2]} and {later[0].key[1]} {later[0].key[2]}) "
+                        "cannot be merged",
+                        "linux.nft.severalBase",
+                        hook=str(hook),
+                        first=f"{c.key[1]} {c.key[2]}",
+                        second=f"{later[0].key[1]} {later[0].key[2]}",
+                    )
                 )
                 break
         for c in live:
@@ -544,8 +570,14 @@ def _ignored_hooks(reader: _Reader, out: Parsed) -> None:
         if drops:
             out.complete = False
             reader.gaps.append(
-                f"nftables: the {c.hook} chain {c.key[2]} of table {c.key[1]} drops traffic "
-                "and is not modelled"
+                NftGap(
+                    f"nftables: the {c.hook} chain {c.key[2]} of table {c.key[1]} drops traffic "
+                    "and is not modelled",
+                    "linux.nft.dropChain",
+                    hook=str(c.hook),
+                    chain=str(c.key[2]),
+                    table=str(c.key[1]),
+                )
             )
 
 
@@ -576,7 +608,12 @@ def _nat(reader: _Reader, out: Parsed) -> None:
                 _forward(out, item, cond, t.arg or {})
             elif c.hook == "prerouting" and t.kind == "redirect":
                 out.port_forwards_complete = False  # to the device itself
-                reader.gaps.append("nftables: a redirect rule is not read as a port forward")
+                reader.gaps.append(
+                    NftGap(
+                        "nftables: a redirect rule is not read as a port forward",
+                        "linux.nft.redirect",
+                    )
+                )
             elif c.hook == "postrouting" and t.kind in ("masquerade", "snat"):
                 _source_nat(out, item, cond, t)
 
@@ -587,7 +624,12 @@ def _forward(out: Parsed, item: Item, c: Cond, arg: dict[str, Any]) -> None:
         target = ip_address(str(addr))
     except (ValueError, TypeError):
         out.port_forwards_complete = False
-        out.gaps.append("nftables: a dnat rule without a plain target address is not read")
+        out.gaps.append(
+            NftGap(
+                "nftables: a dnat rule without a plain target address is not read",
+                "linux.nft.dnat",
+            )
+        )
         return
     exact = c.exact and not c.src_zones_not
     external = _single(c.dst_nets, c.dst_nets_not)
@@ -623,7 +665,11 @@ def _source_nat(out: Parsed, item: Item, c: Cond, t: Term) -> None:
         try:
             address = ip_address(str((t.arg or {}).get("addr")))
         except (ValueError, TypeError):
-            out.gaps.append("nftables: an snat rule without a plain address is not read")
+            out.gaps.append(
+                NftGap(
+                    "nftables: an snat rule without a plain address is not read", "linux.nft.snat"
+                )
+            )
             out.complete = False
             return
     out.nat.append(

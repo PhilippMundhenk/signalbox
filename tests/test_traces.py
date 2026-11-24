@@ -613,6 +613,9 @@ async def test_one_trace_failures(svc: Services, mode: str, error: str) -> None:
     svc.store.put_device(rec, {"mode": mode}, TrConfig)
     result = await tracer(svc).trace(Pair("fw", ip_address("1.1.1.1"), "internet"))
     assert result.error and error in result.error
+    ids = {"broken": "trace.adapter", "missing": "trace.unsupported"}
+    if mode in ids:
+        assert result.message_id == ids[mode]
     if mode == "denied":
         assert result.remedy == "privileges" and result.fix == "grant it"
 
@@ -629,8 +632,9 @@ async def test_trace_timeout_and_removed_device(tmp_path: Path) -> None:
         t.settings.__dict__["timeout_seconds"] = 0.05  # faster than the minimum for the test
         result = await t.trace(Pair("fw", ip_address("1.1.1.1"), "internet"))
         assert result.error and "no result within" in result.error
+        assert result.message_id == "trace.timeout" and result.params == {"seconds": "0.05"}
         gone = await t.trace(Pair("gone", ip_address("1.1.1.1"), "internet"))
-        assert gone.error == "the device was removed"
+        assert gone.error == "the device was removed" and gone.message_id == "trace.removed"
     finally:
         s.close()
 

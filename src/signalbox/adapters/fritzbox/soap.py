@@ -103,11 +103,19 @@ def _local(tag: str) -> str:
 def parse_xml(body: bytes, what: str) -> ET.Element:
     """Parse a device answer; refuses DTDs and entities, maps parse errors to AdapterError."""
     if _DTD.search(body):
-        raise AdapterError(f"{what}: answer refused, it contains a DTD or entity declaration")
+        raise AdapterError(
+            f"{what}: answer refused, it contains a DTD or entity declaration",
+            message_id="fritzbox.soapDtd",
+            params={"what": what},
+        )
     try:
         return ET.fromstring(body)
     except ET.ParseError as exc:
-        raise AdapterError(f"{what}: answer is not valid XML ({exc})") from exc
+        raise AdapterError(
+            f"{what}: answer is not valid XML ({exc})",
+            message_id="fritzbox.soapXml",
+            params={"what": what, "detail": str(exc)},
+        ) from exc
 
 
 def envelope(service_type: str, action: str, args: dict[str, str | int]) -> bytes:
@@ -125,7 +133,11 @@ def parse_answer(body: bytes, action: str, what: str) -> dict[str, str]:
     root = parse_xml(body, what)
     soap_body = next((e for e in root.iter() if _local(e.tag) == "Body"), None)
     if soap_body is None:
-        raise AdapterError(f"{what}: unexpected answer (no SOAP body)")
+        raise AdapterError(
+            f"{what}: unexpected answer (no SOAP body)",
+            message_id="fritzbox.soapUnexpected",
+            params={"what": what, "detail": "no SOAP body"},
+        )
     for element in soap_body:
         name = _local(element.tag)
         if name == "Fault":
@@ -135,7 +147,11 @@ def parse_answer(body: bytes, action: str, what: str) -> dict[str, str]:
             raise SoapFault(what, code, description or "")
         if name == f"{action}Response":
             return {_local(child.tag): (child.text or "").strip() for child in element}
-    raise AdapterError(f"{what}: unexpected answer (no {action}Response)")
+    raise AdapterError(
+        f"{what}: unexpected answer (no {action}Response)",
+        message_id="fritzbox.soapUnexpected",
+        params={"what": what, "detail": f"no {action}Response"},
+    )
 
 
 def _text_of(element: ET.Element, name: str) -> str | None:
@@ -198,6 +214,10 @@ class Tr064:
     async def get_xml(self, path: str, what: str) -> ET.Element:
         """GET an XML document the device pointed to (a path on the same host, never a URL)."""
         if not path.startswith("/") or path.startswith("//"):
-            raise AdapterError(f"{what}: refused to follow {path!r}, not a path on the device")
+            raise AdapterError(
+                f"{what}: refused to follow {path!r}, not a path on the device",
+                message_id="fritzbox.soapPath",
+                params={"what": what, "path": repr(path)},
+            )
         response = await self.http.request("GET", path, headers={"Accept": "text/xml"})
         return parse_xml(response.content, what)

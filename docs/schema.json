@@ -3760,6 +3760,18 @@
           "default": null,
           "title": "Fix"
         },
+        "fix_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix Id"
+        },
         "hops": {
           "items": {
             "$ref": "#/$defs/TraceHop"
@@ -3770,6 +3782,41 @@
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Id"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Params",
+          "type": "object"
         },
         "purpose": {
           "default": "address",

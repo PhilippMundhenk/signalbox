@@ -30,6 +30,7 @@ from signalbox.adapters import (
     SystemInfo,
     Unreachable,
     dnsmap,
+    unexpected_answer,
 )
 from signalbox.adapters.adguardhome import discovery as _discovery
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
@@ -96,7 +97,7 @@ class AdGuardHomeConfig(AdapterConfig):
 
 def _dict(value: Any, endpoint: str) -> dict[str, Any]:
     if not isinstance(value, dict):
-        raise AdapterError(f"unexpected answer from {endpoint}: not an object")
+        raise unexpected_answer(endpoint, "not an object")
     return value
 
 
@@ -158,7 +159,7 @@ class AdGuardHomeAdapter(Adapter):
         status = _dict(await self._get(STATUS), STATUS)
         version = dnsmap.text(status.get("version")).lstrip("v")
         if not version:
-            raise AdapterError(f"unexpected answer from {STATUS}: no version")
+            raise unexpected_answer(STATUS, "no version")
         return SystemInfo(
             vendor="AdGuard",
             model="AdGuard Home",

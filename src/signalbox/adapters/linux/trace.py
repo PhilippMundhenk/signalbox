@@ -51,9 +51,16 @@ def _ip(text: str) -> IPv4Address | IPv6Address | None:
 def parse(text: str, target: IPv4Address | IPv6Address, max_hops: int) -> TraceAnswer:
     lines = text.splitlines()
     if "@@end" not in lines:
-        raise AdapterError("the device did not finish the traceroute")
+        raise AdapterError(
+            "the device did not finish the traceroute", message_id="linux.traceUnfinished"
+        )
     if "@@none" in lines:
-        raise AdapterError("neither tracepath nor traceroute is installed", fix=INSTALL_FIX)
+        raise AdapterError(
+            "neither tracepath nor traceroute is installed",
+            fix=INSTALL_FIX,
+            message_id="linux.traceNone",
+            fix_id="linux.traceNone.fix",
+        )
     tool = "tracepath" if "@@tracepath" in lines else "traceroute"
     pattern = _TRACEPATH if tool == "tracepath" else _TRACEROUTE
     found: dict[int, TraceHop] = {}
@@ -77,7 +84,17 @@ def parse(text: str, target: IPv4Address | IPv6Address, max_hops: int) -> TraceA
             break
     if not found:
         detail = " ".join(line.strip() for line in lines if not line.startswith("@@"))[-200:]
-        raise AdapterError(f"{tool} on the device printed no hops: {detail}".rstrip(": "))
+        if not detail:
+            raise AdapterError(
+                f"{tool} on the device printed no hops",
+                message_id="linux.traceNoHops",
+                params={"tool": tool},
+            )
+        raise AdapterError(
+            f"{tool} on the device printed no hops: {detail}",
+            message_id="linux.traceNoHopsDetail",
+            params={"tool": tool, "detail": detail},
+        )
     hops = [found.get(t, TraceHop(ttl=t)) for t in range(1, max(found) + 1)]
     if not reached:
         while hops and hops[-1].address is None:

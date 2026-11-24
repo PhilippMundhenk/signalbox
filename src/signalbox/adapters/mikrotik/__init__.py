@@ -63,6 +63,7 @@ from signalbox.adapters import (
     SystemInfo,
     TraceAnswer,
     TraceSupport,
+    unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
@@ -329,7 +330,7 @@ class MikrotikConfig(AdapterConfig):
 
 
 def _unexpected(endpoint: str, what: str) -> AdapterError:
-    return AdapterError(f"unexpected answer from {endpoint}: {what}")
+    return unexpected_answer(endpoint, what)
 
 
 def _rows(data: Any, endpoint: str) -> list[dict[str, Any]]:
@@ -726,14 +727,25 @@ def ros_error(endpoint: str, response: Any) -> AdapterError:
         data = {}
     detail = _text(data.get("detail")) if isinstance(data, dict) else ""
     if detail.startswith("no such command"):
-        return NotFound(f"{endpoint}: not on this device ({detail})")
+        return NotFound(
+            f"{endpoint}: not on this device ({detail})",
+            message_id="mikrotik.notOnDevice",
+            params={"endpoint": endpoint, "detail": detail},
+        )
     if "not enough permissions" in detail:
         return AuthFailed(
             f"{endpoint}: access denied ({detail}); check the user's group policies",
+            message_id="mikrotik.accessDenied",
+            params={"endpoint": endpoint, "detail": detail},
             remedy="policies",
         )
     reason = detail or _text(getattr(response, "reason_phrase", ""))
-    return AdapterError(f"{endpoint}: HTTP {response.status_code} {reason}".rstrip())
+    status = f"{response.status_code} {reason}".rstrip()
+    return AdapterError(
+        f"{endpoint}: HTTP {status}",
+        message_id="transport.httpStatus",
+        params={"path": endpoint, "status": status},
+    )
 
 
 async def get_menu(http: DeviceHttp, endpoint: str) -> Any:
@@ -744,7 +756,11 @@ async def get_menu(http: DeviceHttp, endpoint: str) -> Any:
     try:
         return response.json()
     except ValueError as exc:
-        raise AdapterError(f"{endpoint}: answer is not valid JSON") from exc
+        raise AdapterError(
+            f"{endpoint}: answer is not valid JSON",
+            message_id="transport.notJson",
+            params={"path": endpoint},
+        ) from exc
 
 
 def _prefix(value: Any) -> IPv6Network | None:
@@ -1916,7 +1932,9 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             return "wireless", await self._rows(WIRELESS)
         except NotFound:
             raise AdapterError(
-                f"no wireless package: neither {WIFI} nor {WIRELESS} exists on this device"
+                f"no wireless package: neither {WIFI} nor {WIRELESS} exists on this device",
+                message_id="mikrotik.noWireless",
+                params={"wifi": WIFI, "wireless": WIRELESS},
             ) from None
 
     async def read_wireless(self) -> Observation:
@@ -2310,7 +2328,11 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         try:
             answer = response.json()
         except ValueError as e:
-            raise AdapterError(f"{_trace.TRACEROUTE}: answer is not valid JSON") from e
+            raise AdapterError(
+                f"{_trace.TRACEROUTE}: answer is not valid JSON",
+                message_id="transport.notJson",
+                params={"path": _trace.TRACEROUTE},
+            ) from e
         return _trace.parse(answer, target, max_hops)
 
     async def read_firewall(self) -> Observation:

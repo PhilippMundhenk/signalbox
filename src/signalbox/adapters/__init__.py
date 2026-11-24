@@ -156,12 +156,45 @@ class AdapterContractError(Exception):
     """
 
 
+class Described(str):
+    """A text with its translation id and values (#204): the English text as a string, so code
+    and tests that read the text keep working; ``message_id`` and ``params`` ride along."""
+
+    message_id: str
+    params: dict[str, str]
+
+    def __new__(cls, message: str, message_id: str, **params: str) -> Described:
+        text = super().__new__(cls, message)
+        text.message_id = message_id
+        text.params = params
+        return text
+
+
+def unexpected_answer(endpoint: str, detail: str) -> AdapterError:
+    """A device answered, but not in the shape the integration reads (#204)."""
+    return AdapterError(
+        f"unexpected answer from {endpoint}: {detail}",
+        message_id="transport.unexpected",
+        params={"endpoint": endpoint, "detail": detail},
+    )
+
+
+def message_fields(text: str) -> dict[str, Any]:
+    """``message_id`` / ``params`` of a :class:`Described` text, for the model that shows it."""
+    if isinstance(text, Described):
+        return {"message_id": text.message_id, "params": dict(text.params)}
+    return {}
+
+
 class VendorCall(BaseModel):
     """One call an integration makes to apply a change; shown in the review before deploying."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     description: str
+    #: Translation id and values of ``description`` (#204), where it has one.
+    message_id: str | None = None
+    params: MessageParams = Field(default_factory=dict)
     method: str
     target: str
     #: Secrets replaced by "***".

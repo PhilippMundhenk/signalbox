@@ -62,6 +62,7 @@ from signalbox.adapters.openwrt.ubus import (
     NoData,
     NotFound,
     Ubus,
+    unexpected,
 )
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
@@ -208,7 +209,7 @@ def _mac(value: Any) -> str | None:
 def _sections(uci: dict[str, Any], kind: str) -> list[tuple[str, dict[str, Any]]]:
     values = uci.get("values")
     if not isinstance(values, dict):
-        raise AdapterError("unexpected answer to uci.get")
+        raise unexpected("uci.get")
     found = [
         (str(s.get(".name", name)), s)
         for name, s in values.items()
@@ -546,7 +547,11 @@ class NetworkView:
         if dump is not None:
             entries = dump.get("interface")
             if not isinstance(entries, list):
-                raise AdapterError("unexpected answer to network.interface dump")
+                raise AdapterError(
+                    "unexpected answer to network.interface dump",
+                    message_id="openwrt.unexpected",
+                    params={"what": "network.interface dump"},
+                )
             for entry in entries:
                 if isinstance(entry, dict) and isinstance(entry.get("interface"), str):
                     view.running[entry["interface"]] = entry
@@ -1710,7 +1715,7 @@ class OpenWrtAdapter(Adapter):
     async def backup(self) -> Backup:
         data = {c: answer.get("values") for c, answer in (await self._configs()).items()}
         if not all(isinstance(v, dict) for v in data.values()):
-            raise AdapterError("unexpected answer to uci.get")
+            raise unexpected("uci.get")
         return Backup(
             device_id=self.context.device_id,
             taken_at=datetime.now(UTC),
