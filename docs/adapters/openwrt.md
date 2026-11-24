@@ -634,7 +634,10 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "/sys/class/net/*/bonding_slave/*": ["read"],
         "/sys/class/net/*/bridge/*": ["read"],
         "/sys/class/net/*/brport/*": ["read"],
-        "/sys/class/net/*/brforward": ["read"]
+        "/sys/class/net/*/brforward": ["read"],
+        "/sys/devices/*/net/*/brforward": ["read"],
+        "/sys/devices/*/net/*/bridge/*": ["read"],
+        "/sys/devices/*/net/*/brport/*": ["read"]
       }
     }
   }
@@ -748,7 +751,10 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "/sys/class/net/*/bonding_slave/*": ["read"],
         "/sys/class/net/*/bridge/*": ["read"],
         "/sys/class/net/*/brport/*": ["read"],
-        "/sys/class/net/*/brforward": ["read"]
+        "/sys/class/net/*/brforward": ["read"],
+        "/sys/devices/*/net/*/brforward": ["read"],
+        "/sys/devices/*/net/*/bridge/*": ["read"],
+        "/sys/devices/*/net/*/brport/*": ["read"]
       }
     },
     "write": {
@@ -881,7 +887,7 @@ Read with `clients`: for every bridge of `network.device status` the kernel's ta
 `/sys/class/net/<bridge>/brforward` through `file read` with `"base64": true` (16-byte records
 of `struct __fdb_entry`: MAC, port number, local flag, age in 1/100 s), and the port numbers
 of its members from `/sys/class/net/<member>/brport/port_no`. No extra package and no `exec`
-permission, only the ACL path `/sys/class/net/*/brforward`. Local entries are the device's own
+permission, only the ACL paths `/sys/class/net/*/brforward` and, because rpcd checks a path after resolving the `/sys/class/net` symlinks, `/sys/devices/*/net/*/brforward`, `/sys/devices/*/net/*/bridge/*` and `/sys/devices/*/net/*/brport/*` (the spanning-tree reads need the last two as well). Local entries are the device's own
 addresses (`self`), the rest `dynamic` with their age. The file has no VLAN: an address learned
 in several VLANs is one entry. An ACL of an older setup refuses the file: the clients are read,
 the table is an optional gap (`openwrt.fdbRead`, *Fix it*: the ACL update).

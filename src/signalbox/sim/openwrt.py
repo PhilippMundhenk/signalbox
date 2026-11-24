@@ -64,6 +64,9 @@ FILES = (
     "/sys/class/net/*/bridge/*",
     "/sys/class/net/*/brport/*",
     "/sys/class/net/*/brforward",
+    "/sys/devices/*/net/*/brforward",
+    "/sys/devices/*/net/*/bridge/*",
+    "/sys/devices/*/net/*/brport/*",
 )
 
 Sections = dict[str, dict[str, Any]]
