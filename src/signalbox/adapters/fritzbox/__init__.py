@@ -575,6 +575,7 @@ class FritzboxAdapter(Adapter):
             )
         return type(exc)(
             str(exc),
+            fix_id="fritzbox.enableTr064",
             fix="On the Fritz!Box, Home Network > Network > Network Settings (German: Heimnetz > "
             "Netzwerk > Netzwerkeinstellungen), switch on 'Allow access for applications' "
             "('Zugriff für Anwendungen zulassen') and apply. Use the box's own address in the "

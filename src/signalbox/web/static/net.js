@@ -1,6 +1,7 @@
 // The merged network from /api/network with lookups and human names for object ids.
 import { get } from './api.js';
 import { h, place } from './util.js';
+import { t } from './i18n.js';
 
 export async function loadNetwork() {
   const [net, devices, sites] = await Promise.all([get('/network'), get('/devices'), get('/sites')]);
@@ -34,7 +35,7 @@ export function indexNetwork(net, devices = [], sites = []) {
   // Where a client is (#160): "port 5 of Switch" for a port, the usual label otherwise.
   ix.placeName = (id) => {
     const p = ix.ports.get(id);
-    return p ? `port ${p.name} of ${ix.deviceName(p.device_id)}` : objectLabel(ix, id);
+    return p ? t('net.portOf', { port: p.name, device: ix.deviceName(p.device_id) }) : objectLabel(ix, id);
   };
   ix.siteOf = (id) => siteOf(ix, id);
   return ix;
@@ -44,9 +45,9 @@ export function segmentLabel(seg, id) {
   if (!seg) {
     const m = /\/segment\/(.+)$/.exec(id || '');
     if (!m) return id || '–';
-    return /^native(-|$)/.test(m[1]) ? 'Untagged network' : `VLAN ${m[1]}`;
+    return /^native(-|$)/.test(m[1]) ? t('net.untagged') : t('net.vlan', { id: m[1] });
   }
-  const base = seg.vlan ? `VLAN ${seg.vlan}` : 'Untagged network';
+  const base = seg.vlan ? t('net.vlan', { id: seg.vlan }) : t('net.untagged');
   return seg.name ? `${base} (${seg.name})` : base;
 }
 
@@ -60,7 +61,7 @@ function objectLabel(ix, id) {
   const radio = ix.radios.get(id);
   if (radio) return `${ix.deviceName(radio.device_id)} · radio ${radio.name}`;
   const link = ix.links.get(id);
-  if (link) return `Link ${ix.portName(link.a)} ↔ ${ix.portName(link.b)}`;
+  if (link) return t('net.link', { a: ix.portName(link.a), b: ix.portName(link.b) });
   const first = id.split('/')[0];
   if (ix.devices.has(first)) return `${ix.deviceName(first)} · ${id.slice(first.length + 1).replace('/', ' ')}`;
   return id;
@@ -87,8 +88,8 @@ export function objectRef(ix, id) {
 
 export function siteFilter(ix, value, onchange) {
   if (ix.sites.length < 2) return null;
-  const sel = h('select', { 'aria-label': 'Site', 'data-testid': 'filter-site', onchange: () => onchange(sel.value) });
-  place(sel, h('option', { value: '' }, 'All sites'));
+  const sel = h('select', { 'aria-label': t('net.site'), 'data-testid': 'filter-site', onchange: () => onchange(sel.value) });
+  place(sel, h('option', { value: '' }, t('net.allSites')));
   for (const site of ix.sites) place(sel, h('option', { value: site.id, selected: site.id === value }, site.name));
   return sel;
 }
@@ -97,14 +98,15 @@ export function noData(what) {
   return h(
     'div',
     { class: 'card empty', 'data-testid': 'empty' },
-    h('h2', {}, `No ${what} known yet`),
-    h('p', { class: 'muted' }, `Signalbox shows ${what} once a device that reports them has been read.`),
-    h('p', {}, h('a', { href: '#/devices', class: 'btn' }, 'Devices')),
+    h('h2', {}, t('net.noneKnown', { what })),
+    h('p', { class: 'muted' }, t('net.noneKnownHint', { what })),
+    h('p', {}, h('a', { href: '#/devices', class: 'btn' }, t('net.devices'))),
   );
 }
 
 // A MAC address table entry (#160) in words: "dynamic, VLAN 20, 30 s old".
 export function fdbText(e, fmtDuration) {
-  const kind = { dynamic: 'learned', static: 'static', self: 'own address' }[e.kind] || e.kind;
-  return [kind, e.vlan ? `VLAN ${e.vlan}` : null, e.age_seconds !== null && e.age_seconds !== undefined ? `${fmtDuration(e.age_seconds)} old` : null].filter(Boolean).join(', ');
+  const names = { dynamic: 'net.fdb.learned', static: 'net.fdb.static', self: 'net.fdb.self' };
+  const kind = names[e.kind] ? t(names[e.kind]) : e.kind;
+  return [kind, e.vlan ? t('net.vlan', { id: e.vlan }) : null, e.age_seconds !== null && e.age_seconds !== undefined ? t('net.fdb.old', { age: fmtDuration(e.age_seconds) }) : null].filter(Boolean).join(', ');
 }

@@ -4,9 +4,16 @@ import { del, enc, get, post } from '../api.js';
 import { PORT_ROLE, by, clear, h, place, portDetails, portSpeed, s } from '../util.js';
 import { card, confirmDialog, field, pageHead, run, select, statusBadge, table, tag, toast } from '../ui.js';
 import { routedPathsCard } from './traces.js';
+import { t } from '../i18n.js';
 
 const LAYER = { gateway: 0, remote: 0, switch: 1, ap: 2, other: 3 };
-const ORIGIN = { lldp: 'LLDP', mac: 'MAC table', manual: 'entered', tunnel: 'tunnel keys' };
+const ORIGIN = { lldp: 'topology.origin.lldp', mac: 'topology.origin.mac', manual: 'topology.origin.manual', tunnel: 'topology.origin.tunnel' };
+const ROLE = { gateway: 'topology.role.gateway', remote: 'topology.role.remote', switch: 'topology.role.switch', ap: 'topology.role.ap', other: 'topology.role.other' };
+const MODE = { tagged: 'topology.mode.tagged', untagged: 'topology.mode.untagged' };
+const KIND = { cable: 'topology.linkKind.cable', wireless: 'topology.linkKind.wireless', vpn: 'topology.linkKind.vpn' };
+const originLabel = (o) => (ORIGIN[o] ? t(ORIGIN[o]) : o);
+const modeLabel = (m) => (MODE[m] ? t(MODE[m]) : m);
+
 const PORT = 18;
 const PORT_GAP = 5;
 const MAX_PORTS = 24;
@@ -68,7 +75,7 @@ function edgeSegment(edge, seg) {
 function drawGraph(data, nodes, onPort) {
   const linked = new Set(data.edges.flatMap((e) => [e.a.port_id, e.b.port_id]));
   const { boxes, width, height } = layout(nodes, linked);
-  const svg = s('svg', { viewBox: `0 0 ${width} ${height}`, width: String(width), height: String(height), class: 'topo', role: 'img', 'aria-label': 'Network topology', 'data-testid': 'topology-graph' });
+  const svg = s('svg', { viewBox: `0 0 ${width} ${height}`, width: String(width), height: String(height), class: 'topo', role: 'img', 'aria-label': t('topology.graphLabel'), 'data-testid': 'topology-graph' });
   const edgeLayer = s('g', { class: 'edges' });
   const nodeLayer = s('g', { class: 'nodes' });
   const markLayer = s('g', { class: 'marks' });
@@ -83,7 +90,7 @@ function drawGraph(data, nodes, onPort) {
       const bx = bb.x + bb.w / 2;
       const top = Math.max(2, Math.min(ba.y, bb.y) - TOP + 4);
       const path = s('path', { d: `M${ax},${ba.y} C${ax},${top} ${bx},${top} ${bx},${bb.y}`, class: `edge vpn ${state.segment ? 'dim' : ''}`.trim(), 'data-testid': 'topo-edge', 'data-id': e.id, 'data-kind': 'vpn', 'data-state': state.segment ? 'dim' : 'none' });
-      place(path, s('title', {}, `VPN ${e.a.port} ↔ ${e.b.port}${vpnText(e) ? ` – ${vpnText(e)}` : ''}`));
+      place(path, s('title', {}, t('topology.vpnTitle', { a: e.a.port, b: e.b.port }) + (vpnText(e) ? t('topology.vpnDetail', { text: vpnText(e) }) : '')));
       place(edgeLayer, path);
       continue;
     }
@@ -111,7 +118,7 @@ function drawGraph(data, nodes, onPort) {
     const cls = ['edge', e.kind, e.origin];
     if (state.segment) cls.push(seg ? (seg.consistent ? 'carry' : 'inconsistent') : 'dim');
     const path = s('path', { d: `M${from.x},${from.y} C${c1} ${c2} ${to.x},${to.y}`, class: cls.join(' '), 'data-testid': 'topo-edge', 'data-id': e.id, 'data-state': state.segment ? (seg ? (seg.consistent ? 'carry' : 'inconsistent') : 'dim') : 'none' });
-    place(path, s('title', {}, `${e.a.port} ↔ ${e.b.port} (${ORIGIN[e.origin] || e.origin})`));
+    place(path, s('title', {}, t('topology.edgeTitle', { a: e.a.port, b: e.b.port, origin: originLabel(e.origin) })));
     place(edgeLayer, path);
     if (seg && !seg.consistent) {
       // the end that lacks the VLAN; both ends when they disagree on tagged / untagged
@@ -119,7 +126,7 @@ function drawGraph(data, nodes, onPort) {
       for (const [end, pos, mode] of [[e.a, a, seg.a], [e.b, b, seg.b]]) {
         if (oneMissing && mode) continue;
         const mark = s('circle', { cx: String(pos.x), cy: String(pos.y), r: '13', class: 'bad-end', 'data-testid': 'bad-end' });
-        place(mark, s('title', {}, `${end.port}: ${mode || 'not a member'}`));
+        place(mark, s('title', {}, t('topology.endTitle', { port: end.port, mode: mode ? modeLabel(mode) : t('topology.notMember') })));
         place(markLayer, mark);
       }
     }
@@ -128,7 +135,8 @@ function drawGraph(data, nodes, onPort) {
     const g = s('g', { class: `node role-${node.role} status-${node.status}`, 'data-testid': 'topo-node', 'data-id': node.id });
     place(g, s('rect', { x: String(x), y: String(y), width: String(w), height: String(BOX_H), rx: '10', class: 'box' }));
     place(g, s('text', { x: String(x + 10), y: String(y + 20), class: 'name' }, node.name));
-    const roleText = node.role === 'remote' ? `remote site · ${node.networks.join(', ') || 'no networks'}` : `${node.role}${shownPorts(node).length > ports.length ? ` · ${shownPorts(node).length - ports.length} more ports` : ''}`;
+    const roleName = ROLE[node.role] ? t(ROLE[node.role]) : node.role;
+    const roleText = node.role === 'remote' ? t('topology.remoteSite', { networks: node.networks.join(', ') || t('topology.noNetworks') }) : `${roleName}${shownPorts(node).length > ports.length ? t('topology.morePorts', { count: shownPorts(node).length - ports.length }) : ''}`;
     place(g, s('text', { x: String(x + 10), y: String(y + 36), class: 'role' }, roleText));
     ports.forEach((p, i) => {
       const px = x + 10 + i * (PORT + PORT_GAP);
@@ -136,8 +144,8 @@ function drawGraph(data, nodes, onPort) {
       const member = state.segment && (p.untagged.includes(state.segment) ? 'untagged' : p.tagged.includes(state.segment) ? 'tagged' : null);
       const clients = (data.clients[p.id] || []).length;
       const cls = ['port', p.up === false ? 'down' : 'up', linked.has(p.id) ? 'linked' : '', member ? `m-${member}` : '', clients ? 'has-clients' : '', p.external === false ? 'internal' : ''];
-      const rect = s('rect', { x: String(px), y: String(py), width: String(PORT), height: String(PORT), rx: '3', class: cls.join(' ').trim(), tabindex: '0', role: 'button', 'aria-label': `${node.name} port ${p.name}${p.description ? ` (${p.description})` : ''}${clients ? `, ${clients} clients` : ''}`, 'data-testid': 'topo-port', 'data-id': p.id });
-      place(rect, s('title', {}, `${p.name}${p.description ? ` (${p.description})` : ''}${p.role && p.role !== 'jack' ? `, ${PORT_ROLE[p.role] || p.role}` : ''}${member ? ` (${member})` : ''}${clients ? ` – ${clients} clients` : ''}`));
+      const rect = s('rect', { x: String(px), y: String(py), width: String(PORT), height: String(PORT), rx: '3', class: cls.join(' ').trim(), tabindex: '0', role: 'button', 'aria-label': `${t('topology.portAria', { device: node.name, port: p.name })}${p.description ? t('topology.paren', { description: p.description }) : ''}${clients ? t('topology.portClientsAria', { count: clients }) : ''}`, 'data-testid': 'topo-port', 'data-id': p.id });
+      place(rect, s('title', {}, `${p.name}${p.description ? t('topology.paren', { description: p.description }) : ''}${p.role && p.role !== 'jack' ? `, ${PORT_ROLE[p.role] || p.role}` : ''}${member ? t('topology.paren', { description: modeLabel(member) }) : ''}${clients ? t('topology.portClientsTitle', { count: clients }) : ''}`));
       rect.addEventListener('click', () => onPort(node, p));
       rect.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' || ev.key === ' ') {
@@ -157,7 +165,7 @@ function portFacts(port, segments) {
   const parts = [portSpeed(port), ...portDetails(port)];
   // PVID and untagged membership disagree (ProSAFE, Easy Smart allow it): say where frames go.
   if (port.pvid_segment && port.untagged.length && !port.untagged.includes(port.pvid_segment)) {
-    parts.push(`untagged frames in: ${segments[port.pvid_segment] || port.pvid_segment}`);
+    parts.push(t('topology.untaggedFramesIn', { segment: segments[port.pvid_segment] || port.pvid_segment }));
   }
   const text = parts.filter(Boolean).join(' · ');
   return text ? h('p', { class: 'muted', 'data-testid': 'port-facts' }, text) : null;
@@ -168,22 +176,22 @@ function portPanel(data, segments, node, port) {
   return h(
     'div',
     { class: 'card port-panel', 'data-testid': 'port-panel' },
-    h('h3', {}, `${node.name} · port ${port.name}`),
+    h('h3', {}, t('topology.portHeading', { device: node.name, port: port.name })),
     port.description ? h('p', { 'data-testid': 'port-description' }, port.description) : null,
     port.role ? h('p', { class: 'muted', 'data-testid': 'port-role' }, PORT_ROLE[port.role] || port.role) : null,
-    h('p', { class: 'muted' }, [port.untagged.length ? `untagged: ${port.untagged.map((x) => segments[x] || x).join(', ')}` : null, port.tagged.length ? `tagged: ${port.tagged.map((x) => segments[x] || x).join(', ')}` : null].filter(Boolean).join(' · ') || 'No VLAN membership reported.'),
+    h('p', { class: 'muted' }, [port.untagged.length ? t('topology.untaggedList', { list: port.untagged.map((x) => segments[x] || x).join(', ') }) : null, port.tagged.length ? t('topology.taggedList', { list: port.tagged.map((x) => segments[x] || x).join(', ') }) : null].filter(Boolean).join(' · ') || t('topology.noMembership')),
     portFacts(port, segments),
     clients.length
       ? table(
           [
-            ['Name', (c) => c.hostname],
-            ['MAC', (c) => h('span', { class: 'mono' }, c.mac)],
-            ['Segment', (c) => (c.segment_id ? segments[c.segment_id] || c.segment_id : null)],
+            [t('topology.col.name'), (c) => c.hostname],
+            [t('topology.col.mac'), (c) => h('span', { class: 'mono' }, c.mac)],
+            [t('topology.col.segment'), (c) => (c.segment_id ? segments[c.segment_id] || c.segment_id : null)],
           ],
           clients,
           { rowTestid: 'port-client', compact: true },
         )
-      : h('p', { class: 'muted', 'data-testid': 'no-port-clients' }, 'No clients seen on this port.'),
+      : h('p', { class: 'muted', 'data-testid': 'no-port-clients' }, t('topology.noPortClients')),
   );
 }
 
@@ -192,7 +200,7 @@ function vpnText(e) {
   const v = e.vpn || {};
   const nets = [...((v.a && v.a.networks) || []), ...((v.b && v.b.networks) || [])];
   const ages = [v.a, v.b].filter((x) => x && x.handshake_age !== null && x.handshake_age !== undefined).map((x) => x.handshake_age);
-  const shake = ages.length ? `handshake ${Math.round(Math.min(...ages))} s ago` : [v.a, v.b].some(Boolean) ? 'no handshake' : '';
+  const shake = ages.length ? t('topology.handshake', { seconds: Math.round(Math.min(...ages)) }) : [v.a, v.b].some(Boolean) ? t('topology.noHandshake') : '';
   return [nets.join(', '), shake].filter(Boolean).join(' · ');
 }
 
@@ -200,32 +208,32 @@ function linkList(ctx, data, nodes) {
   const names = new Map(nodes.map((n) => [n.id, n.name]));
   const endText = (end) => `${names.get(end.device_id) || end.device_id} · ${end.port}`;
   const edges = [...data.edges].sort(by((e) => `${endText(e.a)} ${endText(e.b)}`));
-  if (!edges.length) return h('p', { class: 'muted', 'data-testid': 'no-links' }, 'No links known yet. Devices that report LLDP neighbours or MAC tables add them automatically; you can also enter a cable below.');
+  if (!edges.length) return h('p', { class: 'muted', 'data-testid': 'no-links' }, t('topology.noLinks'));
   return table(
     [
-      ['From', (e) => endText(e.a)],
-      ['To', (e) => endText(e.b)],
-      ['Kind', (e) => e.kind],
-      ['Found by', (e) => tag(ORIGIN[e.origin] || e.origin, `origin-${e.origin}`)],
+      [t('topology.col.from'), (e) => endText(e.a)],
+      [t('topology.col.to'), (e) => endText(e.b)],
+      [t('topology.col.kind'), (e) => (KIND[e.kind] ? t(KIND[e.kind]) : e.kind)],
+      [t('topology.col.foundBy'), (e) => tag(originLabel(e.origin), `origin-${e.origin}`)],
       [
-        'VLANs',
+        t('topology.col.vlans'),
         (e) =>
           e.kind === 'vpn'
             ? h('span', { 'data-testid': 'vpn-detail' }, vpnText(e) || null)
             : e.segments.length
-            ? e.segments.map((x, i) => [i ? ', ' : '', h('span', { class: x.consistent ? '' : 'error', title: x.consistent ? `${x.a} on both ends` : `${x.a || 'not a member'} ↔ ${x.b || 'not a member'}` }, `${x.name}${x.consistent ? '' : ' (!)'}`)])
+            ? e.segments.map((x, i) => [i ? ', ' : '', h('span', { class: x.consistent ? '' : 'error', title: x.consistent ? t('topology.bothEnds', { mode: modeLabel(x.a) }) : t('topology.endsDiffer', { a: x.a ? modeLabel(x.a) : t('topology.notMember'), b: x.b ? modeLabel(x.b) : t('topology.notMember') }) }, `${x.name}${x.consistent ? '' : ' (!)'}`)])
             : null,
       ],
       [
         '',
         (e) => {
           if (e.origin !== 'manual') return null;
-          const btn = h('button', { class: 'btn small', type: 'button', 'data-testid': 'link-delete', 'aria-label': `Delete link ${endText(e.a)} to ${endText(e.b)}` }, 'Delete');
+          const btn = h('button', { class: 'btn small', type: 'button', 'data-testid': 'link-delete', 'aria-label': t('topology.deleteLinkAria', { a: endText(e.a), b: endText(e.b) }) }, t('common.delete'));
           btn.addEventListener('click', () =>
             run(btn, async () => {
-              if (!(await confirmDialog({ title: 'Delete this cable?', message: `${endText(e.a)} ↔ ${endText(e.b)} is removed from Signalbox. Nothing changes on the devices.`, confirmLabel: 'Delete', danger: true }))) return;
+              if (!(await confirmDialog({ title: t('topology.deleteCable.title'), message: t('topology.deleteCable.message', { a: endText(e.a), b: endText(e.b) }), confirmLabel: t('common.delete'), danger: true }))) return;
               await del(`/links/${enc(e.id)}`);
-              toast('Link deleted.');
+              toast(t('topology.linkDeleted'));
               ctx.refresh();
             }),
           );
@@ -242,7 +250,7 @@ function linkList(ctx, data, nodes) {
 function addLinkForm(ctx, nodes) {
   const sorted = [...nodes].sort(by((n) => n.name));
   const pick = (side) => {
-    const dev = select([['', 'Choose a device'], ...sorted.map((n) => [n.id, n.name])], '', { 'data-testid': `link-${side}-device` });
+    const dev = select([['', t('topology.chooseDevice')], ...sorted.map((n) => [n.id, n.name])], '', { 'data-testid': `link-${side}-device` });
     const port = h('select', { 'data-testid': `link-${side}-port`, disabled: true });
     dev.addEventListener('change', () => {
       clear(port);
@@ -254,45 +262,45 @@ function addLinkForm(ctx, nodes) {
   };
   const a = pick('a');
   const b = pick('b');
-  const kind = select([['cable', 'Cable'], ['wireless', 'Wireless']], 'cable', { 'data-testid': 'link-kind' });
+  const kind = select([['cable', t('topology.kind.cable')], ['wireless', t('topology.kind.wireless')]], 'cable', { 'data-testid': 'link-kind' });
   const msg = h('p', { class: 'error', role: 'alert', 'data-testid': 'link-error' });
-  const save = h('button', { class: 'btn primary', type: 'submit', 'data-testid': 'link-add' }, 'Add cable');
+  const save = h('button', { class: 'btn primary', type: 'submit', 'data-testid': 'link-add' }, t('topology.addCable'));
   const form = h('form', {
     class: 'link-form',
     onsubmit: (e) => {
       e.preventDefault();
       msg.textContent = '';
       if (!a.port.value || !b.port.value) {
-        msg.textContent = 'Choose a device and a port on both ends.';
+        msg.textContent = t('topology.err.chooseBoth');
         return;
       }
       if (a.port.value === b.port.value) {
-        msg.textContent = 'The two ends must be different ports.';
+        msg.textContent = t('topology.err.samePort');
         return;
       }
       run(save, async () => {
         await post('/links', { a: a.port.value, b: b.port.value, kind: kind.value });
-        toast('Cable added.');
+        toast(t('topology.cableAdded'));
         ctx.refresh();
       });
     },
   });
   place(form, 
-    h('div', { class: 'link-ends' }, h('fieldset', {}, h('legend', {}, 'One end'), field('Device', a.dev), field('Port', a.port)), h('fieldset', {}, h('legend', {}, 'Other end'), field('Device', b.dev), field('Port', b.port))),
-    field('Kind', kind),
+    h('div', { class: 'link-ends' }, h('fieldset', {}, h('legend', {}, t('topology.oneEnd')), field(t('topology.device'), a.dev), field(t('topology.port'), a.port)), h('fieldset', {}, h('legend', {}, t('topology.otherEnd')), field(t('topology.device'), b.dev), field(t('topology.port'), b.port))),
+    field(t('topology.col.kind'), kind),
     msg,
     save,
   );
-  return card('Enter a cable', h('p', { class: 'muted' }, 'For devices that do not report their neighbours. Entered cables win over what the devices report; a difference becomes a finding.'), form);
+  return card(t('topology.enterCable'), h('p', { class: 'muted' }, t('topology.enterCableNote')), form);
 }
 
 export async function renderTopology(main, ctx) {
   const id = ctx.renderId;
   const [data, sites] = await Promise.all([get('/topology'), get('/sites')]);
   if (!ctx.alive(id)) return;
-  place(main, pageHead('Topology'));
+  place(main, pageHead(t('topology.title')));
   if (!data.nodes.length) {
-    place(main, h('div', { class: 'card empty', 'data-testid': 'empty' }, h('h2', {}, 'Nothing to draw yet'), h('p', { class: 'muted' }, 'The topology shows devices that have been read, their ports and the cables between them.'), h('p', {}, h('a', { class: 'btn', href: '#/devices' }, 'Devices'))));
+    place(main, h('div', { class: 'card empty', 'data-testid': 'empty' }, h('h2', {}, t('topology.empty.title')), h('p', { class: 'muted' }, t('topology.empty.text')), h('p', {}, h('a', { class: 'btn', href: '#/devices' }, t('topology.empty.devices')))));
     return;
   }
   if (state.site && !sites.some((x) => x.id === state.site)) state.site = '';
@@ -309,18 +317,18 @@ export async function renderTopology(main, ctx) {
     place(clear(graphBox), drawGraph(view, nodes, (node, port) => place(clear(panel), portPanel(data, data.segments, node, port))));
     place(clear(legend), 
       state.segment
-        ? [h('span', { class: 'key carry' }), ' carries the VLAN  ', h('span', { class: 'key inconsistent' }), ' ends disagree (marked with a circle)  ', h('span', { class: 'key dim' }), ' does not carry it']
-        : ['Click a port to see its clients. Pick a VLAN to see which links carry it.', data.edges.some((e) => e.kind === 'vpn') ? ' Dashed arcs are VPN tunnels.' : ''],
+        ? [h('span', { class: 'key carry' }), t('topology.legend.carries'), h('span', { class: 'key inconsistent' }), t('topology.legend.disagree'), h('span', { class: 'key dim' }), t('topology.legend.dim')]
+        : [t('topology.legend.hint'), data.edges.some((e) => e.kind === 'vpn') ? t('topology.legend.vpn') : ''],
     );
   };
-  const segSelect = select([['', 'No VLAN overlay'], ...Object.entries(data.segments).sort(by(([, n]) => n)).map(([sid, n]) => [sid, `${n}${sites.length > 1 ? ` – ${(sites.find((x) => sid.startsWith(`${x.id}/`)) || {}).name || ''}` : ''}`])], state.segment, { 'aria-label': 'Highlight a VLAN', 'data-testid': 'topo-segment' });
+  const segSelect = select([['', t('topology.noOverlay')], ...Object.entries(data.segments).sort(by(([, n]) => n)).map(([sid, n]) => [sid, `${n}${sites.length > 1 ? ` – ${(sites.find((x) => sid.startsWith(`${x.id}/`)) || {}).name || ''}` : ''}`])], state.segment, { 'aria-label': t('topology.highlightVlan'), 'data-testid': 'topo-segment' });
   segSelect.addEventListener('change', () => {
     state.segment = segSelect.value;
     draw();
   });
   let siteSelect = null;
   if (sites.length > 1) {
-    siteSelect = select([['', 'All sites'], ...sites.map((x) => [x.id, x.name])], state.site, { 'aria-label': 'Site', 'data-testid': 'filter-site' });
+    siteSelect = select([['', t('topology.allSites')], ...sites.map((x) => [x.id, x.name])], state.site, { 'aria-label': t('topology.site'), 'data-testid': 'filter-site' });
     siteSelect.addEventListener('change', () => {
       state.site = siteSelect.value;
       draw();
@@ -335,11 +343,11 @@ export async function renderTopology(main, ctx) {
   const hasInternal = data.nodes.some((n) => n.ports.some((p) => p.external === false));
   const problems = data.nodes.filter((n) => n.status !== 'ok');
   place(main, 
-    h('div', { class: 'filters' }, siteSelect, segSelect, hasInternal ? h('label', { class: 'check', title: 'CPU ports, bridges, VLAN and Wi-Fi interfaces' }, internalBox, ' Show internal ports') : null),
-    problems.length ? h('p', { class: 'notice small' }, 'Not read completely: ', problems.map((n, i) => [i ? ', ' : '', n.name, ' ', statusBadge(n.status)])) : null,
-    h('div', { class: 'card topo-card' }, legend, graphBox, h('p', { class: 'phone-only muted small' }, 'The drawing needs a wider screen; the links are listed below.')),
+    h('div', { class: 'filters' }, siteSelect, segSelect, hasInternal ? h('label', { class: 'check', title: t('topology.internalTitle') }, internalBox, t('topology.showInternal')) : null),
+    problems.length ? h('p', { class: 'notice small' }, t('topology.notRead'), problems.map((n, i) => [i ? ', ' : '', n.name, ' ', statusBadge(n.status)])) : null,
+    h('div', { class: 'card topo-card' }, legend, graphBox, h('p', { class: 'phone-only muted small' }, t('topology.phoneNote'))),
     panel,
-    card('Links', linkList(ctx, data, data.nodes)),
+    card(t('topology.links'), linkList(ctx, data, data.nodes)),
     routedPathsCard(ctx, data.nodes),
     addLinkForm(ctx, data.nodes.filter((n) => n.role !== 'remote')),
   );

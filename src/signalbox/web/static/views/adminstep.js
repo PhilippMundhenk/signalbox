@@ -3,6 +3,8 @@
 // button that runs it. The password is never pre-filled, never sent before that button is
 // pressed, and the field is emptied right after the request, when the page is left and after a
 // while without use. The value is only ever read by value(); nothing else holds on to it.
+import { t } from '../i18n.js';
+import { stepTitle } from '../texts.js';
 import { h } from '../util.js';
 import { field } from '../ui.js';
 
@@ -14,7 +16,7 @@ const IDLE_MS = 120000;
 export function adminStep(login, prefix, more = []) {
   const user = h('input', { type: 'text', value: login.user_default || '', autocomplete: 'off', spellcheck: 'false', 'data-testid': `${prefix}-admin-user` });
   const secret = h('input', { type: 'password', autocomplete: 'new-password', spellcheck: 'false', 'data-testid': `${prefix}-admin-secret` });
-  const note = h('p', { class: 'temporary-note', 'data-testid': `${prefix}-temporary-note` }, 'Used once for this step, never saved. It is cleared from this page as soon as the request is sent.');
+  const note = h('p', { class: 'temporary-note', 'data-testid': `${prefix}-temporary-note` }, t('adminstep.note'));
   const secrets = [secret, ...more.map((m) => m.input).filter(Boolean)];
   let timer = null;
 
@@ -26,7 +28,7 @@ export function adminStep(login, prefix, more = []) {
     clearTimeout(timer);
     timer = setTimeout(() => {
       wipe();
-      note.textContent = 'The password was cleared because it was not used for two minutes. Enter it again to continue.';
+      note.textContent = t('adminstep.cleared');
     }, IDLE_MS);
   };
   for (const s of secrets) s.addEventListener('input', touch);
@@ -37,10 +39,10 @@ export function adminStep(login, prefix, more = []) {
   const el = h(
     'div',
     { class: 'admin-step notice', 'data-testid': `${prefix}-admin-step` },
-    h('h3', {}, 'The admin login, for this one step'),
+    h('h3', {}, t('adminstep.title')),
     note,
-    field(login.user_label || 'Admin user', user),
-    field(login.secret_label || 'Password', secret),
+    field(login.user_label || t('adminstep.userLabel'), user),
+    field(login.secret_label || t('adminstep.secretLabel'), secret),
     ...more.map((m) => m.el),
   );
   return {
@@ -67,6 +69,6 @@ export function previewList(steps, testid) {
   return h(
     'ol',
     { class: 'setup-steps preview', 'data-testid': testid },
-    steps.map((s) => h('li', { class: 'setup-step', 'data-testid': 'setup-step', 'data-step': s.id, 'data-state': 'preview' }, h('span', { class: 'badge step-todo' }, 'usually'), ' ', h('strong', {}, s.title))),
+    steps.map((s) => h('li', { class: 'setup-step', 'data-testid': 'setup-step', 'data-step': s.id, 'data-state': 'preview' }, h('span', { class: 'badge step-todo' }, t('adminstep.usually')), ' ', h('strong', {}, stepTitle(s)))),
   );
 }

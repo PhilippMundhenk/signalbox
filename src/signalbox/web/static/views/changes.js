@@ -1,36 +1,38 @@
 // Changes: the change log; approve, deploy, revert; backups.
+import { t } from '../i18n.js';
 import { enc, get, post } from '../api.js';
 import { clear, fmtTime, h, place, sleep } from '../util.js';
 import { card, confirmDialog, empty, field, pageHead, run, table, tag, toast } from '../ui.js';
 import { renderPlan } from './desired.js';
 
+const STATUS_KEY = { applied: 'changes.status.applied', 'rolled-back': 'changes.status.rolled-back', failed: 'changes.status.failed', rejected: 'changes.status.rejected', planned: 'changes.status.planned', approved: 'changes.status.approved', deploying: 'changes.status.deploying' };
 const STATUS_CLASS = { applied: 'ok', 'rolled-back': 'warn', failed: 'danger', rejected: '', planned: '', approved: '', deploying: 'warn' };
 
 function statusTag(status) {
-  return tag(status, STATUS_CLASS[status] || '');
+  return tag(STATUS_KEY[status] ? t(STATUS_KEY[status]) : status, STATUS_CLASS[status] || '');
 }
 
 export async function renderChanges(main, ctx) {
   const log = await get('/changes');
-  const create = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'change-new' }, 'New change from desired state');
+  const create = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'change-new' }, t('changes.newFromDesired'));
   create.addEventListener('click', () => ctx.navigate('#/change/new'));
   place(
     clear(main),
-    pageHead('Changes', create),
-    log.deploy_enabled ? null : h('p', { class: 'card', 'data-testid': 'deploy-off' }, 'Deploying is turned off. Changes can be planned and approved, but not deployed, until deploy.enabled is set in the configuration.'),
+    pageHead(t('changes.title'), create),
+    log.deploy_enabled ? null : h('p', { class: 'card', 'data-testid': 'deploy-off' }, t('changes.deployOff')),
     log.changes.length
       ? table(
           [
-            ['When', (c) => h('a', { href: `#/change/${enc(c.id)}` }, fmtTime(c.created_at))],
-            ['Why', (c) => c.reason],
-            ['Status', (c) => [statusTag(c.status), c.reverted_by ? tag('reverted') : null, c.reverts ? tag('revert') : null, c.restore_backup_id ? tag('restore') : null]],
-            ['Changes', (c) => (c.restore_backup_id ? 'backup' : String(c.changes))],
-            ['Devices', (c) => c.devices.join(', ')],
+            [t('changes.col.when'), (c) => h('a', { href: `#/change/${enc(c.id)}` }, fmtTime(c.created_at))],
+            [t('changes.col.why'), (c) => c.reason],
+            [t('changes.col.status'), (c) => [statusTag(c.status), c.reverted_by ? tag(t('changes.tag.reverted')) : null, c.reverts ? tag(t('changes.tag.revert')) : null, c.restore_backup_id ? tag(t('changes.tag.restore')) : null]],
+            [t('changes.col.changes'), (c) => (c.restore_backup_id ? t('changes.backupCell') : String(c.changes))],
+            [t('changes.col.devices'), (c) => c.devices.join(', ')],
           ],
           log.changes,
           { testid: 'changes', rowTestid: 'change-row' },
         )
-      : empty('no-changes', 'No changes yet', h('p', {}, 'Declare the desired state, plan it, and record it as a change here.')),
+      : empty('no-changes', t('changes.none.title'), h('p', {}, t('changes.none.text'))),
     await backupsCard(ctx),
   );
 }
@@ -39,18 +41,18 @@ async function backupsCard(ctx) {
   const backups = await get('/backups');
   if (!backups.length) return null;
   return card(
-    'Backups',
-    h('p', { class: 'muted' }, 'Taken before every change. Restoring one is itself a change that is approved and tracked.'),
+    t('changes.backups.title'),
+    h('p', { class: 'muted' }, t('changes.backups.text')),
     table(
       [
-        ['Device', (b) => b.device_id],
-        ['Taken', (b) => fmtTime(b.taken_at)],
-        ['Change', (b) => (b.change_id ? h('a', { href: `#/change/${enc(b.change_id)}` }, b.change_id) : '–')],
+        [t('changes.col.device'), (b) => b.device_id],
+        [t('changes.col.taken'), (b) => fmtTime(b.taken_at)],
+        [t('changes.col.change'), (b) => (b.change_id ? h('a', { href: `#/change/${enc(b.change_id)}` }, b.change_id) : '–')],
         [
           '',
           (b) => {
-            const btn = h('button', { class: 'btn small', type: 'button', 'data-testid': 'backup-restore' }, 'Restore…');
-            btn.addEventListener('click', () => askReason(`Restore backup of ${b.device_id}`, 'Later changes on this device are lost.', async (reason) => {
+            const btn = h('button', { class: 'btn small', type: 'button', 'data-testid': 'backup-restore' }, t('changes.backups.restore'));
+            btn.addEventListener('click', () => askReason(t('changes.backups.restoreTitle', { device: b.device_id }), t('changes.backups.restoreWarning'), async (reason) => {
               const rec = await post(`/backups/${enc(b.id)}/restore`, { reason });
               ctx.navigate(`#/change/${enc(rec.id)}`);
             }));
@@ -67,8 +69,8 @@ async function backupsCard(ctx) {
 
 function askReason(title, message, fn) {
   const reason = h('input', { type: 'text', maxlength: '1000', 'data-testid': 'reason' });
-  const go = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'reason-ok' }, 'Continue');
-  const box = card(title, h('p', {}, message), field('Why (kept in the change log)', reason), h('div', { class: 'row' }, go));
+  const go = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'reason-ok' }, t('changes.reason.continue'));
+  const box = card(title, h('p', {}, message), field(t('changes.reason.label'), reason), h('div', { class: 'row' }, go));
   go.addEventListener('click', () => run(go, async () => {
     if (!reason.value.trim()) {
       reason.setAttribute('aria-invalid', 'true');
@@ -83,8 +85,8 @@ function askReason(title, message, fn) {
 }
 
 export async function renderNewChange(main, ctx) {
-  const plan = h('div', { 'data-testid': 'plan' }, h('p', { class: 'muted' }, 'Planning…'));
-  place(clear(main), pageHead('New change'), card('Plan', plan));
+  const plan = h('div', { 'data-testid': 'plan' }, h('p', { class: 'muted' }, t('changes.new.planning')));
+  place(clear(main), pageHead(t('changes.new.title')), card(t('changes.plan'), plan));
   try {
     renderPlan(plan, await post('/plan'));
   } catch (err) {
@@ -92,36 +94,36 @@ export async function renderNewChange(main, ctx) {
     return;
   }
   const reason = h('input', { type: 'text', maxlength: '1000', 'data-testid': 'change-reason' });
-  const save = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'change-create' }, 'Record change');
+  const save = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'change-create' }, t('changes.new.record'));
   save.addEventListener('click', () => run(save, async () => {
     const rec = await post('/changes', { reason: reason.value.trim() });
-    toast('Change recorded. Review and approve it.');
+    toast(t('changes.new.recorded'));
     ctx.navigate(`#/change/${enc(rec.id)}`);
   }));
-  main.append(card('Record', field('Why (kept in the change log)', reason), h('div', { class: 'row' }, save)));
+  main.append(card(t('changes.new.recordCard'), field(t('changes.reason.label'), reason), h('div', { class: 'row' }, save)));
 }
 
 export async function renderChange(main, ctx, route) {
   const rec = await get(`/changes/${enc(route.id)}`);
   const actions = h('div', { class: 'row' });
   if (rec.status === 'planned') {
-    const override = rec.plan.blocking.length ? h('input', { type: 'text', 'data-testid': 'override', placeholder: 'Why deploy despite the errors' }) : null;
-    const approve = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'change-approve' }, 'Approve');
+    const override = rec.plan.blocking.length ? h('input', { type: 'text', 'data-testid': 'override', placeholder: t('changes.override.placeholder') }) : null;
+    const approve = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'change-approve' }, t('changes.approve'));
     approve.addEventListener('click', () => run(approve, async () => {
       await post(`/changes/${enc(rec.id)}/approve`, { override: override ? override.value : null });
       ctx.refresh();
     }));
-    const reject = h('button', { class: 'btn', type: 'button', 'data-testid': 'change-reject' }, 'Reject');
+    const reject = h('button', { class: 'btn', type: 'button', 'data-testid': 'change-reject' }, t('changes.reject'));
     reject.addEventListener('click', () => run(reject, async () => {
       await post(`/changes/${enc(rec.id)}/reject`);
       ctx.refresh();
     }));
-    place(actions, override ? field('Override', override) : null, approve, reject);
+    place(actions, override ? field(t('changes.override.label'), override) : null, approve, reject);
   }
   if (rec.status === 'approved') {
-    const deploy = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'change-deploy' }, 'Deploy now');
+    const deploy = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'change-deploy' }, t('changes.deploy.now'));
     deploy.addEventListener('click', () => run(deploy, async () => {
-      if (!(await confirmDialog({ title: 'Deploy this change?', message: `Signalbox backs up, changes, checks and confirms ${rec.devices.length} device(s), one after another. If one fails, all are rolled back.`, confirmLabel: 'Deploy' }))) return;
+      if (!(await confirmDialog({ title: t('changes.deploy.title'), message: t('changes.deploy.message', { count: rec.devices.length }), confirmLabel: t('changes.deploy.confirm') }))) return;
       await post(`/changes/${enc(rec.id)}/deploy`);
       for (let i = 0; i < 120; i += 1) {
         await sleep(500);
@@ -130,7 +132,7 @@ export async function renderChange(main, ctx, route) {
       }
       ctx.refresh();
     }));
-    const reject = h('button', { class: 'btn', type: 'button', 'data-testid': 'change-reject' }, 'Reject');
+    const reject = h('button', { class: 'btn', type: 'button', 'data-testid': 'change-reject' }, t('changes.reject'));
     reject.addEventListener('click', () => run(reject, async () => {
       await post(`/changes/${enc(rec.id)}/reject`);
       ctx.refresh();
@@ -138,8 +140,8 @@ export async function renderChange(main, ctx, route) {
     place(actions, deploy, reject);
   }
   if (rec.status === 'applied' && !rec.reverted_by && !rec.restore_backup_id) {
-    const revert = h('button', { class: 'btn', type: 'button', 'data-testid': 'change-revert' }, 'Revert…');
-    revert.addEventListener('click', () => askReason('Revert this change', 'A new change is planned that undoes this one. You approve and deploy it like any change.', async (reason) => {
+    const revert = h('button', { class: 'btn', type: 'button', 'data-testid': 'change-revert' }, t('changes.revert.button'));
+    revert.addEventListener('click', () => askReason(t('changes.revert.title'), t('changes.revert.text'), async (reason) => {
       const back = await post(`/changes/${enc(rec.id)}/revert`, { reason });
       ctx.navigate(`#/change/${enc(back.id)}`);
     }));
@@ -149,29 +151,29 @@ export async function renderChange(main, ctx, route) {
   renderPlan(planBox, rec.plan);
   place(
     clear(main),
-    pageHead(`Change ${rec.id}`),
+    pageHead(t('changes.heading', { id: rec.id })),
     card(
       null,
       h('p', { 'data-testid': 'change-status' }, statusTag(rec.status), ' ', rec.reason),
-      h('p', { class: 'muted' }, `${fmtTime(rec.created_at)} by ${rec.author}`, rec.desired_commit ? ` · desired state ${rec.desired_commit.slice(0, 7)}` : '', rec.override ? ` · override: ${rec.override}` : ''),
-      rec.reverts ? h('p', {}, 'Reverts ', h('a', { href: `#/change/${enc(rec.reverts)}` }, rec.reverts)) : null,
-      rec.reverted_by ? h('p', {}, 'Reverted by ', h('a', { href: `#/change/${enc(rec.reverted_by)}` }, rec.reverted_by)) : null,
+      h('p', { class: 'muted' }, t('changes.byAuthor', { time: fmtTime(rec.created_at), author: rec.author }), rec.desired_commit ? ` · ${t('changes.desiredState', { commit: rec.desired_commit.slice(0, 7) })}` : '', rec.override ? ` · ${t('changes.overrideNote', { text: rec.override })}` : ''),
+      rec.reverts ? h('p', {}, t('changes.reverts'), h('a', { href: `#/change/${enc(rec.reverts)}` }, rec.reverts)) : null,
+      rec.reverted_by ? h('p', {}, t('changes.revertedBy'), h('a', { href: `#/change/${enc(rec.reverted_by)}` }, rec.reverted_by)) : null,
       actions,
     ),
-    rec.restore_backup_id ? card('Restore', h('p', {}, `Backup ${rec.restore_backup_id}`)) : card('Plan', planBox),
+    rec.restore_backup_id ? card(t('changes.restore.title'), h('p', {}, t('changes.restore.backup', { id: rec.restore_backup_id }))) : card(t('changes.plan'), planBox),
     card(
-      'Devices',
+      t('changes.devices.title'),
       table(
         [
-          ['Device', (d) => d.device_id],
-          ['Result', (d) => statusTag(d.status)],
-          ['Calls', (d) => h('ul', {}, d.calls.map((c) => h('li', {}, c.description)))],
-          ['Problem', (d) => d.error || ''],
+          [t('changes.col.device'), (d) => d.device_id],
+          [t('changes.col.result'), (d) => statusTag(d.status)],
+          [t('changes.col.calls'), (d) => h('ul', {}, d.calls.map((c) => h('li', {}, c.description)))],
+          [t('changes.col.problem'), (d) => d.error || ''],
         ],
         rec.devices,
         { testid: 'change-devices', rowTestid: 'change-device' },
       ),
     ),
-    card('Log', h('ol', { 'data-testid': 'change-events' }, rec.events.map((e) => h('li', {}, `${fmtTime(e.at)} ${e.device_id || ''} ${e.event} ${e.detail}`)))),
+    card(t('changes.log.title'), h('ol', { 'data-testid': 'change-events' }, rec.events.map((e) => h('li', {}, `${fmtTime(e.at)} ${e.device_id || ''} ${e.event} ${e.detail}`)))),
   );
 }

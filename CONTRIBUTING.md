@@ -47,3 +47,20 @@ Pull requests start only the jobs their changed paths need (`tools/ci_changes.py
 
 `git tag vX.Y.Z && git push --tags` builds the image tags `X.Y.Z`, `X.Y`, `latest` and a GitHub
 release. Add the notable changes to `CHANGELOG.md` first.
+
+## Translations (#204)
+
+The web interface reads message catalogues from `src/signalbox/web/static/i18n/<lang>.json` (flat
+key to text maps with `{placeholders}`, plurals as `key.one` / `key.other`). `en.json` is the
+source and the fallback for every missing key. To add a language, copy `en.json` to `<code>.json`,
+translate what you can, and list it in `i18n/index.json` (`dir: "rtl"` for right-to-left). The
+language follows the browser; Settings overrides it per browser.
+
+- UI code uses `t('area.key', {param})` with literal keys only (`tests/test_i18n.py` checks that
+  every key used exists in `en.json` and that no other catalogue has stale keys or changed
+  placeholders).
+- Texts from the server carry a stable id and parameters next to the English text (`mid=`,
+  `fix_id=`, `params=` in rules; `message_id`/`fix_id`/`params` on `ReadError` and `Gap`;
+  `title_id` on setup steps). The catalogue entry is `msg.<id>`; rule titles and explanations are
+  `rule.<rule id>.title` / `.explanation`. Without an entry the English text is shown, so rules
+  can be converted one at a time.

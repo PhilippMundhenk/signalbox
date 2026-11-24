@@ -1,5 +1,7 @@
 from typing import Any
 
+import pytest
+
 from factories import SITE, device, iface, ip, snapshot
 from signalbox.merge import merge
 from signalbox.model import (
@@ -293,3 +295,50 @@ def test_empty_network_is_clean() -> None:
         duplicate_ip,
     ]
     assert evaluate(Network(), rules) == []
+
+
+# translations (#204): the English catalogue entry, filled with the params, is the server text ----
+
+
+def test_message_ids_reproduce_the_english_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    import re
+    from pathlib import Path
+
+    from signalbox.rules import Result, dhcp, found, incomplete
+
+    catalogue = json.loads(
+        (Path(dhcp.__file__).parents[1] / "web" / "static" / "i18n" / "en.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    seen: list[str] = []
+
+    def fill(key: str, res: Result) -> str:
+        return re.sub(r"\{(\w+)\}", lambda m: str(res.params[m.group(1)]), catalogue[f"msg.{key}"])
+
+    def check(res: Result) -> Result:
+        assert res.message_id, res.message
+        assert fill(res.message_id, res) == res.message
+        if res.fix:
+            assert res.fix_id and fill(res.fix_id, res) == res.fix
+        seen.append(res.message_id)
+        return res
+
+    monkeypatch.setattr(dhcp, "found", lambda *a, **k: check(found(*a, **k)))
+    monkeypatch.setattr(dhcp, "incomplete", lambda *a, **k: check(incomplete(*a, **k)))
+    for fn, args in [
+        (test_two_servers_are_an_error, ()),
+        (test_disabled_server_does_not_count_and_missing_is_a_warning, ()),
+        (test_unknown_dhcp_is_incomplete_not_a_finding, ()),
+        (test_pools_overlap, ()),
+        (test_router_and_device_address_in_pool, ()),
+        (test_reservation_in_pool, ()),
+        (test_router_option, ()),
+        (test_router_option_without_known_router_is_incomplete, ()),
+        (test_dns_option, ()),
+        (test_subnet_overlap_across_segments_and_sites, ()),
+        (test_duplicate_ip, ()),
+    ]:
+        fn(*args)
+    assert len(set(seen)) >= 10

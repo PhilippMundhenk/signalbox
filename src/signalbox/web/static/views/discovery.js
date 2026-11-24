@@ -2,6 +2,7 @@
 // found; "Add" opens the device form prefilled. Everything a device answered (model, name,
 // firmware) is untrusted text: it only ever goes into text nodes (h() never parses markup).
 import { enc, get, post } from '../api.js';
+import { fmtNumber, t } from '../i18n.js';
 import { clear, h, place } from '../util.js';
 import { field, run, table, tag } from '../ui.js';
 
@@ -14,7 +15,8 @@ export function takePrefill() {
   return value;
 }
 
-const ROLE_SHORT = { gateway: 'Router', switch: 'Switch', ap: 'Access point', other: 'Controller / other' };
+const ROLE_SHORT = { gateway: 'discovery.role.gateway', switch: 'discovery.role.switch', ap: 'discovery.role.ap', other: 'discovery.role.other' };
+const roleShort = (role) => (ROLE_SHORT[role] ? t(ROLE_SHORT[role]) : role);
 
 // panel: the card on the devices page. open: show the search form right away.
 export function discoveryPanel(ctx, status, open) {
@@ -31,7 +33,7 @@ export function discoveryPanel(ctx, status, open) {
     autocomplete: 'off',
   });
   const known = h('input', { type: 'checkbox', checked: true, 'data-testid': 'discovery-known' });
-  const start = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'discovery-start' }, 'Search now');
+  const start = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'discovery-start' }, t('discovery.search'));
   start.addEventListener('click', () =>
     run(start, async () => {
       const entries = ranges.value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
@@ -43,10 +45,10 @@ export function discoveryPanel(ctx, status, open) {
   const form = h(
     'div',
     { class: 'discovery-form', 'data-testid': 'discovery-form' },
-    h('p', { class: 'muted' }, 'Signalbox looks for supported devices in the networks it knows from the routers you added, and at the addresses you enter. It sends only requests that need no login and changes nothing. You enter the user and password when you add a device.'),
-    h('label', { class: 'check' }, known, ' Search the networks of the routers I added'),
-    field('Also search these addresses (optional)', ranges, 'Addresses, networks or ranges, separated by commas.'),
-    h('div', { class: 'row' }, start, h('a', { href: 'https://github.com/PhilippMundhenk/signalbox/blob/main/docs/DISCOVERY.md', target: '_blank', rel: 'noopener noreferrer', class: 'small' }, 'What is sent')),
+    h('p', { class: 'muted' }, t('discovery.intro')),
+    h('label', { class: 'check' }, known, t('discovery.known')),
+    field(t('discovery.ranges'), ranges, t('discovery.rangesHelp')),
+    h('div', { class: 'row' }, start, h('a', { href: 'https://github.com/PhilippMundhenk/signalbox/blob/main/docs/DISCOVERY.md', target: '_blank', rel: 'noopener noreferrer', class: 'small' }, t('discovery.whatIsSent'))),
   );
 
   async function poll() {
@@ -71,10 +73,10 @@ export function discoveryPanel(ctx, status, open) {
   }
 
   function actions(c) {
-    if (c.added) return h('a', { href: `#/device/${enc(c.added)}`, 'data-testid': 'candidate-added' }, 'Added');
-    const addBtn = h('button', { class: 'btn small primary', type: 'button', 'data-testid': 'candidate-add' }, 'Add');
+    if (c.added) return h('a', { href: `#/device/${enc(c.added)}`, 'data-testid': 'candidate-added' }, t('discovery.added'));
+    const addBtn = h('button', { class: 'btn small primary', type: 'button', 'data-testid': 'candidate-add' }, t('common.add'));
     addBtn.addEventListener('click', () => add(c));
-    const ign = h('button', { class: 'btn small', type: 'button', 'data-testid': c.ignored ? 'candidate-unignore' : 'candidate-ignore' }, c.ignored ? 'Show again' : 'Ignore');
+    const ign = h('button', { class: 'btn small', type: 'button', 'data-testid': c.ignored ? 'candidate-unignore' : 'candidate-ignore' }, c.ignored ? t('discovery.showAgain') : t('discovery.ignore'));
     ign.addEventListener('click', () => run(ign, ignore(c, !c.ignored)));
     return h('div', { class: 'row tight' }, addBtn, ign);
   }
@@ -87,19 +89,19 @@ export function discoveryPanel(ctx, status, open) {
       parts.push(
         table(
           [
-            ['Type', (c) => [c.adapter_name, ' ', tag(ROLE_SHORT[c.role] || c.role)]],
+            [t('discovery.col.type'), (c) => [c.adapter_name, ' ', tag(roleShort(c.role))]],
             [
-              'Address',
+              t('discovery.col.address'),
               (c) => [
                 h('span', { 'data-testid': 'candidate-address' }, c.address),
                 c.addresses.length > 1
-                  ? h('span', { class: 'muted small', 'data-testid': 'candidate-other-addresses', title: 'The same device answered on these addresses too.' }, ` also ${c.addresses.slice(1).join(', ')}`)
+                  ? h('span', { class: 'muted small', 'data-testid': 'candidate-other-addresses', title: t('discovery.otherAddresses') }, t('discovery.also', { addresses: c.addresses.slice(1).join(', ') }))
                   : null,
               ],
             ],
-            ['Model', (c) => h('span', { 'data-testid': 'candidate-model' }, [c.model || c.name, c.firmware ? ` (${c.firmware})` : ''].join(''))],
-            ['Found', (c) => h('span', { class: 'muted small', title: c.evidence || '' }, c.why)],
-            ['What to do', (c) => (c.note ? h('span', { class: 'small' }, c.note) : null)],
+            [t('discovery.col.model'), (c) => h('span', { 'data-testid': 'candidate-model' }, [c.model || c.name, c.firmware ? ` (${c.firmware})` : ''].join(''))],
+            [t('discovery.col.found'), (c) => h('span', { class: 'muted small', title: c.evidence || '' }, c.why)],
+            [t('discovery.col.todo'), (c) => (c.note ? h('span', { class: 'small' }, c.note) : null)],
             ['', actions],
           ],
           rows,
@@ -107,10 +109,10 @@ export function discoveryPanel(ctx, status, open) {
         ),
       );
     } else if (status.state !== 'running') {
-      parts.push(h('p', { class: 'muted', 'data-testid': 'discovery-none' }, 'No supported device answered.'));
+      parts.push(h('p', { class: 'muted', 'data-testid': 'discovery-none' }, t('discovery.none')));
     }
     if (ignored) {
-      const toggle = h('button', { class: 'btn small', type: 'button', 'data-testid': 'discovery-show-ignored' }, showIgnored ? 'Hide ignored' : `Show ignored (${ignored})`);
+      const toggle = h('button', { class: 'btn small', type: 'button', 'data-testid': 'discovery-show-ignored' }, showIgnored ? t('discovery.hideIgnored') : t('discovery.showIgnored', { count: fmtNumber(ignored) }));
       toggle.addEventListener('click', () => {
         showIgnored = !showIgnored;
         draw(status);
@@ -123,25 +125,25 @@ export function discoveryPanel(ctx, status, open) {
   function draw(status) {
     clearTimeout(timer);
     clear(box);
-    place(box, h('h2', {}, 'Find devices'));
+    place(box, h('h2', {}, t('discovery.title')));
     if (!status.enabled) {
-      place(box, h('p', { class: 'muted', 'data-testid': 'discovery-off' }, 'Finding devices is turned off in the configuration (discovery.enabled).'));
+      place(box, h('p', { class: 'muted', 'data-testid': 'discovery-off' }, t('discovery.off')));
       return;
     }
     const running = status.state === 'running';
     if (running) {
       place(
         box,
-        h('p', { 'data-testid': 'discovery-progress', 'aria-live': 'polite' }, `Searching… ${status.done} of ${status.total} checked, ${status.candidates.length} found.`),
+        h('p', { 'data-testid': 'discovery-progress', 'aria-live': 'polite' }, t('discovery.progress', { done: fmtNumber(status.done), total: fmtNumber(status.total), found: fmtNumber(status.candidates.length) })),
         h('progress', { max: String(Math.max(status.total, 1)), value: String(status.done) }),
       );
       timer = setTimeout(poll, 1000);
     } else {
       place(box, form);
-      if (status.state !== 'idle') place(box, h('p', { class: 'muted small', 'data-testid': 'discovery-done' }, `Last search: ${status.total} checked, ${status.candidates.length} found.`));
+      if (status.state !== 'idle') place(box, h('p', { class: 'muted small', 'data-testid': 'discovery-done' }, t('discovery.lastSearch', { total: fmtNumber(status.total), found: fmtNumber(status.candidates.length) })));
     }
     if (status.scope.length) {
-      place(box, h('details', { class: 'small' }, h('summary', {}, 'What was searched'), h('ul', {}, status.scope.map((s) => h('li', {}, s)))));
+      place(box, h('details', { class: 'small' }, h('summary', {}, t('discovery.searched')), h('ul', {}, status.scope.map((s) => h('li', {}, s)))));
     }
     if (status.notes.length) {
       place(box, h('div', { class: 'notice', 'data-testid': 'discovery-notes' }, h('ul', {}, status.notes.map((n) => h('li', {}, n)))));
@@ -156,7 +158,7 @@ export function discoveryPanel(ctx, status, open) {
 
 // The "Find devices" button that shows the panel.
 export function findButton(panel) {
-  const btn = h('button', { class: 'btn', type: 'button', 'data-testid': 'find-devices' }, 'Find devices');
+  const btn = h('button', { class: 'btn', type: 'button', 'data-testid': 'find-devices' }, t('discovery.title'));
   btn.addEventListener('click', () => {
     panel.hidden = false;
     const start = panel.querySelector('[data-testid="discovery-start"]');

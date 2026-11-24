@@ -4,6 +4,7 @@
 // and the device read again. The password is only in its input field and in the one request; it
 // is cleared right after it, on navigation and when left unused. Never runs by itself.
 import { enc, post } from '../api.js';
+import { t } from '../i18n.js';
 import { clear, h, place } from '../util.js';
 import { confirmDialog, field, run, toast } from '../ui.js';
 import { fingerprintText, stepList } from './devicesetup.js';
@@ -24,14 +25,14 @@ export function fixPanel(device, adapter, remedy, onDone) {
   const transport = remedy.transport || login.transport;
   const out = h('div', { 'data-testid': 'fix-result', 'aria-live': 'polite' });
   const port = portDefault ? h('input', { type: 'number', min: '1', max: '65535', value: String(portDefault), 'data-testid': 'fix-admin-port' }) : null;
-  const planBtn = h('button', { class: 'btn', type: 'button', 'data-testid': 'fix-plan' }, 'Show what it does');
+  const planBtn = h('button', { class: 'btn', type: 'button', 'data-testid': 'fix-plan' }, t('fix.showPlan'));
   const url = `/devices/${enc(device.id)}/fix`;
   let trusted = null;
   let step = null;
   let acked = (remedy.preview || []).map((s) => s.id);
 
   const showError = (err) => {
-    place(clear(out), h('p', { class: 'error', role: 'alert', 'data-testid': 'fix-error' }, err.message), err.body && err.body.fix ? h('p', { class: 'fix' }, 'What to do: ', err.body.fix) : null);
+    place(clear(out), h('p', { class: 'error', role: 'alert', 'data-testid': 'fix-error' }, err.message), err.body && err.body.fix ? h('p', { class: 'fix' }, t('fix.whatToDo'), err.body.fix) : null);
     if (err.code === 'untrusted') trusted = null;
   };
 
@@ -39,34 +40,34 @@ export function fixPanel(device, adapter, remedy, onDone) {
   function showPreview() {
     if (step) step.dispose();
     step = null;
-    const next = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'fix-continue' }, 'Continue: check the device’s identity');
+    const next = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'fix-continue' }, t('fix.continue'));
     next.addEventListener('click', () => run(next, identity));
     place(
       clear(out),
-      h('p', {}, 'Signalbox would do this on the device, once. Usually:'),
+      h('p', {}, t('fix.planIntro')),
       (remedy.preview || []).length ? previewList(remedy.preview, 'fix-plan-steps') : null,
-      h('p', { class: 'muted small' }, 'The exact steps depend on the device and are shown after the login if they differ. Nothing has been sent, and no password is asked for yet.'),
+      h('p', { class: 'muted small' }, t('fix.planNote')),
       h('div', { class: 'row' }, next),
     );
   }
 
   // 2. the device's identity, still without any credential
   async function identity() {
-    place(clear(out), h('p', { class: 'muted' }, 'Fetching the device’s identity (no login is sent)…'));
+    place(clear(out), h('p', { class: 'muted' }, t('fix.fetching')));
     try {
       const body = { remedy: remedy.id, admin: { user: login.user_default || '' } };
       if (port && port.value) body.admin.port = Number(port.value);
       const plan = await post(url, body);
-      const kind = plan.fingerprint_kind === 'certificate' ? 'certificate' : 'SSH host key';
-      const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'fix-trust' }, `Trust this ${kind}`);
+      const cert = plan.fingerprint_kind === 'certificate';
+      const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'fix-trust' }, t(cert ? 'fix.trustCertificate' : 'fix.trustSshKey'));
       trust.addEventListener('click', () => { trusted = plan.fingerprint; showFinal(null); });
       place(
         clear(out),
         h(
           'div',
           { class: 'notice', 'data-testid': 'fix-untrusted' },
-          h('h3', {}, `The device presented this ${kind}`),
-          h('p', {}, 'Compare it with what the device itself shows before you trust it. If they differ, someone may be in between: do not trust it. No password has been asked for yet.'),
+          h('h3', {}, t(cert ? 'fix.presentedCertificate' : 'fix.presentedSshKey')),
+          h('p', {}, t('fix.compare')),
           h('p', { class: 'fingerprint mono', 'data-testid': 'fix-fingerprint' }, fingerprintText(plan)),
           plan.compare ? h('p', { class: 'muted small' }, plan.compare) : null,
           trust,
@@ -81,12 +82,12 @@ export function fixPanel(device, adapter, remedy, onDone) {
   function showFinal(extraNote) {
     if (step) step.dispose();
     step = adminStep(login, 'fix');
-    const go = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'fix-apply' }, 'Run: fix it on the device');
+    const go = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'fix-apply' }, t('fix.run'));
     go.addEventListener('click', () => run(go, doApply));
     place(
       clear(out),
       extraNote,
-      h('p', { class: 'muted small' }, 'The device’s identity is confirmed. Nothing is sent until you press Run.'),
+      h('p', { class: 'muted small' }, t('fix.confirmed')),
       step.el,
       h('div', { class: 'row' }, go),
     );
@@ -96,7 +97,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
   async function doApply() {
     if (!step) return;
     if (!step.secret()) return showMissing();
-    const ok = await confirmDialog({ title: `${remedy.title} on ${device.name}?`, message: 'Signalbox logs in with the admin login once and runs the steps. It changes only the packages and permissions it reads through, never network settings.', confirmLabel: 'Fix it' });
+    const ok = await confirmDialog({ title: t('fix.confirmTitle', { title: remedy.title, name: device.name }), message: t('fix.confirmMessage'), confirmLabel: t('fix.fixIt') });
     if (!ok) {
       step.wipe(); // cancelled: the password does not stay in the field
       return;
@@ -116,18 +117,18 @@ export function fixPanel(device, adapter, remedy, onDone) {
     step = null;
     place(
       clear(out),
-      h('p', { 'data-testid': 'fix-outcome', class: res.ok ? '' : 'error' }, res.ok ? 'Done. Signalbox read the device again:' : 'The fix stopped at a failed step. Fix that and run it again: steps that are done already are skipped.'),
+      h('p', { 'data-testid': 'fix-outcome', class: res.ok ? '' : 'error' }, res.ok ? t('fix.done') : t('fix.failedStep')),
       stepList(res.steps, 'fix-done-steps'),
       res.reading ? testResult(res.reading) : null,
     );
     if (res.ok) {
-      toast(`${remedy.title}: done on ${device.name}.`);
+      toast(t('fix.toastDone', { title: remedy.title, name: device.name }));
       if (onDone) onDone(res.reading);
     }
   }
 
   function showMissing() {
-    const note = h('p', { class: 'error', role: 'alert', 'data-testid': 'fix-error' }, `Enter the ${login.secret_label}.`);
+    const note = h('p', { class: 'error', role: 'alert', 'data-testid': 'fix-error' }, t('fix.enterSecret', { label: login.secret_label }));
     step.el.append(note);
   }
 
@@ -135,7 +136,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
   function failed(err) {
     if (err.code === 'plan_changed' && err.body && err.body.plan) {
       acked = err.body.plan.steps.filter((s) => s.state === 'todo').map((s) => s.id);
-      return showFinal(h('div', { class: 'notice', 'data-testid': 'fix-plan-changed' }, h('p', {}, 'The device needs steps that were not in the first plan. Nothing was changed. Check the plan and run it again:'), stepList(err.body.plan.steps, 'fix-plan-steps')));
+      return showFinal(h('div', { class: 'notice', 'data-testid': 'fix-plan-changed' }, h('p', {}, t('fix.planChanged')), stepList(err.body.plan.steps, 'fix-plan-steps')));
     }
     showError(err);
   }
@@ -144,11 +145,11 @@ export function fixPanel(device, adapter, remedy, onDone) {
   return h(
     'div',
     { class: 'setup-guide notice fix-panel', 'data-testid': 'fix-panel', 'data-remedy': remedy.id },
-    h('h3', {}, `Fix it: ${remedy.title}`),
+    h('h3', {}, t('fix.title', { title: remedy.title })),
     h('p', {}, remedy.description),
-    h('p', { class: 'muted small' }, `Signalbox logs in once over ${transport}. First you see what it does and confirm the device’s identity; the admin password is asked for last, used once and never saved. You can also do it by hand, as described above.`),
+    h('p', { class: 'muted small' }, t('fix.intro', { transport })),
     login.note ? h('p', { class: 'muted small' }, login.note) : null,
-    port ? field('SSH port', port) : null,
+    port ? field(t('fix.sshPort'), port) : null,
     h('div', { class: 'row' }, planBtn),
     out,
   );
