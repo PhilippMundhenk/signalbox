@@ -646,6 +646,11 @@ def _rule_item(
     else:
         # routed traffic: anything but the firewall itself
         destination, dest_not = "(self)", True
+    if v.family is None and (v.source_networks or v.destination_networks):
+        raise AdapterError(
+            f"{label}: OPNsense wants the IP version of a rule with addresses: give `family: 4` "
+            "or `family: 6`"
+        )
     protocol = _protocol(v.protocols, v.family, label)
     if v.destination_ports and protocol not in ("TCP", "UDP", "TCP/UDP"):
         raise AdapterError(f"{label}: ports need the protocol tcp, udp or both")

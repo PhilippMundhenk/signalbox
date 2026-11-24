@@ -65,6 +65,7 @@ sites:
             from: {{zone: opt1}}
             to: {{network: 192.0.2.10}}
             protocol: tcp
+            family: 4
             port: 631
             action: accept
           - name: no-telnet
@@ -341,11 +342,16 @@ async def test_adopting_replaces_the_devices_own_objects_with_tagged_ones(
     )
     assert adopted["sequence"] == "1"
     assert plan(parse(ADOPT), svc.runner.network(), RULES).changes == []
-    undone = await undo(d, done.id)
-    assert undone.status is ChangeStatus.APPLIED, [r.error for r in undone.devices]
-    # the rule and the forward come back as Signalbox's own, under their old names
-    assert "signalbox:iot_dns IoT: DNS to the firewall" in [r["description"] for r in ours(sim)]
-    assert before != rows(sim)
+    # an adopted rule of the device's own cannot be re-created from what was read (the address
+    # of "(self)" is every address of the firewall): the way back is the backup, which brings the
+    # device's rows back exactly
+    rec = svc.store.change(done.id)
+    assert rec is not None and rec.devices[0].backup_id
+    restore = await d.restore_backup(rec.devices[0].backup_id, "adoption not wanted", "tester")
+    d.approve(restore.id, "tester")
+    back = await d.deploy(restore.id)
+    assert back.status is ChangeStatus.APPLIED, events(svc, restore.id)
+    assert rows(sim) == before
 
 
 @pytest.mark.parametrize(
@@ -367,6 +373,10 @@ async def test_adopting_replaces_the_devices_own_objects_with_tagged_ones(
         (
             "rules: [{name: x, to: device, protocol: tcp, port: [22, 23], action: drop}]",
             "one port",
+        ),
+        (
+            "rules: [{name: x, to: {network: 192.0.2.9}, action: drop}]",
+            "give `family: 4`",
         ),
         (
             "rules: [{name: x, to: device, protocol: icmp, action: drop}]",
@@ -416,7 +426,7 @@ async def test_unknown_zones_and_missing_pages(sim: OpnsenseSimulator, svc: Serv
         )
         with pytest.raises(AdapterError, match="no zone 'dmz'"):
             await adapter.plan_changes([bad], {})  # type: ignore[attr-defined]
-        bad2 = bad.model_copy(update={"key": "policy/lan/dmz"})
+        bad2 = bad.model_copy(update={"key": "policy/" + "lan/dmz"})
         with pytest.raises(AdapterError, match="no zone 'dmz'"):
             await adapter.plan_changes([bad2], {})  # type: ignore[attr-defined]
         rule = FirewallRuleValue(
@@ -583,6 +593,10 @@ def test_simulator_validates_like_the_firewall(sim: OpnsenseSimulator, url: str)
     for key, (value, field) in bad_fields.items():
         answer = post(base, {"rule": {**good, key: value}})
         assert answer["result"] == "failed" and field in answer["validations"], (key, answer)
+    answer = post(base, {"rule": {**good, "destination_net": "192.0.2.1", "ipprotocol": "inet46"}})
+    assert "rule.destination_net" in answer["validations"]
+    answer = post(base, {"rule": {**good, "destination_net": "2001:db8::1"}})
+    assert "rule.destination_net" in answer["validations"]
     answer = post(base, {"rule": {**good, "protocol": "any"}})
     assert "rule.destination_port" in answer["validations"]  # ports need tcp or udp
     answer = post(base, {"rule": {**good, "destination_port": "70000"}})

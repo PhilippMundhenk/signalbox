@@ -378,6 +378,10 @@ What Signalbox owns is tagged by the **description** of the row, and nothing els
   deleted and replaced by a tagged one in its place. Rows of the legacy pages and the automatic
   ones cannot be deleted through the API, so adopting one is refused. `adopt: true` on a policy
   changes nothing here (a policy never removes the device's own rules).
+  Undoing an adoption by *revert* is refused by the firewall (the old rule read back has the
+  addresses of `(self)` expanded); restore the backup of the deployment instead.
+- A rule with addresses needs `family: 4` or `family: 6` (OPNsense refuses addresses with
+  "IPv4+IPv6"; confirmed on 26.7.9 in CI).
 - Refused with the reason, before anything is sent: an unknown zone; a destination zone **and**
   destination addresses in one rule; more than one port or range per rule; ICMP without family
   4 or 6; protocols that no one rule matches (`tcp` and `icmp`); a forward on an interface group,

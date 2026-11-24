@@ -502,6 +502,7 @@ sites:
             from: {zone: lan}
             to: {network: 192.0.2.77}
             protocol: tcp
+            family: 4
             port: 8080
             action: accept
         forwards:

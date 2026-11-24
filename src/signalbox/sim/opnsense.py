@@ -1454,6 +1454,16 @@ class _Writes:
             raise Refused("rule.protocol", "Please select a valid protocol.")
         for name in ("source_net", "destination_net"):
             self._net_token(f"rule.{name}", str(item.get(name, "")), set())
+            for token in str(item.get(name, "")).split(","):
+                try:
+                    version = ipaddress.ip_network(token, strict=False).version
+                except ValueError:
+                    continue
+                if item["ipprotocol"] != f"inet{'6' if version == 6 else ''}":
+                    raise Refused(
+                        f"rule.{name}",
+                        "Destination address type should match selected TCP/IP protocol version.",
+                    )
         self._ports("rule.destination_port", str(item.get("destination_port", "")), protocol)
         item["sequence"] = self._sequence("rule.sequence", item.get("sequence", 1))
         item["uuid"] = uuid
