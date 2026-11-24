@@ -71,6 +71,7 @@ VOLATILE = {
     "since",
     "expires",  # DHCP leases: a countdown from the observation time (#183)
     "certificate",  # the replay's own generated certificate (#174)
+    "management_port",  # the replay server's free port (#387)
 }
 
 #: field (XML element, JSON key, query parameter) names whose values are secrets or identify

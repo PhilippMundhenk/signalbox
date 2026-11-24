@@ -751,6 +751,41 @@ class Switch(Adapter):
         )
 
 
+class ServiceConfig(AdapterConfig):
+    url: str = Field(description="Address of the service, e.g. https://192.0.2.1:3000.")
+
+
+class Service(Adapter):
+    """A service without ports of its own (a DNS filter): it runs on the device at its address
+    (#387)."""
+
+    manifest = Manifest(
+        id="labservice",
+        name="Lab service",
+        version="1",
+        api_version="1.0",
+        vendor="Example",
+        roles=frozenset({DeviceRole.OTHER}),
+        capabilities=frozenset({Capability.HEALTH}),
+        config=ServiceConfig,
+    )
+
+    async def read_system(self) -> SystemInfo:
+        from urllib.parse import urlsplit
+
+        cfg = self.context.config
+        assert isinstance(cfg, ServiceConfig)
+        return SystemInfo(
+            vendor="Example",
+            model="Lab DNS filter",
+            management_address=urlsplit(cfg.url).hostname,
+            transport_encrypted=True,
+        )
+
+    async def read_health(self) -> Observation:
+        return Observation()
+
+
 def wg_key(name: str) -> str:
     """A valid WireGuard key from a name (nobody's real key)."""
     return base64.b64encode(hashlib.sha256(f"e2e-{name}".encode()).digest()).decode()

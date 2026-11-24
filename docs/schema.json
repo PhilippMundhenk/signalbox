@@ -783,6 +783,18 @@
           ],
           "default": null
         },
+        "hosted_on": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hosted On"
+        },
         "id": {
           "title": "Id",
           "type": "string"
@@ -838,6 +850,18 @@
           ],
           "default": null,
           "title": "Management Address"
+        },
+        "management_port": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Management Port"
         },
         "model": {
           "anyOf": [

@@ -201,7 +201,8 @@ class Runner:
         enabled = {d.id for d in self.store.devices() if d.enabled}
         snaps = [s for s in self.store.snapshots() if s.device.id in enabled]
         manual = self.store.links()
-        net = merge(self.store.sites(), snaps, manual)
+        declared = {d.id: d.hosted_on for d in self.store.devices() if d.hosted_on}
+        net = merge(self.store.sites(), snaps, manual, declared)
         # earlier rounds' sightings keep links from flipping as ARP entries age out (#378)
         held = self.store.held_sightings(datetime.now(UTC) - MAC_HOLD)
         seen = net.model_copy(update={"held_sightings": held}) if held else net
@@ -213,7 +214,7 @@ class Runner:
                     derived.setdefault(link.id, link)
         if not derived:
             return net
-        return merge(self.store.sites(), snaps, [*manual, *derived.values()])
+        return merge(self.store.sites(), snaps, [*manual, *derived.values()], declared)
 
     def active_rules(self) -> list[Rule]:
         """Built-in and plugin rules, plus drift rules when a desired state is declared."""

@@ -28,6 +28,9 @@ async def test_demo_devices_are_readable_and_show_findings(tmp_path: Path) -> No
             net, findings = await svc.runner.observe_all()
             partly = {d for d, st in net.statuses.items() if st is not DeviceStatus.OK}
             assert partly == {"router-b"}  # its user may not read the firewall
+            # AdGuard Home runs on the gateway: its address, another port (#387)
+            hosted = {d.id: d.hosted_on for d in net.devices if d.hosted_on}
+            assert hosted == {"adguard": "gateway-a"}
             assert {d.site_id for d in net.devices} == {"site-a", "site-b"}
             assert len(net.devices) >= 12
             rules = {f.rule_id for f in findings}

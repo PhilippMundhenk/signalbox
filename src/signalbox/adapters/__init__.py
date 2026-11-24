@@ -793,6 +793,19 @@ def _stamp(obj: Observed, source: Source, when: datetime) -> Observed:
     return obj.model_copy(update=update) if update else obj
 
 
+def _url_port(url: object) -> int | None:
+    """The port of a configured URL (explicit, or the scheme's default); None for no URL."""
+    from urllib.parse import urlsplit
+
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        parts = urlsplit(url)
+        return parts.port or {"http": 80, "https": 443}.get(parts.scheme)
+    except ValueError:
+        return None
+
+
 def _complete_health(health: DeviceHealth, when: datetime) -> DeviceHealth:
     """Derive boot time from uptime (or the other way round) at observation time."""
     if health.uptime_seconds is not None and health.boot_time is None:
@@ -1027,6 +1040,7 @@ class Adapter(ABC):
             source=source,
             observed_at=now,
             **info.model_dump(exclude_none=True, exclude={"firmware"}),
+            management_port=_url_port(getattr(ctx.config, "url", None)),
             firmware=info.firmware,
             health=health.get(ctx.device_id),
             time=times.get(ctx.device_id),

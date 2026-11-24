@@ -55,7 +55,7 @@ def login(page: Page, base: str) -> None:
 
 
 def main() -> None:
-    os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
+    os.environ.setdefault("NO_PROXY", "127.0.0.0/8,localhost")
     OUT.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
         svc = build(Path(tmp), env={"SIGNALBOX_AUTH_PASSWORD": PASSWORD})

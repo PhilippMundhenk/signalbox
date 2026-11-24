@@ -673,6 +673,13 @@ class Device(Observed):
     #: a switch that reports no MAC per port (NETGEAR Plus, TP-Link Easy Smart). Lets the MAC
     #: tables of other devices find it.
     mac: Mac | None = None
+    #: The port of the address Signalbox reads the device on (the URL's port), copied from the
+    #: configured URL by core (#387). Tells two services at one address apart.
+    management_port: int | None = None
+    #: The device this one runs on (#387): its management address is an address of that device
+    #: (an AdGuard Home on the router). Derived in the merge, or set in the device's settings;
+    #: ``None``: a device of its own.
+    hosted_on: str | None = None
     adapter: str
     capabilities: list[str] = Field(default_factory=list)
     #: Set for a device reported through a controller (the configured device that observed it).
@@ -3562,6 +3569,10 @@ class Network(Model):
 
     def device(self, device_id: str) -> Device | None:
         return next((d for d in self.devices if d.id == device_id), None)
+
+    def hosted_here(self, host_id: str) -> list[Device]:
+        """The devices that run on ``host_id`` (``Device.hosted_on``, #387), by name."""
+        return sorted((d for d in self.devices if d.hosted_on == host_id), key=lambda d: d.name)
 
     def port(self, port_id: str) -> Port | None:
         return next((p for p in self.ports if p.id == port_id), None)

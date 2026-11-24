@@ -20,7 +20,7 @@ from signalbox.service import Services, build
 from signalbox.web.app import create_app
 from writable import Writable
 
-from .fakes import Gate, Lab, Switch, open_wifi
+from .fakes import Gate, Lab, Service, Switch, open_wifi
 
 PASSWORD = "e2e-password-1"
 os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
@@ -42,7 +42,14 @@ class LiveServer:
                 "SIGNALBOX_DEPLOY_ENABLED": "true",
                 **(env or {}),
             },
-            adapters=adapters or {"lab": Lab, "labswitch": Switch, "labvpn": Gate, "w": Writable},
+            adapters=adapters
+            or {
+                "lab": Lab,
+                "labswitch": Switch,
+                "labvpn": Gate,
+                "labservice": Service,
+                "w": Writable,
+            },
             rules=[*load_rules(), open_wifi],
         )
         # Keep the listening socket open from the start (no close-then-rebind race with other

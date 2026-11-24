@@ -153,6 +153,10 @@ SCHEMA = [
     """
     ALTER TABLE devices ADD COLUMN pinned_since TEXT;
     """,
+    # version 8: the device a service runs on, set by hand (#387)
+    """
+    ALTER TABLE devices ADD COLUMN hosted_on TEXT;
+    """,
 ]
 
 
@@ -180,6 +184,8 @@ class DeviceRecord(BaseModel):
     enabled: bool = True
     #: Changes may be deployed to this device (off by default; see docs/CHANGES.md).
     allow_writes: bool = False
+    #: The device this one runs on, when the address does not show it (#387); None: derived.
+    hosted_on: str | None = None
 
 
 class FindingRecord(BaseModel):
@@ -405,6 +411,7 @@ class Store:
             ),
             enabled=bool(row["enabled"]),
             allow_writes=bool(row["allow_writes"]),
+            hosted_on=row["hosted_on"],
         )
 
     def devices(self) -> list[DeviceRecord]:
@@ -440,12 +447,13 @@ class Store:
                 raise StoreError(f"unknown site {record.site_id}")
             db.execute(
                 "INSERT INTO devices (id, site_id, name, role, adapter, config, secrets, "
-                "pinned_fingerprint, pending_fingerprint, enabled, allow_writes, pinned_since) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+                "pinned_fingerprint, pending_fingerprint, enabled, allow_writes, pinned_since, "
+                "hosted_on) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET "
                 "site_id = excluded.site_id, name = excluded.name, role = excluded.role, "
                 "adapter = excluded.adapter, config = excluded.config, "
                 "secrets = excluded.secrets, enabled = excluded.enabled, "
-                "allow_writes = excluded.allow_writes",
+                "allow_writes = excluded.allow_writes, hosted_on = excluded.hosted_on",
                 (
                     record.id,
                     record.site_id,
@@ -463,6 +471,7 @@ class Store:
                         if record.pinned_fingerprint
                         else None
                     ),
+                    record.hosted_on or None,
                 ),
             )
         stored = self.device(record.id)
