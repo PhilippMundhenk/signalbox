@@ -88,6 +88,22 @@ class HistoryConfig(Section):
     )
 
 
+class CertificatesConfig(Section):
+    warn_days: int = Field(
+        30,
+        ge=1,
+        le=3650,
+        description="Days before a device's HTTPS certificate expires when Signalbox warns.",
+    )
+    urgent_days: int = Field(
+        7,
+        ge=0,
+        le=3650,
+        description="Days before it expires when the warning becomes an error (an expired "
+        "certificate is always an error).",
+    )
+
+
 class DiscoveryConfig(Section):
     enabled: bool = Field(
         True,
@@ -219,6 +235,7 @@ class Config(Section):
     mqtt: MqttConfig = MqttConfig()
     deploy: DeployConfig = DeployConfig()
     history: HistoryConfig = HistoryConfig()
+    certificates: CertificatesConfig = CertificatesConfig()
     discovery: DiscoveryConfig = DiscoveryConfig()
     setup: SetupConfig = SetupConfig()
     traces: TracesConfig = TracesConfig()
@@ -278,6 +295,12 @@ deploy:
   enabled: false
   # Devices that can roll back by themselves (OpenWrt) do so unless confirmed in time.
   confirm_seconds: 120
+
+certificates:
+  # Days before the HTTPS certificate of a device expires when Signalbox warns, and when
+  # the warning becomes an error (an expired certificate is always an error).
+  warn_days: 30
+  urgent_days: 7
 
 history:
   # Days the observation history is kept: when devices, clients and ports were first and

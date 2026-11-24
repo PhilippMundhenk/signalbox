@@ -33,6 +33,12 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`annotations.stale`](rules/annotation_checks.md#annotationsstale)
 - [`ack.expired`](rules/annotation_checks.md#ackexpired)
 
+## [Device HTTPS certificates](rules/certificate_checks.md)
+
+- [`security.certificate-expiry`](rules/certificate_checks.md#securitycertificate-expiry)
+- [`cert.weak-key`](rules/certificate_checks.md#certweak-key)
+- [`cert.renewed`](rules/certificate_checks.md#certrenewed)
+
 ## [Clients](rules/clients.md)
 
 - [`clients.duplicate-hostname`](rules/clients.md#clientsduplicate-hostname)

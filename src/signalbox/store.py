@@ -9,7 +9,7 @@ import threading
 from collections.abc import Iterable, Iterator
 from collections.abc import Set as AbstractSet
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -146,6 +146,10 @@ SCHEMA = [
     CREATE TABLE foreign_servers (id TEXT PRIMARY KEY, last_seen TEXT NOT NULL, data TEXT NOT NULL);
     CREATE INDEX foreign_servers_seen ON foreign_servers (last_seen);
     """,
+    # version 7: since when the certificate is trusted (#174)
+    """
+    ALTER TABLE devices ADD COLUMN pinned_since TEXT;
+    """,
 ]
 
 
@@ -168,6 +172,8 @@ class DeviceRecord(BaseModel):
     secrets_set: list[str] = Field(default_factory=list)
     pinned_fingerprint: str | None = None
     pending_fingerprint: str | None = None
+    #: When the pinned certificate was trusted (#174); None: before Signalbox recorded it.
+    pinned_since: datetime | None = None
     enabled: bool = True
     #: Changes may be deployed to this device (off by default; see docs/CHANGES.md).
     allow_writes: bool = False
@@ -387,6 +393,9 @@ class Store:
             secrets_set=sorted(secrets),
             pinned_fingerprint=row["pinned_fingerprint"],
             pending_fingerprint=row["pending_fingerprint"],
+            pinned_since=(
+                datetime.fromisoformat(row["pinned_since"]) if row["pinned_since"] else None
+            ),
             enabled=bool(row["enabled"]),
             allow_writes=bool(row["allow_writes"]),
         )
@@ -424,8 +433,8 @@ class Store:
                 raise StoreError(f"unknown site {record.site_id}")
             db.execute(
                 "INSERT INTO devices (id, site_id, name, role, adapter, config, secrets, "
-                "pinned_fingerprint, pending_fingerprint, enabled, allow_writes) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+                "pinned_fingerprint, pending_fingerprint, enabled, allow_writes, pinned_since) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
                 "site_id = excluded.site_id, name = excluded.name, role = excluded.role, "
                 "adapter = excluded.adapter, config = excluded.config, "
                 "secrets = excluded.secrets, enabled = excluded.enabled, "
@@ -442,6 +451,11 @@ class Store:
                     record.pending_fingerprint,
                     int(record.enabled),
                     int(record.allow_writes),
+                    (
+                        (record.pinned_since or datetime.now(UTC)).isoformat()
+                        if record.pinned_fingerprint
+                        else None
+                    ),
                 ),
             )
         stored = self.device(record.id)
@@ -515,9 +529,9 @@ class Store:
             raise StoreError("this is not the certificate the device presented last")
         with self._tx() as db:
             db.execute(
-                "UPDATE devices SET pinned_fingerprint = ?, pending_fingerprint = NULL "
-                "WHERE id = ?",
-                (fingerprint, device_id),
+                "UPDATE devices SET pinned_fingerprint = ?, pending_fingerprint = NULL, "
+                "pinned_since = ? WHERE id = ?",
+                (fingerprint, datetime.now(UTC).isoformat(), device_id),
             )
 
     # links ------------------------------------------------------------------------------
@@ -548,6 +562,12 @@ class Store:
                 "data = excluded.data",
                 (snapshot.device.id, snapshot.observed_at.isoformat(), snapshot.model_dump_json()),
             )
+
+    def snapshot(self, device_id: str) -> Snapshot | None:
+        row = self._db.execute(
+            "SELECT data FROM snapshots WHERE device_id = ?", (device_id,)
+        ).fetchone()
+        return Snapshot.model_validate_json(row["data"]) if row else None
 
     def snapshots(self) -> list[Snapshot]:
         rows = self._all(

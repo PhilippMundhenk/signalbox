@@ -41,6 +41,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from signalbox import certificates
 from signalbox.adapters import AdapterError, AuthFailed, Unreachable, UntrustedCertificate
 
 #: OpenSSL ``X509_V_FLAG_NO_CHECK_TIME``: the ssl module does not export it.
@@ -195,6 +196,7 @@ class DeviceHttp:
                 exc.remedy = self.unreachable_remedy
                 raise
             self.fingerprint = fingerprint(der)
+            certificates.report(self.host, self.port, der)
             if self.pinned != self.fingerprint:
                 raise UntrustedCertificate(self.fingerprint, self.pinned)
             verify = pinned_context(der)
