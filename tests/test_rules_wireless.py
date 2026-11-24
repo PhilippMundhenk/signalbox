@@ -101,7 +101,7 @@ def test_identical_ssid_passes() -> None:
             "error",
             f"network (VLAN) differs (ap1: LAN (VLAN 10); ap2: {GUEST})",
         ),
-        ({"hidden": True}, "warning", "hidden setting differs (ap1: off; ap2: on)"),
+        ({"hidden": True}, "warning", "hidden setting differs (ap1: ✗; ap2: ✓)"),
         ({"roaming_80211r": False}, "warning", "fast roaming (802.11r) differs"),
         ({"roaming_80211k": False, "roaming_80211v": False}, "warning", "(802.11k) differs"),
     ],

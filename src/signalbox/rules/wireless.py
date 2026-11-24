@@ -13,7 +13,7 @@ from signalbox.rules._names import device_name, router_subnets, segment_name, si
 
 #: Attributes that must match for one SSID, with a readable name and the severity of a mismatch.
 #: Security, passphrase and network decide whether a client can connect at all after roaming.
-_SSID_ATTRIBUTES: list[tuple[str, str, Severity]] = [
+_SSID_ATTRIBUTES: list[tuple[str, str, Severity]] = [  # (attribute, English label, severity)
     ("security", "security mode", Severity.ERROR),
     ("passphrase_fingerprint", "passphrase", Severity.ERROR),
     ("segment_id", "network (VLAN)", Severity.ERROR),
@@ -30,7 +30,7 @@ def _show(net: Network, attr: str, value: object) -> str:
     if attr == "segment_id":
         return segment_name(net, str(value))
     if isinstance(value, bool):
-        return "on" if value else "off"
+        return "\u2713" if value else "\u2717"
     return str(value)
 
 
@@ -72,6 +72,7 @@ def ssid_consistent(net: Network) -> Iterator[Result]:
                     groups["+".join(sorted(vs))].append(name)
                 parts = sorted(", ".join(names) for names in groups.values())
                 detail = f"passphrase differs ({' / '.join(parts)})"
+                shown = " / ".join(parts)
             else:
                 sample = {str(getattr(w, attr)): getattr(w, attr) for w in wlans}
                 parts = [
@@ -79,12 +80,16 @@ def ssid_consistent(net: Network) -> Iterator[Result]:
                     for name, vs in sorted(by_device.items())
                 ]
                 detail = f"{label} differs ({'; '.join(parts)})"
+                shown = "; ".join(parts)
             yield found(
                 f"SSID {ssid!r} at site {site}: {detail}",
                 objects,
                 fix=f"Set the same {label} for {ssid!r} on every access point.",
                 severity=severity,
                 key=attr,
+                mid=f"wireless.differs.{attr}",
+                fix_id=f"wireless.differs.{attr}.fix",
+                params={"ssid": repr(ssid), "site": site, "parts": shown, "label": label},
             )
 
 
@@ -114,6 +119,9 @@ def country(net: Network) -> Iterator[Result]:
                     f"{_radio_label(net, radio)} has no country code set (or did not report it)",
                     [radio.id],
                     fix="Set the country code of this radio to the country it is used in.",
+                    mid="wireless.noCountry",
+                    fix_id="wireless.noCountry.fix",
+                    params={"radio": _radio_label(net, radio)},
                 )
         codes: dict[str, set[str]] = defaultdict(set)
         for radio in radios:
@@ -127,6 +135,9 @@ def country(net: Network) -> Iterator[Result]:
                 fix="Set the same country code, the one of the country the site is in, on every "
                 "radio.",
                 key=site,
+                mid="wireless.countries",
+                fix_id="wireless.countries.fix",
+                params={"site": site, "parts": parts},
             )
 
 
@@ -183,6 +194,16 @@ def channel_overlap(net: Network) -> Iterator[Result]:
                 [a.id, b.id],
                 fix="Move one of the access points to a channel that does not overlap"
                 + (" (1, 6 or 11)." if a.band is Band.GHZ_2_4 else ", or use a narrower width."),
+                mid="wireless.overlap",
+                fix_id="wireless.overlap.fix24"
+                if a.band is Band.GHZ_2_4
+                else "wireless.overlap.fix",
+                params={
+                    "a": _radio_label(net, a),
+                    "a_channel": a.channel,
+                    "b": _radio_label(net, b),
+                    "b_channel": b.channel,
+                },
             )
 
 
@@ -215,6 +236,13 @@ def segment_at_gateway(net: Network) -> Iterator[Result]:
             [wlan.id, wlan.segment_id],
             fix="Create this VLAN with an address and DHCP on the router, or bind the SSID to a "
             "network that exists there.",
+            mid="wireless.noSubnet",
+            fix_id="wireless.noSubnet.fix",
+            params={
+                "ssid": repr(wlan.ssid),
+                "device": device_name(net, wlan.device_id),
+                "segment": segment_name(net, wlan.segment_id),
+            },
         )
     for site, ssids in sorted(unchecked.items()):
         yield incomplete(
@@ -222,6 +250,8 @@ def segment_at_gateway(net: Network) -> Iterator[Result]:
             f"networks of {', '.join(repr(s) for s in sorted(ssids))} exist there",
             [site],
             key=site,
+            mid="wireless.noSubnetUnknown",
+            params={"site": site, "ssids": ", ".join(repr(s) for s in sorted(ssids))},
         )
 
 
