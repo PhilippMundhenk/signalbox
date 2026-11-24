@@ -367,22 +367,10 @@ class Deployer:
                     if not matches(net, c, c.old, secrets) and not matches(net, c, c.new, secrets)
                 ]
                 if stale:
-                    diag = []
-                    for c in stale:
-                        v = current_value(net, c)
-                        diag.append(
-                            {
-                                k: (getattr(v, k), getattr(c.old, k))
-                                for k in type(v).model_fields
-                                if getattr(v, k) != getattr(c.old, k)
-                            }
-                            if v is not None and c.old is not None
-                            else (v, c.old)
-                        )
                     return self._fail(
                         rec,
                         result,
-                        f"DIAG {diag} the device changed since the plan was made: "
+                        "the device changed since the plan was made: "
                         + "; ".join(c.describe() for c in stale),
                     )
             try:

@@ -215,19 +215,6 @@ jobs:
           set -o pipefail
           pytest -m integration tests/integration/test_openwrt_real.py -ra --tb=short -p no:cacheprovider \
             -o junit_family=xunit2 --junitxml=.it/openwrt-junit.xml 2>&1 | tee .it/pytest.log
-      - name: THROWAWAY repeat wlan deploy (#339)
-        id: repeat
-        if: success()
-        run: |
-          set -o pipefail
-          for i in $(seq 1 8); do
-            pytest -m integration tests/integration/test_openwrt_real.py -k "test_deploy_and_revert" -q --tb=short -p no:cacheprovider 2>&1 | tee -a .it/repeat.log || exit 1
-          done
-      - name: "THROWAWAY explain repeat"
-        if: failure() && steps.repeat.outcome == 'failure'
-        run: |
-          grep -E 'DIAG|^FAILED|^E ' .it/repeat.log | cut -c1-1500 > .it/repeat-errors.log || true
-          python3 tools/integration/annotate.py .it/repeat-errors.log "repeat errors" 280
       - name: Automatic setup tests (root over SSH, #231)
         id: setup
         if: success() || steps.tests.outcome == 'failure'
