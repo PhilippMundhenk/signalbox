@@ -24,7 +24,7 @@ HTTPS port `49443`. It can also change the DHCP server and the existing Wi-Fi ne
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `url` | | the box's address, for example `fritz.box` or `192.0.2.1`; Signalbox uses `https://<box>:49443` (another port only if the box reports one, see below) |
-| `username` | empty | the Fritz!Box user (see below); empty when the box asks only for its password |
+| `username` | empty | the Fritz!Box user (see below); empty when the box asks only for its password: Signalbox then reads the user name from the box (see [Password-only login](#password-only-login-373)) |
 | `password` | | its password; stored encrypted, never sent back to the UI |
 | `allow_insecure_http` | `false` | accept an `http://` URL; meant for simulators, nothing is encrypted then |
 
@@ -37,8 +37,8 @@ HTTPS port `49443`. It can also change the DHCP server and the existing Wi-Fi ne
    long password. Give it the right **FRITZ!Box settings** and nothing else; *Access from the
    internet* stays off. TR-064 has no read-only right: the user can change settings through
    TR-064; Signalbox only does so for a deployed change on a device with *Allow changes*. Keep
-   the password in Signalbox only. A box set to log in with its password only (no users) is
-   read with an empty user name and that password.
+   the password in Signalbox only. A box set to log in with its password only: see
+   [Password-only login](#password-only-login-373).
 3. Add the device in Signalbox with the box's address (`fritz.box` or its IP address); the
    form completes it to `https://<box>:49443`. If nothing answers TR-064 there, Signalbox asks
    the box for its TR-064 port on `http://<box>:49000` (the one action AVM answers without
@@ -50,6 +50,26 @@ The Wi-Fi passphrases are read only to compute a fingerprint (`passphrase_finger
 access points can be compared); the passphrase itself is never stored. If the user lacks the
 right for `GetSecurityKeys` (UPnP error 606), wireless is reported as "could not read" with a
 message naming the right; everything else is still read.
+
+## Password-only login (#373)
+
+Even if the box asks only for a password in its web interface, it has a user (since
+FRITZ!OS 7.24 every box does; in this mode it is created automatically, `fritz` and four
+digits, for example `fritz0000`). TR-064 needs that name: an empty user name gets HTTP 401.
+
+Even if the box asks only for a password, it usually has a user: look under *System >
+FRITZ!Box Users* (German: *System > FRITZ!Box-Benutzer*), or open
+`https://<box>/login_sid.lua?version=2` in a browser, and enter that name with the same
+password. This is the manual way to find the name.
+
+If you leave the user name empty, Signalbox looks it up itself before the first TR-064 call:
+`GET /login_sid.lua?version=2` on the box's web port (https 443 with the pinned certificate)
+answers without a login and lists `<Users><User last="1">fritz0000</User></Users>`; the
+user marked `last="1"`, or the only one, is used. The password is never sent to that page. If the
+lookup fails, the error says so and names the page. With a user name, a 401 is explained
+too: the user needs the right *FRITZ!Box settings* (German: *FRITZ!Box Einstellungen*), the
+name is case-sensitive, and after several failed logins the box blocks further attempts for a
+while.
 
 ## Certificate pinning and authentication
 
