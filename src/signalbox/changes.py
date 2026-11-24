@@ -24,7 +24,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from signalbox.desired import DesiredState, SegmentRef, seg_key
+from signalbox.desired import DesiredState, SegmentRef, seg_key, seg_sid
 from signalbox.model import (
     DeviceRole,
     DhcpPool,
@@ -304,7 +304,7 @@ def changes_for(
         ]
         aps = [d.id for d in net.devices if d.site_id == site_id and d.role is DeviceRole.AP]
         for s in spec.segments:
-            sid = segment_id(site_id, seg_key(s.vlan))
+            sid = seg_sid(site_id, s.vlan)
             vlan = seg_key(s.vlan)
             if s.gateway is not None:
                 _known(net, s.gateway.device)
