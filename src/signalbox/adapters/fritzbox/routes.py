@@ -67,6 +67,21 @@ def static_route(device_id: str, entry: dict[str, str]) -> Route | None:
     )
 
 
+def default_gateway(entries: list[dict[str, str]]) -> IPv4Address | None:
+    """Next hop of the first enabled ``0.0.0.0/0`` entry: the router in front of a box that
+    reaches the internet over LAN 1 (#375). Whether FRITZ!OS lists that route in
+    ``Layer3Forwarding`` is a *guess* (#21)."""
+    for entry in entries:
+        dest = _address(entry.get("NewDestIPAddress"))
+        mask = _address(entry.get("NewDestSubnetMask"))
+        gateway = _address(entry.get("NewGatewayIPAddress"))
+        if dest is None or int(dest) != 0 or (mask is not None and int(mask) != 0):
+            continue
+        if gateway is not None and int(gateway) != 0 and _flag(entry.get("NewEnable", "1")):
+            return gateway
+    return None
+
+
 def default_route(device_id: str, uplink: Uplink | None, service: str) -> Route | None:
     """The default route through the WAN connection (``GetDefaultConnectionService`` set)."""
     if uplink is None or not service.strip() or uplink.up is False:
