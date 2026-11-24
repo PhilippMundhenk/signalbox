@@ -83,15 +83,16 @@ def _gateway(value: Any) -> tuple[IPAddress | None, str | None]:
 
 
 def _kind(row: dict[str, Any]) -> RouteKind:
-    """A dropping route: the flag of the same name (``blackhole=true``), RouterOS 6's ``type``,
-    or the word in place of the gateway (*guess* which one a CHR 7 REST row has, #21)."""
+    """A dropping route. CHR 7.25 (CI) lists a blackhole route with ``"blackhole": ""``: the
+    flag is set when its key is there, unless it says ``false``. RouterOS 6's ``type`` and the
+    word in place of the gateway are accepted too (*guess*, #21)."""
     for word, kind in (
         ("blackhole", RouteKind.BLACKHOLE),
         ("unreachable", RouteKind.UNREACHABLE),
         ("prohibit", RouteKind.PROHIBIT),
     ):
         if (
-            _flag(row.get(word))
+            (word in row and row[word] not in ("false", "no", False))
             or _text(row.get("type")) == word
             or _text(row.get("gateway")) == word
         ):
