@@ -441,6 +441,28 @@ def _privilege_gap(what: str, exc: AdapterError, privilege: str) -> Gap:
     )
 
 
+#: OPNsense API reference of the firewall (the filter pages and what they list).
+RULES_DOC = "https://docs.opnsense.org/development/api/core/firewall.html"
+
+
+def _rules_gap() -> Gap:
+    """The rule list is empty or has no ``sort_order`` (#379): this release's filter API lists
+    only the rules of *Firewall: Automation: Filter*, not those of the classic *Firewall: Rules*
+    pages (guess for 25.x, 26.7 lists them) or the automatic ones. Optional: no privilege is
+    missing; the zone matrix and the reachability stay "unknown"."""
+    return Gap(
+        message="firewall rules: the filter API of this OPNsense lists no rules of the classic "
+        "Firewall: Rules pages (legacy rules), so reachability is not checked exactly",
+        fix="Optional: no privilege is missing (Firewall: Rules [new], page-filter-api, is "
+        "enough). Create the rules on Firewall: Automation: Filter, or use a release that "
+        f"lists the legacy rules (26.7 does); see {RULES_DOC}.",
+        optional=True,
+        message_id="opnsense.rulesIncomplete",
+        fix_id="opnsense.rulesIncomplete.fix",
+        params={"doc": RULES_DOC},
+    )
+
+
 def _accounts_gap(exc: AdapterError) -> Gap:
     """The user manager could not be read (#349): optional, naming the privilege and what it
     allows (it has no read-only variant)."""
@@ -1952,7 +1974,9 @@ class OpnsenseAdapter(_Adapter):
                 )
             )
         ctx = fw.Context(ifaces, groups, aliases)
-        return Observation(firewalls=[fw.build(dev, ctx, rows, forwards, snat, binat)])
+        built = fw.build(dev, ctx, rows, forwards, snat, binat)
+        gaps = [] if built.rules_complete else [_rules_gap()]
+        return Observation(firewalls=[built], incomplete=gaps)
 
     async def read_time(self) -> Observation:
         start = datetime.now(UTC)

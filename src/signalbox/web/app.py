@@ -177,8 +177,11 @@ def public_network(net: Network) -> dict[str, Any]:
         for src in names:
             row = []
             for dst in (None, *names):
-                action = fw.policy(src, dst) or (
-                    fw.input_policy if dst is None else fw.forward_policy
+                # an unread rule set decides before the defaults: unknown, never "drop" (#379)
+                action = (
+                    fw.policy(src, dst) or (fw.input_policy if dst is None else fw.forward_policy)
+                    if fw.rules_complete
+                    else None
                 )
                 row.append(action.value if action else None)
             matrix.append(row)

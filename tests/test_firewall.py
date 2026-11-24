@@ -517,3 +517,14 @@ def test_forwards_to_the_device_itself_or_another_address_do_not_take_it_away() 
     v6 = uplink("gw", addresses=[iface("2001:db8:5::2/64")])
     up = home().model_copy(update={"uplinks": [v6]})
     assert reach(up, WAN, "2001:db8:5::2", 22, TCP).verdict is D
+
+
+def test_matrix_of_an_unread_rule_set_is_unknown_not_drop() -> None:
+    """#379: with rules that could not be read the defaults say nothing: every cell is null."""
+    from signalbox.web.app import public_network
+
+    partial = home_firewall("gw").model_copy(update={"rules_complete": False})
+    known = public_network(Network(firewalls=[home_firewall("gw")]))["firewalls"][0]["matrix"]
+    unknown = public_network(Network(firewalls=[partial]))["firewalls"][0]["matrix"]
+    assert any(c is not None for row in known for c in row)
+    assert all(c is None for row in unknown for c in row)

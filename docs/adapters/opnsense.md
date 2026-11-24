@@ -300,6 +300,13 @@ pages; Signalbox only sends `GET`. Without one of them the `firewall` capability
   model, those of the legacy *Firewall: Rules* pages (`legacy`) and the automatic ones
   (`is_automatic`: anti-lockout, DHCP, ...), read from the controller source of 26.7. A release
   whose rows have no `sort_order` lists only the new model: `rules_complete = False`.
+  An empty list counts the same. Seen on a real 25.1 (#379): the device page said "0 filter rules"
+  and "Not every rule could be read". *Guess* (to confirm with a real 25.x, #21): there the API
+  lists only the rules of *Firewall: Automation: Filter*, not those of the classic *Firewall:
+  Rules* pages; no privilege is missing (the read privilege `page-filter-api` is the right one).
+  Signalbox reports an optional gap (no change of the device status), and the zone matrix, the
+  checks and the reachability treat every pair as unknown, never as `drop`. CI (26.7) lists the
+  legacy rows. API reference: <https://docs.opnsense.org/development/api/core/firewall.html>.
   pf takes the first matching `quick` rule, else the last matching rule: the adapter lists the
   quick rules in order and then the others in reverse. `direction out` rules are `output` rules
   (forwarded traffic rides on the state of the `in` rule), the others have no chain (the
