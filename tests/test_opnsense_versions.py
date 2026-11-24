@@ -104,8 +104,17 @@ def test_older_release_data(release: str) -> None:
     plain = sim.old_filter_rows(False)["rows"]
     full = sim.old_filter_rows(True)["rows"]
     if release == "25.1":
-        assert not any("sort_order" in r for r in plain)
-        assert any(r.get("legacy") for r in full) and any("sort_order" in r for r in full)
+        # without an interface only the floating rules; a rule of one interface needs it
+        mine = {"uuid": "u-lan", "description": "Pass LAN", "interface": "lan", "sequence": "5"}
+        sim.data["/api/firewall/filter/search_rule"]["rows"].append(mine)
+        assert not any(
+            r.get("legacy") or r.get("interface") for r in sim.old_filter_rows(False)["rows"]
+        )
+        everything = sim.old_filter_rows(True)["rows"]
+        assert any(r.get("legacy") for r in everything) and mine not in everything
+        lan = sim.old_filter_rows(True, "lan")["rows"]
+        assert any(r.get("uuid") == "u-lan" for r in lan) and any(r.get("legacy") for r in lan)
+        assert not any(r.get("uuid") == "u-lan" for r in sim.old_filter_rows(True, "wan")["rows"])
     else:
         assert plain == full and set(full[0]) <= {
             "uuid",

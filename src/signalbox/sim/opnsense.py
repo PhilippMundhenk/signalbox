@@ -1867,25 +1867,30 @@ class OpnsenseSimulator(_Writes):
         shown = rows if count < 0 else rows[(page - 1) * count : page * count]
         return {**grid, "rows": shown, "total": len(rows), "rowCount": len(shown), "current": page}
 
-    def old_filter_rows(self, show_all: bool) -> dict[str, Any]:
-        """``filter/search_rule`` of 25.1 (all fields, but without ``show_all`` only the floating
-        rules, and no legacy or automatic ones) and 24.7 (four columns of the MVC rules)."""
+    def old_filter_rows(self, show_all: bool, interface: str = "") -> dict[str, Any]:
+        """``filter/search_rule`` of 25.1 (all fields; the rules of the new model only the
+        floating ones, or those of ``interface``, and the legacy and automatic ones only with
+        ``show_all``, as read on a real 25.1) and 24.7 (four columns of the rules of the new
+        model)."""
         rows = copy.deepcopy(self.data[FILTER]["rows"])
+        other = [r for r in rows if r.get("legacy") or r.get("is_automatic")]
+        mvc = [r for r in rows if r not in other]
         if self.release == "24.7":
             keep = ("uuid", "enabled", "sequence", "action", "description")
-            rows = [
-                {k: r[k] for k in keep if k in r}
-                for r in rows
-                if not r.get("legacy") and not r.get("is_automatic")
-            ]
-        elif not show_all:
-            rows = [
+            rows = [{k: r[k] for k in keep if k in r} for r in mvc]
+        else:
+            names = str(interface).split(",") if interface else []
+            mvc = [
                 {k: v for k, v in r.items() if k != "sort_order"}
-                for r in rows
-                if not r.get("legacy")
-                and not r.get("is_automatic")
-                and ("," in str(r.get("interface")) or not r.get("interface"))
+                for r in mvc
+                if not r.get("interface")
+                or (
+                    "," in str(r["interface"])
+                    if not names
+                    else bool(set(names) & set(str(r["interface"]).split(",")))
+                )
             ]
+            rows = [*other, *mvc] if show_all else mvc
         return {"total": len(rows), "rowCount": len(rows), "current": 1, "rows": rows}
 
     def traceroute(self, caller: str, body: Any) -> Response:
@@ -2036,8 +2041,9 @@ class OpnsenseSimulator(_Writes):
                 overview["rows"] = [*overview.get("rows", []), *copy.deepcopy(self.leftovers)]
                 return JSONResponse(overview)
             if path == FILTER and self.release in ("25.1", "24.7"):
+                query = request.query_params
                 return JSONResponse(
-                    self.old_filter_rows(bool(request.query_params.get("show_all")))
+                    self.old_filter_rows(bool(query.get("show_all")), query.get("interface", ""))
                 )
             if path in (KEA, *grids):
                 return JSONResponse(self._kea_answer(path))

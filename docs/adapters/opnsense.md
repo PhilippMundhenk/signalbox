@@ -824,7 +824,7 @@ becomes an optional gap), the version only picks what a 404 cannot say.
 | | 26.7 | 25.7 | 25.1 | 24.7 |
 | --- | --- | --- | --- | --- |
 | Reads (interfaces, VLANs, Kea, Unbound, ARP/NDP, WireGuard, certificates, routes, log targets) | CI | sources | CI | simulator, sources |
-| Firewall rules (`filter/search_rule`) | all rules | all with `show_all=1` | all with `show_all=1` | four columns only: not read, gap |
+| Firewall rules (`filter/search_rule`) | all rules | one request per interface with `show_all=1` | one request per interface with `show_all=1` | four columns only: not read, gap |
 | Port forwards (`firewall/d_nat`) | yes | optional gap | optional gap | optional gap |
 | Source NAT, one-to-one (`source_nat`, `one_to_one`) | yes | yes | yes | yes |
 | dnsmasq DNS (`dnsmasq/settings`) | yes | yes | yes | not there, ignored |
@@ -852,13 +852,16 @@ What the sources showed, and what the adapter does about it:
 - **Port forwards.** `firewall/d_nat` is new in 26.1; on 25.x and 24.x the forwards stay unread
   (`port_forwards_complete` false) with the optional gap `opnsense.forwardsUnread`, naming the
   release. Changing a forward is refused with a message.
-- **Rules (#379).** From 25.1 until 26.7 `search_rule` lists only the floating rules (no or
-  several interfaces) unless `show_all=1` is sent (`FilterController::searchRuleAction`); with
-  it the rules of the interface pages, the legacy ones and the automatic ones come with their
-  `sort_order`, so the rules are complete there (*guess* for the legacy rules until the 25.1 CI
-  run read them; the "Signalbox CI: NAS" rule is checked). 24.7 lists four columns (`enabled`,
-  `sequence`, `action`, `description`) and no `show_all`: the rules stay unread, the rules gap
-  says so, the zone matrix is "unknown" (`get_rule` per uuid is not used).
+- **Rules (#379).** From 25.1 until 26.7 `search_rule` lists only the *floating* rules (no or
+  several interfaces) of the new model by default (read on a real 25.1: `rows: []` for the
+  rule of the LAN). `show_all=1` adds the legacy and the automatic rules (with `sort_order`),
+  and a rule of one interface appears only when `interface=<identifier>` names its interface
+  (`FilterController::searchRuleAction`). So the adapter asks once without and once per
+  interface and interface group with `show_all=1`, and unites the rows by uuid in `sort_order`
+  (a rule of the new model without one: after its `sequence`; *guess* until the 25.1 CI run
+  checks the rule "Signalbox CI: NAS"). 24.7 lists four columns (`enabled`, `sequence`,
+  `action`, `description`) and no `show_all`: the rules stay unread, the rules gap says so,
+  the zone matrix is "unknown" (`get_rule` per uuid is not used).
 - **Disk table.** `system_disk` answers `blocks`/`used`/`available` as `df -h` prints them
   (`28G`, `1.8G`) before 26.7: parsed by 1024 (`vitals.size_bytes`), rounded, so the usage is
   approximate there (*guess*: only 26.7's answer was recorded).

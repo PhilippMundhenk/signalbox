@@ -457,6 +457,20 @@ def _privilege_gap(what: str, exc: AdapterError, privilege: str) -> Gap:
 RULES_DOC = "https://docs.opnsense.org/development/api/core/firewall.html"
 
 
+#: Interface groups of rules that are not in the groups grid (WireGuard, OpenVPN, IPsec).
+PSEUDO_GROUPS = ("wireguard", "openvpn", "ipsec")
+
+
+def _rule_order(row: dict[str, Any]) -> str:
+    """The evaluation order of a row of ``search_rule``: its ``sort_order``, for a rule of the
+    new model without one (25.1) the place the model gives it (``300000.`` + sequence)."""
+    given = _text(row.get("sort_order"))
+    if given:
+        return given
+    sequence = _int(row.get("sequence"))
+    return f"300000.{sequence if sequence is not None else 0:07d}"
+
+
 def _rules_gap() -> Gap:
     """The rule list is empty or has no ``sort_order`` (#379): this release's filter API lists
     only the rules of *Firewall: Automation: Filter*, not those of the classic *Firewall: Rules*
@@ -2130,15 +2144,31 @@ class OpnsenseAdapter(_Adapter):
         return _trace.parse(answer, target, max_hops)
 
     async def _filter_rows(self) -> list[dict[str, Any]]:
-        """``filter/search_rule``; from 25.1 until 26.7 only with ``show_all=1`` it lists the rules
-        of the interface pages, the legacy and the automatic ones, too (compat.SHOW_ALL)."""
-        if FILTER_RULES not in self._cache:
-            version = await self._release()
-            params: dict[str, Any] = dict(ALL_ROWS)
-            if version is not None and compat.FULL_RULE_ROWS <= version < compat.SHOW_ALL:
-                params["show_all"] = 1
-            self._cache[FILTER_RULES] = await self.http.get_json(FILTER_RULES, params=params)
-        return _rows(self._cache[FILTER_RULES], FILTER_RULES)
+        """``filter/search_rule``. From 25.1 until 26.7 it lists only the floating rules (no or
+        several interfaces) of the "new" model unless ``show_all=1`` adds the legacy and
+        automatic ones, and a rule of one interface only with ``interface=<identifier>`` (read
+        on a real 25.1, FilterController::searchRuleAction): one request per interface and
+        interface group, the rows united by uuid in ``sort_order`` (compat.SHOW_ALL)."""
+        if FILTER_RULES in self._cache:
+            return _rows(self._cache[FILTER_RULES], FILTER_RULES)
+        version = await self._release()
+        if version is None or not compat.FULL_RULE_ROWS <= version < compat.SHOW_ALL:
+            self._cache[FILTER_RULES] = await self.http.get_json(FILTER_RULES, params=ALL_ROWS)
+            return _rows(self._cache[FILTER_RULES], FILTER_RULES)
+        layout = await self._layout()
+        groups = _rows(await self._get(IFACE_GROUPS, grid=True), IFACE_GROUPS)
+        names = [i.identifier for i in layout.ifaces] + [_text(g.get("ifname")) for g in groups]
+        found: dict[str, dict[str, Any]] = {}
+        for name in [None, *dict.fromkeys(n for n in (*names, *PSEUDO_GROUPS) if n)]:
+            params: dict[str, Any] = {**ALL_ROWS, "show_all": 1}
+            if name:
+                params["interface"] = name
+            answer = await self.http.get_json(FILTER_RULES, params=params)
+            for row in _rows(answer, FILTER_RULES):
+                found.setdefault(_text(row.get("uuid")) or str(len(found)), row)
+        rows = sorted(found.values(), key=_rule_order)
+        self._cache[FILTER_RULES] = {"rows": rows}
+        return rows
 
     async def read_firewall(self) -> Observation:
         """Packet filter and NAT (#135): ``filter/search_rule`` with aliases and interface
