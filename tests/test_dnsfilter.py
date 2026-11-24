@@ -11,6 +11,7 @@ from pydantic import SecretStr, ValidationError
 
 from signalbox.adapters import (
     AdapterContext,
+    AdapterError,
     DeviceRole,
     load_adapters,
 )
@@ -29,6 +30,7 @@ from signalbox.sim.dnsfilter import (
     MAC_NAS,
     MAC_PHONE,
     PH_PASSWORD,
+    PH_TOKEN,
     AdGuardSim,
     PiholeSim,
 )
@@ -58,11 +60,24 @@ def adguard(url: str, pin: str | None = None, password: str = AG_PASSWORD) -> Ad
     return AdGuardHomeAdapter(context(cfg, "adguard", pin))
 
 
-def pihole(url: str, pin: str | None = None, password: str = PH_PASSWORD) -> PiholeAdapter:
+def pihole(
+    url: str,
+    pin: str | None = None,
+    password: str | None = PH_PASSWORD,
+    token: str | None = None,
+) -> PiholeAdapter:
     cfg = PiholeConfig(
-        url=url, password=SecretStr(password), allow_insecure_http=url.startswith("http://")
+        url=url,
+        password=SecretStr(password) if password is not None else None,
+        api_token=SecretStr(token) if token is not None else None,
+        allow_insecure_http=url.startswith("http://"),
     )
     return PiholeAdapter(context(cfg, "pihole", pin))
+
+
+def pihole5(url: str, pin: str | None = None, token: str | None = PH_TOKEN) -> PiholeAdapter:
+    """Pi-hole v5: only the API token (#385)."""
+    return pihole(url, pin, password=None, token=token)
 
 
 async def observe(a: AdGuardHomeAdapter | PiholeAdapter) -> Snapshot:
@@ -82,6 +97,13 @@ def ag() -> Iterator[tuple[AdGuardSim, str]]:
 @pytest.fixture
 def ph() -> Iterator[tuple[PiholeSim, str]]:
     sim = PiholeSim()
+    with serve(sim.app()) as url:
+        yield sim, url
+
+
+@pytest.fixture
+def ph5() -> Iterator[tuple[PiholeSim, str]]:
+    sim = PiholeSim(version="v5")
     with serve(sim.app()) as url:
         yield sim, url
 
@@ -301,12 +323,169 @@ async def test_pihole_too_many_sessions(ph: tuple[PiholeSim, str]) -> None:
     assert "max_sessions" in (snap.errors[0].fix or "")
 
 
-async def test_pihole_v5_is_refused_with_a_fix(ph: tuple[PiholeSim, str]) -> None:
-    sim, url = ph
-    sim.version = "v5"
-    snap = await observe(pihole(url))
+async def test_pihole_v5_without_a_token_says_where_to_find_it(
+    ph5: tuple[PiholeSim, str],
+) -> None:
+    sim, url = ph5
+    snap = await observe(pihole(url))  # an app password, but the box is v5
     (err,) = snap.errors
-    assert "v5" in err.message and "v6" in (err.fix or "")
+    assert "v5" in err.message and "Settings > API > Show API token" in (err.fix or "")
+    assert ("POST", "/api/auth") in sim.requests  # v6 was tried first
+    assert not any("auth=" in q for q in sim.queries)
+
+
+async def test_pihole_v5_contract_and_mapping(ph5: tuple[PiholeSim, str]) -> None:
+    sim, url = ph5
+    a = pihole5(url)
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    assert snap.status is DeviceStatus.OK
+    assert snap.device.model == "Pi-hole" and snap.device.firmware
+    assert (snap.device.firmware.current, snap.device.firmware.available) == ("5.17", "5.18")
+    assert snap.device.vendor_extra["ftl_version"] == "5.23"
+    (dns,) = snap.dns_services
+    assert dns.id == "pihole/dns/pihole" and dns.config_read
+    # blocklist, cache and other are no upstream servers; "name|address" keys
+    assert [str(f) for f in dns.forwarders] == ["192.0.2.53", "203.0.113.53:5353", "2001:db8::1"]
+    assert dns.vendor_extra["filtering_enabled"] is True
+    assert not snap.dhcp_servers
+    (gap,) = [e for e in snap.errors if e.capability == "dhcp"]
+    assert gap.optional and "v6" in (gap.fix or "")
+    by_mac = {c.mac: c for c in snap.clients}
+    assert set(by_mac) == {MAC_LAPTOP, MAC_PHONE}  # "ip-192.0.2.99" has no MAC
+    laptop = by_mac[MAC_LAPTOP]
+    assert laptop.hostname == "laptop" and laptop.last_seen is not None
+    assert [str(x) for x in laptop.addresses] == ["192.0.2.151", "2001:db8::151"]
+    assert [str(x) for x in by_mac[MAC_PHONE].addresses] == ["192.0.2.152"]
+    assert by_mac[MAC_PHONE].hostname is None and by_mac[MAC_PHONE].last_seen is None
+    assert PH_TOKEN not in snap.model_dump_json()
+    assert {m for m, _ in sim.requests} == {"GET"}  # no password: no v6 login
+    assert not sim.sessions
+
+
+async def test_pihole_v5_token_only_goes_with_the_token_requests(
+    ph5: tuple[PiholeSim, str],
+) -> None:
+    sim, url = ph5
+    await observe(pihole5(url))
+    with_token = [q for q in sim.queries if PH_TOKEN in q]
+    assert with_token and all(
+        q.startswith(("/admin/api.php?", "/admin/api_db.php?")) for q in with_token
+    )
+    assert all("auth=" not in q for q in sim.queries if "versions" in q or "status" in q)
+    assert {m for m, _ in sim.requests} == {"GET"}
+
+
+async def test_pihole_v5_wrong_token_is_a_login_error_without_the_token(
+    ph5: tuple[PiholeSim, str],
+) -> None:
+    _sim, url = ph5
+    wrong = PH_TOKEN[::-1]
+    snap = await observe(pihole5(url, token=wrong))
+    assert snap.status in (DeviceStatus.AUTH_FAILED, DeviceStatus.PARTIAL)
+    assert any("Show API token" in (e.fix or "") for e in snap.errors)
+    assert wrong not in snap.model_dump_json()
+
+
+async def test_pihole_v5_network_table_failure_is_a_gap(ph5: tuple[PiholeSim, str]) -> None:
+    sim, url = ph5
+    sim.fail["/admin/api_db.php"] = 500
+    snap = await observe(pihole5(url))
+    assert snap.status is DeviceStatus.PARTIAL and not snap.clients
+    assert snap.dns_services[0].forwarders  # the rest was read
+    (err,) = [e for e in snap.errors if e.capability == "clients"]
+    assert "network table" in err.message and "MAC" in (err.fix or "")
+    assert PH_TOKEN not in snap.model_dump_json()
+    sim.fail.clear()
+    sim.v5_data["network"] = {"network": "none"}
+    assert not (await observe(pihole5(url))).clients
+
+
+async def test_pihole_v5_token_is_removed_from_errors(
+    ph5: tuple[PiholeSim, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sim, url = ph5
+    a = pihole5(url)
+
+    async def boom(*args: Any, **kwargs: Any) -> Any:
+        raise AdapterError(f"cannot reach {url}/x?auth={PH_TOKEN}", params={"u": PH_TOKEN})
+
+    monkeypatch.setattr(a.http, "request_json", boom)
+    with pytest.raises(AdapterError) as caught:
+        await a._v5_get("/admin/api.php", {"getForwardDestinations": ""}, token=True)
+    assert PH_TOKEN not in str(caught.value) and "***" in str(caught.value)
+    assert PH_TOKEN not in str(caught.value.params)
+    sim.fail["/admin/api.php"] = 500  # an error without the token in it passes unchanged
+    monkeypatch.undo()
+    with pytest.raises(AdapterError, match="HTTP 500"):
+        await a._v5_get("/admin/api.php", {"status": ""}, token=True)
+    await a.close()
+
+
+async def test_pihole_v5_odd_answers(ph5: tuple[PiholeSim, str]) -> None:
+    sim, url = ph5
+    sim.v5_data["versions"]["core_current"] = "N/A"
+    snap = await observe(pihole5(url))
+    assert snap.status is not DeviceStatus.OK
+    sim.v5_data["versions"]["core_current"] = "v5.17"
+    sim.v5_data["versions"]["core_update"] = False
+    sim.v5_data["status"] = {"status": "disabled"}
+    sim.v5_data["network"] = {"network": ["junk", {"hwaddr": "02:00:5e:00:53:20"}]}
+    snap = await observe(pihole5(url))
+    assert snap.device.firmware and snap.device.firmware.available is None
+    assert snap.dns_services[0].vendor_extra["filtering_enabled"] is False
+    assert {c.mac for c in snap.clients} == {"02:00:5e:00:53:20"}
+    sim.fail["/admin/api.php"] = 500  # status and the rest fail: unreadable
+    assert (await observe(pihole5(url))).status is not DeviceStatus.OK
+
+
+async def test_pihole_v5_status_failure_is_not_fatal(ph5: tuple[PiholeSim, str]) -> None:
+    sim, url = ph5
+    sim.v5_data["status"] = "nonsense"
+    snap = await observe(pihole5(url))
+    assert snap.status is DeviceStatus.OK
+    assert snap.dns_services[0].vendor_extra["filtering_enabled"] is False
+
+
+async def test_pihole_v5_over_pinned_tls(tmp_path: Any) -> None:
+    tls = self_signed_certificate(tmp_path, "pihole5")
+    sim = PiholeSim(version="v5")
+    with serve(sim.app(), tls=tls) as url:
+        a = pihole5(url, pin=tls.fingerprint)
+        try:
+            snap = await assert_contract(a)
+        finally:
+            await a.close()
+        assert snap.device.transport_encrypted is True
+        # the token is not sent to a certificate that is not pinned
+        sim.queries.clear()
+        assert (await observe(pihole5(url))).status is DeviceStatus.UNTRUSTED
+        assert sim.queries == []
+
+
+async def test_pihole_token_only_on_a_v6_box_needs_the_password(ph: tuple[PiholeSim, str]) -> None:
+    _sim, url = ph
+    snap = await observe(pihole5(url))
+    assert "does not look like Pi-hole" in snap.errors[0].message
+    assert "app password" in (snap.errors[0].fix or "")
+
+
+async def test_pihole_v6_with_both_credentials_uses_v6(ph: tuple[PiholeSim, str]) -> None:
+    sim, url = ph
+    snap = await observe(pihole(url, token=PH_TOKEN))
+    assert snap.status is DeviceStatus.OK and snap.dhcp_servers
+    assert not any("api.php" in q for q in sim.queries)
+
+
+def test_pihole_config_needs_a_credential_and_keeps_the_token_secret() -> None:
+    with pytest.raises(ValidationError, match="app password"):
+        PiholeConfig(url="https://192.0.2.54")
+    cfg = PiholeConfig(url="https://192.0.2.54", api_token=SecretStr(PH_TOKEN))
+    assert PH_TOKEN not in repr(cfg) and PH_TOKEN not in str(cfg.model_dump())
+    with pytest.raises(ValidationError, match="allow_insecure_http"):
+        PiholeConfig(url="http://192.0.2.54", api_token=SecretStr(PH_TOKEN))
 
 
 async def test_pihole_that_is_no_pihole(ph: tuple[PiholeSim, str]) -> None:

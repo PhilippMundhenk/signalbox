@@ -528,7 +528,8 @@ def adapter_for(data: dict[str, Any], url: str, pinned: str | None) -> Adapter:
     config_type = cls.manifest.config
     settings: dict[str, Any] = dict(data.get("settings", {}))
     for name, info in config_type.model_fields.items():
-        if "SecretStr" in str(info.annotation):
+        given = data.get("secret_settings")  # older files: every secret setting
+        if "SecretStr" in str(info.annotation) and (given is None or name in given):
             settings[name] = SecretStr(PLACEHOLDER_SECRET)
         elif name == "username":
             settings[name] = PLACEHOLDER_USER
@@ -587,6 +588,7 @@ def build(
     username: str | None,
     note: str = "",
     device: dict[str, str] | None = None,
+    secret_names: list[str] | None = None,
     today: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> dict[str, Any]:
     """The recording document (without the snapshot) from raw exchanges."""
@@ -604,6 +606,7 @@ def build(
         "role": role,
         "path": neutral.addresses(path),
         "settings": clean_settings,
+        **({} if secret_names is None else {"secret_settings": secret_names}),
         "device": {k: neutral.addresses(v) for k, v in (device or {}).items()},
         "note": note,
         "exchanges": [e.as_json() for e in clean],
