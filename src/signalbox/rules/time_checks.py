@@ -46,12 +46,12 @@ def _timed(net: Network) -> Iterator[tuple[Device, DeviceTime]]:
 def _duration(seconds: float) -> str:
     s = int(abs(seconds))
     if s < 120:
-        return f"{s} seconds"
+        return f"{s} s"
     if s < 120 * 60:
-        return f"{s // 60} minutes"
+        return f"{s // 60} min"
     if s < 48 * 3600:
-        return f"{s // 3600} hours"
-    return f"{s // 86400} days"
+        return f"{s // 3600} h"
+    return f"{s // 86400} d"
 
 
 def _serves(dev: Device) -> bool:
@@ -102,6 +102,13 @@ def offset(net: Network) -> Iterator[Result]:
             f"The clock of {dev.name} is {_duration(off)} {way}",
             [dev.id],
             fix=f"Configure NTP on it{hint} and check that it can reach the NTP server.",
+            mid=f"time.offset.{'ahead' if off > 0 else 'behind'}",
+            fix_id="time.offset.fixHint" if local else "time.offset.fix",
+            params={
+                "name": dev.name,
+                "span": _duration(off),
+                "servers": _servers_text(net, local),
+            },
         )
 
 
@@ -127,6 +134,9 @@ def not_synchronised(net: Network) -> Iterator[Result]:
                 [dev.id],
                 fix=f"Turn on its NTP client with a server{hint}.",
                 severity=Severity.INFO,
+                mid="time.noServer",
+                fix_id="time.noServer.fixHint" if local else "time.noServer.fix",
+                params={"name": dev.name, "servers": _servers_text(net, local)},
             )
         elif client.synchronised is False:
             yield found(
@@ -135,10 +145,16 @@ def not_synchronised(net: Network) -> Iterator[Result]:
                 [dev.id],
                 fix="Check that the servers are right and reachable from the device (firewall, "
                 "DNS for names); use the gateway if it serves time.",
+                mid="time.notSynchronised",
+                fix_id="time.notSynchronised.fix",
+                params={"name": dev.name, "servers": ", ".join(client.servers)},
             )
 
 
-def _not_serving(net: Network, idx: _Index, address: IPAddress) -> str | None:
+def _not_serving(
+    net: Network, idx: _Index, address: IPAddress
+) -> tuple[str, dict[str, str], str] | None:
+    """Why nothing serves time at the address: (id part, values, English text)."""
     """Why ``address`` cannot answer NTP, or None if it may (or nothing is known)."""
     seg = _local_segment(net, None, address)
     if seg is None:
@@ -147,15 +163,21 @@ def _not_serving(net: Network, idx: _Index, address: IPAddress) -> str | None:
         seg_obj = net.segment(seg)
         if seg_obj is None or (seg_obj.site_id, address.version) not in idx.client_data:
             return None  # no client data: the server may just be unknown to Signalbox
-        return f"no device on {segment_name(net, seg)} uses that address"
+        where = segment_name(net, seg)
+        return "unused", {"where": where}, f"no device on {where} uses that address"
     dev = net.device(idx.target(address))
     if dev is None or dev.time is None or dev.time.ntp_server is None:
         return None
     srv = dev.time.ntp_server
     if not srv.enabled:
-        return f"{dev.name} does not serve time"
+        return "off", {"name": dev.name}, f"{dev.name} does not serve time"
     if srv.segments and seg not in srv.segments:
-        return f"{dev.name} does not serve time on {segment_name(net, seg)}"
+        where = segment_name(net, seg)
+        return (
+            "offHere",
+            {"name": dev.name, "where": where},
+            f"{dev.name} does not serve time on {where}",
+        )
     return None
 
 
@@ -174,14 +196,18 @@ def ntp_unreachable(net: Network) -> Iterator[Result]:
             continue
         for server in t.ntp_client.servers:
             address = _parse(server)
-            why = _not_serving(net, idx, address) if address is not None else None
-            if why is not None:
+            problem = _not_serving(net, idx, address) if address is not None else None
+            if problem is not None:
+                kind, values, why = problem
                 yield found(
                     f"{dev.name} uses the NTP server {address}, but {why}",
                     [dev.id],
                     fix="Point it to a device that serves time, or turn on the NTP server of "
                     "that device for this network.",
                     key=str(address),
+                    mid=f"time.unreachable.{kind}",
+                    fix_id="time.unreachable.fix",
+                    params={"device": dev.name, "address": str(address), **values},
                 )
 
 
@@ -199,8 +225,9 @@ def dhcp_ntp_mismatch(net: Network) -> Iterator[Result]:
         if not srv.enabled:
             continue
         for address in srv.ntp_servers:
-            why = _not_serving(net, idx, address)
-            if why is not None:
+            problem = _not_serving(net, idx, address)
+            if problem is not None:
+                kind, values, why = problem
                 yield found(
                     f"{device_name(net, srv.device_id)} hands out the NTP server {address} on "
                     f"{segment_name(net, srv.segment_id)}, but {why}",
@@ -208,6 +235,14 @@ def dhcp_ntp_mismatch(net: Network) -> Iterator[Result]:
                     fix="Hand out the address of a device that serves time (usually the "
                     "gateway), or turn on its NTP server for this network.",
                     key=str(address),
+                    mid=f"time.dhcpMismatch.{kind}",
+                    fix_id="time.dhcpMismatch.fix",
+                    params={
+                        "device": device_name(net, srv.device_id),
+                        "address": str(address),
+                        "segment": segment_name(net, srv.segment_id),
+                        **values,
+                    },
                 )
 
 
@@ -273,6 +308,14 @@ def no_local_ntp(net: Network) -> Iterator[Result]:
                 f"serves time at {_site_name(net, site)}",
                 [d.id for d in devices],
                 fix=f"Point their NTP client to {_address_of(net, local[0])}.",
+                mid="time.noLocal.served",
+                fix_id="time.noLocal.servedFix",
+                params={
+                    "names": names,
+                    "servers": _servers_text(net, local),
+                    "site": _site_name(net, site),
+                    "address": _address_of(net, local[0]),
+                },
             )
             continue
         gateways = [
@@ -288,6 +331,14 @@ def no_local_ntp(net: Network) -> Iterator[Result]:
             [d.id for d in devices],
             fix=f"Turn on the NTP server of {gw.name} and point the devices (and DHCP option "
             f"42) to {_address_of(net, gw)}.",
+            mid="time.noLocal.none",
+            fix_id="time.noLocal.noneFix",
+            params={
+                "names": names,
+                "site": _site_name(net, site),
+                "gateway": gw.name,
+                "address": _address_of(net, gw),
+            },
         )
 
 
@@ -341,6 +392,9 @@ def timezone(net: Network) -> Iterator[Result]:
             f"Devices at {_site_name(net, site)} use {len(zones)} time zones ({'; '.join(parts)})",
             ids,
             fix="Set the same time zone on every device of the site.",
+            mid="time.timezone",
+            fix_id="time.timezone.fix",
+            params={"site": _site_name(net, site), "count": len(zones), "parts": "; ".join(parts)},
         )
 
 

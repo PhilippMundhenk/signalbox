@@ -116,10 +116,10 @@ def test_offset() -> None:
         )
     )
     assert [m for r, _, m in out if r == "time.offset"] == [
-        "The clock of ap-1 is 7 minutes behind",
-        "The clock of ap-3 is 90 seconds ahead",
-        "The clock of ap-4 is 3 days ahead",
-        "The clock of ap-5 is 5 hours behind",
+        "The clock of ap-1 is 7 min behind",
+        "The clock of ap-3 is 90 s ahead",
+        "The clock of ap-4 is 3 d ahead",
+        "The clock of ap-5 is 5 h behind",
     ]
     (f,) = evaluate(net(gw(), ap(1, device_time(-420))), RULES)
     assert f.severity == "warning" and "router (192.0.2.1) can serve time" in (f.fix or "")

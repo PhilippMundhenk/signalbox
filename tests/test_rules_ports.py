@@ -103,7 +103,7 @@ def test_single_untagged_two_untagged_vlans() -> None:
     (res,) = run(single_untagged, net)
     assert (
         res.message
-        == "core-switch port 3 (desk) is untagged in IoT (VLAN 20) and LAN (untagged network)."
+        == "core-switch port 3 (desk) is untagged in IoT (VLAN 20), LAN (untagged network)."
     )
     assert res.objects == (port_id("sw", "3"), IOT, LAN)
     assert res.key == "several"
@@ -236,9 +236,9 @@ def test_link_mtu_mismatch() -> None:
     assert res.objects == (f"{GW1}~{SW1}", GW1, SW1)
     # a switch with only a jumbo flag against a router MTU
     (res,) = run(link_mtu, uplink({"mtu": 9000}, {"mtu": None, "jumbo": False}))
-    assert "MTU 9000, the connected port core-switch port 1 jumbo frames off" in res.message
+    assert "MTU 9000, the connected port core-switch port 1 jumbo ✗" in res.message
     (res,) = run(link_mtu, uplink({"mtu": None, "jumbo": True}, {"mtu": None, "jumbo": False}))
-    assert "jumbo frames on" in res.message
+    assert "jumbo ✓" in res.message
 
 
 def test_link_mtu_quiet() -> None:
@@ -320,13 +320,13 @@ def test_autoneg_mismatch() -> None:
     net = uplink({"autoneg": False, "speed_mbps": 100, "full_duplex": True})
     (res,) = run(autoneg_mismatch, net)
     assert res.message == (
-        "gw port 1 is set to a fixed 100 Mbit/s full duplex, the connected port core-switch "
+        "gw port 1 is set to 100 Mbit/s FDX, the connected port core-switch "
         "port 1 uses auto-negotiation."
     )
     (res,) = run(autoneg_mismatch, uplink(b={"autoneg": False, "speed_mbps": None}))
-    assert res.message.startswith("core-switch port 1 is set to a fixed speed,")
+    assert res.message.startswith("core-switch port 1 is set to ?,")
     (res,) = run(autoneg_mismatch, uplink(b={"autoneg": False, "full_duplex": None}))
-    assert "a fixed 1000 Mbit/s, the" in res.message
+    assert "1000 Mbit/s, the" in res.message
 
 
 def test_autoneg_quiet() -> None:

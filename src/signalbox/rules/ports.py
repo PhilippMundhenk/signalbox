@@ -39,7 +39,7 @@ def _port_name(net: Network, port_id: str) -> str:
 
 
 def _and(items: list[str]) -> str:
-    return ", ".join(items[:-1]) + " and " + items[-1] if len(items) > 1 else "".join(items)
+    return ", ".join(items)
 
 
 def _cable_ends(net: Network) -> Iterator[tuple[Link, Port, Port]]:
@@ -91,6 +91,9 @@ def single_untagged(net: Network) -> Iterator[Result]:
                 fix="Keep one untagged VLAN on the port (set the PVID to the same one) and make "
                 "the others tagged.",
                 key="several",
+                mid="ports.severalUntagged",
+                fix_id="ports.severalUntagged.fix",
+                params={"name": name, "names": names},
             )
             continue
         pvid = net.pvid_segment(p.id)
@@ -103,6 +106,13 @@ def single_untagged(net: Network) -> Iterator[Result]:
             fix=f"Set the PVID of {name} to the VLAN of {segment_name(net, untagged[0])}, or make "
             "that VLAN tagged on the port.",
             key="pvid",
+            mid="ports.pvidMismatch",
+            fix_id="ports.pvidMismatch.fix",
+            params={
+                "name": name,
+                "segment": segment_name(net, untagged[0]),
+                "pvid": segment_name(net, pvid),
+            },
         )
 
 
@@ -205,6 +215,15 @@ def client_port_mismatch(net: Network) -> Iterator[Result]:
             [c.id, port_id],
             fix="Check the VLAN of the port and the network settings of the device (a fixed "
             "address, VLAN tagging on the device, or a switch in between).",
+            mid="ports.clientVlanPvid" if source == "PVID" else "ports.clientVlanAccess",
+            fix_id="ports.clientVlan.fix",
+            params={
+                "who": who,
+                "port": _port_name(net, port_id),
+                "segment": segment_name(net, port_seg),
+                "address": shown,
+                "clientSegment": segment_name(net, client_seg),
+            },
         )
 
 
@@ -214,7 +233,7 @@ def client_port_mismatch(net: Network) -> Iterator[Result]:
 def _mtu_text(p: Port) -> str:
     if p.mtu is not None:
         return f"MTU {p.mtu}"
-    return "jumbo frames on" if p.jumbo_frames() else "jumbo frames off"
+    return "jumbo \u2713" if p.jumbo_frames() else "jumbo \u2717"
 
 
 @rule(
@@ -239,6 +258,15 @@ def link_mtu(net: Network) -> Iterator[Result]:
             [link.id, a.id, b.id],
             fix=f"Use the same MTU on both ends ({STANDARD_MTU} unless every device on the path "
             "supports jumbo frames).",
+            mid="ports.mtu",
+            fix_id="ports.mtu.fix",
+            params={
+                "a": _port_name(net, a.id),
+                "a_mtu": _mtu_text(a),
+                "b": _port_name(net, b.id),
+                "b_mtu": _mtu_text(b),
+                "standard": STANDARD_MTU,
+            },
         )
 
 
@@ -271,6 +299,9 @@ def admin_down_with_neighbour(net: Network) -> Iterator[Result]:
             [p.id],
             fix="Enable the port, or move the cable to an enabled port (and remove a link you "
             "entered by hand if the cable is gone).",
+            mid="ports.adminDown",
+            fix_id="ports.adminDown.fix",
+            params={"name": _port_name(net, p.id), "far": _and(sorted(far[p.id]))},
         )
 
 
@@ -301,6 +332,9 @@ def eee_on_uplink(net: Network) -> Iterator[Result]:
             f"{_port_name(net, b.id)}).",
             [link.id, *(p.id for p in on)],
             fix=f"Turn off energy-efficient Ethernet (EEE, green Ethernet) on {names}.",
+            mid="ports.eee",
+            fix_id="ports.eee.fix",
+            params={"names": names, "a": _port_name(net, a.id), "b": _port_name(net, b.id)},
         )
 
 
@@ -309,9 +343,9 @@ def eee_on_uplink(net: Network) -> Iterator[Result]:
 
 def _forced(p: Port) -> str:
     if p.speed_mbps is None:
-        return "a fixed speed"
-    duplex = {True: " full duplex", False: " half duplex", None: ""}[p.full_duplex]
-    return f"a fixed {p.speed_mbps} Mbit/s{duplex}"
+        return "?"
+    duplex = {True: " FDX", False: " HDX", None: ""}[p.full_duplex]
+    return f"{p.speed_mbps} Mbit/s{duplex}"
 
 
 @rule(
@@ -333,6 +367,13 @@ def autoneg_mismatch(net: Network) -> Iterator[Result]:
             [link.id, a.id, b.id],
             fix="Set both ports to auto-negotiation (or, only if a device requires it, the same "
             "fixed speed and duplex on both).",
+            mid="ports.autoneg",
+            fix_id="ports.autoneg.fix",
+            params={
+                "fixed": _port_name(net, fixed.id),
+                "forced": _forced(fixed),
+                "auto": _port_name(net, auto.id),
+            },
         )
 
 
@@ -398,6 +439,13 @@ def description_mismatch(net: Network) -> Iterator[Result]:
             "is connected to it.",
             [p.id],
             fix="Update the port description, or check whether the cable is in the right port.",
+            mid="ports.description",
+            fix_id="ports.description.fix",
+            params={
+                "name": _port_name(net, p.id),
+                "named": _and(named),
+                "connected": connected,
+            },
         )
 
 
