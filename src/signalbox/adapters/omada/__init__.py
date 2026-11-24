@@ -72,6 +72,7 @@ from signalbox.model import (
     IPInterface,
     ManagementService,
     Membership,
+    Neighbour,
     Pmf,
     Port,
     PortForward,
@@ -388,8 +389,59 @@ class _Managed:
         return {"omada_device": self.identity(), **{k: v for k, v in more.items() if v}}
 
 
+@dataclass(frozen=True)
+class _ApLink:
+    """What the controller says about an access point's uplink (#336)."""
+
+    parent: str  # normalised MAC of the device it hangs on
+    port: str | None  # that device's port as the controller writes it (wired uplink)
+    speed: int | None  # Mbit/s of the wired link
+    mesh: bool  # a wireless uplink to another access point
+
+
+#: Names the controller gives the wireless uplink of an access point in its answer: the 6.3
+#: description of ``GET …/aps/{apMac}`` spells it ``wireless uplink info``; the camel-case
+#: spellings are *guesses* for what a real answer carries.
+MESH_KEYS = ("wirelessUpLinkInfo", "wirelessUplinkInfo", "wireless uplink info")
+#: Fields of a wired uplink in the device list or the AP detail: *guesses* (the 6.3 description
+#: of the AP detail has none; the controller's own UI API names its uplink so), see #21.
+WIRED_MAC_KEYS = ("uplinkDeviceMac", "uplinkMac")
+WIRED_PORT_KEYS = ("uplinkDevicePort", "uplinkPortName", "uplinkPort")
+
+
+def _first(rows: tuple[dict[str, Any], ...], keys: tuple[str, ...]) -> Any:
+    for row in rows:
+        for key in keys:
+            if row.get(key) not in (None, ""):
+                return row[key]
+    return None
+
+
+def ap_link(row: dict[str, Any], detail: dict[str, Any]) -> _ApLink | None:
+    """The uplink of an access point from its device-list row and its detail answer: a mesh
+    uplink (``wirelessLinked`` with the uplink AP's MAC) or a wired one (switch MAC, port and
+    link speed). None: the controller says nothing (an AP without an uplink, a field this
+    controller version does not have)."""
+    info = _first((detail,), MESH_KEYS)
+    if isinstance(info, dict) and detail.get("wirelessLinked") is not False:
+        parent = _mac(info.get("uplinkMac"))
+        if parent is not None:
+            return _ApLink(parent=parent, port=None, speed=None, mesh=True)
+    both = (detail, row)
+    parent = _mac(_first(both, WIRED_MAC_KEYS))
+    if parent is None:
+        return None
+    port = _first(both, WIRED_PORT_KEYS)
+    speed = LINK_SPEEDS.get(_int(_first(both, ("linkSpeed",))) or 0)
+    return _ApLink(parent=parent, port=_text(port) or None, speed=speed, mesh=False)
+
+
 #: Frame size of a switch without jumbo frames (Omada's default ``jumbo`` setting).
 STANDARD_FRAME = 1518
+
+
+def _port_name(sw: _Managed, name: Any, number: int) -> str:
+    return f"{sw.name} {_text(name) or f'Port{number}'}"
 
 
 def jumbo_of(switch: dict[str, Any] | None) -> bool | None:
@@ -507,6 +559,7 @@ class OmadaAdapter(_Adapter):
                 Capability.HEALTH,
                 Capability.TIME,
                 Capability.FIREWALL,
+                Capability.NEIGHBOURS,
             }
         ),
         config=OmadaConfig,
@@ -771,7 +824,7 @@ class OmadaAdapter(_Adapter):
                     Port(
                         id=pid,
                         device_id=self._prefix(sw),
-                        name=f"{sw.name} {_text(row.get('name')) or f'Port{number}'}",
+                        name=_port_name(sw, row.get("name"), number),
                         up=False if disable is True else None if link is None else link == 1,
                         speed_mbps=None if link == 0 else LINK_SPEEDS.get(speed or 0),
                         full_duplex=None if link == 0 else {1: False, 2: True}.get(duplex or 0),
@@ -793,6 +846,7 @@ class OmadaAdapter(_Adapter):
                     if net is not None and pid not in members[net.segment]:
                         members[net.segment][pid] = Membership.TAGGED
             ports.extend(self._lags(sw, ports[first:]))
+        ports.extend((await self._ap_view())[0])
         segs = [
             s.model_copy(
                 update={
@@ -845,6 +899,101 @@ class OmadaAdapter(_Adapter):
             uplinks=uplinks,
             services=await self._services([m.id for m in managed]),
         )
+
+    # --- access points and their uplinks (#336) -------------------------------------------------
+
+    async def _ap_view(self) -> tuple[list[Port], list[Neighbour]]:
+        """The wired port of every access point (``ETH1``; the controller lists none), a wireless
+        mesh port for those in a mesh, and the uplinks the controller reports as neighbours:
+        the switch (and its port) the AP hangs on, or the AP its mesh uplink goes to."""
+        cached = self._cache.get("ap-view")
+        if cached is not None:
+            return cached  # type: ignore[no-any-return]
+        dev = self.context.device_id
+        devices = await self._devices()
+        by_mac = {d.mac: d for d in devices}
+        aps = [d for d in devices if d.kind == "eap"]
+        rows = {_mac(r.get("mac")): r for r in await self._rows(f"{self._site_path}/devices")}
+        links: dict[str, _ApLink] = {}
+        for ap in aps:
+            detail = await self._object(f"{self._site_path}/aps/{ap.raw_mac}") or {}
+            link = ap_link(rows.get(ap.mac, {}), detail)
+            if link is not None and link.parent != ap.mac:
+                links[ap.mac] = link
+        meshed: set[str] = set()
+        for mac, link in links.items():
+            parent = by_mac.get(link.parent)
+            if link.mesh and parent is not None and parent.kind == "eap":
+                meshed |= {mac, link.parent}
+        ports: list[Port] = []
+        for ap in aps:
+            link = links.get(ap.mac)
+            wired = link is not None and not link.mesh
+            ports.append(
+                Port(
+                    id=f"{self._prefix(ap)}/port/1",
+                    device_id=self._prefix(ap),
+                    name=f"{ap.name} ETH1",
+                    up=True if wired else None,
+                    speed_mbps=link.speed if link is not None and wired else None,
+                    role=PortRole.JACK,
+                    vendor_extra=ap.extra(port=1),
+                )
+            )
+            if ap.mac in meshed:
+                ports.append(
+                    Port(
+                        id=f"{self._prefix(ap)}/port/mesh",
+                        device_id=self._prefix(ap),
+                        name=f"{ap.name} Mesh",
+                        kind=PortKind.WIRELESS,
+                        role=PortRole.WIRELESS,
+                        vendor_extra=ap.extra(),
+                    )
+                )
+        neighbours: list[Neighbour] = []
+        for ap in aps:
+            link = links.get(ap.mac)
+            if link is None:
+                continue
+            parent = by_mac.get(link.parent)
+            remote: str | None
+            if link.mesh:
+                if link.parent not in meshed or parent is None or parent.kind != "eap":
+                    continue
+                local = f"{self._prefix(ap)}/port/mesh"
+                remote = f"{parent.name} Mesh"
+            else:
+                local = f"{self._prefix(ap)}/port/1"
+                remote = link.port
+                if parent is not None and parent.kind == "switch" and link.port:
+                    remote = await self._switch_port_name(parent, link.port)
+            nid = object_id(dev, "neighbour", f"{local}-{link.parent}")
+            neighbours.append(
+                Neighbour(
+                    id=nid,
+                    local_port_id=local,
+                    chassis_id=link.parent,
+                    remote_port=remote,
+                    system_name=parent.name if parent else None,
+                    wireless=link.mesh,
+                    vendor_extra=ap.extra(uplink="mesh" if link.mesh else "wired"),
+                )
+            )
+        self._cache["ap-view"] = (ports, neighbours)
+        return ports, neighbours
+
+    async def _switch_port_name(self, sw: _Managed, text: str) -> str:
+        """The name of the switch port an AP's uplink field names (a number or ``Port5``)."""
+        digits = "".join(c if c.isdigit() else " " for c in text).split()
+        number = int(digits[-1]) if digits else None
+        for row in await self._ports(sw.raw_mac):
+            if _int(row.get("port")) == number and number is not None:
+                return _port_name(sw, row.get("name"), number)
+        return text
+
+    async def read_neighbours(self) -> Observation:
+        return Observation(neighbours=list((await self._ap_view())[1]))
 
     # --- firewall -----------------------------------------------------------------------------
 

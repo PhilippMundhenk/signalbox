@@ -3082,6 +3082,11 @@
           },
           "title": "Vendor Extra",
           "type": "object"
+        },
+        "wireless": {
+          "default": false,
+          "title": "Wireless",
+          "type": "boolean"
         }
       },
       "required": [

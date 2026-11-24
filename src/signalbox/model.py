@@ -2135,6 +2135,9 @@ class Neighbour(Observed):
     remote_port: str | None = None
     system_name: str | None = None
     management_address: str | None = None
+    #: A wireless link (a mesh uplink between two access points, #336): the topology draws it
+    #: as a ``wireless`` link between the two wireless ports.
+    wireless: bool = False
 
 
 class FdbKind(StrEnum):

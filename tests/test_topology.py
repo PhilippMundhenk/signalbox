@@ -180,3 +180,29 @@ def test_wireless_links_are_not_trunks_and_empty_mac() -> None:
     )
     msgs = [r.message for r in untagged_only.check(network([radio]))]
     assert all("sw/port/3" not in m for m in msgs)
+
+
+def test_wireless_neighbour_is_a_wireless_link() -> None:
+    """A mesh uplink reported as a neighbour (#336) becomes a wireless LLDP-origin link."""
+    a = snapshot(
+        device("a", DeviceRole.AP, name="AP A"),
+        ports=[port("a", "mesh", kind=PortKind.WIRELESS)],
+        neighbours=[
+            Neighbour(
+                id="a/nb/1",
+                local_port_id="a/port/mesh",
+                chassis_id="02:00:00:00:0c:02",
+                system_name="AP B",
+                remote_port="mesh",
+                wireless=True,
+            )
+        ],
+    )
+    b = snapshot(
+        device("b", DeviceRole.AP, name="AP B"),
+        ports=[port("b", "mesh", kind=PortKind.WIRELESS)],
+    )
+    links = list(lldp_links(merge([SITE], [a, b], [])))
+    assert [(link.a, link.b, link.kind.value) for link in links] == [
+        ("a/port/mesh", "b/port/mesh", "wireless")
+    ]
