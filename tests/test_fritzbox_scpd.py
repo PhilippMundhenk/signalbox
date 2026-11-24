@@ -155,6 +155,9 @@ async def test_every_call_of_the_adapter_is_described(
     sim.ext_info = sim.host_list = sim.beacon_advertisement = False
     sim.lan.update(NewIPRouters="", NewSubnetMask="", NewMinAddress="", NewMaxAddress="")
     await adapter.observe()
+    # behind another router over LAN 1 (#375): the address only from GetExternalIPAddress
+    sim.behind("192.0.2.20", "192.0.2.1", "198.51.100.1")
+    await adapter.observe()
     assert problems(desc, sim.calls) == []
     called = {action for _, action, _ in sim.calls}
     served = {service for service, _, _ in sim.calls}  # management services (#173)
