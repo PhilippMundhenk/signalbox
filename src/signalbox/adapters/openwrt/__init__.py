@@ -1215,6 +1215,10 @@ class OpenWrtAdapter(Adapter):
         d = self.context.device_id
         uci = await self._uci("wireless")
         up = await self._radios_up()
+        deadline = time.monotonic() + 20
+        while any(r.get("pending") for r in up.values()) and time.monotonic() < deadline:
+            await asyncio.sleep(0.5)  # netifd is reloading the Wi-Fi: radios flap (#339)
+            up = await self._radios_up()
         view = await self._network(running=False)
         supported = await self._supported_security()
         radios: dict[str, Radio] = {}
@@ -1728,6 +1732,7 @@ class OpenWrtAdapter(Adapter):
         if not radios:
             return
         deadline = time.monotonic() + seconds
+        stable = 0
         while True:
             try:
                 status = await self._radios_up()
@@ -1735,7 +1740,10 @@ class OpenWrtAdapter(Adapter):
                 return
             pending = any(r.get("pending") for r in status.values())
             back = all(status.get(n, {}).get("up") for n in radios)
-            if (back and not pending) or time.monotonic() >= deadline:
+            # the condition must hold twice in a row: netifd flags a radio pending a moment
+            # after the apply or the confirm, not at the same instant
+            stable = stable + 1 if back and not pending else 0
+            if stable >= 2 or time.monotonic() >= deadline:
                 return
             await asyncio.sleep(0.5)
 

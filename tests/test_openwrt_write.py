@@ -1080,13 +1080,13 @@ async def test_wlan_apply_waits_until_netifd_brought_the_radios_back(
     try:
         c = change(ChangeKind.WLAN, GUEST.ssid, None, GUEST)
         await adapter.apply([c], SECRETS, 60)
-        assert len(calls) == 4  # one before, three until both radios are up and none pending
-        answers[:] = [down, back]  # the confirm commits; netifd reloads once more
+        assert len(calls) == 5  # one before; down, down, then up and not pending twice in a row
+        answers[:] = [down, back, back]  # the confirm commits; netifd reloads once more
         calls.clear()
         await adapter.confirm()
-        assert len(calls) == 2
+        assert len(calls) == 3
         await adapter._wireless_settled(set())  # nothing was up before: nothing to wait for
-        assert len(calls) == 2
+        assert len(calls) == 3
         await adapter._wireless_settled({"radio0"}, seconds=0)  # the deadline ends the wait
     finally:
         await adapter.close()
