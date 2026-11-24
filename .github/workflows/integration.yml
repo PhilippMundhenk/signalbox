@@ -219,7 +219,7 @@ jobs:
           if ! install --version 2>&1 | grep -q GNU; then
             sudo apt-get install -y -q coreutils-from-gnu || true
           fi
-          install --version | head -1
+          echo "::notice title=install::$(command -v install) $(install --version 2>&1 | head -1) | $(. /etc/os-release; echo $PRETTY_NAME)"
       - name: Cache the image
         id: cache
         uses: actions/cache@v4
