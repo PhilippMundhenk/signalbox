@@ -25,6 +25,7 @@ from signalbox.adapters.omada import (
     _psk_details,
     _security,
     _width,
+    ap_link,
     jumbo_of,
     vitals,
 )
@@ -181,9 +182,13 @@ async def test_no_controller_id(http_url: str, sim: OmadaSimulator) -> None:
 
 async def test_ports_and_segments(snap: Snapshot) -> None:
     ports = {p.id: p for p in snap.ports}
-    assert sorted(ports) == [f"{SW}/port/{n}" for n in [*range(1, 9), "lag1"]]
+    assert sorted(p for p in ports if p.startswith(SW)) == [
+        f"{SW}/port/{n}" for n in [*range(1, 9), "lag1"]
+    ]
     # #252: switch ports are jacks, a link aggregation group a port of role lag over its members
-    assert all(p.role is PortRole.JACK for p in snap.ports if "lag" not in p.id)
+    assert all(
+        p.role is PortRole.JACK for p in snap.ports if "lag" not in p.id and p.id.startswith(SW)
+    )
     lag = ports[f"{SW}/port/lag1"]
     assert (lag.role, lag.kind, lag.external) == (PortRole.LAG, PortKind.LAG, True)
     assert lag.lower == [f"{SW}/port/2", f"{SW}/port/3"]
@@ -371,7 +376,7 @@ async def test_clients(snap: Snapshot) -> None:
 async def test_paging(http_url: str, sim: OmadaSimulator) -> None:
     sim.page_limit = 2  # the controller returns smaller pages than asked for
     snap = await observe(adapter(http_url))
-    assert snap.status is DeviceStatus.OK and len(snap.clients) == 5 and len(snap.ports) == 9
+    assert snap.status is DeviceStatus.OK and len(snap.clients) == 5 and len(snap.ports) == 13
     assert sim.requests.count(CLIENTS) == 3
 
 
@@ -397,7 +402,7 @@ async def test_plain_list_and_missing_total(http_url: str) -> None:
     with serve(Plain().app()) as url:
         snap = await observe(adapter(url))
     assert snap.status is DeviceStatus.OK, snap.errors
-    assert len(snap.ports) == 9 and len(snap.clients) == 5
+    assert len(snap.ports) == 13 and len(snap.clients) == 5
 
 
 # --- refused paths ---------------------------------------------------------------------------
@@ -776,3 +781,50 @@ async def test_services_not_read_when_the_controller_has_no_such_setting(
     del sim.data[f"{SITE}/setting/service/snmp"]
     snap = await observe(adapter(http_url))
     assert snap.services == [] and not snap.errors
+
+
+async def test_access_point_uplinks(snap: Snapshot) -> None:
+    """AP 1 hangs on switch port 5 (wired), AP 2 on AP 1 by mesh (#336)."""
+    ports = {p.id: p for p in snap.ports}
+    ap1, ap2 = "omada1/eap-020000000c01", "omada1/eap-020000000c02"
+    assert ports[f"{ap1}/port/1"].name == "AP 1 ETH1" and ports[f"{ap1}/port/1"].up is True
+    assert ports[f"{ap1}/port/1"].speed_mbps == 1000
+    assert ports[f"{ap2}/port/mesh"].kind.value == "wireless"
+    by_local = {n.local_port_id: n for n in snap.neighbours}
+    wired = by_local[f"{ap1}/port/1"]
+    assert wired.remote_port == "Switch Port5" and wired.system_name == "Switch"
+    assert wired.chassis_id == "02:00:00:00:0b:01" and not wired.wireless
+    mesh = by_local[f"{ap2}/port/mesh"]
+    assert mesh.wireless and mesh.remote_port == "AP 1 Mesh"
+    assert len(snap.neighbours) == 2
+
+
+def test_ap_link_shapes() -> None:
+    mac = "02-00-00-00-0B-01"
+    assert ap_link({}, {}) is None
+    wired = ap_link({"uplinkMac": mac, "uplinkPort": "Port3", "linkSpeed": 4}, {})
+    assert wired is not None and wired.port == "Port3" and wired.speed == 2500 and not wired.mesh
+    # a mesh uplink under the camel-case spelling; not wireless-linked: wired fields win
+    info = {"wirelessUpLinkInfo": {"uplinkMac": mac}, "wirelessLinked": True}
+    mesh = ap_link({}, info)
+    assert mesh is not None and mesh.mesh and mesh.parent == "02:00:00:00:0b:01"
+    assert ap_link({}, {**info, "wirelessLinked": False}) is None
+
+
+async def test_ap_uplink_edge_cases(http_url: str, sim: OmadaSimulator) -> None:
+    # to itself, to an unknown AP, then no AP detail at all
+    sim.data[f"{SITE}/aps/{EAP1}"]["uplinkDeviceMac"] = EAP1
+    sim.data[f"{SITE}/aps/{EAP2}"]["wireless uplink info"]["uplinkMac"] = "02-00-00-00-0C-99"
+    snap = await observe(adapter(http_url))
+    assert snap.status is DeviceStatus.OK and snap.neighbours == []
+    del sim.data[f"{SITE}/aps/{EAP1}"], sim.data[f"{SITE}/aps/{EAP2}"]
+    snap = await observe(adapter(http_url))
+    assert snap.status is DeviceStatus.OK and snap.neighbours == []
+    assert [p.name for p in snap.ports if "ETH1" in p.name] == ["AP 1 ETH1", "AP 2 ETH1"]
+
+
+async def test_ap_uplink_port_names(http_url: str, sim: OmadaSimulator) -> None:
+    sim.data[f"{SITE}/aps/{EAP1}"]["uplinkDevicePort"] = "no digits"
+    sim.data[f"{SITE}/aps/{EAP2}"] = {**sim.data[f"{SITE}/aps/{EAP1}"], "uplinkDevicePort": "99"}
+    snap = await observe(adapter(http_url))
+    assert sorted(n.remote_port or "" for n in snap.neighbours) == ["99", "no digits"]

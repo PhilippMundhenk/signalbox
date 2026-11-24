@@ -10,7 +10,7 @@ their DHCP, switch ports, SSIDs ([Changing the site](#changing-the-site)).
 | --- | --- |
 | Adapter id | `omada` |
 | Roles | `other` (recommended: the controller), `ap`, `switch`, `gateway` |
-| Capabilities | interfaces, DHCP, wireless, clients, firewall (gateway ACLs, port forwarding) |
+| Capabilities | interfaces, DHCP, wireless, clients, neighbours (AP uplinks), firewall (gateway ACLs, port forwarding) |
 | Writes | router, dhcp, port, wlan (through the controller) |
 | Simulator | `signalbox.sim.omada` (`uvicorn --factory signalbox.sim.omada:create_app`) |
 
@@ -514,3 +514,25 @@ The controller's client list is its view of the switches' tables: every wired cl
 `switchMac` and `port` becomes a `dynamic` entry on that managed switch's port (`vid` as the
 VLAN), under the switch's device id. The per-switch MAC table endpoint is not used *(guess:
 not in the Open API)*. Simulator only (#21).
+
+## Access point ports and uplinks (#336)
+
+The controller lists no ports for an EAP, so the adapter models them: `ETH1` (the wired port, id
+`…/eap-<mac>/port/1`; the name is a *guess*, the issue says ETH1) and, for access points in a
+mesh, a wireless port `Mesh`. The uplink is read from `GET …/aps/{mac}` (one call per EAP, plus
+the device-list row) and reported as a **neighbour** (capability `neighbours`), which the topology
+turns into a link:
+
+- **Mesh uplink** *(API description of 6.3, from the CI `spec` dump)*: `wirelessLinked` and
+  `wireless uplink info` with `uplinkMac`, `name`, `channel`, `rssi`, `snr`, `txRateInt`,
+  `partnerLinks[].radioId`. The description spells the key with spaces; `wirelessUpLinkInfo` and
+  `wirelessUplinkInfo` are accepted too *(guess)*. Becomes a `wireless` link between the two
+  APs' `Mesh` ports (both must be managed EAPs).
+- **Wired uplink** *(guess, #21)*: the 6.3 description of the AP detail has **no** wired uplink
+  field. The adapter looks for `uplinkDeviceMac` / `uplinkMac`, `uplinkDevicePort` /
+  `uplinkPortName` / `uplinkPort` and `linkSpeed` (same codes as a switch port) in the detail and
+  in the device-list row. A switch port given as a number or `Port5` is matched to the switch's
+  port name. The CI `spec` dump now also lists the fields of the device list, to confirm or fix
+  these names; with a real AP the simulator's wired fields must be checked.
+
+Without these fields the AP keeps its `ETH1` port and stays uncabled, as before.

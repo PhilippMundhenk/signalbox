@@ -75,6 +75,7 @@ def lldp_links(net: Network) -> Iterator[Link]:
             id=link_id(LinkOrigin.LLDP, local.id, remote.id),
             a=local.id,
             b=remote.id,
+            kind=LinkKind.WIRELESS if nb.wireless else LinkKind.CABLE,
             origin=LinkOrigin.LLDP,
         )
 

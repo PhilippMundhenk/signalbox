@@ -224,7 +224,7 @@ function layoutSite(siteNodes, rank, pairs, byId) {
 
 const TITLE_PAD = 24;
 const titleWidth = (name) => Math.round(String(name).length * 7.4 + TITLE_PAD);
-const STRIP_MAX = 900; // widest row of the "not cabled" strip when the cabled tree is narrower
+const STRIP_MAX = 560; // widest row of the "not cabled" strip when the cabled tree is narrower (a wider strip leaves empty space beside the tree)
 const STRIP_LABEL = 34; // room for the strip label above its first row
 const LANE = 9; // distance of two VPN lanes above the site frames
 

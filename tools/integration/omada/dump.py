@@ -69,6 +69,8 @@ def spec() -> dict[str, Any]:
     wanted = (
         "/openapi/v1/{omadacId}/sites/{siteId}/switches/{switchMac}",
         "/openapi/v1/{omadacId}/sites/{siteId}/aps/{apMac}",
+        # the device list: does it carry the wired uplink of an AP (#336)?
+        "/openapi/v1/{omadacId}/sites/{siteId}/devices",
     )
     out: dict[str, Any] = {}
     paths = doc.get("paths", {}) if isinstance(doc, dict) else {}
