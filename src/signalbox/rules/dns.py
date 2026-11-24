@@ -172,6 +172,13 @@ def host_record_reservation(net: Network) -> Iterator[Result]:
                 "the record is an intended second name.",
                 severity=Severity.INFO,
                 key=f"name {rec.name} {rec.address}",
+                mid="dns.recordReserved",
+                fix_id="dns.recordReserved.fix",
+                params={
+                    "name": rec.name,
+                    "address": str(rec.address),
+                    "reserved": ", ".join(sorted(names)),
+                },
             )
     for key, by_version in sorted(records.items()):
         for version, addresses in sorted(by_version.items()):
@@ -185,6 +192,13 @@ def host_record_reservation(net: Network) -> Iterator[Result]:
                 sorted(record_ids[key] | reserved_ids[key]),
                 fix="Update the DNS record (or the reservation) so that both use the same address.",
                 key=f"{name} {version}",
+                mid="dns.recordMismatch",
+                fix_id="dns.recordMismatch.fix",
+                params={
+                    "name": name,
+                    "addresses": _addresses(addresses),
+                    "reserved": _addresses(want),
+                },
             )
 
 
@@ -216,6 +230,14 @@ def host_record_stale(net: Network) -> Iterator[Result]:
                 [dns.id],
                 fix="Remove the record, or check the device's address.",
                 key=f"{rec.name} {address}",
+                mid="dns.recordUnused",
+                fix_id="dns.recordUnused.fix",
+                params={
+                    "name": rec.name,
+                    "device": device_name(net, dns.device_id),
+                    "address": str(address),
+                    "segment": segment_name(net, seg),
+                },
             )
         elif address.is_private and _local_segment(net, None, address) is None:
             yield found(
@@ -225,6 +247,13 @@ def host_record_stale(net: Network) -> Iterator[Result]:
                 fix="Correct the address (typo or an old network), or remove the record.",
                 severity=Severity.WARNING,
                 key=f"{rec.name} {address}",
+                mid="dns.recordUnknownNetwork",
+                fix_id="dns.recordUnknownNetwork.fix",
+                params={
+                    "name": rec.name,
+                    "device": device_name(net, dns.device_id),
+                    "address": str(address),
+                },
             )
 
 
@@ -261,6 +290,15 @@ def host_record_dynamic(net: Network) -> Iterator[Result]:
                 fix=f"Add a DHCP reservation for the device of {rec.name} at that address, or "
                 "move the record to an address outside the pool.",
                 key=f"{rec.name} {address}",
+                mid="dns.recordDynamic",
+                fix_id="dns.recordDynamic.fix",
+                params={
+                    "name": rec.name,
+                    "address": str(address),
+                    "segment": segment_name(net, srv.segment_id),
+                    "start": str(lo),
+                    "end": str(hi),
+                },
             )
 
 
@@ -320,20 +358,31 @@ def forwarder_loop(net: Network) -> Iterator[Result]:
         if not steps or members in reported:
             continue
         reported.add(members)
+        fix = (
+            "Let one of them forward to an upstream resolver (or resolve recursively) "
+            "instead of to the other."
+        )
         if len(steps) == 1:
-            message = f"DNS lookups loop: {names[start]} forwards to {steps[0][1]}, itself"
-        else:
-            nxt = [s for s, _ in steps[1:]] + [start]
-            parts = [
-                f"{names[s]} forwards to {fwd} ({names[t]})"
-                for (s, fwd), t in zip(steps, nxt, strict=True)
-            ]
-            message = "DNS lookups loop: " + ", ".join(parts)
+            yield found(
+                f"DNS lookups loop: {names[start]} forwards to {steps[0][1]}, itself",
+                sorted(members),
+                fix=fix,
+                mid="dns.loopSelf",
+                fix_id="dns.loop.fix",
+                params={"name": names[start], "forwarder": str(steps[0][1])},
+            )
+            continue
+        nxt = [s for s, _ in steps[1:]] + [start]
+        chain = ", ".join(
+            f"{names[s]} \u2192 {fwd} ({names[t]})" for (s, fwd), t in zip(steps, nxt, strict=True)
+        )
         yield found(
-            message,
+            f"DNS lookups loop: {chain}",
             sorted(members),
-            fix="Let one of them forward to an upstream resolver (or resolve recursively) "
-            "instead of to the other.",
+            fix=fix,
+            mid="dns.loop",
+            fix_id="dns.loop.fix",
+            params={"chain": chain},
         )
     in_loop = set().union(*reported) if reported else set()
     for dns in sorted(idx.services, key=lambda d: d.id):
@@ -344,8 +393,8 @@ def forwarder_loop(net: Network) -> Iterator[Result]:
             if not unknown:
                 continue
             device = device_name(net, idx.forward_target(dns, fwd))
+            services = ", ".join(names[h.id] for h in hits)
             if hits:
-                services = ", ".join(names[h.id] for h in hits)
                 what = f"the DNS service {services} that Signalbox does not read"
             else:
                 what = (
@@ -357,6 +406,14 @@ def forwarder_loop(net: Network) -> Iterator[Result]:
                 "in a loop cannot be checked",
                 sorted({dns.id, *(h.id for h in hits)}),
                 key=str(fwd),
+                mid="dns.loopUnknownService" if hits else "dns.loopUnknownPort",
+                params={
+                    "name": names[dns.id],
+                    "forwarder": str(fwd),
+                    "services": services,
+                    "port": fwd.port,
+                    "device": device,
+                },
             )
 
 
@@ -396,6 +453,13 @@ def forwarder_missing(net: Network) -> Iterator[Result]:
                 fix="Update the DNS setting to an existing resolver, or bring the resolver back.",
                 severity=Severity.WARNING if others else Severity.ERROR,
                 key=str(address),
+                mid="dns.forwarderMissing" if verb == "forwards DNS to" else "dns.resolverMissing",
+                fix_id="dns.resolverMissing.fix",
+                params={
+                    "device": device_name(net, dev),
+                    "address": str(address),
+                    "segment": segment_name(net, seg),
+                },
             )
 
 
@@ -438,6 +502,9 @@ def single_forwarder(net: Network) -> Iterator[Result]:
             f"{device_name(net, dns.device_id)} forwards DNS only to {upstream}",
             [dns.id],
             fix="Add a second upstream resolver, or let the resolver resolve recursively.",
+            mid="dns.singleForwarder",
+            fix_id="dns.singleForwarder.fix",
+            params={"device": device_name(net, dns.device_id), "upstream": upstream},
         )
 
 
@@ -484,12 +551,15 @@ def conflicting_records(net: Network) -> Iterator[Result]:
             names = {
                 d.id: device_name(net, d.device_id) for d in _services(net) if d.id in by_service
             }
-            parts = [f"{_addresses(a)} on {names[sid]}" for sid, a in sorted(by_service.items())]
+            parts = ", ".join(f"{names[sid]}: {_addresses(a)}" for sid, a in sorted(by_service.items()))
             yield found(
-                f"{name} resolves to {' and to '.join(parts)}",
+                f"{name} resolves differently: {parts}",
                 sorted(by_service),
                 fix="Use the same record on every resolver, or use a single resolver.",
                 key=f"{key[1]} {key[2]}",
+                mid="dns.conflict",
+                fix_id="dns.conflict.fix",
+                params={"name": name, "parts": parts},
             )
 
 

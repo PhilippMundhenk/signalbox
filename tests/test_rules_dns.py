@@ -285,7 +285,7 @@ def test_two_resolvers_forwarding_to_each_other_loop() -> None:
     (f,) = run(forwarder_loop, net)
     assert f.severity == "error"
     assert f.message == (
-        "DNS lookups loop: gw forwards to 192.0.2.2 (mt), mt forwards to 192.0.2.1 (gw)"
+        "DNS lookups loop: gw → 192.0.2.2 (mt), mt → 192.0.2.1 (gw)"
     )
     assert f.objects == ["gw/dns/main", "mt/dns/main"] and f.fix
 
@@ -341,8 +341,8 @@ def test_two_services_on_one_router_can_still_loop() -> None:
     unbound = dns("gw", name="unbound", port=53530, forwarders=["192.0.2.1"])
     (f,) = run(forwarder_loop, network(dns_services=[dnsmasq, unbound]))
     assert not f.incomplete and f.message == (
-        "DNS lookups loop: gw (dnsmasq) forwards to 127.0.0.1:53530 (gw (unbound)), "
-        "gw (unbound) forwards to 192.0.2.1 (gw (dnsmasq))"
+        "DNS lookups loop: gw (dnsmasq) → 127.0.0.1:53530 (gw (unbound)), "
+        "gw (unbound) → 192.0.2.1 (gw (dnsmasq))"
     )
     # Unbound resolving itself: a chain, not a loop
     unbound = dns("gw", name="unbound", port=53530, forwarders=[])
@@ -367,7 +367,7 @@ def test_port_must_match_across_devices() -> None:
     )
     (f,) = run(forwarder_loop, net)
     assert f.message == (
-        "DNS lookups loop: gw forwards to 192.0.2.2:5353 (mt), mt forwards to 192.0.2.1 (gw)"
+        "DNS lookups loop: gw → 192.0.2.2:5353 (mt), mt → 192.0.2.1 (gw)"
     )
 
 
@@ -486,7 +486,7 @@ def test_name_with_different_addresses_on_two_resolvers() -> None:
     )
     (f,) = run(conflicting_records, net)
     assert f.severity == "warning"
-    assert f.message == "nas resolves to 192.0.2.10 on gw and to 192.0.2.20 on mt"
+    assert f.message == "nas resolves differently: gw: 192.0.2.10, mt: 192.0.2.20"
     assert f.objects == ["gw/dns/main", "mt/dns/main"] and f.fix
 
 
