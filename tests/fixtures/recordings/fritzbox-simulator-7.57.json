@@ -942,6 +942,7 @@
    },
    "management_address": "127.0.0.1",
    "mac": null,
+   "hosted_on": null,
    "adapter": "fritzbox",
    "capabilities": [
     "clients",

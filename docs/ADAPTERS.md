@@ -373,6 +373,7 @@ that moved here are no longer in `vendor_extra`):
 
 | Integration | Fields | Where |
 | --- | --- | --- |
+| SNMP switch | `description` (`ifAlias`), `admin_up`, `mtu`, `pvid`, `frame_types`, `ingress_filter` (Q-BRIDGE-MIB `dot1qPortVlanTable`) | `snmp/mapping.py`, `ports()` |
 | ProSAFE / Easy Smart | `pvid` (802.1Q modes), `admin_up`, `autoneg`, `flow_control` (port settings: `read_port_admin`, Easy Smart's enable flag) | `plusswitch/mapping.py`, `interfaces()` |
 | MikroTik | `description` (`comment`), `admin_up`, `mtu`, `l2_mtu`; bridge ports of a VLAN-filtering bridge `pvid`, `frame_types`, `ingress_filter`; `/interface/ethernet` `advertised_speeds_mbps`, `autoneg`, `flow_control` | `mikrotik/__init__.py`, `_build_layout()` |
 | OpenWrt | `mtu`, `max_speed_mbps` (`link-supported`), `advertised_speeds_mbps` (`link-advertising`), `autoneg`, `admin_up` (`device` section `enabled`, or the device up), `pvid` (`*` in `bridge-vlan`) | `openwrt/__init__.py`, `read_interfaces()` |
@@ -404,6 +405,7 @@ or LAG role with another kind, and a VLAN interface on several ports.
 | MikroTik | `/interface` types: `ether` jacks, `bridge` over `/interface/bridge/port`, `vlan` on its parent, `bond` over `/interface/bonding` slaves, `wifi`/`wlan` Wi-Fi interfaces (virtual APs on their `master-interface`; `Wlan.port_id`), tunnels (`wg`, `eoip`, `gre`, ...); switch CPU port from `/interface/ethernet/switch/port` | `mikrotik/__init__.py` |
 | OPNsense | NICs (`is_physical`) as jacks, VLAN devices (`vlan_settings`, `if` = parent), `lagg*`/`bridge*` with `members` where the row has them, `wg*`/`ovpn*`/... tunnels; read with the existing privileges | `opnsense/__init__.py` |
 | Omada | switch ports as jacks, link aggregation groups (`lagId`) as `lag` ports; EAP radios and SSIDs need no ports | `omada/__init__.py` |
+| SNMP switch | Ethernet interfaces of IF-MIB as jacks, `ieee8023adLag` interfaces as `lag` ports over their members; VLAN, loopback and CPU interfaces are no ports | `snmp/mapping.py`, `ports()` |
 | ProSAFE / Easy Smart | every port a jack, enabled LAGs as `lag` ports over their members | `plusswitch/mapping.py` |
 | Linux | `ip -d link` kinds: `bridge` over its `master` members, `vlan` on its `link`, `bond`/`team`, `dsa` user ports on their conduit (CPU port), tunnels (`wireguard`, `ppp`, `gre`, ...), virtual (`veth`, `dummy`, ...); a NIC (`/sys/class/net/<n>/device`) is a jack, `wireless` a Wi-Fi interface | `linux/parse.py`, `role_of()` |
 | Fritz!Box | nothing: TR-064 has one LAN interface and names no jack, bridge or WLAN interface (no role is better than a guessed one) | `fritzbox/__init__.py` |
@@ -429,6 +431,7 @@ settings on a port that is no LAG and a member state on a port that is in no LAG
 | OpenWrt | UCI `device` `type bonding` (or `proto bonding`); sysfs `bonding/*` and `bonding_slave/*` through `file read` where the ACL allows it | `openwrt/lag.py`, `adapters/bonding.py` |
 | MikroTik | `/interface/bonding` (`mode`, `transmit-hash-policy`, `lacp-rate`, `lacp-mode`, `min-links`); `monitor-slaves` for the member state | `mikrotik/__init__.py` |
 | Omada | `lagType` of the member ports *(guess)* | `omada/__init__.py` |
+| SNMP switch | IEEE8023-LAG-MIB (`lacp-active`/`lacp-passive`, rate, partner), `ifStackTable` for aggregations without it (mode not reported) | `snmp/mapping.py`, `lags()` |
 | ProSAFE / Easy Smart | always `static` (no LACP) | `plusswitch/mapping.py` |
 | OPNsense, Fritz!Box | not read yet (OPNsense `lagg` protocol: follow-up) | |
 
@@ -950,5 +953,6 @@ FdbEntry(
 | Linux gateway | `bridge -j -s fdb show` as the read user (netlink, no root) | Entries with a `master` only (the bridge's table, not a port's own address list), `permanent` → `self`, `static` → `static`, `updated` → age. **CI**: a static entry on the Debian 12 target |
 | OpenWrt | not read | No rpcd method exposes the bridge FDB; `/sys/class/net/<bridge>/brforward` is binary, has no VLAN, needs `brif/*/port_no` and a wider ACL. The read ACL is unchanged |
 | OPNsense | not read | No API for the bridge address cache (`ifconfig bridge0 addr`); ARP gives the interface only (`Client.seen_on`, which core counts for devices without a table) |
+| SNMP switch | Q-BRIDGE-MIB `dot1qTpFdbTable` (per VLAN), else BRIDGE-MIB `dot1dTpFdbTable` | Read with `interfaces`; learned, static (`mgmt`) and `self`; entries on no port and invalid ones are left out; simulator only (`snmpsim`) |
 | ProSAFE / Easy Smart | not read | NSDP and the Easy Smart protocol have no MAC table on the supported models; Switchyard reads none |
 | Fritz!Box | not read | The host list has no per-port data |

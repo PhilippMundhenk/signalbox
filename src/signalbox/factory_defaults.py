@@ -19,6 +19,8 @@ import hmac
 FACTORY_DEFAULTS: dict[str, tuple[tuple[str | None, str], ...]] = {
     # NETGEAR ProSAFE Plus (NSDP): one management password, "password" from the factory
     "prosafe": ((None, "password"),),
+    # SNMP v2c: the community strings every agent ships with
+    "snmp": ((None, "public"), (None, "private")),
     # TP-Link Easy Smart: admin / admin
     "easysmart": (("admin", "admin"),),
     # MikroTik RouterOS before 6.49 / without a printed password: admin with an empty password

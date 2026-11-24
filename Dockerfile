@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 RUN python -m build --wheel --outdir /build \
-    && pip wheel --no-cache-dir --wheel-dir /dist "$(ls /build/*.whl)[switches]"
+    && pip wheel --no-cache-dir --wheel-dir /dist "$(ls /build/*.whl)[switches,snmp]"
 
 FROM python:3.13-slim
 ARG VERSION=dev

@@ -228,3 +228,58 @@ def test_port_click_and_both_themes(app: Any) -> None:
         fills[theme] = app.locator(".topo .box").first.evaluate("e => getComputedStyle(e).fill")
     assert fills["light"] != fills["dark"]
     expect(html).to_have_attribute("data-theme", "dark")
+
+
+def add_service(app: Any, name: str, url: str, **extra: Any) -> dict[str, Any]:
+    body = {
+        "name": name,
+        "site_id": "home",
+        "role": "other",
+        "adapter": "labservice",
+        "config": {"url": url},
+        **extra,
+    }
+    result: dict[str, Any] = api(app, "POST", "/devices", body)
+    return result
+
+
+def test_a_service_at_the_address_of_a_device_is_drawn_inside_its_box(app: Any) -> None:
+    """#387: a service on the router's address (another port) is a row in the router's box,
+    a link to its page, never a box under "Not cabled"; the settings can name the host of a
+    service on another address."""
+    add_site(app)
+    add_lab(app, "Router")
+    add_service(app, "DNS filter", "https://192.0.2.1:3000")
+    add_service(app, "Other filter", "https://192.0.2.99:3000", hosted_on="router")
+    observe(app)
+    go(app, "#/topology")
+    expect(app.get_by_test_id("topo-node")).to_have_count(1)
+    expect(app.get_by_test_id("topo-uncabled")).to_have_count(0)
+    rows = app.locator('[data-testid="topo-node"][data-id="router"] [data-testid="topo-hosted"]')
+    expect(rows).to_have_count(2)
+    first = rows.and_(app.locator('[data-id="dns-filter"]'))
+    expect(first).to_contain_text("Lab DNS filter:3000")
+    expect(first).to_have_attribute("data-status", "ok")
+    expect(app.get_by_test_id("topo-legend")).to_contain_text("Service running on a device")
+    first.click()
+    expect(app).to_have_url(re.compile(r"#/device/dns-filter$"))
+    expect(app.get_by_test_id("runs-on")).to_have_text("Router")
+    app.get_by_test_id("runs-on").click()
+    expect(app).to_have_url(re.compile(r"#/device/router$"))
+    expect(app.get_by_test_id("also-runs-here")).to_contain_text("DNS filter")
+    expect(app.get_by_test_id("also-runs-here")).to_contain_text("Other filter")
+
+
+def test_the_host_of_a_service_is_set_in_the_device_settings(app: Any) -> None:
+    add_site(app)
+    add_lab(app, "Router")
+    add_service(app, "Resolver", "https://192.0.2.50:3000")
+    observe(app)
+    go(app, "#/topology")
+    expect(app.get_by_test_id("topo-hosted")).to_have_count(0)
+    go(app, "#/device/resolver/settings")
+    app.get_by_test_id("device-hosted-on").select_option("router")
+    app.get_by_test_id("device-save").click()
+    go(app, "#/topology")
+    expect(app.get_by_test_id("topo-hosted")).to_have_count(1)
+    expect(app.get_by_test_id("topo-uncabled")).to_have_count(0)
