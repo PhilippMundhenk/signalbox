@@ -901,6 +901,7 @@ async def test_adopted_row_keeps_its_other_properties_then_restore(
         "log": "yes",
         "log-prefix": "ci",
         "connection-state": "new",
+        "disabled": "false",  # RouterOS cannot unset it again, so the row starts with it
         "comment": "ci-own-row",
     }
     path = "/rest/ip/firewall/filter"
