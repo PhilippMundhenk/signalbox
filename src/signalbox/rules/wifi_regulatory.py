@@ -81,7 +81,7 @@ def regulatory(net: Network) -> Iterator[Result]:
             continue  # a country the table does not know: quiet
         if bad and not allowed:
             yield found(
-                f"{label} is on {r.band.value} GHz, which is not available in country {country}",
+                f"{label} cannot be used in country {country}: the band is not available there",
                 [r.id],
                 fix="Turn this radio off, or set the correct country code.",
                 key="band",
