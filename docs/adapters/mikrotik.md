@@ -932,3 +932,19 @@ port in `on-interface`: `local` entries are the bridge's own addresses (`self`),
 ones learned, the rest `static`; `vid` is the VLAN where the bridge filters VLANs (otherwise
 no VLAN and the bridge's segment). No extra policy. Confirmed in CI (CHR 7.25.1): the bridge's
 own entries; learned entries only in the simulator (the CI router has no clients).
+
+## Accounts (#175)
+
+`GET /rest/user` (`name`, `group`, `disabled`, `address`, `last-logged-in`), `/rest/user/group`
+(`policy`) and, optional, `/rest/user/ssh-keys` (`user`) become `Device.accounts`. RouterOS
+never shows a password, so `password_set` stays unknown. The privilege comes from the group's
+policies: `write` with `policy` is admin, `write` alone write, `read` alone read (negated
+policies `!write` of older versions are ignored). `address` becomes `allowed_from`,
+`last-logged-in` (`2026-11-20 10:11:12`, or `nov/20/2026 10:11:12` before 7.10) `last_login`,
+taken as UTC (*guess*: the device's local time, #21). Signalbox's own user is marked and gives
+`signalbox_account_privilege`; the read-only group of the setup guide is `read`, the least this
+integration needs. A group without the `read` policy for `/user` gives an optional gap.
+
+`default_credentials` is true when the configured login is `admin` with an empty password (the
+factory state of RouterOS before 6.49 and of CHR), compared in memory; no other login is ever
+tried. The rules are in [account_checks](../rules/account_checks.md).

@@ -753,3 +753,32 @@ async def test_real_switches_use_switchyards_interface_mode(
     real = AdapterContext(**{**ctx.__dict__, "extra": {"client_port": 0}})
     snap = await ProsafeAdapter(real).observe()
     assert seen["targets"] is None and snap.status is not DeviceStatus.OK
+
+
+# --- factory password (#126, #175) -----------------------------------------------------------
+
+
+@needs_switchyard
+async def test_factory_password_is_compared_in_memory(nsdp: Start, easysmart: Start) -> None:
+    from signalbox.model import AccountPrivilege
+
+    _, port = await nsdp(netgear())
+    snap = await assert_contract(ProsafeAdapter(_context(ProsafeAdapter, port)))
+    dev = snap.device
+    assert dev.default_credentials is True and dev.accounts is None
+    assert dev.signalbox_account_privilege is AccountPrivilege.ADMIN
+    snap = await assert_contract(ProsafeAdapter(_context(ProsafeAdapter, port, password="x-1")))
+    assert snap.device.default_credentials is False
+    no_password = _context(ProsafeAdapter, port)
+    no_password = AdapterContext(
+        **{**no_password.__dict__, "config": ProsafeConfig(address="127.0.0.1")}
+    )
+    snap = await assert_contract(ProsafeAdapter(no_password))
+    assert snap.device.default_credentials is None
+    assert snap.device.signalbox_account_privilege is None
+    _, port = await easysmart(tplink())
+    snap = await assert_contract(EasySmartAdapter(es_context(port)))
+    dev = snap.device
+    assert dev.default_credentials is True
+    (acc,) = dev.accounts or []
+    assert (acc.name, acc.privilege, acc.is_signalbox) == ("admin", AccountPrivilege.ADMIN, True)

@@ -10,3 +10,7 @@ description = "Public protocol constants in test fixtures, not secrets"
 # A firewall policy key ("policy/<from zone>/<to zone>") in an earlier commit of the OPNsense firewall
 # tests (#295) matches the generic-api-key rule; it is a zone name path, not a secret.
 regexes = ['''5c746a047dbeb0b2fb6b06c314957e95''', '''policy/lan/dmz''']
+# The vendors' documented factory logins (#126, #175: "password", admin/admin) that Signalbox
+# compares the configured secret with, in memory. Public defaults, not anyone's secret; this one
+# module is the only place they are written down.
+paths = ['''^src/signalbox/factory_defaults\.py$''']

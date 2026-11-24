@@ -44,8 +44,16 @@ from signalbox.adapters import (
     VendorCall,
 )
 from signalbox.adapters.https import DeviceHttp, device_url
+from signalbox.adapters.openwrt import (
+    accounts,
+    firewall,
+    monitoring,
+    provision,
+    setup,
+    vitals,
+    wireguard,
+)
 from signalbox.adapters.openwrt import discovery as _discovery
-from signalbox.adapters.openwrt import firewall, monitoring, provision, setup, vitals, wireguard
 from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import (
     AccessDenied,
@@ -57,13 +65,16 @@ from signalbox.adapters.openwrt.ubus import (
 )
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
+from signalbox.factory_defaults import is_factory_default
 from signalbox.model import (
     DNS_PORT,
     SERVICE_PORTS,
+    AccountPrivilege,
     AddressSource,
     Band,
     Cipher,
     Client,
+    DeviceAccount,
     DeviceRole,
     DhcpBoot,
     DhcpLease,
@@ -134,6 +145,14 @@ class OpenWrtConfig(AdapterConfig):
         json_schema_extra={"advanced": True},
         default=False,
         description="accept an http:// URL (password sent in clear text)",
+    )
+    probe_empty_root_password: bool = Field(
+        json_schema_extra={"advanced": True},
+        default=False,
+        description="Active probe (off by default): at every read, also try one login as root "
+        "with an empty password, the OpenWrt factory state, and report it as a factory "
+        "password (#126). The session is closed at once; nothing is changed. Without it, "
+        "Signalbox only compares its own login with the factory default.",
     )
 
 
@@ -671,6 +690,7 @@ class OpenWrtAdapter(Adapter):
         setup_commands=setup.commands(),
         setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/openwrt.md#read-only-user-on-the-device",
         id="openwrt",
+        least_privilege=AccountPrivilege.READ,
         name="OpenWrt",
         version="0.1.0",
         api_version="1.4",
@@ -822,6 +842,8 @@ class OpenWrtAdapter(Adapter):
             ) from None
         if config == "network":  # WireGuard keys: dropped on arrival (#152)
             wireguard.scrub(data)
+        if config == "rpcd":  # login password hashes: dropped on arrival (#175)
+            accounts.scrub(data)
         return data
 
     async def _network(self, running: bool = True) -> NetworkView:
@@ -965,6 +987,24 @@ class OpenWrtAdapter(Adapter):
         if targets is not None:
             targets += extra[1]
         gaps += extra_gaps
+        users: list[DeviceAccount] | None = None
+        try:
+            users = accounts.logins(await self._uci("rpcd"), self.config.username)
+        except AccessDenied as exc:  # set up with an older ACL
+            gaps.append(
+                Gap(
+                    message=f"accounts: {exc}",
+                    fix=exc.fix,
+                    remedy=exc.remedy,
+                    optional=True,
+                    message_id="openwrt.accounts",
+                    fix_id=exc.fix_id,
+                    params={**exc.params, "cause": str(exc)},
+                )
+            )
+        except NotFound:
+            users = []
+        own = next((u for u in users or [] if u.is_signalbox), None)
         return Observation(
             ports=list(ports.values()),
             segments=segments,
@@ -972,8 +1012,22 @@ class OpenWrtAdapter(Adapter):
             uplinks=uplinks,
             services=services,
             log_targets={} if targets is None else {d: targets},
+            accounts={} if users is None else {d: users},
+            default_credentials={d: await self._default_credentials()},
+            signalbox_privilege={} if own is None else {d: own.privilege},
             incomplete=gaps,
         )
+
+    async def _default_credentials(self) -> bool:
+        """The configured login is root without a password (compared here, in memory). With
+        ``probe_empty_root_password`` (off by default) also one login as root with an empty
+        password, its session closed at once: an active probe, so only on request."""
+        cfg = self.config
+        if is_factory_default("openwrt", cfg.password.get_secret_value(), cfg.username):
+            return True
+        if not cfg.probe_empty_root_password or cfg.username == "root":
+            return False
+        return await self.ubus.try_login("root", "")
 
     async def _monitoring(
         self,

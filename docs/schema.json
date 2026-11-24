@@ -1,5 +1,16 @@
 {
   "$defs": {
+    "AccountPrivilege": {
+      "description": "What a local account of a device may do (#175).",
+      "enum": [
+        "admin",
+        "write",
+        "read",
+        "other"
+      ],
+      "title": "AccountPrivilege",
+      "type": "string"
+    },
     "Acknowledgement": {
       "additionalProperties": false,
       "description": "A finding the user has accepted (#186): shown apart, not counted as a problem.\n\nMatches either one finding (``finding_id``, stable across runs) or every finding of\n``rule_id`` that names ``target`` among its objects. ``until``: expires then (the finding\ncomes back and ``ack.expired`` says so). ``fingerprint``: lapses when the finding's message\nchanges (:func:`finding_fingerprint`).",
@@ -526,6 +537,21 @@
     "Device": {
       "additionalProperties": false,
       "properties": {
+        "accounts": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DeviceAccount"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accounts"
+        },
         "adapter": {
           "title": "Adapter",
           "type": "string"
@@ -547,6 +573,18 @@
             }
           ],
           "default": null
+        },
+        "default_credentials": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Credentials"
         },
         "firmware": {
           "anyOf": [
@@ -645,6 +683,28 @@
         "role": {
           "$ref": "#/$defs/DeviceRole"
         },
+        "signalbox_account_needed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountPrivilege"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "signalbox_account_privilege": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountPrivilege"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "site_id": {
           "title": "Site Id",
           "type": "string"
@@ -711,6 +771,100 @@
         "adapter"
       ],
       "title": "Device",
+      "type": "object"
+    },
+    "DeviceAccount": {
+      "additionalProperties": false,
+      "description": "A local login account of a device (#175, ADR 0020): a management user, an rpcd login, a\ncontroller administrator.\n\nNever a password, a key or a hash of one; ``password_set`` and ``key_auth`` only say\nwhether there is one. Account names are often personal names: they are shown on the\ndevice page only, never in exports, MQTT or finding messages.",
+      "properties": {
+        "allowed_from": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Allowed From",
+          "type": "array"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "is_signalbox": {
+          "default": false,
+          "title": "Is Signalbox",
+          "type": "boolean"
+        },
+        "key_auth": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key Auth"
+        },
+        "last_login": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Login"
+        },
+        "logins_tracked": {
+          "default": false,
+          "title": "Logins Tracked",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "password_set": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password Set"
+        },
+        "privilege": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountPrivilege"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "DeviceAccount",
       "type": "object"
     },
     "DeviceHealth": {

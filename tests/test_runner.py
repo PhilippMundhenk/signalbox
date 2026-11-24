@@ -18,6 +18,8 @@ from signalbox.adapters import (
 )
 from signalbox.config import Config, ObserveConfig
 from signalbox.model import (
+    AccountPrivilege,
+    DeviceAccount,
     DeviceRole,
     DeviceStatus,
     Link,
@@ -275,3 +277,44 @@ async def test_trigger_during_a_round_is_not_lost(store: Store) -> None:
     r.observe_all = slow_round  # type: ignore[method-assign]
     await asyncio.wait_for(r.run_forever(), 2)
     assert rounds == 2
+
+
+# --- accounts (#175) -------------------------------------------------------------------------
+
+
+class AccountDev(Dev):
+    manifest = Dev.manifest.model_copy(update={"least_privilege": AccountPrivilege.READ})
+
+    async def read_interfaces(self) -> Observation:
+        base = await super().read_interfaces()
+        d = self.context.device_id
+        own = DeviceAccount(name="alice", privilege=AccountPrivilege.ADMIN, is_signalbox=True)
+        return base.model_copy(
+            update={
+                "accounts": {d: [own]},
+                "signalbox_privilege": {d: AccountPrivilege.ADMIN},
+            }
+        )
+
+
+async def test_listeners_get_no_account_names_and_writes_need_a_write_login(
+    store: Store,
+) -> None:
+    add(store, "gw", adapter="acc")
+    add(store, "rw", adapter="acc", allow_writes=True)
+    seen: list[Network] = []
+    cfg = Config(observe=ObserveConfig(interval_seconds=10, concurrency=2))
+    r = Runner(
+        store=store,
+        adapters={"acc": AccountDev},
+        rules=[per_device],
+        config=cfg,
+        listeners=[lambda net, f: seen.append(net)],
+    )
+    net, _ = await r.observe_all()
+    assert [a.name for a in net.device("gw").accounts or []] == ["alice"]  # type: ignore[union-attr]
+    assert net.device("gw").signalbox_account_needed is AccountPrivilege.READ  # type: ignore[union-attr]
+    assert net.device("rw").signalbox_account_needed is AccountPrivilege.WRITE  # type: ignore[union-attr]
+    (shared,) = seen
+    assert all(d.accounts is None for d in shared.devices)
+    assert "alice" not in shared.model_dump_json()

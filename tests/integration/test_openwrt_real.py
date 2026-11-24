@@ -21,6 +21,7 @@ import asyncio
 import copy
 import time
 from collections.abc import AsyncIterator, Callable, Iterator
+from dataclasses import replace
 from ipaddress import ip_address, ip_interface, ip_network
 from pathlib import Path
 from typing import Any
@@ -656,3 +657,29 @@ async def test_wireguard_interface_and_peer(ow: Target, pin: str) -> None:
     assert peer.rx_bytes == 0 and peer.tx_bytes is not None
     assert [str(n) for n in t.remote_networks(peer)] == ["203.0.113.0/24"]
     assert t.routes == []  # the image routes nothing into the tunnel (no route allowed IPs)
+
+
+async def test_rpcd_logins_and_the_root_probe(ow: Target, pin: str) -> None:
+    """The image's rpcd logins (#175; needs ``rpcd`` in the ACL): root with the system
+    password, the read and the write login of the guide; no hash in the snapshot. With the
+    opt-in probe one login as root with an empty password is tried: the image's root has a
+    password, so it is refused and the read stays ok."""
+    from signalbox.model import AccountPrivilege
+
+    ctx = context(ow, pin)
+    probing = replace(ctx, config=ctx.config.model_copy(update={"probe_empty_root_password": True}))
+    adapter = OpenWrtAdapter(probing)
+    try:
+        snap = await adapter.observe()
+    finally:
+        await adapter.close()
+    assert snap.status is DeviceStatus.OK, snap.errors
+    by = {a.name: a for a in snap.device.accounts or []}
+    assert by["root"].privilege is AccountPrivilege.ADMIN and by["root"].password_set is None
+    assert by["signalbox"].is_signalbox and by["signalbox"].privilege is AccountPrivilege.READ
+    assert by["signalbox"].password_set is True
+    assert by["signalbox-write"].privilege is AccountPrivilege.WRITE, by
+    assert snap.device.signalbox_account_privilege is AccountPrivilege.READ
+    assert snap.device.default_credentials is False
+    text = snap.model_dump_json()
+    assert "$1$" not in text and "$p$" not in text

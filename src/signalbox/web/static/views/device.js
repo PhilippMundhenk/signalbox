@@ -312,6 +312,53 @@ function loggingCard(observed) {
   );
 }
 
+const PRIVILEGE = {
+  admin: 'device.accounts.privilege.admin',
+  write: 'device.accounts.privilege.write',
+  read: 'device.accounts.privilege.read',
+  other: 'device.accounts.privilege.other',
+};
+
+// Local accounts, the factory-password state and the rights of Signalbox's own login (#175);
+// null when the integration reports none of them. Account names are shown here only.
+function accountsCard(observed) {
+  const accounts = Array.isArray(observed.accounts) ? observed.accounts : null;
+  const factory = observed.default_credentials;
+  const have = observed.signalbox_account_privilege;
+  if (!accounts && factory == null && !have) return null;
+  const day = (iso) => fmtDate(new Date(iso), { dateStyle: 'medium' });
+  const rows = [];
+  if (factory != null)
+    rows.push([
+      t('device.accounts.factory'),
+      h('span', { class: factory ? 'bad-text' : '', 'data-testid': 'account-factory' }, t(factory ? 'device.accounts.factoryYes' : 'device.accounts.factoryNo')),
+    ]);
+  if (have) {
+    const need = observed.signalbox_account_needed;
+    const more = need && ['other', 'read', 'write', 'admin'].indexOf(have) > ['other', 'read', 'write', 'admin'].indexOf(need);
+    const text = more ? t('device.accounts.rightsMore', { have: t(PRIVILEGE[have]), need: t(PRIVILEGE[need]) }) : t(PRIVILEGE[have]);
+    rows.push([t('device.accounts.signalbox'), h('span', { class: more ? 'warn-text' : '', 'data-testid': 'account-signalbox' }, text)]);
+  }
+  for (const a of accounts || []) {
+    const facts = [a.privilege ? t(PRIVILEGE[a.privilege]) : t('device.accounts.privilege.unknown')];
+    if (!a.enabled) facts.push(t('device.accounts.disabled'));
+    if (a.password_set === false && a.key_auth !== true) facts.push(t('device.accounts.noPassword'));
+    if (a.key_auth) facts.push(t('device.accounts.key'));
+    if (a.last_login) facts.push(t('device.accounts.lastLogin', { date: day(a.last_login) }));
+    else if (a.logins_tracked) facts.push(t('device.accounts.neverLoggedIn'));
+    if (a.allowed_from.length) facts.push(t('device.accounts.from', { networks: a.allowed_from.join(', ') }));
+    if (a.is_signalbox) facts.push(t('device.accounts.ours'));
+    const bad = a.enabled && a.password_set === false && a.key_auth !== true;
+    rows.push([a.name, h('span', { class: bad ? 'bad-text' : a.enabled ? '' : 'muted', 'data-testid': 'account' }, facts.join(' · '))]);
+  }
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-accounts' },
+    h('h2', {}, t('device.accounts.title')),
+    rows.length ? kv(rows) : h('p', { class: 'muted' }, t('device.accounts.none')),
+  );
+}
+
 // The certificate the device presents for HTTPS (#174); null: no HTTPS read.
 function certificateCard(observed) {
   const c = observed.certificate;
@@ -531,6 +578,7 @@ async function overview(main, ctx, device, adapters, sites) {
     observed ? managementCard(ix, observed) : null,
     observed ? loggingCard(observed) : null,
     observed ? certificateCard(observed) : null,
+    observed ? accountsCard(observed) : null,
     observed ? healthCard(observed.health) : null,
     observed ? timeCard(observed.time) : null,
     trustBox,

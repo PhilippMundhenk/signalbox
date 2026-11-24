@@ -441,6 +441,55 @@ class LogTarget(Model):
         return f"{host}:{port}"
 
 
+class AccountPrivilege(StrEnum):
+    """What a local account of a device may do (#175)."""
+
+    #: Full administration: may change everything, accounts included.
+    ADMIN = "admin"
+    #: May change settings, but not everything (for example not the accounts).
+    WRITE = "write"
+    #: Read only.
+    READ = "read"
+    #: Something else (a monitoring role, a VPN-only user, vendor-specific rights).
+    OTHER = "other"
+
+
+#: Order of :class:`AccountPrivilege` from the least to the most (``other`` counts as least).
+PRIVILEGE_RANK: dict[AccountPrivilege, int] = {
+    AccountPrivilege.OTHER: 0,
+    AccountPrivilege.READ: 1,
+    AccountPrivilege.WRITE: 2,
+    AccountPrivilege.ADMIN: 3,
+}
+
+
+class DeviceAccount(Model):
+    """A local login account of a device (#175, ADR 0020): a management user, an rpcd login, a
+    controller administrator.
+
+    Never a password, a key or a hash of one; ``password_set`` and ``key_auth`` only say
+    whether there is one. Account names are often personal names: they are shown on the
+    device page only, never in exports, MQTT or finding messages.
+    """
+
+    name: str
+    #: ``None``: the device does not say (a FRITZ!Box names its other users only).
+    privilege: AccountPrivilege | None = None
+    enabled: bool = True
+    #: The account has a password; ``False``: it logs in without one. ``None``: not known.
+    password_set: bool | None = None
+    #: The account has a public key for SSH. ``None``: not known.
+    key_auth: bool | None = None
+    #: The device reports when accounts logged in (``last_login`` ``None`` is "never" then).
+    logins_tracked: bool = False
+    #: Last login as the device reports it; ``None``: never (with ``logins_tracked``) or not known.
+    last_login: datetime | None = None
+    #: This is the account Signalbox reads the device with.
+    is_signalbox: bool = False
+    #: Addresses the account may log in from; empty: from everywhere (or not restricted).
+    allowed_from: list[IPNetwork] = Field(default_factory=list)
+
+
 class Device(Observed):
     site_id: str
     name: str
@@ -469,6 +518,20 @@ class Device(Observed):
     #: The certificate the device presents for HTTPS (#174), filled by core from the pinning
     #: handshake. ``None``: no HTTPS read (or not read yet).
     certificate: CertificateInfo | None = None
+    #: Local accounts (#175, ADR 0020), read with ``interfaces`` (``Observation.accounts``).
+    #: ``None``: not read; ``[]``: read, none besides what the device cannot list.
+    accounts: list[DeviceAccount] | None = None
+    #: The login Signalbox uses is the vendor's factory default (#126): computed by the
+    #: integration in memory from the configured secret and a list of factory defaults
+    #: (:mod:`signalbox.factory_defaults`), or reported by the device itself. Only this
+    #: boolean is kept, never the secret. ``None``: not known (the integration cannot tell).
+    default_credentials: bool | None = None
+    #: What the login Signalbox uses may do (#175): least privilege is ``read``.
+    #: ``None``: not known.
+    signalbox_account_privilege: AccountPrivilege | None = None
+    #: The least privilege the integration needs to read the device (its documented
+    #: read-only login, ``Manifest.least_privilege``); ``None``: not said.
+    signalbox_account_needed: AccountPrivilege | None = None
 
     def sends_to(self, kind: LogKind) -> list[LogTarget]:
         """The enabled targets of one kind (empty when not read)."""
@@ -2842,6 +2905,15 @@ class Network(Model):
             self.links,
         ]
         return any(o.id == object_id for objs in groups for o in objs)
+
+    def without_account_names(self) -> Network:
+        """This network without the device accounts (#175): account names are often personal
+        names and stay on the device page, out of exporters and MQTT. The factory-password
+        flag and the privilege of Signalbox's login are kept."""
+        if all(d.accounts is None for d in self.devices):
+            return self
+        devices = [d.model_copy(update={"accounts": None}) for d in self.devices]
+        return self.model_copy(update={"devices": devices})
 
     def device(self, device_id: str) -> Device | None:
         return next((d for d in self.devices if d.id == device_id), None)

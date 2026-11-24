@@ -1325,3 +1325,84 @@ async def test_log_targets_refused_and_unused(sim: MikrotikSimulator, http_url: 
     assert snap.device.log_targets is None
     (gap,) = snap.errors
     assert gap.optional and gap.message.startswith("log targets") and snap.status.value == "ok"
+
+
+# --- accounts (#175) -------------------------------------------------------------------------
+
+
+async def test_accounts_with_policies_keys_and_login_times(
+    sim: MikrotikSimulator, http_url: str
+) -> None:
+    from signalbox.model import AccountPrivilege
+
+    sim.data["/rest/user"] += [
+        {
+            ".id": "*2",
+            "name": USER,
+            "group": "read",
+            "disabled": "false",
+            "address": "192.0.2.0/24,bad",
+            "last-logged-in": "2026-11-20 10:11:12",
+        },
+        {".id": "*3", "name": "old", "group": "full", "disabled": "true"},
+        {".id": "*4", "name": "ops", "group": "nope", "last-logged-in": "nov/02/2025 01:02:03"},
+    ]
+    sim.data["/rest/user/ssh-keys"] = [{".id": "*1", "user": "old", "key-owner": "x"}]
+    snap = await assert_contract(adapter(http_url))
+    by = {a.name: a for a in snap.device.accounts or []}
+    assert by["admin"].privilege is AccountPrivilege.ADMIN and by["admin"].last_login is None
+    own = by[USER]
+    assert own.is_signalbox and own.privilege is AccountPrivilege.READ
+    assert [str(n) for n in own.allowed_from] == ["192.0.2.0/24"]
+    assert own.last_login == datetime(2026, 11, 20, 10, 11, 12, tzinfo=UTC)
+    assert by["old"].key_auth and not by["old"].enabled and by["admin"].key_auth is False
+    assert by["ops"].privilege is AccountPrivilege.OTHER
+    assert by["ops"].last_login == datetime(2025, 11, 2, 1, 2, 3, tzinfo=UTC)
+    assert all(a.password_set is None and a.logins_tracked for a in by.values())
+    dev = snap.device
+    assert dev.signalbox_account_privilege is AccountPrivilege.READ
+    assert dev.signalbox_account_needed is AccountPrivilege.READ
+    assert dev.default_credentials is False
+
+
+async def test_accounts_refused_are_an_optional_gap(sim: MikrotikSimulator, http_url: str) -> None:
+    sim.no_policy = {"/rest/user"}
+    snap = await observe(adapter(http_url))
+    assert snap.status is DeviceStatus.OK and snap.device.accounts is None
+    (gap,) = [e for e in snap.errors if e.message.startswith("accounts:")]
+    assert gap.optional and gap.message_id == "mikrotik.accounts"
+    assert snap.device.signalbox_account_privilege is None
+
+
+async def test_admin_without_password_is_the_factory_default(
+    sim: MikrotikSimulator, http_url: str
+) -> None:
+    sim.username, sim.password = "admin", ""
+    config = MikrotikConfig(
+        url=http_url, username="admin", password=SecretStr(""), allow_insecure_http=True
+    )
+    a = MikrotikAdapter(
+        AdapterContext(
+            site_id="home",
+            device_id="rt",
+            device_name="Router",
+            role=DeviceRole.GATEWAY,
+            config=config,
+        )
+    )
+    snap = await observe(a)
+    assert snap.device.default_credentials is True
+    assert snap.device.signalbox_account_privilege is not None
+    assert sim.requests.count("/rest/user") == 1  # read once, no login tried
+
+
+def test_user_privilege_and_login_time() -> None:
+    from signalbox.adapters.mikrotik import login_time, user_privilege
+    from signalbox.model import AccountPrivilege
+
+    assert user_privilege("read,write,policy") is AccountPrivilege.ADMIN
+    assert user_privilege("read,write,!policy") is AccountPrivilege.WRITE
+    assert user_privilege("read,!write") is AccountPrivilege.READ
+    assert user_privilege(["api", "!read"]) is AccountPrivilege.OTHER
+    assert login_time("") is None and login_time("2026-13-01 00:00:00") is None
+    assert login_time("2026-11-01 25:00") is None

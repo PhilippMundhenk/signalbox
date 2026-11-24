@@ -536,3 +536,14 @@ turns into a link:
   these names; with a real AP the simulator's wired fields must be checked.
 
 Without these fields the AP keeps its `ETH1` port and stays uncabled, as before.
+
+## Accounts (#175)
+
+*Guesses* (#21), each optional (an endpoint the controller does not offer gives nothing):
+`GET /openapi/v1/{omadacId}/users` lists the controller's users (`name`, `roleName`:
+administrators admin, viewers read) on the controller; `GET .../sites/{siteId}/device-account`
+(`username`, `password`) is the site's device account, the login every adopted device gets for
+SSH and its own web page. It becomes an admin account of each managed device; its password is
+compared with the Omada factory default `admin`/`admin` in memory (`default_credentials` of
+each managed device) and dropped. A masked password (`***`) leaves `default_credentials`
+unknown. The privilege of the Open API client is not read.

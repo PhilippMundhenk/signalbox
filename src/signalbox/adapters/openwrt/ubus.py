@@ -14,6 +14,7 @@ pinned certificate.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from signalbox.adapters import AdapterError, AuthFailed
@@ -170,6 +171,24 @@ class Ubus:
         if not isinstance(session, str):
             raise AdapterError("unexpected answer to session.login")
         self.session = session
+
+    async def try_login(self, username: str, password: str) -> bool:
+        """One login attempt with other credentials than the configured ones, for an opt-in
+        probe (#175): True when rpcd accepts it. The session is destroyed at once, the
+        configured session is not touched, nothing is logged."""
+        await self.http.connect()  # pin checked first, as for every login
+        try:
+            data = await self._rpc(
+                [NO_SESSION, "session", "login", {"username": username, "password": password}]
+            )
+        except (_Denied, AdapterError):
+            return False
+        session = data.get("ubus_rpc_session")
+        if not isinstance(session, str):
+            return False
+        with contextlib.suppress(_Denied, AdapterError):
+            await self._rpc([session, "session", "destroy", {}])
+        return True
 
     async def call(
         self,

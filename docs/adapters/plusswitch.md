@@ -202,3 +202,12 @@ password only obfuscated.
 Not read: NSDP (NETGEAR) and the Easy Smart protocol (TP-Link) have no MAC address table on
 the supported models, and Switchyard reads none. Links to these switches come from their port
 MACs in the tables of the devices around them.
+
+## Factory password (#126, #175)
+
+Both switch families have one management login. When a password is configured, Signalbox
+compares it in memory with the factory default (ProSAFE Plus `password`, Easy Smart
+`admin`/`admin`) and reports `default_credentials`; it never tries another password (the
+switches lock after a few wrong ones). The login can change everything (`admin`, also the least
+these integrations need). Easy Smart's user becomes the device's one account. A NETGEAR switch
+read without a password reports nothing.

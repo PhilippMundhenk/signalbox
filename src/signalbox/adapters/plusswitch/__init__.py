@@ -54,7 +54,16 @@ from signalbox.adapters.plusswitch import discovery as _discovery
 from signalbox.adapters.plusswitch import mapping, writes
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import BroadcastResult, NetworkProbe
-from signalbox.model import SERVICE_PORTS, DeviceRole, ManagementService, ServiceKind, object_id
+from signalbox.factory_defaults import is_factory_default
+from signalbox.model import (
+    SERVICE_PORTS,
+    AccountPrivilege,
+    DeviceAccount,
+    DeviceRole,
+    ManagementService,
+    ServiceKind,
+    object_id,
+)
 
 _T = TypeVar("_T")
 
@@ -274,7 +283,34 @@ class _PlusSwitch(Adapter):
             ]
         except (ValueError, TypeError, AttributeError) as exc:
             raise AdapterError(f"{self._host}: unexpected port or VLAN answer: {exc}") from exc
-        return observed.model_copy(update={"services": self._services(), "incomplete": gaps})
+        return observed.model_copy(
+            update={"services": self._services(), "incomplete": gaps, **self._login_facts()}
+        )
+
+    def _login_facts(self) -> dict[str, Any]:
+        """The switch has one management login (#126, #175): whether the configured
+        password is the factory one, compared here in memory (no extra login is ever tried),
+        and that it can change everything. Nothing without a configured password."""
+        if not self._password:
+            return {}
+        d = self.context.device_id
+        default = is_factory_default(self.manifest.id, self._password, self._username or None)
+        out: dict[str, Any] = {
+            "default_credentials": {d: default},
+            "signalbox_privilege": {d: AccountPrivilege.ADMIN},
+        }
+        if self._username:
+            out["accounts"] = {
+                d: [
+                    DeviceAccount(
+                        name=self._username,
+                        privilege=AccountPrivilege.ADMIN,
+                        password_set=True,
+                        is_signalbox=True,
+                    )
+                ]
+            }
+        return out
 
     def _services(self) -> list[ManagementService]:
         """Management services (#173), fixed by the product line and not read from the
@@ -468,6 +504,7 @@ class ProsafeAdapter(_PlusSwitch):
         setup_steps=PLUSSWITCH_STEPS,
         setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/plusswitch.md#settings",
         id="prosafe",
+        least_privilege=AccountPrivilege.ADMIN,
         name="NETGEAR ProSAFE Plus",
         version="0.2.0",
         api_version="1.0",
@@ -572,6 +609,7 @@ class EasySmartAdapter(_PlusSwitch):
         setup_steps=PLUSSWITCH_STEPS,
         setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/plusswitch.md#settings",
         id="easysmart",
+        least_privilege=AccountPrivilege.ADMIN,
         name="TP-Link Easy Smart",
         version="0.2.0",
         api_version="1.0",

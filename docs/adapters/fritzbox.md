@@ -475,3 +475,17 @@ the password policy and the app users' internet access (`X_AVM-DE_AppSetup`).
 ## MAC address table (#160)
 
 Not read: the host list says only whether a host is on LAN or Wi-Fi, not on which port.
+
+## Accounts (#175)
+
+`LANConfigSecurity:1` (`lanconfigsecuritySCPD.xml`): `GetInfo` gives
+`NewX_AVM-DE_IsDefaultPasswordActive`, the box's own word on whether its printed default
+password is still in use (`default_credentials`). `X_AVM-DE_GetCurrentUser` names Signalbox's
+user and its rights (`<rights><path>BoxAdmin</path><access>readwrite</access>...</rights>`):
+the right "FRITZ!Box settings" (`BoxAdmin`) with `readwrite` is admin. The setup guide's user
+needs exactly that right, so admin is also the least this integration needs and
+`account.signalbox-privileged` stays quiet. `X_AVM-DE_GetUserList`
+(`<List><Username last_user="1">name</Username>...</List>`) gives the other user names, without
+rights. The layouts of both XML strings are taken from AVM's documentation (*guess* until a box
+confirms them, #21); they are parsed with the SOAP parser, which refuses document type
+declarations. A FRITZ!OS without these actions reports nothing.

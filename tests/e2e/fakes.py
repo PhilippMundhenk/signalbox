@@ -26,10 +26,12 @@ from signalbox.adapters import (
 )
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
+    AccountPrivilege,
     AddressSource,
     Band,
     Cipher,
     Client,
+    DeviceAccount,
     DeviceHealth,
     DeviceRole,
     DeviceTime,
@@ -118,6 +120,7 @@ class Lab(Adapter):
 
     manifest = Manifest(
         id="lab",
+        least_privilege=AccountPrivilege.READ,
         name="Lab router",
         version="1",
         api_version="1.2",
@@ -328,6 +331,23 @@ class Lab(Adapter):
             uplinks=[uplink],
             services=services,
             log_targets={d: logs},
+            # #175: the factory password, an admin login for Signalbox, two accounts
+            accounts={
+                d: [
+                    DeviceAccount(
+                        name="admin",
+                        privilege=AccountPrivilege.ADMIN,
+                        is_signalbox=True,
+                        logins_tracked=True,
+                        last_login=datetime(2026, 11, 20, 8, 0, tzinfo=UTC),
+                    ),
+                    DeviceAccount(
+                        name="guest", privilege=AccountPrivilege.READ, password_set=False
+                    ),
+                ]
+            },
+            default_credentials={d: True},
+            signalbox_privilege={d: AccountPrivilege.ADMIN},
         )
 
     async def read_dhcp(self) -> Observation:

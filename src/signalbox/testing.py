@@ -16,13 +16,17 @@ from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
+from pydantic import SecretStr
+
 from signalbox.adapters import Adapter, Capability, check_manifest
+from signalbox.factory_defaults import FACTORY_DEFAULTS
 from signalbox.model import (
     FDB_LIMIT,
     TYPED_OPTION_CODES,
     Cipher,
     Client,
     Device,
+    DeviceAccount,
     DeviceHealth,
     DeviceStatus,
     DeviceTime,
@@ -302,6 +306,39 @@ def log_target_problems(device_id: str, targets: list[LogTarget]) -> list[str]:
     return out
 
 
+#: Password hashes: crypt (``$1$``, ``$5$``, ``$6$``, ``$y$``, bcrypt), rpcd's ``$p$`` reference.
+#: Factory passwords are words that may appear in any text ("password").
+_KNOWN_DEFAULTS = {p for pairs in FACTORY_DEFAULTS.values() for _, p in pairs}
+_HASH = re.compile(r"\$(?:1|2[aby]?|5|6|y|p)\$[./A-Za-z0-9]")
+
+
+def account_problems(device_id: str, accounts: list[DeviceAccount]) -> list[str]:
+    """Accounts (#175): a name listed twice, more than one login of Signalbox."""
+    out: list[str] = []
+    names = [a.name for a in accounts]
+    for name in sorted({n for n in names if names.count(n) > 1}):
+        out.append(f"{device_id}: account {name!r} listed twice")
+    if sum(a.is_signalbox for a in accounts) > 1:
+        out.append(f"{device_id}: more than one account is Signalbox's login")
+    return out
+
+
+def credential_problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
+    """No configured secret and no password hash anywhere in the snapshot (#175): only the
+    booleans derived from them may leave the integration."""
+    text = snapshot.model_dump_json()
+    out: list[str] = []
+    cfg = adapter.context.config
+    for name in type(cfg).model_fields:
+        value = getattr(cfg, name)
+        secret = value.get_secret_value() if isinstance(value, SecretStr) else ""
+        if len(secret) >= 6 and secret not in _KNOWN_DEFAULTS and secret in text:
+            out.append(f"the secret setting {name} appears in the snapshot")
+    if _HASH.search(text):
+        out.append("a password hash appears in the snapshot")
+    return out
+
+
 def dhcp_problems(server: DhcpServer) -> list[str]:
     """Inconsistent DHCP server data (#183): leases without an owner or with impossible times,
     one address leased to two clients, options that repeat a typed field."""
@@ -521,6 +558,10 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             if Capability.INTERFACES.value not in caps:
                 out.append(f"log targets reported without declaring {Capability.INTERFACES.value}")
             out += log_target_problems(d.id, d.log_targets)
+        if d.accounts is not None:
+            if Capability.INTERFACES.value not in caps:
+                out.append(f"accounts reported without declaring {Capability.INTERFACES.value}")
+            out += account_problems(d.id, d.accounts)
         if d.health is not None:
             out += health_problems(d.id, d.health)
         if d.time is not None:
@@ -539,6 +580,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
     if snapshot.status is not DeviceStatus.OK:
         out.append(f"status {snapshot.status.value}, expected ok")
     out += [f"read error {e.capability}: {e.message}" for e in snapshot.errors]
+    out += credential_problems(adapter, snapshot)
 
     own = f"{ctx.device_id}/"
     site = f"{ctx.site_id}/segment/"

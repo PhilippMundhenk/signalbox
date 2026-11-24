@@ -1529,3 +1529,78 @@ def test_log_target_mapping_edge_cases() -> None:
     )
     assert monitoring.host_port("collector") == ("collector", None)
     assert monitoring.softflowd(uci(("softflowd", "x", {"host_port": ""}))) == []
+
+
+# --- accounts (#175) -------------------------------------------------------------------------
+
+
+async def test_rpcd_logins_without_their_hashes(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    from signalbox.model import AccountPrivilege
+
+    snap = await assert_contract(adapter)
+    by = {a.name: a for a in snap.device.accounts or []}
+    assert by["root"].privilege is AccountPrivilege.ADMIN and by["root"].password_set is None
+    own = by[sim.username]
+    assert own.is_signalbox and own.privilege is AccountPrivilege.READ and own.password_set
+    assert snap.device.signalbox_account_privilege is AccountPrivilege.READ
+    assert snap.device.default_credentials is False
+    text = snap.model_dump_json()
+    assert "$1$" not in text and "$p$" not in text and "notarealhash" not in text
+    assert sim.root_attempts == 0  # no probe unless asked for
+
+
+async def test_rpcd_with_an_older_acl(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    sim.denied = {"uci:rpcd"}
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.OK and snap.device.accounts is None
+    (gap,) = snap.errors
+    assert gap.optional and gap.remedy == "access" and gap.message_id == "openwrt.accounts"
+
+
+async def test_empty_root_password_probe_is_opt_in(
+    sim: OpenWrtSim, https_url: str, cert: TlsFiles
+) -> None:
+    probe = {"probe_empty_root_password": True}
+    ctx = context(https_url, pinned_fingerprint=cert.fingerprint, config=probe)
+    snap = await observe(ctx)
+    assert snap.device.default_credentials is False and sim.root_attempts == 1
+    sim.root_password = ""
+    sessions = len(sim.sessions)
+    snap = await observe(ctx)
+    assert snap.device.default_credentials is True and sim.root_attempts == 2
+    assert len(sim.sessions) == sessions + 1  # Signalbox's own; the probe's was destroyed
+
+
+async def test_root_without_password_configured_is_the_factory_default(
+    sim: OpenWrtSim, https_url: str, cert: TlsFiles
+) -> None:
+    sim.root_password = ""
+    config = {"username": "root", "password": SecretStr(""), "probe_empty_root_password": True}
+    snap = await observe(context(https_url, pinned_fingerprint=cert.fingerprint, config=config))
+    assert snap.device.default_credentials is True
+    assert sim.root_attempts == 1  # the login itself, no extra probe
+
+
+def test_rpcd_scrub_and_privileges() -> None:
+    from signalbox.adapters.openwrt import accounts
+    from signalbox.model import AccountPrivilege
+
+    answer = {
+        "values": {
+            "a": {".type": "login", ".index": 2, "username": "x", "password": "$1$s$h"},
+            "b": {".type": "login", ".index": "1", "username": "y", "write": "net wifi"},
+            "c": {".type": "login", ".index": "z", "username": " ", "read": ["*"]},
+            "d": {".type": "rpcd", "socket": "/var/run/ubus/ubus.sock"},
+            "e": "not a section",
+        }
+    }
+    accounts.scrub(answer)
+    assert "password" not in str(answer) or "password_kind" in str(answer)
+    assert "$1$" not in str(answer)
+    found = accounts.logins(answer, "x")
+    assert [(a.name, a.privilege, a.password_set, a.is_signalbox) for a in found] == [
+        ("y", AccountPrivilege.WRITE, False, False),
+        ("x", AccountPrivilege.OTHER, True, True),
+    ]
+    assert accounts.logins({"values": None}, "x") == [] and accounts.scrub({}) == {}
+    assert accounts.privilege(["signalbox"], []) is AccountPrivilege.READ

@@ -30,7 +30,15 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, timezone
-from ipaddress import IPv4Address, IPv4Interface, IPv6Network, ip_address, ip_interface, ip_network
+from ipaddress import (
+    IPv4Address,
+    IPv4Interface,
+    IPv4Network,
+    IPv6Network,
+    ip_address,
+    ip_interface,
+    ip_network,
+)
 from typing import Any
 
 from pydantic import Field, JsonValue, SecretStr, field_validator, model_validator
@@ -62,15 +70,18 @@ from signalbox.adapters.mikrotik import firewall as _firewall
 from signalbox.adapters.mikrotik import trace as _trace
 from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.discovery import Candidate, HostProbe
+from signalbox.factory_defaults import is_factory_default
 from signalbox.model import (
     LOG_PORTS,
     SERVICE_PORTS,
     TYPED_OPTION_CODES,
     WIREGUARD_KEY,
+    AccountPrivilege,
     AddressSource,
     Band,
     Cipher,
     Client,
+    DeviceAccount,
     DeviceHealth,
     DeviceRole,
     DeviceTime,
@@ -203,6 +214,10 @@ LOG_ACTION = "/rest/system/logging/action"
 LOG_RULES = "/rest/system/logging"
 TRAFFIC_FLOW = "/rest/ip/traffic-flow"
 TRAFFIC_FLOW_TARGET = "/rest/ip/traffic-flow/target"
+#: Local users, their groups' policies and SSH keys (#175); RouterOS never shows passwords.
+USERS = "/rest/user"
+USER_GROUPS = "/rest/user/group"
+USER_SSH_KEYS = "/rest/user/ssh-keys"
 #: The packet filter (#135): filter rules, NAT, raw rules, interface and address lists.
 FW_FILTER = "/rest/ip/firewall/filter"
 FW_FILTER6 = "/rest/ipv6/firewall/filter"
@@ -817,6 +832,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         setup_steps=MIKROTIK_STEPS,
         setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/mikrotik.md#setup",
         id="mikrotik",
+        least_privilege=AccountPrivilege.READ,
         name="MikroTik RouterOS",
         version="0.2.0",
         api_version="1.4",
@@ -1217,6 +1233,10 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             for name, a in layout.addresses
             if name in layout.l3
         ]
+        accounts, privilege, account_gaps = await self._accounts()
+        cfg = self.context.config
+        assert isinstance(cfg, MikrotikConfig)
+        default = is_factory_default("mikrotik", cfg.password.get_secret_value(), cfg.username)
         return Observation(
             ports=list(layout.ports.values()),
             segments=list(layout.segments.values()),
@@ -1224,8 +1244,57 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             uplinks=await self._uplinks(layout),
             services=await self._services(layout),
             log_targets={} if targets is None else {dev: targets},
-            incomplete=gaps,
+            accounts={} if accounts is None else {dev: accounts},
+            default_credentials={dev: default},
+            signalbox_privilege={} if privilege is None else {dev: privilege},
+            incomplete=gaps + account_gaps,
         )
+
+    async def _accounts(
+        self,
+    ) -> tuple[list[DeviceAccount] | None, AccountPrivilege | None, list[Gap]]:
+        """Local users with their group's privilege (#175). ``/user`` never shows a password,
+        so ``password_set`` stays unknown; SSH keys from ``/user/ssh-keys``. ``None`` with an
+        optional gap when the users cannot be read (a group without the ``read`` policy)."""
+        try:
+            users = await self._rows(USERS)
+            groups = await self._rows(USER_GROUPS)
+        except AdapterError as exc:
+            gap = Gap(
+                message=f"accounts: {exc}",
+                optional=True,
+                message_id="mikrotik.accounts",
+                params={"cause": str(exc)},
+            )
+            return None, None, [gap]
+        policy = {_text(g.get("name")): user_privilege(g.get("policy")) for g in groups}
+        keys = await self._readable(USER_SSH_KEYS)
+        with_key = {_text(k.get("user")) for k in keys or []}
+        cfg = self.context.config
+        assert isinstance(cfg, MikrotikConfig)
+        out: list[DeviceAccount] = []
+        for u in users:
+            name = _text(u.get("name"))
+            if not name:
+                continue
+            allowed: list[IPv4Network | IPv6Network] = []
+            for part in _names(u.get("address")):
+                with contextlib.suppress(ValueError):
+                    allowed.append(ip_network(part, strict=False))
+            out.append(
+                DeviceAccount(
+                    name=name,
+                    privilege=policy.get(_text(u.get("group")), AccountPrivilege.OTHER),
+                    enabled=not _flag(u.get("disabled")),
+                    key_auth=None if keys is None else name in with_key,
+                    logins_tracked=True,
+                    last_login=login_time(u.get("last-logged-in")),
+                    is_signalbox=name == cfg.username,
+                    allowed_from=[n for n in allowed if n.prefixlen > 0],
+                )
+            )
+        own = next((a for a in out if a.is_signalbox), None)
+        return out, own.privilege if own else None, []
 
     async def _log_targets(self) -> tuple[list[LogTarget] | None, list[Gap]]:
         """Remote logging actions with the topics of the rules using them, traffic-flow
@@ -2442,6 +2511,33 @@ def clock_date(value: Any) -> date | None:
         return date.fromisoformat(text)
     except ValueError:
         return None
+
+
+def user_privilege(policy: Any) -> AccountPrivilege:
+    """The privilege of a ``/user/group`` policy list: ``policy`` (manage users) with
+    ``write`` is admin, ``write`` alone write, ``read`` alone read. ``!write`` is a policy
+    the group does not have (older RouterOS lists them)."""
+    have = {p for p in _names(policy) if not p.startswith("!")}
+    if "write" in have and "policy" in have:
+        return AccountPrivilege.ADMIN
+    if "write" in have:
+        return AccountPrivilege.WRITE
+    if "read" in have:
+        return AccountPrivilege.READ
+    return AccountPrivilege.OTHER
+
+
+def login_time(value: Any) -> datetime | None:
+    """``last-logged-in`` of a user: ``2026-11-20 10:11:12`` (RouterOS 7.10 and later) or
+    ``nov/20/2026 10:11:12``, the device's local time (taken as UTC: a day's precision is
+    enough for ``account.stale``); absent or empty: never."""
+    day, _, clock = _text(value).partition(" ")
+    when = clock_date(day)
+    m = _CLOCK.fullmatch(clock.strip())
+    if when is None or m is None:
+        return None
+    hour, minute, second = map(int, m.groups())
+    return datetime(when.year, when.month, when.day, hour, minute, second, tzinfo=UTC)
 
 
 def gmt_offset(value: Any) -> int | None:

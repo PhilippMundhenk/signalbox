@@ -812,6 +812,42 @@
    "status": 200,
    "content_type": "text/xml; charset=\"utf-8\"",
    "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetWPSInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:3\"><NewX_AVM-DE_WPSMode>stop</NewX_AVM-DE_WPSMode><NewX_AVM-DE_WPSStatus>off</NewX_AVM-DE_WPSStatus></u:X_AVM-DE_GetWPSInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/lanconfigsecurity",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:LANConfigSecurity:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:LANConfigSecurity:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:LANConfigSecurity:1\"><NewMaxCharsPassword>32</NewMaxCharsPassword><NewMinCharsPassword>0</NewMinCharsPassword><NewAllowedCharsPassword>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~ </NewAllowedCharsPassword><NewAllowedCharsUsername>0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!\"#$%&amp;'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~ </NewAllowedCharsUsername><NewX_AVM-DE_IsDefaultPasswordActive>0</NewX_AVM-DE_IsDefaultPasswordActive></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/lanconfigsecurity",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:LANConfigSecurity:1#X_AVM-DE_GetCurrentUser\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetCurrentUser xmlns:u=\"urn:dslforum-org:service:LANConfigSecurity:1\"></u:X_AVM-DE_GetCurrentUser></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetCurrentUserResponse xmlns:u=\"urn:dslforum-org:service:LANConfigSecurity:1\"><NewX_AVM-DE_CurrentUsername>recorded-user</NewX_AVM-DE_CurrentUsername><NewX_AVM-DE_CurrentUserRights>&lt;?xml version=\"1.0\"?&gt;&lt;rights&gt;&lt;path&gt;BoxAdmin&lt;/path&gt;&lt;access&gt;readwrite&lt;/access&gt;&lt;path&gt;Phone&lt;/path&gt;&lt;access&gt;none&lt;/access&gt;&lt;path&gt;NAS&lt;/path&gt;&lt;access&gt;none&lt;/access&gt;&lt;/rights&gt;</NewX_AVM-DE_CurrentUserRights></u:X_AVM-DE_GetCurrentUserResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/lanconfigsecurity",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:LANConfigSecurity:1#X_AVM-DE_GetUserList\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetUserList xmlns:u=\"urn:dslforum-org:service:LANConfigSecurity:1\"></u:X_AVM-DE_GetUserList></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetUserListResponse xmlns:u=\"urn:dslforum-org:service:LANConfigSecurity:1\"><NewX_AVM-DE_UserList>&lt;List&gt;&lt;Username last_user=\"0\"&gt;name-10&lt;/Username&gt;&lt;Username last_user=\"1\"&gt;recorded-user&lt;/Username&gt;&lt;/List&gt;</NewX_AVM-DE_UserList></u:X_AVM-DE_GetUserListResponse></s:Body></s:Envelope>"
   }
  ],
  "snapshot": {
@@ -875,7 +911,34 @@
     "ntp_server": null
    },
    "transport_encrypted": true,
-   "log_targets": null
+   "log_targets": null,
+   "accounts": [
+    {
+     "name": "name-10",
+     "privilege": null,
+     "enabled": true,
+     "password_set": null,
+     "key_auth": null,
+     "logins_tracked": false,
+     "last_login": null,
+     "is_signalbox": false,
+     "allowed_from": []
+    },
+    {
+     "name": "recorded-user",
+     "privilege": "admin",
+     "enabled": true,
+     "password_set": null,
+     "key_auth": null,
+     "logins_tracked": false,
+     "last_login": null,
+     "is_signalbox": true,
+     "allowed_from": []
+    }
+   ],
+   "default_credentials": false,
+   "signalbox_account_privilege": "admin",
+   "signalbox_account_needed": "admin"
   },
   "status": "ok",
   "ports": [

@@ -48,6 +48,7 @@ SERVICES: dict[str, tuple[str, str]] = {
         "/upnp/control/lanethernetifcfg",
     ),
     "Hosts1": (f"{URN}Hosts:1", "/upnp/control/hosts"),
+    "LANConfigSecurity1": (f"{URN}LANConfigSecurity:1", "/upnp/control/lanconfigsecurity"),
     "Time1": (f"{URN}Time:1", "/upnp/control/time"),
     "WANCommonInterfaceConfig1": (
         f"{URN}WANCommonInterfaceConfig:1",
