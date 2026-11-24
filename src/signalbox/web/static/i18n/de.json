@@ -2149,6 +2149,8 @@
  "msg.opnsense.accounts.fix": "Optional, nur wenn Signalbox die Konten auflisten soll: Geben Sie dem API-Benutzer die Berechtigung {privilege} (oder haken Sie in der automatischen Einrichtung die Zusatzoption für Konten an). OPNsense kennt keine reine Leseberechtigung: Dieser Benutzer kann danach auch jedes Konto ändern.",
  "msg.omada.accounts": "Konten: Die Benutzer des Controllers werden nicht gelesen ({cause})",
  "msg.omada.accounts.fix": "Optional: Verwenden Sie einen Open-API-Client mit einer Rolle, die die Benutzer des Controllers lesen darf (zum Beispiel Administrator).",
+ "msg.omada.accounts.client_mode": "Konten: Die Benutzer des Controllers sind nur im Authorization-Code-Modus verfügbar; Signalbox verwendet den Client-Modus",
+ "msg.omada.accounts.client_mode.fix": "In Signalbox gibt es nichts zu beheben: Omada bietet die Benutzerliste nur Anmeldungen im Authorization-Code-Modus an. Das Gerätekonto der Site wird weiterhin gelesen.",
  "msg.fritzbox.accounts": "Konten: Die Benutzerliste wird nicht gelesen ({cause})",
  "msg.account.defaultPassword": "{device} hat noch sein Werkspasswort",
  "msg.account.defaultPassword.fix": "Ändern Sie das Passwort auf {device} (das Handbuch beschreibt, wie) und tragen Sie es dann in den Geräteeinstellungen von Signalbox ein.",

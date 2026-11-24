@@ -110,7 +110,17 @@ def spec() -> dict[str, Any]:
     return out
 
 
-def firewall_spec() -> dict[str, Any]:
+def firewall_spec(
+    brief: bool = False,
+    words: tuple[str, ...] = (
+        "acl",
+        "port-forward",
+        "portforward",
+        "/nat",
+        "firewall",
+        "virtual-server",
+    ),
+) -> dict[str, Any]:
     """The controller's own Open API description of everything about gateway ACLs, port
     forwarding, NAT and firewalls (#135): each path with its methods and, for GET, the fields
     of the answer, so the adapter's names can be confirmed without a gateway. The paths are
@@ -133,7 +143,6 @@ def firewall_spec() -> dict[str, Any]:
             return f"{node.get('type')} {text}".strip()
         return {k: fields(v, depth + 1) for k, v in props.items()}
 
-    words = ("acl", "port-forward", "portforward", "/nat", "firewall", "virtual-server")
     out: dict[str, Any] = {}
     for path in sorted(paths):
         if not path.startswith("/openapi/") or not any(w in path.lower() for w in words):
@@ -143,7 +152,10 @@ def firewall_spec() -> dict[str, Any]:
         op = paths[path].get("get", {})
         content = op.get("responses", {}).get("200", {}).get("content", {})
         body = [fields(c.get("schema")) for c in content.values()]
-        entry["get"] = body[0].get("result") if body and isinstance(body[0], dict) else body
+        if brief:
+            entry = {"methods": entry["methods"]}
+        else:
+            entry["get"] = body[0].get("result") if body and isinstance(body[0], dict) else body
         out[path] = {"method": "SPEC", "path": path, "status": 200, "body": entry}
     h = bearer()
     for path in list(out):
@@ -157,6 +169,9 @@ def firewall_spec() -> dict[str, Any]:
         except OSError as exc:
             status, answer = 0, repr(exc)
         out[f"answer {path}"] = {"method": "GET", "path": real, "status": status, "body": answer}
+    if brief:  # the answers first: they are what #354 needs
+        answers = {k: v for k, v in out.items() if k.startswith("answer ")}
+        return {**answers, **{k: v for k, v in out.items() if k not in answers}}
     return out
 
 
@@ -226,8 +241,14 @@ def main(d: Path, group: str, part: int) -> None:
     cached = d / f"api-{group}.json"
     if part and cached.exists():
         full = json.loads(cached.read_text())
-    elif group in ("spec", "firewall"):
-        full = spec() if group == "spec" else firewall_spec()
+    elif group in ("spec", "firewall", "users"):
+        full = (
+            spec()
+            if group == "spec"
+            else firewall_spec()
+            if group == "firewall"
+            else firewall_spec(True, ("user", "admin", "role", "account", "member"))  # #354
+        )
         cached.write_text(json.dumps(full, indent=1))
     else:
         full = {}

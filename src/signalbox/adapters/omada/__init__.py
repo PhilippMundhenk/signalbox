@@ -220,6 +220,23 @@ class OmadaConfig(AdapterConfig):
         return self
 
 
+_AUTH_CODE_ONLY = -44118  # "only supports the authorization code mode" (controller 6.3, #354)
+
+
+def _client_mode_gap() -> Gap:
+    """The controller's users (``/users``, ``/all-users``, ``/roles/available``) are only
+    offered in authorization-code mode; Signalbox logs in with client credentials (#354)."""
+    return Gap(
+        message="accounts: the controller's users are only available with authorization-code "
+        "mode; Signalbox uses client mode",
+        fix="Nothing to fix in Signalbox: Omada offers its user list only to "
+        "authorization-code logins. The device account of the site is still read.",
+        optional=True,
+        message_id="omada.accounts.client_mode",
+        fix_id="omada.accounts.client_mode.fix",
+    )
+
+
 class OmadaError(AdapterError):
     """The controller answered with a non-zero ``errorCode``."""
 
@@ -670,6 +687,7 @@ class OmadaAdapter(_Adapter):
         )
         self._omadac_id = ""
         self._site_path = ""
+        self._users_need_auth_code = False  # -44118 seen: do not ask again (#354)
         self._site_zone: Any = None
         self._token: str | None = None
         self._cache: dict[str, Any] = {}
@@ -1098,22 +1116,29 @@ class OmadaAdapter(_Adapter):
         dev = self.context.device_id
         out: dict[str, Any] = {"accounts": {}, "default_credentials": {}}
         users: list[dict[str, Any]] = []
-        try:
-            users = await self._rows(f"/openapi/v1/{self._omadac_id}/users")
-        except NotFound:
-            pass  # this controller has no such endpoint: nothing to report
-        except OmadaError as exc:  # refused for this client (#349): not "no accounts"
-            out["incomplete"] = [
-                Gap(
-                    message=f"accounts: the controller's users are not read ({exc})",
-                    fix="Optional: use an Open API client with a role that may read the "
-                    "controller's users (for example Administrator).",
-                    optional=True,
-                    message_id="omada.accounts",
-                    fix_id="omada.accounts.fix",
-                    params={"cause": str(exc)},
-                )
-            ]
+        if self._users_need_auth_code:
+            out["incomplete"] = [_client_mode_gap()]
+        else:
+            try:
+                users = await self._rows(f"/openapi/v1/{self._omadac_id}/users")
+            except NotFound:
+                pass  # this controller has no such endpoint: nothing to report
+            except OmadaError as exc:  # refused for this client (#349): not "no accounts"
+                if exc.code == _AUTH_CODE_ONLY:  # 6.3: a limit of client mode (#354)
+                    self._users_need_auth_code = True
+                    out["incomplete"] = [_client_mode_gap()]
+                else:
+                    out["incomplete"] = [
+                        Gap(
+                            message=f"accounts: the controller's users are not read ({exc})",
+                            fix="Optional: use an Open API client with a role that may read "
+                            "the controller's users (for example Administrator).",
+                            optional=True,
+                            message_id="omada.accounts",
+                            fix_id="omada.accounts.fix",
+                            params={"cause": str(exc)},
+                        )
+                    ]
         if users:
             out["accounts"][dev] = [
                 DeviceAccount(name=name, privilege=omada_role(row), enabled=_on(row))
