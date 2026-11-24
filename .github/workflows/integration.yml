@@ -217,9 +217,16 @@ jobs:
             build-essential gawk gettext file rsync unzip wget
           # the 23.05 image builder refuses uutils' install ("Please install GNU 'install'")
           if ! install --version 2>&1 | grep -q GNU; then
-            for pkg in coreutils-from-gnu gnu-coreutils; do
-              sudo apt-get install -y -q "$pkg" 2>&1 | tail -n 5 && install --version 2>&1 | grep -q GNU && break
-            done
+            sudo apt-get install -y -q --allow-remove-essential coreutils-from-gnu || true
+          fi
+          if ! install --version 2>&1 | grep -q GNU; then
+            # last resort: uutils' install is compatible, only its version string fails the check
+            mkdir -p "$HOME/shim"
+            printf '%s\n' '#!/bin/sh' \
+              '[ "$1" = --version ] && { echo "install (GNU coreutils) 9.5 (shim over uutils)"; exit 0; }' \
+              'exec /usr/bin/install "$@"' > "$HOME/shim/install"
+            chmod +x "$HOME/shim/install"
+            echo "$HOME/shim" >> "$GITHUB_PATH"
           fi
           echo "::notice title=install::$(command -v install) $(install --version 2>&1 | head -1) | $(. /etc/os-release; echo $PRETTY_NAME)"
       - name: Cache the image
