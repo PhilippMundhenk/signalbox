@@ -20,9 +20,10 @@ from signalbox.adapters import (
     StepState,
 )
 from signalbox.adapters.linux import LinuxAdapter, LinuxConfig, distro
+from signalbox.adapters.linux.provision import stale_database
 from signalbox.adapters.linux.setup import SUDOERS_PATH, sudoers
 from signalbox.adapters.ssh import sha256_hex
-from signalbox.model import DeviceRole, DeviceStatus, PortRole
+from signalbox.model import DeviceRole, DeviceStatus, FirewallAction, PortRole
 from signalbox.sim.linux import ROOT_PASSWORD, LinuxSim, User, arch_sim, serve_ssh
 
 KEY = asyncssh.generate_private_key("ssh-ed25519")
@@ -85,7 +86,7 @@ def request(port: int, trust: str | None, **kw: Any) -> SetupRequest:
         ({"ID": "arch"}, "pacman", None),
         ({"ID": "endeavouros", "ID_LIKE": "arch"}, "pacman", None),
         ({"ID": "fedora"}, "dnf", "dnf install -y nftables"),
-        ({"ID": "alpine"}, "apk", "apk add nftables"),
+        ({"ID": "alpine"}, "apk", "apk update && apk add nftables"),
     ],
 )
 def test_detect(release: dict[str, str], manager: str, command: str | None) -> None:
@@ -115,7 +116,7 @@ async def test_arch_host_is_read_with_its_network() -> None:
     box.sudoers_files[SUDOERS_PATH] = sudoers("signalbox")
     async with adapter_for(box) as adapter:
         snap = await adapter.observe()
-    assert snap.status is DeviceStatus.PARTIAL  # only the firewall is not readable
+    assert snap.status is DeviceStatus.OK  # legacy iptables is read with iptables-save (#394)
     assert snap.device.log_targets == []  # journald only: nothing forwarded (#180)
     assert {p.name for p in snap.ports} == {"eth0", "wlan0"}
     wlan = next(p for p in snap.ports if p.name == "wlan0")
@@ -129,15 +130,15 @@ async def test_arch_host_is_read_with_its_network() -> None:
     assert snap.device.vendor_extra["os_id"] == "archarm"
     assert snap.device.vendor_extra["package_manager"] == "pacman"
     assert any(s.name == "sshd" for s in snap.services)
-    err = next(e for e in snap.errors if e.capability == "firewall")
-    assert "legacy iptables" in err.message
-    assert err.remedy == "nftables"
-    assert "pacman -S --needed --noconfirm nftables" in (err.fix or "")
-    assert snap.firewalls[0].rules_complete is False
+    (fw,) = snap.firewalls
+    assert not [e for e in snap.errors if e.capability == "firewall"]
+    assert fw.vendor_extra == {"source": "iptables-save"} and fw.rules_complete
+    assert fw.input_policy is FirewallAction.DROP and len(fw.rules) == 3
+    assert fw.forward_policy is FirewallAction.DROP
 
 
 async def test_debian_hint_uses_apt() -> None:
-    box = with_login(LinuxSim(nft_installed=False))
+    box = with_login(LinuxSim(nft_installed=False, iptables_installed=False))
     box.sections["iptables"] = "iptables v1.8.9 (legacy)\n"
     async with adapter_for(box) as adapter:
         snap = await adapter.observe()
@@ -177,7 +178,8 @@ async def test_setup_offers_the_installs_unticked_and_runs_the_managers_own() ->
     async with serve_ssh(box) as (port, fp):
         plain = await LinuxAdapter.plan_setup(request(port, fp))
         assert not [s for s in plain.steps if s.id.startswith("install-")]
-        assert {s.id: s.state for s in plain.steps}["sudoers"] is StepState.UNCHANGED
+        # legacy iptables is read through the sudoers rule (#394)
+        assert {s.id: s.state for s in plain.steps}["sudoers"] is StepState.TODO
         plan = await LinuxAdapter.plan_setup(request(port, fp, extras=ALL))
         steps = {s.id: s for s in plan.steps}
         assert [s.id for s in plan.steps][:2] == ["user", "key"]
@@ -230,6 +232,62 @@ async def test_a_failing_install_stops_the_setup() -> None:
     states = {s.id: s.state for s in result.steps}
     assert not result.ok and states["install-nftables"] is StepState.FAILED
     assert states["sudoers"] is StepState.SKIPPED and "signalbox" in box.users
+
+
+def test_markers_name_the_family_of_a_system_without_os_release() -> None:
+    cases = {
+        "/etc/debian_version": ("apt", "Debian"),
+        "/etc/arch-release": ("pacman", "Arch Linux"),
+        "/etc/alpine-release": ("apk", "Alpine"),
+        "/etc/fedora-release": ("dnf", "Fedora"),
+        "/etc/redhat-release": ("dnf", "Fedora"),
+    }
+    for path, (manager, family) in cases.items():
+        found = distro.detect({}, {path})
+        assert (found.manager, found.family) == (manager, family), path
+        assert found.install("nftables") is not None
+    assert distro.detect({}, {"/etc/hostname"}).manager is None  # never guessed
+    assert distro.detect({}).manager is None
+    # os-release wins over a marker
+    assert distro.detect({"ID": "alpine"}, {"/etc/debian_version"}).manager == "apk"
+
+
+async def test_a_system_without_os_release_is_detected_by_its_marker_file() -> None:
+    box = with_login(LinuxSim(nft_installed=False))
+    box.sections["os"] = "@@@ /etc/arch-release\n"
+    async with adapter_for(box) as adapter:
+        snap = await adapter.observe()
+    assert snap.device.vendor_extra["os_family"] == "Arch Linux"
+    assert snap.device.vendor_extra["package_manager"] == "pacman"
+    async with serve_ssh(box) as (port, fp):
+        plan = await LinuxAdapter.plan_setup(request(port, fp, extras=["nftables"]))
+    step = next(s for s in plan.steps if s.id == "install-nftables")
+    assert "pacman -S --needed --noconfirm nftables" in step.detail
+
+
+async def test_a_stale_pacman_database_gets_the_clear_message_and_no_partial_upgrade() -> None:
+    """The 404 of an old database (#394): the message of the issue, never ``pacman -Sy``."""
+    box = arch_sim(install_fails=True)
+    async with serve_ssh(box) as (port, fp):
+        result = await LinuxAdapter.apply_setup(request(port, fp, extras=["nftables"]))
+    step = next(s for s in result.steps if s.id == "install-nftables")
+    assert step.state is StepState.FAILED
+    assert "out of date" in step.message and "sudo pacman -Syu" in step.message
+    assert "reads legacy iptables without nftables" in step.message
+    assert "404" not in step.message and "-Sy " not in step.detail
+    assert box.installed == []
+    assert not any("-Sy " in x or "-Sy\n" in x for x in box.scripts)
+    assert stale_database("error: failed retrieving file 'x.pkg.tar.xz' from m : 404")
+    assert not stale_database("error: target not found: nftables")
+
+
+async def test_a_failing_apt_install_keeps_its_own_message() -> None:
+    box = LinuxSim(nft_installed=False, install_fails=True)
+    async with serve_ssh(box) as (port, fp):
+        result = await LinuxAdapter.apply_setup(request(port, fp, extras=["nftables"]))
+    step = next(s for s in result.steps if s.id == "install-nftables")
+    assert step.state is StepState.FAILED and step.message.startswith("failed (exit status 1)")
+    assert step.detail.splitlines()[-1].startswith("apt-get update && ")
 
 
 async def test_iproute2_is_installed_when_ip_has_no_json() -> None:

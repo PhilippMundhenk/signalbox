@@ -6,7 +6,13 @@ container is prepared with ``commands()``, so what users paste is what is tested
 
 from __future__ import annotations
 
-from signalbox.adapters.linux.collect import NFT, NFT_ARGS, WG_FIELDS
+from signalbox.adapters.linux.collect import (
+    IP6TABLES_SAVE,
+    IPTABLES_SAVE,
+    NFT,
+    NFT_ARGS,
+    WG_FIELDS,
+)
 
 WG = "/usr/bin/wg"
 SUDOERS_PATH = "/etc/sudoers.d/signalbox"
@@ -22,10 +28,19 @@ KEY_COMMENT = "signalbox-read"
 
 
 def sudoers(user: str = "signalbox") -> str:
-    """The sudoers rule: exactly the read commands (``wg show all <field>``, nft), no password."""
-    commands = ", ".join([*(f"{WG} show all {f}" for f in WG_FIELDS), f"{NFT} {NFT_ARGS}"])
+    """The sudoers rule: exactly the read commands (``wg show all <field>``, nft, and
+    ``iptables-save`` / ``ip6tables-save`` with an empty argument list), no password."""
+    commands = ", ".join(
+        [
+            *(f"{WG} show all {f}" for f in WG_FIELDS),
+            f"{NFT} {NFT_ARGS}",
+            f'{IPTABLES_SAVE} ""',
+            f'{IP6TABLES_SAVE} ""',
+        ]
+    )
     return (
-        "# Signalbox: read the WireGuard status (public keys only) and the nftables ruleset.\n"
+        "# Signalbox: read the WireGuard status (public keys only), the nftables ruleset and the\n"
+        "# legacy iptables rules (iptables-save without arguments).\n"
         f"{user} ALL=(root) NOPASSWD: {commands}\n"
     )
 
@@ -40,7 +55,7 @@ sudo install -d -m 700 -o {user} -g "$(id -gn {user})" ~{user}/.ssh
 echo 'PASTE-THE-LINE-OF-signalbox-key.pub' | sudo tee ~{user}/.ssh/authorized_keys
 sudo chown {user}: ~{user}/.ssh/authorized_keys && sudo chmod 600 ~{user}/.ssh/authorized_keys
 #    (or instead a password:  sudo passwd {user})
-# 3. optional, only with WireGuard or nftables: the read-only commands without a password
+# 3. optional, only with WireGuard, nftables or iptables: the read-only commands without a password
 sudo tee {SUDOERS_PATH} >/dev/null <<'END'
 {sudoers(user)}END
 sudo chmod 440 {SUDOERS_PATH} && sudo visudo -cf {SUDOERS_PATH}
