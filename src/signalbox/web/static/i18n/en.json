@@ -2533,7 +2533,7 @@
  "msg.opnsense.userAnswer": "{path}: unexpected answer",
  "msg.opnsense.systemUser": "the user {user} is a system user; Signalbox leaves it alone",
  "msg.opnsense.noKeyAnswer": "{path}: no key in the answer (result {result})",
- "msg.opnsense.sshNotOpnsense": "The device did not answer like OPNsense over SSH: {detail}",
+ "msg.opnsense.sshNotOpnsense": "the device did not answer like OPNsense over SSH: {detail}",
  "msg.opnsense.pythonMissing": "/usr/local/bin/python3 is missing on the firewall, which the script needs",
  "msg.opnsense.sshCommandFailed": "SSH command failed ({code}): {detail}",
  "msg.opnsense.certUnconfirmed": "the certificate was accepted without being confirmed",
@@ -2724,5 +2724,8 @@
  "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} cannot be untagged and tagged",
  "msg.opnsense.notBackup": "not an OPNsense backup (format {format})",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.notThisDevice": "{subject}: not a change of {device}"
+ "msg.mikrotik.notThisDevice": "{subject}: not a change of {device}",
+ "lbl.untaggedNetwork": "the untagged network",
+ "msg.opnsense.noSuchPort": "{subject}: no such port on the firewall",
+ "msg.opnsense.cannotChange": "OPNsense cannot change {kind}"
 }

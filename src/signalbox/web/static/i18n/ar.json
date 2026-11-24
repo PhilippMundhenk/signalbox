@@ -2724,5 +2724,8 @@
  "msg.mikrotik.notThisDevice": "{subject}: ليس تغييرًا لـ {device}",
  "msg.opnsense.notBackup": "ليست نسخة احتياطية لـ OPNsense (الصيغة {format})",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.vlanTaggedUntagged": "{subject}: لا يمكن أن تكون VLAN {vlan} موسومة وغير موسومة معًا"
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: لا يمكن أن تكون VLAN {vlan} موسومة وغير موسومة معًا",
+ "lbl.untaggedNetwork": "الشبكة غير الموسومة",
+ "msg.opnsense.noSuchPort": "{subject}: لا يوجد هذا المنفذ على الجهاز",
+ "msg.opnsense.cannotChange": "لا يستطيع تكامل OPNsense تغيير {kind}"
 }

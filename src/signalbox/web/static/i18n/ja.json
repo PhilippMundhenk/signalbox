@@ -2724,5 +2724,8 @@
  "msg.mikrotik.notThisDevice": "{subject}: {device} の変更ではありません",
  "msg.opnsense.notBackup": "OPNsense のバックアップではありません（形式 {format}）",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} をタグなしとタグ付きの両方にはできません"
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} をタグなしとタグ付きの両方にはできません",
+ "lbl.untaggedNetwork": "タグなしネットワーク",
+ "msg.opnsense.noSuchPort": "{subject}: 機器に該当するポートがありません",
+ "msg.opnsense.cannotChange": "OPNsense 連携では {kind} を変更できません"
 }

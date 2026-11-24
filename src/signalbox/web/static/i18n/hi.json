@@ -2724,5 +2724,8 @@
  "msg.mikrotik.notThisDevice": "{subject}: यह {device} का बदलाव नहीं है",
  "msg.opnsense.notBackup": "यह OPNsense का बैकअप नहीं है (फ़ॉर्मेट {format})",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} एक साथ untagged और tagged नहीं हो सकता"
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} एक साथ untagged और tagged नहीं हो सकता",
+ "lbl.untaggedNetwork": "अनटैग्ड नेटवर्क",
+ "msg.opnsense.noSuchPort": "{subject}: डिवाइस पर ऐसा कोई पोर्ट नहीं",
+ "msg.opnsense.cannotChange": "OPNsense इंटीग्रेशन {kind} नहीं बदल सकता"
 }

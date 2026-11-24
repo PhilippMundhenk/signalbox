@@ -2724,5 +2724,8 @@
  "msg.mikrotik.notThisDevice": "{subject}: এটি {device}-এর পরিবর্তন নয়",
  "msg.opnsense.notBackup": "এটি OPNsense ব্যাকআপ নয় (ফরম্যাট {format})",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} একই সঙ্গে untagged ও tagged হতে পারে না"
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} একই সঙ্গে untagged ও tagged হতে পারে না",
+ "lbl.untaggedNetwork": "আনট্যাগড নেটওয়ার্ক",
+ "msg.opnsense.noSuchPort": "{subject}: ডিভাইসে এমন কোনো পোর্ট নেই",
+ "msg.opnsense.cannotChange": "OPNsense ইন্টিগ্রেশন {kind} বদলাতে পারে না"
 }

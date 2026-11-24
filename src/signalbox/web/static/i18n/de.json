@@ -2724,5 +2724,8 @@
  "msg.mikrotik.notThisDevice": "{subject}: keine Änderung von {device}",
  "msg.opnsense.notBackup": "keine OPNsense-Sicherung (Format {format})",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} kann nicht zugleich untagged und tagged sein"
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} kann nicht zugleich untagged und tagged sein",
+ "lbl.untaggedNetwork": "das ungetaggte Netz",
+ "msg.opnsense.noSuchPort": "{subject}: Dieser Port existiert auf dem Gerät nicht",
+ "msg.opnsense.cannotChange": "Die Integration OPNsense kann {kind} nicht ändern"
 }

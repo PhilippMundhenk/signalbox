@@ -205,8 +205,8 @@ def calls_for(change: Change, st: WriteState) -> list[Call]:
         return _forward(change, st)
     raise AdapterError(
         f"OPNsense cannot change {change.kind.value}",
-        message_id="write.unsupportedKind",
-        params={"vendor": "OPNsense", "kind": change.kind.value},
+        message_id="opnsense.cannotChange",
+        params={"kind": change.kind.value},
     )
 
 
@@ -598,7 +598,7 @@ def _port(c: Change, st: WriteState) -> list[Call]:
     if port is None:
         raise AdapterError(
             f"{c.key}: no such port on the firewall",
-            message_id="write.noSuchPort",
+            message_id="opnsense.noSuchPort",
             params={"subject": c.key},
         )
     new = c.new if isinstance(c.new, PortValue) else PortValue()

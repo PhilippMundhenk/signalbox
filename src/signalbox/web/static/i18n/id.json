@@ -2724,5 +2724,8 @@
  "msg.mikrotik.notThisDevice": "{subject}: bukan perubahan untuk {device}",
  "msg.opnsense.notBackup": "bukan cadangan OPNsense (format {format})",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} tidak dapat sekaligus untagged dan tagged"
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} tidak dapat sekaligus untagged dan tagged",
+ "lbl.untaggedNetwork": "jaringan untagged",
+ "msg.opnsense.noSuchPort": "{subject}: port tidak ada di perangkat",
+ "msg.opnsense.cannotChange": "Integrasi OPNsense tidak dapat mengubah {kind}"
 }

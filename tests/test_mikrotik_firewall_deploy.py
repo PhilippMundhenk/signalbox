@@ -377,7 +377,7 @@ async def test_adopting_replaces_the_devices_own_objects_with_tagged_ones(
     adopt_calls = [
         c for c in done.devices[0].calls if (c.message_id or "").startswith("plan.adopt")
     ]
-    assert adopt_calls and all(c.params["label"] in c.description for c in adopt_calls)
+    assert adopt_calls and all(str(c.params["label"]).startswith("@lbl.") for c in adopt_calls)
     comments = [r["comment"] for r in sim.data[FW_FILTER]]
     assert "IoT: DNS" not in comments and "signalbox:iot_dns iot-dns" in comments
     assert "NAS web interface" not in [r["comment"] for r in sim.data[FW_NAT]]

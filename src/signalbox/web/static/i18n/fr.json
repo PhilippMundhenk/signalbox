@@ -2724,5 +2724,8 @@
  "msg.mikrotik.notThisDevice": "{subject} : n'est pas une modification de {device}",
  "msg.opnsense.notBackup": "n'est pas une sauvegarde OPNsense (format {format})",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.vlanTaggedUntagged": "{subject} : le VLAN {vlan} ne peut pas être à la fois non étiqueté et étiqueté"
+ "msg.mikrotik.vlanTaggedUntagged": "{subject} : le VLAN {vlan} ne peut pas être à la fois non étiqueté et étiqueté",
+ "lbl.untaggedNetwork": "le réseau non étiqueté",
+ "msg.opnsense.noSuchPort": "{subject} : ce port n'existe pas sur l'appareil",
+ "msg.opnsense.cannotChange": "L'intégration OPNsense ne peut pas modifier {kind}"
 }

@@ -2724,5 +2724,8 @@
  "msg.mikrotik.notThisDevice": "{subject}：不是 {device} 的变更",
  "msg.opnsense.notBackup": "不是 OPNsense 备份（格式 {format}）",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.vlanTaggedUntagged": "{subject}:VLAN {vlan} 不能同时为未标记和已标记"
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}:VLAN {vlan} 不能同时为未标记和已标记",
+ "lbl.untaggedNetwork": "未标记网络",
+ "msg.opnsense.noSuchPort": "{subject}:设备上没有这个端口",
+ "msg.opnsense.cannotChange": "OPNsense 集成无法更改 {kind}"
 }

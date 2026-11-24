@@ -315,7 +315,7 @@ def _interface_for(cfg: Configs, site: str, ref: SegmentRef, label: str) -> str:
     bridge = next((b for b, vlans in view.vlans.items() if vid is not None and vid in vlans), None)
     if vid is None or bridge is None:
         where = (
-            Label("the untagged network", "nativeNetwork")
+            Label("the untagged network", "untaggedNetwork")
             if vid is None
             else Label(f"VLAN {vid}", "vlan", vid)
         )

@@ -2724,5 +2724,8 @@
  "msg.mikrotik.notThisDevice": "{subject}: {device}의 변경이 아닙니다",
  "msg.opnsense.notBackup": "OPNsense 백업이 아닙니다 (형식 {format})",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan}은(는) 태그 없음과 태그를 동시에 가질 수 없습니다"
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan}은(는) 태그 없음과 태그를 동시에 가질 수 없습니다",
+ "lbl.untaggedNetwork": "태그 없는 네트워크",
+ "msg.opnsense.noSuchPort": "{subject}: 장치에 해당 포트가 없습니다",
+ "msg.opnsense.cannotChange": "OPNsense 연동은 {kind}을(를) 변경할 수 없습니다"
 }

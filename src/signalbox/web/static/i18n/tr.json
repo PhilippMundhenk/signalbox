@@ -2724,5 +2724,8 @@
  "msg.mikrotik.notThisDevice": "{subject}: {device} için bir değişiklik değil",
  "msg.opnsense.notBackup": "OPNsense yedeği değil (biçim {format})",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} hem etiketsiz hem etiketli olamaz"
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} hem etiketsiz hem etiketli olamaz",
+ "lbl.untaggedNetwork": "etiketsiz ağ",
+ "msg.opnsense.noSuchPort": "{subject}: cihazda böyle bir bağlantı noktası yok",
+ "msg.opnsense.cannotChange": "OPNsense entegrasyonu {kind} öğesini değiştiremez"
 }

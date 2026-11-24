@@ -2724,5 +2724,8 @@
  "msg.mikrotik.notThisDevice": "{subject}: это не изменение для {device}",
  "msg.opnsense.notBackup": "это не резервная копия OPNsense (формат {format})",
  "msg.opnsense.errorMessage": "{request}: {detail}",
- "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} не может быть одновременно без тега и с тегом"
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} не может быть одновременно без тега и с тегом",
+ "lbl.untaggedNetwork": "нетегированная сеть",
+ "msg.opnsense.noSuchPort": "{subject}: такого порта на устройстве нет",
+ "msg.opnsense.cannotChange": "Интеграция OPNsense не может изменять {kind}"
 }
