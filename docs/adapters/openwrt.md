@@ -209,6 +209,30 @@ port list marks the port primary (`lan1:u*`); a port without `*` has no PVID rep
 - Options may be lists or space-separated strings; both are read. `ifname` (before 21.02) is read
   like `device`.
 
+### Link aggregation: UCI bonding devices and `file read` of sysfs *(optional)* (ports, #157)
+
+```json
+{".type": "device", "name": "bond0", "type": "bonding", "ports": ["lan2", "lan3"],
+ "policy": "802.3ad", "xmit_hash_policy": "layer2+3", "lacp_rate": "fast", "min_links": "1"}
+{".type": "interface", ".name": "nas", "proto": "bonding", "slaves": ["lan2", "lan3"],
+ "bonding_policy": "balance-xor"}        proto-bonding (older): the device is bonding-nas
+{"data": "802.3ad 4\n"}                 /sys/class/net/bond0/bonding/mode
+{"data": "61\n"}                        /sys/class/net/lan2/bonding_slave/ad_actor_oper_port_state
+```
+
+- A `device` of `type bonding` (netifd, OpenWrt 23.05+) or an `interface` with `proto bonding`
+  is a port of role `lag` over its `ports` / `slaves`; so is a device netifd reports with type
+  `bonding` or the kernel with `devtype` `bond`. Its members get `lag` (the bond's name).
+- Where the ACL allows it, the kernel's state is read from sysfs: of the bond `mode`,
+  `xmit_hash_policy`, `lacp_rate`, `lacp_active`, `min_links`, `slaves`, `ad_aggregator`,
+  `ad_partner_mac`, `active_slave`; of each member `state`, `ad_aggregator_id` and
+  `ad_actor_oper_port_state`. A member is selected when its aggregator is the bond's active
+  one, collecting and distributing when bits 4 and 5 of its actor state are set; the partner's
+  system id is the active aggregator's `ad_partner_mac` (the partner port is not in sysfs).
+- Without those paths (an older ACL) the UCI options alone fill mode, hash, LACP rate and
+  minimum links. *Guess*: the option names follow netifd's `bonding.c` and proto-bonding, the
+  sysfs values the kernel's bonding documentation; no real OpenWrt with a bond was read (#21).
+
 ### `network.interface dump` (addresses, routes)
 
 ```json
@@ -551,7 +575,9 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
-        "/sys/class/thermal/thermal_zone*/type": ["read"]
+        "/sys/class/thermal/thermal_zone*/type": ["read"],
+        "/sys/class/net/*/bonding/*": ["read"],
+        "/sys/class/net/*/bonding_slave/*": ["read"]
       }
     }
   }
@@ -660,7 +686,9 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
-        "/sys/class/thermal/thermal_zone*/type": ["read"]
+        "/sys/class/thermal/thermal_zone*/type": ["read"],
+        "/sys/class/net/*/bonding/*": ["read"],
+        "/sys/class/net/*/bonding_slave/*": ["read"]
       }
     },
     "write": {

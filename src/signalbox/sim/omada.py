@@ -542,8 +542,9 @@ def sample_data() -> dict[str, Any]:
         f"{SITE}/switches/{SWITCH}{SETTINGS_KEY}": {"jumbo": 9216},
         f"{SITE}/switches/{SWITCH}{PORTS_KEY}": [
             _port(1, "prof-all", "All", speed=4, max_speed=4),
-            _port(2, "prof-all", "All", poe=True, lagId=1),
-            _port(3, "prof-all", "All", poe=True, lagId=1),
+            # LAG 1, LACP active (#157; the lagType values are a guess, #21)
+            _port(2, "prof-all", "All", poe=True, lagId=1, lagType=1),
+            _port(3, "prof-all", "All", poe=True, lagId=1, lagType=1),
             _port(4, "prof-lan", "LAN", link=0, speed=0, duplex=0),
             _port(5, "prof-lan", "LAN", speed=2, duplex=1),
             _port(6, "prof-lan", "LAN", link=0, speed=0, duplex=0, disable=True),

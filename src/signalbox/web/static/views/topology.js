@@ -2,7 +2,7 @@
 // VPN tunnels between sites and unmanaged sites behind a tunnel (#239), routed paths (#253).
 // The drawing is layered (topolayout.js), wires end at the port squares (#303).
 import { del, enc, get, post } from '../api.js';
-import { PORT_ROLE, by, clear, h, place, portDetails, portSpeed, s } from '../util.js';
+import { LAG_MODE, PORT_ROLE, by, clear, h, place, portDetails, portSpeed, s } from '../util.js';
 import { card, clearNotice, confirmDialog, field, notice, pageHead, run, select, setNotice, slot, statusBadge, table, tag, toast } from '../ui.js';
 import { routedPathsCard } from './traces.js';
 import { layoutTopology } from '../topolayout.js';
@@ -49,6 +49,18 @@ function smooth(points) {
     d += ` C${p.x},${my} ${q.x},${my} ${q.x},${q.y}`;
   }
   return d;
+}
+
+// The LAG (#157) all cables of a device pair belong to, by the name at each end; null when
+// they are not all members of one LAG on both devices.
+function lagOfPair(all, pair) {
+  const at = (e, dev) => (e.a.device_id === dev ? e.a : e.b).lag;
+  const first = all[0];
+  if (all.length < 2 || !at(first, pair.a) || !at(first, pair.b)) return null;
+  const same = all.every((e) => at(e, pair.a) && at(e, pair.b) && at(e, pair.a).name === at(first, pair.a).name && at(e, pair.b).name === at(first, pair.b).name);
+  if (!same) return null;
+  const modes = [at(first, pair.a).mode, at(first, pair.b).mode].filter(Boolean);
+  return { a: at(first, pair.a).name, b: at(first, pair.b).name, mode: modes.length === 2 && modes[0] !== modes[1] ? null : modes[0] || null };
 }
 
 // Overlay state of one cable: which VLAN, carried by both ends, or not.
@@ -155,6 +167,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
     const all = pair.edges.map((id) => cables.find((e) => e.id === id)).filter(Boolean);
     if (!all.length) continue;
     const bundled = all.length > 1 && !state.expanded.has(pair.key);
+    const lag = lagOfPair(all, pair);
     const states = all.map(cableState);
     const rep = bundled ? all[Math.max(0, states.includes('inconsistent') ? states.indexOf('inconsistent') : states.includes('carry') ? states.indexOf('carry') : 0)] : null;
     for (const e of bundled ? [rep] : all) {
@@ -176,15 +189,19 @@ function drawGraph(data, nodes, onPort, siteNames) {
       const cls = ['edge', e.kind, e.origin];
       if (st !== 'none') cls.push(st);
       if (bundled) cls.push('bundle');
-      const path = s('path', { d, class: cls.join(' '), 'data-testid': 'topo-edge', 'data-id': e.id, 'data-state': st, 'data-a': e.a.port_id, 'data-b': e.b.port_id, 'data-count': bundled ? String(all.length) : null });
+      if (lag) cls.push('lag');
+      const path = s('path', { d, class: cls.join(' '), 'data-testid': 'topo-edge', 'data-id': e.id, 'data-state': st, 'data-a': e.a.port_id, 'data-b': e.b.port_id, 'data-count': bundled ? String(all.length) : null, 'data-lag': lag ? lag.a : null });
       place(path, s('title', {}, t('topology.edgeTitle', { a: e.a.port, b: e.b.port, origin: originLabel(e.origin) })));
       place(edgeLayer, path);
       track(path, e.a.device_id, e.b.device_id);
       if (all.length > 1 && (bundled || e === all[0])) {
         const nameOf = (id) => (nodes.find((n) => n.id === id) || {}).name || id;
-        const text = t(bundled ? 'topology.bundle.expand' : 'topology.bundle.collapse', { count: all.length, a: nameOf(pair.a), b: nameOf(pair.b) });
+        const words = { count: all.length, a: nameOf(pair.a), b: nameOf(pair.b) };
+        const text = lag
+          ? t(bundled ? 'topology.bundle.lagExpand' : 'topology.bundle.lagCollapse', { ...words, lagA: lag.a, lagB: lag.b, mode: lag.mode ? LAG_MODE[lag.mode] || lag.mode : t('topology.bundle.lagModeUnknown') })
+          : t(bundled ? 'topology.bundle.expand' : 'topology.bundle.collapse', words);
         const mid = bundled && !same ? { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 } : { x: from.x, y: from.y + 22 };
-        const badge = s('g', { class: `badge ${bundled ? '' : 'open'}`.trim(), tabindex: '0', role: 'button', 'aria-label': text, 'aria-expanded': String(!bundled), 'data-testid': 'topo-bundle', 'data-count': String(all.length) });
+        const badge = s('g', { class: `badge ${bundled ? '' : 'open'} ${lag ? 'lag' : ''}`.replace(/\s+/g, ' ').trim(), 'data-lag': lag ? 'true' : null, tabindex: '0', role: 'button', 'aria-label': text, 'aria-expanded': String(!bundled), 'data-testid': 'topo-bundle', 'data-count': String(all.length) });
         place(badge, s('title', {}, text), s('circle', { cx: String(mid.x), cy: String(mid.y), r: '11' }), s('text', { x: String(mid.x), y: String(mid.y + 4), 'text-anchor': 'middle' }, bundled ? String(all.length) : '−'));
         const toggle = () => {
           if (bundled) state.expanded.add(pair.key);
@@ -430,6 +447,7 @@ function legendBlock() {
         item(box('role-remote'), t('topology.legend.box.remote')),
         item(swatch(s('rect', { x: '3', y: '1', width: '34', height: '14', rx: '6', class: 'site-frame' })), t('topology.legend.box.site')),
         item(swatch(s('g', { class: 'badge' }, s('circle', { cx: '20', cy: '8', r: '7' }), s('text', { x: '20', y: '11', 'text-anchor': 'middle' }, '2'))), t('topology.legend.bundle')),
+        item(swatch(s('g', { class: 'badge lag' }, s('circle', { cx: '20', cy: '8', r: '7' }), s('text', { x: '20', y: '11', 'text-anchor': 'middle' }, '2'))), t('topology.legend.lag')),
       ]),
       group(t('topology.legend.ports'), [
         item(port('up linked'), t('topology.legend.port.up')),

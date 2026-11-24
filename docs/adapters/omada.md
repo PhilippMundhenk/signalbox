@@ -382,6 +382,11 @@ names it (a number or text; 0 or empty: none). Gateways and EAPs report no ports
 radios and SSIDs need none. *Guess*: `lagId` of a switch port, from the API description
 (the integration test's controller has no switch); the simulator serves it.
 
+The LAG's mode (#157) is the `lagType` of its member ports (or of their `lagSetting`), when
+they agree: `0` / `static` static, `1` / `lacpActive` LACP active, `2` / `lacpPassive` LACP
+passive, anything else `other`. *Guess* (#21): field and values follow the controller's web UI
+(Static, LACP Active, LACP Passive), not a controller with a LAG.
+
 ## Changing the site
 
 The gateway, switches and EAPs are devices of their own in Signalbox, so the desired state names

@@ -4,7 +4,7 @@ import pytest
 
 from signalbox.__main__ import main
 from signalbox.demo import CABLES, demo_devices
-from signalbox.model import DeviceStatus, LinkKind
+from signalbox.model import DeviceStatus, LagMode, LinkKind
 from signalbox.service import build
 
 
@@ -46,6 +46,14 @@ async def test_demo_devices_are_readable_and_show_findings(tmp_path: Path) -> No
             if "access-switch" in urls:
                 bundle = [li for li in net.links if li.b.startswith("access-switch/port/")]
                 assert {li.a for li in bundle} >= {"core-switch/port/lan2", "core-switch/port/lan3"}
+                # #157: both ends of the bundle are a static LAG
+                lags = net.lag_groups()
+                assert lags[("core-switch", "bond0")].mode is LagMode.BALANCE_XOR
+                assert lags[("access-switch", "lag1")].member_ids == [
+                    "access-switch/port/1",
+                    "access-switch/port/2",
+                ]
+                assert not [f for f in findings if f.rule_id.startswith("lag.")]
             # network purposes (#164): the IoT and guest VLANs are guessed from their names
             purposes = {s.id: (s.purpose, s.purpose_source) for s in net.segments}
             assert purposes["site-a/segment/20"] == ("iot", "heuristic")

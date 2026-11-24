@@ -42,11 +42,14 @@ from signalbox.adapters import (
     SetupResult,
     SystemInfo,
     VendorCall,
+    bonding,
 )
+from signalbox.adapters.bonding import Bond
 from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.openwrt import (
     accounts,
     firewall,
+    lag,
     monitoring,
     provision,
     setup,
@@ -100,6 +103,7 @@ from signalbox.model import (
     Port,
     PortKind,
     PortMembership,
+    PortRole,
     Radio,
     Reservation,
     SaePwe,
@@ -911,12 +915,18 @@ class OpenWrtAdapter(Adapter):
             )
 
         wifi = frozenset(n for n, p in ports.items() if p.kind is PortKind.WIRELESS)
-        tree = structure(sorted(ports), status, devices, view.uci, wifi)
+        bonds = {n: b for n, b in lag.uci_bonds(view.uci).items() if n in ports}
+        bond_members = {n: list(b.members) for n, b in bonds.items()}
+        tree = structure(sorted(ports), status, devices, view.uci, wifi, bond_members)
         for name, (role, lower, kind) in tree.items():
             update: dict[str, Any] = {"role": role, "lower": [port_id(d, x) for x in lower]}
             if kind is not None:
                 update["kind"] = kind
             ports[name] = ports[name].model_copy(update=update)
+
+        for name, port in list(ports.items()):
+            if port.role is PortRole.LAG:
+                await self._lag(ports, name, bonds.get(name))
 
         def ensure(name: str) -> str:
             if name not in ports:
@@ -1603,6 +1613,50 @@ class OpenWrtAdapter(Adapter):
         return Observation(dns_services=services)
 
     # health and time --------------------------------------------------------------------
+
+    async def _sysfs(self, path: str) -> str | None:
+        """One sysfs value through ``file read``; None when missing or not allowed."""
+        try:
+            answer = await self.ubus.call("file", "read", {"path": path})
+        except AdapterError:
+            return None
+        data = answer.get("data")
+        return data.strip() if isinstance(data, str) else None
+
+    async def _lag(self, ports: dict[str, Port], name: str, config: Bond | None) -> None:
+        """A bonding device (#157): the kernel's state from sysfs where the ACL allows it,
+        else its UCI configuration; ``lag`` and the LACP state on its members."""
+        values: dict[str, str] = {}
+        for attr in bonding.BOND_ATTRS:
+            value = await self._sysfs(f"/sys/class/net/{name}/bonding/{attr}")
+            if value is None and not values and attr == bonding.BOND_ATTRS[0]:
+                break  # not allowed (an older ACL) or not a kernel bond: the config only
+            if value is not None:
+                values[attr] = value
+        bond: Bond | None = config
+        if values:
+            members: dict[str, dict[str, str]] = {}
+            names = values.get("slaves", "").split() or list(config.members if config else [])
+            for member in names:
+                attrs = {}
+                for attr in bonding.MEMBER_ATTRS:
+                    value = await self._sysfs(f"/sys/class/net/{member}/bonding_slave/{attr}")
+                    if value is not None:
+                        attrs[attr] = value
+                members[member] = attrs
+            bond = bonding.parse_sysfs(name, values, members)
+        if bond is None:
+            return
+        port = ports[name]
+        update: dict[str, Any] = dict(bond.details())
+        known = [m for m in bond.members if m in ports and m != name]
+        if known and not port.lower:
+            update["lower"] = [ports[m].id for m in known]
+        ports[name] = port.model_copy(update=update)
+        for member in known:
+            ports[member] = ports[member].model_copy(
+                update={"lag": name, "lag_member_state": bond.member_state(member)}
+            )
 
     async def _temperatures(self) -> list[TemperatureSensor]:
         """Thermal zones through ``file read`` (rpcd-mod-file and the ACL paths of the docs);

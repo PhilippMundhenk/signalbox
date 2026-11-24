@@ -45,6 +45,8 @@ READ_ACL: dict[str, Any] = {
                 "/tmp/dhcp.leases": ["read"],
                 "/sys/class/thermal/thermal_zone*/temp": ["read"],
                 "/sys/class/thermal/thermal_zone*/type": ["read"],
+                "/sys/class/net/*/bonding/*": ["read"],
+                "/sys/class/net/*/bonding_slave/*": ["read"],
             },
         },
     }

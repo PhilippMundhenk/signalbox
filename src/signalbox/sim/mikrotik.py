@@ -1296,6 +1296,8 @@ class MikrotikSimulator:
     )
     #: monitor refused (HTTP 500 ``not enough permissions``), as for a group without the policy
     read_only_monitor: bool = False
+    #: what ``/interface/bonding/monitor-slaves bond=<name> once`` reports per bond (#157)
+    bond_members: dict[str, list[dict[str, str]]] = field(default_factory=dict)
     next_id: int = 0x100
     #: Traceroutes (#253): target -> hops (address or None, RTT in ms); a target not listed
     #: answers through one router (192.0.2.254) and then itself.
@@ -1392,6 +1394,10 @@ class MikrotikSimulator:
                 return _bad("expected an object")
             if request.method == "POST" and path == PPPOE_MONITOR:
                 return self.monitor(body)
+            if request.method == "POST" and path == BONDING_MONITOR:
+                if self.read_only_monitor:
+                    return JSONResponse(NO_POLICY, status_code=500)
+                return JSONResponse(self.bond_members.get(str(body.get("bond", "")), []))
             if request.method == "POST" and path == TRACEROUTE:
                 return self.traceroute(path, body)
             self.writes.append((request.method, path, body))
@@ -1906,6 +1912,70 @@ def _script_words(line: str) -> list[str]:
 EXPORT = "/rest/export"
 PPPOE_CLIENT = "/rest/interface/pppoe-client"
 PPPOE_MONITOR = "/rest/interface/pppoe-client/monitor"
+BONDING_MONITOR = "/rest/interface/bonding/monitor-slaves"
+
+
+def add_bond(sim: MikrotikSimulator, mode: str = "802.3ad") -> MikrotikSimulator:
+    """A LAG ``bond1`` over two more ports, ether6 and ether7 (#157): LACP with the hash over
+    layer 3 and 4, fast LACPDUs; ether7 is up but not aggregated (no LACP partner). The
+    ``monitor-slaves`` fields are taken from the RouterOS manual, not a real device (#21)."""
+
+    def extend(path: str, *rows: dict[str, Any]) -> None:
+        old = [{k: v for k, v in r.items() if k != ".id"} for r in sim.data[path]]
+        sim.data[path] = _ids(*old, *rows)
+
+    extend(
+        "/rest/interface",
+        _iface("ether6", "ether", _mac(0, 0x16), slave="true"),
+        _iface("ether7", "ether", _mac(0, 0x16), slave="true"),
+        _iface("bond1", "bond", _mac(0, 0x16), comment="nas"),
+    )
+    extend("/rest/interface/ethernet", _ether("ether6", "1Gbps"), _ether("ether7", "1Gbps"))
+    sim.data["/rest/interface/bonding"] = _ids(
+        {
+            "name": "bond1",
+            "mode": mode,
+            "slaves": "ether6,ether7",
+            "transmit-hash-policy": "layer-3-and-4",
+            "lacp-rate": "1sec",
+            "lacp-mode": "active",
+            "min-links": "1",
+            "mtu": "1500",
+            "disabled": "false",
+            "running": "true",
+            "comment": "nas",
+        }
+    )
+    common = {"partner-sys-priority": "65535"}
+    sim.bond_members["bond1"] = [
+        {
+            "interface": "ether6",
+            "active": "true",
+            "lacp-port-number": "1",
+            "actor-state": "active,short-timeout,aggregation,synchronization,collecting,"
+            "distributing",
+            "partner-sys-id": "02:00:00:00:30:01",
+            "partner-port-number": "1",
+            "partner-key": "9",
+            "partner-state": "active,short-timeout,aggregation,synchronization,collecting,"
+            "distributing",
+            **common,
+        },
+        {
+            "interface": "ether7",
+            "active": "false",
+            "lacp-port-number": "2",
+            "actor-state": "active,short-timeout,aggregation,defaulted",
+            "partner-sys-id": "00:00:00:00:00:00",
+            "partner-port-number": "0",
+            "partner-key": "0",
+            "partner-state": "",
+            **common,
+        },
+    ]
+    return sim
+
+
 TRACEROUTE = "/rest/tool/traceroute"
 DHCP_CLIENT = "/rest/ip/dhcp-client"
 LIST_MEMBER = "/rest/interface/list/member"

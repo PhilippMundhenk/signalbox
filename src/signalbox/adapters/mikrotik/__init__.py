@@ -63,6 +63,7 @@ from signalbox.adapters import (
     SystemInfo,
     TraceAnswer,
     TraceSupport,
+    bonding,
     unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
@@ -110,6 +111,10 @@ from signalbox.model import (
     IPAddress,
     IPInterface,
     IPNetwork,
+    LacpRate,
+    LagHashPolicy,
+    LagMemberState,
+    LagMode,
     LeaseState,
     LogKind,
     LogTarget,
@@ -172,6 +177,7 @@ BRIDGE_VLAN = "/rest/interface/bridge/vlan"
 BRIDGE_HOST = "/rest/interface/bridge/host"
 VLAN = "/rest/interface/vlan"
 BONDING = "/rest/interface/bonding"
+BONDING_MONITOR = "/rest/interface/bonding/monitor-slaves"
 ETHERNET_SWITCH_PORT = "/rest/interface/ethernet/switch/port"
 LIST_MEMBER = "/rest/interface/list/member"
 DHCP_CLIENT = "/rest/ip/dhcp-client"
@@ -365,6 +371,64 @@ def _flag(value: Any, default: bool = False) -> bool:
 def _maybe(value: Any) -> bool | None:
     """A flag that may not be set at all (None: RouterOS' default applies, unknown here)."""
     return None if value is None or value == "" else _flag(value)
+
+
+#: ``/interface/bonding`` values (#157): ``transmit-hash-policy`` and ``lacp-rate``.
+_BOND_HASHES = {
+    "layer-2": LagHashPolicy.L2,
+    "layer-2-and-3": LagHashPolicy.L2_L3,
+    "layer-3-and-4": LagHashPolicy.L3_L4,
+}
+_LACP_RATES = {"30secs": LacpRate.SLOW, "1sec": LacpRate.FAST}
+
+
+def bond_details(row: dict[str, Any]) -> dict[str, Any]:
+    """The LAG fields of a bonding interface: ``mode`` (the Linux names; ``802.3ad`` is LACP,
+    ``lacp-mode`` passive where RouterOS has it), ``transmit-hash-policy``, ``lacp-rate``,
+    ``min-links``."""
+    mode = _text(row.get("mode"))
+    out: dict[str, Any] = {}
+    if mode == "802.3ad":
+        passive = _text(row.get("lacp-mode")) == "passive"
+        out["lag_mode"] = LagMode.LACP_PASSIVE if passive else LagMode.LACP_ACTIVE
+        if _text(row.get("lacp-rate")) in _LACP_RATES:
+            out["lacp_rate"] = _LACP_RATES[_text(row.get("lacp-rate"))]
+        if _text(row.get("min-links")).isdigit():
+            out["min_links"] = min(64, int(_text(row.get("min-links"))))
+    elif mode:
+        out["lag_mode"] = bonding.MODES.get(mode, LagMode.OTHER)
+    policy = _text(row.get("transmit-hash-policy"))
+    if policy and mode in ("802.3ad", "balance-xor", "balance-tlb"):
+        out["hash_policy"] = _BOND_HASHES.get(policy, LagHashPolicy.OTHER)
+    return out
+
+
+def member_state(bond: dict[str, Any], row: dict[str, Any] | None) -> LagMemberState | None:
+    """A member's state from its ``monitor-slaves`` row (a guess from the RouterOS manual,
+    #21): ``active``, the actor flags (``collecting``, ``distributing``) and the partner's
+    system id, port and key; for ``active-backup`` whether it is the active member."""
+    if row is None:
+        return None
+    flags = set(_names(row.get("actor-state") or row.get("flags")))
+    partner = _text(row.get("partner-sys-id") or row.get("partner-system-id"))
+    try:
+        partner_mac = normalise_mac(partner) if partner else None
+    except ValueError:
+        partner_mac = None
+    if partner_mac == "00:00:00:00:00:00":
+        partner_mac = None
+    lacp = _text(bond.get("mode")) == "802.3ad"
+    port = _text(row.get("partner-port") or row.get("partner-port-number"))
+    key = _text(row.get("partner-key") or row.get("partner-oper-key"))
+    return LagMemberState(
+        selected=_maybe(row.get("active")),
+        collecting_distributing=({"collecting", "distributing"} <= flags)
+        if lacp and flags
+        else None,
+        partner_system_id=partner_mac if lacp else None,
+        partner_port=int(port) if lacp and partner_mac and port.isdigit() else None,
+        partner_key=int(key) if lacp and partner_mac and key.isdigit() else None,
+    )
 
 
 def _active(row: dict[str, Any]) -> bool:
@@ -1147,6 +1211,16 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         for n, port in ports.items():
             if port.role is PortRole.JACK and chip_of.get(n) in ports:
                 lower[n] = [chip_of[n]]
+        for n, brow in bonds.items():
+            if n not in ports:
+                continue
+            ports[n] = ports[n].model_copy(update=bond_details(brow))
+            states = await self._bond_members(n) if _text(brow.get("mode")) else {}
+            for slave in _names(brow.get("slaves")):
+                if slave in ports and slave != n:
+                    ports[slave] = ports[slave].model_copy(
+                        update={"lag": n, "lag_member_state": member_state(brow, states.get(slave))}
+                    )
         for n, names_ in lower.items():
             if n in ports:
                 ports[n] = ports[n].model_copy(
@@ -1614,6 +1688,22 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             port=SERVICE_PORTS[ServiceKind.SNMP],
             snmp=settings,
         )
+
+    async def _bond_members(self, bond: str) -> dict[str, dict[str, Any]]:
+        """``/interface/bonding/monitor-slaves bond=<bond> once`` (#157): the LACP state per
+        member. Empty when RouterOS refuses it (an older version, the policy) or has none."""
+        try:
+            answer = await self.http.post_json(BONDING_MONITOR, {"bond": bond, "once": ""})
+        except AdapterError:
+            return {}
+        rows = answer if isinstance(answer, list) else [answer]
+        out: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            if isinstance(row, dict):
+                name = _text(row.get("interface") or row.get("port") or row.get("slave"))
+                if name:
+                    out[name] = row
+        return out
 
     async def _monitor(self, name: str) -> dict[str, Any]:
         """``/interface/pppoe-client/monitor <name> once``; empty when RouterOS refuses it."""

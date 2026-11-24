@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from datetime import UTC, datetime
 from enum import StrEnum
 from ipaddress import (
@@ -635,6 +637,73 @@ CABLED_ROLES = frozenset({PortRole.JACK, PortRole.LAG})
 INTERNAL_ROLES = frozenset(set(PortRole) - CABLED_ROLES - {PortRole.SWITCH_PORT})
 
 
+class LagMode(StrEnum):
+    """How a link aggregation (LAG, bond, lagg) spreads traffic and agrees with the far end
+    (#157, ADR 0022). Only the LACP modes negotiate: the others are static on the cable."""
+
+    #: Static aggregation without a protocol (switches: "static LAG", Linux ``balance-xor``
+    #: towards a switch is reported as ``balance-xor``).
+    STATIC = "static"
+    #: 802.3ad / LACP, sending LACPDUs on its own.
+    LACP_ACTIVE = "lacp-active"
+    #: 802.3ad / LACP, answering LACPDUs only: two passive ends never form the LAG.
+    LACP_PASSIVE = "lacp-passive"
+    #: One member carries the traffic, the others take over when it fails (no switch setup).
+    ACTIVE_BACKUP = "active-backup"
+    BALANCE_RR = "balance-rr"
+    BALANCE_XOR = "balance-xor"
+    BROADCAST = "broadcast"
+    #: Adaptive transmit / load balancing (Linux): no switch setup, no LAG on the far end.
+    BALANCE_TLB = "balance-tlb"
+    BALANCE_ALB = "balance-alb"
+    OTHER = "other"
+
+    @property
+    def lacp(self) -> bool:
+        return self in (LagMode.LACP_ACTIVE, LagMode.LACP_PASSIVE)
+
+    @property
+    def needs_far_lag(self) -> bool | None:
+        """The far end must form a LAG too: ``True`` for LACP and the static modes, ``False``
+        for the modes that work towards plain switch ports, ``None`` for ``other``."""
+        if self is LagMode.OTHER:
+            return None
+        return self not in (LagMode.ACTIVE_BACKUP, LagMode.BALANCE_TLB, LagMode.BALANCE_ALB)
+
+
+class LagHashPolicy(StrEnum):
+    """Which header fields pick the member for a frame (transmit hash policy)."""
+
+    L2 = "l2"  # MAC addresses
+    L2_L3 = "l2+l3"  # MAC and IP addresses
+    L3_L4 = "l3+l4"  # IP addresses and ports
+    OTHER = "other"
+
+
+class LacpRate(StrEnum):
+    """How often the far end is asked to send LACPDUs: every 30 s (slow) or every second."""
+
+    SLOW = "slow"
+    FAST = "fast"
+
+
+class LagMemberState(Model):
+    """What a member of a LAG says about itself and its LACP partner (#157). ``None``: not
+    reported. Partner data is there only for LACP members whose far end answers."""
+
+    #: The member carries traffic of the LAG: LACP selected it for the active aggregator, or
+    #: the active member of ``active-backup``.
+    selected: bool | None = None
+    #: LACP: the member is collecting and distributing frames (both flags of its own state).
+    collecting_distributing: bool | None = None
+    #: The LACP system id (the system MAC) of the far end, from its LACPDUs.
+    partner_system_id: Mac | None = None
+    #: The far end's LACP port number of this cable.
+    partner_port: Annotated[int, Field(ge=0, le=65535)] | None = None
+    #: The far end's operational key (equal for all its ports in one LAG).
+    partner_key: Annotated[int, Field(ge=0, le=65535)] | None = None
+
+
 class FrameTypes(StrEnum):
     """Which frames a port accepts on ingress (802.1Q acceptable frame types)."""
 
@@ -715,6 +784,15 @@ class Port(Observed):
     #: interface's parent, a DSA user port's CPU port (conduit), a LAG's members. Bottom-up:
     #: the jack does not list the bridge, the bridge lists the jack.
     lower: list[str] = Field(default_factory=list)
+    # link aggregation (#157, ADR 0022); on a port of role lag, its members are ``lower`` ------
+    #: How the LAG works (static, LACP, a Linux bonding mode).
+    lag_mode: LagMode | None = None
+    hash_policy: LagHashPolicy | None = None
+    #: Members that must be up for the LAG to be up.
+    min_links: Annotated[int, Field(ge=0, le=64)] | None = None
+    lacp_rate: LacpRate | None = None
+    #: On a member: its state in the LAG (``Port.lag`` and the LAG's ``lower`` say which LAG).
+    lag_member_state: LagMemberState | None = None
 
     @field_validator("advertised_speeds_mbps")
     @classmethod
@@ -2917,6 +2995,24 @@ class Snapshot(Model):
     extra_status: dict[str, DeviceStatus] = Field(default_factory=dict)
 
 
+@dataclass
+class LagGroup:
+    """A link aggregation of one device (#157): its name, its port of role ``lag`` (if the
+    device reports one) and its member ports, sorted by id."""
+
+    name: str
+    port: Port | None = None
+    members: list[Port] = dc_field(default_factory=list)
+
+    @property
+    def member_ids(self) -> list[str]:
+        return [m.id for m in self.members]
+
+    @property
+    def mode(self) -> LagMode | None:
+        return self.port.lag_mode if self.port is not None else None
+
+
 class PortNode(Model):
     """One entry of :meth:`Network.port_tree`: a port (or a radio) and what runs on it."""
 
@@ -3363,6 +3459,48 @@ class Network(Model):
     def upper_ports(self, port_id: str) -> list[Port]:
         """The ports that run on this one: bridges it is a member of, its VLAN interfaces."""
         return [p for p in self.ports if port_id in p.lower and p.id != port_id]
+
+    # link aggregation (#157, ADR 0022) -----------------------------------------------------
+
+    def lag_groups(self) -> dict[tuple[str, str], LagGroup]:
+        """Every LAG with its members, by device id and LAG name.
+
+        A port is a member when it names the LAG in ``Port.lag`` or a port of role ``lag``
+        lists it in ``lower`` (adapters fill one or both). The name is the members'
+        ``Port.lag``, else the LAG port's name; the LAG port is the one that lists them, else
+        the port of kind ``lag`` with that name (``None``: the device reports members only).
+        """
+        upper: dict[str, Port] = {}
+        named: dict[tuple[str, str], Port] = {}
+        for p in self.ports:
+            if p.role is PortRole.LAG:
+                for low in p.lower:
+                    upper.setdefault(low, p)
+            if p.kind is PortKind.LAG:
+                named.setdefault((p.device_id, p.name), p)
+        out: dict[tuple[str, str], LagGroup] = {}
+        for p in self.ports:
+            if p.kind is PortKind.LAG or p.role is PortRole.LAG:
+                continue
+            lag_port = upper.get(p.id)
+            if lag_port is not None and lag_port.device_id != p.device_id:
+                lag_port = None
+            name = p.lag or (lag_port.name if lag_port is not None else None)
+            if not name or name == p.name:
+                continue
+            if lag_port is None:
+                lag_port = named.get((p.device_id, name))
+            group = out.setdefault((p.device_id, name), LagGroup(name=name, port=lag_port))
+            if group.port is None:
+                group.port = lag_port
+            group.members.append(p)
+        for group in out.values():
+            group.members.sort(key=lambda m: m.id)
+        return dict(sorted(out.items()))
+
+    def lag_of(self, port_id: str) -> LagGroup | None:
+        """The LAG a port is a member of (``None``: none, or the port is a LAG itself)."""
+        return next((g for g in self.lag_groups().values() if port_id in g.member_ids), None)
 
     def port_tree(self, device_id: str) -> list[PortNode]:
         """The internal structure of a device as a tree, every port exactly once.

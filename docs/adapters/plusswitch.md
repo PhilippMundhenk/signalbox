@@ -105,8 +105,9 @@ address table), QoS, mirroring, IGMP, statistics.
 ### Port structure (#252)
 
 Every port is a `jack`. An enabled link aggregation group (ProSAFE `read_lag`, Easy Smart
-`lags`) is also a port of role `lag` named `lagN` over its member ports. Confirmed against the
-simulators only (no real switch in CI).
+`lags`) is also a port of role `lag` named `lagN` over its member ports, with `lag_mode`
+`static`: these switches have no LACP (#157). Confirmed against the simulators only (no real
+switch in CI).
 
 ### VLANs
 

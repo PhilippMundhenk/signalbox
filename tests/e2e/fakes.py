@@ -48,6 +48,9 @@ from signalbox.model import (
     FirewallZone,
     Firmware,
     HostRecord,
+    LagHashPolicy,
+    LagMemberState,
+    LagMode,
     LeaseState,
     LogKind,
     LogTarget,
@@ -590,6 +593,7 @@ class Lab(Adapter):
 class SwitchConfig(AdapterConfig):
     address: str = Field(description="Address of the switch.")
     community: SecretStr | None = Field(None, description="Read community (optional).")
+    lag: bool = Field(False, description="p3 and p4 form the LACP LAG ae1 (#157).")
 
 
 class Switch(Adapter):
@@ -628,6 +632,26 @@ class Switch(Adapter):
             PortMembership(port_id=port_id(d, "p1"), mode=Membership.TAGGED),
             PortMembership(port_id=port_id(d, "p2"), mode=Membership.UNTAGGED),
         ]
+        if getattr(self.context.config, "lag", False):
+            state = LagMemberState(selected=True, collecting_distributing=True)
+            ports = [
+                *ports[:2],
+                *(
+                    p.model_copy(update={"up": True, "lag": "ae1", "lag_member_state": state})
+                    for p in ports[2:]
+                ),
+                Port(
+                    id=port_id(d, "ae1"),
+                    device_id=d,
+                    name="ae1",
+                    kind=PortKind.LAG,
+                    role=PortRole.LAG,
+                    up=True,
+                    lower=[port_id(d, "p3"), port_id(d, "p4")],
+                    lag_mode=LagMode.LACP_ACTIVE,
+                    hash_policy=LagHashPolicy.L3_L4,
+                ),
+            ]
         return Observation(
             ports=ports,
             segments=[Segment(id=seg, site_id=self.context.site_id, vlan=10, members=members)],

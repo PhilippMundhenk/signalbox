@@ -521,6 +521,111 @@ def default_time() -> dict[str, str]:
     }
 
 
+#: ``/proc/net/bonding/bond0`` of an 802.3ad bond over eth2 and eth3 (Linux 6.12); eth3 is
+#: not aggregated (it waits for its partner), as when its cable goes to another switch.
+BOND_PROC = """Ethernet Channel Bonding Driver: v6.12.47+rpt-rpi-2712
+
+Bonding Mode: IEEE 802.3ad Dynamic link aggregation
+Transmit Hash Policy: layer2+3 (2)
+MII Status: up
+MII Polling Interval (ms): 100
+Up Delay (ms): 0
+Down Delay (ms): 0
+Peer Notification Delay (ms): 0
+
+802.3ad info
+LACP active: on
+LACP rate: fast
+Min links: 1
+Aggregator selection policy (ad_select): stable
+System priority: 65535
+System MAC address: 02:5b:00:00:00:10
+Active Aggregator Info:
+\tAggregator ID: 1
+\tNumber of ports: 1
+\tActor Key: 9
+\tPartner Key: 7
+\tPartner Mac Address: 02:00:00:00:10:01
+
+Slave Interface: eth2
+MII Status: up
+Speed: 1000 Mbps
+Duplex: full
+Link Failure Count: 0
+Permanent HW addr: 02:5b:00:00:00:04
+Slave queue ID: 0
+Aggregator ID: 1
+Actor Churn State: none
+Partner Churn State: none
+Actor Churned Count: 0
+Partner Churned Count: 0
+details actor lacp pdu:
+    system priority: 65535
+    system mac address: 02:5b:00:00:00:10
+    port key: 9
+    port priority: 255
+    port number: 1
+    port state: 63
+details partner lacp pdu:
+    system priority: 32768
+    system mac address: 02:00:00:00:10:01
+    oper key: 7
+    port priority: 32768
+    port number: 5
+    port state: 61
+
+Slave Interface: eth3
+MII Status: up
+Speed: 1000 Mbps
+Duplex: full
+Link Failure Count: 1
+Permanent HW addr: 02:5b:00:00:00:05
+Slave queue ID: 0
+Aggregator ID: 2
+Actor Churn State: churned
+Partner Churn State: churned
+Actor Churned Count: 1
+Partner Churned Count: 1
+details actor lacp pdu:
+    system priority: 65535
+    system mac address: 02:5b:00:00:00:10
+    port key: 9
+    port priority: 255
+    port number: 2
+    port state: 71
+details partner lacp pdu:
+    system priority: 65535
+    system mac address: 00:00:00:00:00:00
+    oper key: 1
+    port priority: 255
+    port number: 1
+    port state: 1
+"""
+
+
+def add_bond(sim: LinuxSim) -> LinuxSim:
+    """The gateway with a second NIC pair bonded (#157): ``bond0`` (802.3ad) over eth2 and
+    eth3, ``/proc/net/bonding/bond0`` of :data:`BOND_PROC`."""
+    links = json.loads(sim.sections["link"])
+    links += [
+        _link(8, "eth2", "02:5b:00:00:00:10", master="bond0", parentbus="pci"),
+        _link(9, "eth3", "02:5b:00:00:00:10", master="bond0", parentbus="pci"),
+        _link(
+            10,
+            "bond0",
+            "02:5b:00:00:00:10",
+            linkinfo={"info_kind": "bond", "info_data": {"mode": "802.3ad"}},
+        ),
+    ]
+    sim.sections["link"] = json.dumps(links) + "\n"
+    sim.sections["sysnet"] = (
+        sim.sections["sysnet"].rstrip("\n")
+        + "\neth2 1 0 1000 full\neth3 1 0 1000 full\nbond0 0 0 2000 full\n"
+    )
+    sim.sections["bonding"] = _files({"/proc/net/bonding/bond0": BOND_PROC})
+    return sim
+
+
 @dataclass
 class User:
     password: str | None = None

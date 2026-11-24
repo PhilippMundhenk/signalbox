@@ -40,10 +40,10 @@ SITE_A = Site(id="site-a", name="Site A (demo)")
 SITE_B = Site(id="site-b", name="Site B (demo)")
 COMPACT_SITE = Site(id="home", name="Home (demo)")
 
-#: Cables between the devices (port ids); two between the switches form a bundle.
+#: Cables between the devices (port ids); two between the switches form a LAG (#157).
 CABLES: list[tuple[str, str]] = [
     ("gateway-a/port/igb0", "core-switch/port/lan1"),
-    # two parallel cables between the switches: a bundle
+    # two parallel cables between the switches: a LAG, drawn as one bundle
     ("core-switch/port/lan2", "access-switch/port/1"),
     ("core-switch/port/lan3", "access-switch/port/2"),
     ("access-switch/port/3", "ap-2/port/lan1"),
@@ -272,7 +272,15 @@ def demo_devices(services: Services, *, compact: bool = False) -> Iterator[dict[
         )
 
         sw, ap, router = DeviceRole.SWITCH, DeviceRole.AP, DeviceRole.GATEWAY
-        core = _openwrt(3, "192.0.2.3", "2001:db8::3", "core-switch", no_wireless_object=True)
+        # lan2 and lan3 form a static bond towards the access switch (#157)
+        core = _openwrt(
+            3,
+            "192.0.2.3",
+            "2001:db8::3",
+            "core-switch",
+            no_wireless_object=True,
+            bond="balance-xor",
+        )
         openwrt("core-switch", SITE_A, "Core switch", sw, core)
         openwrt("ap-1", SITE_A, "Office AP", ap, _openwrt(1, "192.0.2.2", "2001:db8::2", "ap-1"))
         openwrt("ap-2", SITE_A, "Hall AP", ap, _openwrt(2, "192.0.2.4", "2001:db8::4", "ap-2"))
@@ -394,6 +402,7 @@ def demo_devices(services: Services, *, compact: bool = False) -> Iterator[dict[
             pass
         else:
             ng = SimSwitch("02:00:00:00:10:01", ip="192.0.2.10", name="access-switch")
+            ng.lags[1] = (True, [1, 2])  # the other end of the core switch's bond (#157)
             ngsim = Simulator([ng])
             ng_port = stack.enter_context(_in_thread(ngsim.start, lambda _: ngsim.stop()))
             tp = SimEasySmart("02:00:00:00:20:01", ip="192.0.2.70", name="switch-b")

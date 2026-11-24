@@ -35,6 +35,7 @@ from signalbox.model import (
     DeviceHealth,
     DeviceRole,
     DeviceStatus,
+    LagMode,
     Membership,
     Pmf,
     PortKind,
@@ -194,6 +195,7 @@ async def test_ports_and_segments(snap: Snapshot) -> None:
     lag = ports[f"{SW}/port/lag1"]
     assert (lag.role, lag.kind, lag.external) == (PortRole.LAG, PortKind.LAG, True)
     assert lag.lower == [f"{SW}/port/2", f"{SW}/port/3"]
+    assert lag.lag_mode is LagMode.LACP_ACTIVE  # #157: lagType of both members
     p1 = ports[f"{SW}/port/1"]
     assert (p1.name, p1.up, p1.speed_mbps, p1.full_duplex, p1.poe) == (
         "Switch Port1",

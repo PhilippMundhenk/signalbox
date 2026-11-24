@@ -137,6 +137,7 @@ def test_view_with_unknown_port_and_unnamed_segment() -> None:
         "mtu": None,
         "up": None,
         "uplink": False,
+        "lag": None,
     }
     assert edge["segments"][0]["consistent"] is False
     assert v["segments"] == {"home/segment/native": "untagged"}

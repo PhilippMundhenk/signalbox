@@ -52,6 +52,9 @@ from signalbox.model import (
     FirewallAction,
     FirewallChain,
     FrameTypes,
+    LacpRate,
+    LagHashPolicy,
+    LagMode,
     LeaseState,
     NatClass,
     Network,
@@ -62,7 +65,7 @@ from signalbox.model import DeviceStatus as ReadStatus
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
 from signalbox.store import DeviceRecord
-from signalbox.testing import assert_contract
+from signalbox.testing import assert_contract, structure_problems
 
 LAN, IOT, LAB = "home/segment/native", "home/segment/20", "home/segment/60"
 TIMEOUT = 30.0
@@ -253,7 +256,13 @@ async def test_mapping_of_the_configured_router(rt: dict[str, str]) -> None:
     assert role["wg0"] == "tunnel", role
     assert sorted(ports["bridge"].lower) == ["rt/port/ether2", "rt/port/ether3"], ports["bridge"]
     assert ports["iot"].lower == ["rt/port/bridge"] and ports["ether2"].lower == []
-    assert sorted(p.name for p in net.external_ports("rt")) == ["ether1", "ether2", "ether3"]
+    assert sorted(p.name for p in net.external_ports("rt")) == [
+        "ether1",
+        "ether2",
+        "ether3",
+        "ether4",
+        "ether5",
+    ]
     assert ports["ether2"].mac == "02:00:00:00:01:02"
     assert ports["ether2"].kind.value == "ethernet"
     assert ports["bridge"].kind.value == "bridge"
@@ -944,6 +953,67 @@ async def test_wireguard_interface_and_peer(rt: dict[str, str]) -> None:
     net = await network(rt)
     assert [t.id for t, _ in net.remote_sites()] == ["rt/tunnel/wg0"]
     assert not any("wg0" in s.id for s in net.segments)
+
+
+async def test_bonding_of_chr(rt: dict[str, str]) -> None:
+    """#157: an 802.3ad bond over the spare ports ether4 and ether5, made with the write user,
+    read with the read user: mode, hash, LACP rate, minimum links, members. QEMU's user
+    network has no LACP partner, so the members are not aggregated (if RouterOS reports it)."""
+    auth = (rt["WRITE_USER"], rt["WRITE_PASSWORD"])
+    body = {
+        "name": "bond-ci",
+        "slaves": "ether4,ether5",
+        "mode": "802.3ad",
+        "transmit-hash-policy": "layer-3-and-4",
+        "lacp-rate": "1sec",
+        "min-links": "1",
+    }
+    made = httpx.put(
+        rt["URL"] + "/rest/interface/bonding",
+        json=body,
+        auth=auth,
+        verify=False,
+        timeout=TIMEOUT,
+        trust_env=False,
+    )
+    assert made.status_code in (200, 201), made.text
+    row_id = made.json()[".id"]
+    try:
+        a = adapter(rt)
+        try:
+            snap = await a.observe()
+            monitor = await a.http.post_json(
+                "/rest/interface/bonding/monitor-slaves", {"bond": "bond-ci", "once": ""}
+            )
+        except AdapterError as exc:
+            monitor = f"refused: {exc}"
+        finally:
+            await a.close()
+        print("monitor-slaves:", json.dumps(monitor, default=str))  # for the next guess (#21)
+        assert snap.status is ReadStatus.OK, snap.errors
+        ports = {p.name: p for p in snap.ports}
+        bond = ports["bond-ci"]
+        assert (bond.role.value if bond.role else None, bond.kind.value) == ("lag", "lag")
+        assert sorted(bond.lower) == ["rt/port/ether4", "rt/port/ether5"], bond
+        assert (bond.lag_mode, bond.hash_policy, bond.lacp_rate, bond.min_links) == (
+            LagMode.LACP_ACTIVE,
+            LagHashPolicy.L3_L4,
+            LacpRate.FAST,
+            1,
+        ), bond
+        assert ports["ether4"].lag == ports["ether5"].lag == "bond-ci"
+        for name in ("ether4", "ether5"):
+            state = ports[name].lag_member_state
+            assert state is None or state.collecting_distributing is not True, state
+        assert not structure_problems(snap.ports)
+    finally:
+        httpx.delete(
+            rt["URL"] + f"/rest/interface/bonding/{row_id}",
+            auth=auth,
+            verify=False,
+            timeout=TIMEOUT,
+            trust_env=False,
+        )
 
 
 async def test_trace_refused_without_the_policy_test(rt: dict[str, str]) -> None:

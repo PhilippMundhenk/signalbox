@@ -5,11 +5,12 @@ Sources, in the order they are trusted:
 - netifd ``network.device status``: ``type`` ``bridge`` with ``bridge-members``, ``VLAN`` /
   ``8021q`` / ``8021ad`` devices (``parent`` for the latter, else the name before the last dot).
 - ``luci-rpc getNetworkDevices`` (rpcd-mod-luci): ``devtype`` from the kernel (``DEVTYPE`` in
-  the device's uevent: ``dsa`` for a DSA user port, ``vlan``, ``bridge``, ``wlan``; missing:
-  ``ethernet``), ``parent`` (the device whose ifindex is this one's ``iflink``: a DSA user port's
-  conduit, a VLAN device's parent), ``bridge`` with ``ports``, ``wireless``. A DSA conduit is the
-  ``parent`` of a ``dsa`` device. Without this call only bridges, VLAN devices, Wi-Fi
-  interfaces and swconfig CPU ports get a role.
+  the device's uevent: ``dsa`` for a DSA user port, ``vlan``, ``bridge``, ``wlan``, ``bond``;
+  missing: ``ethernet``), ``parent`` (the device whose ifindex is this one's ``iflink``: a DSA
+  user port's conduit, a VLAN device's parent), ``bridge`` with ``ports``, ``wireless``. A DSA
+  conduit is the ``parent`` of a ``dsa`` device. Without this call only bridges, VLAN devices,
+  Wi-Fi interfaces and swconfig CPU ports get a role.
+- UCI bonding devices (#157, :mod:`signalbox.adapters.openwrt.lag`): a LAG over its ``ports``.
 - UCI ``switch`` / ``switch_vlan`` (swconfig, older devices): the device whose ``<dev>.<vid>``
   VLAN devices exist for a switch VLAN is the CPU port of that switch. Which switch port is
   the CPU port, and which ports are jacks, swconfig only tells through ``/etc/board.json``,
@@ -57,12 +58,14 @@ def structure(
     devices: dict[str, Any] | None,
     uci: dict[str, Any] | None = None,
     wireless: frozenset[str] = frozenset(),
+    bonds: dict[str, list[str]] | None = None,
 ) -> dict[str, tuple[PortRole | None, list[str], PortKind | None]]:
     """name -> (role, names of the lower ports, kind if the role decides it) for ``names``.
 
     ``status`` is ``network.device status``, ``devices`` ``luci-rpc getNetworkDevices`` (None:
     not available), ``uci`` the ``network`` config, ``wireless`` the names already known to be
-    Wi-Fi interfaces. Lower names are limited to ``names``.
+    Wi-Fi interfaces, ``bonds`` the members of the bonding devices (#157). Lower names are
+    limited to ``names``.
     """
     known = set(names)
     luci = {k: v for k, v in (devices or {}).items() if isinstance(v, dict)}
@@ -90,7 +93,10 @@ def structure(
         role: PortRole | None = None
         lower: list[str] = []
         kind: PortKind | None = None
-        if st.get("type") == "bridge" or ld.get("bridge") or devtype == "bridge":
+        if name in (bonds or {}) or st.get("type") == "bonding" or devtype == "bond":
+            role, kind = PortRole.LAG, PortKind.LAG
+            lower = list((bonds or {}).get(name, []))
+        elif st.get("type") == "bridge" or ld.get("bridge") or devtype == "bridge":
             role, kind = PortRole.BRIDGE, PortKind.BRIDGE
             lower = _names(st.get("bridge-members")) or _names(ld.get("ports"))
         elif st.get("type") in _VLAN_TYPES or devtype == "vlan":
