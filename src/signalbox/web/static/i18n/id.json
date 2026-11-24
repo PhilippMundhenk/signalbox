@@ -2144,6 +2144,8 @@
  "msg.opnsense.accounts.fix": "Opsional, hanya jika Signalbox perlu mendaftar akun: berikan hak istimewa {privilege} kepada pengguna API (atau centang opsi akun pada penyiapan otomatis). OPNsense tidak punya varian hanya-baca: pengguna itu kemudian juga dapat mengubah semua akun.",
  "msg.omada.accounts": "akun: pengguna controller tidak dibaca ({cause})",
  "msg.omada.accounts.fix": "Opsional: gunakan klien Open API dengan peran yang boleh membaca pengguna controller (misalnya Administrator).",
+ "msg.omada.accounts.client_mode": "akun: pengguna controller hanya tersedia dengan mode kode otorisasi; Signalbox memakai mode klien",
+ "msg.omada.accounts.client_mode.fix": "Tidak ada yang perlu diperbaiki di Signalbox: Omada hanya memberikan daftar pengguna kepada login mode kode otorisasi. Akun perangkat situs tetap dibaca.",
  "msg.fritzbox.accounts": "akun: daftar pengguna tidak dibaca ({cause})",
  "msg.account.defaultPassword": "{device} masih memakai kata sandi pabrik",
  "msg.account.defaultPassword.fix": "Ganti kata sandi di {device} (manualnya menjelaskan caranya), lalu perbarui di pengaturan perangkat Signalbox.",

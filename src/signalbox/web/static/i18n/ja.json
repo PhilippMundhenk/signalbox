@@ -2144,6 +2144,8 @@
  "msg.opnsense.accounts.fix": "任意です。Signalbox にアカウントを一覧表示させる場合のみ: API ユーザーに権限 {privilege} を付与してください(または自動セットアップのアカウント用オプションにチェックを入れてください)。OPNsense には読み取り専用の権限がないため、そのユーザーはすべてのアカウントも変更できるようになります。",
  "msg.omada.accounts": "アカウント: コントローラーのユーザーを読み取れません ({cause})",
  "msg.omada.accounts.fix": "任意: コントローラーのユーザーを読み取れるロール(例: 管理者)を持つ Open API クライアントを使用してください。",
+ "msg.omada.accounts.client_mode": "アカウント: コントローラーのユーザーは認可コードモードでのみ利用できます。Signalbox はクライアントモードを使用します",
+ "msg.omada.accounts.client_mode.fix": "Signalbox 側で直すことはありません。Omada はユーザー一覧を認可コードモードのログインにのみ提供します。サイトのデバイスアカウントは引き続き読み取られます。",
  "msg.fritzbox.accounts": "アカウント: ユーザー一覧を読み取れません ({cause})",
  "msg.account.defaultPassword": "{device} は工場出荷時のパスワードのままです",
  "msg.account.defaultPassword.fix": "{device} でパスワードを変更し（方法はマニュアルにあります）、Signalbox のデバイス設定も更新してください。",

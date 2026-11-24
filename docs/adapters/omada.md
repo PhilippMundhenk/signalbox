@@ -576,6 +576,16 @@ compared with the Omada factory default `admin`/`admin` in memory (`default_cred
 each managed device) and dropped. A masked password (`***`) leaves `default_credentials`
 unknown. The privilege of the Open API client is not read. A controller that refuses the users
 list (an Omada error such as a missing permission) gives an optional gap `accounts` instead of
-an empty list (#349); a missing endpoint still gives nothing. Verified in CI on controller 6.3: the
-users endpoint answers error -44118 ("only supports the authorization code mode") to the
-client-mode credentials Signalbox uses, so the gap is what a real controller reports today.
+an empty list (#349); a missing endpoint still gives nothing.
+
+**Limit (#354): the controller's users cannot be read in client mode.** Verified in CI on
+controller 6.3 against the controller's own API description: `GET /users`, `/all-users` and
+`/roles/available` answer error -44118 ("only supports the authorization code mode, not the
+client mode"), `/users/cloud` and `/users/local` answer -1007 (no permission), and the
+administrator-style lists that do answer (`/roles`, the RADIUS, hotspot, VPN and SSO users) are
+not the controller's administrators. Signalbox logs in with client credentials, so every real
+6.3 controller shows the optional gap `accounts` with the message "only available with
+authorization-code mode; Signalbox uses client mode" (message id `omada.accounts.client_mode`).
+It is not an error and needs no fix in Signalbox: the site's device account is still read and
+checked. After the first -44118 the adapter does not ask for the users again until it is
+restarted. Authorization-code mode needs an interactive browser login and is not planned.

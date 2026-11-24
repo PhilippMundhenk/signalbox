@@ -2144,6 +2144,8 @@
  "msg.opnsense.accounts.fix": "可选，仅当希望 Signalbox 列出账户时：授予 API 用户权限 {privilege}（或勾选自动设置中的账户选项）。OPNsense 没有只读版本：该用户随后也可以修改所有账户。",
  "msg.omada.accounts": "账户：未读取控制器的用户（{cause}）",
  "msg.omada.accounts.fix": "可选：使用具有可读取控制器用户的角色（例如管理员）的 Open API 客户端。",
+ "msg.omada.accounts.client_mode": "账户：控制器的用户仅在授权码模式下可用；Signalbox 使用客户端模式",
+ "msg.omada.accounts.client_mode.fix": "Signalbox 无需修复：Omada 仅向授权码模式的登录提供用户列表。站点的设备账户仍会被读取。",
  "msg.fritzbox.accounts": "账户：未读取用户列表（{cause}）",
  "msg.account.defaultPassword": "{device} 仍在使用出厂密码",
  "msg.account.defaultPassword.fix": "在 {device} 上更改密码（手册中有说明），然后在 Signalbox 的设备设置中更新它。",

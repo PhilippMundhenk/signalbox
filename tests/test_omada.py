@@ -961,3 +961,26 @@ def test_radio_state_fields() -> None:
     }
     assert radio_state({"wp6g": {"channelUtil": 120, "rdMode": ""}}, "6g") == {}
     assert radio_state({"wp6g": "odd", "clientNum6g": True}, "6g") == {}
+
+
+async def test_users_in_client_mode_are_a_known_limit_and_asked_once(
+    sim: OmadaSimulator, http_url: str
+) -> None:
+    """Controller 6.3 answers -44118 to client credentials (#354): its own gap, no retry."""
+    from signalbox.sim.omada import OMADAC_ID
+
+    users = f"/openapi/v1/{OMADAC_ID}/users"
+    sim.error = {users: (-44118, "This interface only supports the authorization code mode")}
+    a = adapter(http_url)
+    try:
+        first = await a.observe()
+        second = await a.observe()
+    finally:
+        await a.close()
+    for snap in (first, second):
+        (gap,) = [e for e in snap.errors if e.message.startswith("accounts")]
+        assert gap.optional and gap.message_id == "omada.accounts.client_mode"
+        assert gap.fix_id == "omada.accounts.client_mode.fix"
+        assert "authorization-code mode; Signalbox uses client mode" in gap.message
+        assert snap.status.value == "ok"
+    assert sim.requests.count(users) == 1
