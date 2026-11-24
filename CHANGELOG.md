@@ -106,6 +106,8 @@ All notable changes to this project are documented here. The format follows
 
 - Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
+- Desired state: loading the network state of a site with two routers no longer fails with "segment declared twice: native"; every untagged network is exported with its own key (`native`, `native-<router id>`), import accepts it and drift is clean on the round trip (#305)
+- Discovery list: the "What to do" column is gone (the device form explains it) and "What was searched" stays open or closed across progress refreshes (#301)
 - DNS: two DNS services on one router (AdGuard Home in front of Unbound on another port) are no longer a forwarding loop: services have a listen port, forwarders an address and port, and a forward to a service Signalbox cannot read is incomplete, not a loop (#241)
 - Web UI: a session that ended (expired, logged out in another tab, server restarted) is noticed automatically: the login appears in place and the same page returns after login; an unreachable server shows a banner instead (#238)
 - NETGEAR ProSAFE Plus: requests go out from the host's interfaces with a real MAC, as Switchyard does on a real network (old firmware answered requests with the broadcast MAC as sender with "incorrect password"); a VLAN or LAG read the switch refuses is reported as a gap and the ports are kept (#210)
