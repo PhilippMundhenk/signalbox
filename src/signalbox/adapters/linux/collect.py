@@ -84,7 +84,8 @@ _WG = "".join(f'echo @@wg-{f}; [ -n "$WG" ] && $WG show all {f} 2>/dev/null\n' f
 READ = (
     "# signalbox-read\n"
     + _PRELUDE
-    + """echo @@os; show /etc/os-release /etc/debian_version /etc/rpi-issue
+    + """echo @@os; show /etc/os-release /etc/debian_version /etc/rpi-issue /etc/arch-release \
+  /etc/alpine-release /etc/fedora-release /etc/redhat-release
 echo @@hostname; cat /proc/sys/kernel/hostname
 echo @@kernel; uname -srm
 echo @@model; show /proc/device-tree/model \

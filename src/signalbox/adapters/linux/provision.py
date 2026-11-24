@@ -66,10 +66,12 @@ class DeviceState:
     #: ``bridge``, ``ip-json``: ``ip -j`` works) (#302)
     os_release: dict[str, str] = field(default_factory=dict)
     have: set[str] = field(default_factory=set)
+    #: distribution marker files that exist (``distro.MARKERS``), for systems without os-release
+    markers: set[str] = field(default_factory=set)
 
     @property
     def distro(self) -> distro.Distro:
-        return distro.detect(self.os_release)
+        return distro.detect(self.os_release, self.markers)
 
 
 def parse_sections(text: str) -> dict[str, list[str]]:
@@ -189,6 +191,9 @@ class LinuxSetup:
             "echo @@nft; command -v nft\n"
             "echo @@ipt; command -v iptables-save\n"
             "echo @@os; cat /etc/os-release 2>/dev/null\n"
+            "echo @@markers\n"
+            "for f in /etc/debian_version /etc/arch-release /etc/alpine-release "
+            "/etc/fedora-release /etc/redhat-release; do [ -e $f ] && echo $f; done\n"
             "echo @@have\n"
             "for t in nft wg tracepath bridge; do command -v $t >/dev/null 2>&1 && echo $t; done\n"
             "ip -j link show >/dev/null 2>&1 && echo ip-json\n"
@@ -223,6 +228,7 @@ class LinuxSetup:
             iptables=bool([x for x in parts.get("ipt", []) if x.strip()]),
             os_release=_os_release(parts.get("os", [])),
             have={x.strip() for x in parts.get("have", []) if x.strip()},
+            markers={x.strip() for x in parts.get("markers", []) if x.strip()},
         )
 
     def _action(

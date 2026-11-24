@@ -9,6 +9,7 @@ same text. Only what is installed here is read-side: the tools Signalbox reads t
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 #: The things the reader can use and the setup may offer: id -> (what, the tool it provides).
@@ -68,6 +69,18 @@ _FAMILIES = (
 )
 
 
+#: Files that name the family of a system without ``/etc/os-release`` (old or minimal ones):
+#: path -> (family name, package manager). Used only when ``os-release`` says nothing known;
+#: a system with none of them stays unknown, never guessed.
+MARKERS = (
+    ("/etc/debian_version", "Debian", "apt"),
+    ("/etc/arch-release", "Arch Linux", "pacman"),
+    ("/etc/alpine-release", "Alpine", "apk"),
+    ("/etc/fedora-release", "Fedora", "dnf"),
+    ("/etc/redhat-release", "Fedora", "dnf"),
+)
+
+
 @dataclass(frozen=True)
 class Distro:
     id: str = ""
@@ -93,8 +106,9 @@ class Distro:
         return f"as root: {command}" if command else f"install {TOOLS[tool][0]}"
 
 
-def detect(release: dict[str, str]) -> Distro:
-    """From the parsed ``/etc/os-release``: its ``ID`` first, then the words of ``ID_LIKE``."""
+def detect(release: dict[str, str], markers: Iterable[str] = ()) -> Distro:
+    """From the parsed ``/etc/os-release``: its ``ID`` first, then the words of ``ID_LIKE``; then
+    the marker files that exist (``MARKERS``, for systems without an os-release)."""
     ident = release.get("ID", "").strip().lower()
     words = [ident, *re.split(r"[\s,]+", release.get("ID_LIKE", "").lower())]
     for word in words:
@@ -102,4 +116,8 @@ def detect(release: dict[str, str]) -> Distro:
             if word and word == key:
                 pretty = release.get("PRETTY_NAME") or release.get("NAME") or family
                 return Distro(ident or word, family, manager, pretty)
+    present = set(markers)
+    for path, family, manager in MARKERS:
+        if path in present:
+            return Distro(ident or family.lower().split()[0], family, manager, family)
     return Distro(ident, "", None, release.get("PRETTY_NAME") or release.get("NAME") or "")

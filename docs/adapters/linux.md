@@ -18,7 +18,7 @@ ruleset and the legacy iptables rules, which a sudoers rule allows for exactly t
 
 ## Supported distributions
 
-The distribution is read from `/etc/os-release` (`ID`, then the words of `ID_LIKE`) by the reader
+The distribution is read from `/etc/os-release` (`ID`, then the words of `ID_LIKE`; without it the marker files `/etc/debian_version` (apt), `/etc/arch-release` (pacman), `/etc/alpine-release` (apk), `/etc/fedora-release` or `/etc/redhat-release` (dnf), else unknown, never guessed) by the reader
 (`vendor_extra.os_id`, `os_family`, `package_manager`) and by the automatic setup, never assumed.
 What the reader needs is `ip -j` and `bridge` (iproute2 with JSON, 4.13 or newer; busybox `ip`
 prints no JSON, and then nothing is read and a gap says so), `ss`, `/proc` and `/sys`, and

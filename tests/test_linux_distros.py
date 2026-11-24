@@ -134,6 +134,7 @@ async def test_arch_host_is_read_with_its_network() -> None:
     assert not [e for e in snap.errors if e.capability == "firewall"]
     assert fw.vendor_extra == {"source": "iptables-save"} and fw.rules_complete
     assert fw.input_policy is FirewallAction.DROP and len(fw.rules) == 2
+    assert fw.forward_policy is FirewallAction.DROP
 
 
 async def test_debian_hint_uses_apt() -> None:
@@ -177,7 +178,8 @@ async def test_setup_offers_the_installs_unticked_and_runs_the_managers_own() ->
     async with serve_ssh(box) as (port, fp):
         plain = await LinuxAdapter.plan_setup(request(port, fp))
         assert not [s for s in plain.steps if s.id.startswith("install-")]
-        assert {s.id: s.state for s in plain.steps}["sudoers"] is StepState.UNCHANGED
+        # legacy iptables is read through the sudoers rule (#394)
+        assert {s.id: s.state for s in plain.steps}["sudoers"] is StepState.TODO
         plan = await LinuxAdapter.plan_setup(request(port, fp, extras=ALL))
         steps = {s.id: s for s in plan.steps}
         assert [s.id for s in plan.steps][:2] == ["user", "key"]
@@ -230,6 +232,37 @@ async def test_a_failing_install_stops_the_setup() -> None:
     states = {s.id: s.state for s in result.steps}
     assert not result.ok and states["install-nftables"] is StepState.FAILED
     assert states["sudoers"] is StepState.SKIPPED and "signalbox" in box.users
+
+
+def test_markers_name_the_family_of_a_system_without_os_release() -> None:
+    cases = {
+        "/etc/debian_version": ("apt", "Debian"),
+        "/etc/arch-release": ("pacman", "Arch Linux"),
+        "/etc/alpine-release": ("apk", "Alpine"),
+        "/etc/fedora-release": ("dnf", "Fedora"),
+        "/etc/redhat-release": ("dnf", "Fedora"),
+    }
+    for path, (manager, family) in cases.items():
+        found = distro.detect({}, {path})
+        assert (found.manager, found.family) == (manager, family), path
+        assert found.install("nftables") is not None
+    assert distro.detect({}, {"/etc/hostname"}).manager is None  # never guessed
+    assert distro.detect({}).manager is None
+    # os-release wins over a marker
+    assert distro.detect({"ID": "alpine"}, {"/etc/debian_version"}).manager == "apk"
+
+
+async def test_a_system_without_os_release_is_detected_by_its_marker_file() -> None:
+    box = with_login(LinuxSim(nft_installed=False))
+    box.sections["os"] = "@@@ /etc/arch-release\n"
+    async with adapter_for(box) as adapter:
+        snap = await adapter.observe()
+    assert snap.device.vendor_extra["os_family"] == "Arch Linux"
+    assert snap.device.vendor_extra["package_manager"] == "pacman"
+    async with serve_ssh(box) as (port, fp):
+        plan = await LinuxAdapter.plan_setup(request(port, fp, extras=["nftables"]))
+    step = next(s for s in plan.steps if s.id == "install-nftables")
+    assert "pacman -S --needed --noconfirm nftables" in step.detail
 
 
 async def test_a_stale_pacman_database_gets_the_clear_message_and_no_partial_upgrade() -> None:

@@ -397,7 +397,7 @@ class LinuxAdapter(Adapter):
             extra["kernel"] = a.text("kernel").strip()
         if release.get("ID"):
             extra["os_id"] = release["ID"]
-        found = distro.detect(release)
+        found = distro.detect(release, parse.release_markers(a))
         if found.manager:
             extra["os_family"] = found.family
             extra["package_manager"] = found.manager
@@ -424,7 +424,7 @@ class LinuxAdapter(Adapter):
 
     @property
     def distro(self) -> distro.Distro:
-        return distro.detect(parse.os_release(self.answer))
+        return distro.detect(parse.os_release(self.answer), parse.release_markers(self.answer))
 
     async def read_interfaces(self) -> Observation:
         lay = self._layout()
