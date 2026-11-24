@@ -23,8 +23,10 @@ from signalbox.model import (
     AnnotationSource,
     DeviceRole,
     DeviceStatus,
+    EvidenceSource,
     ForeignServer,
     Link,
+    MacSighting,
     Network,
     PathTrace,
     Site,
@@ -41,6 +43,7 @@ from signalbox.sightings import (
     DEVICE,
     DEVICE_KINDS,
     FDB,
+    MAC_PORT,
     PORT,
     ClientHistory,
     DeviceHistory,
@@ -912,6 +915,28 @@ class Store:
                 "INSERT INTO settings (key, value) VALUES ('history:observations', '1') "
                 "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1"
             )
+
+    def held_sightings(self, since: datetime) -> list[MacSighting]:
+        """The MAC sightings of managed devices last seen at ``since`` or later (#378)."""
+        out = []
+        for r in self._all(
+            "SELECT key, value, last_seen FROM sightings WHERE kind = ? AND last_seen >= ? "
+            "ORDER BY key",
+            (MAC_PORT, since.isoformat()),
+        ):
+            port, _, mac = str(r["key"]).rpartition(" ")
+            try:
+                out.append(
+                    MacSighting(
+                        port_id=port,
+                        mac=mac,
+                        source=EvidenceSource(r["value"]),
+                        last_seen=r["last_seen"],
+                    )
+                )
+            except ValueError:
+                continue  # a row of another version
+        return out
 
     def prune_history(self, before: datetime) -> int:
         """Delete sightings not seen since ``before`` and older changes."""

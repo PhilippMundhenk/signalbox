@@ -16,9 +16,10 @@ export function attachZoom(svg, vp, size) {
     if (!r.width || !r.height) {
       Object.assign(v, { k: 1, x: 0, y: 0 });
     } else {
-      v.k = clamp(Math.min(MAX_FIT, (r.width - 24) / size.width, ((r.height - 24) / size.height)), 0.1, MAX_FIT);
+      const m = size.margin ?? 12; // free space round the drawing
+      v.k = clamp(Math.min(MAX_FIT, (r.width - 2 * m) / size.width, (r.height - 2 * m) / size.height), 0.1, MAX_FIT);
       v.x = (r.width - size.width * v.k) / 2;
-      v.y = 12;
+      v.y = size.margin === undefined ? 12 : Math.max(m, (r.height - size.height * v.k) / 2);
     }
     apply();
   };

@@ -60,14 +60,18 @@ class DeviceState:
     sudoers: str | None
     wg: bool
     nft: bool = False
+    #: ``iptables-save`` is installed (legacy iptables, read with the sudoers rule, #394)
+    iptables: bool = False
     #: ``/etc/os-release`` as parsed, and the tools found (``nft``, ``wg``, ``tracepath``,
     #: ``bridge``, ``ip-json``: ``ip -j`` works) (#302)
     os_release: dict[str, str] = field(default_factory=dict)
     have: set[str] = field(default_factory=set)
+    #: distribution marker files that exist (``distro.MARKERS``), for systems without os-release
+    markers: set[str] = field(default_factory=set)
 
     @property
     def distro(self) -> distro.Distro:
-        return distro.detect(self.os_release)
+        return distro.detect(self.os_release, self.markers)
 
 
 def parse_sections(text: str) -> dict[str, list[str]]:
@@ -91,6 +95,20 @@ def _os_release(lines: list[str]) -> dict[str, str]:
     return out
 
 
+#: A stale pacman database (#394): the mirror no longer has the version the old database names.
+#: Never answered with ``pacman -Sy <package>``: Arch does not support partial upgrades.
+STALE_DATABASE = (
+    "The package lists on the device are out of date. Installing a single package needs a full "
+    "system update first (sudo pacman -Syu), which can take long on an old device. Signalbox "
+    "reads legacy iptables without nftables."
+)
+
+
+def stale_database(output: str) -> bool:
+    """pacman's ``error: failed retrieving file '<package>' from <mirror> ... 404``."""
+    return "failed retrieving file" in output and "404" in output
+
+
 #: Optional extras of the setup (unticked): id -> what the inspection reports when it is
 #: already there (``ip-json``: ``ip -j`` works).
 EXTRA_TOOLS = {
@@ -102,6 +120,9 @@ EXTRA_TOOLS = {
 
 
 class LinuxSetup:
+    #: True for a *Fix it* run, whose install steps are the fix itself, not ticked extras (#395).
+    part_of_fix = False
+
     def __init__(self, request: SetupRequest) -> None:
         self.request = request
         self.redact = Redactor()
@@ -171,7 +192,11 @@ class LinuxSetup:
             f"echo @@sudoers; cat {sudoers_path(self.login)} 2>/dev/null\n"
             "echo @@wg; command -v wg\n"
             "echo @@nft; command -v nft\n"
+            "echo @@ipt; command -v iptables-save\n"
             "echo @@os; cat /etc/os-release 2>/dev/null\n"
+            "echo @@markers\n"
+            "for f in /etc/debian_version /etc/arch-release /etc/alpine-release "
+            "/etc/fedora-release /etc/redhat-release; do [ -e $f ] && echo $f; done\n"
             "echo @@have\n"
             "for t in nft wg tracepath bridge; do command -v $t >/dev/null 2>&1 && echo $t; done\n"
             "ip -j link show >/dev/null 2>&1 && echo ip-json\n"
@@ -203,17 +228,28 @@ class LinuxSetup:
             sudoers=sudo_text + "\n" if sudo_text else None,
             wg=bool([x for x in parts.get("wg", []) if x.strip()]),
             nft=bool([x for x in parts.get("nft", []) if x.strip()]),
+            iptables=bool([x for x in parts.get("ipt", []) if x.strip()]),
             os_release=_os_release(parts.get("os", [])),
             have={x.strip() for x in parts.get("have", []) if x.strip()},
+            markers={x.strip() for x in parts.get("markers", []) if x.strip()},
         )
 
     def _action(
-        self, ssh: PinnedSsh, script: str, timeout: float | None = None
+        self,
+        ssh: PinnedSsh,
+        script: str,
+        timeout: float | None = None,
+        manager: str | None = None,
     ) -> Callable[[], Awaitable[str | None]]:
         async def act() -> str | None:
             res = await ssh.run(script, timeout=timeout, command=self.command, prefix=self.prefix)
             if res.code != 0:
                 tail = (res.err or res.text).strip()[-400:]
+                if manager == "pacman" and stale_database(tail):
+                    raise AdapterError(
+                        STALE_DATABASE,
+                        message_id="linux.staleDatabase",
+                    )
                 raise AdapterError(
                     f"failed (exit status {res.code}): {self.redact(tail)}",
                     message_id="linux.stepFailed",
@@ -240,14 +276,24 @@ class LinuxSetup:
             )
         script = f"# signalbox-setup: install-{tool}\nset -e\n{command}\n"
         manager = state.distro.manager or ""
+        if self.part_of_fix:
+            # #395: a Fix it installs as its purpose; nothing was ticked, never claim so
+            title, title_id = f"Install {what} with {manager} (this fix)", "setup.linux.installFix"
+        else:
+            title, title_id = (
+                f"Install {what} with {manager} (you ticked this; optional)",
+                "setup.linux.install",
+            )
         return Step(
             f"install-{tool}",
-            f"Install {what} with {manager} (you ticked this; optional)",
+            title,
             script if not found else "",
             needed=not found,
-            action=self._action(ssh, script, timeout=max(300.0, self.request.timeout)),
+            action=self._action(
+                ssh, script, timeout=max(300.0, self.request.timeout), manager=manager
+            ),
             note="already installed" if found else "",
-            title_id="setup.linux.install",
+            title_id=title_id,
             params={"what": what, "manager": manager},
         )
 
@@ -311,7 +357,7 @@ class LinuxSetup:
         ]
         ticked = [t for t in EXTRA_TOOLS if t in self.request.extras]
         steps[2:2] = [self.install_step(ssh, state, t) for t in ticked]
-        if state.wg or state.nft or "wireguard" in ticked or "nftables" in ticked:
+        if state.wg or state.nft or state.iptables or "wireguard" in ticked or "nftables" in ticked:
             steps.append(
                 Step(
                     "sudoers",
@@ -459,6 +505,8 @@ REMEDIES = (
 
 class LinuxFix(LinuxSetup):
     """*Fix it* on a stored device: the steps of one remedy for the stored login."""
+
+    part_of_fix = True
 
     def __init__(self, request: RemedyRequest) -> None:
         if request.remedy not in {r.id for r in REMEDIES}:

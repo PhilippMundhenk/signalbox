@@ -237,7 +237,11 @@ svg.topo { display: block; font-family: var(--font); }
 .topo .port:focus-visible { outline: none; stroke: var(--accent); stroke-width: 3; }
 .topo .edge { fill: none; stroke: var(--muted); stroke-width: 2.5; }
 .topo .edge.mac { stroke-dasharray: 2 4; }
+/* drawn from partial MAC data (#378): the dash of the inferred links of #375 */
+.topo .edge.inferred { stroke-dasharray: 10 4 2 4; }
 .topo .edge.wireless { stroke-dasharray: 6 4; }
+/* a router behind another one, inferred from its uplink address (#375) */
+.topo .edge.address { stroke-dasharray: 10 4 2 4; }
 .topo .edge.manual { stroke: var(--text); }
 .topo .edge.carry { stroke: var(--accent); stroke-width: 4.5; }
 .topo .edge.inconsistent { stroke: var(--danger); stroke-width: 4.5; }
@@ -360,6 +364,14 @@ details.advanced summary { cursor: pointer; color: var(--muted); }
 .topo.wifimap .bubble.neighbour circle { stroke-dasharray: 5 4; }
 .topo.wifimap .bubble.co circle { stroke: var(--danger); stroke-width: 4; }
 .topo.wifimap .bubble .name { fill: var(--text); font-weight: 700; font-size: 12px; pointer-events: none; }
+.topo.wifimap .site-frame { fill: var(--surface-2); fill-opacity: .45; stroke: var(--border); stroke-width: 1.5; }
+.topo.wifimap .halo { stroke: var(--muted); stroke-opacity: .13; stroke-linecap: round; }
+.topo.wifimap .site-title { fill: var(--text); font-weight: 700; font-size: 15px; }
+.topo.wifimap .bubble.neighbour { opacity: .85; }
+.topo.wifimap .leader { stroke: var(--muted); stroke-width: 1.2; }
+.topo.wifimap .label-bg { fill: var(--surface); stroke: var(--border); stroke-width: 1; }
+.topo.wifimap .ap-label .name { fill: var(--text); font-weight: 700; font-size: 12px; }
+.topo.wifimap a.ap-label:hover .label-bg, .topo.wifimap a.ap-label:focus-visible .label-bg { stroke: var(--accent); stroke-width: 2; }
 .topo.wifimap .bubble .sub { fill: var(--text); font-size: 11px; pointer-events: none; }
 .topo.wifimap a.name-link { cursor: pointer; }
 .topo.wifimap a.name-link:hover circle, .topo.wifimap a.name-link:focus-visible circle { stroke-width: 4; }

@@ -54,6 +54,12 @@ from fastapi.responses import JSONResponse, Response
 from signalbox.sim.opnsense_users import Users
 
 KEY = "sim-key"
+#: Unbound grids that answer paged (#386).
+UNBOUND_GRIDS = (
+    "/api/unbound/settings/search_host_override",
+    "/api/unbound/settings/search_host_alias",
+    "/api/unbound/settings/search_domain_override",
+)
 SECRET = "sim-secret"
 USERS = "/api/auth/user/"
 TRACEROUTE = "/api/diagnostics/traceroute/set"
@@ -640,6 +646,21 @@ def sample_data() -> dict[str, Any]:
                     "mx": "mail.home.example",
                     "server": "",
                 },
+            ],
+        },
+        # an alias of the first host override (``host`` is that override's uuid); the shape
+        # is a guess from the Unbound model (#386, #21)
+        "/api/unbound/settings/search_host_alias": {
+            "total": 1,
+            "rows": [
+                {
+                    "uuid": "a-1",
+                    "enabled": "1",
+                    "host": "h-1",
+                    "hostname": "storage",
+                    "domain": "home.example",
+                    "description": "",
+                }
             ],
         },
         "/api/diagnostics/interface/get_arp": [
@@ -1795,6 +1816,11 @@ class OpnsenseSimulator(_Writes):
     pending: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
     #: Devices left in the "kernel" by a revert (overview rows that are not configuration).
     leftovers: list[dict[str, Any]] = field(default_factory=list)
+    #: Paths that answer only under their camelCase spelling (OPNsense 25.1 and older know
+    #: ``searchHostOverride``, not ``search_host_override``): the snake_case request is a 404.
+    camel_only: set[str] = field(default_factory=set)
+    #: Rows per answer of the Unbound grids (0: as asked): a long list is paged (#386).
+    page_limit: int = 0
     #: "26.7.6": assignment rows with addresses; "26.7": only device, description, lock;
     #: "none": no assignment API (404, before 26.7).
     assignment_api: str = "26.7.6"
@@ -1838,6 +1864,17 @@ class OpnsenseSimulator(_Writes):
     def user_api(self) -> bool:
         """The user manager API (``/api/auth/user``) exists from 25.1."""
         return self.release != "24.7"
+
+    def paged(self, grid: dict[str, Any], query: Any) -> dict[str, Any]:
+        """A grid answer the way OPNsense pages it: ``rowCount`` rows of page ``current``
+        (-1: all, but at most ``page_limit`` when that is set), ``total`` and ``rowCount``."""
+        rows = grid.get("rows", [])
+        count = int(query.get("rowCount", -1))
+        page = max(int(query.get("current", 1)), 1)
+        if self.page_limit and (count < 0 or count > self.page_limit):
+            count = self.page_limit
+        shown = rows if count < 0 else rows[(page - 1) * count : page * count]
+        return {**grid, "rows": shown, "total": len(rows), "rowCount": len(shown), "current": page}
 
     def traceroute(self, caller: str, body: Any) -> Response:
         """``diagnostics/traceroute/set``: as configd's traceroute.py answers (unanswered hops
@@ -1925,12 +1962,14 @@ class OpnsenseSimulator(_Writes):
                 self.requests.append("/" + path)
                 if not path.startswith("api/auth/user/"):
                     return JSONResponse({"status": 403, "message": "Forbidden"}, status_code=403)
+            spelled = "/" + path
             path = "/" + "/".join(_snake(part) for part in path.split("/"))
+            snake_request = spelled == path
             self.requests.append(path)
             if path == "/" and request.method == "GET":
                 # the web interface's login page, served to anyone (found by discovery, #203)
                 return Response(LOGIN_PAGE, media_type="text/html")
-            if not self.api_enabled:
+            if not self.api_enabled or (snake_request and path in self.camel_only):
                 return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
             caller = self.caller(request.headers.get("authorization"))
             if caller is None:
@@ -1986,6 +2025,8 @@ class OpnsenseSimulator(_Writes):
                 return JSONResponse(overview)
             if path in (KEA, *grids):
                 return JSONResponse(self._kea_answer(path))
+            if path in UNBOUND_GRIDS and isinstance(self.data[path], dict):
+                return JSONResponse(self.paged(self.data[path], request.query_params))
             if path == WG_SHOW:
                 return JSONResponse(self.wireguard_show())
             if path == SYSTEM_TIME and isinstance(self.data[path], dict):

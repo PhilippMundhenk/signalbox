@@ -157,6 +157,17 @@ ISC_LEASES = "/api/dhcpv4/leases/search_lease"
 ISC_SCRIPT = "/usr/local/sbin/signalbox-isc-dhcp"
 UNBOUND = "/api/unbound/settings/get"
 HOST_OVERRIDES = "/api/unbound/settings/search_host_override"
+#: The camelCase spelling of older releases (25.1 and before; later ones accept both).
+HOST_OVERRIDES_CAMEL = "/api/unbound/settings/searchHostOverride"
+HOST_ALIASES = "/api/unbound/settings/search_host_alias"
+HOST_ALIASES_CAMEL = "/api/unbound/settings/searchHostAlias"
+#: Domain overrides (split DNS) of releases that list them in a grid of their own.
+DOMAIN_OVERRIDES = "/api/unbound/settings/search_domain_override"
+DOMAIN_OVERRIDES_CAMEL = "/api/unbound/settings/searchDomainOverride"
+#: A long grid is read page by page when the answer is shorter than its ``total``.
+MAX_GRID_PAGES = 500
+#: Privilege of the Unbound API (#386; a guess for the grids, the page covers ``/api/unbound/*``).
+UNBOUND_PRIVILEGE = "Services: Unbound DNS (page-services-unbound)"
 DNSMASQ = "/api/dnsmasq/settings/get"
 ARP = "/api/diagnostics/interface/get_arp"
 NDP = "/api/diagnostics/interface/get_ndp"
@@ -478,6 +489,12 @@ def _forwards_gap(version: compat.Version | None) -> Gap:
         fix_id="opnsense.forwardsUnread.fix",
         params={"where": where},
     )
+
+
+def _fqdn(host: Any, domain: Any) -> str:
+    """``host.domain``; a wildcard host (``*``) is the domain itself."""
+    h = _text(host)
+    return ".".join(x for x in (h if h != "*" else "", _text(domain)) if x)
 
 
 def _accounts_gap(exc: AdapterError) -> Gap:
@@ -1784,16 +1801,18 @@ class OpnsenseAdapter(_Adapter):
                 domain_forwards[domain] = str(fwd)
             elif fwd not in forwarders:
                 forwarders.append(fwd)
-        records = []
-        for row in _rows(await self._get(HOST_OVERRIDES, grid=True), HOST_OVERRIDES):
-            address = _addr(row.get("server") or row.get("address"))
-            rr = _text(row.get("rr")).upper() or "A"
-            if not _flag(row.get("enabled", "1")) or address is None or rr not in ("A", "AAAA"):
-                continue
-            host, domain = _text(row.get("hostname")), _text(row.get("domain"))
-            name = ".".join(x for x in (host if host != "*" else "", domain) if x)
-            if name:
-                records.append(HostRecord(name=name, address=address))
+        records, gaps, read = await self._unbound_records(root, general, layout)
+        try:
+            for row in await self._grid_named(DOMAIN_OVERRIDES, DOMAIN_OVERRIDES_CAMEL):
+                server, domain = _addr(row.get("server")), _text(row.get("domain"))
+                if server is not None and domain and _flag(row.get("enabled", "1")):
+                    port = _port(row.get("port"))
+                    fwd = DnsForwarder(address=server, port=port or DNS_PORT)
+                    domain_forwards.setdefault(domain, str(fwd))
+        except AdapterError as exc:
+            # no such grid on this release (26.7 answers 200 with an empty body; the forwards are
+            # in the general settings): optional extra, never a gap
+            log.debug("%s: no domain override grid: %s", dev, exc)
         extra: dict[str, Any] = {"domain_forwards": domain_forwards} if domain_forwards else {}
         services = [
             DnsService(
@@ -1805,6 +1824,7 @@ class OpnsenseAdapter(_Adapter):
                 port=_port(general.get("port")) or DNS_PORT,
                 forwarders=forwarders,
                 host_records=records,
+                host_records_read=read,
                 vendor_extra=extra,
             )
         ]
@@ -1824,7 +1844,123 @@ class OpnsenseAdapter(_Adapter):
                     },
                 )
             )
-        return Observation(dns_services=services)
+        return Observation(dns_services=services, incomplete=gaps)
+
+    async def _grid_named(self, *endpoints: str) -> list[dict[str, Any]]:
+        """A grid under its first spelling that exists (``search_x``, then ``searchX``: 25.1 and
+        older know only the latter), read completely: ``rowCount=-1`` asks for everything, and
+        when the answer holds fewer rows than its ``total`` the next pages are read, too.
+        Refusals and malformed answers are raised at once."""
+        missing: NotFound | None = None
+        for endpoint in endpoints:
+            try:
+                data = await self._get(endpoint, grid=True)
+                rows = _rows(data, endpoint)
+            except NotFound as exc:
+                missing = exc
+                continue
+            total = _int(data.get("total")) if isinstance(data, dict) else None
+            page = 1
+            while rows and total is not None and len(rows) < total and page < MAX_GRID_PAGES:
+                page += 1
+                size = max(len(rows) // (page - 1), 1)
+                more = await self.http.get_json(
+                    endpoint, params={"current": page, "rowCount": size}
+                )
+                extra = _rows(more, endpoint)
+                if not extra:
+                    break
+                rows = rows + extra
+            return rows
+        assert missing is not None
+        raise missing
+
+    async def _unbound_records(
+        self, root: dict[str, Any], general: dict[str, Any], layout: _Layout
+    ) -> tuple[list[HostRecord], list[Gap], bool]:
+        """Host records of Unbound (#386): host overrides, their aliases, and the DHCP static
+        mappings and leases it registers. A grid that cannot be read is an optional gap and
+        ``read`` is False (an empty list then means "unknown", not "none configured")."""
+        records: list[HostRecord] = []
+        gaps: list[Gap] = []
+        read = True
+        by_target: dict[str, list[IPAddress]] = {}
+        try:
+            for row in await self._grid_named(HOST_OVERRIDES, HOST_OVERRIDES_CAMEL):
+                address = _addr(row.get("server") or row.get("address") or row.get("ip"))
+                # "A", or a label like "A (IPv4 address)" on some releases
+                rr = (_text(row.get("rr")).upper().split() or ["A"])[0]
+                if not _flag(row.get("enabled", "1")) or address is None or rr not in ("A", "AAAA"):
+                    continue
+                name = _fqdn(row.get("hostname"), row.get("domain"))
+                if name:
+                    source = "alias" if row.get("isAlias") is True else "host-override"
+                    records.append(HostRecord(name=name, address=address, source=source))
+                    for key in (_text(row.get("uuid")), name):
+                        if key:
+                            by_target.setdefault(key, []).append(address)
+                # 26.7 nests the aliases of an override as ``_children`` (also in the alias grid)
+                for child in (c for c in row.get("_children") or [] if isinstance(c, dict)):
+                    alias = _fqdn(child.get("hostname"), child.get("domain"))
+                    if alias and _flag(child.get("enabled", "1")):
+                        records.append(HostRecord(name=alias, address=address, source="alias"))
+        except AdapterError as exc:
+            read = False
+            gaps.append(_privilege_gap("DNS host overrides", exc, UNBOUND_PRIVILEGE))
+        if read:
+            try:
+                for row in await self._grid_named(HOST_ALIASES, HOST_ALIASES_CAMEL):
+                    name = _fqdn(row.get("hostname"), row.get("domain"))
+                    if not name or not _flag(row.get("enabled", "1")):
+                        continue
+                    own = _addr(row.get("server") or row.get("address") or row.get("ip"))
+                    targets = [own] if own else by_target.get(_text(row.get("host")), [])
+                    for address in dict.fromkeys(targets):
+                        records.append(HostRecord(name=name, address=address, source="alias"))
+            except NotFound:
+                pass  # no alias API on this release: there are none
+            except AdapterError as exc:
+                read = False
+                gaps.append(_privilege_gap("DNS host aliases", exc, UNBOUND_PRIVILEGE))
+        records += await self._registered(root, general)
+        unique = {(r.name.lower(), str(r.address)): r for r in reversed(records)}
+        return [r for r in records if unique[(r.name.lower(), str(r.address))] is r], gaps, read
+
+    async def _registered(self, root: dict[str, Any], general: dict[str, Any]) -> list[HostRecord]:
+        """Names of DHCP static mappings and leases that Unbound registers ("Register DHCP
+        leases" / "Register DHCP static mappings"). *Guess*: the setting names ``regdhcp``,
+        ``regdhcpstatic``, ``regdhcpdomain`` (the ``dhcp`` node as a second shape)."""
+        dhcp = _sub(root, "dhcp")
+        leases = _flag(general.get("regdhcp")) or _flag(dhcp.get("enable"))
+        static = _flag(general.get("regdhcpstatic")) or _flag(dhcp.get("static"))
+        if not leases and not static:
+            return []
+        domain = _text(general.get("regdhcpdomain")) or _text(dhcp.get("domain"))
+        try:
+            servers = (await self.read_dhcp()).dhcp_servers
+        except AdapterError as exc:  # shown by the dhcp capability itself
+            log.warning("%s: DHCP names not registered: %s", self.context.device_id, exc)
+            return []
+        found: dict[tuple[str, str], HostRecord] = {}
+
+        def add(
+            host: str | None, address: IPAddress, source: str, server_domain: str | None
+        ) -> None:
+            name = _fqdn(host, domain or server_domain)
+            if name and (name.lower(), str(address)) not in found:
+                found[(name.lower(), str(address))] = HostRecord(
+                    name=name, address=address, source=source
+                )
+
+        for srv in (x for x in servers if x.enabled):
+            if static:
+                for r in srv.reservations:
+                    add(r.hostname, r.address, "dhcp-static", srv.domain)
+            if leases:
+                for lease in srv.leases or []:
+                    if lease.state is LeaseState.ACTIVE and not lease.reserved:
+                        add(lease.hostname, lease.address, "dhcp-lease", srv.domain)
+        return list(found.values())
 
     async def _dnsmasq(self, layout: _Layout) -> DnsService | None:
         """Dnsmasq's DNS (OPNsense 25.1+), None when not installed or its DNS is off

@@ -170,7 +170,7 @@ def random_mac(net: Network) -> Iterator[Result]:
             if not addr.is_link_local:
                 by_address[str(addr)].append(client)
     for dns in net.dns_services:
-        for rec in dns.host_records:
+        for rec in (r for r in dns.host_records if not r.from_dhcp):
             randomised = [c for c in by_address.get(str(rec.address), []) if is_randomised(c.mac)]
             if not randomised:
                 continue

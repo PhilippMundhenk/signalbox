@@ -9,13 +9,15 @@ import { layoutTopology } from '../topolayout.js';
 import { attachZoom } from '../topozoom.js';
 import { t } from '../i18n.js';
 
-const ORIGIN = { lldp: 'topology.origin.lldp', mac: 'topology.origin.mac', manual: 'topology.origin.manual', tunnel: 'topology.origin.tunnel' };
+const ORIGIN = { lldp: 'topology.origin.lldp', mac: 'topology.origin.mac', manual: 'topology.origin.manual', tunnel: 'topology.origin.tunnel', address: 'topology.origin.address' };
 // Port states of spanning tree in which a port forwards nothing (#155).
 const BLOCKED = new Set(['blocking', 'discarding']);
 const ROLE = { gateway: 'topology.role.gateway', remote: 'topology.role.remote', switch: 'topology.role.switch', ap: 'topology.role.ap', other: 'topology.role.other' };
 const MODE = { tagged: 'topology.mode.tagged', untagged: 'topology.mode.untagged' };
 const KIND = { cable: 'topology.linkKind.cable', wireless: 'topology.linkKind.wireless', vpn: 'topology.linkKind.vpn' };
 const originLabel = (o) => (ORIGIN[o] ? t(ORIGIN[o]) : o);
+// a link drawn from partial data (#378): its origin with "inferred"
+const edgeOrigin = (e) => (e.inferred ? t('topology.origin.inferred', { origin: originLabel(e.origin) }) : originLabel(e.origin));
 const modeLabel = (m) => (MODE[m] ? t(MODE[m]) : m);
 
 const PORT = 18;
@@ -189,11 +191,12 @@ function drawGraph(data, nodes, onPort, siteNames) {
       }
       const st = bundled ? (states.includes('inconsistent') ? 'inconsistent' : states.includes('carry') ? 'carry' : state.segment ? 'dim' : 'none') : cableState(e);
       const cls = ['edge', e.kind, e.origin];
+      if (e.inferred) cls.push('inferred');
       if (st !== 'none') cls.push(st);
       if (bundled) cls.push('bundle');
       if (lag) cls.push('lag');
-      const path = s('path', { d, class: cls.join(' '), 'data-testid': 'topo-edge', 'data-id': e.id, 'data-state': st, 'data-a': e.a.port_id, 'data-b': e.b.port_id, 'data-count': bundled ? String(all.length) : null, 'data-lag': lag ? lag.a : null });
-      place(path, s('title', {}, t('topology.edgeTitle', { a: e.a.port, b: e.b.port, origin: originLabel(e.origin) })));
+      const path = s('path', { d, class: cls.join(' '), 'data-testid': 'topo-edge', 'data-id': e.id, 'data-state': st, 'data-a': e.a.port_id, 'data-b': e.b.port_id, 'data-inferred': e.inferred ? 'true' : null, 'data-count': bundled ? String(all.length) : null, 'data-lag': lag ? lag.a : null });
+      place(path, s('title', {}, t('topology.edgeTitle', { a: e.a.port, b: e.b.port, origin: edgeOrigin(e) })));
       place(edgeLayer, path);
       track(path, e.a.device_id, e.b.device_id);
       if (all.length > 1 && (bundled || e === all[0])) {
@@ -336,7 +339,7 @@ function linkList(ctx, data, nodes) {
       [t('topology.col.from'), (e) => endText(e.a)],
       [t('topology.col.to'), (e) => endText(e.b)],
       [t('topology.col.kind'), (e) => (KIND[e.kind] ? t(KIND[e.kind]) : e.kind)],
-      [t('topology.col.foundBy'), (e) => tag(originLabel(e.origin), `origin-${e.origin}`)],
+      [t('topology.col.foundBy'), (e) => tag(edgeOrigin(e), `origin-${e.origin}${e.inferred ? ' origin-inferred' : ''}`)],
       [
         t('topology.col.vlans'),
         (e) =>
@@ -439,7 +442,9 @@ function legendBlock() {
         item(line('vpn'), t('topology.legend.line.vpn')),
         item(line('lldp'), t('topology.legend.line.lldp')),
         item(line('mac'), t('topology.legend.line.mac')),
+        item(line('mac inferred'), t('topology.legend.line.inferred')),
         item(line('manual'), t('topology.legend.line.manual')),
+        item(line('address'), t('topology.legend.line.address')),
         item(line('wireless'), t('topology.legend.line.wireless')),
       ]),
       group(t('topology.legend.boxes'), [

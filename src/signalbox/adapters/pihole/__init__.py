@@ -1,12 +1,15 @@
-"""Pi-hole v6: DNS service, upstream servers and DHCP server and clients, read only (#304, #314).
+"""Pi-hole v6 and v5: DNS service, upstream servers, DHCP server and clients, read only (#304,
+#314, #385).
 
-Talks to the v6 REST API (``/api/...``). Signalbox logs in with ``POST /api/auth`` and an app
-password, which gives a session id; every request carries it in the ``sid`` header; the
+Pi-hole v5 (legacy ``/admin/api.php``, API token) is the second reader further down; the first
+request decides: ``POST /api/auth`` answers 404 on v5 and ``/admin/api.php?versions`` then
+names it. Talks to the v6 REST API (``/api/...``). Signalbox logs in with ``POST /api/auth`` and
+an app password, which gives a session id; every request carries it in the ``sid`` header; the
 session is ended with ``DELETE /api/auth`` when the observation is over (:meth:`close`). The
 session id lives in memory for that one observation only: it is never stored, logged or put
-into an error. Pi-hole v5 has no such API: it is reported as an :class:`AdapterError` with a
-fix. Endpoints and shapes: ``docs/adapters/pihole.md`` (public API documentation; not yet
-confirmed on a real device, #21).
+into an error. Pi-hole v5 takes the API token in the query string (``auth=``); it is removed
+from every error. Endpoints and shapes: ``docs/adapters/pihole.md`` (public API documentation;
+not yet confirmed on a real device, #21).
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from signalbox.adapters import (
     Observation,
     SystemInfo,
     Unreachable,
+    UntrustedCertificate,
     dnsmap,
     unexpected_answer,
 )
@@ -50,17 +54,24 @@ VERSION = "/api/info/version"
 CONFIG = "/api/config"
 LEASES = "/api/dhcp/leases"
 DEVICES = "/api/network/devices"
-#: Pi-hole v5's API; only probed to say clearly that v5 is not supported.
+#: Pi-hole v5's legacy API (web interface ``api.php``, ``api_FTL.php``) and its database API.
 V5_API = "/admin/api.php"
+V5_DB = "/admin/api_db.php"
+#: forward destinations of v5 that are no upstream servers
+V5_NOT_UPSTREAM = frozenset({"blocklist", "cache", "other"})
+V5_TOKEN_HELP = "Settings > API > Show API token"
 
 SETUP_URL = "https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/pihole.md#setup"
 STEPS = (
-    "Needs Pi-hole v6 (Pi-hole v5 has no REST API: update with pihole -up).",
+    "Pi-hole v6 (REST API) or Pi-hole v5 (legacy API): Signalbox detects which one runs.",
     "In the Pi-hole web interface: Settings > Web interface / API > Configure app password > "
     "Enable app password. Copy the password it shows once (a Pi-hole login has no read-only "
     "role; Signalbox only reads, and you can disable the app password again at any time).",
-    "Below: the address of the web interface (https on port 443 by default) and that app "
-    "password. Then Test connection and trust the certificate.",
+    "Pi-hole v5: in the web interface Settings > API > Show API token; copy the token (a long "
+    "hexadecimal string, not the password). Signalbox sends it in the address of each request, "
+    "so use https.",
+    "Below: the address of the web interface (https on port 443 by default) and the app "
+    "password (v6) or the API token (v5). Then Test connection and trust the certificate.",
 )
 
 UPDATE_FIX = (
@@ -75,7 +86,14 @@ class PiholeConfig(AdapterConfig):
         "https://pihole.lan (no scheme: https)",
         examples=["192.0.2.54"],
     )
-    password: SecretStr = Field(description="App password (Settings > Web interface / API)")
+    password: SecretStr | None = Field(
+        None, description="App password of Pi-hole v6 (Settings > Web interface / API)"
+    )
+    api_token: SecretStr | None = Field(
+        None,
+        description="API token of Pi-hole v5 (Settings > API > Show API token), used instead of "
+        "the app password. Sent in the query string of each request: use https",
+    )
     allow_insecure_http: bool = Field(
         json_schema_extra={"advanced": True},
         default=False,
@@ -91,7 +109,15 @@ class PiholeConfig(AdapterConfig):
     @model_validator(mode="after")
     def _http_needs_opt_in(self) -> PiholeConfig:
         if self.url.startswith("http://") and not self.allow_insecure_http:
-            raise ValueError("plain http:// needs allow_insecure_http (the password is sent clear)")
+            raise ValueError(
+                "plain http:// needs allow_insecure_http (the password or API token is sent clear)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _a_credential(self) -> PiholeConfig:
+        if self.password is None and self.api_token is None:
+            raise ValueError("enter the app password (Pi-hole v6) or the API token (Pi-hole v5)")
         return self
 
 
@@ -120,8 +146,9 @@ class PiholeAdapter(Adapter):
         roles=frozenset({DeviceRole.OTHER}),
         capabilities=frozenset({Capability.DNS, Capability.DHCP, Capability.CLIENTS}),
         config=PiholeConfig,
-        description="Reads a Pi-hole v6 DNS filter through its REST API: DNS service, upstream "
-        "servers, DHCP server, leases and network clients. Read only.",
+        description="Reads a Pi-hole DNS filter, v6 through its REST API and v5 through its "
+        "legacy API with the API token: DNS service, upstream servers, DHCP server and leases "
+        "(v6 only) and network clients. Read only.",
         setup_url=SETUP_URL,
         setup_steps=STEPS,
     )
@@ -139,20 +166,24 @@ class PiholeAdapter(Adapter):
         )
         self._sid: str | None = None
         self._cache: dict[str, Any] = {}
+        #: the box answered as Pi-hole v5 (set by :meth:`read_system`) and what ?versions said
+        self._v5 = False
+        self._versions: dict[str, Any] = {}
 
     # --- session ------------------------------------------------------------------------------
 
-    async def _login(self) -> None:
+    async def _login(self, password: SecretStr) -> None:
+        """Log in to v6. A 404 means no v6 REST API: :meth:`_not_v6` decides about v5."""
         try:
             response = await self.http.request(
                 "POST",
                 AUTH,
-                json={"password": self.config.password.get_secret_value()},
+                json={"password": password.get_secret_value()},
                 accept=(401, 429),
             )
         except NotFound as exc:
             await self._not_v6(exc)
-            raise  # pragma: no cover - _not_v6 always raises
+            return
         if response.status_code == 401:
             raise AuthFailed(
                 f"{AUTH}: Pi-hole refused the password (HTTP 401)",
@@ -177,7 +208,7 @@ class PiholeAdapter(Adapter):
             session = _sub(_obj(response.json(), AUTH), "session")
         except ValueError as exc:
             await self._not_v6(exc)
-            raise  # pragma: no cover
+            return
         if not session.get("valid"):
             message = dnsmap.text(session.get("message")) or "login refused"
             raise AuthFailed(
@@ -191,24 +222,32 @@ class PiholeAdapter(Adapter):
         sid = session.get("sid")
         self._sid = sid if isinstance(sid, str) and sid else None
 
-    async def _not_v6(self, cause: Exception) -> None:
-        """The login endpoint is missing: Pi-hole v5, or not a Pi-hole at all."""
+    async def _not_v6(self, cause: Exception | None) -> None:
+        """No v6 login endpoint: Pi-hole v5 (``?versions`` answers, and the API token is
+        needed), or not a Pi-hole at all. Returns only for v5 with a token."""
         try:
-            response = await self.http.request("GET", V5_API, accept=(401, 403))
-            data = response.json()
-        except (AdapterError, ValueError):
+            data = await self._v5_get(V5_API, {"versions": ""})
+        except (Unreachable, UntrustedCertificate):
+            raise
+        except AdapterError:
             data = None
-        if isinstance(data, dict) and ("domains_being_blocked" in data or "status" in data):
-            raise AdapterError(
-                "this is Pi-hole v5: Signalbox needs the v6 REST API (/api/)",
-                fix=UPDATE_FIX,
-                message_id="pihole.v5",
-                fix_id="pihole.update.fix",
-            ) from cause
+        if isinstance(data, dict) and ("core_current" in data or "FTL_current" in data):
+            if self.config.api_token is None:
+                raise AdapterError(
+                    "this is Pi-hole v5: Signalbox needs its API token",
+                    fix=f"Enter the API token: in the Pi-hole web interface {V5_TOKEN_HELP} (a "
+                    "long hexadecimal string, not the password). Or update Pi-hole to v6 "
+                    "(pihole -up) and use an app password.",
+                    message_id="pihole.v5Token",
+                    fix_id="pihole.v5Token.fix",
+                ) from cause
+            self._v5 = True
+            self._versions = data
+            return
         raise AdapterError(
-            f"{AUTH}: not found; this does not look like Pi-hole v6",
-            fix="Check that the address is the Pi-hole web interface and that it runs v6. "
-            + UPDATE_FIX,
+            f"{AUTH}: not found; this does not look like Pi-hole v6 or v5",
+            fix="Check that the address is the Pi-hole web interface. Pi-hole v6 needs the app "
+            f"password, Pi-hole v5 the API token ({V5_TOKEN_HELP}).",
             message_id="pihole.notPihole",
             fix_id="pihole.notPihole.fix",
             params={"path": AUTH},
@@ -234,7 +273,13 @@ class PiholeAdapter(Adapter):
         await self.http.reset()
         self._cache.clear()
         self._sid = None
-        await self._login()
+        self._v5, self._versions = False, {}
+        if self.config.password is None:
+            await self._not_v6(None)
+        else:
+            await self._login(self.config.password)
+        if self._v5:
+            return self._system_v5()
         data = _sub(_obj(await self._get(VERSION), VERSION), "version")
         ftl = _sub(_sub(data, "ftl"), "local")
         core = _sub(_sub(data, "core"), "local")
@@ -266,12 +311,159 @@ class PiholeAdapter(Adapter):
             vendor_extra=extra,
         )
 
+    def _system_v5(self) -> SystemInfo:
+        data = self._versions
+        current = dnsmap.text(data.get("core_current"))
+        if not current or current.upper() == "N/A":
+            raise unexpected_answer(V5_API, "no version")
+        latest = dnsmap.text(data.get("core_latest"))
+        extra: dict[str, Any] = {"api": "v5"}
+        for key, name in (("web_current", "web_version"), ("FTL_current", "ftl_version")):
+            if value := dnsmap.text(data.get(key)):
+                extra[name] = value.lstrip("v")
+        newer = data.get("core_update") is True and latest and latest.upper() != "N/A"
+        return SystemInfo(
+            vendor="Pi-hole",
+            model="Pi-hole",
+            firmware=Firmware(
+                current=current.lstrip("v"), available=latest.lstrip("v") if newer else None
+            ),
+            management_address=self.http.host,
+            transport_encrypted=self.http.secure,
+            vendor_extra=extra,
+        )
+
+    # --- Pi-hole v5 ---------------------------------------------------------------------------
+
+    def _scrub(self, text: str) -> str:
+        token = self.config.api_token
+        return text.replace(token.get_secret_value(), "***") if token else text
+
+    async def _v5_get(self, path: str, params: dict[str, str], *, token: bool = False) -> Any:
+        """``GET <path>?<params>[&auth=<token>]``. The token travels in the query (that is how v5
+        takes it); the path in errors never has the query, and a token that still shows up in
+        an error is removed."""
+        query = dict(params)
+        secret = self.config.api_token
+        if token and secret is not None:
+            query["auth"] = secret.get_secret_value()
+        try:
+            return await self.http.request_json("GET", path, params=query)
+        except AdapterError as exc:
+            if secret is not None and secret.get_secret_value() in (
+                str(exc) + "".join(str(v) for v in exc.params.values())
+            ):
+                raise exc.redacted(self._scrub) from None
+            raise
+
+    def _v5_refused(self, path: str) -> AuthFailed:
+        return AuthFailed(
+            f"{path}: Pi-hole v5 did not accept the API token",
+            fix=f"Copy the token again ({V5_TOKEN_HELP}) without spaces; it changes when the "
+            "web interface password is changed.",
+            message_id="pihole.v5TokenRefused",
+            fix_id="pihole.v5TokenRefused.fix",
+            params={"path": path},
+        )
+
+    async def _dns_v5(self) -> Observation:
+        data = await self._v5_get(V5_API, {"getForwardDestinations": ""}, token=True)
+        # a wrong token is answered with an empty list instead of an error (guess, #21)
+        dest = _sub(data, "forward_destinations") if isinstance(data, dict) else {}
+        if not dest:
+            raise self._v5_refused(V5_API)
+        names = [
+            ip
+            for key in dest
+            if (parts := str(key).rsplit("|", 1))[0] not in V5_NOT_UPSTREAM
+            and (ip := parts[-1].strip())
+        ]
+        upstreams = dnsmap.parse_upstreams(names)
+        extra: dict[str, Any] = {"api": "v5"}
+        try:
+            status = await self._v5_get(V5_API, {"status": ""})
+            extra["filtering_enabled"] = (
+                isinstance(status, dict) and status.get("status") == "enabled"
+            )
+        except (Unreachable, AuthFailed):
+            raise
+        except AdapterError:
+            pass  # the blocking state is a detail
+        service = dnsmap.dns_service(
+            self.context.device_id,
+            "pihole",
+            upstreams=upstreams,
+            port=DNS_PORT,
+            host_records=[],
+            extra=extra,
+        )
+        return Observation(dns_services=[service])
+
+    def _dhcp_v5(self) -> Observation:
+        return Observation(
+            incomplete=[
+                Gap(
+                    message="Pi-hole v5 has no API for DHCP settings: the DHCP server was not read",
+                    fix="Upgrade to Pi-hole v6 (pihole -up) to let Signalbox read the DHCP "
+                    "server, its leases and reservations.",
+                    message_id="pihole.v5NoDhcp",
+                    fix_id="pihole.v5NoDhcp.fix",
+                    optional=True,
+                )
+            ]
+        )
+
+    async def _clients_v5(self) -> Observation:
+        """``api_db.php?network``: one row per MAC (``hwaddr``) with ``ip`` and ``name`` lists.
+        ``topClients`` is not used: it has names and addresses but no MAC, and the model keys a
+        client by MAC."""
+        try:
+            data = await self._v5_get(V5_DB, {"network": ""}, token=True)
+            rows = data.get("network") if isinstance(data, dict) else None
+            if not isinstance(rows, list):
+                raise self._v5_refused(V5_DB)
+        except Unreachable:
+            raise
+        except AdapterError as exc:
+            return Observation(
+                incomplete=[
+                    Gap(
+                        message=f"the network table was not read: {exc}",
+                        fix="Check the API token, and that Pi-hole's query database is on "
+                        "(DBFILE in pihole-FTL.conf); without MAC addresses Signalbox lists no "
+                        "clients.",
+                        message_id="pihole.v5ClientsNotRead",
+                        fix_id="pihole.v5ClientsNotRead.fix",
+                        params={"cause": str(exc)},
+                    )
+                ]
+            )
+        dev = self.context.device_id
+        out: dict[str, Client] = {}
+        for row in rows:
+            m = dnsmap.mac(row.get("hwaddr")) if isinstance(row, dict) else None
+            if m is None:
+                continue
+            ips, names = row.get("ip"), row.get("name")
+            ips = ips if isinstance(ips, list) else [ips]
+            names = names if isinstance(names, list) else [names]
+            out[m] = Client(
+                id=object_id(dev, "client", m),
+                mac=m,
+                addresses=list(dict.fromkeys(a for i in ips if (a := dnsmap.address(i)))),
+                hostname=next((n for x in names if (n := dnsmap.text(x))), None),
+                last_seen=dnsmap.epoch(row.get("lastQuery")),
+            )
+        return Observation(clients=[out[m] for m in sorted(out)])
+
     async def _config(self) -> dict[str, Any]:
         return _sub(_obj(await self._get(CONFIG), CONFIG), "config")
 
     # --- DNS ----------------------------------------------------------------------------------
 
     async def read_dns(self) -> Observation:
+        if self._v5:
+            return await self._dns_v5()
         cfg = await self._config()
         dns = _sub(cfg, "dns")
         upstream = dns.get("upstreams")
@@ -314,6 +506,8 @@ class PiholeAdapter(Adapter):
     # --- DHCP ---------------------------------------------------------------------------------
 
     async def read_dhcp(self) -> Observation:
+        if self._v5:
+            return self._dhcp_v5()
         dhcp = _sub(await self._config(), "dhcp")
         if not dhcp.get("active"):
             return Observation()
@@ -403,6 +597,8 @@ class PiholeAdapter(Adapter):
         addresses and names Pi-hole saw it use. A row without a real MAC (Pi-hole names a
         device it only knows by address ``ip-192.0.2.5``) is not listed: the model keys a
         client by MAC."""
+        if self._v5:
+            return await self._clients_v5()
         rows = _obj(await self._get(DEVICES), DEVICES).get("devices")
         dev = self.context.device_id
         out: dict[str, Client] = {}

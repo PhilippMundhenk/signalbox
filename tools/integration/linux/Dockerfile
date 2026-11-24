@@ -1,5 +1,5 @@
 # The Linux gateway target of the integration tests (#240): Debian 12 with OpenSSH, iproute2,
-# dnsmasq, chrony, WireGuard tools, nftables, iptables (the nf_tables backend), sudo and
+# dnsmasq, chrony, WireGuard tools, nftables, iptables (the nf_tables backend; the legacy backend is switched on by the tests, #394), sudo and
 # tracepath (path traces, #253). start.sh builds the network (needs NET_ADMIN and the
 # host's dummy, 8021q, bridge, wireguard and nf_tables modules) and runs the daemons.
 FROM debian:12-slim

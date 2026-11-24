@@ -145,7 +145,7 @@ def public_network(net: Network) -> dict[str, Any]:
     ``neighbours`` count and each radio ``neighbour_count`` and ``strongest_foreign_dbm`` on
     its channel (:func:`signalbox.neighbours.radio_neighbours`).
     """
-    data = net.model_dump(mode="json", exclude={"fdb", "wifi_scan"})
+    data = net.model_dump(mode="json", exclude={"fdb", "wifi_scan", "held_sightings"})
     for radio, raw in zip(net.radios, data["radios"], strict=True):
         raw.update(radio_neighbours(net, radio))
     for port, raw in zip(net.ports, data["ports"], strict=True):

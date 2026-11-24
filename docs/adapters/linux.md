@@ -3,14 +3,14 @@
 Reads a Linux box (see [Supported distributions](#supported-distributions)) that does gateway work (a Raspberry Pi as the router of a second
 site, a mini PC with dnsmasq) over SSH, read-only (#240). Signalbox logs in with a user of its
 own, sends one read script per observation on standard input of `sh -s` and maps the answer to
-the model. Nothing on the device is changed; nothing needs root except the WireGuard status and the nftables
-ruleset, which a sudoers rule allows for exactly the read commands.
+the model. Nothing on the device is changed; nothing needs root except the WireGuard status, the nftables
+ruleset and the legacy iptables rules, which a sudoers rule allows for exactly the read commands.
 
 | | |
 | --- | --- |
 | Adapter id | `linux` |
 | Roles | `gateway`, `other` |
-| Capabilities | interfaces (ports, segments, subnets, uplink, SSH service), DHCP, DNS, health, time, vpn (WireGuard), firewall (nftables) |
+| Capabilities | interfaces (ports, segments, subnets, uplink, SSH service), DHCP, DNS, health, time, vpn (WireGuard), firewall (nftables, or legacy iptables when nft has no rules) |
 | Writes | none |
 | Simulator | `signalbox.sim.linux` (an asyncssh server answering the read and setup scripts) |
 | Automatic setup | yes: root or a sudo user over SSH ([below](#automatic-setup)) |
@@ -18,18 +18,24 @@ ruleset, which a sudoers rule allows for exactly the read commands.
 
 ## Supported distributions
 
-The distribution is read from `/etc/os-release` (`ID`, then the words of `ID_LIKE`) by the reader
+The distribution is read from `/etc/os-release` (`ID`, then the words of `ID_LIKE`; without it the marker files `/etc/debian_version` (apt), `/etc/arch-release` (pacman), `/etc/alpine-release` (apk), `/etc/fedora-release` or `/etc/redhat-release` (dnf), else unknown, never guessed) by the reader
 (`vendor_extra.os_id`, `os_family`, `package_manager`) and by the automatic setup, never assumed.
 What the reader needs is `ip -j` and `bridge` (iproute2 with JSON, 4.13 or newer; busybox `ip`
 prints no JSON, and then nothing is read and a gap says so), `ss`, `/proc` and `/sys`, and
 optionally `nft`, `wg` and `tracepath`.
 
-| Distribution | Status | Package manager |
-| --- | --- | --- |
-| Debian, Raspberry Pi OS, Ubuntu | tested in CI (Linux container) and on real devices | `apt` |
-| Arch Linux ARM, Arch Linux | simulator (single-NIC Raspberry Pi 2, systemd-networkd, legacy iptables) and one real Raspberry Pi 2 (#302) | `pacman` |
-| Fedora and relatives | simulator only, not tried on a device (#21) | `dnf` |
-| Alpine | simulator only, not tried on a device (#21); busybox has no `useradd`: create the user by hand (`adduser -D -s /bin/sh signalbox`, then unlock it with `passwd -u signalbox`) | `apk` |
+Versions (#389): the current release and the two major versions before it, so that an old box
+that has not been updated still works. The reader uses only what is old and stable (`ip -j` from
+iproute2 4.13, `/proc`, `iptables-save`, `nft -j` from nftables 0.9), never a feature of the
+newest release.
+
+| Distribution | Versions | Status | Package manager |
+| --- | --- | --- | --- |
+| Debian, Raspberry Pi OS | 13 (trixie), 12 (bookworm), 11 (bullseye) | Debian 12 tested in CI (Linux container) and on real devices; 11 and 13 follow from the same tools, not run (#21) | `apt` |
+| Ubuntu | 26.04, 24.04, 22.04 (LTS) | as Debian, not run (#21) | `apt` |
+| Arch Linux ARM, Arch Linux | rolling: images of any age (an old image has a stale package database, see below) | simulator (single-NIC Raspberry Pi 2, systemd-networkd, legacy iptables) and one real Raspberry Pi 2 (#302) | `pacman` |
+| Fedora and relatives | the current release and the two before | simulator only, not tried on a device (#21) | `dnf` |
+| Alpine | the current stable series and the two before | simulator only, not tried on a device (#21); busybox has no `useradd`: create the user by hand (`adduser -D -s /bin/sh signalbox`, then unlock it with `passwd -u signalbox`) | `apk` |
 
 The sudoers rule names `/usr/bin/wg` and `/usr/sbin/nft`; on Arch and Fedora `/usr/sbin` is a link
 to `/usr/bin`, so the same rule works. systemd-networkd, dhcpcd, NetworkManager and netctl
@@ -48,15 +54,44 @@ commands, unticked, and *Fix it* does the first):
 
 | Tool | `apt` (Debian, Ubuntu, Raspberry Pi OS) | `pacman` (Arch Linux ARM) | `dnf` (Fedora) | `apk` (Alpine) |
 | --- | --- | --- | --- | --- |
-| `nft` (firewall) | `apt-get install nftables` | `pacman -S --needed nftables` | `dnf install nftables` | `apk add nftables` |
-| `ip -j`, `bridge` | `apt-get install iproute2` | `pacman -S --needed iproute2` | `dnf install iproute` | `apk add iproute2` |
-| `wg` (VPN) | `apt-get install wireguard-tools` | `pacman -S --needed wireguard-tools` | `dnf install wireguard-tools` | `apk add wireguard-tools` |
-| `tracepath` (traces) | `apt-get install iputils-tracepath` | `pacman -S --needed iputils` | `dnf install iputils` | `apk add iputils-tracepath` |
+| `nft` (firewall) | `apt-get install nftables` | `pacman -S --needed nftables` | `dnf install nftables` | `apk update && apk add nftables` |
+| `ip -j`, `bridge` | `apt-get install iproute2` | `pacman -S --needed iproute2` | `dnf install iproute` | `apk update && apk add iproute2` |
+| `wg` (VPN) | `apt-get install wireguard-tools` | `pacman -S --needed wireguard-tools` | `dnf install wireguard-tools` | `apk update && apk add wireguard-tools` |
+| `tracepath` (traces) | `apt-get install iputils-tracepath` | `pacman -S --needed iputils` | `dnf install iputils` | `apk update && apk add iputils-tracepath` |
 
-Arch: run `pacman -Syu` first if `pacman -S` reports 404 (the package database is stale; a
-partial upgrade is not supported by Arch, so the setup does not run `-Sy`). With only legacy
-`iptables` (Arch Linux ARM images before the nf_tables switch) the firewall is *partly read*:
-install `nftables`, or `pacman -S iptables-nft` to move the rules to the nf_tables backend.
+Stale package database (#394): on an old box `pacman -S` fails with `failed retrieving file ...
+404` because the mirror no longer has the version the old database names. Arch does not support
+partial upgrades, so the setup never runs `pacman -Sy <package>`; it recognises the 404 and says
+that the package lists are out of date and that a full `sudo pacman -Syu` is needed first
+(large and risky on an old device), and that Signalbox reads legacy iptables without nftables.
+Installing `nftables` is therefore not needed for the firewall. `apt` installs run
+`apt-get update` first (no partial-upgrade problem there), Alpine `apk update`, and `dnf`
+refreshes its metadata itself.
+
+### Legacy iptables (#394)
+
+Without nftables, or when `nft` shows no rules, the firewall is read from `iptables-save` and
+`ip6tables-save` (Debian 9 and older, Arch Linux ARM images before the nf_tables switch, boxes
+switched with `update-alternatives --set iptables /usr/sbin/iptables-legacy`):
+
+- *Source.* `nft -j list ruleset` when it has rules (iptables-nft systems, the Debian default
+  since 10, show up there), else `iptables-save`/`ip6tables-save`. The firewall's advanced tab
+  (`vendor_extra.source`) says `nft` or `iptables-save`. Rules in both (legacy rules next to an
+  nft ruleset) keep the nft ones and make the rules incomplete with a gap.
+- *Mapping* (the same model as nft, ADR 0013): `filter` `INPUT` and `FORWARD` chains with their
+  policy and rules in order, `-j <chain>` as a jump, `-g` as a goto, `nat` `PREROUTING` `DNAT`
+  as port forwards, `POSTROUTING` `MASQUERADE`/`SNAT` as NAT. Read: `-i/-o`, `-s/-d` (also `!`),
+  `-p`, `--dport/--sport` and `multiport` (ranges), `-m conntrack --ctstate`/`state`, `-m comment`.
+  Every other module or option (`limit`, `recent`, `mark`, ICMP types, `-f`, ...) keeps the rule
+  with `exact = false`; `LOG`, `MARK` and similar targets decide nothing and are skipped; ranges in
+  `--to-destination`/`--to-source` and `REDIRECT` make the forwards or NAT incomplete. A
+  dropping `raw` `PREROUTING` chain makes the rules incomplete. Not read: `OUTPUT`, `security`.
+- *Permission.* `iptables-save` needs `CAP_NET_ADMIN`: the sudoers rule above allows exactly
+  `/usr/sbin/iptables-save ""` and `/usr/sbin/ip6tables-save ""` (the empty argument list: `-f FILE`
+  or `-c` are not allowed), nothing that changes a rule. Without the rule nothing is reported
+  and a gap names the file to add; without only the `ip6tables-save` line the IPv4 rules are
+  read and marked incomplete. Existing devices: run *Set up automatically* again (or add the two
+  commands) to get the new rule.
 
 ## Manual setup
 
@@ -71,10 +106,11 @@ sudo install -d -m 700 -o signalbox -g "$(id -gn signalbox)" ~signalbox/.ssh
 echo 'PASTE-THE-LINE-OF-signalbox-key.pub' | sudo tee ~signalbox/.ssh/authorized_keys
 sudo chown signalbox: ~signalbox/.ssh/authorized_keys && sudo chmod 600 ~signalbox/.ssh/authorized_keys
 #    (or instead a password:  sudo passwd signalbox)
-# 3. optional, only with WireGuard or nftables: the read-only commands without a password
+# 3. optional, only with WireGuard, nftables or iptables: the read-only commands without a password
 sudo tee /etc/sudoers.d/signalbox >/dev/null <<'END'
-# Signalbox: read the WireGuard status (public keys only) and the nftables ruleset.
-signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive, /usr/sbin/nft -j list ruleset
+# Signalbox: read the WireGuard status (public keys only), the nftables ruleset and the
+# legacy iptables rules (iptables-save without arguments).
+signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive, /usr/sbin/nft -j list ruleset, /usr/sbin/iptables-save "", /usr/sbin/ip6tables-save ""
 END
 sudo chmod 440 /etc/sudoers.d/signalbox && sudo visudo -cf /etc/sudoers.d/signalbox
 ```
@@ -91,8 +127,9 @@ sudo chmod 440 /etc/sudoers.d/signalbox && sudo visudo -cf /etc/sudoers.d/signal
    sent), and `nft -j list ruleset` only prints the packet filter rules (no secrets):
 
    ```text
-# Signalbox: read the WireGuard status (public keys only) and the nftables ruleset.
-signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive, /usr/sbin/nft -j list ruleset
+# Signalbox: read the WireGuard status (public keys only), the nftables ruleset and the
+# legacy iptables rules (iptables-save without arguments).
+signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive, /usr/sbin/nft -j list ruleset, /usr/sbin/iptables-save "", /usr/sbin/ip6tables-save ""
    ```
 
 4. In the device form: the address, user `signalbox` and the key. *Test connection* shows the
@@ -136,7 +173,7 @@ One script (`signalbox.adapters.linux.collect.READ`) per observation, one more f
 | Health | `/proc/uptime`, `/proc/loadavg`, `/proc/meminfo` (total minus available), CPU count, `df -P -T -B1` (`/` system, tmpfs temporary, `/boot*` other, others data), thermal zones |
 | Time | `date +%s.%N`, `timedatectl show` (time zone, NTP, synchronised), chrony (`chronyc -n -c tracking`/`sources`: synchronised, stratum, current server; `server`/`pool` lines; `allow` means it serves time), else systemd-timesyncd (`timedatectl show-timesync`, `timesyncd.conf`) |
 | Tunnels (`vpn`) | every `wireguard` interface of `ip -d link` (port, up, addresses, MTU) with `wg show all public-key`, `listen-port`, `peers`, `endpoints`, `allowed-ips`, `latest-handshakes`, `transfer`, `persistent-keepalive`, run directly (root) or with `sudo -n` (the rule above). No peer names (wg-quick has none outside its configuration file, which holds the private key and is never read) and no `preshared_key` (only `preshared-keys` would tell, which prints the keys). Without the rule: the interfaces without keys and peers, and a gap that says what to add |
-| Firewall (`firewall`, #135) | `nft -j list ruleset`, run directly (root) or with `sudo -n /usr/sbin/nft -j list ruleset` (the rule above). Every interface named by `iifname`/`oifname` (single names, literal sets and named sets, resolved) is a zone of its own named after it, mapped like the networks: a network interface to its segment, the uplink to the uplink, `wireguard` to its tunnel, anything else to its port; `lo` maps to nothing by design, a wildcard (`eth*`) or vanished interface makes the zone `complete=False`. Base chains of type `filter` on the hooks `input` and `forward` give the rules in evaluation order (`ip saddr/daddr`, `ip6`, `tcp/udp sport/dport`, `meta l4proto`, `nfproto`, `ct status dnat` as `forwarded`, verdicts `accept`/`drop`/`reject`) and their `policy` as `input_policy`/`forward_policy` (no base chain: accept, and `enabled=False` when no chain filters). Rules that only match `ct state established,related` or `invalid` are left out. `jump` and `goto` to regular chains are flattened with the jump's conditions merged in. Conditions the model lacks (marks, limits, ICMP types, the `xt` matches iptables-nft uses for modules, a set that is empty or filled at run time) keep the rule with `exact=False`. `nat` chains: `dnat to` in `prerouting` is a port forward (`passes_filter=False`: the filter rules decide), `masquerade`/`snat` in `postrouting` a NAT rule; `redirect`, `dnat` without a plain address and `snat` ranges make the forwards (or rules) incomplete. iptables-nft systems (the Debian default) show up in nft too. Not read: `output` chains, `netdev`, `bridge` and `arp` tables. `rules_complete=False` with a gap: `iptables` runs the legacy backend (its rules are invisible to nft) or there is no `nft` command, several base chains on one hook that cannot be merged (a later chain exists and an earlier one accepts or has a `drop` policy), a verdict map, a jump to an unknown chain, a dropping `prerouting` filter chain. Without the sudoers rule nothing is reported (not read) and a gap says what to add |
+| Firewall (`firewall`, #135) | `nft -j list ruleset`, run directly (root) or with `sudo -n /usr/sbin/nft -j list ruleset` (the rule above). Every interface named by `iifname`/`oifname` (single names, literal sets and named sets, resolved) is a zone of its own named after it, mapped like the networks: a network interface to its segment, the uplink to the uplink, `wireguard` to its tunnel, anything else to its port; `lo` maps to nothing by design, a wildcard (`eth*`) or vanished interface makes the zone `complete=False`. Base chains of type `filter` on the hooks `input` and `forward` give the rules in evaluation order (`ip saddr/daddr`, `ip6`, `tcp/udp sport/dport`, `meta l4proto`, `nfproto`, `ct status dnat` as `forwarded`, verdicts `accept`/`drop`/`reject`) and their `policy` as `input_policy`/`forward_policy` (no base chain: accept, and `enabled=False` when no chain filters). Rules that only match `ct state established,related` or `invalid` are left out. `jump` and `goto` to regular chains are flattened with the jump's conditions merged in. Conditions the model lacks (marks, limits, ICMP types, the `xt` matches iptables-nft uses for modules, a set that is empty or filled at run time) keep the rule with `exact=False`. `nat` chains: `dnat to` in `prerouting` is a port forward (`passes_filter=False`: the filter rules decide), `masquerade`/`snat` in `postrouting` a NAT rule; `redirect`, `dnat` without a plain address and `snat` ranges make the forwards (or rules) incomplete. iptables-nft systems (the Debian default) show up in nft too. Not read: `output` chains, `netdev`, `bridge` and `arp` tables. `rules_complete=False` with a gap: `iptables` runs the legacy backend with rules of its own next to nft rules (its rules are invisible to nft; with an empty nft ruleset they are read, see [Legacy iptables](#legacy-iptables-394)), several base chains on one hook that cannot be merged (a later chain exists and an earlier one accepts or has a `drop` policy), a verdict map, a jump to an unknown chain, a dropping `prerouting` filter chain. Without the sudoers rule nothing is reported (not read) and a gap says what to add |
 
 Not read: Pi-hole's own DHCP server, dnsmasq IPv6 ranges (`constructor:`), firewalld and ufw
 as such (only what they put into nftables).
@@ -176,7 +213,7 @@ verbatim in the plan, table above) before the sudoers rule, which then also cove
 installed `nft` or `wg`. On a distribution Signalbox does not know the extras are refused (install
 the tools by hand). *Remove* does not uninstall packages.
 
-*Fix it* (read-side, no *Allow changes* needed) on the gap "only legacy iptables is installed":
+*Fix it* (read-side, no *Allow changes* needed) on the gap "only legacy iptables is installed" (now only when `iptables-save` is missing too):
 *Install nftables* does the same two steps (package and sudoers rule) for the stored login. No
 firewall rule or network setting is changed.
 
@@ -193,12 +230,14 @@ says so.
 
 ## Integration tests
 
-CI starts a Debian 12 container with OpenSSH, iproute2, dnsmasq, chrony, nftables and wireguard-tools
+CI starts a Debian 12 container with OpenSSH, iproute2, dnsmasq, chrony, nftables, iptables and wireguard-tools
 (`tools/integration/linux/`): a dummy LAN with a VLAN, a bridge, dnsmasq with a lease, chrony,
 a WireGuard interface with a peer, and nftables rules with a port forward and masquerade (the runner's kernel has the modules; the container gets
 `NET_ADMIN`). The manual setup above is run as written to create the read user; the tests read
 the container as that user (with and without the sudoers rule) and run the automatic setup as
 root and as a sudo user ([TESTING.md](../TESTING.md)).
+
+*Legacy iptables* (#394): one test switches the container to the `iptables-legacy` alternatives, removes the nft rules, loads the legacy twin of the ruleset with `iptables` (runner kernel permitting, else skipped) and reads it through the sudoers rule with `iptables-save`; then it restores the nft rules.
 
 Simulator only: Kea, ISC dhcpd and systemd-networkd's DHCP server, timesyncd, AdGuard Home,
 Pi-hole, DSA, bonds and VLAN-filtering bridges, a real Raspberry Pi's device tree and thermal

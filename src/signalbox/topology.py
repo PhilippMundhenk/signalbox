@@ -1,9 +1,11 @@
 """Topology: links discovered from LLDP, MAC tables and VPN tunnels, and the view model for
-the UI."""
+the UI. The view also draws a router behind another one (double NAT, #375) as a link inferred
+from addresses, without making it a :class:`Link`: the checks only see what devices report."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -16,8 +18,10 @@ from signalbox.model import (
     Membership,
     Network,
     Port,
+    Subnet,
     Tunnel,
     TunnelPeer,
+    Uplink,
     normalise_mac,
 )
 from signalbox.rules import Result, Severity, found, rule
@@ -83,7 +87,8 @@ def lldp_links(net: Network) -> Iterator[Link]:
 def mac_links(net: Network) -> Iterator[Link]:
     """A link where a port of one device learns another managed device's address in its
     forwarding database (#160, :mod:`signalbox.fdb`): also through switches that are not read,
-    the nearest device only. Devices without a table count their clients' ``seen_on``."""
+    the nearest device only. Devices without a table count their clients' ``seen_on``; a link
+    whose far port is a guess, or that no table confirms, is ``inferred`` (#378)."""
     for adj in adjacencies(net):
         yield Link(
             id=link_id(LinkOrigin.MAC, adj.local, adj.remote),
@@ -91,6 +96,8 @@ def mac_links(net: Network) -> Iterator[Link]:
             b=adj.remote,
             kind=LinkKind.WIRELESS if adj.wireless else LinkKind.CABLE,
             origin=LinkOrigin.MAC,
+            inferred=adj.inferred,
+            evidence=list(adj.evidence),
         )
 
 
@@ -120,11 +127,117 @@ def discovered_links(net: Network) -> list[Link]:
     used = {p for pair in out for p in pair}
     for link in mac_links(net):
         pair = frozenset((link.a, link.b))
-        if pair not in out and not pair & used:
+        if pair & used:
+            continue
+        seen = out.get(pair)
+        if seen is None:
             out[pair] = link
+        else:  # found from both ends: one link with the evidence of both (#378)
+            evidence = list(dict.fromkeys([*seen.evidence, *link.evidence]))
+            inferred = seen.inferred and link.inferred
+            out[pair] = seen.model_copy(update={"evidence": evidence, "inferred": inferred})
     for link in tunnel_links(net):
         out.setdefault(frozenset((link.a, link.b)), link)
     return sorted(out.values(), key=lambda link: link.id)
+
+
+#: ``origin`` of a view edge from a gateway's uplink to the router in front of it (#375).
+ADDRESS_ORIGIN = "address"
+
+
+@dataclass(frozen=True)
+class FrontLink:
+    """A gateway behind another known router, found by addresses (``upstream_router``): its
+    uplink, the front router's gateway subnet and the front router's port where LLDP, a MAC
+    table or a host table names it (None: the link ends at the device)."""
+
+    uplink: Uplink
+    front: Subnet
+    port_id: str | None
+
+
+def _components(net: Network) -> dict[str, int]:
+    """Device -> number of the group of devices the known (non-VPN) links connect."""
+    owner = {p.id: p.device_id for p in net.ports}
+    parent = {d.id: d.id for d in net.devices}
+
+    def root(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for link in net.links:
+        if link.kind is LinkKind.VPN:
+            continue
+        a, b = owner.get(link.a), owner.get(link.b)
+        if a in parent and b in parent:
+            parent[root(a)] = root(b)
+    roots = sorted({root(d) for d in parent})
+    return {d: roots.index(root(d)) for d in parent}
+
+
+def _front_port(net: Network, uplink: Uplink, front: str) -> str | None:
+    """The front router's port the inner gateway is on: its LLDP neighbour, then its MAC
+    address in the front router's table, then its host entry (MAC or uplink address)."""
+    inner = uplink.device_id
+    macs = {p.mac for p in net.ports if p.device_id == inner and p.mac}
+    by_mac, by_name = _device_index(net)
+    for nb in net.neighbours:
+        local = net.port(nb.local_port_id)
+        if local is None or local.device_id != front:
+            continue
+        dev = by_mac.get(_mac(nb.chassis_id) or "") or by_name.get((nb.system_name or "").lower())
+        if dev is not None and dev.id == inner:
+            return local.id
+    for entry in net.fdb:
+        port = net.port(entry.port_id)
+        if entry.mac in macs and port is not None and port.device_id == front:
+            return port.id
+    addresses = {a.ip for a in uplink.addresses}
+    for client in net.clients:
+        port = net.port(client.seen_on or "")
+        if port is None or port.device_id != front:
+            continue
+        if client.mac in macs or addresses & set(client.addresses):
+            return port.id
+    return None
+
+
+def front_links(net: Network) -> list[FrontLink]:
+    """Every gateway uplink with an address in another known router's gateway subnet (double
+    NAT), whatever the integration, where no link the devices report joins the two already."""
+    groups = _components(net)
+    out = []
+    for uplink in sorted(net.uplinks, key=lambda u: u.id):
+        front = net.upstream_router(uplink)
+        if front is None:
+            continue
+        inner, outer = uplink.device_id, front.device_id
+        if inner not in groups or outer not in groups:
+            continue
+        if groups[inner] == groups[outer]:
+            continue  # LLDP or MAC tables already connect them (directly or through switches)
+        out.append(FrontLink(uplink, front, _front_port(net, uplink, outer)))
+    return out
+
+
+def _unknown_end(
+    port_id: str, device_id: str, name: str, *, up: bool | None, uplink: bool
+) -> dict[str, Any]:
+    """An end of an inferred edge without a known port: the wire ends at the device box."""
+    return {
+        "port_id": port_id,
+        "device_id": device_id,
+        "port": name,
+        "known": False,
+        "speed_mbps": None,
+        "max_speed_mbps": None,
+        "mtu": None,
+        "up": up,
+        "uplink": uplink,
+        "lag": None,
+    }
 
 
 def _at(net: Network, tunnel: Tunnel) -> datetime | None:
@@ -262,6 +375,44 @@ def view(net: Network) -> dict[str, Any]:
                 "a": end(link.a),
                 "b": end(link.b),
                 "segments": segments,
+                "inferred": link.inferred,
+                "evidence": [e.model_dump(mode="json") for e in link.evidence],
+            }
+        )
+    for fl in front_links(net):
+        up = fl.uplink
+        own = net.port(up.port_id) if up.port_id else None
+        if own is not None:
+            inner = end(own.id) | {"uplink": True}
+        else:  # no port for the uplink (Fritz!Box): the wire ends at the device box
+            inner = _unknown_end(up.id, up.device_id, up.name or "uplink", up=up.up, uplink=True)
+        front_id = fl.front.device_id
+        lan = {fl.front.segment_id: Membership.UNTAGGED.value}
+        if fl.port_id is not None:
+            outer, theirs = end(fl.port_id), modes.get(fl.port_id, {})
+        else:
+            device = net.device(front_id)
+            name = device.name if device else front_id
+            outer, theirs = _unknown_end(front_id, front_id, name, up=None, uplink=False), lan
+        edges.append(
+            {
+                "id": f"{ADDRESS_ORIGIN}:{up.id}",
+                "kind": LinkKind.CABLE.value,
+                "origin": ADDRESS_ORIGIN,
+                "a": inner,
+                "b": outer,
+                "segments": [
+                    {
+                        "segment_id": sid,
+                        "name": seg_names.get(sid, sid),
+                        "a": lan.get(sid),
+                        "b": theirs.get(sid),
+                        "consistent": lan.get(sid) == theirs.get(sid),
+                    }
+                    for sid in sorted(set(lan) | set(theirs))
+                ],
+                # the uplink address in the front router's network: what the link is inferred from
+                "addresses": [str(a.ip) for a in up.ipv4() if a.ip in fl.front.interface.network],
             }
         )
     clients: dict[str, list[dict[str, Any]]] = {}

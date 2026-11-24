@@ -802,6 +802,19 @@
           "default": null,
           "title": "Log Targets"
         },
+        "mac": {
+          "anyOf": [
+            {
+              "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mac"
+        },
         "managed_by": {
           "anyOf": [
             {
@@ -1956,6 +1969,11 @@
           "title": "Host Records",
           "type": "array"
         },
+        "host_records_read": {
+          "default": true,
+          "title": "Host Records Read",
+          "type": "boolean"
+        },
         "id": {
           "title": "Id",
           "type": "string"
@@ -2033,6 +2051,16 @@
       ],
       "title": "DnsService",
       "type": "object"
+    },
+    "EvidenceSource": {
+      "description": "What kind of observation supports a link drawn from MAC tables (#378).",
+      "enum": [
+        "fdb",
+        "arp",
+        "address"
+      ],
+      "title": "EvidenceSource",
+      "type": "string"
     },
     "Expected": {
       "additionalProperties": false,
@@ -2872,6 +2900,18 @@
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
         }
       },
       "required": [
@@ -3024,9 +3064,21 @@
           "title": "B",
           "type": "string"
         },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/LinkEvidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "inferred": {
+          "default": false,
+          "title": "Inferred",
+          "type": "boolean"
         },
         "kind": {
           "$ref": "#/$defs/LinkKind",
@@ -3043,6 +3095,25 @@
         "origin"
       ],
       "title": "Link",
+      "type": "object"
+    },
+    "LinkEvidence": {
+      "additionalProperties": false,
+      "description": "One observation behind a link of origin ``mac`` (#378): shown with inferred links.",
+      "properties": {
+        "port_id": {
+          "title": "Port Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/EvidenceSource"
+        }
+      },
+      "required": [
+        "port_id",
+        "source"
+      ],
+      "title": "LinkEvidence",
       "type": "object"
     },
     "LinkKind": {
@@ -3159,6 +3230,37 @@
       ],
       "title": "LogTransport",
       "type": "string"
+    },
+    "MacSighting": {
+      "additionalProperties": false,
+      "description": "A managed device's MAC address seen on a port in an earlier round (#378): kept for\n:data:`~signalbox.sightings.MAC_HOLD` so that links do not come and go as ARP and MAC\ntable entries age out between reads.",
+      "properties": {
+        "last_seen": {
+          "format": "date-time",
+          "title": "Last Seen",
+          "type": "string"
+        },
+        "mac": {
+          "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+          "title": "Mac",
+          "type": "string"
+        },
+        "port_id": {
+          "title": "Port Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/EvidenceSource"
+        }
+      },
+      "required": [
+        "port_id",
+        "mac",
+        "source",
+        "last_seen"
+      ],
+      "title": "MacSighting",
+      "type": "object"
     },
     "ManagementService": {
       "additionalProperties": false,
@@ -3681,6 +3783,13 @@
             "$ref": "#/$defs/ForeignServer"
           },
           "title": "Foreign Servers",
+          "type": "array"
+        },
+        "held_sightings": {
+          "items": {
+            "$ref": "#/$defs/MacSighting"
+          },
+          "title": "Held Sightings",
           "type": "array"
         },
         "links": {

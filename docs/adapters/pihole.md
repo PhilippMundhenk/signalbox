@@ -1,4 +1,4 @@
-# Pi-hole adapter (v6)
+# Pi-hole adapter (v6 and v5)
 
 Reads a Pi-hole **v6** DNS filter through its REST API (`/api/...`): the DNS service and its
 port, the upstream servers, local DNS records, and the DHCP server with its leases and
@@ -16,8 +16,10 @@ way.
 | Writes | none |
 | Simulator | `signalbox.sim.dnsfilter.PiholeSim` |
 
-**Pi-hole v5 is not supported** (it has no REST API). A v5 device is reported as *this is
-Pi-hole v5: Signalbox needs the v6 REST API* with the fix "update Pi-hole to v6".
+**Pi-hole v5** (the legacy `/admin/api.php`, API token) is read too, with less: see
+[Pi-hole v5](#pi-hole-v5) ([#385](https://github.com/PhilippMundhenk/signalbox/issues/385)).
+It is one device type: Signalbox detects the version itself. Everything above and below this
+section is about v6.
 
 > **Based on the public API documentation, not on a real device.** Parts marked *(guess)* are
 > not certain. Please report your device in
@@ -34,6 +36,7 @@ No automatic setup: Signalbox never changes Pi-hole.
    the web interface (Signalbox only reads) and you can disable it again at any time.
 3. In Signalbox add a device of kind *Pi-hole*: the address (https on port 443 by default; the
    certificate is self-signed, trust it after comparing the fingerprint) and the app password.
+   For Pi-hole v5 enter the API token instead, see below.
 
 ## Sessions and secrets
 
@@ -97,8 +100,8 @@ needs a real device, #21.)* Passive, only when you press *Search now*, and not a
 - The lease table could not be read (`/api/dhcp/leases` failed): the DHCP server is reported
   without leases ("not read", not "no leases") and the device as partly read, with a fix.
 - The network table could not be read: the device is partly read, with a fix (no clients).
-- A v5 or non-Pi-hole device, an old v6 beta, a missing `dns.upstreams`: an error naming the
-  request.
+- A device that is neither v6 nor v5, an old v6 beta, a missing `dns.upstreams`: an error naming
+  the request.
 
 ## Simulator and tests
 
@@ -108,3 +111,71 @@ switches for v5, other servers, second factor, session limit and failures.
 `tests/test_dnsfilter.py` covers the contract (http and pinned TLS), that every session is
 ended, that no password is sent to an untrusted certificate, the gaps, and the DNS loop and
 one-DHCP-server checks over both simulators; `tests/test_recordings.py` records and replays it.
+
+## Pi-hole v5
+
+Pi-hole v5 (for example Pi-hole 5.17, FTL 5.23, web interface 5.21) has no REST API, only the
+legacy API of the web interface (`api.php`, `api_FTL.php`, `api_db.php`). Signalbox reads it
+with the **API token** and **read only** (GET requests only, no login, no session).
+
+**Detection.** With an app password Signalbox first tries v6 (`POST /api/auth`). v5 answers 404
+there, then `GET /admin/api.php?versions` names the box as v5 and the v5 reader takes over. With
+only an API token, v6 is not tried. The same device type and the same address field serve both;
+the *API token (v5)* field is next to the app password. Give the token only (v5) or the app
+password only (v6); with both, v6 is tried first. A v5 box without a token is reported as *this
+is Pi-hole v5: Signalbox needs its API token* with the fix to copy it from **Settings > API >
+Show API token** (a long hexadecimal string, not the web password; it changes when the web
+password changes).
+
+**What is read** (`?versions`, `?status` need no token):
+
+| Request | Used for |
+| --- | --- |
+| `GET /admin/api.php?versions` | firmware (`core_current`, `core_latest`, `core_update`), `web_current` and `FTL_current` as `vendor_extra` |
+| `GET /admin/api.php?status` | `{"status": "enabled"}`: `vendor_extra.filtering_enabled` |
+| `GET /admin/api.php?getForwardDestinations&auth=<token>` | upstream servers: `forward_destinations` keys `name\|address` (`router.lan\|192.0.2.1`, address may be `ip#port`); `blocklist`, `cache` and `other` are no servers; mapped through the shared DNS mapping like v6 |
+| `GET /admin/api_db.php?network&auth=<token>` | clients: `network[]` with `hwaddr`, `ip[]`, `name[]`, `lastQuery` |
+
+- **DNS**: the DNS service `<device>/dns/pihole`, the port is 53 (v5 does not say), no listen
+  addresses and no local DNS records. v5 lists the servers it *forwarded queries to*, not the
+  configured ones: a server that did not get a query yet is missing, and one that did but is no
+  longer configured can still show up *(guess, #21)*.
+- **Clients**: one per MAC address with the addresses and the first name. A row without a real
+  MAC (`ip-192.0.2.99`) is not listed, as for v6. `topClients` / `getQuerySources` are not
+  read: they give names and addresses but no MAC, and the model keys a client by MAC. Without
+  the token's rights or with the query database off, the network table is a gap (*the network
+  table was not read*) and no client is listed.
+- **DHCP**: v5 has no API for DHCP settings or leases. Reported as an **optional gap** (the
+  device stays "ok") with the fix *upgrade to Pi-hole v6*.
+
+**The token is a secret.** It is stored encrypted like the app password, is write-only in the
+settings, and is never logged: it is removed from every error message and parameter, it is
+not part of any snapshot, and recordings replace it. **But v5 takes the token in the query
+string** (`?...&auth=<token>`): anything that sees the URL sees the token, that is a proxy or
+reverse proxy that logs requests (access logs), not the TLS connection itself. Use `https`
+(Pi-hole v5 has no HTTPS of its own unless you put one in front or set up lighttpd; the
+certificate is pinned like the others and the token is not sent to a certificate that was
+not trusted), and prefer a network where nobody else reads the Pi-hole's access log. The
+token gives access to the web interface API (the same rights as the web password for the
+API); Signalbox only sends GET requests. Plain `http://` needs the explicit
+`allow_insecure_http` and sends the token in the clear.
+
+**Guesses for [#21](https://github.com/PhilippMundhenk/signalbox/issues/21)** (from the public
+API description and the web interface source, not from a real v5 box):
+
+- the `auth` query parameter name and that `?versions` and `?status` work without it;
+- a wrong or missing token is answered with an empty list `[]` (not an HTTP error);
+- the `forward_destinations` key format `name|address[#port]` and the names of the entries
+  that are no server;
+- `api_db.php?network`: the field names, that `ip` and `name` are lists (a plain string is
+  accepted), and that `lastQuery` is a Unix time;
+- `core_current` as the version (`v5.17`) and `core_update` / `core_latest` for the newer
+  release;
+- whether the network table needs the token at all.
+
+**Simulator**: `PiholeSim(version="v5")` answers the four requests (token
+`signalbox.sim.dnsfilter.PH_TOKEN`, made at run time) and records every query in
+`PiholeSim.queries`; `tests/test_dnsfilter.py` has the contract test, detection (also the
+errors without a token and with only a token on a v6 box), the wrong token, the gaps, pinned
+TLS and the check that the token is removed from errors; `tests/test_recordings.py` records
+and replays it (`SIGNALBOX_RECORD_API_TOKEN`).

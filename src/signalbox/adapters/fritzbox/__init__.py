@@ -48,7 +48,12 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.fritzbox import discovery
 from signalbox.adapters.fritzbox.accounts import box_rights, user_names
-from signalbox.adapters.fritzbox.routes import ENTRY_LIMIT, default_route, static_route
+from signalbox.adapters.fritzbox.routes import (
+    ENTRY_LIMIT,
+    default_gateway,
+    default_route,
+    static_route,
+)
 from signalbox.adapters.fritzbox.soap import (
     UPNP_PORT,
     SoapFault,
@@ -318,13 +323,19 @@ def wan_uplink(
     ip: dict[str, str] | None,
     link: dict[str, str],
     now: datetime,
+    gateway: IPv4Address | None = None,
 ) -> Uplink | None:
     """The internet connection from ``WANPPPConnection:1``/``WANIPConnection:1`` ``GetInfo``.
 
-    The enabled one of the two is the connection (PPP first); neither enabled (the box reaches
-    the internet over LAN 1 as an IP client, or has no access configured): no uplink.
+    The enabled one of the two is the connection (PPP first). Neither enabled but
+    ``WANIPConnection`` reports an address: the box reaches the internet over LAN 1 through
+    another router ("existing access via LAN", #375), the address is its LAN 1 address (*guess*,
+    #21). Neither enabled and no address (no access configured): no uplink. *gateway* is the
+    next hop of the box's default route where ``Layer3Forwarding`` lists one.
     """
     info = next((i for i in (ppp, ip) if i and _flag(i.get("NewEnable"))), None)
+    if info is None and ip and _v4(ip.get("NewExternalIPAddress")):
+        info = ip
     if info is None:
         return None
     is_ppp = info is ppp
@@ -341,6 +352,8 @@ def wan_uplink(
     uptime = _int(info.get("NewUptime"))
     own = None if bridged else _v4(info.get("NewExternalIPAddress"))
     remote = _v4(info.get("NewRemoteIPAddress")) if is_ppp and not bridged else None
+    if remote is None and not bridged:
+        remote = gateway
     return Uplink(
         id=object_id(device_id, "uplink", "internet"),
         device_id=device_id,
@@ -827,41 +840,55 @@ class FritzboxAdapter(Adapter):
                     gateway=self.context.role is DeviceRole.GATEWAY,
                 )
             )
-        uplinks = await self._uplinks()
+        forwarding = await self._forwarding()
+        uplinks = await self._uplinks(forwarding)
         return Observation(
             ports=[port],
             segments=segments,
             subnets=subnets,
-            routes=await self._routes(uplinks),
+            routes=await self._routes(uplinks, forwarding),
             uplinks=uplinks,
             services=await self._services(),
             **await self._accounts(),
         )
 
-    async def _routes(self, uplinks: list[Uplink]) -> list[Route]:
-        """Static IPv4 routes and the default route (#149) from ``Layer3Forwarding:1``; a box
-        without the service (or a user without the right for it) reports none."""
-        d = self.context.device_id
+    async def _forwarding(self) -> list[dict[str, str]] | None:
+        """The entries of ``Layer3Forwarding:1``; None for a box without the service (or a
+        user without the right for it)."""
         count = await self._try("Layer3Forwarding1", "GetForwardNumberOfEntries")
         if count is None:
-            return []
-        out: list[Route] = []
+            return None
+        out: list[dict[str, str]] = []
         for index in range(min(_int(count.get("NewForwardNumberOfEntries")) or 0, ENTRY_LIMIT)):
             try:
-                entry = await self.tr064.call(
-                    "Layer3Forwarding1", "GetGenericForwardingEntry", NewForwardingIndex=index
+                out.append(
+                    await self.tr064.call(
+                        "Layer3Forwarding1", "GetGenericForwardingEntry", NewForwardingIndex=index
+                    )
                 )
             except (SoapFault, NotFound):
                 break
-            if (route := static_route(d, entry)) is not None:
-                out.append(route)
+        return out
+
+    async def _routes(
+        self, uplinks: list[Uplink], forwarding: list[dict[str, str]] | None
+    ) -> list[Route]:
+        """Static IPv4 routes and the default route (#149) from ``Layer3Forwarding:1``; a box
+        without the service (or a user without the right for it) reports none."""
+        d = self.context.device_id
+        if forwarding is None:
+            return []
+        out = [route for entry in forwarding if (route := static_route(d, entry)) is not None]
         service = await self._try("Layer3Forwarding1", "GetDefaultConnectionService")
         default = default_route(
             d,
             uplinks[0] if uplinks else None,
             (service or {}).get("NewDefaultConnectionService", ""),
         )
-        return ([default] if default else []) + out
+        if default is None:
+            return out
+        # a default entry of the table is the same route as the one through the uplink
+        return [default] + [r for r in out if r.id != default.id]
 
     async def _accounts(self) -> dict[str, Any]:
         """Users and the factory-password state (#126, #175) from ``LANConfigSecurity``:
@@ -993,8 +1020,13 @@ class FritzboxAdapter(Adapter):
             )
         return out
 
-    async def _uplinks(self) -> list[Uplink]:
-        """The internet connection (#148); a box without these services reports none."""
+    async def _uplinks(self, forwarding: list[dict[str, str]] | None = None) -> list[Uplink]:
+        """The internet connection (#148); a box without these services reports none.
+
+        Over LAN 1 (#375) ``GetInfo`` may leave the address empty: ``GetExternalIPAddress`` (in
+        FRITZ!OS 6 already) is asked then. The upstream gateway of a ``WANIPConnection`` is the
+        next hop of a ``0.0.0.0/0`` entry of *forwarding* (``Layer3Forwarding``), if any.
+        """
         if self.context.role is not DeviceRole.GATEWAY:
             return []
         ppp = ip = link = None
@@ -1002,10 +1034,16 @@ class FritzboxAdapter(Adapter):
             ppp = await self.tr064.call("WANPPPConnection1", "GetInfo")
         with contextlib.suppress(SoapFault, NotFound):
             ip = await self.tr064.call("WANIPConnection1", "GetInfo")
+        ppp_on = bool(ppp and _flag(ppp.get("NewEnable")))
+        if ip is not None and not ppp_on and not _v4(ip.get("NewExternalIPAddress")):
+            extra = await self._try("WANIPConnection1", "GetExternalIPAddress") or {}
+            if (address := extra.get("NewExternalIPAddress")) is not None:
+                ip = ip | {"NewExternalIPAddress": address}
         with contextlib.suppress(SoapFault, NotFound):
             link = await self.tr064.call("WANCommonInterfaceConfig1", "GetCommonLinkProperties")
         now = datetime.now(UTC).replace(microsecond=0)
-        uplink = wan_uplink(self.context.device_id, ppp, ip, link or {}, now)
+        gateway = default_gateway(forwarding or [])
+        uplink = wan_uplink(self.context.device_id, ppp, ip, link or {}, now, gateway)
         return [uplink] if uplink else []
 
     # firewall -------------------------------------------------------------------------

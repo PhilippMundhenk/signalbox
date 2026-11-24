@@ -129,13 +129,25 @@ async def test_plan_apply_read_rerun_remove(user: str, secret: str, sudo: str | 
         assert {s.state for s in nothing.steps} == {StepState.UNCHANGED}
 
 
-async def test_without_wireguard_or_nft_no_sudoers_rule() -> None:
-    box = LinuxSim(wg_installed=False, nft_installed=False)
+async def test_without_wireguard_nft_or_iptables_no_sudoers_rule() -> None:
+    box = LinuxSim(wg_installed=False, nft_installed=False, iptables_installed=False)
     async with serve_ssh(box) as (port, fp):
         result = await LinuxAdapter.apply_setup(request(port, fp))
     assert result.ok
     assert {s.id: s.state for s in result.steps}["sudoers"] is StepState.UNCHANGED
     assert box.sudoers_files == {}
+
+
+async def test_only_iptables_gets_the_sudoers_rule_with_iptables_save() -> None:
+    """Legacy iptables is read with iptables-save through the rule (#394), without an extra."""
+    box = LinuxSim(wg_installed=False, nft_installed=False)
+    async with serve_ssh(box) as (port, fp):
+        result = await LinuxAdapter.apply_setup(request(port, fp))
+    assert result.ok and {s.id: s.state for s in result.steps}["sudoers"] is StepState.DONE
+    rule = box.sudoers_files[SUDOERS_PATH]
+    assert rule == sudoers("signalbox")
+    assert '/usr/sbin/iptables-save ""' in rule and '/usr/sbin/ip6tables-save ""' in rule
+    assert "iptables-save -" not in rule and "iptables-restore" not in rule
 
 
 async def test_refusals() -> None:

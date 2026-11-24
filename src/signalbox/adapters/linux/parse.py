@@ -79,6 +79,11 @@ def _int(text: str | None) -> int | None:
 # --- system --------------------------------------------------------------------------------
 
 
+def release_markers(answer: Answer) -> set[str]:
+    """The files of the ``os`` section that exist (readable or not): distribution markers."""
+    return {*answer.files("os"), *answer.unreadable("os")}
+
+
 def os_release(answer: Answer) -> dict[str, str]:
     out: dict[str, str] = {}
     text = answer.files("os").get("/etc/os-release", "")

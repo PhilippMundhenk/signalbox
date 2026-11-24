@@ -3,7 +3,8 @@
 The VM (tools/integration/opnsense/vm.py) is preseeded with: LAN vtnet0 192.0.2.1/24 +
 2001:db8:1::1/64, WAN vtnet1 (DHCP), VLAN 20 "IoT" on the trunk vtnet2 assigned as opt1
 198.51.100.1/24, Kea DHCPv4 on LAN (pool 192.0.2.100-199, reservation 02:00:00:00:00:10 ->
-192.0.2.10 "printer"), an Unbound host override nas.home.example -> 192.0.2.10, a WireGuard
+192.0.2.10 "printer"), an Unbound host override nas.home.example -> 192.0.2.10 with the alias
+storage.home.example and "Register DHCP static mappings / leases" on (#386), a WireGuard
 instance "s2s" with a peer "site-b" (#239), and two API
 users with the read and write privileges of docs/adapters/opnsense.md.
 
@@ -244,9 +245,13 @@ async def test_mapping_of_the_preseeded_firewall(fw: dict[str, str]) -> None:
     dns = next(d for d in net.dns_services if d.id.endswith("/dns/unbound"))
     assert dns.enabled and dns.port == 53  # #241: Unbound's port is read
     assert all(d.config_read for d in net.dns_services)  # Unbound answers on 53 itself
-    assert [(h.name, str(h.address)) for h in dns.host_records] == [
-        ("nas.home.example", "192.0.2.10")
-    ]
+    assert dns.host_records_read
+    # the override, its alias and (registration on) the Kea reservation as a DHCP static mapping
+    assert {(h.name, str(h.address), h.source) for h in dns.host_records} >= {
+        ("nas.home.example", "192.0.2.10", "host-override"),
+        ("storage.home.example", "192.0.2.10", "alias"),
+        ("printer.lan.example", "192.0.2.10", "dhcp-static"),
+    }
     assert ip_address("192.0.2.1") in dns.listen
     # option_data.ntp_servers is empty, but with autocollect OPNsense fills in the interface
     # address on the next Kea save (seen after a deployment): read as that address

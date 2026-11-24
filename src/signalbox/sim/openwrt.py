@@ -63,6 +63,10 @@ FILES = (
     "/sys/class/net/*/bonding_slave/*",
     "/sys/class/net/*/bridge/*",
     "/sys/class/net/*/brport/*",
+    "/sys/class/net/*/brforward",
+    "/sys/devices/*/net/*/brforward",
+    "/sys/devices/*/net/*/bridge/*",
+    "/sys/devices/*/net/*/brport/*",
 )
 
 Sections = dict[str, dict[str, Any]]
@@ -1360,6 +1364,11 @@ class OpenWrtSim:
     thermal_zones: list[tuple[str, int]] = field(default_factory=lambda: [("cpu-thermal", 47823)])
     #: bridge members without ``/sys/class/net/<port>/brport`` (#155)
     no_brport: set[str] = field(default_factory=set)
+    #: addresses the bridges learned (#378): (member, MAC, seconds since refreshed); the
+    #: members' own MACs are local entries of ``brforward`` besides these
+    learned: list[tuple[str, str, int]] = field(default_factory=list)
+    #: ``/sys/class/net/*/brforward`` in the ACL (the docs); False: an older ACL
+    brforward_acl: bool = True
     sessions: dict[str, float] = field(default_factory=dict)
     #: more logins, username -> md5-crypt hash (set by the SSH side, ``openwrt_ssh``)
     login_hashes: dict[str, str] = field(default_factory=dict)
@@ -1643,6 +1652,8 @@ class OpenWrtSim:
             if not any(fnmatchcase(path, allowed) for allowed in FILES):
                 return [DENIED]
             if path.startswith("/sys/class/net/"):
+                if path.endswith("/brforward"):
+                    return self.brforward(path.split("/")[4], bool(args.get("base64")))
                 if "/bonding" in path:
                     return self.bond_file(path.removeprefix("/sys/class/net/"))
                 value = self.sysfs_net(path)
@@ -1661,6 +1672,36 @@ class OpenWrtSim:
         if obj == "luci.lldpd" and self.lldpd:
             return [0, lldp_status()] if method == "getStatus" else [3]
         return None
+
+    def brforward(self, bridge: str, b64: bool) -> list[Any]:
+        """``/sys/class/net/<bridge>/brforward`` (#378): 16-byte ``struct __fdb_entry`` records
+        (little-endian, as on x86), base64 when asked (rpcd's ``file read``)."""
+        if not self.brforward_acl:
+            return [DENIED]
+        status = device_status(self.state["network"], self.state["wireless"])
+        st = status.get(bridge)
+        if not isinstance(st, dict) or st.get("type") != "bridge":
+            return [NOT_FOUND]
+        members = [str(m) for m in st.get("bridge-members", [])]
+        rows: list[tuple[str, int, bool, int]] = []
+        for no, member in enumerate(members, 1):
+            mac = (status.get(member) or {}).get("macaddr")
+            if mac:
+                rows.append((str(mac), no, True, 0))
+        rows += [
+            (mac, members.index(m) + 1, False, age) for m, mac, age in self.learned if m in members
+        ]
+        raw = bytearray()
+        for mac, no, local, age in rows:
+            rec = bytearray(16)
+            rec[:6] = bytes(int(x, 16) for x in mac.split(":"))
+            rec[6], rec[7], rec[12] = no & 0xFF, int(local), no >> 8
+            rec[8:12] = (age * 100).to_bytes(4, "little")
+            raw += rec
+        if not raw:
+            return [NO_DATA]  # rpcd: an empty file is "no data"
+        data = base64.b64encode(bytes(raw)).decode() if b64 else raw.decode("latin-1")
+        return [0, {"data": data}]
 
     def bond_file(self, rel: str) -> list[Any]:
         """``/sys/class/net/<rel>`` of the bond (#157)."""

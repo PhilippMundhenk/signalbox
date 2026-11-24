@@ -56,6 +56,9 @@ from signalbox.adapters.linux import (
     wireguard,
 )
 from signalbox.adapters.linux import (
+    iptables as iptables_reader,
+)
+from signalbox.adapters.linux import (
     routes as route_reader,
 )
 from signalbox.adapters.linux import trace as _trace
@@ -394,7 +397,7 @@ class LinuxAdapter(Adapter):
             extra["kernel"] = a.text("kernel").strip()
         if release.get("ID"):
             extra["os_id"] = release["ID"]
-        found = distro.detect(release)
+        found = distro.detect(release, parse.release_markers(a))
         if found.manager:
             extra["os_family"] = found.family
             extra["package_manager"] = found.manager
@@ -421,7 +424,7 @@ class LinuxAdapter(Adapter):
 
     @property
     def distro(self) -> distro.Distro:
-        return distro.detect(parse.os_release(self.answer))
+        return distro.detect(parse.os_release(self.answer), parse.release_markers(self.answer))
 
     async def read_interfaces(self) -> Observation:
         lay = self._layout()
@@ -573,9 +576,9 @@ class LinuxAdapter(Adapter):
     # firewall ----------------------------------------------------------------------------
 
     async def read_firewall(self) -> Observation:
-        """``nft -j list ruleset`` (iptables-nft shows up there too). Without the permission
-        nothing is reported (not read) and a gap says what to add; ``iptables-legacy`` rules
-        cannot be read, which makes the rules incomplete."""
+        """``nft -j list ruleset`` (iptables-nft shows up there too), else the legacy iptables
+        rules (``iptables-save``, #394). Without the permission nothing is reported (not read)
+        and a gap says what to add. Source: ``vendor_extra["source"]`` of the firewall."""
         a = self.answer
         d = self.context.device_id
         lay = self._layout()
@@ -585,7 +588,12 @@ class LinuxAdapter(Adapter):
         )
         tool = a.text("nft-tool").strip()
         iptables = a.text("iptables").strip()
+        legacy, legacy_gaps = self._legacy_iptables(fix)
         if tool in ("", "none"):
+            if legacy is not None:
+                return self._firewall(lay, legacy, "iptables-save", legacy_gaps)
+            if legacy_gaps:
+                return Observation(incomplete=legacy_gaps)
             if not iptables:
                 return Observation(
                     firewalls=[Firewall(id=firewall_id(d), device_id=d, enabled=False)]
@@ -637,16 +645,23 @@ class LinuxAdapter(Adapter):
                     )
                 ]
             )
-        gaps = [Gap(message=m, message_id=m.message_id, params=m.params) for m in parsed.gaps]
+        if (
+            not iptables_reader.has_rules(parsed)
+            and legacy is not None
+            and iptables_reader.has_rules(legacy)
+        ):  # nft is empty: the rules are the legacy ones
+            return self._firewall(lay, legacy, "iptables-save", legacy_gaps)
+        extra: list[Gap] = []
         complete = parsed.complete
-        if "legacy" in iptables:
+        if "legacy" in iptables and (legacy is None or iptables_reader.has_rules(legacy)):
             complete = False
+            extra += legacy_gaps
             switch = (
                 "pacman -S iptables-nft"
                 if self.distro.manager == "pacman"
                 else "update-alternatives --set iptables /usr/sbin/iptables-nft"
             )
-            gaps.append(
+            extra.append(
                 Gap(
                     message="firewall: iptables-legacy is in use; its rules are not visible to "
                     "nft and are not read",
@@ -656,24 +671,69 @@ class LinuxAdapter(Adapter):
                     params={"command": switch},
                 )
             )
+        return self._firewall(lay, parsed, "nft", extra, complete)
+
+    def _legacy_iptables(self, fix: str) -> tuple[nftables.Parsed | None, list[Gap]]:
+        """The rules of ``iptables-save`` / ``ip6tables-save`` (``None``: not available or not
+        readable, then a gap says what to add), mapped like the nft ruleset (#394)."""
+        a = self.answer
+        if a.text("ipt4-tool").strip() in ("", "none"):
+            return None, []
+        denied = Gap(
+            message="firewall: iptables-save is not allowed for this user",
+            fix=fix,
+            message_id="linux.iptablesDenied",
+            fix_id="linux.sudoers.fix",
+            params={"path": setup.sudoers_path(self.config.username)},
+        )
+        if a.has("ipt4-denied"):
+            return None, [denied]
+        gaps: list[Gap] = []
+        if a.has("ipt6-denied"):  # IPv6 rules exist but cannot be read: the result is partial
+            gaps.append(
+                denied.model_copy(
+                    update={
+                        "message": "firewall: ip6tables-save is not allowed for this user, "
+                        "the IPv6 rules are not read",
+                        "message_id": "linux.ip6tablesDenied",
+                    }
+                )
+            )
+        parsed = iptables_reader.parse(a.text("ipt4-save"), a.text("ipt6-save"))
+        if gaps:
+            parsed.complete = False
+        return parsed, gaps
+
+    def _firewall(
+        self,
+        lay: _Layout,
+        parsed: nftables.Parsed,
+        source: str,
+        extra: list[Gap],
+        complete: bool | None = None,
+    ) -> Observation:
+        d = self.context.device_id
+        done = parsed.complete if complete is None else complete
+        gaps = [Gap(message=m, message_id=m.message_id, params=m.params) for m in parsed.gaps]
         zones = [self._zone(lay, name) for name in sorted(parsed.zone_names)]
         return Observation(
             firewalls=[
                 Firewall(
                     id=firewall_id(d),
                     device_id=d,
-                    enabled=parsed.enabled or not complete,
+                    enabled=parsed.enabled or not done,
                     zones=zones,
                     input_policy=parsed.input_policy,
                     forward_policy=parsed.forward_policy,
                     rules=parsed.rules,
-                    rules_complete=complete,
+                    rules_complete=done,
                     nat=parsed.nat,
                     port_forwards=parsed.port_forwards,
-                    port_forwards_complete=parsed.port_forwards_complete and complete,
+                    port_forwards_complete=parsed.port_forwards_complete and done,
+                    vendor_extra={"source": source},
                 )
             ],
-            incomplete=gaps,
+            incomplete=[*gaps, *extra],
         )
 
     def _zone(self, lay: _Layout, name: str) -> FirewallZone:

@@ -29,6 +29,7 @@ from signalbox.adapters.opnsense import (
     CPU_TYPE,
     DNSMASQ,
     FIRMWARE,
+    HOST_ALIASES,
     HOST_OVERRIDES,
     INTERFACES,
     ISC_LEASES,
@@ -318,7 +319,10 @@ async def test_dns(snap: Snapshot) -> None:
     assert [(h.name, str(h.address)) for h in dns.host_records] == [
         ("nas.home.example", "192.0.2.10"),
         ("nas.home.example", "2001:db8:1::10"),
+        ("storage.home.example", "192.0.2.10"),  # the alias, with its override's address
     ]
+    assert [h.source for h in dns.host_records] == ["host-override"] * 2 + ["alias"]
+    assert dns.host_records_read
     assert dns.vendor_extra == {"domain_forwards": {"corp.example": "198.51.100.53"}}
 
 
@@ -1125,3 +1129,95 @@ async def test_accounts_only_with_a_key_that_can_read_the_user_manager(
     a = adapter(http_url)
     snap = await observe(a)
     assert snap.device.accounts == [] and not snap.errors
+
+
+async def test_host_overrides_of_25_1(http_url: str, sim: OpnsenseSimulator) -> None:
+    """#386: 25.1 knows ``searchHostOverride`` only, with ``address`` for the target and a
+    label in ``rr``; both spellings and shapes are read."""
+    sim.camel_only = {HOST_OVERRIDES, HOST_ALIASES}
+    sim.data[HOST_OVERRIDES]["rows"] = [
+        {
+            "uuid": "h-9",
+            "enabled": "1",
+            "hostname": "old",
+            "domain": "split.example",
+            "rr": "A (IPv4 address)",
+            "address": "192.0.2.77",
+        },
+    ]
+    sim.data[HOST_ALIASES]["rows"] = [
+        {
+            "uuid": "a-9",
+            "enabled": "1",
+            "host": "h-9",
+            "hostname": "older",
+            "domain": "split.example",
+        }
+    ]
+    (dns,) = (await observe(adapter(http_url))).dns_services
+    assert dns.host_records_read
+    assert [(h.name, str(h.address), h.source) for h in dns.host_records] == [
+        ("old.split.example", "192.0.2.77", "host-override"),
+        ("older.split.example", "192.0.2.77", "alias"),
+    ]
+
+
+async def test_host_overrides_refused_is_a_gap_not_none(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    sim.fail = {HOST_OVERRIDES: 403}
+    snap = await observe(adapter(http_url))
+    (dns,) = snap.dns_services
+    assert dns.host_records == [] and not dns.host_records_read
+    (gap,) = [e for e in snap.errors if e.message.startswith("DNS host overrides")]
+    assert gap.optional and "page-services-unbound" in (gap.fix or "")
+    assert snap.status.value == "ok"
+
+
+async def test_host_overrides_missing_on_both_spellings(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    del sim.data[HOST_OVERRIDES]
+    snap = await observe(adapter(http_url))
+    (dns,) = snap.dns_services
+    assert not dns.host_records_read
+    assert any(e.message.startswith("DNS host overrides") and e.optional for e in snap.errors)
+
+
+async def test_registered_dhcp_names(http_url: str, sim: OpnsenseSimulator) -> None:
+    """#386: with "Register DHCP static mappings" and "Register DHCP leases" on, the names of
+    reservations and active leases are host records with their source."""
+    general = sim.data[UNBOUND]["unbound"]["general"]
+    general |= {"regdhcpstatic": "1", "regdhcp": "0", "regdhcpdomain": "lan.example"}
+    (dns,) = (await observe(adapter(http_url))).dns_services
+    got = {(h.name, str(h.address), h.source) for h in dns.host_records}
+    assert ("printer.lan.example", "192.0.2.10", "dhcp-static") in got
+    assert ("kiosk.lan.example", "203.0.113.10", "dhcp-static") in got
+    assert not any(h.source == "dhcp-lease" for h in dns.host_records)
+    general["regdhcp"] = "1"
+    (dns,) = (await observe(adapter(http_url))).dns_services
+    got = {(h.name, str(h.address), h.source) for h in dns.host_records}
+    assert ("guest-phone.lan.example", "203.0.113.150", "dhcp-lease") in got
+    assert sum(h.name == "kiosk.lan.example" for h in dns.host_records) == 1
+
+
+async def test_many_host_overrides_are_read_completely(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    """#386: a long split-DNS list is paged; a capped answer (``rowCount=-1`` honoured only up to
+    100 rows) is completed page by page."""
+    sim.page_limit = 100
+    sim.data[HOST_OVERRIDES]["rows"] = [
+        {
+            "uuid": f"o-{i}",
+            "enabled": "1",
+            "hostname": f"host{i}",
+            "domain": "split.example",
+            "rr": "A",
+            "server": f"203.0.113.{i % 250 + 1}",
+        }
+        for i in range(450)
+    ]
+    (dns,) = (await observe(adapter(http_url))).dns_services
+    names = [h.name for h in dns.host_records if h.source == "host-override"]
+    assert len(names) == 450 and len(set(names)) == 450

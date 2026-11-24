@@ -18,7 +18,10 @@ from signalbox.model import DeviceRole
 LOGIN_INFO = "/api/info/login"
 ADMIN = "/admin/"
 V6 = "Create an app password first (Settings > Web interface / API); Pi-hole v6 is needed."
-V6_UNSURE = "The page does not tell the version: Signalbox needs Pi-hole v6 (pihole -up)."
+V6_UNSURE = (
+    "The page does not tell the version: Pi-hole v6 needs the app password, Pi-hole v5 the API "
+    "token (Settings > API > Show API token)."
+)
 
 
 def _candidate(probe: HostProbe, port: int, evidence: str, note: str) -> Candidate:
