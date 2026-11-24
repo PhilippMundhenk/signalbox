@@ -294,7 +294,7 @@ def test_lease_time_reports_short_and_long() -> None:
     (f,) = run(lease_time, network(dhcp_servers=[server(lease_seconds=30 * 86400)]))
     assert "leases of 30 d" in f.message and "very long" in f.message
     (f,) = run(lease_time, network(dhcp_servers=[server(lease_seconds=120)]))
-    assert "2 minutes" in f.message
+    assert "2 min" in f.message
 
 
 def test_lease_time_guest_network_by_name_or_ssid() -> None:
