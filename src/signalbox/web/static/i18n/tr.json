@@ -2961,8 +2961,6 @@
  "wifimap.allSites": "Tüm konumlar",
  "wifimap.ownAria": "{device} aç: {radio}, {band} GHz, kanal {channel}",
  "wifimap.ownSub": "{band} GHz · kanal {channel}",
- "wifimap.neighbour": "Komşu {n}",
- "wifimap.neighbourSub": "kanal {channel}",
  "wifimap.neighbourTitle": "Komşu {n}: {band} GHz, kanal {channel}, en güçlü sinyal {dbm} dBm",
  "wifimap.channelUnknown": "bilinmiyor",
  "wifimap.noScan.title": "Tarama verisi yok",

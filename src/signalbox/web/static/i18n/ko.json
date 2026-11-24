@@ -2961,8 +2961,6 @@
  "wifimap.allSites": "모든 사이트",
  "wifimap.ownAria": "{device} 열기: {radio}, {band} GHz, 채널 {channel}",
  "wifimap.ownSub": "{band} GHz · 채널 {channel}",
- "wifimap.neighbour": "이웃 {n}",
- "wifimap.neighbourSub": "채널 {channel}",
  "wifimap.neighbourTitle": "이웃 {n}: {band} GHz, 채널 {channel}, 가장 강한 신호 {dbm} dBm",
  "wifimap.channelUnknown": "알 수 없음",
  "wifimap.noScan.title": "스캔 데이터 없음",

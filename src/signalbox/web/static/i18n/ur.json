@@ -2961,8 +2961,6 @@
  "wifimap.allSites": "تمام سائٹس",
  "wifimap.ownAria": "{device} کھولیں: {radio}، {band} GHz، چینل {channel}",
  "wifimap.ownSub": "{band} GHz · چینل {channel}",
- "wifimap.neighbour": "پڑوسی {n}",
- "wifimap.neighbourSub": "چینل {channel}",
  "wifimap.neighbourTitle": "پڑوسی {n}: {band} GHz، چینل {channel}، سب سے مضبوط سگنل {dbm} dBm",
  "wifimap.channelUnknown": "نامعلوم",
  "wifimap.noScan.title": "اسکین کا کوئی ڈیٹا نہیں",

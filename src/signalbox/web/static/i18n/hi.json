@@ -2961,8 +2961,6 @@
  "wifimap.allSites": "सभी साइट",
  "wifimap.ownAria": "{device} खोलें: {radio}, {band} GHz, चैनल {channel}",
  "wifimap.ownSub": "{band} GHz · चैनल {channel}",
- "wifimap.neighbour": "पड़ोसी {n}",
- "wifimap.neighbourSub": "चैनल {channel}",
  "wifimap.neighbourTitle": "पड़ोसी {n}: {band} GHz, चैनल {channel}, सबसे मज़बूत संकेत {dbm} dBm",
  "wifimap.channelUnknown": "अज्ञात",
  "wifimap.noScan.title": "कोई स्कैन डेटा नहीं",

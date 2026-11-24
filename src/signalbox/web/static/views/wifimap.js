@@ -12,43 +12,71 @@ const state = { band: '', site: '' };
 const enc = encodeURIComponent;
 const short = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 
-function drawMap(ix, shown, edges, lay) {
+function drawMap(ix, shown, lay) {
   const svg = s('svg', { class: 'topo wifimap', role: 'img', 'aria-label': t('wifimap.graphLabel'), 'data-testid': 'wifimap-graph' });
   const vp = s('g', { class: 'viewport' });
   place(svg, vp);
+  const frames = s('g', { class: 'sites' });
   const lines = s('g', { class: 'edges' });
   const bubbles = s('g', { class: 'bubbles' });
-  place(vp, lines, bubbles);
-  for (const e of edges) {
+  const labels = s('g', { class: 'labels' });
+  const halos = s('g', { class: 'halos' });
+  place(vp, frames, halos, lines, bubbles, labels);
+  for (const f of lay.sites) {
+    place(frames, s('rect', { x: String(f.x), y: String(f.y), width: String(f.width), height: String(f.height), rx: '12', class: 'site-frame', 'data-testid': 'wifimap-site-frame', 'data-site': f.id }));
+    place(frames, s('text', { x: String(f.x + 16), y: String(f.y + 24), class: 'site-title' }, f.name));
+  }
+  // a soft capsule behind the radios of one access point shows that they belong together
+  for (const ap of lay.aps) {
+    for (let i = 0; i < ap.ids.length; i++) {
+      for (let j = i; j < ap.ids.length; j++) {
+        const a = lay.nodes[ap.ids[i]];
+        const b = lay.nodes[ap.ids[j]];
+        place(halos, s('line', { x1: String(a.x), y1: String(a.y), x2: String(b.x), y2: String(b.y), 'stroke-width': String(2 * a.r + 8), class: 'halo', 'data-ap': ap.id }));
+      }
+    }
+  }
+  for (const e of lay.links) {
     const a = lay.nodes[e.a];
     const b = lay.nodes[e.b];
-    if (a && b) place(lines, s('line', { x1: String(a.x), y1: String(a.y), x2: String(b.x), y2: String(b.y), class: 'link' }));
+    place(lines, s('line', { x1: String(a.x), y1: String(a.y), x2: String(b.x), y2: String(b.y), class: 'link' }));
   }
   const hot = new Set(lay.overlaps.flat());
-  for (const n of shown) {
+  // neighbours first, so they sit behind our radios
+  const ordered = [...shown.filter((n) => n.kind !== 'own'), ...shown.filter((n) => n.kind === 'own')];
+  for (const n of ordered) {
     const { x, y, r } = lay.nodes[n.id];
     const color = bubbleColor(n.band, n.channel);
     const own = n.kind === 'own';
     const ch = n.channel === null || n.channel === undefined ? t('wifimap.channelUnknown') : n.channel;
     const cls = `bubble ${own ? 'own' : 'neighbour'}${hot.has(n.id) ? ' co' : ''}`;
-    const g = s('g', { class: cls, 'data-testid': 'wifimap-bubble', 'data-id': n.id, 'data-kind': n.kind, 'data-band': n.band, 'data-channel': n.channel, 'data-overlap': hot.has(n.id) ? 'true' : null });
+    const g = s('g', { class: cls, 'data-testid': 'wifimap-bubble', 'data-id': n.id, 'data-kind': n.kind, 'data-band': n.band, 'data-channel': n.channel, 'data-index': own ? null : n.index, 'data-overlap': hot.has(n.id) ? 'true' : null });
     place(g, s('circle', { cx: String(x), cy: String(y), r: String(r), fill: color, 'fill-opacity': '0.4', stroke: color }));
     let text;
     if (own) {
       const name = ix.deviceName(n.device_id);
       const sub = t('wifimap.ownSub', { band: n.band, channel: ch });
       place(g, s('title', {}, `${name} · ${n.radio} · ${sub}`));
-      place(g, s('text', { x: String(x), y: String(y - 2), 'text-anchor': 'middle', class: 'name' }, short(name, 14)), s('text', { x: String(x), y: String(y + 13), 'text-anchor': 'middle', class: 'sub' }, sub));
+      place(g, s('text', { x: String(x), y: String(y - 1), 'text-anchor': 'middle', class: 'name' }, t('wireless.ghz', { band: n.band })), s('text', { x: String(x), y: String(y + 13), 'text-anchor': 'middle', class: 'sub' }, String(ch)));
       text = s('a', { href: `#/device/${enc(n.device_id)}`, class: 'name-link', 'data-testid': 'wifimap-device-link', 'aria-label': t('wifimap.ownAria', { device: name, radio: n.radio, band: n.band, channel: ch }) }, g);
     } else {
       const title = t('wifimap.neighbourTitle', { n: n.index, band: n.band || '?', channel: ch, dbm: n.signal_dbm ?? '?' });
       place(g, s('title', {}, title));
-      place(g, s('text', { x: String(x), y: String(y - 1), 'text-anchor': 'middle', class: 'sub' }, t('wifimap.neighbour', { n: n.index })), s('text', { x: String(x), y: String(y + 12), 'text-anchor': 'middle', class: 'sub' }, t('wifimap.neighbourSub', { channel: ch })));
+      place(g, s('text', { x: String(x), y: String(y + 4), 'text-anchor': 'middle', class: 'sub' }, String(n.index)));
       text = g;
     }
     place(bubbles, text);
   }
-  svg.zoomable = { width: lay.width, height: lay.height, vp };
+  const byAp = new Map(shown.filter((n) => n.kind === 'own').map((n) => [n.device_id, n]));
+  for (const l of lay.labels) {
+    const n = byAp.get(l.id);
+    const link = s('a', { href: `#/device/${enc(l.id)}`, class: 'name-link ap-label', 'data-testid': 'wifimap-ap-label', 'data-ap': l.id, 'aria-label': ix.deviceName(n.device_id) });
+    place(link, s('line', { x1: String(l.line.x1), y1: String(l.line.y1), x2: String(l.line.x2), y2: String(l.line.y2), class: 'leader' }));
+    place(link, s('rect', { x: String(l.x), y: String(l.y), width: String(l.w), height: String(l.h), rx: '5', class: 'label-bg' }));
+    place(link, s('text', { x: String(l.x + l.w / 2), y: String(l.y + l.h / 2 + 4.5), 'text-anchor': 'middle', class: 'name' }, l.text));
+    place(labels, link);
+  }
+  svg.zoomable = { width: lay.width, height: lay.height, vp, margin: 48 };
   return svg;
 }
 
@@ -116,10 +144,11 @@ export async function renderWifiMap(main, ctx, ix) {
     const ids = new Set(shown.map((n) => n.id));
     const edges = data.edges.filter((e) => ids.has(e.a) && ids.has(e.b));
     const lay = layoutWifiMap({
-      nodes: shown.map((n) => ({ id: n.id, kind: n.kind, band: n.band, channel: n.channel, signal_dbm: n.signal_dbm, group: n.site_id })),
+      nodes: shown.map((n) => ({ id: n.id, kind: n.kind, band: n.band, channel: n.channel, signal_dbm: n.signal_dbm, group: n.site_id, ap: n.device_id, label: n.kind === 'own' ? short(ix.deviceName(n.device_id), 22) : undefined })),
       edges,
+      siteNames: Object.fromEntries(sites.map((x) => [x, ix.siteName(x)])),
     });
-    const svg = drawMap(ix, shown, edges, lay);
+    const svg = drawMap(ix, shown, lay);
     place(clear(graphBox), svg);
     zoom = attachZoom(svg, svg.zoomable.vp, svg.zoomable);
     place(clear(note), t('wifimap.overlaps', { n: lay.overlaps.length }));
