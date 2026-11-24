@@ -27,8 +27,47 @@ def _used_ids() -> set[str]:
 def test_every_message_id_in_the_code_has_an_english_catalogue_entry() -> None:
     ids = _used_ids()
     assert len(ids) >= 30
-    missing = sorted(i for i in ids if f"msg.{i}" not in EN)
+    missing = sorted(i for i in ids if not _has(EN, i))
     assert not missing, f"message ids without msg.<id> in en.json: {missing}"
+
+
+def _has(catalogue: dict[str, str], mid: str) -> bool:
+    """The id is in the catalogue, or in its plural forms (``.one`` / ``.other``)."""
+    key = f"msg.{mid}"
+    return key in catalogue or f"{key}.other" in catalogue
+
+
+def test_every_message_id_exists_in_german_with_the_same_parameters() -> None:
+    de = json.loads((SRC / "web" / "static" / "i18n" / "de.json").read_text(encoding="utf-8"))
+    missing = sorted(i for i in _used_ids() if not _has(de, i))
+    assert not missing, f"message ids without msg.<id> in de.json: {missing}"
+    msg_keys = [k for k in EN if k.startswith("msg.")]
+    assert sorted(msg_keys) == sorted(k for k in de if k.startswith("msg."))
+    for key in msg_keys:
+        assert set(MSG.findall(EN[key])) == set(MSG.findall(de[key])), key
+
+
+#: Rule modules whose findings are not converted yet: other helpers work on them (#204).
+UNCONVERTED = {"firewall_checks.py"}
+
+
+def test_every_finding_of_the_rule_modules_carries_a_message_id() -> None:
+    import ast
+
+    rules_dir = SRC / "rules"
+    bad = []
+    for path in sorted(rules_dir.glob("*.py")):
+        if path.name in UNCONVERTED or path.name == "__init__.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in ("found", "incomplete")
+                and "mid" not in {k.arg for k in node.keywords}
+            ):
+                bad.append(f"{path.name}:{node.lineno}")
+    assert not bad, f"found()/incomplete() without mid=: {bad}"
 
 
 def test_found_and_incomplete_carry_ids_and_params() -> None:

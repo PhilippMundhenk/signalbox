@@ -34,7 +34,11 @@ def device_of(net: Network, target: str) -> Device | None:
     return best
 
 
-def _gone(net: Network, history: History, target: str, note: Annotation | None) -> str | None:
+#: Why a target looks gone: (reason id, values, English text).
+Gone = tuple[str, dict[str, str | int], str]
+
+
+def _gone(net: Network, history: History, target: str, note: Annotation | None) -> Gone | None:
     """Why the target looks gone, or None when it exists or that cannot be told."""
     kind = target_kind(target)
     if kind is TargetKind.CLIENT:
@@ -47,25 +51,50 @@ def _gone(net: Network, history: History, target: str, note: Annotation | None) 
             return None  # not one of our clients, or off on purpose
         if mac in history.clients or not history.covers(timedelta(days=history.days)):
             return None
-        return f"has not been seen for {history.days} days"
+        return (
+            "notSeen",
+            {"days": history.days},
+            f"has not been seen for {history.days} days",
+        )
     if kind is TargetKind.SEGMENT:
         site = target.split("/", 1)[0]
         if net.knows(target):
             return None
         if site not in {s.id for s in net.sites}:
-            return f"belongs to a site that does not exist ({site})"
+            return (
+                "noSite",
+                {"site": site},
+                f"belongs to a site that does not exist ({site})",
+            )
         devices = [d for d in net.devices if d.site_id == site]
         if devices and all(net.statuses.get(d.id) is DeviceStatus.OK for d in devices):
-            return "is not reported by any device of the site"
+            return "notReportedBySite", {}, "is not reported by any device of the site"
         return None
     dev = device_of(net, target)
     if dev is None:
-        return "belongs to no device in Signalbox (removed or disabled)"
+        return "noDevice", {}, "belongs to no device in Signalbox (removed or disabled)"
     if kind is TargetKind.DEVICE or net.knows(target):
         return None
     if net.statuses.get(dev.id) is DeviceStatus.OK:
-        return f"is not reported by {dev.name}"
+        return "notReportedBy", {"device": dev.name}, f"is not reported by {dev.name}"
     return None
+
+
+#: Message ids per reason (#204): one text each for a note and for an acknowledgement.
+_NOTE_MIDS = {
+    "notSeen": "annotations.stale.notSeen",
+    "noSite": "annotations.stale.noSite",
+    "notReportedBySite": "annotations.stale.notReportedBySite",
+    "noDevice": "annotations.stale.noDevice",
+    "notReportedBy": "annotations.stale.notReportedBy",
+}
+_ACK_MIDS = {
+    "notSeen": "annotations.staleAck.notSeen",
+    "noSite": "annotations.staleAck.noSite",
+    "notReportedBySite": "annotations.staleAck.notReportedBySite",
+    "noDevice": "annotations.staleAck.noDevice",
+    "notReportedBy": "annotations.staleAck.notReportedBy",
+}
 
 
 @history_rule(
@@ -80,27 +109,35 @@ def stale(net: Network, history: History) -> Iterator[Result]:
     if not history.observations:
         return  # nothing read yet; the desired and predicted states have no history either
     for note in net.annotations:
-        why = _gone(net, history, note.target, note)
-        if why:
+        gone = _gone(net, history, note.target, note)
+        if gone:
+            reason, values, why = gone
+            target = f"{note.target}{f' ({note.label})' if note.label else ''}"
             yield found(
-                f"{note.target}{f' ({note.label})' if note.label else ''} has an annotation "
-                f"but {why}",
+                f"{target} has an annotation but {why}",
                 [note.target],
                 fix="If the object was renamed, move the annotation to its new id; if it is "
                 "gone, remove the annotation.",
                 key="annotation",
+                mid=_NOTE_MIDS[reason],
+                fix_id="annotations.stale.fix",
+                params={"target": target, **values},
             )
     for ack in net.acknowledgements:
         if ack.target is None:
             continue
-        why = _gone(net, history, ack.target, net.annotation(ack.target))
-        if why:
+        gone = _gone(net, history, ack.target, net.annotation(ack.target))
+        if gone:
+            reason, values, why = gone
             yield found(
                 f"{ack.target} has an acknowledgement of {ack.rule_id} but {why}",
                 [ack.target],
                 fix="If the object was renamed, acknowledge the finding again; if it is gone, "
                 "remove the acknowledgement.",
                 key=f"ack:{ack.id}",
+                mid=_ACK_MIDS[reason],
+                fix_id="annotations.staleAck.fix",
+                params={"target": ack.target, "rule": ack.rule_id, **values},
             )
 
 

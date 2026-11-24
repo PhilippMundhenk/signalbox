@@ -84,8 +84,16 @@ def duplicate_hostname(net: Network) -> Iterator[Result]:
         where = ", ".join(segment_name(net, s) for s in segments)
         if len(segments) > 1:
             where = f"networks sharing the {scope} ({where})"
-        count = "Two" if len(macs) == 2 else str(len(macs))
-        message = f"{count} devices on {where} call themselves {name} ({', '.join(macs)})"
+        shared = len(segments) > 1
+        names = ", ".join(segment_name(net, s) for s in segments)
+        message = f"{len(macs)} devices on {where} call themselves {name} ({', '.join(macs)})"
+        values: dict[str, str | int] = {
+            "count": len(macs),
+            "name": name,
+            "macs": ", ".join(macs),
+            "where": names,
+            "domain": scope.removeprefix("domain "),
+        }
         if any(is_randomised(m) for m in macs):
             yield found(
                 message + ". This may be one device that uses a private (randomised) Wi-Fi "
@@ -96,6 +104,11 @@ def duplicate_hostname(net: Network) -> Iterator[Result]:
                 "should keep one name and address.",
                 severity=Severity.INFO,
                 key=f"{scope}:{name}",
+                mid="clients.duplicateName.random.shared"
+                if shared
+                else "clients.duplicateName.random",
+                fix_id="clients.duplicateName.random.fix",
+                params=values,
             )
         else:
             yield found(
@@ -103,6 +116,9 @@ def duplicate_hostname(net: Network) -> Iterator[Result]:
                 sorted(c.id for c in clients),
                 fix="Rename one of them (in its own settings, not only on the router).",
                 key=f"{scope}:{name}",
+                mid="clients.duplicateName.shared" if shared else "clients.duplicateName",
+                fix_id="clients.duplicateName.fix",
+                params=values,
             )
 
 
@@ -121,6 +137,7 @@ def duplicate_hostname(net: Network) -> Iterator[Result]:
 def random_mac(net: Network) -> Iterator[Result]:
     reservations: dict[tuple[str, str], list[str]] = defaultdict(list)
     labels: dict[tuple[str, str], str] = {}
+    parts: dict[tuple[str, str], dict[str, str | int]] = {}
     for srv in net.dhcp_servers:
         for res in srv.reservations:
             if not is_randomised(res.mac):
@@ -129,6 +146,11 @@ def random_mac(net: Network) -> Iterator[Result]:
             reservations[k].append(srv.id)
             host = f" ({res.hostname})" if res.hostname else ""
             labels.setdefault(k, f"{res.address}{host} on {segment_name(net, srv.segment_id)}")
+            parts[k] = {
+                "address": str(res.address),
+                "host": host,
+                "segment": segment_name(net, srv.segment_id),
+            }
     for (mac, address), servers in sorted(reservations.items()):
         yield found(
             f"The reservation {labels[(mac, address)]} is for a randomised MAC address ({mac})",
@@ -137,6 +159,9 @@ def random_mac(net: Network) -> Iterator[Result]:
             "reserve its real MAC. If it is a virtual machine or container that keeps this "
             "address, nothing is wrong.",
             key=f"reservation:{mac}:{address}",
+            mid="clients.randomReservation",
+            fix_id="clients.randomReservation.fix",
+            params={**parts[(mac, address)], "mac": mac},
         )
 
     by_address: dict[str, list[Client]] = defaultdict(list)
@@ -157,6 +182,9 @@ def random_mac(net: Network) -> Iterator[Result]:
                 fix="Turn off the private (random) address for this network on the device and "
                 "reserve its real MAC, so that the name keeps pointing to it.",
                 key=f"dns:{rec.name}:{rec.address}",
+                mid="clients.randomDns",
+                fix_id="clients.randomDns.fix",
+                params={"name": rec.name, "address": str(rec.address), "macs": macs},
             )
 
     per_segment: dict[str, list[Client]] = defaultdict(list)
@@ -172,6 +200,14 @@ def random_mac(net: Network) -> Iterator[Result]:
             f"{'uses' if n == 1 else 'use'} a randomised MAC address "
             f"({round(100 * n / len(clients))} %)",
             [seg],
+            mid="clients.randomShare",
+            fix_id="clients.randomShare.fix",
+            params={
+                "count": n,
+                "total": len(clients),
+                "segment": segment_name(net, seg),
+                "percent": round(100 * n / len(clients)),
+            },
             fix="Nothing to fix. A device that must keep its address, name or parental controls "
             "needs its private address turned off for this network.",
             severity=Severity.INFO,

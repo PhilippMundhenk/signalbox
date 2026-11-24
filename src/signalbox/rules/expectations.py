@@ -52,6 +52,13 @@ def unexpected_network(net: Network) -> Iterator[Result]:
             fix="Check the SSID it joined, or the switch port it is plugged into and that "
             "port's VLAN. If it belongs where it is now, change the expected network of the "
             "device.",
+            mid="clients.wrongNetwork",
+            fix_id="clients.wrongNetwork.fix",
+            params={
+                "client": _name(client),
+                "segment": segment_name(net, client.segment_id),
+                "expected": segment_name(net, want),
+            },
         )
 
 
@@ -104,6 +111,14 @@ def category_network(net: Network) -> Iterator[Result]:
             [c.id for c in clients],
             fix=f"Move them to the IoT Wi-Fi or port ({target}), or change their category.",
             key=f"iot-outside:{seg_id}",
+            mid="clients.iotOutside",
+            fix_id="clients.iotOutside.fix",
+            params={
+                "count": len(clients),
+                "clients": ", ".join(_name(c) for c in clients),
+                "segment": segment_name(net, seg_id),
+                "target": target,
+            },
         )
     for seg_id, clients in sorted(misplaced.items()):
         yield found(
@@ -116,6 +131,13 @@ def category_network(net: Network) -> Iterator[Result]:
             fix="Move them to the main network: the IoT network is for devices you do not "
             "trust, and they should not share it with your own.",
             key=f"user-in-iot:{seg_id}",
+            mid="clients.userInIot",
+            fix_id="clients.userInIot.fix",
+            params={
+                "count": len(clients),
+                "clients": ", ".join(_name(c) for c in clients),
+                "segment": segment_name(net, seg_id),
+            },
         )
 
 

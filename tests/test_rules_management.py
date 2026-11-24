@@ -73,10 +73,7 @@ def test_mikrotik_defaults() -> None:
     n = make(services=mikrotik_default_services("gw"))
     (f,) = run(insecure_services, n)
     assert f.severity == "warning"
-    assert (
-        f.message
-        == "gw has FTP, MAC telnet, Telnet and HTTP (www) without redirect to HTTPS enabled"
-    )
+    assert f.message == "gw has FTP, MAC telnet, Telnet, HTTP (www) (no HTTPS redirect) enabled"
     assert "gw/service/telnet" in f.objects
 
 
@@ -87,7 +84,7 @@ def test_snmp_root_password_mac_telnet() -> None:
         service("gw", "mac-telnet"),
     ]
     (f,) = run(insecure_services, make(services=sv))
-    assert "default community" in f.message and "root with a password" in f.message
+    assert "default community" in f.message and "root password" in f.message
     assert "MAC telnet" in f.message
 
 
@@ -210,9 +207,9 @@ def test_plaintext_read_clients_and_ssids() -> None:
     n = plain_net(SegmentPurpose.MAIN, clients=[client(1), client(2)], wlans=[wlan()])
     (f,) = run(plaintext_read, n)
     assert f.severity == "info"
-    assert "where 2 clients and 1 Wi-Fi network are" in f.message
+    assert "clients: 2, Wi-Fi networks: 1" in f.message
     (g,) = run(plaintext_read, plain_net(SegmentPurpose.IOT, clients=[client(1)]))
-    assert g.severity == "warning" and "1 client are" in g.message
+    assert g.severity == "warning" and "(clients: 1)" in g.message
 
 
 def test_plaintext_read_quiet() -> None:

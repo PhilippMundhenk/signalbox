@@ -36,10 +36,10 @@ def _span(delta: timedelta) -> str:
     """``45 minutes``, ``5 hours`` or ``3 days``."""
     minutes = int(delta.total_seconds() // 60)
     if minutes < 120:
-        return f"{minutes} minutes"
+        return f"{minutes} min"
     if minutes < 48 * 60:
-        return f"{minutes // 60} hours"
-    return f"{minutes // (24 * 60)} days"
+        return f"{minutes // 60} h"
+    return f"{minutes // (24 * 60)} d"
 
 
 @history_rule(
@@ -74,12 +74,16 @@ def down_long(net: Network, history: History) -> Iterator[Result]:
             when = f"since Signalbox first saw it ({_when(since)})"
         else:
             when = f"for {_span(down)} (last read {_when(since)})"
+        values = {"name": dev.name, "since": _when(since), "span": _span(down)}
         yield found(
             f"{dev.name} has not answered {when}",
             [dev.id],
             fix="Check its power and cabling, its address and password; remove it from Signalbox "
             "(or disable it) if it was replaced or retired.",
             severity=Severity.ERROR if down >= DOWN_ERROR else None,
+            mid="history.neverAnswered" if past.last_ok is None else "history.notAnswering",
+            fix_id="history.down.fix",
+            params=values,
         )
 
 
@@ -103,6 +107,9 @@ def device_flapping(net: Network, history: History) -> Iterator[Result]:
                 f"{dev.name} stopped answering {n} times in the last 24 hours",
                 [dev.id],
                 fix="Check its power supply or PoE budget, its temperature and its uplink cable.",
+                mid="history.deviceFlapping",
+                fix_id="history.deviceFlapping.fix",
+                params={"name": dev.name, "count": n},
             )
 
 
@@ -142,6 +149,14 @@ def port_flapping(net: Network, history: History) -> Iterator[Result]:
             fix="Replace or re-terminate the cable, check the connectors, and leave both ends on "
             "auto-negotiation.",
             severity=None if other is not None else Severity.INFO,
+            mid="history.portFlapping.to" if to else "history.portFlapping",
+            fix_id="history.portFlapping.fix",
+            params={
+                "device": device_name(net, port.device_id),
+                "port": port.name,
+                "peer": to[5:-1],
+                "count": n,
+            },
         )
 
 
@@ -185,6 +200,15 @@ def stale_reservation(net: Network, history: History) -> Iterator[Result]:
                 fix="Remove the reservation if the device is gone. A device that is rarely on "
                 "(a camera in the garden in winter) keeps it; turn the rule off if needed.",
                 key=f"{res.mac}:{res.address}",
+                mid="history.staleReservation",
+                fix_id="history.staleReservation.fix",
+                params={
+                    "address": str(res.address),
+                    "host": host,
+                    "segment": segment_name(net, srv.segment_id),
+                    "mac": res.mac,
+                    "days": history.days,
+                },
             )
 
 
@@ -224,6 +248,17 @@ def network_changed(net: Network, history: History) -> Iterator[Result]:
             fix="If this was not intended, check the SSID it joined or the switch port it is "
             "plugged into (and that port's VLAN).",
             key=move.at.isoformat(),
+            mid="history.networkChanged.behind" if port else "history.networkChanged",
+            fix_id="history.networkChanged.fix",
+            params={
+                "name": name,
+                "mac": client.mac,
+                "device": device_name(net, port.device_id) if port else "",
+                "port": port.label() if port else "",
+                "old": segment_name(net, move.old),
+                "new": segment_name(net, move.new),
+                "when": _when(move.at),
+            },
         )
 
 

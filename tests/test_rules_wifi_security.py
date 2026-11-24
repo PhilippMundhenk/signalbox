@@ -55,13 +55,13 @@ def test_weak_security_quiet_without_details() -> None:
 @pytest.mark.parametrize(
     ("kw", "text", "severity"),
     [
-        ({"security": Security.OPEN}, "has no password (open)", Severity.ERROR),
-        ({"security": Security.WEP}, "uses WEP", Severity.ERROR),
-        ({"security": Security.WPA}, "uses WPA (version 1)", Severity.ERROR),
-        ({"security": Security.WPA_WPA2}, "uses WPA/WPA2 mixed", Severity.WARNING),
-        ({"ciphers": [Cipher.TKIP]}, "offers only TKIP encryption", Severity.ERROR),
-        ({"ciphers": [Cipher.CCMP, Cipher.TKIP]}, "also offers TKIP", Severity.WARNING),
-        ({"group_cipher": Cipher.TKIP}, "uses TKIP for broadcast", Severity.WARNING),
+        ({"security": Security.OPEN}, "open (no password)", Severity.ERROR),
+        ({"security": Security.WEP}, "WEP", Severity.ERROR),
+        ({"security": Security.WPA}, "WPA (version 1)", Severity.ERROR),
+        ({"security": Security.WPA_WPA2}, "WPA/WPA2 mixed", Severity.WARNING),
+        ({"ciphers": [Cipher.TKIP]}, "only TKIP", Severity.ERROR),
+        ({"ciphers": [Cipher.CCMP, Cipher.TKIP]}, "also TKIP", Severity.WARNING),
+        ({"group_cipher": Cipher.TKIP}, "TKIP (broadcast)", Severity.WARNING),
     ],
 )
 def test_weak_security_findings(kw: dict[str, Any], text: str, severity: Severity) -> None:

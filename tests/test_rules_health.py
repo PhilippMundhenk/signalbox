@@ -163,7 +163,7 @@ def test_ups() -> None:
                 "warning",
                 "UPS weak (on ap-1) has a runtime of 9 minutes, less than 10 minutes",
             ),
-            ("health.ups-not-tested", "info", "UPS old (on ap-1) was last tested 200 days ago"),
+            ("health.ups-not-tested", "info", "UPS old (on ap-1) was last tested 200 d ago"),
         ]
     )
     # without a history (no time to compare with) the test age is not checked

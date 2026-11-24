@@ -174,7 +174,7 @@ def test_trunk_scope_reports_unused_vlans_on_the_ap_link() -> None:
     (f,) = run(ap_net(), trunk_scope)
     assert f.severity == "info" and f.objects == [AP_LINK.id, UP]
     assert f.message == (
-        "The link to ap carries Cameras (VLAN 40), but ap only uses IoT (VLAN 20) and "
+        "The link to ap carries Cameras (VLAN 40), but ap only uses IoT (VLAN 20), "
         "Management (VLAN 99)."
     )
     assert f.fix == "Remove Cameras (VLAN 40) from sw port 5."
@@ -266,10 +266,10 @@ GOOD = {"up": True, "speed_mbps": 1000, "full_duplex": True}
 def test_slow_link_between_network_devices() -> None:
     (f,) = run(slow_net(GOOD, GOOD | {"speed_mbps": 100}), slow)
     assert f.severity == "warning" and f.objects == [GW_LINK.id]
-    assert f.message == "The link gw port 1 to sw port 1 runs at 100 Mbit/s."
+    assert f.message == "The link gw port 1 ↔ sw port 1 runs at 100 Mbit/s."
     assert "two pairs" in (f.fix or "")
     (d,) = run(slow_net(GOOD, GOOD | {"full_duplex": False}), slow)
-    assert d.message == "The link gw port 1 to sw port 1 runs in half duplex on sw port 1."
+    assert d.message == "The link gw port 1 ↔ sw port 1 runs in half duplex on sw port 1."
     # only one end known (the other device does not report ports)
     one = slow_net(GOOD | {"speed_mbps": 100}, GOOD)
     one = one.model_copy(update={"ports": one.ports[:1]})
@@ -339,7 +339,7 @@ def test_lag_far_end_is_not_a_lag() -> None:
     (f,) = run(lag_net(remote=[port("sw2", "1"), port("sw2", "2")]), lag_consistent)
     assert f.severity == "error" and f.objects == ["sw", S7, S8]
     assert f.message == (
-        "sw lag1 (ports 7 and 8) is connected to sw2 port 1 and sw2 port 2, which are not in a LAG."
+        "sw lag1 [7, 8] is connected to sw2 port 1, sw2 port 2, which are not in a LAG."
     )
     assert f.fix == "Configure a LAG on sw2 or remove all but one cable."
     (m,) = run(lag_net(remote=[port("sw2", "1", lag="ae0"), port("sw2", "2")]), lag_consistent)
@@ -366,11 +366,10 @@ def test_lag_members_differ() -> None:
     ]
     out = {f.message: f for f in run(lag_net(members), lag_consistent)}
     speed = out[
-        "sw lag1 (ports 7 and 8): the members run at different speeds (7: 1000 Mbit/s, "
-        "8: 100 Mbit/s)."
+        "sw lag1 [7, 8]: the members run at different speeds (7: 1000 Mbit/s, 8: 100 Mbit/s)."
     ]
     assert speed.severity == "warning"
-    assert out["sw lag1 (ports 7 and 8): some members run in half duplex."].severity == "warning"
+    assert out["sw lag1 [7, 8]: some members run in half duplex."].severity == "warning"
 
 
 def test_lag_member_vlans() -> None:
@@ -386,7 +385,7 @@ def test_lag_member_vlans() -> None:
 def test_lag_single_member_up() -> None:
     members = [port("sw", "7", lag="lag1", up=True), port("sw", "8", lag="lag1", up=False)]
     (f,) = run(lag_net(members, links=[link(S7, R1)]), lag_consistent)
-    assert f.severity == "info" and f.message == "sw lag1 (ports 7 and 8): only one member is up."
+    assert f.severity == "info" and f.message == "sw lag1 [7, 8]: only one member is up."
     unknown = [port("sw", "7", lag="lag1", up=True), port("sw", "8", lag="lag1")]
     assert run(lag_net(unknown, links=[]), lag_consistent) == []
 
@@ -488,7 +487,7 @@ def test_unknown_neighbour() -> None:
     assert "add it under Devices" in (f.fix or "")
     (two,) = run(nb_net(nb(), nb("10", "02-00-00-00-99-01")), unknown_neighbour)
     assert two.message.startswith(
-        "sw port 10 and sw port 9 see a device announcing itself as 198.51.100.2 "
+        "sw port 10, sw port 9 see a device announcing itself as 198.51.100.2 "
     )
     # a chassis id that is not a MAC (a name) still identifies the device
     (named,) = run(nb_net(nb(chassis="attic-switch")), unknown_neighbour)
@@ -544,19 +543,18 @@ def test_management_in_client_network() -> None:
     (f,) = evaluate(mgmt_net(), [management_separate], ON)
     assert f.severity == "info" and f.objects == [LAN]
     assert (
-        f.message
-        == "ap, gw and sw are managed in LAN (untagged network), which also has 2 clients."
+        f.message == "ap, gw, sw are managed in LAN (untagged network), which also has clients: 2."
     )
     assert "management VLAN" in (f.fix or "")
     wlans = [wlan("ap", "Home", LAN), wlan("ap", "Off", LAN, enabled=False)]
     (w,) = evaluate(mgmt_net(clients=[], wlans=wlans), [management_separate], ON)
-    assert w.message.endswith("which also has the SSID Home.")
+    assert w.message.endswith("which also has SSIDs: Home.")
     one = mgmt_net(
         clients=[client("02:00:00:00:50:01", None)],
         wlans=[wlan("ap", "A", LAN), wlan("ap", "B", LAN)],
     )
     (o,) = evaluate(one, [management_separate], ON)
-    assert o.message.endswith("which also has 1 client and the SSIDs A and B.")
+    assert o.message.endswith("which also has clients: 1; SSIDs: A, B.")
 
 
 def test_management_separate_stays_quiet() -> None:
@@ -568,7 +566,7 @@ def test_management_separate_stays_quiet() -> None:
     (f,) = evaluate(
         mgmt_net(ap_address="198.51.100.3", clients=many("", 1)), [management_separate], ON
     )
-    assert f.message.startswith("gw and sw are managed")
+    assert f.message.startswith("gw, sw are managed")
 
 
 # --- inventory.duplicate-device (#118) -------------------------------------------------------
@@ -584,7 +582,7 @@ def test_duplicate_by_address() -> None:
     )
     (f,) = run(net, duplicate_device)
     assert f.severity == "warning" and f.objects == ["a", "b"]
-    assert f.message == "a and b look like the same device (same address 192.0.2.2)."
+    assert f.message == "a, b look like the same device (shared: 192.0.2.2)."
 
 
 def test_duplicate_reported_by_controller() -> None:
@@ -599,7 +597,7 @@ def test_duplicate_reported_by_controller() -> None:
     (f,) = run(inv(sw, ctrl, managed, ports=ports), duplicate_device)
     assert f.objects == ["omada/0200", "sw-a"]
     assert f.message == (
-        "omada/switch A and sw-a look like the same device (same MAC 02:00:00:00:01:00)."
+        "omada/switch A, sw-a look like the same device (shared: 02:00:00:00:01:00)."
     )
 
 
@@ -612,7 +610,7 @@ def test_duplicate_chain_is_one_finding() -> None:
     ports = [port("b", "1", mac="02:00:00:00:0b:01"), port("c", "1", mac="02:00:00:00:0b:01")]
     (f,) = run(inv(*devices, ports=ports), duplicate_device)
     assert f.objects == ["a", "b", "c"]
-    assert "same MAC 02:00:00:00:0b:01 and address 192.0.2.2" in f.message
+    assert "shared: 02:00:00:00:0b:01, 192.0.2.2" in f.message
 
 
 def test_duplicate_stays_quiet() -> None:
@@ -658,12 +656,8 @@ def test_single_points_in_a_chain() -> None:
     (f,) = run(tree(*CHAIN), single_point)
     assert f.severity == "info" and f.objects == [SITE.id, "sw1", "sw2"]
     assert f.message == (
-        "If Core fails, 2 access points and 1 switch lose the connection to Router. "
-        "If Desk fails, 2 access points lose the connection to Router. "
-        "If the link between Core and Router fails, 2 access points and 2 switches lose the "
-        "connection to Router. "
-        "If the link between Core and Desk fails, 2 access points and 1 switch lose the "
-        "connection to Router."
+        "Single points of failure towards Router (what is cut off): Core: 2 AP, 1 SW; "
+        "Desk: 2 AP; Core \u2194 Router: 2 AP, 2 SW; Core \u2194 Desk: 2 AP, 1 SW."
     )
     assert "second uplink" in (f.fix or "")
 

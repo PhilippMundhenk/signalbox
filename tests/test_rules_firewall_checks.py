@@ -122,7 +122,7 @@ def exposure(*policies: Any, **kw: Any) -> Network:
 def test_management_through_the_firewall() -> None:
     (f,) = run(management_exposure, exposure(policy("iot", "lan", "accept")))
     assert f.severity == "error" and not f.incomplete
-    assert f.message.startswith("HTTPS and SSH of sw (192.0.2.5) can be reached from the IoT")
+    assert f.message.startswith("HTTPS, SSH of sw (192.0.2.5) can be reached from VLAN 20 (IoT)")
     assert "through the firewall of gw" in f.message and f.objects[:2] == ["sw", IOT]
     only_ssh = fw_rule("accept", "iot", "lan", port=22, proto="tcp")
     (g,) = run(management_exposure, exposure(policy("iot", "lan", "reject"), rules=[only_ssh]))

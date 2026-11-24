@@ -60,20 +60,20 @@ def weak_security(net: Network) -> Iterator[Result]:
         errors: list[str] = []
         warnings: list[str] = []
         if w.security is Security.OPEN:
-            (warnings if _is_guest(net, w) else errors).append("has no password (open)")
+            (warnings if _is_guest(net, w) else errors).append("open (no password)")
         elif w.security in (Security.WEP, Security.WPA):
-            errors.append(f"uses {SECURITY_TEXT[w.security]}")
+            errors.append(SECURITY_TEXT[w.security])
         elif w.security in (Security.WPA_WPA2, Security.WPA_ENTERPRISE):
-            warnings.append(f"uses {SECURITY_TEXT[w.security]}")
+            warnings.append(SECURITY_TEXT[w.security])
         ciphers = set(w.ciphers or [])
         weak = sorted(c.value.upper() for c in ciphers & WEAK_CIPHERS)
         if weak and ciphers <= WEAK_CIPHERS:
-            errors.append(f"offers only {' and '.join(weak)} encryption")
+            errors.append(f"only {', '.join(weak)}")
         elif weak:
-            warnings.append(f"also offers {' and '.join(weak)} encryption")
+            warnings.append(f"also {', '.join(weak)}")
         if w.group_cipher in WEAK_CIPHERS and not (ciphers and ciphers <= WEAK_CIPHERS):
             assert w.group_cipher is not None
-            warnings.append(f"uses {w.group_cipher.value.upper()} for broadcast traffic")
+            warnings.append(f"{w.group_cipher.value.upper()} (broadcast)")
         if not errors and not warnings:
             continue
         reasons = errors + warnings
@@ -87,10 +87,19 @@ def weak_security(net: Network) -> Iterator[Result]:
             + "."
         )
         yield found(
-            f"SSID {ssid!r} on {device_name(net, dev)} " + " and ".join(reasons),
+            f"SSID {ssid!r} on {device_name(net, dev)} has weak security: " + ", ".join(reasons),
             _ids(group),
             fix=fix,
             severity=Severity.ERROR if errors else Severity.WARNING,
+            mid="wifi.weakSecurity",
+            fix_id="wifi.weakSecurity.openFix"
+            if w.security is Security.OPEN
+            else "wifi.weakSecurity.fix",
+            params={
+                "ssid": repr(ssid),
+                "device": device_name(net, dev),
+                "reasons": ", ".join(reasons),
+            },
         )
 
 
@@ -121,6 +130,9 @@ def wpa3_available(net: Network) -> Iterator[Result]:
             "supports WPA3",
             _ids(group),
             fix="Switch to WPA2/WPA3 transition mode (protected management frames optional).",
+            mid="wifi.wpa3Available",
+            fix_id="wifi.wpa3Available.fix",
+            params={"ssid": repr(ssid), "device": device_name(net, dev)},
         )
 
 
@@ -168,6 +180,9 @@ def passphrase_reuse(net: Network) -> Iterator[Result]:
             if any_guest
             else "Give each network its own passphrase, or put the SSIDs into one network.",
             key=f"{site}:{'/'.join(involved)}",
+            mid="wifi.passphraseReuse",
+            fix_id="wifi.passphraseReuse.guestFix" if any_guest else "wifi.passphraseReuse.fix",
+            params={"ssids": listed},
         )
 
 
@@ -195,6 +210,9 @@ def wps(net: Network) -> Iterator[Result]:
             _ids(group),
             fix="Turn WPS off; join devices with the passphrase or a QR code instead.",
             severity=Severity.WARNING if pin else Severity.INFO,
+            mid="wifi.wps.pin" if pin else "wifi.wps.button" if how else "wifi.wps",
+            fix_id="wifi.wps.fix",
+            params={"ssid": repr(ssid), "device": device_name(net, dev)},
         )
 
 
@@ -226,6 +244,9 @@ def six_ghz_h2e(net: Network) -> Iterator[Result]:
             "password only with hunting-and-pecking, which 6 GHz clients do not accept",
             _ids(group),
             fix="Set the SAE password element (sae_pwe) to hash-to-element (H2E).",
+            mid="wifi.sixGhzH2e",
+            fix_id="wifi.sixGhzH2e.fix",
+            params={"ssid": repr(ssid), "device": device_name(net, dev)},
         )
 
 

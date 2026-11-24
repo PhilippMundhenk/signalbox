@@ -83,7 +83,7 @@ def test_6ghz_rejects_wpa2_transition_and_open(security: Security, text: str) ->
     (f,) = run(six_ghz_security, six(security=security))
     assert f.severity is Severity.ERROR
     assert f.message == (
-        f"SSID 'Example' on the 6 GHz radio of ap1 uses {text}, which 6 GHz does not allow"
+        f"SSID 'Example' on radio ap1 (6 GHz) uses {text}, which 6 GHz does not allow"
     )
     assert f.fix and "WPA3 only" in f.fix
 
@@ -174,7 +174,7 @@ def test_ssid_count() -> None:
     (f,) = run(ssid_count, dual("ap1", ssids))  # four is fine on 5 GHz, too many on 2.4 GHz
     assert f.severity is Severity.WARNING
     assert f.message == (
-        "The 2.4 GHz radio of ap1 broadcasts 4 SSIDs ('A', 'B', 'C', 'D'); more than 3 cost "
+        "Radio ap1 (2.4 GHz) broadcasts 4 SSIDs ('A', 'B', 'C', 'D'); more than 3 cost "
         "noticeable airtime"
     )
     assert f.objects[0] == "ap1/radio/radio0"
@@ -196,7 +196,7 @@ def test_24ghz_wider_than_20_mhz() -> None:
     radios = [radio("ap1", band=Band.GHZ_2_4, channel=1, width_mhz=40)]
     (f,) = run(channel_width, ap("ap1", radios=radios))
     assert f.severity is Severity.WARNING
-    assert f.message == "The 2.4 GHz radio of ap1 uses 40 MHz"
+    assert f.message == "Radio ap1 (2.4 GHz) uses 40 MHz"
     assert f.fix == "Use 20 MHz on 2.4 GHz."
 
 
@@ -207,7 +207,7 @@ def test_wide_channels_with_several_aps(band: Band, width: int) -> None:
     (f,) = run(channel_width, a, b)
     assert f.severity is Severity.INFO
     assert f.message == (
-        f"The {band.value} GHz radio of ap1 uses {width} MHz at a site with 2 {band.value} GHz "
+        f"Radio ap1 ({band.value} GHz) uses {width} MHz at a site with 2 {band.value} GHz "
         "access points"
     )
     # one access point: no neighbours to collide with
@@ -234,7 +234,7 @@ def test_channel_width_stays_quiet() -> None:
 def test_24ghz_channel_between_the_standard_ones() -> None:
     (f,) = run(channel_plan_24, ap("ap1", radios=[radio("ap1", band=Band.GHZ_2_4, channel=3)]))
     assert f.severity is Severity.INFO
-    assert f.message == "The 2.4 GHz radio of ap1 uses channel 3"
+    assert f.message == "Radio ap1 (2.4 GHz) uses channel 3"
     assert f.fix == "Use channel 1, 6 or 11 (or 1, 5, 9 and 13 on all access points)."
     us = radio("ap1", band=Band.GHZ_2_4, channel=9, country="us")
     (f,) = run(channel_plan_24, ap("ap1", radios=[us]))
@@ -264,14 +264,14 @@ def test_24ghz_channel_plan_skips_auto_disabled_and_5ghz() -> None:
 def test_dfs_channel() -> None:
     (f,) = run(dfs, ap("ap1", radios=[radio("ap1", channel=100, width_mhz=80)]))
     assert f.severity is Severity.INFO
-    assert f.message == "The 5 GHz radio of ap1 uses channel 100 (DFS)"
+    assert f.message == "Radio ap1 (5 GHz) uses channel 100 (DFS)"
     assert f.fix and "36-48 or 149-165" in f.fix
 
 
 def test_wide_channel_reaching_dfs() -> None:
     (f,) = run(dfs, ap("ap1", radios=[radio("ap1", channel=36, width_mhz=160)]))
     assert f.message == (
-        "The 5 GHz radio of ap1 uses channel 36 at 160 MHz, which reaches the DFS channels 52-64"
+        "Radio ap1 (5 GHz) uses channel 36 at 160 MHz, which reaches the DFS channels 52-64"
     )
 
 

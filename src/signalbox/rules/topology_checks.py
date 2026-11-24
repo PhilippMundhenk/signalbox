@@ -44,7 +44,7 @@ def _port_name(net: Network, port: str) -> str:
 def _names(items: Iterable[str]) -> str:
     """``a``, ``a and b``, ``a, b and c``."""
     items = list(items)
-    return ", ".join(items[:-1]) + " and " + items[-1] if len(items) > 1 else "".join(items)
+    return ", ".join(items)
 
 
 def _mac(value: str | None) -> str | None:
@@ -106,17 +106,20 @@ def lag_consistent(net: Network) -> Iterator[Result]:
     for (dev, lag), members in sorted(lags.items()):
         members.sort(key=lambda p: p.id)
         ids = [p.id for p in members]
-        label = f"{device_name(net, dev)} {lag} (ports {_names([p.name for p in members])})"
+        label = f"{device_name(net, dev)} {lag} [{_names([p.name for p in members])}]"
         up = [p for p in members if p.up is not False]
         speeds = {p.speed_mbps for p in up if p.speed_mbps is not None}
         if len(speeds) > 1:
+            speed_text = ", ".join(f"{p.name}: {p.speed_mbps} Mbit/s" for p in up if p.speed_mbps)
             yield found(
-                f"{label}: the members run at different speeds "
-                f"({', '.join(f'{p.name}: {p.speed_mbps} Mbit/s' for p in up if p.speed_mbps)}).",
+                f"{label}: the members run at different speeds ({speed_text}).",
                 [dev, *ids],
                 fix="Set all members to auto-negotiation and check their cables.",
                 severity=Severity.WARNING,
                 key=f"{lag}\x00speed",
+                mid="topology.lagSpeeds",
+                fix_id="topology.lagAuto.fix",
+                params={"label": label, "speeds": speed_text},
             )
         duplex = {p.full_duplex for p in up if p.full_duplex is not None}
         if len(duplex) > 1:
@@ -126,6 +129,9 @@ def lag_consistent(net: Network) -> Iterator[Result]:
                 fix="Set all members to auto-negotiation and full duplex.",
                 severity=Severity.WARNING,
                 key=f"{lag}\x00duplex",
+                mid="topology.lagDuplex",
+                fix_id="topology.lagDuplex.fix",
+                params={"label": label},
             )
         vlans = [members_of.get(p.id) for p in members]
         if all(vlans) and any(v != vlans[0] for v in vlans):
@@ -134,6 +140,9 @@ def lag_consistent(net: Network) -> Iterator[Result]:
                 [dev, *ids],
                 fix="Configure the VLANs on the LAG itself, or the same VLANs on every member.",
                 key=f"{lag}\x00vlans",
+                mid="topology.lagVlans",
+                fix_id="topology.lagVlans.fix",
+                params={"label": label},
             )
         states = [p.up for p in members]
         if len(members) > 1 and None not in states and states.count(True) == 1:
@@ -143,6 +152,9 @@ def lag_consistent(net: Network) -> Iterator[Result]:
                 fix="Check the cables and the far end of the members that are down.",
                 severity=Severity.INFO,
                 key=f"{lag}\x00single",
+                mid="topology.lagSingle",
+                fix_id="topology.lagSingle.fix",
+                params={"label": label},
             )
         yield from _lag_far_end(net, label, dev, lag, members, peers)
 
@@ -162,6 +174,9 @@ def _lag_far_end(
             [dev, *ids],
             fix="Connect all members of the LAG to one device (or one switch stack).",
             key=f"{lag}\x00devices",
+            mid="topology.lagDevices",
+            fix_id="topology.lagDevices.fix",
+            params={"label": label, "ports": _names(_port_name(net, r) for r in remote)},
         )
         return
     ports = [net.port(r) for r in remote]
@@ -171,6 +186,8 @@ def _lag_far_end(
             f"{label} could not be checked.",
             [dev, *ids],
             key=f"{lag}\x00far-end",
+            mid="topology.lagFarUnknown",
+            params={"device": device_name(net, devices[0]), "label": label},
         )
         return
     far = {p.lag for p in ports if p is not None}
@@ -181,6 +198,13 @@ def _lag_far_end(
             [dev, *ids],
             fix=f"Configure a LAG on {device_name(net, devices[0])} or remove all but one cable.",
             key=f"{lag}\x00far-end",
+            mid="topology.lagFarNoLag",
+            fix_id="topology.lagFarNoLag.fix",
+            params={
+                "label": label,
+                "ports": _names(_port_name(net, r) for r in remote),
+                "device": device_name(net, devices[0]),
+            },
         )
     elif len(far) > 1:
         yield found(
@@ -189,6 +213,13 @@ def _lag_far_end(
             [dev, *ids],
             fix=f"Put all of these ports on {device_name(net, devices[0])} into one LAG.",
             key=f"{lag}\x00far-end",
+            mid="topology.lagFarMixed",
+            fix_id="topology.lagFarMixed.fix",
+            params={
+                "label": label,
+                "ports": _names(_port_name(net, r) for r in remote),
+                "device": device_name(net, devices[0]),
+            },
         )
 
 
@@ -255,6 +286,13 @@ def hidden_device(net: Network) -> Iterator[Result]:
                 else ""
             ),
             severity=Severity.WARNING if on_tagged else None,
+            mid="topology.hiddenNets" if several else "topology.hidden",
+            fix_id="topology.hidden.taggedFix" if on_tagged else "topology.hidden.fix",
+            params={
+                "count": len(clients),
+                "networks": len(segments),
+                "port": _port_name(net, port_id),
+            },
         )
 
 
@@ -301,6 +339,13 @@ def unknown_neighbour(net: Network) -> Iterator[Result]:
             fix="If it is a router, switch or access point, add it under Devices. Phones and "
             "computers that send LLDP can be ignored.",
             key=key,
+            mid="topology.unknownNeighbour",
+            fix_id="topology.unknownNeighbour.fix",
+            params={
+                "count": len(ports),
+                "ports": _names(_port_name(net, p) for p in ports),
+                "who": who,
+            },
         )
 
 
@@ -353,19 +398,33 @@ def management_separate(net: Network) -> Iterator[Result]:
                 continue
             users = []
             if clients:
-                users.append(f"{len(clients)} client{'s' if len(clients) != 1 else ''}")
+                users.append(f"clients: {len(clients)}")
             if ssids:
-                users.append(f"the SSID{'s' if len(ssids) > 1 else ''} {_names(ssids)}")
+                users.append(f"SSIDs: {_names(ssids)}")
             names = sorted(d.name for d in devices)
             yield found(
                 f"{_names(names)} {'is' if len(names) == 1 else 'are'} managed in "
-                f"{segment_name(net, seg)}, which also has {' and '.join(users)}.",
+                f"{segment_name(net, seg)}, which also has {'; '.join(users)}.",
                 [seg],
                 fix="Move the management addresses to "
                 f"{_names(segment_name(net, m) for m in mgmt)}, the management network."
                 if mgmt
                 else "Consider a management VLAN that only admin devices can reach, and move the "
                 "management addresses there.",
+                mid="topology.mgmtShared.both"
+                if clients and ssids
+                else "topology.mgmtShared.clients"
+                if clients
+                else "topology.mgmtShared.ssids",
+                fix_id="topology.mgmtShared.fix" if mgmt else "topology.mgmtShared.fixNone",
+                params={
+                    "count": len(names),
+                    "names": _names(names),
+                    "segment": segment_name(net, seg),
+                    "clients": len(clients),
+                    "ssids": _names(ssids),
+                    "management": _names(segment_name(net, m) for m in mgmt),
+                },
             )
 
 
@@ -411,16 +470,17 @@ def duplicate_device(net: Network) -> Iterator[Result]:
         if len(members) < 2:
             continue
         reasons = sorted(
-            f"{kind} {value}"
-            for (kind, value), ids in owners.items()
-            if len(ids & set(members)) > 1
+            value for (_kind, value), ids in owners.items() if len(ids & set(members)) > 1
         )
         names = [_full_name(net, d) for d in members]
         yield found(
-            f"{_names(names)} look like the same device (same {_names(reasons)}).",
+            f"{_names(names)} look like the same device (shared: {_names(reasons)}).",
             members,
             fix="Remove all but one of them from Signalbox (keep the one read through the "
             "controller if it is managed by one).",
+            mid="topology.duplicate",
+            fix_id="topology.duplicate.fix",
+            params={"names": _names(names), "reasons": _names(reasons)},
         )
 
 
@@ -464,10 +524,10 @@ def _affected(net: Network, ids: Iterable[str]) -> str:
     switches = sum(1 for d in ids if roles.get(d) is DeviceRole.SWITCH)
     parts = []
     if aps:
-        parts.append(f"{aps} access point{'s' if aps != 1 else ''}")
+        parts.append(f"{aps} AP")
     if switches:
-        parts.append(f"{switches} switch{'es' if switches != 1 else ''}")
-    return " and ".join(parts)
+        parts.append(f"{switches} SW")
+    return ", ".join(parts)
 
 
 #: A failure that cuts off at least this many switches and access points is reported.
@@ -505,10 +565,7 @@ def single_point(net: Network) -> Iterator[Result]:
         for d in sorted(others, key=lambda i: device_name(net, i)):
             lost = others - {d} - _reach(adjacent, roots, without=d, cut=none)
             if len(lost) >= SPOF_MINIMUM:
-                lines.append(
-                    f"If {device_name(net, d)} fails, {_affected(net, lost)} lose the "
-                    f"connection to {gateway}."
-                )
+                lines.append(f"{device_name(net, d)}: {_affected(net, lost)}")
                 objects.add(d)
         for pair, count in sorted(cables.items(), key=lambda t: sorted(t[0])):
             if count > 1 or not pair <= {d.id for d in infra}:
@@ -516,17 +573,18 @@ def single_point(net: Network) -> Iterator[Result]:
             lost = others - _reach(adjacent, roots, cut=pair)
             if len(lost) >= SPOF_MINIMUM:
                 a, b = sorted(device_name(net, d) for d in pair)
-                lines.append(
-                    f"If the link between {a} and {b} fails, {_affected(net, lost)} lose the "
-                    f"connection to {gateway}."
-                )
+                lines.append(f"{a} \u2194 {b}: {_affected(net, lost)}")
         if not lines:
             continue
+        points = "; ".join(lines)
         yield found(
-            " ".join(lines),
+            f"Single points of failure towards {gateway} (what is cut off): {points}.",
             [site, *sorted(objects)],
             fix="Consider a second uplink (with LAG or spanning tree) for these devices, or "
             "keep a spare.",
+            mid="topology.spof",
+            fix_id="topology.spof.fix",
+            params={"gateway": gateway, "points": points},
         )
 
 

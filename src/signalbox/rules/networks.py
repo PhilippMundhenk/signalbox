@@ -29,7 +29,9 @@ from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
 from signalbox.rules._names import device_name, segment_name, site_of_device
 from signalbox.rules.vlan import INFRASTRUCTURE, address_segment
 
-_GUESSED = " (guessed from its name)"
+#: Marks a purpose that was guessed from the name (not declared or reported).
+_GUESSED = "?"
+_GUESSED_TEXT = " (guessed from its name)"
 _DECLARE = (
     "If the guess is wrong, declare the purpose in the desired state "
     "(purpose: main on the SSID or segment)."
@@ -38,7 +40,7 @@ _DECLARE = (
 
 def _names(items: Iterable[str]) -> str:
     items = list(items)
-    return ", ".join(items[:-1]) + " and " + items[-1] if len(items) > 1 else "".join(items)
+    return ", ".join(items)
 
 
 def _enabled(net: Network) -> list[Wlan]:
@@ -53,7 +55,7 @@ def _network_text(net: Network, segment_id: str) -> str:
         return name
     guessed = _GUESSED if seg.purpose_source is PurposeSource.HEURISTIC else ""
     label = "IoT" if seg.purpose is SegmentPurpose.IOT else seg.purpose.value
-    return f"the {label} network {name}{guessed}"
+    return f"{name} ({label}{guessed})"
 
 
 # --- wifi.guest-isolation (#99) ------------------------------------------------------------
@@ -95,22 +97,34 @@ def guest_isolation(net: Network) -> Iterator[Result]:
         )
         if others:
             shared = f"the same network as {_names(repr(o) for o in others)}"
+            kind = "others"
         elif seg is not None and seg.purpose is not None:
             shared = f"which is {_network_text(net, seg_id)}"
+            kind = "purpose"
         elif seg is None or seg.vlan is None:
             shared = "the untagged main network"
+            kind = "untagged"
         else:
             continue  # its own VLAN without a known purpose: segment.purpose-missing asks
         guessed = all(w.purpose_source is PurposeSource.HEURISTIC for w in group)
         aps = _names(sorted({device_name(net, w.device_id) for w in group}))
         yield found(
-            f"The guest Wi-Fi {ssid!r}{_GUESSED if guessed else ''} on {aps} is in "
+            f"The guest Wi-Fi {ssid!r}{_GUESSED_TEXT if guessed else ''} on {aps} is in "
             f"{segment_name(net, seg_id)}, {shared}",
             [*sorted(w.id for w in group), seg_id],
             fix="Bind it to a separate guest VLAN (or the router's guest network)."
             + (f" {_DECLARE}" if guessed else ""),
             severity=Severity.WARNING if guessed else None,
             key=ssid,
+            mid=f"networks.guestShared.{kind}" + (".guessed" if guessed else ""),
+            fix_id="networks.guestShared.guessedFix" if guessed else "networks.guestShared.fix",
+            params={
+                "ssid": repr(ssid),
+                "aps": aps,
+                "segment": segment_name(net, seg_id),
+                "others": _names(repr(o) for o in others),
+                "network": _network_text(net, seg_id),
+            },
         )
 
 
@@ -139,12 +153,15 @@ def guest_no_isolation(net: Network) -> Iterator[Result]:
         guessed = all(wlan_source(net, w) is PurposeSource.HEURISTIC for w in group)
         aps = _names(sorted({device_name(net, w.device_id) for w in group}))
         yield found(
-            f"The guest Wi-Fi {ssid!r}{_GUESSED if guessed else ''} on {aps} lets its "
+            f"The guest Wi-Fi {ssid!r}{_GUESSED_TEXT if guessed else ''} on {aps} lets its "
             "clients reach each other",
             sorted(w.id for w in group),
             fix="Turn on client isolation for the SSID (desired state: client_isolation: true; "
             "OpenWrt: option isolate '1').",
             key=ssid,
+            mid="networks.guestNoIsolation.guessed" if guessed else "networks.guestNoIsolation",
+            fix_id="networks.guestNoIsolation.fix",
+            params={"ssid": repr(ssid), "aps": aps},
         )
 
 
@@ -181,6 +198,14 @@ def management_exposure(net: Network) -> Iterator[Result]:
             [d.id, seg],
             fix=f"Move its management address to the LAN or a management VLAN, or block access "
             f"from {segment_name(net, seg)} to it.",
+            mid="networks.managedIn",
+            fix_id="networks.managedIn.fix",
+            params={
+                "name": d.name,
+                "address": d.management_address,
+                "network": _network_text(net, seg),
+                "segment": segment_name(net, seg),
+            },
         )
     routers: dict[tuple[str, str], list[str]] = defaultdict(list)
     for sn in sorted(net.subnets, key=lambda s: s.id):
@@ -199,6 +224,13 @@ def management_exposure(net: Network) -> Iterator[Result]:
                 [dev.id, sn.segment_id],
                 fix="Remove the address (a switch or access point only needs to forward that "
                 "VLAN), or block access from that network to it.",
+                mid="networks.addressIn",
+                fix_id="networks.addressIn.fix",
+                params={
+                    "name": dev.name,
+                    "address": str(sn.interface.ip),
+                    "network": _network_text(net, sn.segment_id),
+                },
             )
     for (dev_id, seg), addresses in sorted(routers.items()):
         if net.firewall_of(dev_id) is not None:
@@ -209,6 +241,12 @@ def management_exposure(net: Network) -> Iterator[Result]:
             "management interface is blocked from there",
             [dev_id, seg],
             key=seg,
+            mid="networks.routerUnknown",
+            params={
+                "name": device_name(net, dev_id),
+                "addresses": ", ".join(addresses),
+                "network": _network_text(net, seg),
+            },
         )
     yield from _through_firewall(net)
 
@@ -263,6 +301,16 @@ def _through_firewall(net: Network) -> Iterator[Result]:
                 f"of its router, or move {d.name} to a management VLAN that "
                 f"{segment_name(net, src)} cannot reach.",
                 key=f"{src}/firewall",
+                mid="networks.reachable.via" if who else "networks.reachable",
+                fix_id="networks.reachable.fix",
+                params={
+                    "services": _names(s.label() for s, _ in hits),
+                    "name": d.name,
+                    "address": str(address),
+                    "network": _network_text(net, src),
+                    "who": who,
+                    "segment": segment_name(net, src),
+                },
             )
 
 
@@ -297,7 +345,7 @@ def purpose_missing(net: Network) -> Iterator[Result]:
             if seg.purpose is None:
                 unknown.append(segment_name(net, sid))
             elif seg.purpose_source is PurposeSource.HEURISTIC:
-                unknown.append(f"{segment_name(net, sid)}, guessed: {seg.purpose.value}")
+                unknown.append(f"{segment_name(net, sid)} ({seg.purpose.value}{_GUESSED})")
         if not unknown:
             continue
         yield found(
@@ -306,6 +354,9 @@ def purpose_missing(net: Network) -> Iterator[Result]:
             fix="Declare them in the desired state, e.g. segments: [{vlan: 20, purpose: iot}] "
             "(main, guest, iot, management, servers, lab, voice, cameras, transit, other).",
             key=site,
+            mid="networks.purposeMissing",
+            fix_id="networks.purposeMissing.fix",
+            params={"site": site, "networks": "; ".join(unknown)},
         )
 
 
@@ -332,10 +383,17 @@ def iot_5ghz_only(net: Network) -> Iterator[Result]:
             continue
         yield found(
             f"The IoT SSID {ssid!r} at site {site} is only on "
-            f"{' and '.join(sorted(b.value for b in bands))} GHz",
+            f"{', '.join(sorted(b.value for b in bands))} GHz",
             sorted(w.id for w in group),
             fix="Also broadcast it on 2.4 GHz, unless all its devices support 5 GHz.",
             key=f"{site}:{ssid}",
+            mid="networks.iot5ghz",
+            fix_id="networks.iot5ghz.fix",
+            params={
+                "ssid": repr(ssid),
+                "site": site,
+                "bands": ", ".join(sorted(b.value for b in bands)),
+            },
         )
 
 

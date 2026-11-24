@@ -32,6 +32,14 @@ def drift(net: Network) -> Iterator[Result]:
             f"({detail})",
             [i for i, _ in devices],
             fix="Update all of them to the same (newest) version.",
+            mid="firmware.drift",
+            fix_id="firmware.drift.fix",
+            params={
+                "count": len(devices),
+                "model": model,
+                "versions": len(versions),
+                "detail": detail,
+            },
         )
 
 
@@ -50,6 +58,9 @@ def update_available(net: Network) -> Iterator[Result]:
                 f"{d.name} runs {fw.current}, {fw.available} is available",
                 [d.id],
                 fix=f"Update {d.name} to {fw.available}.",
+                mid="firmware.update",
+                fix_id="firmware.update.fix",
+                params={"name": d.name, "current": fw.current, "available": fw.available},
             )
 
 
@@ -66,6 +77,9 @@ def end_of_life(net: Network) -> Iterator[Result]:
                 f"{d.name} runs firmware {d.firmware.current or '?'}, which is end of life",
                 [d.id],
                 fix="Update to a supported release, or plan to replace the device.",
+                mid="firmware.endOfLife",
+                fix_id="firmware.endOfLife.fix",
+                params={"name": d.name, "current": d.firmware.current or "?"},
             )
 
 

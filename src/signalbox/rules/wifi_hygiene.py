@@ -48,9 +48,7 @@ def _enabled_wlans(net: Network) -> list[Wlan]:
 
 def _radio_of(net: Network, radio: Radio, *, start: bool = False) -> str:
     """``the 5 GHz radio of Access point 1`` (``The ...`` at the start of a sentence)."""
-    return f"{'The' if start else 'the'} {radio.band.value} GHz radio of " + device_name(
-        net, radio.device_id
-    )
+    return f"{device_name(net, radio.device_id)} ({radio.band.value} GHz)"
 
 
 def _per_ap(wlans: Iterable[Wlan], *extra: str) -> dict[tuple[str, ...], list[Wlan]]:
@@ -97,12 +95,19 @@ def six_ghz_security(net: Network) -> Iterator[Result]:
             continue
         radio = radios[wlans[0].radio_id]
         yield found(
-            f"SSID {ssid!r} on {_radio_of(net, radio)} uses "
+            f"SSID {ssid!r} on radio {_radio_of(net, radio)} uses "
             f"{SECURITY_TEXT[wlans[0].security]}, which 6 GHz does not allow",
             _ids(wlans),
             fix="On 6 GHz use WPA3 only (or OWE for an open network) with protected management "
             "frames required. Keep WPA2/WPA3 transition mode on 2.4 and 5 GHz if old devices "
             "need it.",
+            mid="wifi.sixGhzSecurity",
+            fix_id="wifi.sixGhzSecurity.fix",
+            params={
+                "ssid": repr(ssid),
+                "radio": _radio_of(net, radio),
+                "mode": SECURITY_TEXT[wlans[0].security],
+            },
         )
 
 
@@ -137,6 +142,8 @@ def pmf(net: Network) -> Iterator[Result]:
                 f"{ap} did not report the protected management frames (PMF) setting of SSID "
                 f"{ssid!r}, so it is not known whether it matches {mode}",
                 _ids(group),
+                mid="wifi.pmfUnknown",
+                params={"ap": ap, "ssid": repr(ssid), "mode": mode},
             )
         elif w.security in PMF_REQUIRED and w.pmf is not Pmf.REQUIRED:
             yield found(
@@ -144,6 +151,9 @@ def pmf(net: Network) -> Iterator[Result]:
                 f"{w.pmf.value}",
                 _ids(group),
                 fix="Set protected management frames (PMF, 802.11w) to required.",
+                mid="wifi.pmfNotRequired",
+                fix_id="wifi.pmfNotRequired.fix",
+                params={"ssid": repr(ssid), "ap": ap, "mode": mode, "pmf": w.pmf.value},
             )
         elif w.security is Security.WPA2_WPA3 and w.pmf is Pmf.DISABLED:
             yield found(
@@ -152,6 +162,9 @@ def pmf(net: Network) -> Iterator[Result]:
                 _ids(group),
                 fix="Set protected management frames (PMF, 802.11w) to optional.",
                 severity=Severity.WARNING,
+                mid="wifi.pmfDisabled",
+                fix_id="wifi.pmfDisabled.fix",
+                params={"ssid": repr(ssid), "ap": ap},
             )
 
 
@@ -196,6 +209,9 @@ def hidden(net: Network) -> Iterator[Result]:
             f"SSID {ssid!r} is hidden (on {aps})",
             _ids(wlans),
             fix="Hiding adds no security; consider broadcasting it and relying on WPA2/WPA3.",
+            mid="wifi.hidden",
+            fix_id="wifi.hidden.fix",
+            params={"ssid": repr(ssid), "aps": aps},
         )
 
 
@@ -224,10 +240,18 @@ def ssid_count(net: Network) -> Iterator[Result]:
             continue
         names = ", ".join(sorted({repr(w.ssid) for w in wlans}))
         yield found(
-            f"{_radio_of(net, radio, start=True)} broadcasts {len(wlans)} SSIDs ({names}); "
+            f"Radio {_radio_of(net, radio)} broadcasts {len(wlans)} SSIDs ({names}); "
             f"more than {MAX_SSIDS[radio.band]} cost noticeable airtime",
             [radio.id, *_ids(wlans)],
             fix="Merge SSIDs or turn off the ones you do not need (each one costs airtime).",
+            mid="wifi.ssidCount",
+            fix_id="wifi.ssidCount.fix",
+            params={
+                "radio": _radio_of(net, radio),
+                "count": len(wlans),
+                "names": names,
+                "max": MAX_SSIDS[radio.band],
+            },
         )
 
 
@@ -254,9 +278,12 @@ def channel_width(net: Network) -> Iterator[Result]:
             continue
         if r.band is Band.GHZ_2_4 and r.width_mhz > 20:
             yield found(
-                f"{_radio_of(net, r, start=True)} uses {r.width_mhz} MHz",
+                f"Radio {_radio_of(net, r)} uses {r.width_mhz} MHz",
                 [r.id],
                 fix="Use 20 MHz on 2.4 GHz.",
+                mid="wifi.width24",
+                fix_id="wifi.width24.fix",
+                params={"radio": _radio_of(net, r), "width": r.width_mhz},
             )
         elif r.band in wide and r.width_mhz >= wide[r.band]:
             n = len(aps[(site_of_device(net, r.device_id), r.band)])
@@ -264,12 +291,20 @@ def channel_width(net: Network) -> Iterator[Result]:
                 continue
             narrower = "80 MHz" if r.band is Band.GHZ_5 else "160 MHz or less"
             yield found(
-                f"{_radio_of(net, r, start=True)} uses {r.width_mhz} MHz at a site with {n} "
+                f"Radio {_radio_of(net, r)} uses {r.width_mhz} MHz at a site with {n} "
                 f"{r.band.value} GHz access points",
                 [r.id],
                 fix=f"Use {narrower} so that the access points can use channels that do not "
                 "overlap.",
                 severity=Severity.INFO,
+                mid="wifi.widthWide",
+                fix_id="wifi.widthWide.fix5" if r.band is Band.GHZ_5 else "wifi.widthWide.fix6",
+                params={
+                    "radio": _radio_of(net, r),
+                    "width": r.width_mhz,
+                    "count": n,
+                    "band": r.band.value,
+                },
             )
 
 
@@ -303,10 +338,13 @@ def channel_plan_24(net: Network) -> Iterator[Result]:
         if r.channel in allowed:
             continue
         yield found(
-            f"{_radio_of(net, r, start=True)} uses channel {r.channel}",
+            f"Radio {_radio_of(net, r)} uses channel {r.channel}",
             [r.id],
             fix="Use channel 1, 6 or 11"
             + (" (or 1, 5, 9 and 13 on all access points)." if allowed >= EUROPEAN_24 else "."),
+            mid="wifi.channelPlan",
+            fix_id="wifi.channelPlan.fixEu" if allowed >= EUROPEAN_24 else "wifi.channelPlan.fix",
+            params={"radio": _radio_of(net, r), "channel": r.channel},
         )
 
 
@@ -341,9 +379,18 @@ def dfs(net: Network) -> Iterator[Result]:
                 f"{used[0]}-{used[-1]}"
             )
         yield found(
-            f"{_radio_of(net, r, start=True)} uses {detail}",
+            f"Radio {_radio_of(net, r)} uses {detail}",
             [r.id],
             fix="If clients lose Wi-Fi now and then, try channels 36-48 or 149-165.",
+            mid="wifi.dfs" if r.channel in DFS else "wifi.dfsReach",
+            fix_id="wifi.dfs.fix",
+            params={
+                "radio": _radio_of(net, r),
+                "channel": r.channel,
+                "width": r.width_mhz,
+                "first": used[0],
+                "last": used[-1],
+            },
         )
 
 
@@ -383,6 +430,13 @@ def tx_power(net: Network) -> Iterator[Result]:
                     [low.id, high.id],
                     fix="Lower 2.4 GHz to about 3-6 dB below 5 GHz so that clients prefer 5 GHz.",
                     key="bands",
+                    mid="wifi.txBands",
+                    fix_id="wifi.txBands.fix",
+                    params={
+                        "device": device_name(net, dev),
+                        "low": low.tx_power_dbm,
+                        "high": high.tx_power_dbm,
+                    },
                 )
     by_band: dict[tuple[str, Band], list[Radio]] = defaultdict(list)
     for r in radios:
@@ -405,6 +459,16 @@ def tx_power(net: Network) -> Iterator[Result]:
             fix="Bring the access points within about 6 dB of each other, usually by lowering "
             "the loud one.",
             key=f"aps:{site}:{band.value}",
+            mid="wifi.txAps",
+            fix_id="wifi.txAps.fix",
+            params={
+                "band": band.value,
+                "site": site,
+                "loud": device_name(net, loud.device_id),
+                "loud_dbm": loud.tx_power_dbm,
+                "quiet": device_name(net, quiet.device_id),
+                "quiet_dbm": quiet.tx_power_dbm,
+            },
         )
 
 
@@ -459,6 +523,13 @@ def ssid_coverage(net: Network) -> Iterator[Result]:
                     fix=f"Add {ssid!r} to {', '.join(missing)}, or ignore this if it is meant "
                     "to cover only part of the site.",
                     key=f"{site}:{ssid}:aps",
+                    mid="wifi.coverageAps",
+                    fix_id="wifi.coverageAps.fix",
+                    params={
+                        "ssid": repr(ssid),
+                        "have": ", ".join(have),
+                        "missing": ", ".join(missing),
+                    },
                 )
             for band in sorted(offered, key=lambda b: float(b.value)):
                 lacking = sorted(
@@ -476,6 +547,14 @@ def ssid_coverage(net: Network) -> Iterator[Result]:
                     fix=f"Add {ssid!r} to the {band.value} GHz radio of {', '.join(lacking)}, "
                     "or ignore this if it is intended.",
                     key=f"{site}:{ssid}:{band.value}",
+                    mid="wifi.coverageBand",
+                    fix_id="wifi.coverageBand.fix",
+                    params={
+                        "ssid": repr(ssid),
+                        "band": band.value,
+                        "with": ", ".join(with_band),
+                        "lacking": ", ".join(lacking),
+                    },
                 )
 
 
@@ -521,6 +600,14 @@ def segment_weakest_link(net: Network) -> Iterator[Result]:
                 objects,
                 fix=f"Move {ssid!r} to its own network (VLAN), for example a guest network.",
                 key=f"{seg}:{ssid}",
+                mid="wifi.weakestLink",
+                fix_id="wifi.weakestLink.fix",
+                params={
+                    "ssid": repr(ssid),
+                    "weak": weak,
+                    "strong": strong,
+                    "segment": segment_name(net, seg),
+                },
             )
         fingerprints: dict[str, str] = {}
         for s, ws in by_ssid.items():
@@ -539,6 +626,9 @@ def segment_weakest_link(net: Network) -> Iterator[Result]:
                 "(VLAN); otherwise ignore this or turn the rule off.",
                 severity=Severity.INFO,
                 key=f"{seg}:passwords",
+                mid="wifi.passwordsDiffer",
+                fix_id="wifi.passwordsDiffer.fix",
+                params={"names": names, "segment": segment_name(net, seg)},
             )
     for site, ssids in sorted(unknown.items()):
         if site not in protected_sites:
@@ -549,6 +639,8 @@ def segment_weakest_link(net: Network) -> Iterator[Result]:
             "known whether they share one with a protected SSID",
             [site],
             key=site,
+            mid="wifi.weakestUnknown",
+            params={"ssids": ", ".join(repr(s) for s in sorted(ssids)), "site": site},
         )
 
 
@@ -598,6 +690,9 @@ def default_ssid(net: Network) -> Iterator[Result]:
             fix="Set up the access point (own SSID name and password) or turn the radio off.",
             severity=Severity.ERROR if open_ else None,
             key=wlans[0].security.value,
+            mid="wifi.defaultSsidOpen" if open_ else "wifi.defaultSsid",
+            fix_id="wifi.defaultSsid.fix",
+            params={"device": device_name(net, dev), "ssid": repr(ssid)},
         )
 
 

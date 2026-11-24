@@ -69,7 +69,7 @@ def test_duplicate_hostname_with_real_macs_is_a_warning() -> None:
     (f,) = run(duplicate_hostname, gw(clients=clients))
     assert f.severity is Severity.WARNING
     assert f.message == (
-        "Two devices on LAN (VLAN 10) call themselves raspberrypi "
+        "2 devices on LAN (VLAN 10) call themselves raspberrypi "
         "(00:00:5e:00:53:21, 00:00:5e:00:53:22)"
     )
     assert f.fix and "Rename one" in f.fix

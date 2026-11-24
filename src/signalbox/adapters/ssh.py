@@ -93,6 +93,12 @@ def load_private_key(text: str) -> asyncssh.SSHKey:
         ) from None
 
 
+_DEFAULT_LOGIN = "the admin login"
+_DEFAULT_AUTH_FIX = (
+    "Check the user name and password, and that the device allows a password login over SSH for it."
+)
+
+
 @dataclass
 class ShellResult:
     code: int
@@ -139,9 +145,8 @@ class PinnedSsh:
         *,
         client_key: asyncssh.SSHKey | None = None,
         private_key: str | None = None,
-        login: str = "the admin login",
-        auth_fix: str = "Check the user name and password, and that the device allows a "
-        "password login over SSH for it.",
+        login: str = _DEFAULT_LOGIN,
+        auth_fix: str = _DEFAULT_AUTH_FIX,
     ) -> None:
         self.host, self.port, self.user = host, port, user
         self._password = password
@@ -197,12 +202,21 @@ class PinnedSsh:
                 raise AdapterError(f"{where}: the SSH host key cannot be checked") from None
             raise UntrustedHostKey(client.presented, self.pin) from None
         except asyncssh.PermissionDenied:
+            default = self.login == _DEFAULT_LOGIN
             raise AuthFailed(
-                f"{where}: the device refused {self.login} over SSH", fix=self.auth_fix
+                f"{where}: the device refused {self.login} over SSH",
+                fix=self.auth_fix,
+                fix_id="transport.sshAuth.fix" if self.auth_fix == _DEFAULT_AUTH_FIX else None,
+                message_id="transport.sshDeniedAdmin" if default else "transport.sshDenied",
+                params={"where": where, "login": self.login},
             ) from None
         except (TimeoutError, OSError, asyncssh.Error, ValueError) as exc:
             raise Unreachable(
-                f"cannot open an SSH connection to {where}: {_reason(exc)}", fix=REACH_FIX
+                f"cannot open an SSH connection to {where}: {_reason(exc)}",
+                fix=REACH_FIX,
+                fix_id="transport.reach.fix",
+                message_id="transport.sshFailed",
+                params={"where": where, "reason": _reason(exc)},
             ) from None
         self.fingerprint = client.presented
         self.fingerprint_hex = client.presented_hex

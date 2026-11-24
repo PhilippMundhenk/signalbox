@@ -66,6 +66,15 @@ def mac_flapping(net: Network, history: History) -> Iterator[Result]:
             "switch plugged into itself) and turn on spanning tree; check that no two devices "
             "use the same MAC address and that a bonded or virtual NIC is set up consistently.",
             key=mac,
+            mid="mac.flapping",
+            fix_id="mac.flapping.fix",
+            params={
+                "who": f"{who} ({mac})" if who else mac,
+                "count": len(moves),
+                "ports": len(ports),
+                "names": names,
+                "port": _port_text(net, port_id),
+            },
         )
 
 
@@ -101,8 +110,10 @@ def static_stale(net: Network, history: History) -> Iterator[Result]:
             if now - past.last_seen < STALE_AFTER:
                 continue
             ago = f"since {past.last_seen:%Y-%m-%d}"
+            ago_values: dict[str, str | int] = {"date": f"{past.last_seen:%Y-%m-%d}"}
         elif history.covers(STALE_AFTER):
             ago = f"for more than {STALE_AFTER.days} days"
+            ago_values = {"days": STALE_AFTER.days}
         else:
             continue
         if net.expected(client_target(mac)).may_be_unreachable:
@@ -116,6 +127,9 @@ def static_stale(net: Network, history: History) -> Iterator[Result]:
             fix="Remove the entry if the device is gone. A device that is rarely on keeps it; "
             "mark it as may be unreachable or turn the rule off.",
             key=mac,
+            mid="mac.staleSince" if past is not None else "mac.staleFor",
+            fix_id="mac.stale.fix",
+            params={"mac": mac, "where": where, **ago_values},
         )
 
 
@@ -140,6 +154,9 @@ def table_full(net: Network) -> Iterator[Result]:
             [dev_id],
             fix="Check for a loop or a device flooding random addresses; on a large network the "
             "devices behind a full table are placed by their other sightings only.",
+            mid="mac.tableFull",
+            fix_id="mac.tableFull.fix",
+            params={"device": device_name(net, dev_id), "count": n, "limit": FDB_LIMIT},
         )
 
 

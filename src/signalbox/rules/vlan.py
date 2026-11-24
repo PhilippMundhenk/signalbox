@@ -137,7 +137,7 @@ def _port_name(net: Network, port: str) -> str:
 
 
 def _link_name(net: Network, link: Link) -> str:
-    return f"{_port_name(net, link.a)} to {_port_name(net, link.b)}"
+    return f"{_port_name(net, link.a)} \u2194 {_port_name(net, link.b)}"
 
 
 def _segment_name(net: Network, segment: str) -> str:
@@ -254,6 +254,8 @@ def path_to_gateway(net: Network) -> Iterator[Result]:
                 "link (cable or wireless uplink) or enable LLDP on the devices in between.",
                 [dev],
                 key="unconnected",
+                mid="vlan.unconnected",
+                params={"name": _device_name(net, dev)},
             )
     for link_id, end in sorted(unknown_ends):
         what = "was not fully read" if view.is_unread(end) else "does not report VLAN memberships"
@@ -262,17 +264,29 @@ def path_to_gateway(net: Network) -> Iterator[Result]:
             f"{_link_name(net, links[link_id])} could not be checked.",
             [link_id, end],
             key="unknown-port",
+            mid="vlan.unread" if view.is_unread(end) else "vlan.noMemberships",
+            params={
+                "device": _device_name(net, _device_of(net, end)),
+                "link": _link_name(net, links[link_id]),
+            },
         )
     for (seg, link_id), users in sorted(missing.items()):
         link = links[link_id]
         lacking = [e for e in (link.a, link.b) if not view.carries(e, seg)]
-        ports = " and ".join(_port_name(net, e) for e in lacking)
+        ports = ", ".join(_port_name(net, e) for e in lacking)
         if link.origin is LinkOrigin.MAC:
             yield incomplete(
                 f"{_segment_name(net, seg)}, used on {', '.join(sorted(users))}, is not "
                 f"configured on {ports}. {_MAC_LINK.format(f'The link {_link_name(net, link)}')}",
                 [seg, link_id, *lacking],
                 key="mac-link",
+                mid="vlan.missingMac",
+                params={
+                    "segment": _segment_name(net, seg),
+                    "users": ", ".join(sorted(users)),
+                    "ports": ports,
+                    "link": _link_name(net, link),
+                },
             )
             continue
         yield found(
@@ -280,6 +294,14 @@ def path_to_gateway(net: Network) -> Iterator[Result]:
             f"the link {_link_name(net, link)} (missing on {ports}).",
             [seg, link_id, *lacking],
             fix=f"Add {_segment_name(net, seg)} as tagged VLAN to {ports}.",
+            mid="vlan.missing",
+            fix_id="vlan.missing.fix",
+            params={
+                "segment": _segment_name(net, seg),
+                "users": ", ".join(sorted(users)),
+                "link": _link_name(net, link),
+                "ports": ports,
+            },
         )
 
 
@@ -314,8 +336,15 @@ def native_mismatch(net: Network) -> Iterator[Result]:
         a, b = ends
 
         def describe(segs: frozenset[str]) -> str:
-            return " and ".join(sorted(_segment_name(net, s) for s in segs)) or "nothing"
+            return ", ".join(sorted(_segment_name(net, s) for s in segs)) or "\u2013"
 
+        values = {
+            "link": _link_name(net, link),
+            "a_port": _port_name(net, link.a),
+            "a": describe(a),
+            "b_port": _port_name(net, link.b),
+            "b": describe(b),
+        }
         message = (
             f"{_link_name(net, link)}: {_port_name(net, link.a)} sends {describe(a)} untagged, "
             f"{_port_name(net, link.b)} sends {describe(b)} untagged."
@@ -325,12 +354,17 @@ def native_mismatch(net: Network) -> Iterator[Result]:
                 f"{message} {_MAC_LINK.format('It')}",
                 [link.id, link.a, link.b],
                 key="mac-link",
+                mid="vlan.nativeMac",
+                params=values,
             )
             continue
         yield found(
             message,
             [link.id, link.a, link.b],
             fix="Set the same untagged (native) VLAN on both ports, or none on both.",
+            mid="vlan.native",
+            fix_id="vlan.native.fix",
+            params=values,
         )
 
 
@@ -350,6 +384,12 @@ def tagged_both_ends(net: Network) -> Iterator[Result]:
             for seg in sorted(view.tagged(here)):
                 if view.carries(there, seg):
                     continue
+                values = {
+                    "segment": _segment_name(net, seg),
+                    "here": _port_name(net, here),
+                    "there": _port_name(net, there),
+                    "link": _link_name(net, link),
+                }
                 message = (
                     f"{_segment_name(net, seg)} is tagged on {_port_name(net, here)} but not "
                     f"configured on {_port_name(net, there)} ({_link_name(net, link)})."
@@ -359,6 +399,8 @@ def tagged_both_ends(net: Network) -> Iterator[Result]:
                         f"{message} {_MAC_LINK.format('The link')}",
                         [seg, link.id, there],
                         key="mac-link",
+                        mid="vlan.taggedMac",
+                        params=values,
                     )
                     continue
                 yield found(
@@ -366,6 +408,9 @@ def tagged_both_ends(net: Network) -> Iterator[Result]:
                     [seg, link.id, there],
                     fix=f"Add {_segment_name(net, seg)} as tagged VLAN to "
                     f"{_port_name(net, there)}, or remove it from {_port_name(net, here)}.",
+                    mid="vlan.tagged",
+                    fix_id="vlan.tagged.fix",
+                    params=values,
                 )
 
 
@@ -394,6 +439,9 @@ def unused(net: Network) -> Iterator[Result]:
             [seg_id],
             fix="Remove the VLAN and its subnet if it is no longer needed, or add it to the "
             "ports and SSIDs that should use it.",
+            mid="vlan.unused",
+            fix_id="vlan.unused.fix",
+            params={"segment": _segment_name(net, seg_id), "names": names},
         )
 
 
@@ -422,6 +470,15 @@ def speed_duplex(net: Network) -> Iterator[Result]:
                 objects,
                 fix="Set both ports to auto-negotiation; if it stays, replace the cable.",
                 key="speed",
+                mid="vlan.speed",
+                fix_id="vlan.speed.fix",
+                params={
+                    "link": _link_name(net, link),
+                    "a": _port_name(net, link.a),
+                    "a_speed": a.speed_mbps,
+                    "b": _port_name(net, link.b),
+                    "b_speed": b.speed_mbps,
+                },
             )
         if (
             a.full_duplex is not None
@@ -430,7 +487,7 @@ def speed_duplex(net: Network) -> Iterator[Result]:
         ):
 
             def mode(full: bool) -> str:
-                return "full duplex" if full else "half duplex"
+                return "FDX" if full else "HDX"
 
             yield found(
                 f"{_link_name(net, link)}: {_port_name(net, link.a)} runs "
@@ -438,6 +495,15 @@ def speed_duplex(net: Network) -> Iterator[Result]:
                 objects,
                 fix="Set both ports to auto-negotiation (or the same fixed speed and duplex).",
                 key="duplex",
+                mid="vlan.duplex",
+                fix_id="vlan.duplex.fix",
+                params={
+                    "link": _link_name(net, link),
+                    "a": _port_name(net, link.a),
+                    "a_mode": mode(a.full_duplex),
+                    "b": _port_name(net, link.b),
+                    "b_mode": mode(b.full_duplex),
+                },
             )
 
 
@@ -472,7 +538,7 @@ def _announces(net: Network, nb: Neighbour, devices: set[str]) -> bool:
 
 
 def _and(items: list[str]) -> str:
-    return ", ".join(items[:-1]) + " and " + items[-1] if len(items) > 1 else "".join(items)
+    return ", ".join(items)
 
 
 def _ap_segments(net: Network, ap: Device, uplink: Link) -> set[str] | None:
@@ -542,6 +608,14 @@ def trunk_scope(net: Network) -> Iterator[Result]:
                 f"The link to {ap.name} carries {names}, but {ap.name} only uses {uses}.",
                 [link.id, up_end],
                 fix=f"Remove {names} from {_port_name(net, up_end)}.",
+                mid="vlan.trunkScope",
+                fix_id="vlan.trunkScope.fix",
+                params={
+                    "ap": ap.name,
+                    "names": names,
+                    "uses": uses,
+                    "port": _port_name(net, up_end),
+                },
             )
 
 
@@ -585,6 +659,9 @@ def slow(net: Network) -> Iterator[Result]:
                 fix="Replace the cable (it may use only two pairs) or check that both ports are "
                 "set to auto-negotiation.",
                 key="speed",
+                mid="vlan.slowLink",
+                fix_id="vlan.slowLink.fix",
+                params={"link": _link_name(net, link), "speed": min(speeds)},
             )
         elif speeds and len(ports) == 2 and len(maxima) == 2 and min(speeds) < min(maxima):
             yield found(
@@ -596,16 +673,25 @@ def slow(net: Network) -> Iterator[Result]:
                 "auto-negotiation, and replace a damaged cable.",
                 severity=Severity.INFO,
                 key="max-speed",
+                mid="vlan.belowMax",
+                fix_id="vlan.belowMax.fix",
+                params={"link": _link_name(net, link), "speed": min(speeds), "max": min(maxima)},
             )
         half = [p for p in ports if p.full_duplex is False]
         if half:
             yield found(
                 f"The link {_link_name(net, link)} runs in half duplex on "
-                f"{' and '.join(_port_name(net, p.id) for p in half)}.",
+                f"{', '.join(_port_name(net, p.id) for p in half)}.",
                 [link.id],
                 fix="Set both ports to auto-negotiation (or the same fixed speed and full "
                 "duplex); if it stays, replace the cable.",
                 key="duplex",
+                mid="vlan.halfDuplex",
+                fix_id="vlan.halfDuplex.fix",
+                params={
+                    "link": _link_name(net, link),
+                    "ports": ", ".join(_port_name(net, p.id) for p in half),
+                },
             )
     for p in net.ports:
         dev = devices.get(p.device_id)
@@ -620,6 +706,9 @@ def slow(net: Network) -> Iterator[Result]:
                 fix="Set the port and the connected device to auto-negotiation; if it stays, "
                 "replace the cable.",
                 key="duplex",
+                mid="vlan.portHalfDuplex",
+                fix_id="vlan.portHalfDuplex.fix",
+                params={"port": _port_name(net, p.id)},
             )
         elif (
             p.speed_mbps is not None
@@ -633,6 +722,9 @@ def slow(net: Network) -> Iterator[Result]:
                 "reaches at least 100 Mbit/s.",
                 severity=Severity.INFO,
                 key="speed",
+                mid="vlan.portSlow",
+                fix_id="vlan.portSlow.fix",
+                params={"port": _port_name(net, p.id), "speed": p.speed_mbps},
             )
 
 
