@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Device accounts and factory passwords (ADR 0020): `Device.accounts` (privilege, enabled, password set, key, last login, Signalbox's own, allowed sources; device page only, never in exports, MQTT or findings), `default_credentials` compared in memory with the vendors' factory logins (no secret or hash is kept), the privilege of Signalbox's login against the least it needs; readers for MikroTik, OpenWrt rpcd (`rpcd` joins the read ACL; opt-in `probe_empty_root_password`), OPNsense (admin keys only), FRITZ!Box, Omada and NETGEAR/TP-Link switches; checks `security.default-password`, `account.signalbox-privileged`, `account.admin-default-name`, `account.no-password`, `account.stale`; an *Accounts* card on the device page; FRITZ!Box and Omada layouts unconfirmed (#175, #126, #21)
 - UI languages: Simplified Chinese (zh), Korean (ko) and Indonesian (id), with Chinese and Korean font stacks and line breaking (#204)
 - UI languages: Hindi (hi) and Bengali (bn), with Devanagari and Bengali font stacks and extra line height for the tall glyphs (#204)
 - Omada access points: each EAP has an `ETH1` port (and a wireless `Mesh` port in a mesh) and its uplink from `GET …/aps/{mac}` is reported as a neighbour, so APs are cabled to their switch port and mesh uplinks drawn as wireless links; the demo cables its Omada APs and the "Not cabled" strip wraps narrower; mesh fields from the 6.3 API description, wired uplink field names are guesses (#336, #21)
