@@ -50,10 +50,12 @@ from signalbox.adapters.linux import (
     nftables,
     parse,
     provision,
-    routes,
     setup,
     syslog,
     wireguard,
+)
+from signalbox.adapters.linux import (
+    routes as route_reader,
 )
 from signalbox.adapters.linux import trace as _trace
 from signalbox.adapters.linux.collect import Answer
