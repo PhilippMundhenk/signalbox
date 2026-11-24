@@ -75,9 +75,9 @@ def test_a_declared_host_wins_and_a_wrong_one_is_ignored() -> None:
     snaps = [host(), service("dns", "192.0.2.77"), service("other", "192.0.2.78")]
     net = merge([SITE], snaps, hosted_on={"dns": "gw", "other": "missing"})
     assert hosted(net) == {"gw": None, "dns": "gw", "other": None}
-    # a device is never its own host, and a host is not hosted itself
+    # a device is never its own host, and a host is not hosted itself (a loop is no hosting)
     net = merge([SITE], snaps, hosted_on={"gw": "dns", "dns": "gw"})
-    assert hosted(net) == {"gw": None, "dns": "gw", "other": None}
+    assert hosted(net) == {"gw": None, "dns": None, "other": None}
     net = merge([SITE], snaps, hosted_on={"dns": "dns"})
     assert hosted(net)["dns"] is None
 
