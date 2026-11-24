@@ -1748,10 +1748,10 @@ class OpnsenseAdapter(_Adapter):
                     port = _port(row.get("port"))
                     fwd = DnsForwarder(address=server, port=port or DNS_PORT)
                     domain_forwards.setdefault(domain, str(fwd))
-        except NotFound:
-            pass  # no such grid on this release (the forwards are in the general settings)
         except AdapterError as exc:
-            gaps.append(_privilege_gap("DNS domain overrides", exc, UNBOUND_PRIVILEGE))
+            # no such grid on this release (26.7 answers 200 with an empty body; the forwards are
+            # in the general settings): optional extra, never a gap
+            log.debug("%s: no domain override grid: %s", dev, exc)
         extra: dict[str, Any] = {"domain_forwards": domain_forwards} if domain_forwards else {}
         services = [
             DnsService(
@@ -1833,10 +1833,16 @@ class OpnsenseAdapter(_Adapter):
                     continue
                 name = _fqdn(row.get("hostname"), row.get("domain"))
                 if name:
-                    records.append(HostRecord(name=name, address=address, source="host-override"))
+                    source = "alias" if row.get("isAlias") is True else "host-override"
+                    records.append(HostRecord(name=name, address=address, source=source))
                     for key in (_text(row.get("uuid")), name):
                         if key:
                             by_target.setdefault(key, []).append(address)
+                # 26.7 nests the aliases of an override as ``_children`` (also in the alias grid)
+                for child in (c for c in row.get("_children") or [] if isinstance(c, dict)):
+                    alias = _fqdn(child.get("hostname"), child.get("domain"))
+                    if alias and _flag(child.get("enabled", "1")):
+                        records.append(HostRecord(name=alias, address=address, source="alias"))
         except AdapterError as exc:
             read = False
             gaps.append(_privilege_gap("DNS host overrides", exc, UNBOUND_PRIVILEGE))
@@ -1856,7 +1862,8 @@ class OpnsenseAdapter(_Adapter):
                 read = False
                 gaps.append(_privilege_gap("DNS host aliases", exc, UNBOUND_PRIVILEGE))
         records += await self._registered(root, general)
-        return records, gaps, read
+        unique = {(r.name.lower(), str(r.address)): r for r in reversed(records)}
+        return [r for r in records if unique[(r.name.lower(), str(r.address))] is r], gaps, read
 
     async def _registered(self, root: dict[str, Any], general: dict[str, Any]) -> list[HostRecord]:
         """Names of DHCP static mappings and leases that Unbound registers ("Register DHCP
