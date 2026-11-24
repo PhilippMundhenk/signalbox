@@ -948,3 +948,17 @@ integration needs. A group without the `read` policy for `/user` gives an option
 `default_credentials` is true when the configured login is `admin` with an empty password (the
 factory state of RouterOS before 6.49 and of CHR), compared in memory; no other login is ever
 tried. The rules are in [account_checks](../rules/account_checks.md).
+
+## Stored certificates (#330)
+
+- `GET /rest/certificate` (policy `read`): `name`, `common-name`, `subject-alt-name`, `issuer`,
+  `fingerprint`, `invalid-before`, `invalid-after`, `key-type`, `key-size`, `digest-algorithm`,
+  `authority` (a CA), `trusted` and the flag `private-key` (only whether a key exists). Export
+  and the key itself need the `sensitive` policy and are never requested; a test shows that a
+  row full of key material leaves none of it in the model.
+- Who uses a certificate: the `certificate` of `www-ssl` and `api-ssl` in `/rest/ip/service`
+  (becomes `used_by`, the service ids) and, where the menu exists, `/rest/ip/ipsec/identity`,
+  `/rest/interface/ovpn-server/server`, `/rest/interface/sstp-server/server` (VPN) and
+  `/rest/user-manager` (RADIUS), best effort.
+- *Guess until a CHR run confirms it (#21)*: the date format of `invalid-after`, `key-size` of
+  elliptic-curve keys, the issuer text, which of the optional menus the CHR has.

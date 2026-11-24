@@ -850,6 +850,53 @@ def sample_data() -> dict[str, Any]:
                 "inactiveTimeout": "15",
             }
         },
+        # Certificates and authorities (#330): the search grids, public data only (the
+        # answer of ``get/<uuid>``, with the private key, is not simulated: nothing calls it).
+        # Fields as the adapter expects them: *guess* until the 26.7 image says otherwise.
+        "/api/trust/ca/search": {
+            "total": 1,
+            "rowCount": 1,
+            "current": 1,
+            "rows": [
+                {
+                    "uuid": "7c1d0e22-0000-4000-8000-000000000330",
+                    "refid": "6a0b0000330ca",
+                    "descr": "Lab CA",
+                    "commonname": "lab-ca",
+                    "valid_from": "1767225600",
+                    "valid_to": "2082758400",
+                    "in_use": "1",
+                }
+            ],
+        },
+        "/api/trust/cert/search": {
+            "total": 2,
+            "rowCount": 2,
+            "current": 1,
+            "rows": [
+                {
+                    "uuid": "7c1d0e22-0000-4000-8000-000000000331",
+                    "refid": "6a0b0000331ce",
+                    "descr": "Web GUI",
+                    "caref": "6a0b0000330ca",
+                    "commonname": "opnsense.lab.example",
+                    "valid_from": "1767225600",
+                    "valid_to": "1924992000",
+                    "san_dns": "opnsense.lab.example",
+                    "in_use": "1",
+                },
+                {
+                    "uuid": "7c1d0e22-0000-4000-8000-000000000332",
+                    "refid": "6a0b0000332ce",
+                    "descr": "VPN server",
+                    "caref": "6a0b0000330ca",
+                    "commonname": "vpn.lab.example",
+                    "valid_from": "1767225600",
+                    "valid_to": "1924992000",
+                    "in_use": "0",
+                },
+            ],
+        },
         # os-net-snmp (not part of the base system): general settings, v2c community "public"
         "/api/netsnmp/general/get": {
             "general": {

@@ -68,6 +68,9 @@ from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
 from signalbox.adapters.mikrotik import trace as _trace
+from signalbox.adapters.mikrotik.certificates import USERS as CERT_USERS
+from signalbox.adapters.mikrotik.certificates import attach_users
+from signalbox.adapters.mikrotik.certificates import parse as parse_certificate
 from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.factory_defaults import is_factory_default
@@ -79,6 +82,8 @@ from signalbox.model import (
     AccountPrivilege,
     AddressSource,
     Band,
+    Certificate,
+    CertificateUse,
     Cipher,
     Client,
     DeviceAccount,
@@ -202,6 +207,7 @@ CLOCK = "/rest/system/clock"
 NTP_CLIENT = "/rest/system/ntp/client"
 NTP_SERVER = "/rest/system/ntp/server"
 IP_SERVICE = "/rest/ip/service"
+CERTIFICATE = "/rest/certificate"
 MAC_SERVER = "/rest/tool/mac-server"
 MAC_WINBOX = "/rest/tool/mac-server/mac-winbox"
 ROMON = "/rest/tool/romon"
@@ -1243,6 +1249,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             subnets=subnets,
             uplinks=await self._uplinks(layout),
             services=await self._services(layout),
+            certificates=await self._certificates(),
             log_targets={} if targets is None else {dev: targets},
             accounts={} if accounts is None else {dev: accounts},
             default_credentials={dev: default},
@@ -1371,6 +1378,25 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 )
             )
         return out, []
+
+    async def _certificates(self) -> list[Certificate]:
+        """Certificates stored on the router (#330): ``/certificate`` (public data only, see
+        :mod:`.certificates`) and the services, VPN and RADIUS servers that name them. Empty
+        when the menu cannot be read (not read)."""
+        dev = self.context.device_id
+        rows = await self._readable(CERTIFICATE)
+        if not rows:
+            return []
+        certs = [c for r in rows if (c := parse_certificate(dev, r)) is not None]
+        services = await self._readable(IP_SERVICE) or []
+        named: list[tuple[str, CertificateUse]] = []
+        for endpoint, use, single in CERT_USERS:
+            if single:
+                values = [await self._optional_object(endpoint)]
+            else:
+                values = await self._readable(endpoint) or []
+            named += [(_text(v.get("certificate")), use) for v in values]
+        return attach_users(certs, dev, services, named)
 
     async def _services(self, layout: _Layout) -> list[ManagementService]:
         """Management services (#173): ``/ip/service`` plus MAC server, RoMON, SNMP. Empty

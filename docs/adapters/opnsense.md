@@ -219,6 +219,7 @@ remedy, the fix adds exactly that privilege and the same key reads the firewall 
    | Firewall: NAT: 1:1 | `/api/firewall/one_to_one/search_rule` (one-to-one NAT) |
    | System: Settings: Logging | `/api/syslog/settings/search_destinations` (remote syslog targets, #180; `page-diagnostics-logs-settings-targets` in the core ACL) |
    | Diagnostics: Netflow configuration | `/api/diagnostics/netflow/getconfig` (NetFlow export, #180; `page-diagnostics-netflow`) |
+   | System: Certificate Manager, System: Authority Manager | `/api/trust/cert/search`, `/api/trust/ca/search` (stored certificates and authorities, #330; `page-system-certmanager`, `page-system-camanager`; never `get/<uuid>` or the exports, which answer private keys) |
 
    ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
    and are skipped. With the plugin, add its DHCP server and lease pages.
@@ -886,3 +887,18 @@ for none; `authorizedkeys` only as "has a key") and reports its own privilege as
 privileges are per page, not read-only). Which fields the search rows carry (`disabled`,
 `is_admin`) is a *guess* (#21). API keys cannot be factory defaults: `default_credentials` stays
 unknown.
+
+## Stored certificates (#330)
+
+- `GET /api/trust/cert/search` and `/api/trust/ca/search` (grids; privileges *System: Certificate
+  Manager* and *System: Authority Manager*, both in the read user's list: automatic
+  setup and *Fix it* add them; users made by hand before #330 need the two pages added).
+  Per row: description, `commonname`, `valid_from`, `valid_to`, `caref` (the issuing authority),
+  `in_use`, and the PEM of the public certificate (`crt_payload`) where the grid has it: key
+  type and size, signature and fingerprint come from that.
+- **Never read**: `get/<uuid>`, the export calls, `prv_payload`, `prv`, `csr_payload`. A test
+  feeds a row full of key material and shows none of it is kept.
+- Without a privilege an optional gap names it; what was readable is still reported.
+- *Guess until the 26.7 integration image confirms it (#21)*: which fields the search rows
+  carry (fields that are missing stay empty) and the date format. OPNsense does not say which
+  VPN or service uses a certificate, so `cert.vpn-expiring` stays quiet for it.

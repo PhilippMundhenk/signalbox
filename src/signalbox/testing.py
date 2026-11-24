@@ -513,6 +513,31 @@ def _extra_secrets(where: str, value: Any, public: set[str]) -> Iterator[str]:
                 yield f"{where}: vendor_extra holds a key that is no public key of the snapshot"
 
 
+def certificate_problems(snapshot: Snapshot) -> list[str]:
+    """Stored certificates (#330): ids, each once, ``used_by`` naming reported services, and no
+    key material anywhere in them (the model has no field for it; a PEM private key or
+    certificate request in ``vendor_extra`` or a name is refused)."""
+    out: list[str] = []
+    services = {s.id for s in snapshot.services}
+    seen: set[str] = set()
+    for cert in snapshot.certificates:
+        prefix = f"{cert.device_id}/cert/"
+        if not cert.id.startswith(prefix) or cert.id == prefix:
+            out.append(f"certificate id {cert.id} is not {prefix}<name>")
+        if cert.id in seen:
+            out.append(f"certificate {cert.id} reported twice")
+        seen.add(cert.id)
+        out += [
+            f"certificate {cert.id} used by unknown service {s}"
+            for s in cert.used_by
+            if s not in services
+        ]
+        dump = cert.model_dump_json()
+        if "PRIVATE KEY" in dump or "CERTIFICATE REQUEST" in dump:
+            out.append(f"certificate {cert.id} holds key material")
+    return out
+
+
 def secret_problems(snapshot: Snapshot) -> list[str]:
     """No private or pre-shared key anywhere (#239): the model has no field for them, so the
     only place an adapter could put one is ``vendor_extra``. A field named like a secret, or a
@@ -542,7 +567,7 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             out.append(f"declares {cap.value} but no device has {attr}")
         if cap.value not in caps and found:
             out.append(f"{attr} reported without declaring {cap.value}")
-    for kind in ("uplinks", "services"):
+    for kind in ("uplinks", "services", "certificates"):
         if getattr(snapshot, kind) and Capability.INTERFACES.value not in caps:
             out.append(f"{kind} reported without declaring {Capability.INTERFACES.value}")
     if snapshot.dhcp_relays and Capability.DHCP.value not in caps:
@@ -602,6 +627,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         "subnets",
         "uplinks",
         "services",
+        "certificates",
         "dhcp_servers",
         "dhcp_relays",
         "dns_services",
@@ -697,6 +723,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         firewalls.add(fw.device_id)
         out += firewall_problems(fw, port_ids, segment_ids, uplink_ids, tunnels)
     out += secret_problems(snapshot)
+    out += certificate_problems(snapshot)
     for nb in snapshot.neighbours:
         if nb.local_port_id not in port_ids:
             out.append(f"neighbour {nb.id} on unknown port {nb.local_port_id}")

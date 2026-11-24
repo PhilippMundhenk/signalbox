@@ -39,6 +39,8 @@ PRIVILEGES = (
     "page-diagnostics-traceroute",
     "page-diagnostics-logs-settings-targets",
     "page-diagnostics-netflow",
+    "page-system-certmanager",
+    "page-system-camanager",
 )
 GROUPS = ("admins",)
 

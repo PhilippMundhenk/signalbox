@@ -33,6 +33,7 @@ from signalbox.discovery import BroadcastResult, Candidate, HostProbe, NetworkPr
 from signalbox.model import (
     FDB_LIMIT,
     AccountPrivilege,
+    Certificate,
     Client,
     Device,
     DeviceAccount,
@@ -570,6 +571,11 @@ class Observation(BaseModel):
     #: Management services (#173), read with ``interfaces``; no API version needed. Report
     #: every service the device has, disabled ones too, or none (not read).
     services: list[ManagementService] = Field(default_factory=list)
+    #: Certificates stored on the device (#330), read with ``interfaces``; no API version
+    #: needed. Public data only: never a private key, its passphrase or a certificate request,
+    #: also not in ``vendor_extra``. Report every certificate the device lists, or none (not
+    #: read).
+    certificates: list[Certificate] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     #: DHCP relays (#183), read with ``dhcp``; no API version needed.
     dhcp_relays: list[DhcpRelay] = Field(default_factory=list)

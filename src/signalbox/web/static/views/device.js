@@ -380,6 +380,44 @@ function certificateCard(observed) {
   return h('section', { class: 'card', 'data-testid': 'device-certificate' }, h('h2', {}, t('device.cert.title')), kv(rows));
 }
 
+// Certificates stored on the device (#330): VPN, RADIUS, web interface, authorities. Public
+// data only; an empty list means the device does not list them.
+const CERT_USE = {
+  management: 'device.certs.use.management',
+  vpn: 'device.certs.use.vpn',
+  radius: 'device.certs.use.radius',
+  other: 'device.certs.use.other',
+};
+
+function storedCertificatesCard(ix, deviceId) {
+  const certs = (ix.net.certificates || []).filter((c) => c.device_id === deviceId);
+  if (!certs.length) return null;
+  const day = (iso) => fmtDate(new Date(iso), { dateStyle: 'medium' });
+  const rows = certs.map((c) => {
+    const expired = new Date(c.not_after).getTime() <= Date.now();
+    const key = c.key_type === 'other' ? null : `${c.key_type.toUpperCase()} ${c.key_bits}`;
+    const facts = [
+      c.ca ? t('device.certs.ca') : null,
+      ...c.uses.map((u) => t(CERT_USE[u] || CERT_USE.other)),
+      key,
+      c.self_signed ? t('device.cert.selfSigned') : c.issuer ? t('device.certs.issuedBy', { issuer: c.issuer }) : null,
+      c.trusted_on_device ? t('device.certs.trustedOnDevice') : null,
+      c.has_private_key ? t('device.certs.hasKey') : null,
+      c.used_by.length ? t('device.certs.usedBy', { names: c.used_by.map((id) => id.split('/service/').pop()).join(', ') }) : null,
+    ].filter(Boolean);
+    return [
+      c.name,
+      h(
+        'span',
+        { 'data-testid': 'stored-certificate', 'data-id': c.id },
+        h('span', { class: expired ? 'bad' : '' }, expired ? t('device.certs.expired', { date: day(c.not_after) }) : t('device.certs.until', { date: day(c.not_after) })),
+        facts.length ? ` · ${facts.join(' · ')}` : '',
+      ),
+    ];
+  });
+  return h('section', { class: 'card', 'data-testid': 'device-certificates' }, h('h2', {}, t('device.certs.title')), kv(rows));
+}
+
 const BAND = { 2.4: '2.4 GHz', 5: '5 GHz', 6: '6 GHz' };
 
 // One entry of the port tree (#252): the port (or radio), what it is, and what runs on it.
@@ -579,6 +617,7 @@ async function overview(main, ctx, device, adapters, sites) {
     observed ? loggingCard(observed) : null,
     observed ? certificateCard(observed) : null,
     observed ? accountsCard(observed) : null,
+    storedCertificatesCard(ix, device.id),
     observed ? healthCard(observed.health) : null,
     observed ? timeCard(observed.time) : null,
     trustBox,
@@ -598,6 +637,7 @@ function rawObjects(net, deviceId) {
     subnets: net.subnets.filter(mine),
     uplinks: net.uplinks.filter(mine),
     services: net.services.filter(mine),
+    certificates: (net.certificates || []).filter(mine),
     dhcp_servers: net.dhcp_servers.filter(mine),
     dns_services: net.dns_services.filter(mine),
     radios: net.radios.filter(mine),

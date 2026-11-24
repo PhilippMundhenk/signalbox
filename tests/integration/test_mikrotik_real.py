@@ -414,6 +414,29 @@ async def test_management_services_of_chr(rt: dict[str, str]) -> None:
     assert snap.device.transport_encrypted is True
 
 
+async def test_stored_certificates_of_chr(rt: dict[str, str]) -> None:
+    """The self-signed authority and server certificate the setup creates (#330): listed with
+    their dates, the authority flag and the ``www-ssl`` service that uses the server one; the
+    read user sees public data and the flag that a key exists, never the key."""
+    a = adapter(rt)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    by = {c.name: c for c in snap.certificates}
+    assert {"signalbox-ca", "signalbox-www"} <= set(by), snap.certificates
+    ca, www = by["signalbox-ca"], by["signalbox-www"]
+    assert ca.ca and not www.ca, (ca, www)
+    assert www.used_by == [f"{snap.device.id}/service/www-ssl"], www
+    assert www.not_after > www.not_before and (www.not_after - www.not_before).days > 3000
+    assert www.key_type.value == "rsa" and www.key_bits >= 2048, www
+    assert len(www.fingerprint_sha256) == 64, www
+    assert www.has_private_key is True and www.vendor_extra == {}
+    dump = snap.model_dump_json()
+    assert "PRIVATE KEY" not in dump and "BEGIN" not in dump
+
+
 async def test_log_targets_of_chr(rt: dict[str, str]) -> None:
     """RouterOS defaults (#180): the action ``remote`` points to 0.0.0.0 and no logging rule
     uses it, traffic-flow has no target and SNMP no trap target: read, and nothing is sent."""

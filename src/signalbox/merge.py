@@ -417,6 +417,7 @@ def merge(
             "subnets": every("subnets"),
             "uplinks": every("uplinks"),
             "services": every("services"),
+            "certificates": every("certificates"),
             "dhcp_servers": every("dhcp_servers"),
             "dhcp_relays": every("dhcp_relays"),
             "dns_services": every("dns_services"),
