@@ -133,7 +133,7 @@ async def test_arch_host_is_read_with_its_network() -> None:
     (fw,) = snap.firewalls
     assert not [e for e in snap.errors if e.capability == "firewall"]
     assert fw.vendor_extra == {"source": "iptables-save"} and fw.rules_complete
-    assert fw.input_policy is FirewallAction.DROP and len(fw.rules) == 2
+    assert fw.input_policy is FirewallAction.DROP and len(fw.rules) == 3
     assert fw.forward_policy is FirewallAction.DROP
 
 
