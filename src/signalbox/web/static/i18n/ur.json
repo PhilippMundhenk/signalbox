@@ -1200,6 +1200,7 @@
  "msg.setup.linux.deleteUser": "صارف {login} اور اس کی ہوم ڈائریکٹری حذف کریں",
  "msg.setup.linux.hostKey": "پڑھنے کے لیے آلے کی SSH ہوسٹ کلید پر اعتماد کریں (جس کی اس سیٹ اپ کے لیے تصدیق ہوئی)",
  "msg.setup.linux.install": "{manager} کے ذریعے {what} انسٹال کریں (آپ نے اسے منتخب کیا؛ اختیاری)",
+ "msg.setup.linux.installFix": "{manager} سے {what} انسٹال کریں (یہ درستی)",
  "msg.setup.linux.key": "{login} کو Signalbox کی بنائی ہوئی نئی کلید سے لاگ اِن کرنے دیں (صرف عوامی کلید بھیجی جاتی ہے؛ authorized_keys بدل دی جاتی ہے)",
  "msg.setup.linux.noSudoers": "کوئی sudoers قاعدہ نہیں: نہ WireGuard (wg) نصب ہے نہ nftables (nft)",
  "msg.setup.linux.previewDeleteSudoers": "sudoers قاعدہ حذف کریں",

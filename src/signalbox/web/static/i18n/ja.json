@@ -1200,6 +1200,7 @@
  "msg.setup.linux.deleteUser": "ユーザー {login} とそのホームディレクトリを削除する",
  "msg.setup.linux.hostKey": "読み取りのために機器の SSH ホスト鍵を信頼する (このセットアップで確認したもの)",
  "msg.setup.linux.install": "{manager} で {what} をインストールする (チェックを入れた場合のみ。任意)",
+ "msg.setup.linux.installFix": "{manager} で {what} をインストール（この修正）",
  "msg.setup.linux.key": "Signalbox が生成した新しい鍵で {login} がログインできるようにする (公開鍵のみが送信され、authorized_keys は置き換えられます)",
  "msg.setup.linux.noSudoers": "sudoers ルールなし: WireGuard (wg) も nftables (nft) もインストールされていません",
  "msg.setup.linux.previewDeleteSudoers": "sudoers ルールを削除する",

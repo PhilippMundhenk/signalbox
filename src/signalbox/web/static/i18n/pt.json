@@ -1238,6 +1238,7 @@
  "msg.setup.linux.deleteUser": "Excluir o usuário {login} e seu diretório home",
  "msg.setup.linux.hostKey": "Confiar na chave de host SSH do dispositivo para leitura (a confirmada para esta configuração)",
  "msg.setup.linux.install": "Instalar {what} com {manager} (você marcou isto; opcional)",
+ "msg.setup.linux.installFix": "Instalar {what} com {manager} (esta correção)",
  "msg.setup.linux.key": "Permitir que {login} entre com uma nova chave gerada pelo Signalbox (só a chave pública é enviada; authorized_keys é substituído)",
  "msg.setup.linux.noSudoers": "Sem regra sudoers: nem o WireGuard (wg) nem o nftables (nft) estão instalados",
  "msg.setup.linux.previewDeleteSudoers": "Excluir a regra sudoers",

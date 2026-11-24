@@ -1200,6 +1200,7 @@
  "msg.setup.linux.deleteUser": "사용자 {login}과(와) 홈 디렉터리 삭제",
  "msg.setup.linux.hostKey": "읽기를 위해 장치의 SSH 호스트 키 신뢰 (이 설정에서 확인한 키)",
  "msg.setup.linux.install": "{manager}(으)로 {what} 설치 (선택하신 항목이며 선택 사항)",
+ "msg.setup.linux.installFix": "{manager}(으)로 {what} 설치 (이 수정)",
  "msg.setup.linux.key": "{login}이(가) Signalbox가 생성한 새 키로 로그인하도록 허용 (공개 키만 전송되며 authorized_keys가 교체됨)",
  "msg.setup.linux.noSudoers": "sudoers 규칙 없음: WireGuard (wg)와 nftables (nft) 모두 설치되어 있지 않습니다",
  "msg.setup.linux.previewDeleteSudoers": "sudoers 규칙 삭제",

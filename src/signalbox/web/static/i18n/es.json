@@ -1238,6 +1238,7 @@
  "msg.setup.linux.deleteUser": "Eliminar el usuario {login} y su directorio personal",
  "msg.setup.linux.hostKey": "Confiar en la clave de host SSH del dispositivo para la lectura (la confirmada para esta configuración)",
  "msg.setup.linux.install": "Instalar {what} con {manager} (lo marcaste; opcional)",
+ "msg.setup.linux.installFix": "Instalar {what} con {manager} (esta corrección)",
  "msg.setup.linux.key": "Permitir que {login} inicie sesión con una clave nueva generada por Signalbox (solo se envía la clave pública; authorized_keys se reemplaza)",
  "msg.setup.linux.noSudoers": "Sin regla sudoers: no están instalados ni WireGuard (wg) ni nftables (nft)",
  "msg.setup.linux.previewDeleteSudoers": "Eliminar la regla sudoers",

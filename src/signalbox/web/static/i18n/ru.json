@@ -1200,6 +1200,7 @@
  "msg.setup.linux.deleteUser": "Удалить пользователя {login} и его домашний каталог",
  "msg.setup.linux.hostKey": "Доверять ключу хоста SSH устройства для чтения (подтверждённому для этой настройки)",
  "msg.setup.linux.install": "Установить {what} через {manager} (вы отметили это; необязательно)",
+ "msg.setup.linux.installFix": "Установить {what} с помощью {manager} (это исправление)",
  "msg.setup.linux.key": "Разрешить {login} вход по новому ключу, созданному Signalbox (отправляется только открытый ключ; authorized_keys заменяется)",
  "msg.setup.linux.noSudoers": "Правила sudoers нет: не установлен ни WireGuard (wg), ни nftables (nft)",
  "msg.setup.linux.previewDeleteSudoers": "Удалить правило sudoers",

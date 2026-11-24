@@ -1200,6 +1200,7 @@
  "msg.setup.linux.deleteUser": "حذف المستخدم {login} ودليله الرئيسي",
  "msg.setup.linux.hostKey": "الوثوق بمفتاح مضيف SSH للجهاز للقراءة (المفتاح الذي أُكّد لهذا الإعداد)",
  "msg.setup.linux.install": "تثبيت {what} بواسطة {manager} (حدّدته أنت؛ اختياري)",
+ "msg.setup.linux.installFix": "تثبيت {what} باستخدام {manager} (هذا الإصلاح)",
  "msg.setup.linux.key": "السماح لـ {login} بتسجيل الدخول بمفتاح جديد يولّده Signalbox (يُرسل المفتاح العام فقط؛ ويُستبدل authorized_keys)",
  "msg.setup.linux.noSudoers": "لا قاعدة sudoers: لا WireGuard (wg) ولا nftables (nft) مثبّت",
  "msg.setup.linux.previewDeleteSudoers": "حذف قاعدة sudoers",

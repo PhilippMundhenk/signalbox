@@ -265,6 +265,8 @@ async def test_fix_it_installs_nftables_then_the_firewall_is_read() -> None:
             ("sudoers", StepState.TODO),
         ]
         assert "pacman -S --needed --noconfirm nftables" in plan.steps[0].detail
+        # #395: the fix installs nftables as its purpose; it must not claim the user ticked it
+        assert "ticked" not in plan.steps[0].title and "(this fix)" in plan.steps[0].title
         assert not box.nft_installed
         done = await LinuxAdapter.apply_remedy(fix(port, fp))
         assert done.ok and not done.settings and not done.secrets

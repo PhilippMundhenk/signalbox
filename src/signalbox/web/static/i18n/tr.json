@@ -1200,6 +1200,7 @@
  "msg.setup.linux.deleteUser": "{login} kullanıcısını ve ana dizinini sil",
  "msg.setup.linux.hostKey": "Cihazın SSH ana bilgisayar anahtarına okuma için güven (bu kurulum için onaylananı)",
  "msg.setup.linux.install": "{what} paketini {manager} ile kur (bunu işaretlediniz; isteğe bağlı)",
+ "msg.setup.linux.installFix": "{what} paketini {manager} ile kur (bu düzeltme)",
  "msg.setup.linux.key": "{login} kullanıcısının Signalbox'ın oluşturduğu yeni bir anahtarla giriş yapmasına izin ver (yalnızca genel anahtar gönderilir; authorized_keys değiştirilir)",
  "msg.setup.linux.noSudoers": "sudoers kuralı yok: ne WireGuard (wg) ne de nftables (nft) kurulu",
  "msg.setup.linux.previewDeleteSudoers": "sudoers kuralını sil",
