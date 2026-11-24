@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import SecretStr
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from factories import SITE
 from signalbox.adapters import (
@@ -65,7 +65,9 @@ class Stepper(Dev):
             Step("four", "Fourth", action=_ok),
         ]
         ok, done = await run_steps(steps, redact)
-        return SetupResult(ok=ok, steps=done, settings={"url": "x"}, secrets={"password": SecretStr("generated")})
+        return SetupResult(
+            ok=ok, steps=done, settings={"url": "x"}, secrets={"password": SecretStr("generated")}
+        )
 
 
 async def _ok() -> str | None:

@@ -26,6 +26,7 @@ from signalbox.adapters import (
     AuthFailed,
     SetupRequest,
     SetupResult,
+    SetupStep,
     StepState,
     Unreachable,
     UntrustedCertificate,
@@ -309,7 +310,7 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
                 )
             else:
                 if isinstance(answer, JSONResponse):
-                    job.status, job.result = answer.status_code, json.loads(answer.body)
+                    job.status, job.result = answer.status_code, json.loads(bytes(answer.body))
                 else:
                     job.status, job.result = 200, answer
             job.current = None

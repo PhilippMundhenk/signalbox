@@ -291,6 +291,8 @@ textarea.code { width: 100%; max-width: none; font-family: ui-monospace, SFMono-
 .step-todo { color: var(--warn); }
 .step-failed { color: var(--danger); }
 .step-skipped { color: var(--muted); }
+.step-running { color: var(--accent); font-weight: 600; }
+.step-waiting { color: var(--muted); }
 pre.commands { background: var(--surface-2, var(--surface)); border: 1px solid var(--border); border-radius: 6px; padding: 10px; overflow: auto; max-height: 22em; font-size: 0.85em; white-space: pre; }
 .read-errors li { margin-bottom: 6px; }
 .read-errors .fix { color: var(--text); margin: 2px 0 0; }
