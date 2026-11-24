@@ -106,7 +106,7 @@ def test_guest_wifi_next_to_main_ssid() -> None:
     (f,) = run(guest_isolation, net(wlans=wl))
     assert f.severity == "error"
     assert f.message == (
-        "The guest Wi-Fi 'Visitors' on ap and ap2 is in Things (VLAN 20), "
+        "The guest Wi-Fi 'Visitors' on ap, ap2 is in Things (VLAN 20), "
         "the same network as 'Home'"
     )
     assert f.objects == ["ap/wlan/Visitors-0", "ap2/wlan/Visitors-0", IOT]
@@ -118,7 +118,7 @@ def test_guest_wifi_in_main_or_purposed_network() -> None:
     assert f.message.endswith("is in LAN (untagged network), the untagged main network")
     segs = [purposed(SEGS[1], SegmentPurpose.IOT)]
     (g,) = run(guest_isolation, net(segments=segs, wlans=[guest_wlan("ap", IOT)]))
-    assert g.message.endswith("which is the IoT network Things (VLAN 20)")
+    assert g.message.endswith("which is Things (VLAN 20) (IoT)")
     # a segment that is unknown to the model counts as the main network
     (h,) = run(guest_isolation, net(segments=[], wlans=[guest_wlan("ap", IOT)]))
     assert "untagged main network" in h.message
@@ -210,13 +210,13 @@ def exposure_net(**kw: Any) -> Network:
 def test_management_exposure() -> None:
     findings = run(management_exposure, exposure_net())
     by_msg = {f.message: f for f in findings}
-    sw = by_msg["sw is managed at 198.51.100.2 in the IoT network Things (VLAN 20)"]
+    sw = by_msg["sw is managed at 198.51.100.2 in Things (VLAN 20) (IoT)"]
     assert sw.severity == "error" and sw.objects == ["sw", IOT]
     assert "management VLAN" in (sw.fix or "")
-    ap = by_msg["ap has the address 198.51.100.3 in the IoT network Things (VLAN 20)"]
+    ap = by_msg["ap has the address 198.51.100.3 in Things (VLAN 20) (IoT)"]
     assert ap.severity == "error" and not ap.incomplete
     router = next(f for f in findings if f.incomplete)
-    assert router.message.startswith("gw is reachable at 198.51.100.1 in the IoT network")
+    assert router.message.startswith("gw is reachable at 198.51.100.1 in Things")
     assert "without firewall rules" in router.message
     assert len(findings) == 3
 
@@ -233,7 +233,7 @@ def test_management_exposure_router_managed_there_and_quiet_cases() -> None:
         )
     )
     (g,) = run(management_exposure, guessed)
-    assert g.message.endswith("in the guest network Visitors (VLAN 30) (guessed from its name)")
+    assert g.message.endswith("in Visitors (VLAN 30) (guest?)")
     # no purpose, no finding; unknown devices and addresses outside any subnet are skipped
     plain = exposure_net(segments=SEGS)
     assert run(management_exposure, plain) == []
@@ -253,7 +253,7 @@ def test_purpose_missing() -> None:
     assert f.severity == "info" and f.objects == [SITE.id]
     assert f.message == (
         "It is not declared what these networks at site home are for: "
-        "Things (VLAN 20); Visitors (VLAN 30), guessed: guest; LAN (untagged network)"
+        "Things (VLAN 20); Visitors (VLAN 30) (guest?); LAN (untagged network)"
     )
     assert "purpose: iot" in (f.fix or "")
     done = net(segments=[purposed(s, SegmentPurpose.MAIN) for s in SEGS])
@@ -273,7 +273,7 @@ def test_iot_on_5ghz_only() -> None:
     segs = [purposed(SEGS[1], SegmentPurpose.IOT)]
     five = [wlan("ap", "Things", IOT, "1"), wlan("ap", "Things", IOT, "2")]
     (f,) = run(iot_5ghz_only, net(segments=segs, radios=radios, wlans=five))
-    assert f.message == "The IoT SSID 'Things' at site home is only on 5 and 6 GHz"
+    assert f.message == "The IoT SSID 'Things' at site home is only on 5, 6 GHz"
     both = [*five, wlan("ap", "Things", IOT, "0")]
     assert run(iot_5ghz_only, net(segments=segs, radios=radios, wlans=both)) == []
     unknown = [wlan("ap", "Things", IOT, "9")]

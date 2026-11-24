@@ -109,6 +109,14 @@ def static_in_pool(net: Network) -> Iterator[Result]:
             [client.id, *sorted(s.id for s in servers)],
             fix=f"Give {name} a reservation, or a fixed address outside the pool. If the "
             "address is meant to be fixed, mark the device as using a static address.",
+            mid="leases.staticInPool",
+            fix_id="leases.staticInPool.fix",
+            params={
+                "name": name,
+                "mac": client.mac,
+                "addresses": text,
+                "segment": segment_name(net, seg),
+            },
         )
 
 
@@ -136,6 +144,13 @@ def declined(net: Network) -> Iterator[Result]:
                 [srv.id],
                 fix="Find the device that uses the address and move it outside the pool (or "
                 "give it a reservation), then clear the declined lease.",
+                mid="leases.declined",
+                fix_id="leases.declined.fix",
+                params={
+                    "device": device_name(net, srv.device_id),
+                    "addresses": ", ".join(str(a) for a in bad),
+                    "segment": segment_name(net, srv.segment_id),
+                },
             )
 
 
@@ -160,6 +175,13 @@ def option_121_without_router(net: Network) -> Iterator[Result]:
             "ignore the router option and have no way out",
             [srv.id],
             fix=f"Add a route 0.0.0.0/0{via} to the classless routes, or remove them.",
+            mid="leases.option121",
+            fix_id="leases.option121.via" if via else "leases.option121.fix",
+            params={
+                "device": device_name(net, srv.device_id),
+                "segment": segment_name(net, srv.segment_id),
+                "router": str(srv.router or ""),
+            },
         )
 
 
@@ -190,6 +212,9 @@ def relay_target_missing(net: Network) -> Iterator[Result]:
                 f"The DHCP relay on {where} for {label} has no server to forward to",
                 [relay.id],
                 fix="Enter the address of your DHCP server in the relay settings.",
+                mid="leases.relayNoServer",
+                fix_id="leases.relayNoServer.fix",
+                params={"where": where, "segment": label},
             )
             continue
         for target in relay.servers:
@@ -202,6 +227,8 @@ def relay_target_missing(net: Network) -> Iterator[Result]:
                     "a device Signalbox knows, so it cannot tell whether a DHCP server runs there",
                     [relay.id],
                     key=str(target),
+                    mid="leases.relayTargetUnknown",
+                    params={"where": where, "segment": label, "target": str(target)},
                 )
             elif any(_dhcp_read_failed(net, d) for d in devices):
                 yield incomplete(
@@ -209,6 +236,8 @@ def relay_target_missing(net: Network) -> Iterator[Result]:
                     "servers of that device could not be read",
                     [relay.id],
                     key=str(target),
+                    mid="leases.relayTargetUnread",
+                    params={"where": where, "segment": label, "target": str(target)},
                 )
             else:
                 names = ", ".join(sorted(device_name(net, d) for d in devices))
@@ -218,6 +247,14 @@ def relay_target_missing(net: Network) -> Iterator[Result]:
                     [relay.id, *sorted(devices)],
                     fix="Enable the DHCP server there, or point the relay to the right address.",
                     key=str(target),
+                    mid="leases.relayNoServerEnabled",
+                    fix_id="leases.relayNoServerEnabled.fix",
+                    params={
+                        "where": where,
+                        "segment": label,
+                        "target": str(target),
+                        "names": names,
+                    },
                 )
 
 

@@ -38,7 +38,7 @@ _PLAIN_KINDS = (
 
 
 def _join(items: list[str]) -> str:
-    return ", ".join(items[:-1]) + " and " + items[-1] if len(items) > 1 else "".join(items)
+    return ", ".join(items)
 
 
 def _by_device(net: Network) -> Iterator[tuple[str, list[ManagementService]]]:
@@ -56,17 +56,14 @@ def _insecure(s: ManagementService) -> tuple[str, str] | None:
     """(what is wrong, what to do) for an enabled service, or None."""
     if s.kind in _PLAIN_KINDS and s.plaintext():
         if s.kind is ServiceKind.HTTP:
-            return f"{s.label()} without redirect to HTTPS", "turn off HTTP or redirect it to HTTPS"
-        return s.label(), f"turn off {s.label()} and use an encrypted protocol (SSH, HTTPS)"
+            return f"{s.label()} (no HTTPS redirect)", ""
+        return s.label(), ""
     if s.enabled and s.kind is ServiceKind.SNMP and s.snmp is not None:
         old = [v for v in s.snmp.versions if v is not SnmpVersion.V3]
         if old and s.snmp.default_community:
-            return (
-                "SNMP with the default community (public or private)",
-                "change the community or use SNMPv3",
-            )
+            return "SNMP (default community)", ""
     if s.enabled and s.kind is ServiceKind.SSH and s.allows_root_password():
-        return "SSH login of root with a password", "allow SSH keys only for root"
+        return "SSH (root password)", ""
     return None
 
 
@@ -90,13 +87,21 @@ def insecure_services(net: Network) -> Iterator[Result]:
         name = device_name(net, dev)
         for open_, rows in sorted(groups.items(), reverse=True):
             what = _join([r[1] for r in rows])
-            fix = f"On {name}: {'; '.join(dict.fromkeys(r[2] for r in rows))}."
+            fix = (
+                f"On {name}: turn off what is not needed, or restrict it to a management "
+                "network; use SSH or HTTPS instead of plain text, SNMPv3 instead of a community "
+                "and SSH keys only for root."
+            )
+            values = {"name": name, "what": what}
             if open_:
                 yield found(
                     f"{name} has {what} enabled",
                     [dev, *(r[0].id for r in rows)],
                     fix=fix,
                     key="open",
+                    mid="mgmt.insecure",
+                    fix_id="mgmt.insecure.fix",
+                    params=values,
                 )
             else:
                 yield found(
@@ -105,6 +110,9 @@ def insecure_services(net: Network) -> Iterator[Result]:
                     severity=Severity.INFO,
                     fix=fix,
                     key="limited",
+                    mid="mgmt.insecureLimited",
+                    fix_id="mgmt.insecure.fix",
+                    params=values,
                 )
 
 
@@ -138,6 +146,9 @@ def wan_management(net: Network) -> Iterator[Result]:
                 fix=f"Turn off remote access to {name} (or restrict it to your VPN) and use a "
                 "VPN for administration from outside.",
                 key="exposed",
+                mid="mgmt.wanExposed",
+                fix_id="mgmt.wanExposed.fix",
+                params={"name": name, "services": _join([_with_port(s) for s in exposed])},
             )
         if unknown:
             yield incomplete(
@@ -146,6 +157,12 @@ def wan_management(net: Network) -> Iterator[Result]:
                 "whether they are blocked from the internet",
                 [dev, *(s.id for s in unknown)],
                 key="unknown",
+                mid="mgmt.wanUnknownNoFirewall" if net.firewall_of(dev) is None else "mgmt.wanUnknown",
+                params={
+                    "name": name,
+                    "services": _join([_with_port(s) for s in unknown]),
+                    "reasons": "; ".join(dict.fromkeys(verdicts[s.id].reason for s in unknown)),
+                },
             )
 
 
@@ -205,6 +222,13 @@ def service_exposure(net: Network) -> Iterator[Result]:
                 fix=f"Offer the services only in the LAN or a management VLAN on {name}, or "
                 f"block {where} from reaching them.",
                 key=f"{sid}/offered",
+                mid="mgmt.offered",
+                fix_id="mgmt.offered.fix",
+                params={
+                    "name": name,
+                    "services": _join([s.label() for s in sure]),
+                    "segment": where,
+                },
             )
         if unsure:
             why = _why_unknown(net, dev, [v for _, v in items if v is not None])
@@ -214,6 +238,17 @@ def service_exposure(net: Network) -> Iterator[Result]:
                 "from there",
                 [dev, sid, *(s.id for s in unsure)],
                 key=f"{sid}/unknown",
+                mid="mgmt.offeredUnknownNoFirewall"
+                if net.firewall_of(dev) is None
+                else "mgmt.offeredUnknown",
+                params={
+                    "name": name,
+                    "segment": where,
+                    "services": _join([s.label() for s in unsure]),
+                    "reasons": "; ".join(
+                        dict.fromkeys(v.reason for _, v in items if v is not None)
+                    ),
+                },
             )
 
 
@@ -245,16 +280,24 @@ def plaintext_read(net: Network) -> Iterator[Result]:
         bad = seg is not None and untrusted(seg.purpose)
         here = []
         if clients:
-            here.append(f"{clients} client{'s' if clients != 1 else ''}")
+            here.append(f"clients: {clients}")
         if ssids:
-            here.append(f"{len(ssids)} Wi-Fi network{'s' if len(ssids) != 1 else ''}")
+            here.append(f"Wi-Fi networks: {len(ssids)}")
         yield found(
-            f"Signalbox sends the password of {d.name} unencrypted in {segment_name(net, sid)}, "
-            f"where {_join(here)} are",
+            f"Signalbox sends the password of {d.name} unencrypted in {segment_name(net, sid)} "
+            f"({_join(here)})",
             [d.id, sid],
             severity=Severity.WARNING if bad else Severity.INFO,
             fix="Move the management of the device to a separate VLAN without clients or "
             "Wi-Fi, so nobody else can capture the password.",
+            mid="mgmt.plaintext." + ("both" if clients and ssids else "clients" if clients else "ssids"),
+            fix_id="mgmt.plaintext.fix",
+            params={
+                "name": d.name,
+                "segment": segment_name(net, sid),
+                "clients": clients,
+                "ssids": len(ssids),
+            },
         )
 
 
