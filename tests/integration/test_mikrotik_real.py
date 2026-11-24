@@ -724,6 +724,93 @@ async def test_backup_and_restore(
     assert_same_menus(raw, menus(rt, *WRITTEN))
 
 
+FIREWALL_WANT = """
+sites:
+  home:
+    firewalls:
+      - device: rt
+        rules:
+          - name: ci-web
+            from: {zone: LAN}
+            to: {network: 192.0.2.77}
+            protocol: tcp
+            family: 4
+            port: 8080
+            action: accept
+        forwards:
+          - name: ci-fwd
+            from: WAN
+            protocol: tcp
+            port: 8444
+            to: {address: 192.0.2.77, port: 80}
+"""
+FIREWALL_MENUS = (
+    "/rest/ip/firewall/filter",
+    "/rest/ipv6/firewall/filter",
+    "/rest/ip/firewall/nat",
+    "/rest/system/scheduler",
+)
+
+
+async def test_firewall_rule_and_port_forward_then_revert(
+    svc: Services, rt: dict[str, str]
+) -> None:
+    """One rule and one dst-nat (#295): written through the REST API with the revert timer
+    armed (``/system/scheduler``, removed after the verification), read back as declared, then
+    reverted; the router's firewall and scheduler are as they were."""
+    raw = menus(rt, *FIREWALL_MENUS)
+    kinds = {ChangeKind.FIREWALL_RULE, ChangeKind.PORT_FORWARD}
+    d, cid = await deploy(svc, FIREWALL_WANT, kinds)
+    try:
+        net = await network(rt)
+        [fwl] = net.firewalls
+        [rule] = [r for r in fwl.rules if r.signalbox_key == "ci_web"]
+        assert rule.name == "ci-web" and rule.action is FirewallAction.ACCEPT, rule
+        assert rule.chain is FirewallChain.FORWARD and rule.source.zones == ["LAN"], rule
+        assert [str(n) for n in rule.destination.networks] == ["192.0.2.77/32"], rule
+        assert rule.destination.ports == [PortRange(start=8080)] and rule.exact, rule
+        [pf] = [f for f in fwl.port_forwards if f.signalbox_key == "ci_fwd"]
+        assert pf.zones == ["WAN"] and pf.external_ports == [PortRange(start=8444)], pf
+        assert str(pf.target_address) == "192.0.2.77" and pf.target_port == 80, pf
+        # the rule is before the device's own rules of the chain, the timer is gone again
+        rows = menus(rt, "/rest/ip/firewall/filter", "/rest/system/scheduler")
+        assert rows["/rest/system/scheduler"] == {}, rows["/rest/system/scheduler"]
+        forward = [
+            k for k, v in rows["/rest/ip/firewall/filter"].items() if v["chain"] == "forward"
+        ]
+        assert forward[0] == "signalbox:ci_web ci-web", forward
+    finally:
+        await revert(svc, d, cid)
+    assert_same_menus(raw, menus(rt, *FIREWALL_MENUS))
+
+
+async def test_revert_timer_undoes_an_unconfirmed_change(rt: dict[str, str]) -> None:
+    """The backstop on the real router: the change is applied, never confirmed, and the
+    scheduler entry runs its script when the time comes (15 seconds here): the rule and the
+    dst-nat are gone and the entry removed itself. If it did not run, the backup is restored."""
+    raw = menus(rt, *FIREWALL_MENUS)
+    net = await network(rt)
+    changes = plan(parse(FIREWALL_WANT), net, RULES).changes
+    a = adapter(rt, write=True)
+    try:
+        backup = await a.backup()
+        try:
+            await a.apply(changes, {}, 15)
+            during = menus(rt, *FIREWALL_MENUS)
+            assert len(during["/rest/system/scheduler"]) == 1, during["/rest/system/scheduler"]
+            assert during != raw
+            for _ in range(40):
+                await asyncio.sleep(1)
+                if not menus(rt, "/rest/system/scheduler")["/rest/system/scheduler"]:
+                    break
+            assert_same_menus(raw, menus(rt, *FIREWALL_MENUS))
+        finally:
+            await a.restore(backup)
+    finally:
+        await a.close()
+    assert_same_menus(raw, menus(rt, *FIREWALL_MENUS))
+
+
 def test_vm_still_answers(rt: dict[str, str]) -> None:
     """Last: the router survived the suite (no lock-out through a write)."""
     r = httpx.get(

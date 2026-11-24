@@ -43,10 +43,11 @@ import binascii
 import copy
 import hashlib
 import json
+import re
 import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
-from ipaddress import ip_address, ip_interface
+from ipaddress import ip_address, ip_interface, ip_network
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -250,6 +251,7 @@ def firewall_data() -> dict[str, Any]:
             ),
         ),
         "/rest/ip/firewall/raw": [],
+        "/rest/system/scheduler": [],
     }
 
 
@@ -1209,6 +1211,8 @@ class MikrotikSimulator:
     traces: list[dict[str, Any]] = field(default_factory=list)
     #: passwords of the users in ``/rest/user`` other than ``username`` (set through REST)
     logins: dict[str, str] = field(default_factory=dict)
+    #: Errors of the scripts the scheduler ran (a line RouterOS would have refused).
+    script_errors: list[str] = field(default_factory=list)
 
     def authorised(self, header: str | None) -> bool:
         if not header or not header.startswith("Basic "):
@@ -1372,6 +1376,7 @@ class MikrotikSimulator:
         rows: list[dict[str, Any]] = self.data[menu]
         values = {k: str(v) for k, v in body.items() if k not in (".id", "numbers")}
         password = values.pop("password", None) if menu == USER_MENU else None
+        before = values.pop("place-before", None)
         if method == "PUT":
             row = {".id": self._id(), **DEFAULTS.get(menu, {}), **values}
             problem = self._check(menu, row, rows)
@@ -1382,7 +1387,13 @@ class MikrotikSimulator:
             if menu == DHCP_SERVER:  # RouterOS checks the interface's address a moment later
                 row.update({"invalid": "true", ".about": "No IP address on interface"})
                 self.settling.add(row[".id"])
-            rows.append(row)
+            if before is not None:
+                spot = next((i for i, r in enumerate(rows) if r.get(".id") == before), None)
+                if spot is None:
+                    return _bad("input does not match any value of place-before")
+                rows.insert(spot, row)
+            else:
+                rows.append(row)
             if password is not None:
                 self.logins[row["name"]] = password
             self._settle(menu, row)
@@ -1414,6 +1425,125 @@ class MikrotikSimulator:
         self._settle(menu, row)
         return JSONResponse(row if method == "PATCH" else [])
 
+    # --- the revert timer of firewall changes (#295) -------------------------------------------
+
+    def fire_scheduler(self) -> int:
+        """Run every ``/system/scheduler`` entry now, as the router does when its time comes
+        (the script of ``on-event``); an entry with ``interval=0s`` stays after it ran."""
+        fired = 0
+        for row in list(self.data[SCHEDULER]):
+            fired += 1
+            try:
+                for line in str(row.get("on-event", "")).splitlines():
+                    self._script_line(line)
+            except ValueError as exc:
+                self.script_errors.append(str(exc))
+        return fired
+
+    def _script_line(self, line: str) -> None:
+        words = _script_words(line)
+        if not words:
+            return
+        at = next((i for i, w in enumerate(words) if w in SCRIPT_VERBS), None)
+        if at is None:
+            raise ValueError(f"unsupported script line: {line}")
+        menu = SCRIPT_MENUS.get(" ".join(words[:at]))
+        if menu is None:
+            raise ValueError(f"unsupported menu in the script: {line}")
+        rows: list[dict[str, Any]] = self.data[menu]
+        verb, args = words[at], words[at + 1 :]
+        if verb == "add":
+            props = dict(a.split("=", 1) for a in args)
+            before = props.pop("place-before", None)
+            found = self._found(rows, before) if before else []
+            row = {".id": self._id(), **DEFAULTS.get(menu, {}), **props}
+            problem = self._check(menu, row, rows)
+            if problem:
+                raise ValueError(f"{problem}: {line}")
+            spot = next((i for i, r in enumerate(rows) if found and r is found[0]), len(rows))
+            rows.insert(spot, row)
+            return
+        matched = self._found(rows, args[0])
+        if verb == "remove":
+            for row in matched:
+                rows.remove(row)
+        elif verb == "set":
+            for row in matched:
+                row.update(dict(a.split("=", 1) for a in args[1:]))
+        else:
+            for row in matched:
+                row.pop(args[1], None)
+
+    @staticmethod
+    def _found(rows: list[dict[str, Any]], expr: str) -> list[dict[str, Any]]:
+        """``[find where name="x"]``: the rows with that value."""
+        m = re.fullmatch(r"\[find where ([\w-]+)=(.*)\]", expr)
+        if m is None:
+            raise ValueError(f"unsupported find expression: {expr}")
+        want = _script_words(m.group(2))[0]
+        return [r for r in rows if r.get(m.group(1)) == want]
+
+    def _check_firewall(self, menu: str, row: dict[str, Any]) -> str | None:
+        """What RouterOS refuses about a filter or NAT row (the cases the writer must avoid)."""
+        chain, action = row.get("chain", ""), row.get("action", "")
+        nat = menu == FW_NAT
+        if nat != (chain in ("srcnat", "dstnat")) or not chain:
+            return "input does not match any value of chain"
+        if action not in (NAT_ACTIONS if nat else FILTER_ACTIONS):
+            return "input does not match any value of action"
+        lists = {r.get("name") for r in self.data[INTERFACE_LIST]}
+        for key in ("in-interface-list", "out-interface-list"):
+            if row.get(key) and row[key].removeprefix("!") not in lists:
+                return f"input does not match any value of {key}"
+        if chain in ("input", "dstnat") and row.get("out-interface-list"):
+            return "out-interface-list is not valid in this chain"
+        if chain in ("output", "srcnat") and row.get("in-interface-list"):
+            return "in-interface-list is not valid in this chain"
+        if (row.get("dst-port") or row.get("src-port")) and row.get("protocol") not in (
+            "tcp",
+            "udp",
+        ):
+            return "ports are valid only with protocol tcp or udp"
+        for key in ("src-address", "dst-address", "to-addresses"):
+            for part in row.get(key, "").removeprefix("!").split(","):
+                if not part:
+                    continue
+                try:
+                    nets = [ip_network(a, strict=False) for a in part.split("-")]
+                except ValueError:
+                    return f"invalid value for argument {key}"
+                if any((n.version == 6) != (menu == FW_FILTER6) for n in nets):
+                    return f"invalid value for argument {key}"
+        for key in ("dst-port", "src-port", "to-ports"):
+            for part in row.get(key, "").removeprefix("!").split(","):
+                if part and not all(p.isdigit() and 0 < int(p) < 65536 for p in part.split("-")):
+                    return f"invalid value for argument {key}"
+        if action == "dst-nat" and not row.get("to-addresses"):
+            return "missing value for to-addresses"
+        if row.get("disabled", "false") not in ("true", "false", "yes", "no"):
+            return "invalid value for argument disabled"
+        return None
+
+    def _check_scheduler(self, row: dict[str, Any]) -> str | None:
+        try:
+            datetime.strptime(row.get("start-time", ""), "%H:%M:%S")
+        except ValueError:
+            return "invalid value for argument start-time"
+        date = row.get("start-date", "")
+        try:
+            if "/" in date:
+                datetime.strptime(date.title(), "%b/%d/%Y")
+            else:
+                datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            return "invalid value for argument start-date"
+        if not row.get("on-event"):
+            return "missing value for on-event"
+        unknown = set(filter(None, row.get("policy", "").split(","))) - POLICIES
+        return (
+            f"invalid value for argument policy ({','.join(sorted(unknown))})" if unknown else None
+        )
+
     def _id(self) -> str:
         self.next_id += 1
         return f"*{self.next_id:X}"
@@ -1423,6 +1553,10 @@ class MikrotikSimulator:
 
     def _check(self, menu: str, row: dict[str, Any], others: list[dict[str, Any]]) -> str | None:
         """What RouterOS would refuse about one entry (None: nothing)."""
+        if menu in (FW_FILTER, FW_FILTER6, FW_NAT):
+            return self._check_firewall(menu, row)
+        if menu == SCHEDULER:
+            return self._check_scheduler(row)
         for key in REQUIRED.get(menu, ()):
             if not row.get(key):
                 return f"missing value for {key}"
@@ -1583,6 +1717,61 @@ def _bad(detail: str) -> JSONResponse:
     return JSONResponse({"error": 400, "message": "Bad Request", "detail": detail}, status_code=400)
 
 
+FW_FILTER = "/rest/ip/firewall/filter"
+FW_FILTER6 = "/rest/ipv6/firewall/filter"
+FW_NAT = "/rest/ip/firewall/nat"
+SCHEDULER = "/rest/system/scheduler"
+INTERFACE_LIST = "/rest/interface/list"
+SCRIPT_VERBS = ("add", "remove", "set", "unset")
+SCRIPT_MENUS = {
+    "/ip firewall filter": FW_FILTER,
+    "/ipv6 firewall filter": FW_FILTER6,
+    "/ip firewall nat": FW_NAT,
+    "/system scheduler": SCHEDULER,
+}
+FILTER_ACTIONS = frozenset(
+    {"accept", "drop", "reject", "jump", "return", "passthrough", "log", "tarpit"}
+)
+NAT_ACTIONS = frozenset({"dst-nat", "src-nat", "masquerade", "redirect", "accept", "jump"})
+POLICIES = frozenset(
+    {"read", "write", "test", "policy", "reboot", "ftp", "password", "sniff", "sensitive", "romon"}
+)
+
+
+def _script_words(line: str) -> list[str]:
+    """The words of one script line: quoted strings unquoted (with their backslash escapes),
+    ``[find where x="y"]`` kept whole with its quotes."""
+    words: list[str] = []
+    cur, depth, quoted, started, i = "", 0, False, False, 0
+    while i < len(line):
+        ch = line[i]
+        if quoted:
+            if ch == "\\" and i + 1 < len(line):
+                i += 1
+                cur += ("\\" if depth else "") + line[i]
+            elif ch == '"':
+                quoted = False
+                cur += ch if depth else ""
+            else:
+                cur += ch
+        elif ch == '"':
+            quoted, started = True, True
+            cur += ch if depth else ""
+        elif ch in "[]":
+            depth += 1 if ch == "[" else -1
+            cur += ch
+        elif ch == " " and not depth:
+            if cur or started:
+                words.append(cur)
+            cur, started = "", False
+        else:
+            cur += ch
+        i += 1
+    if cur or started:
+        words.append(cur)
+    return words
+
+
 EXPORT = "/rest/export"
 PPPOE_CLIENT = "/rest/interface/pppoe-client"
 PPPOE_MONITOR = "/rest/interface/pppoe-client/monitor"
@@ -1624,6 +1813,10 @@ WRITABLE = (
     WIFI,
     USER_MENU,
     USER_GROUP,
+    FW_FILTER,
+    FW_FILTER6,
+    FW_NAT,
+    SCHEDULER,
 )
 REQUIRED = {
     VLAN: ("name", "vlan-id", "interface"),
@@ -1637,6 +1830,7 @@ REQUIRED = {
     WIFI: ("name",),
     USER_MENU: ("name", "group"),
     USER_GROUP: ("name", "policy"),
+    SCHEDULER: ("name",),
 }
 #: Properties that name interfaces (checked against ``/interface``).
 REFERENCES = {
@@ -1666,6 +1860,10 @@ DEFAULTS: dict[str, dict[str, str]] = {
     },
     DHCP_LEASE: {"server": "all", "status": "waiting", **_STATIC},
     WIFI: {"running": "true", **_STATIC},
+    FW_FILTER: {"invalid": "false", "bytes": "0", "packets": "0", **_STATIC},
+    FW_FILTER6: {"invalid": "false", "bytes": "0", "packets": "0", **_STATIC},
+    FW_NAT: {"invalid": "false", "bytes": "0", "packets": "0", **_STATIC},
+    SCHEDULER: {"interval": "0s", "run-count": "0", "invalid": "false", **_STATIC},
 }
 COMPUTED = {
     ".id",

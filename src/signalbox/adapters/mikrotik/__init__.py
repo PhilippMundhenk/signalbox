@@ -837,7 +837,10 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             }
         ),
         config=MikrotikConfig,
-        description="Reads and changes a RouterOS 7 router, switch or access point (REST API).",
+        description=(
+            "Reads and changes a RouterOS 7 router, switch or access point (REST API); firewall "
+            "rules, port forwards and zone policies are tagged and protected by a revert timer."
+        ),
         writes=WRITES,
         remedies=REMEDIES,
         admin_login=AdminLogin(

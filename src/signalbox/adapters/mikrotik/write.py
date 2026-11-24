@@ -26,7 +26,7 @@ import re
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Interface, ip_address, ip_interface
 from typing import TYPE_CHECKING, Any
 
@@ -39,8 +39,8 @@ from signalbox.adapters import (
     VendorCall,
 )
 from signalbox.adapters.https import NotFound
+from signalbox.adapters.mikrotik import fwwrite
 from signalbox.changes import (
-    FIREWALL_KINDS,
     Change,
     ChangeKind,
     DhcpValue,
@@ -61,9 +61,12 @@ if TYPE_CHECKING:  # pragma: no cover
 #: RouterOS 7.25.1 shows that for about a second after the address of a new VLAN interface).
 SETTLE_SECONDS = 15.0
 
-#: Kinds of change the integration applies (all of them, on the RouterOS 7 ``wifi`` package).
-#: Firewall kinds (#295) come later (docs/adr/0017).
-WRITES = frozenset(ChangeKind) - FIREWALL_KINDS
+#: Kinds of change the integration applies (all of them; Wi-Fi on the RouterOS 7 ``wifi``
+#: package; firewall kinds (#295, docs/adr/0017) with a revert timer, see ``fwwrite``).
+WRITES = frozenset(ChangeKind)
+
+#: ``/system/scheduler``: the revert timer of firewall changes.
+SCHEDULER = "/rest/system/scheduler"
 
 BACKUP_FORMAT = "routeros-export"
 #: ``POST /rest/export`` answers ``[]`` (the text goes to a terminal that REST does not have);
@@ -122,6 +125,8 @@ _READ_ONLY = {
     "sending-rstp",
     "external-fdb-status",
     "class-id",
+    "bytes",
+    "packets",
     # read-only state RouterOS 7.25.1 CHR lists in these menus (seen in CI, #139)
     "actual-path-cost",
     "designated-bridge-id",
@@ -167,7 +172,16 @@ def _menus() -> tuple[str, ...]:
         m.DHCP_SERVER,
         m.DHCP_LEASE,
         m.WIFI,
+        m.FW_FILTER,
+        m.FW_FILTER6,
+        m.FW_NAT,
     )
+
+
+def _fw_menus() -> tuple[str, ...]:
+    from signalbox.adapters import mikrotik as m
+
+    return (m.FW_FILTER, m.FW_FILTER6, m.FW_NAT)
 
 
 def ros_duration(seconds: int) -> str:
@@ -222,6 +236,10 @@ class _Config:
     menus: dict[str, list[dict[str, Any]]]
     ops: list[_Op] = field(default_factory=list)
     _counter: int = 0
+    #: Menus the router does not have (a package that is not installed).
+    absent: set[str] = field(default_factory=set)
+    #: What undoes the firewall changes of the plan (the script of the revert timer).
+    revert: fwwrite.Revert = field(default_factory=fwwrite.Revert)
 
     def rows(self, menu: str) -> list[dict[str, Any]]:
         return self.menus.setdefault(menu, [])
@@ -325,10 +343,12 @@ class MikrotikWrites:
         self._cache.clear()
         self._layout_cache = None
         menus: dict[str, list[dict[str, Any]]] = {}
+        absent: set[str] = set()
         wifi = True
         for menu in dict.fromkeys(
             (
                 m.INTERFACE,
+                m.INTERFACE_LIST,
                 m.ETHERNET,
                 m.LIST_MEMBER,
                 m.IPV6_ADDRESS,
@@ -344,9 +364,10 @@ class MikrotikWrites:
                 menus[menu] = m._rows(await m.get_menu(self.http, menu), menu)
             except NotFound:
                 menus[menu] = []
+                absent.add(menu)
                 wifi = wifi and menu != m.WIFI
         self._cache.clear()
-        return _Config(menus), wifi
+        return _Config(menus, absent=absent), wifi
 
     async def _layout_of(self, cfg: _Config) -> _Layout:
         self._cache.clear()
@@ -374,6 +395,12 @@ class MikrotikWrites:
                 self._reservation(cfg, layout, c)
             elif c.kind is ChangeKind.PORT:
                 self._port(cfg, layout, c)
+            elif c.kind is ChangeKind.FIREWALL_RULE:
+                fwwrite.firewall_rule(cfg, c, cfg.revert)
+            elif c.kind is ChangeKind.ZONE_POLICY:
+                fwwrite.zone_policy(cfg, c, cfg.revert)
+            elif c.kind is ChangeKind.PORT_FORWARD:
+                fwwrite.port_forward(cfg, c, cfg.revert)
             else:
                 if not wifi:
                     raise AdapterError(
@@ -389,7 +416,10 @@ class MikrotikWrites:
         self, changes: list[Change], secrets: Mapping[str, str]
     ) -> list[VendorCall]:
         cfg = await self._plan(changes, secrets, strict=False)
-        return [op.call() for op in cfg.ops]
+        calls = [op.call() for op in cfg.ops]
+        if cfg.revert:
+            calls.insert(0, _revert_op(cfg.revert, "<device time + the confirm time>").call())
+        return calls
 
     async def apply(
         self,
@@ -397,13 +427,78 @@ class MikrotikWrites:
         secrets: Mapping[str, str],
         rollback_seconds: int,
     ) -> ApplyResult:
-        # rollback_seconds is not used: RouterOS has no confirm timer for API sessions.
+        """Send the calls. Firewall changes are protected by the revert timer: a scheduler entry
+        that undoes them at ``rollback_seconds`` unless ``confirm`` removes it; the other kinds
+        have no confirm timer on RouterOS (``safe-mode`` is for interactive terminals only)."""
         cfg = await self._plan(changes, secrets, strict=True)
-        await self._send(cfg.ops, secrets)
-        return ApplyResult(confirm_deadline=None, calls=[op.call() for op in cfg.ops])
+        ops = list(cfg.ops)
+        deadline = None
+        if cfg.revert:
+            await self._disarm_revert()  # a leftover of an earlier deployment
+            when = await self._device_time(rollback_seconds)
+            arm = _revert_op(cfg.revert, when)
+            deadline = datetime.now(UTC) + timedelta(seconds=rollback_seconds)
+            await self._send([arm], secrets)
+            ops = [arm, *ops]
+        try:
+            await self._send(ops[1:] if cfg.revert else ops, secrets)
+        except AdapterError:
+            if cfg.revert:  # the deployment restores the backup; the timer must not run later
+                await self._disarm_revert()
+            raise
+        return ApplyResult(confirm_deadline=deadline, calls=[op.call() for op in ops])
 
     async def confirm(self) -> None:
-        return None
+        """Remove the revert timer. Gone already: it ran, and undid the change."""
+        if not await self._disarm_revert():
+            raise AdapterError(
+                "the revert timer of the firewall change is gone: it ran before the change was "
+                "confirmed, so the router has the old rules again"
+            )
+
+    async def _scheduled(self) -> list[dict[str, Any]]:
+        from signalbox.adapters import mikrotik as m
+
+        try:
+            rows = m._rows(await m.get_menu(self.http, SCHEDULER), SCHEDULER)
+        except NotFound:
+            return []
+        return [r for r in rows if _text(r.get("name")) == fwwrite.REVERT_NAME]
+
+    async def _disarm_revert(self) -> bool:
+        """Delete the revert timer; ``False``: there was none."""
+        rows = await self._scheduled()
+        for row in rows:
+            ref = _text(row.get(".id"))
+            response = await self.http.request(
+                "DELETE", f"{SCHEDULER}/{ref}", accept=(400, 404, 500)
+            )
+            if response.status_code >= 400 and response.status_code != 404:
+                raise _refused("remove the revert timer", response, lambda t: t)
+        return bool(rows)
+
+    async def _device_time(self, seconds: int) -> str:
+        """``seconds`` from now by the router's clock, as ``start-date`` and ``start-time``
+        of a scheduler entry (``date`` ``time`` in the format the clock uses)."""
+        from signalbox.adapters import mikrotik as m
+
+        clock = m._object(await m.get_menu(self.http, m.CLOCK), m.CLOCK)
+        day = m.clock_date(clock.get("date"))
+        match = re.fullmatch(r"(\d\d?):(\d\d):(\d\d)", _text(clock.get("time")))
+        if day is None or match is None:
+            raise AdapterError(
+                "cannot arm the revert timer: the router's clock is unreadable "
+                f"({clock.get('date')!r} {clock.get('time')!r}); firewall changes need it"
+            )
+        hh, mm, ss = (int(g) for g in match.groups())
+        at = datetime(day.year, day.month, day.day, hh, mm, ss) + timedelta(seconds=seconds)
+        slashed = "/" in _text(clock.get("date"))
+        date = (
+            f"{m._MONTHS[at.month - 1]}/{at.day:02d}/{at.year}"
+            if slashed
+            else at.date().isoformat()
+        )
+        return f"{date} {at:%H:%M:%S}"
 
     async def backup(self) -> Backup:
         from signalbox.adapters import mikrotik as m
@@ -438,6 +533,7 @@ class MikrotikWrites:
             assert isinstance(saved, dict)
         except (ValueError, KeyError, TypeError, AssertionError):
             raise AdapterError("the backup holds no menu snapshot; it cannot be restored") from None
+        await self._disarm_revert()  # the timer must not undo a change that is restored now
         cfg, _ = await self._snapshot()
         order = [m for m in _menus() if isinstance(saved.get(m), list)]
         pairs = {m: _pair(m, saved[m], cfg.static(m)) for m in order}
@@ -447,11 +543,17 @@ class MikrotikWrites:
                 if id(row) not in kept:
                     cfg.delete(menu, row, f"restore: remove {menu} {_label(row)}")
         for menu in order:
-            for old, have in pairs[menu]:
+            # firewall rows are ordered: add them last to first, each before the one after it
+            ordered = list(reversed(pairs[menu])) if menu in _fw_menus() else pairs[menu]
+            anchor: str | None = None
+            for old, have in ordered:
                 want = _writable(menu, old)
                 if have is None:
-                    cfg.put(menu, want, f"restore: add {menu} {_label(old)}")
+                    if anchor is not None:
+                        want = {**want, "place-before": anchor}
+                    anchor = str(cfg.put(menu, want, f"restore: add {menu} {_label(old)}")[".id"])
                     continue
+                anchor = str(have.get(".id"))
                 cfg.patch(menu, have, want, f"restore: set {menu} {_label(old)} back")
                 for prop in list(_writable(menu, have)):
                     if prop not in want:
@@ -474,6 +576,8 @@ class MikrotikWrites:
         for op in ops:
             ref = ids.get(op.ref or "", op.ref)
             body: dict[str, Any] = dict(op.body)
+            if "place-before" in body:
+                body["place-before"] = ids.get(body["place-before"], body["place-before"])
             if op.method == "POST":
                 body["numbers"] = ref
                 path = f"{op.menu}/unset"
@@ -1100,6 +1204,23 @@ class MikrotikWrites:
                 cfg.unset(m.WIFI, row, key, f"{what}: unset {key}")
 
 
+def _revert_op(revert: fwwrite.Revert, when: str) -> _Op:
+    """The scheduler entry that runs the revert script at ``when`` (``date time``)."""
+    date, _, clock = when.partition(" ")
+    body = {
+        "name": fwwrite.REVERT_NAME,
+        "start-date": date,
+        "start-time": clock,
+        "interval": "0s",
+        "policy": fwwrite.REVERT_POLICY,
+        "on-event": revert.script(),
+        "comment": "signalbox: undoes the firewall change unless it is confirmed",
+    }
+    return _Op(
+        "PUT", SCHEDULER, "revert-timer", body, "arm the revert timer of the firewall change"
+    )
+
+
 def _iface(row: dict[str, Any]) -> str:
     return _text(row.get("actual-interface")) or _text(row.get("interface"))
 
@@ -1113,7 +1234,7 @@ def _is_ip(text: str) -> bool:
 
 
 def _label(row: dict[str, Any]) -> str:
-    for key in ("name", "address", "vlan-ids", "interface", "mac-address"):
+    for key in ("name", "address", "vlan-ids", "interface", "mac-address", "comment"):
         if _text(row.get(key)):
             return _text(row.get(key))
     return _text(row.get(".id"))

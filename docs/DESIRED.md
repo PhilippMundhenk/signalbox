@@ -69,8 +69,8 @@ entry per untagged network, and each key may appear once per site.
 ## Firewall
 
 Zone policies, filter rules and port forwards of a router (#295,
-[ADR 0017](adr/0017-firewall-desired-state-and-deployments.md)). Deployed on OpenWrt and OPNsense (tagged
-objects, no rollback timer on OPNsense 26.7, [details](adapters/opnsense.md#firewall-changes-295),
+[ADR 0017](adr/0017-firewall-desired-state-and-deployments.md)). Deployed on OpenWrt, OPNsense and MikroTik (tagged
+objects, no rollback timer on OPNsense 26.7, a scheduler revert on MikroTik, [details](adapters/opnsense.md#firewall-changes-295),
 where a rule has one destination zone or destination addresses, one port, one protocol set);
 other integrations refuse a plan with firewall changes for now.
 

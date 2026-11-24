@@ -2,7 +2,7 @@
 
 Adapter id `mikrotik`, roles `gateway`, `switch` and `ap`. Reads a RouterOS 7 router, switch or
 access point through the REST API (`/rest`, served by the `www-ssl` service), and deploys
-changes of every kind (`router`, `dhcp`, `reservation`, `port`, `wlan`) through the change
+changes of every kind (`router`, `dhcp`, `reservation`, `port`, `wlan`, and the firewall kinds `firewall-rule`, `port-forward`, `zone-policy`) through the change
 transactions of [#38](https://github.com/PhilippMundhenk/signalbox/issues/38) when the device's
 "allow changes" setting is on and the user may write: see [Writing](#writing). Reading only ever
 sends `GET` requests.
@@ -648,7 +648,8 @@ Known limits:
 ### Transaction and rollback
 
 RouterOS has `safe-mode` only for interactive terminal sessions; the REST API has no confirm
-timer. So `apply` returns no deadline (`confirm` does nothing): a change is in effect as soon as
+timer. So `apply` returns no deadline for the other kinds (firewall changes arm a scheduler
+revert, see [Firewall changes](#firewall-changes-295)): a change is in effect as soon as
 each request is answered, and Signalbox's own verification decides. It reads the device again
 and rolls back if a value is not as planned, the device does not answer, or the checks report
 new errors.
@@ -656,7 +657,8 @@ new errors.
 - **Backup**: before applying, a JSON snapshot (`GET`) of every menu Signalbox may change
   (`/interface/vlan`, `/interface/bridge`, `/interface/bridge/vlan`, `/interface/bridge/port`,
   `/ip/address`, `/ip/pool`, `/ip/dhcp-server`, `/ip/dhcp-server/network`,
-  `/ip/dhcp-server/lease`, `/interface/wifi`), plus the text of `/export` for people (backup
+  `/ip/dhcp-server/lease`, `/interface/wifi`, `/ip/firewall/filter`, `/ipv6/firewall/filter`,
+  `/ip/firewall/nat`), plus the text of `/export` for people (backup
   format `routeros-export`, stored encrypted with the change record). `POST /rest/export`
   answers `[]` (the export goes to a terminal, which a REST request does not have), so the text
   comes from `POST /rest/execute` with `{"script": "/export", "as-string": ""}`, answered as
@@ -839,6 +841,83 @@ with the existing read-only group (`read`, `api`, `rest-api`): `/rest/ip/firewal
   and a `dst-nat`; `test_firewall_rules_and_nat` asserts them as the read-only user.
   *Guess*: the `/interface/list` row fields `include`/`exclude`, jumps and address ranges on
   a real router (the simulator has them), `ipsec-policy` rows with IPsec configured.
+
+## Firewall changes (#295)
+
+The kinds `firewall-rule`, `port-forward` and `zone-policy` are written
+([ADR 0017](../adr/0017-firewall-desired-state-and-deployments.md), the same ownership rules as
+on [OpenWrt](openwrt.md) and [OPNsense](opnsense.md)):
+
+- **Ownership**: Signalbox creates rows with the comment `signalbox:<key>` (` <name>` follows when
+  the name is not the key; zone policies `signalbox:policy/<from>/<to|device>`). Only rows with
+  that comment are changed or removed. The device's own rows are touched only when a change says
+  `adopt` (the row with that comment is deleted and replaced by a tagged one at the same place;
+  the comment must match exactly one row). A tagged row that is no longer declared is removed.
+  The lockout check of the plan runs before (the plan needs the override if it cuts Signalbox
+  off) and after (the verification reads the router again and the findings are evaluated).
+- **Mapping**: a rule is a row of `/ip/firewall/filter` (`family: 4`) or
+  `/ipv6/firewall/filter` (`family: 6`; RouterOS has separate filters, so `family` is required),
+  a port forward a `dst-nat` row of `/ip/firewall/nat`, a zone policy a tagged `drop` or `reject`
+  rule on interface lists in both filters (an `accept` policy is no rule: the chains accept what
+  no rule matches, so removing the rule is the same). Zones are interface lists
+  (`in-interface-list`, `out-interface-list`; one list per side, `!LIST` allowed).
+- **Order**: new rules go `place-before` the first row of their chain that is not Signalbox's,
+  so the device's default rules do not shadow them; zone policies are fallbacks and go to the
+  end of their chain. A changed rule is changed in place (`PATCH`, `unset` for a property it no
+  longer has), so it keeps its place.
+- Refused with the reason before anything is sent: no `family`; several protocols (RouterOS
+  matches one per rule: declare one rule each); several source or destination networks (one per
+  rule); ports without tcp or udp; a destination zone on a rule to the router itself; an interface
+  list the router does not have; a port forward with another protocol than tcp or udp, several
+  external ranges or an IPv6 target; an adopted row that does not exist or is not unique.
+
+### The revert timer
+
+RouterOS safe mode belongs to an interactive terminal; the REST API has no session to attach it to,
+so it cannot be used (not faked either). The backstop is a scheduler entry, as in ADR 0017:
+
+1. Before the first row is written, `PUT /rest/system/scheduler` creates `signalbox-revert`
+   (`interval=0s`, `policy=read,write`) with `start-date`/`start-time` = the router's own clock
+   (`/system/clock`, in the format it uses: `2026-11-24` or `nov/24/2026`) plus the confirm time
+   of the deployment (setting `deploy.confirm_seconds`). `on-event` holds a script with one block per
+   change, in reverse order: `remove [find where comment="..."]` for what was created, `set`/`unset`
+   for what was changed, `add ... place-before=[find where comment="..."]` for what was
+   removed or adopted, and as the last line the removal of the entry itself.
+2. The verification reads the router; if it passes, `confirm` removes the entry. If the router
+   cut Signalbox off, or the verification fails and the backup restore cannot reach it, the
+   entry runs by itself when the time comes and the router has its old rules again.
+3. A restore (failed verification, failed apply) removes the entry first, so it cannot undo
+   a restored state again. If `confirm` finds the entry gone it fails: the timer ran, the change
+   is undone.
+
+A router whose clock cannot be read gets no firewall change (nothing is sent). The backup of
+firewall changes is the JSON snapshot of the three firewall menus too; a restore re-adds a removed
+row before the row that followed it, so the order is back.
+
+### Write user (least privilege)
+
+The group of [A user group that may write](#a-user-group-that-may-write) is what the firewall
+kinds need: `read` and `write` (rows of the filter, NAT and scheduler menus), `api` and
+`rest-api`. Nothing more is asked for: `policy`, `password`, `reboot`, `test`, `sniff`, `ftp`,
+`local`, `romon` and the console services stay off, and the scheduler entry runs with the
+policies `read,write` only (it cannot create users, reboot or run tools). Reading the lists
+(`/interface/list`) needs only `read`.
+
+### Not confirmed on a real device
+
+CI (CHR 7.25.1) adds one rule and one `dst-nat` as the write user, reads them back, reverts, and
+lets an unconfirmed change run into its timer (`test_revert_timer_undoes_an_unconfirmed_change`).
+What that does not cover ([#21](https://github.com/PhilippMundhenk/signalbox/issues/21)):
+
+- *Guess*: the policies `read,write` suffice to create the scheduler entry and for its script on
+  other RouterOS versions and with the group above; the clock format of older versions.
+- *Guess*: `place-before` in the body of `PUT` (CI covers the plain case, not other chains).
+- *Guess*: re-adding a removed row (adoption, revert) puts it in its place only when the row
+  after it has a comment to find it by; otherwise at the end of its menu.
+- *Guess*: rows with properties the writer does not know (`log`, `connection-state`, ...) on an
+  adopted rule are replaced by a rule without them; `adopt` shows the old rule in the plan.
+- A timer that runs while Signalbox is still working (a very slow router) undoes the change and
+  `confirm` reports it.
 
 ## MAC address table (#160)
 

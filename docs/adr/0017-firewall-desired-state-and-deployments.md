@@ -86,11 +86,15 @@ restore include it; an older login that cannot read it keeps working for the oth
   destination of an OPNsense rule is one network field), one port or range, one protocol set;
   the rest is refused with the reason.
 
-- **MikroTik**: `/ip/firewall/filter` and `/ip/firewall/nat` over REST with
-  `comment=signalbox:<key>` as the tag and `place-before` the first rule that is not
-  Signalbox's; policies as tagged rules on interface lists. Safe mode is not available over REST,
-  so the integration schedules its own revert (a `/system/scheduler` entry that restores the
-  backup) and removes it to confirm.
+- **MikroTik**: rows of `/ip/firewall/filter`, `/ipv6/firewall/filter` and `/ip/firewall/nat`
+  over REST, tagged by `comment=signalbox:<key>` (policies `signalbox:policy/<from>/<to|device>`);
+  rules go before the first row of their chain that is not Signalbox's, policies at the end;
+  zones are interface lists; `drop`/`reject` policies are rules, `accept` is no rule. Safe mode is
+  not available over REST, so the integration arms its own revert: a `/system/scheduler` entry
+  (`signalbox-revert`) at the router's clock plus the confirm time, whose script undoes exactly
+  the changes of the deployment (built line by line while they are planned), removed by `confirm`
+  after the verification and before a restore. A router whose clock cannot be read gets no
+  firewall change. Details: [MikroTik](../adapters/mikrotik.md#firewall-changes-295).
 
 ## Consequences
 
@@ -102,5 +106,5 @@ restore include it; an older login that cannot read it keeps working for the oth
   negation), port forwards a single external range.
 - The lockout check is as good as the reachability model: where it cannot decide it says
   "unknown", which counts as worse than "allowed", so it errs towards asking for the override.
-- MikroTik plans with firewall changes are refused until its writer exists (the manifest
-  does not list the kinds). OPNsense applies them without a rollback timer (see above).
+- OPNsense applies firewall changes without a rollback timer (see above); OpenWrt and MikroTik
+  have one (a commit timer, a scheduler entry).
