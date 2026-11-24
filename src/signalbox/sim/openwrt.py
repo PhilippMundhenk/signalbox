@@ -1165,9 +1165,19 @@ def hostapd_status(ifname: str, radio: dict[str, Any]) -> dict[str, Any]:
 LEASE = (_mac(0x20, 3), "192.0.2.103", "laptop")
 
 
-def board() -> dict[str, Any]:
+#: Releases the simulator can pose as: revision and kernel per version (#407). 23.05 and 24.10
+#: have netifd's shell wireless object and opkg; 25.12 has the ucode one (``wireless_ucode``), apk.
+RELEASES: dict[str, tuple[str, str]] = {
+    "23.05.5": ("r24106-10cc5fcd00", "5.15.167"),
+    "23.05.6": ("r23630-842932a63d", "5.15.194"),
+    "24.10.8": ("r28939-ecd2cf8f09", "6.6.119"),
+}
+
+
+def board(version: str = "23.05.5") -> dict[str, Any]:
+    revision, kernel = RELEASES[version]
     return {
-        "kernel": "5.15.167",
+        "kernel": kernel,
         "hostname": "ap",
         "system": "ARMv8 Processor rev 4",
         "model": "Example AP",
@@ -1175,10 +1185,10 @@ def board() -> dict[str, Any]:
         "rootfs_type": "squashfs",
         "release": {
             "distribution": "OpenWrt",
-            "version": "23.05.5",
-            "revision": "r24106-10cc5fcd00",
+            "version": version,
+            "revision": revision,
             "target": "mediatek/filogic",
-            "description": "OpenWrt 23.05.5 r24106-10cc5fcd00",
+            "description": f"OpenWrt {version} {revision}",
         },
     }
 
@@ -1346,6 +1356,8 @@ class OpenWrtSim:
     luci_features: bool = True
     #: installed hostapd package (``rpc-sys packagelist``); ``wpad-basic-mbedtls``: no SAE, OWE, EAP
     wpad: str = "wpad-mbedtls"
+    #: release the simulator reports (``system board``), a key of :data:`RELEASES` (#407)
+    release: str = "23.05.5"
     #: OpenWrt 25.12: netifd's ucode wireless object answers "invalid argument" through rpcd
     wireless_ucode: bool = False
     #: DHCP on, no default route on lan: the device acts as the router of 192.0.2.0/24
@@ -1574,7 +1586,7 @@ class OpenWrtSim:
     def _data(self, sid: str, obj: str, method: str, args: dict[str, Any]) -> list[Any] | None:
         """ubus result list, or None when the object does not exist."""
         if obj == "system" and method == "board":
-            return [0, board()]
+            return [0, board(self.release)]
         if obj == "system" and method == "info":
             zone = next((sec for sec in self.state["system"].values()), {})
             name = str(zone.get("zonename") or "UTC")

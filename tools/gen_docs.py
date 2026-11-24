@@ -90,7 +90,7 @@ EMULATED = {
     "WireGuard), read only ([details](adapters/linux.md#integration-tests))",
     "omada": "TP-Link Omada: Software Controller 6.3.0.111, official Linux package in Docker, "
     "without managed devices ([details](adapters/omada.md#integration-tests))",
-    "openwrt": "OpenWrt: 24.10.8 and 25.12.6, official x86-64 images in QEMU "
+    "openwrt": "OpenWrt: 23.05.6, 24.10.8 and 25.12.6, official x86-64 images in QEMU "
     "([details](adapters/openwrt.md#verified-against-the-real-openwrt))",
     "opnsense": "OPNsense: 26.7.9 and 25.1, official nano images in QEMU (25.1 read only) "
     "([details](adapters/opnsense.md#versions-390))",

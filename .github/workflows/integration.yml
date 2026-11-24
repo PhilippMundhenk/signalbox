@@ -184,7 +184,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ["24.10.8", "25.12.6"]
+        version: ["23.05.6", "24.10.8", "25.12.6"]
     env:
       REQUIRE_INTEGRATION: "1"
       # throwaway logins of the test VM, which is only reachable on 127.0.0.1

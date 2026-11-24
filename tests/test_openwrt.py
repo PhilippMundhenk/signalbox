@@ -1963,3 +1963,13 @@ def test_brforward_records() -> None:
     assert brforward.decode("AAAA") is None  # 3 bytes: no whole record
     assert brforward.port_number("0x1f\n") == 31
     assert brforward.port_number(None) is None and brforward.port_number("x") is None
+
+
+async def test_release_23_05_variant(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    """OpenWrt 23.05.6, the oldest supported line (#407): shell wireless object, and LLDP is an
+    optional gap when ``luci.lldpd`` is missing."""
+    sim.release = "23.05.6"
+    sim.lldpd = False
+    snap = await assert_contract(adapter)
+    assert snap.device.firmware is not None and snap.device.firmware.current == "23.05.6"
+    assert (await adapter.read_wireless()).radios
