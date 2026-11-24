@@ -60,6 +60,7 @@ SERVICES: dict[str, tuple[str, str]] = {
     "X_AVM-DE_UPnP1": (f"{URN}X_AVM-DE_UPnP:1", "/upnp/control/x_upnp"),
     "WANPPPConnection1": (f"{URN}WANPPPConnection:1", "/upnp/control/wanpppconn1"),
     "WANIPConnection1": (f"{URN}WANIPConnection:1", "/upnp/control/wanipconnection1"),
+    "Layer3Forwarding1": (f"{URN}Layer3Forwarding:1", "/upnp/control/layer3forwarding"),
     **{
         f"WLANConfiguration{n}": (f"{URN}WLANConfiguration:{n}", f"/upnp/control/wlanconfig{n}")
         for n in range(1, 5)

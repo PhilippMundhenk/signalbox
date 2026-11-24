@@ -43,6 +43,7 @@ from signalbox.adapters import (
     SystemInfo,
     VendorCall,
     bonding,
+    known_interfaces,
 )
 from signalbox.adapters.bonding import Bond
 from signalbox.adapters.https import DeviceHttp, device_url
@@ -52,6 +53,7 @@ from signalbox.adapters.openwrt import (
     lag,
     monitoring,
     provision,
+    routes,
     setup,
     vitals,
     wireguard,
@@ -1028,8 +1030,18 @@ class OpenWrtAdapter(Adapter):
         except NotFound:
             users = []
         own = next((u for u in users or [] if u.is_signalbox), None)
+
+        def segment_of(name: str) -> str | None:
+            vid = view.vlan_of_interface(name)
+            return None if vid is None else self._seg(vid)
+
         return Observation(
             ports=list(ports.values()),
+            routes=known_interfaces(
+                routes.read_routes(d, view.uci, view.running, view.devices),
+                [p.id for p in ports.values()],
+            ),
+            routing_rules=routes.read_rules(d, view.uci, segment_of),
             segments=segments,
             subnets=subnets,
             uplinks=uplinks,

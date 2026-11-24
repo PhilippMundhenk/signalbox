@@ -116,3 +116,8 @@ licence text is in [LICENSE-gofritz](LICENSE-gofritz). `wanpppconnSCPD.xml` and
 `wanipconnSCPD.xml` were taken unchanged from udondan/fritz, Apache License 2.0; the licence
 text is in [LICENSE-udondan-fritz](LICENSE-udondan-fritz). The service descriptions themselves are
 AVM's published TR-064 interface specification.
+
+### Layer3Forwarding (#149)
+
+`layer3forwardingSCPD.xml` (Layer3Forwarding:1, the static IPv4 routes and the default
+connection) is from the same gofritz dump and commit, byte for byte, for both versions.

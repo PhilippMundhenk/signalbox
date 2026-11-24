@@ -867,3 +867,16 @@ active probe: at every read Signalbox also tries one `session.login` as `root` w
 password and destroys the session at once. A success means root still has no password (the
 OpenWrt factory state; *guess* that rpcd accepts it, #21). Nothing is changed. The rules are in
 [account_checks](../rules/account_checks.md).
+
+## Routes and policy rules (#149)
+
+Read from what `read_interfaces` has already, no new ACL entry: the `route` list of every
+interface in `network.interface dump` (the installed routes; the origin comes from the
+interface's protocol: `dhcp` and `pppoe` defaults are `dhcp`, `dhcpv6` is `ra`, `wireguard` is
+`vpn`, everything else `static`) and the `route`, `route6`, `rule` and `rule6` sections of
+`uci get network`. A configured route in the main table that is not in the dump has
+`active=false`; a `table` option puts a route in that table; `type` `blackhole`, `unreachable`
+and `prohibit` are dropping routes. A rule with `invert`, an unreadable `src` or `dest`, a
+`goto`, or an incoming interface (`in`) that is no network of the router is left out. Connected
+networks come from the subnets. *CI*: the image's static route and rule (see
+tests/integration/test_openwrt_real.py). *Guess:* `rule` options of other actions (#21).

@@ -41,6 +41,7 @@ from signalbox.adapters import (
     UntrustedCertificate,
     UntrustedHostKey,
     bonding,
+    known_interfaces,
 )
 from signalbox.adapters.linux import (
     clock,
@@ -53,6 +54,9 @@ from signalbox.adapters.linux import (
     setup,
     syslog,
     wireguard,
+)
+from signalbox.adapters.linux import (
+    routes as route_reader,
 )
 from signalbox.adapters.linux import trace as _trace
 from signalbox.adapters.linux.collect import Answer
@@ -447,6 +451,19 @@ class LinuxAdapter(Adapter):
             uplinks=lay.uplinks,
             services=self._services(lay),
             fdb=self._fdb(lay),
+            routes=known_interfaces(
+                route_reader.read_routes(
+                    self.context.device_id,
+                    self.answer,
+                    frozenset(n for n, p in lay.ports.items() if p.role is PortRole.TUNNEL),
+                ),
+                [p.id for p in lay.ports.values()],
+            ),
+            routing_rules=route_reader.read_rules(
+                self.context.device_id,
+                self.answer,
+                lambda n: lay.networks[n][0] if n in lay.networks else None,
+            ),
             log_targets=self._log_targets(gaps),
         )
 

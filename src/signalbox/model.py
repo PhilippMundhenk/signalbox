@@ -2619,6 +2619,120 @@ class FdbEntry(Observed):
     age_seconds: Annotated[int, Field(ge=0)] | None = None
 
 
+#: Most routes kept per device (#149): a router with a full BGP feed is cut, not stored.
+ROUTE_LIMIT = 4096
+
+
+class RouteOrigin(StrEnum):
+    """Where a route of a device comes from (#149)."""
+
+    #: The network of an interface. Derived from :class:`Subnet`; adapters report it only when
+    #: the device reports its whole table anyway (ADR 0024).
+    CONNECTED = "connected"
+    STATIC = "static"
+    DHCP = "dhcp"
+    #: Learned from an IPv6 router advertisement.
+    RA = "ra"
+    #: Installed by a VPN (WireGuard allowed IPs, an OpenVPN or IPsec policy).
+    VPN = "vpn"
+    #: A routing protocol (OSPF, BGP, RIP).
+    DYNAMIC = "dynamic"
+    OTHER = "other"
+
+
+class RouteKind(StrEnum):
+    UNICAST = "unicast"
+    #: Traffic is dropped silently.
+    BLACKHOLE = "blackhole"
+    #: Traffic is dropped with an ICMP "unreachable".
+    UNREACHABLE = "unreachable"
+    #: Traffic is dropped with an ICMP "administratively prohibited".
+    PROHIBIT = "prohibit"
+
+
+def route_id(
+    device_id: str,
+    table: str,
+    destination: IPNetwork,
+    gateway: IPAddress | None = None,
+    interface: str | None = None,
+    kind: RouteKind = RouteKind.UNICAST,
+) -> str:
+    """Id of a route: ``<device>/route/<hash of table, destination, gateway, interface, kind>``.
+
+    The metric is not part of it, so a changed metric stays the same route."""
+    text = "|".join([table, str(destination), str(gateway or ""), interface or "", kind.value])
+    return object_id(device_id, "route", hashlib.sha256(text.encode()).hexdigest()[:12])
+
+
+class Route(Observed):
+    """One route of a device's routing table (#149, ADR 0024).
+
+    Read with ``interfaces``. Connected routes are not reported by most adapters: they are
+    derived from :class:`Subnet` (see :func:`signalbox.routing.next_hop`). A route of an IPv4
+    default is ``0.0.0.0/0``, of IPv6 ``::/0``. Routes of VPN peers can reveal remote sites:
+    treat them like addresses.
+    """
+
+    device_id: str
+    #: ``main``, or the name or number of another table (policy routing).
+    table: str = "main"
+    destination: IPNetwork
+    #: The next hop; None for a connected route, a route out of an interface or a blackhole.
+    gateway: IPAddress | None = None
+    #: Port id where the interface maps to a port, else the device's name of the interface.
+    interface: str | None = None
+    metric: Annotated[int, Field(ge=0)] | None = None
+    origin: RouteOrigin = RouteOrigin.OTHER
+    kind: RouteKind = RouteKind.UNICAST
+    #: Switched on in the configuration. A disabled route is configured, not used.
+    enabled: bool = True
+    #: Installed in the table the kernel uses; None: not known. ``enabled`` with ``active``
+    #: False: configured but not installed (gateway down, interface down).
+    active: bool | None = None
+
+    @property
+    def default(self) -> bool:
+        return self.destination.prefixlen == 0
+
+    @model_validator(mode="after")
+    def _family(self) -> Route:
+        if self.gateway is not None and self.gateway.version != self.destination.version:
+            raise ValueError("gateway and destination must be of the same address family")
+        return self
+
+
+class RuleAction(StrEnum):
+    LOOKUP = "lookup"
+    BLACKHOLE = "blackhole"
+    PROHIBIT = "prohibit"
+    UNREACHABLE = "unreachable"
+
+
+def routing_rule_id(device_id: str, text: str) -> str:
+    return object_id(device_id, "rule", hashlib.sha256(text.encode()).hexdigest()[:12])
+
+
+class RoutingRule(Observed):
+    """One policy routing rule (#149): traffic matching it is routed by another table.
+
+    Rules are evaluated by ascending ``priority``; the first match whose table has a route
+    decides. A device without rules uses the ``main`` table only."""
+
+    device_id: str
+    priority: int | None = None
+    #: Match on the source address; None: any.
+    src: IPNetwork | None = None
+    #: Match on the destination address; None: any.
+    dst: IPNetwork | None = None
+    #: Match on the incoming interface, mapped to a segment; None: any.
+    segment_id: str | None = None
+    #: The table the rule sends traffic to (``main``, a number or a name).
+    table: str = "main"
+    action: RuleAction = RuleAction.LOOKUP
+    enabled: bool = True
+
+
 class LinkOrigin(StrEnum):
     LLDP = "lldp"
     MAC = "mac"
@@ -3134,6 +3248,9 @@ class Snapshot(Model):
     #: Forwarding database (MAC address table) entries (#160), at most
     #: :data:`FDB_LIMIT` per device.
     fdb: list[FdbEntry] = Field(default_factory=list)
+    #: Routing tables and policy routing rules (#149; part of ``interfaces``).
+    routes: list[Route] = Field(default_factory=list)
+    routing_rules: list[RoutingRule] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
     tunnels: list[Tunnel] = Field(default_factory=list)
     #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).
@@ -3232,6 +3349,9 @@ class Network(Model):
     #: Forwarding database (MAC address table) entries (#160), at most
     #: :data:`FDB_LIMIT` per device.
     fdb: list[FdbEntry] = Field(default_factory=list)
+    #: Routing tables and policy routing rules (#149; part of ``interfaces``).
+    routes: list[Route] = Field(default_factory=list)
+    routing_rules: list[RoutingRule] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
     tunnels: list[Tunnel] = Field(default_factory=list)
     #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).
@@ -3294,6 +3414,8 @@ class Network(Model):
             self.clients,
             self.neighbours,
             self.fdb,
+            self.routes,
+            self.routing_rules,
             self.tunnels,
             self.firewalls,
             self.server_sightings,
@@ -3457,6 +3579,15 @@ class Network(Model):
     def firewall_of(self, device_id: str) -> Firewall | None:
         """The device's firewall (#135); ``None``: not read (not "no firewall")."""
         return next((f for f in self.firewalls if f.device_id == device_id), None)
+
+    def routes_of(self, device_id: str) -> list[Route]:
+        return [r for r in self.routes if r.device_id == device_id]
+
+    def routing_rules_of(self, device_id: str) -> list[RoutingRule]:
+        return sorted(
+            (r for r in self.routing_rules if r.device_id == device_id),
+            key=lambda r: (r.priority is None, r.priority or 0, r.id),
+        )
 
     def uplinks_of(self, device_id: str) -> list[Uplink]:
         return [u for u in self.uplinks if u.device_id == device_id]

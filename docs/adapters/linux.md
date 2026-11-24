@@ -211,3 +211,15 @@ entries with a `master` are the bridge's table (`permanent` → `self`, `static`
 else `dynamic`, `updated` → age); entries without one (a port's own unicast/multicast list) and
 multicast addresses are left out. Confirmed in CI: a static entry added on the Debian 12
 target's bridge port is read.
+
+## Routes and policy rules (#149)
+
+The read script adds `ip -j route show table all`, `ip -j -6 route show table all`,
+`ip -j rule show` and `ip -j -6 rule show` (sections `routes4`, `routes6`, `rules4`,
+`rules6`; as the read user, no root). The `local` table, the empty `default` table and the
+kernel's own routes for connected networks are left out. `protocol` gives the origin (`dhcp`,
+`ra`, `static` or `boot`, a routing daemon such as `bird` or `zebra` is dynamic); a route out of
+a WireGuard interface is a `vpn` route; `type` `blackhole`, `unreachable` and `prohibit` are
+dropping routes. A rule with a key Signalbox cannot evaluate (`fwmark`, `uidrange`, ...) is left
+out. *CI*: a static route, a table with its own default route and a rule in the container.
+*Guess:* the JSON key of a blackhole rule's action (#21).

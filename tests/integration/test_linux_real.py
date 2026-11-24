@@ -122,6 +122,19 @@ async def test_read_as_the_documented_user(lx: Target) -> None:
     assert {str(n) for n in peer.allowed_ips} == {"203.0.113.249/32", "198.51.100.128/25"}
     assert peer.latest_handshake is None and peer.keepalive_seconds == 25
     assert peer.rx_bytes == 0 and peer.preshared_key is None
+    # routes and policy rules as the read user (``ip -j route show table all``, #149)
+    by = {(str(r.destination), r.table): r for r in snap.routes}
+    lab = by[("198.18.20.0/24", "main")]
+    assert (str(lab.gateway), lab.interface, lab.origin.value) == (
+        "192.0.2.5",
+        "gw2/port/br0",
+        "static",
+    ), lab
+    assert by[("198.51.100.128/25", "main")].origin.value == "vpn"
+    assert str(by[("0.0.0.0/0", "100")].gateway) == "192.0.2.5"
+    assert not any(str(r.destination) == "192.0.2.0/25" for r in snap.routes)  # connected
+    [policy] = [r for r in snap.routing_rules if r.table == "100"]
+    assert (str(policy.src), policy.priority) == ("192.0.2.128/26", 1000), policy
     segs = {s.id: s for s in snap.segments}
     assert [(m.port_id, m.mode) for m in segs["it/segment/30"].members] == [
         ("gw2/port/lan0", Membership.TAGGED)

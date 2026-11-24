@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -56,6 +56,8 @@ from signalbox.model import (
     Port,
     Radio,
     ReadError,
+    Route,
+    RoutingRule,
     Segment,
     ServerSighting,
     Snapshot,
@@ -573,6 +575,18 @@ class SystemInfo(BaseModel):
     vendor_extra: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+def known_interfaces(routes: list[Route], port_ids: Iterable[str]) -> list[Route]:
+    """*routes* with an interface that is not one of the reported ports left empty (a route may
+    leave through an interface the device does not list as a port); the id stays."""
+    known = set(port_ids)
+    return [
+        r.model_copy(update={"interface": None})
+        if r.interface is not None and r.interface not in known
+        else r
+        for r in routes
+    ]
+
+
 class Gap(BaseModel):
     """Part of a capability the device would not give while the rest was read (old firmware
     protecting a setting, a missing package): reported like a read error, the data is kept."""
@@ -623,6 +637,14 @@ class Observation(BaseModel):
     #: says, on the physical port where it knows it; ``observe()`` keeps at most
     #: :data:`~signalbox.model.FDB_LIMIT` per device.
     fdb: list[FdbEntry] = Field(default_factory=list)
+    #: Routing table (#149), read with ``interfaces``; no API version needed. Report static,
+    #: default, VPN and dynamic routes; connected routes are derived from ``subnets`` and only
+    #: reported by a device that lists its whole table anyway. An integration that cannot read
+    #: the table reports nothing (and an optional read error), never an empty table it made up.
+    routes: list[Route] = Field(default_factory=list)
+    #: Policy routing rules (#149), read with ``interfaces``; no API version needed. Report
+    #: every rule, or none when the device cannot say.
+    routing_rules: list[RoutingRule] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239), read with ``vpn`` (API 1.3). Never a private or
     #: pre-shared key, also not in ``vendor_extra``.
     tunnels: list[Tunnel] = Field(default_factory=list)

@@ -872,6 +872,54 @@
    "status": 200,
    "content_type": "text/xml; charset=\"utf-8\"",
    "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetUserListResponse xmlns:u=\"urn:dslforum-org:service:LANConfigSecurity:1\"><NewX_AVM-DE_UserList>&lt;List&gt;&lt;Username last_user=\"0\"&gt;name-10&lt;/Username&gt;&lt;Username last_user=\"1\"&gt;recorded-user&lt;/Username&gt;&lt;/List&gt;</NewX_AVM-DE_UserList></u:X_AVM-DE_GetUserListResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/layer3forwarding",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:Layer3Forwarding:1#GetForwardNumberOfEntries\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetForwardNumberOfEntries xmlns:u=\"urn:dslforum-org:service:Layer3Forwarding:1\"></u:GetForwardNumberOfEntries></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetForwardNumberOfEntriesResponse xmlns:u=\"urn:dslforum-org:service:Layer3Forwarding:1\"><NewForwardNumberOfEntries>2</NewForwardNumberOfEntries></u:GetForwardNumberOfEntriesResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/layer3forwarding",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:Layer3Forwarding:1#GetGenericForwardingEntry\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericForwardingEntry xmlns:u=\"urn:dslforum-org:service:Layer3Forwarding:1\"><NewForwardingIndex>0</NewForwardingIndex></u:GetGenericForwardingEntry></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericForwardingEntryResponse xmlns:u=\"urn:dslforum-org:service:Layer3Forwarding:1\"><NewEnable>1</NewEnable><NewStatus>Enabled</NewStatus><NewType>Network</NewType><NewDestIPAddress>198.18.20.0</NewDestIPAddress><NewDestSubnetMask>255.255.255.0</NewDestSubnetMask><NewSourceIPAddress>0.0.0.0</NewSourceIPAddress><NewSourceSubnetMask>0.0.0.0</NewSourceSubnetMask><NewGatewayIPAddress>192.0.2.254</NewGatewayIPAddress><NewInterface></NewInterface><NewForwardingMetric>0</NewForwardingMetric></u:GetGenericForwardingEntryResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/layer3forwarding",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:Layer3Forwarding:1#GetGenericForwardingEntry\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericForwardingEntry xmlns:u=\"urn:dslforum-org:service:Layer3Forwarding:1\"><NewForwardingIndex>1</NewForwardingIndex></u:GetGenericForwardingEntry></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGenericForwardingEntryResponse xmlns:u=\"urn:dslforum-org:service:Layer3Forwarding:1\"><NewEnable>0</NewEnable><NewStatus>Disabled</NewStatus><NewType>Network</NewType><NewDestIPAddress>198.18.30.0</NewDestIPAddress><NewDestSubnetMask>255.255.255.0</NewDestSubnetMask><NewSourceIPAddress>0.0.0.0</NewSourceIPAddress><NewSourceSubnetMask>0.0.0.0</NewSourceSubnetMask><NewGatewayIPAddress>192.0.2.254</NewGatewayIPAddress><NewInterface></NewInterface><NewForwardingMetric>0</NewForwardingMetric></u:GetGenericForwardingEntryResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/layer3forwarding",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:Layer3Forwarding:1#GetDefaultConnectionService\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetDefaultConnectionService xmlns:u=\"urn:dslforum-org:service:Layer3Forwarding:1\"></u:GetDefaultConnectionService></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetDefaultConnectionServiceResponse xmlns:u=\"urn:dslforum-org:service:Layer3Forwarding:1\"><NewDefaultConnectionService>uuid:00000000-0000-4000-8000-000000000149,urn:upnp-org:serviceId:WANIPConn1</NewDefaultConnectionService></u:GetDefaultConnectionServiceResponse></s:Body></s:Envelope>"
   }
  ],
  "snapshot": {
@@ -1707,6 +1755,63 @@
   ],
   "neighbours": [],
   "fdb": [],
+  "routes": [
+   {
+    "id": "recorded/route/9070889db35a",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "table": "main",
+    "destination": "0.0.0.0/0",
+    "gateway": "203.0.113.1",
+    "interface": null,
+    "metric": null,
+    "origin": "other",
+    "kind": "unicast",
+    "enabled": true,
+    "active": true
+   },
+   {
+    "id": "recorded/route/de76b7a893e7",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "table": "main",
+    "destination": "198.18.20.0/24",
+    "gateway": "192.0.2.254",
+    "interface": null,
+    "metric": 0,
+    "origin": "static",
+    "kind": "unicast",
+    "enabled": true,
+    "active": null
+   },
+   {
+    "id": "recorded/route/a40d1f140f67",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "table": "main",
+    "destination": "198.18.30.0/24",
+    "gateway": "192.0.2.254",
+    "interface": null,
+    "metric": 0,
+    "origin": "static",
+    "kind": "unicast",
+    "enabled": false,
+    "active": null
+   }
+  ],
+  "routing_rules": [],
   "tunnels": [],
   "firewalls": [
    {

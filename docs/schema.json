@@ -3711,6 +3711,20 @@
           "title": "Radios",
           "type": "array"
         },
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/Route"
+          },
+          "title": "Routes",
+          "type": "array"
+        },
+        "routing_rules": {
+          "items": {
+            "$ref": "#/$defs/RoutingRule"
+          },
+          "title": "Routing Rules",
+          "type": "array"
+        },
         "segments": {
           "items": {
             "$ref": "#/$defs/Segment"
@@ -5255,6 +5269,300 @@
       "title": "Reservation",
       "type": "object"
     },
+    "Route": {
+      "additionalProperties": false,
+      "description": "One route of a device's routing table (#149, ADR 0024).\n\nRead with ``interfaces``. Connected routes are not reported by most adapters: they are\nderived from :class:`Subnet` (see :func:`signalbox.routing.next_hop`). A route of an IPv4\ndefault is ``0.0.0.0/0``, of IPv6 ``::/0``. Routes of VPN peers can reveal remote sites:\ntreat them like addresses.",
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "destination": {
+          "anyOf": [
+            {
+              "format": "ipv4network",
+              "type": "string"
+            },
+            {
+              "format": "ipv6network",
+              "type": "string"
+            }
+          ],
+          "title": "Destination"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "gateway": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gateway"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interface"
+        },
+        "kind": {
+          "$ref": "#/$defs/RouteKind",
+          "default": "unicast"
+        },
+        "metric": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "origin": {
+          "$ref": "#/$defs/RouteOrigin",
+          "default": "other"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "table": {
+          "default": "main",
+          "title": "Table",
+          "type": "string"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "destination"
+      ],
+      "title": "Route",
+      "type": "object"
+    },
+    "RouteKind": {
+      "enum": [
+        "unicast",
+        "blackhole",
+        "unreachable",
+        "prohibit"
+      ],
+      "title": "RouteKind",
+      "type": "string"
+    },
+    "RouteOrigin": {
+      "description": "Where a route of a device comes from (#149).",
+      "enum": [
+        "connected",
+        "static",
+        "dhcp",
+        "ra",
+        "vpn",
+        "dynamic",
+        "other"
+      ],
+      "title": "RouteOrigin",
+      "type": "string"
+    },
+    "RoutingRule": {
+      "additionalProperties": false,
+      "description": "One policy routing rule (#149): traffic matching it is routed by another table.\n\nRules are evaluated by ascending ``priority``; the first match whose table has a route\ndecides. A device without rules uses the ``main`` table only.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/RuleAction",
+          "default": "lookup"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "dst": {
+          "anyOf": [
+            {
+              "format": "ipv4network",
+              "type": "string"
+            },
+            {
+              "format": "ipv6network",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dst"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Priority"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Id"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "src": {
+          "anyOf": [
+            {
+              "format": "ipv4network",
+              "type": "string"
+            },
+            {
+              "format": "ipv6network",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Src"
+        },
+        "table": {
+          "default": "main",
+          "title": "Table",
+          "type": "string"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id"
+      ],
+      "title": "RoutingRule",
+      "type": "object"
+    },
+    "RuleAction": {
+      "enum": [
+        "lookup",
+        "blackhole",
+        "prohibit",
+        "unreachable"
+      ],
+      "title": "RuleAction",
+      "type": "string"
+    },
     "SaePwe": {
       "description": "How SAE derives the password element (``sae_pwe`` in hostapd).",
       "enum": [
@@ -5921,6 +6229,20 @@
             "$ref": "#/$defs/Radio"
           },
           "title": "Radios",
+          "type": "array"
+        },
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/Route"
+          },
+          "title": "Routes",
+          "type": "array"
+        },
+        "routing_rules": {
+          "items": {
+            "$ref": "#/$defs/RoutingRule"
+          },
+          "title": "Routing Rules",
           "type": "array"
         },
         "segments": {

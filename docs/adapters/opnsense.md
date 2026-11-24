@@ -225,6 +225,7 @@ remedy, the fix adds exactly that privilege and the same key reads the firewall 
    | System: Settings: Logging | `/api/syslog/settings/search_destinations` (remote syslog targets, #180; `page-diagnostics-logs-settings-targets` in the core ACL) |
    | Diagnostics: Netflow configuration | `/api/diagnostics/netflow/getconfig` (NetFlow export, #180; `page-diagnostics-netflow`) |
    | System: Certificate Manager, System: Authority Manager | `/api/trust/cert/search`, `/api/trust/ca/search` (stored certificates and authorities, #330; `page-system-certmanager`, `page-system-camanager`; never `get/<uuid>` or the exports, which answer private keys) |
+   | System: Static Routes, System: Gateways | `/api/routes/routes/searchroute`, `/api/routes/gateway/status` (static routes and gateway status, #149; `page-system-staticroutes`, `page-system-gateways`, *guess* until a 26.7 image says otherwise) |
 
    ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
    and are skipped. With the plugin, add its DHCP server and lease pages.
@@ -919,3 +920,18 @@ unknown.
 - *Guess until the 26.7 integration image confirms it (#21)*: which fields the search rows
   carry (fields that are missing stay empty) and the date format. OPNsense does not say which
   VPN or service uses a certificate, so `cert.vpn-expiring` stays quiet for it.
+
+## Routes (#149)
+
+- `GET /api/routes/routes/searchroute` (grid; privilege *System: Static Routes*,
+  `page-system-staticroutes`): `network`, `gateway` (the gateway's name), `disabled`, `descr`.
+- `GET /api/routes/gateway/status` (privilege *System: Gateways*, `page-system-gateways`):
+  `items` with `name`, `address`, `status`; it turns a route's gateway name into an address and
+  marks a route through a gateway that is `down` (or has `loss` or `delay`) as not installed.
+- The default route is the one through the WAN interface's gateway (the uplink), not a read of
+  the kernel table (`/api/diagnostics/interface/getRoutes` is not used).
+
+Both privileges are in the read user's list (automatic setup, *Fix it*); a refused grid is an
+optional gap naming the privilege. Policy routing on OPNsense is a firewall rule with a gateway;
+the filter model has no gateway yet, so it is not read. *Guess:* the privilege names and the
+row fields until a 26.7 image says otherwise (#21).

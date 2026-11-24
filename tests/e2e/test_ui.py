@@ -273,6 +273,18 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(card).to_contain_text("default community")
     expect(card).to_contain_text("off")
 
+    # routes and policy rules (#149)
+    routes = app.get_by_test_id("device-routes")
+    expect(routes).to_contain_text("Routes")
+    expect(routes.get_by_test_id("route")).to_have_count(5)  # two connected, three reported
+    expect(routes).to_contain_text("192.0.2.0/24")
+    expect(routes).to_contain_text("default route")
+    expect(routes).to_contain_text("198.18.20.0/24")
+    expect(routes).to_contain_text("192.0.2.254")
+    expect(routes.get_by_test_id("route").filter(has_text="198.18.30.0/24")).to_contain_text("off")
+    expect(routes.get_by_test_id("routing-rule")).to_have_count(1)
+    expect(routes).to_contain_text("table 100")
+
     # log and monitoring targets (#180)
     logs = app.get_by_test_id("device-logging")
     expect(logs).to_contain_text("Logging and monitoring")

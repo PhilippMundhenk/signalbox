@@ -69,6 +69,8 @@ READ_PRIVILEGES: tuple[str, ...] = (
     "page-diagnostics-netflow",
     "page-system-certmanager",
     "page-system-camanager",
+    "page-system-staticroutes",
+    "page-system-gateways",
 )
 #: Added while path traces are on (#253, docs: "Path traces").
 TRACE_PRIVILEGES: tuple[str, ...] = ("page-diagnostics-traceroute",)

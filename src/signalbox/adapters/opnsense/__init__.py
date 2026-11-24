@@ -66,6 +66,7 @@ from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.opnsense import discovery as _discovery
 from signalbox.adapters.opnsense import firewall as fw
 from signalbox.adapters.opnsense import provision, vitals
+from signalbox.adapters.opnsense import routes as route_reader
 from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import write as w
 from signalbox.adapters.opnsense.certificates import CA_PRIVILEGE, CERT_PRIVILEGE, issuer_names
@@ -110,6 +111,7 @@ from signalbox.model import (
     PortMembership,
     PortRole,
     Reservation,
+    Route,
     Segment,
     ServiceKind,
     SnmpSettings,
@@ -1111,8 +1113,10 @@ class OpnsenseAdapter(_Adapter):
         )
         uplinks = [] if wan is None or row is None else [wan_uplink(row, dev, wan.port)]
         certificates, cert_gaps = await self._certificates()
-        gaps = [*gaps, *cert_gaps]
+        route_list, route_gaps = await self._routes(uplinks[0] if uplinks else None)
+        gaps = [*gaps, *cert_gaps, *route_gaps]
         return Observation(
+            routes=route_list,
             ports=layout.ports,
             segments=list(layout.segments.values()),
             subnets=subnets,
@@ -1123,6 +1127,32 @@ class OpnsenseAdapter(_Adapter):
             **accounts,
             incomplete=[*gaps, *account_gaps],
         )
+
+    async def _routes(self, uplink: Uplink | None) -> tuple[list[Route], list[Gap]]:
+        """Static routes, the WAN default route and the gateway status (#149). A grid the API
+        user may not read is an optional gap naming its privilege. Policy routing (firewall rules
+        with a gateway) is not read: documented, not a gap on every read."""
+        dev = self.context.device_id
+        gaps: list[Gap] = []
+        known: dict[str, tuple[IPAddress | None, bool | None]] = {}
+        try:
+            data = await self._get(route_reader.GATEWAY_STATUS)
+            items = data.get("items", []) if isinstance(data, dict) else data
+            known = route_reader.gateways(_rows(items, route_reader.GATEWAY_STATUS))
+        except NotFound:
+            pass
+        except AdapterError as exc:
+            gaps.append(_privilege_gap("gateways", exc, route_reader.GATEWAY_PRIVILEGE))
+        try:
+            rows = _rows(await self._get(route_reader.ROUTES_SEARCH, grid=True), "routes")
+        except NotFound:
+            rows = []
+        except AdapterError as exc:
+            gaps.append(_privilege_gap("static routes", exc, route_reader.ROUTES_PRIVILEGE))
+            return [], gaps
+        found = route_reader.static_routes(dev, rows, known)
+        default = route_reader.default_route(dev, uplink)
+        return ([default] if default else []) + found, gaps
 
     async def _accounts(self, dev: str) -> tuple[dict[str, Any], list[Gap]]:
         """Local users (#175) through the user manager API, with the user of Signalbox's key

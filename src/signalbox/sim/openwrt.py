@@ -260,6 +260,40 @@ def _base_network(upstream: dict[str, str], router: bool, wireguard: bool) -> di
             },
         ),
         ("interface", "iot", {"device": "br-lan.20", "proto": "none"}),
+        # Static routes and policy routing (#149): a lab network behind a second router (in the
+        # running table), a disabled one, one in table 100 and a rule that sends a source
+        # network to it. Option names as netifd documents them (*guess*, #21).
+        (
+            "route",
+            "lab",
+            {
+                "interface": "lan",
+                "target": "198.18.20.0",
+                "netmask": "255.255.255.0",
+                "gateway": "192.0.2.254",
+            },
+        ),
+        (
+            "route",
+            "oldlab",
+            {
+                "interface": "lan",
+                "target": "198.18.30.0/24",
+                "gateway": "192.0.2.254",
+                "disabled": "1",
+            },
+        ),
+        (
+            "route",
+            "lab100",
+            {
+                "interface": "lan",
+                "target": "0.0.0.0/0",
+                "gateway": "192.0.2.254",
+                "table": "100",
+            },
+        ),
+        ("rule", "labrule", {"src": "192.0.2.128/25", "lookup": "100", "priority": "100"}),
         *(
             (
                 ("interface", "wan", {"device": "eth0", "proto": "dhcp"}),
@@ -306,6 +340,20 @@ DHCP_LEASES: dict[str, dict[str, Any]] = {
 }
 
 
+def _route_entry(section: dict[str, Any]) -> dict[str, Any]:
+    """A UCI ``route`` section as netifd lists it in ``network.interface dump``."""
+    target = str(section["target"])
+    net = ip_interface(
+        target if "/" in target else f"{target}/{section.get('netmask', '255.255.255.255')}"
+    ).network
+    return {
+        "target": str(net.network_address),
+        "mask": net.prefixlen,
+        "nexthop": section["gateway"],
+        "source": "0.0.0.0/0",
+    }
+
+
 def interface_dump(network: Sections) -> dict[str, Any]:
     """Every UCI interface up, with its static addresses; a ``gateway`` is a default route."""
     entries = []
@@ -324,6 +372,14 @@ def interface_dump(network: Sections) -> dict[str, Any]:
                 {"address": str(addr.ip), "mask": addr.network.prefixlen}
             )
         gateway = s.get("gateway")
+        static = [
+            _route_entry(r)
+            for _, r in _of(network, "route")
+            if r.get("interface") == name
+            and r.get("gateway")
+            and not _on(r.get("disabled"))
+            and "table" not in r
+        ]
         entry: dict[str, Any] = {
             "interface": name,
             "up": True,
@@ -332,9 +388,14 @@ def interface_dump(network: Sections) -> dict[str, Any]:
             "l3_device": dev,
             "ipv4-address": v4,
             "ipv6-address": v6,
-            "route": [{"target": "0.0.0.0", "mask": 0, "nexthop": gateway, "source": "0.0.0.0/0"}]
-            if gateway
-            else [],
+            "route": [
+                *(
+                    [{"target": "0.0.0.0", "mask": 0, "nexthop": gateway, "source": "0.0.0.0/0"}]
+                    if gateway
+                    else []
+                ),
+                *static,
+            ],
         }
         if s.get("dns"):
             entry["dns-server"] = _words(s["dns"])
