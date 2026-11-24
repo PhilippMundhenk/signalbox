@@ -138,6 +138,7 @@ All notable changes to this project are documented here. The format follows
 
 - Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
+- Moving a device to another site (or renaming it, or changing its role) in its settings now updates the topology, segments and other views at once: the stored snapshot is re-stamped (site, segment ids, name, role) and the device is read right after the save, instead of waiting for the next read (#368)
 - Omada 6.3: the controller's users cannot be read in client mode (`/users`, `/all-users`, `/roles/available` answer -44118, `/users/local` and `/users/cloud` -1007; confirmed from the controller's own API description in CI), so the optional accounts gap now says so (`omada.accounts.client_mode`, all 15 catalogues), `/users` is not asked again after -44118, and the limit is documented (#354)
 - Accounts: when OPNsense, Omada or FRITZ!Box refuse the account list, Signalbox reports an optional gap naming the missing privilege instead of showing no accounts; the OPNsense user-manager privilege is an optional, off-by-default setup extra (#349)
 - OpenWrt: after applying, confirming or restoring a Wi-Fi change, wait until the radios have finished reloading before reading them; fixes the flaky wireless deploy test (#339)
