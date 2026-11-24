@@ -169,7 +169,7 @@ async def roundtrip(url: str, changes: list[Change], secrets: dict[str, str] | N
 
 
 def test_manifest_declares_every_kind() -> None:
-    assert MikrotikAdapter.manifest.writes == frozenset(ChangeKind) - FIREWALL_KINDS
+    assert MikrotikAdapter.manifest.writes == frozenset(ChangeKind)
     assert issubclass(MikrotikAdapter, WritesConfig)
     assert ros_duration(0) == "0s" and ros_duration(90061) == "1d1h1m1s"
 
@@ -747,7 +747,9 @@ async def test_restore_refusals(url: str) -> None:
         for content in ("not json", "[]", '{"menus": []}'):
             with pytest.raises(AdapterError, match="no menu snapshot"):
                 await a.restore(backup(BACKUP_FORMAT, content))
-        await a.confirm()
+        # no revert timer armed: it ran already, or there never was one
+        with pytest.raises(AdapterError, match="revert timer"):
+            await a.confirm()
     finally:
         await a.close()
 

@@ -494,7 +494,9 @@ class MikrotikWrites:
         at = datetime(day.year, day.month, day.day, hh, mm, ss) + timedelta(seconds=seconds)
         slashed = "/" in _text(clock.get("date"))
         date = (
-            f"{m._MONTHS[at.month - 1]}/{at.day:02d}/{at.year}" if slashed else at.date().isoformat()
+            f"{m._MONTHS[at.month - 1]}/{at.day:02d}/{at.year}"
+            if slashed
+            else at.date().isoformat()
         )
         return f"{date} {at:%H:%M:%S}"
 
@@ -1214,7 +1216,9 @@ def _revert_op(revert: fwwrite.Revert, when: str) -> _Op:
         "on-event": revert.script(),
         "comment": "signalbox: undoes the firewall change unless it is confirmed",
     }
-    return _Op("PUT", SCHEDULER, "revert-timer", body, "arm the revert timer of the firewall change")
+    return _Op(
+        "PUT", SCHEDULER, "revert-timer", body, "arm the revert timer of the firewall change"
+    )
 
 
 def _iface(row: dict[str, Any]) -> str:

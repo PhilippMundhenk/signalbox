@@ -129,7 +129,9 @@ def _zone(cfg: _Config, name: str | None, label: str, what: str) -> str | None:
         return None
     wanted = name.removeprefix("!")
     if "," in wanted:
-        raise AdapterError(f"{label}: give one {what}, RouterOS matches one interface list per rule")
+        raise AdapterError(
+            f"{label}: give one {what}, RouterOS matches one interface list per rule"
+        )
     known = sorted(str(r.get("name")) for r in cfg.rows(m.INTERFACE_LIST) if r.get("name"))
     if wanted not in known:
         raise AdapterError(
@@ -230,8 +232,13 @@ def _create(
 
 
 def _update(
-    cfg: _Config, menu: str, row: dict[str, Any], want: dict[str, str], props: tuple[str, ...],
-    revert: Revert, label: str,
+    cfg: _Config,
+    menu: str,
+    row: dict[str, Any],
+    want: dict[str, str],
+    props: tuple[str, ...],
+    revert: Revert,
+    label: str,
 ) -> None:
     """Set the properties of a tagged row to ``want``; what it has and ``want`` lacks is cleared."""
     old = {k: _text(row.get(k)) for k in props}
@@ -316,8 +323,7 @@ def firewall_rule(cfg: _Config, c: Change, revert: Revert) -> None:
         return
     if v.family is None:
         raise AdapterError(
-            f"{label}: RouterOS has separate IPv4 and IPv6 filters: give `family: 4` or "
-            "`family: 6`"
+            f"{label}: RouterOS has separate IPv4 and IPv6 filters: give `family: 4` or `family: 6`"
         )
     menu = m.FW_FILTER if v.family == 4 else m.FW_FILTER6
     if v.chain not in (FirewallChain.INPUT, FirewallChain.FORWARD):  # pragma: no cover
@@ -349,7 +355,15 @@ def firewall_rule(cfg: _Config, c: Change, revert: Revert) -> None:
     if ours is None and c.adopt:
         adopted = _adopted(cfg, menu, c.adopt, "rule", label)
     _write(
-        cfg, menu, ours, adopted, body, _RULE_PROPS, _anchor(cfg, menu, v.chain.value), revert, label
+        cfg,
+        menu,
+        ours,
+        adopted,
+        body,
+        _RULE_PROPS,
+        _anchor(cfg, menu, v.chain.value),
+        revert,
+        label,
     )
 
 
@@ -440,6 +454,13 @@ def port_forward(cfg: _Config, c: Change, revert: Revert) -> None:
     if ours is None and c.adopt:
         adopted = _adopted(cfg, m.FW_NAT, c.adopt, "port forward", label)
     _write(
-        cfg, m.FW_NAT, ours, adopted, body, _FORWARD_PROPS, _anchor(cfg, m.FW_NAT, "dstnat"),
-        revert, label,
+        cfg,
+        m.FW_NAT,
+        ours,
+        adopted,
+        body,
+        _FORWARD_PROPS,
+        _anchor(cfg, m.FW_NAT, "dstnat"),
+        revert,
+        label,
     )
