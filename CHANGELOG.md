@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Translations: the findings of all rules (except the firewall rules) and the HTTPS/SSH transport errors carry message ids with German texts; English wording of some findings changed (comma lists, short time units, arrows for links) (#204)
 - AdGuard Home and Pi-hole v6 as read-only devices (role other): DNS service and port, upstream servers as forwarders, DHCP server with leases and reservations, local DNS records, configured clients (AdGuard Home); Pi-hole v5 is reported with a fix; simulator-tested, not yet confirmed on real devices (#304, #241)
 - Firewall desired state and deployments (ADR 0017): `firewalls` per device with zone policies, rules and port forwards (zone names or segments), `drift.firewall` and import; change kinds `zone-policy`, `firewall-rule`, `port-forward`; OpenWrt writes only tagged `sb_*` UCI sections (the device's own objects only when adopted; `firewall` joins the write ACL and backups); a plan that may cut Signalbox off from a device (reachability before and after, `deploy.signalbox_address`) needs the explicit *Allow losing management access* override; confirmed in CI on OpenWrt 24.10 and 25.12; OPNsense and MikroTik later (#295)
 - OPNsense applies firewall rules, port forwards and zone policies (tagged `signalbox:<key>` in the description; the device's own rules only with `adopt`); OPNsense 26.7 has no rollback timer, so the lockout check and the backup restore are the protection (#295)
