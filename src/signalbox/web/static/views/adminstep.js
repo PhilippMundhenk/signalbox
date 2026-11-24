@@ -13,8 +13,8 @@ const IDLE_MS = 120000;
 // login: the integration's admin_login (labels); prefix: test id prefix ("setup" / "fix");
 // more: further fields (the
 // optional SSH step's password) as { el, input } entries that are wiped like the password.
-export function adminStep(login, prefix, more = []) {
-  const user = h('input', { type: 'text', value: login.user_default || '', autocomplete: 'off', spellcheck: 'false', 'data-testid': `${prefix}-admin-user` });
+export function adminStep(login, prefix, more = [], userValue = null) {
+  const user = h('input', { type: 'text', value: userValue || login.user_default || '', autocomplete: 'off', spellcheck: 'false', 'data-testid': `${prefix}-admin-user` });
   const secret = h('input', { type: 'password', autocomplete: 'new-password', spellcheck: 'false', 'data-testid': `${prefix}-admin-secret` });
   const note = h('p', { class: 'temporary-note', 'data-testid': `${prefix}-temporary-note` }, t('adminstep.note'));
   const secrets = [secret, ...more.map((m) => m.input).filter(Boolean)];

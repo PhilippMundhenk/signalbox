@@ -150,6 +150,7 @@ export async function renderDeviceForm(main, ctx, device) {
   const adapter = select(adapters.map((a) => [a.id, `${a.name} (${a.vendor})`]), device ? device.adapter : prefill ? prefill.adapter : adapters[0].id, { 'data-testid': 'device-adapter' });
   const adapterHelp = h('p', { class: 'muted small', 'data-testid': 'adapter-description' });
   const setupBox = h('div', {});
+  const autoBox = h('div', {}); // the automatic setup comes after the connection fields it needs
   const role = h('select', { 'data-testid': 'device-role' });
   const siteBox = h('div', {});
   const site = h('select', { 'data-testid': 'device-site' });
@@ -183,14 +184,17 @@ export async function renderDeviceForm(main, ctx, device) {
     const a = adapters.find((x) => x.id === adapter.value);
     adapterHelp.textContent = a.description || '';
     clear(setupBox);
+    clear(autoBox);
     place(setupBox, setupGuide(a, !editing && !a.admin_login));
     if (a.admin_login) {
+      const userInput = () => configBox.querySelector('[data-testid="cfg-username"]');
+      const own = { get: () => (userInput() ? userInput().value.trim() : ''), set: (v) => { if (userInput()) userInput().value = v; } };
       place(
-        setupBox,
+        autoBox,
         autoSetup(a, () => collect(true, true), (saved) => {
           testOnOpen.add(saved.id);
           ctx.navigate(`#/device/${enc(saved.id)}`);
-        }),
+        }, own),
       );
     }
     const wanted = role.value || (device && device.role) || (prefill && prefill.role);
@@ -296,6 +300,7 @@ export async function renderDeviceForm(main, ctx, device) {
     editing ? checkField(t('devices.field.read'), enabled, t('devices.field.readHelp')) : null,
     checkField(t('devices.field.allowChanges'), allowWrites, t('devices.field.allowChangesHelp')),
     configBox,
+    autoBox,
     h('p', { class: 'muted small' }, t('devices.testHelp')),
     testBox,
     errors,

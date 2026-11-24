@@ -376,6 +376,19 @@ async function overview(main, ctx, device, adapters, sites) {
   const result = h('div', {});
   const trustBox = h('div', {});
   const statusBox = h('span', {}, statusBadge(device.status));
+  // The device's current read state in one place (#300): status, last read time and the
+  // problems/gaps of that read. A connection test or a Fix it replaces all of it, so an old
+  // problem never stays next to a newer, good result.
+  const lastReadBox = h('span', { 'data-testid': 'last-read' }, observed && observed.observed_at ? h('span', { title: fmtTime(observed.observed_at) }, fmtAgo(observed.observed_at)) : t('device.overview.notYet'));
+  const stateBox = h('div', { 'data-testid': 'device-read-state' });
+  const showErrors = (list, note) => place(clear(stateBox), readErrors(list, 'device-errors', fixFor), note || null);
+  const applyReading = (reading) => {
+    if (!reading) return;
+    const now = new Date().toISOString();
+    place(clear(statusBox), statusBadge(reading.status));
+    place(clear(lastReadBox), h('span', { title: fmtTime(now) }, fmtAgo(now)));
+    showErrors(reading.errors, h('p', { class: 'muted small', 'data-testid': 'read-state-note' }, reading.errors.some((e) => !e.optional) ? t('device.state.fromRead', { time: fmtTime(now) }) : t('device.state.noProblems', { time: fmtTime(now) })));
+  };
 
   const showTrust = (fingerprint, status) => {
     clear(trustBox);
@@ -395,8 +408,8 @@ async function overview(main, ctx, device, adapters, sites) {
     place(clear(result), h('p', { class: 'muted', 'data-testid': 'testing' }, t('device.testing')));
     const res = await post(`/devices/${enc(device.id)}/test`);
     if (!ctx.alive(id)) return;
-    place(clear(result), testResult(res));
-    place(clear(statusBox), statusBadge(res.status));
+    place(clear(result), testResult(res, { errors: false }));
+    applyReading(res);
     showTrust(res.pending_fingerprint, res.status);
   }
   testBtn.addEventListener('click', () => run(testBtn, test));
@@ -420,7 +433,7 @@ async function overview(main, ctx, device, adapters, sites) {
     if (!device.allow_writes && !remedy.read_side) return h('p', { class: 'muted small', 'data-testid': 'fix-needs-writes' }, t('device.fixNeedsWrites', { title: remedy.title }));
     const btn = h('button', { class: 'btn small', type: 'button', 'data-testid': 'fix-it', 'data-remedy': remedy.id }, t('device.fixIt'));
     btn.addEventListener('click', () => {
-      place(clear(fixBox), fixPanel(device, adapter, remedy, (reading) => reading && place(clear(statusBox), statusBadge(reading.status))));
+      place(clear(fixBox), fixPanel(device, adapter, remedy, applyReading));
       fixBox.scrollIntoView({ block: 'nearest' });
     });
     return h('p', {}, btn);
@@ -439,11 +452,11 @@ async function overview(main, ctx, device, adapters, sites) {
         [t('device.overview.model'), observed ? observed.model : null],
         [t('device.overview.firmware'), fw ? [fw.current || '–', fw.available ? ` (${t('device.overview.updateAvailable', { version: fw.available })})` : '', fw.end_of_life ? ` – ${t('device.overview.endOfLife')}` : ''].join('') : null],
         [t('device.overview.managementAddress'), observed ? observed.management_address : null],
-        [t('device.overview.lastRead'), observed && observed.observed_at ? h('span', { title: fmtTime(observed.observed_at) }, fmtAgo(observed.observed_at)) : t('device.overview.notYet')],
+        [t('device.overview.lastRead'), lastReadBox],
         [t('device.overview.enabled'), yesNo(device.enabled)],
         [t('device.overview.changesAllowed'), yesNo(device.allow_writes)],
       ]),
-      readErrors(errors, 'device-errors', fixFor),
+      stateBox,
       fixBox,
     ),
     notesCard(ix, device.id, 'device', t('device.notes', { name: device.name }), () => ctx.refresh()),
@@ -460,6 +473,7 @@ async function overview(main, ctx, device, adapters, sites) {
     h('div', { class: 'row end' }, remove),
   );
   showTrust(device.pending_fingerprint, device.status);
+  showErrors(errors);
   if (testOnOpen.delete(device.id)) run(testBtn, test);
 }
 

@@ -111,6 +111,13 @@ td.actions { text-align: right; white-space: nowrap; }
 .table-wrap { overflow-x: auto; max-width: 100%; }
 .notice { border-left: 4px solid var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); padding: 10px 14px; border-radius: 6px; margin: 10px 0 16px; }
 .notice h3 { margin-top: 0; }
+.notice.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.notice.error { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+.busy { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin: 10px 0; border: 1px solid var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); font-size: 1.05rem; }
+.busy-text strong { display: block; }
+.spinner { flex: none; width: 28px; height: 28px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
 .overlay { position: fixed; inset: 0; background: rgb(8 12 22 / 55%); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
 .modal { background: var(--surface); border-radius: 12px; padding: 20px 22px; width: 100%; max-width: 460px; box-shadow: 0 10px 40px rgb(0 0 0 / 35%); }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }

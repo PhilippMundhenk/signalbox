@@ -6,7 +6,7 @@ import { post } from '../api.js';
 import { t } from '../i18n.js';
 import { stepTitle } from '../texts.js';
 import { clear, groupHex, h, place } from '../util.js';
-import { checkField, confirmDialog, field, run, toast } from '../ui.js';
+import { busy, checkField, confirmDialog, field, notice, run, toast } from '../ui.js';
 import { adminStep, previewList, previewSteps } from './adminstep.js';
 
 const STATE_KEY = { todo: 'setup.state.todo', unchanged: 'setup.state.unchanged', done: 'setup.state.done', failed: 'setup.state.failed', skipped: 'setup.state.skipped' };
@@ -34,10 +34,31 @@ export function fingerprintText(plan) {
   return plan.fingerprint_kind === 'certificate' ? groupHex(plan.fingerprint) : plan.fingerprint;
 }
 
+// The login Signalbox creates when the settings name an admin login (#299).
+const OWN_LOGIN = 'signalbox';
+
 // a: the adapter (with admin_login); collect(): the device form's body or null (shows errors);
-// onDone(device): the device was saved with the new login.
-export function autoSetup(a, collect, onDone) {
+// onDone(device): the device was saved with the new login;
+// own: { get(), set(name) } the "user name" setting of the device form (or null).
+export function autoSetup(a, collect, onDone, own = null) {
   const login = a.admin_login;
+  let previewed = []; // the steps the user saw in the preview, kept for the password step
+  let confirmedFingerprint = null;
+  let adminUser = null; // what was typed last: kept when the login is refused
+  const loginNote = h('div', { 'data-testid': 'setup-login-note', 'aria-live': 'polite' });
+  const adminNames = () => new Set(['root', 'admin', login.user_default, step && step.user(), adminUser].filter(Boolean));
+  // the user name in the settings is an admin login: the setup creates its own, so the name
+  // is replaced (never refused); the note says so before and after
+  function checkLogin(replace) {
+    const now = own && own.get();
+    if (!now || !adminNames().has(now)) return;
+    if (replace) own.set(OWN_LOGIN);
+    place(clear(loginNote), notice('info', 'setup-login-replaced', replace ? t('setup.loginReplaced', { old: now, name: OWN_LOGIN }) : t('setup.loginWillBeReplaced', { old: now, name: OWN_LOGIN })));
+  }
+  const collectOwn = () => {
+    checkLogin(true);
+    return collect();
+  };
   const remove = h('input', { type: 'checkbox', 'data-testid': 'setup-remove' });
   const out = h('div', { 'data-testid': 'setup-result', 'aria-live': 'polite' });
   // the port is needed to fetch the identity, so it is asked before: it is no secret
@@ -78,11 +99,12 @@ export function autoSetup(a, collect, onDone) {
 
   // 1. what it does, without any credential
   function showPreview() {
-    if (!collect()) return;
+    if (!collectOwn()) return;
     if (step) step.dispose();
     step = null;
     const steps = previewSteps(login.preview, remove.checked, ticked());
     acked = steps.map((s) => s.id);
+    previewed = steps;
     const next = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-continue' }, t('setup.continue'));
     next.addEventListener('click', () => run(next, identity));
     place(
@@ -96,7 +118,7 @@ export function autoSetup(a, collect, onDone) {
 
   // 2. the device's identity, still without any credential
   async function identity() {
-    const device = collect();
+    const device = collectOwn();
     if (!device) return;
     place(clear(out), h('p', { class: 'muted' }, t('setup.fetching')));
     try {
@@ -109,7 +131,7 @@ export function autoSetup(a, collect, onDone) {
       const cert = plan.fingerprint_kind === 'certificate';
       const both = withSsh && plan.ssh_fingerprint;
       const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust' }, both ? (cert ? t('setup.trust.certBoth') : t('setup.trust.sshBoth')) : cert ? t('setup.trust.cert') : t('setup.trust.ssh'));
-      trust.addEventListener('click', () => { trusted = plan.fingerprint; trustedSsh = both ? plan.ssh_fingerprint : null; showFinal(null); });
+      trust.addEventListener('click', () => { trusted = plan.fingerprint; confirmedFingerprint = fingerprintText(plan); trustedSsh = both ? plan.ssh_fingerprint : null; showFinal(null); });
       place(
         clear(out),
         h(
@@ -139,7 +161,7 @@ export function autoSetup(a, collect, onDone) {
       sshSecret = h('input', { type: 'password', autocomplete: 'new-password', spellcheck: 'false', 'data-testid': 'setup-ssh-secret' });
       more.push({ el: h('div', { class: 'ssh-option-fields', 'data-testid': 'setup-ssh-fields' }, field(t('setup.secretLabel', { label: opt.secret_label, user: opt.user }), sshSecret)), input: sshSecret });
     }
-    step = adminStep(login, 'setup', more);
+    step = adminStep(login, 'setup', more, adminUser);
     const removing = remove.checked;
     const go = h('button', { class: removing ? 'btn danger' : 'btn primary', type: 'button', 'data-testid': 'setup-apply' }, removing ? t('setup.run.remove') : t('setup.run.setup'));
     go.addEventListener('click', () => run(go, () => doApply(sshSecret)));
@@ -147,6 +169,8 @@ export function autoSetup(a, collect, onDone) {
       clear(out),
       extraNote,
       h('p', { class: 'muted small' }, t('setup.confirmed')),
+      // what was confirmed stays in view (also after a refused login)
+      h('div', { class: 'setup-kept', 'data-testid': 'setup-kept' }, previewed.length ? previewList(previewed, 'setup-kept-steps') : null, confirmedFingerprint ? h('p', { class: 'fingerprint mono small', 'data-testid': 'setup-kept-fingerprint' }, t('setup.confirmedIdentity', { fingerprint: confirmedFingerprint })) : null),
       step.el,
       h('div', { class: 'row' }, go),
     );
@@ -154,7 +178,7 @@ export function autoSetup(a, collect, onDone) {
 
   // 4. Run: one request with the password, then it is gone
   async function doApply(sshSecret) {
-    const device = collect();
+    const device = collectOwn();
     if (!device || !step) return;
     const removing = remove.checked;
     const missing = (text) => step.el.append(h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, text));
@@ -164,14 +188,16 @@ export function autoSetup(a, collect, onDone) {
       step.wipe(); // cancelled: the password does not stay in the field
       return;
     }
-    const admin = { user: step.user(), secret: step.secret() };
+    adminUser = step.user();
+    const admin = { user: adminUser, secret: step.secret() };
     if (port && port.value) admin.port = Number(port.value);
     const body = { device, admin, remove: removing, trust: trusted, extras: ticked().filter((x) => x !== 'ssh'), plan_ids: acked };
     if (sshSecret) {
       body.ssh = { secret: sshSecret.value, trust: trustedSsh };
       if (sshPort.value) body.ssh.port = Number(sshPort.value);
     }
-    place(clear(out), h('p', { class: 'muted' }, removing ? t('setup.removing') : t('setup.settingUp')));
+    // a clear progress state: spinner, what is going on, and the steps this run takes
+    place(clear(out), busy('setup-progress', h('strong', {}, removing ? t('setup.removing') : t('setup.settingUp')), h('p', { class: 'muted small' }, t('setup.progress.wait')), previewed.length ? previewList(previewed, 'setup-progress-steps') : null));
     const current = step;
     let res;
     try {
@@ -211,12 +237,16 @@ export function autoSetup(a, collect, onDone) {
         ),
       );
     }
+    if (err.code === 'auth_failed') {
+      // wrong admin login: back to the password step, preview and confirmed identity stay
+      return showFinal(h('div', { class: 'notice error', role: 'alert', 'data-testid': 'setup-error' }, h('p', { class: 'error' }, err.message), err.body && err.body.fix ? h('p', { class: 'fix' }, t('setup.whatToDo'), err.body.fix) : null));
+    }
     if (err.code === 'untrusted') { trusted = null; trustedSsh = null; }
     fail(err.message, err.body && err.body.fix);
   }
 
   planBtn.addEventListener('click', () => run(planBtn, async () => showPreview()));
-  return h(
+  const box = h(
     'details',
     { class: 'setup-guide notice', 'data-testid': 'auto-setup' },
     h('summary', {}, t('setup.summary')),
@@ -227,7 +257,18 @@ export function autoSetup(a, collect, onDone) {
     sshPortField,
     checkField(t('setup.removeInstead'), remove, null),
     ...extraFields,
+    loginNote,
     h('div', { class: 'row' }, planBtn),
     out,
   );
+  // The setup is its own step sequence, not part of the device form around it (#299): Enter in
+  // any of its fields never saves the device; in the password step Enter is Run.
+  box.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || !(e.target instanceof HTMLInputElement)) return;
+    e.preventDefault();
+    const go = box.querySelector('[data-testid="setup-apply"]');
+    if (step && step.el.contains(e.target) && go && !go.disabled) go.click();
+  });
+  box.addEventListener('toggle', () => box.open && checkLogin(false));
+  return box;
 }
