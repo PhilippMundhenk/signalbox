@@ -104,7 +104,7 @@ def test_language_picker_lists_every_index_entry(page: Any, server: Any) -> None
 #: A catalogue key shown instead of a text: "nav.findings", "devices.col.name", ...
 KEY_SHOWN = re.compile(
     r"\b(?:nav|devices|findings|settings|common|overview|segments|ack|clients|changes|msg|rule)"
-    r"\.[A-Za-z][A-Za-z0-9_.]*"
+    r"\.[A-Za-z][A-Za-z0-9_.-]*"
 )
 
 
@@ -124,7 +124,9 @@ def test_overview_and_device_page_render_in_each_new_language(
         page.reload()
         page.locator("main h1").first.wait_for()
         text = page.locator("body").inner_text()
-        assert not KEY_SHOWN.findall(text), (code, hash_, KEY_SHOWN.findall(text))
+        # rule ids ("clients.random-share") are shown as they are; catalogue keys have no hyphen
+        shown = [k for k in KEY_SHOWN.findall(text) if "-" not in k]
+        assert not shown, (code, hash_, shown)
         assert "Add a device" not in text
         overflow = page.evaluate(
             "() => document.documentElement.scrollWidth > document.documentElement.clientWidth"
