@@ -26,6 +26,7 @@ from pydantic import (
     Field,
     StringConstraints,
     ValidationError,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -36,11 +37,17 @@ from signalbox.model import (
     AnnotationSource,
     DeviceRole,
     Expected,
+    Firewall,
+    FirewallAction,
+    FirewallChain,
+    FirewallProtocol,
     IPAddress,
     IPInterface,
+    IPNetwork,
     Membership,
     Network,
     Pmf,
+    PortRange,
     PurposeSource,
     Security,
     SegmentPurpose,
@@ -221,6 +228,194 @@ class AcknowledgementSpec(Spec):
         )
 
 
+# firewall (#295) ----------------------------------------------------------------------------
+
+#: Names of declared rules and forwards: they become Signalbox's tag on the device.
+FIREWALL_NAME = r"^[a-z0-9][a-z0-9_-]{0,39}$"
+
+
+def firewall_key(name: str) -> str:
+    """The tag of a declared rule or forward (``-`` becomes ``_``: UCI section names)."""
+    return name.replace("-", "_")
+
+
+def _port_ranges(value: Any) -> list[PortRange]:
+    """``443``, ``"8000-8100"`` or a list of those."""
+    items = value if isinstance(value, list) else [value]
+    out = []
+    for item in items:
+        if isinstance(item, PortRange):
+            out.append(item)
+            continue
+        if isinstance(item, dict):
+            out.append(PortRange.model_validate(item))
+            continue
+        first, sep, last = str(item).partition("-")
+        try:
+            out.append(PortRange(start=int(first), end=int(last) if sep else None))
+        except ValueError as exc:
+            raise ValueError(f"not a port or port range: {item!r}") from exc
+    return out
+
+
+def _protocols(value: Any) -> list[FirewallProtocol] | None:
+    if value is None:
+        return None
+    items = value if isinstance(value, list) else [value]
+    if any(str(i) == "all" for i in items):
+        return []
+    return [FirewallProtocol(str(i)) for i in items]
+
+
+def _show_ports(ports: list[PortRange]) -> list[int | str]:
+    return [r.start if r.last == r.start else str(r) for r in ports]
+
+
+class SegmentZoneSpec(Spec):
+    """The firewall zone that holds a segment (on the declared device)."""
+
+    segment: SegmentRef | NativeKey
+
+
+ZoneRef = str | SegmentZoneSpec
+
+
+def zone_label(ref: ZoneRef | None) -> str:
+    if ref is None:
+        return "any"
+    return ref if isinstance(ref, str) else f"segment {ref.segment}"
+
+
+class PolicySpec(Spec):
+    """Default action between two zones (``to: device``: traffic to the router itself)."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    from_: ZoneRef = Field(alias="from", description="Zone name, or {segment: <vlan>}")
+    to: ZoneRef = Field(description='Zone name, {segment: <vlan>}, or "device" (the router)')
+    action: FirewallAction
+    adopt: bool = Field(
+        False,
+        description="Signalbox may remove the device's own forwarding of this pair for 'reject'",
+    )
+
+
+class EndpointSpec(Spec):
+    """Source or destination of a rule: a zone (by name or segment) and/or addresses."""
+
+    zone: str | None = None
+    segment: SegmentRef | NativeKey | None = None
+    network: list[IPNetwork] = Field(
+        default_factory=list, description="Addresses or prefixes (one or a list)"
+    )
+
+    @field_validator("network", mode="before")
+    @classmethod
+    def _one(cls, v: Any) -> Any:
+        return v if isinstance(v, list) else [v]
+
+    @model_validator(mode="after")
+    def _either(self) -> EndpointSpec:
+        if self.zone is not None and self.segment is not None:
+            raise ValueError("give a zone or a segment, not both")
+        return self
+
+    def zone_ref(self) -> ZoneRef | None:
+        if self.segment is not None:
+            return SegmentZoneSpec(segment=self.segment)
+        return self.zone
+
+
+class RuleSpec(Spec):
+    """A filter rule Signalbox owns. ``to: device``: traffic to the router itself."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    name: str = Field(pattern=FIREWALL_NAME, description="Identifies the rule (its tag)")
+    from_: EndpointSpec = Field(default_factory=EndpointSpec, alias="from")
+    to: Literal["device"] | EndpointSpec
+    protocol: list[FirewallProtocol] | None = Field(
+        None, description="tcp, udp, icmp, ... or all; default: tcp and udp with a port, else all"
+    )
+    port: list[PortRange] = Field(default_factory=list, description="Destination port(s)")
+    family: Literal[4, 6] | None = None
+    action: FirewallAction
+    enabled: bool = True
+    adopt: str | None = Field(
+        None, description="Name of the device's own rule Signalbox takes over (import)"
+    )
+
+    _protocol = field_validator("protocol", mode="before")(
+        classmethod(lambda cls, v: _protocols(v))
+    )
+    _port = field_validator("port", mode="before")(classmethod(lambda cls, v: _port_ranges(v)))
+    _show = field_serializer("port")(lambda self, v: _show_ports(v))
+
+    @model_validator(mode="after")
+    def _ports(self) -> RuleSpec:
+        tcp_udp = {FirewallProtocol.TCP, FirewallProtocol.UDP}
+        if (
+            self.port
+            and self.protocol is not None
+            and (not self.protocol or set(self.protocol) - tcp_udp)
+        ):
+            raise ValueError(f"rule {self.name}: ports need protocol tcp and/or udp")
+        return self
+
+    def protocols(self) -> list[FirewallProtocol]:
+        if self.protocol is not None:
+            return self.protocol
+        return [FirewallProtocol.TCP, FirewallProtocol.UDP] if self.port else []
+
+
+class ForwardTargetSpec(Spec):
+    address: IPAddress
+    port: int | None = Field(None, ge=1, le=65535, description="Default: the external port")
+
+
+class ForwardSpec(Spec):
+    """A port forward (destination NAT) Signalbox owns."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    name: str = Field(pattern=FIREWALL_NAME, description="Identifies the forward (its tag)")
+    protocol: list[FirewallProtocol] = Field(
+        default_factory=lambda: [FirewallProtocol.TCP, FirewallProtocol.UDP],
+        description="tcp, udp or both (default)",
+    )
+    port: list[PortRange] = Field(min_length=1, max_length=1, description="External port(s)")
+    from_: ZoneRef | None = Field(
+        None, alias="from", description="Zone it listens on; default: the internet side"
+    )
+    to: ForwardTargetSpec
+    enabled: bool = True
+    adopt: str | None = Field(
+        None, description="Name of the device's own forward Signalbox takes over (import)"
+    )
+
+    _protocol = field_validator("protocol", mode="before")(
+        classmethod(lambda cls, v: _protocols(v) or [])
+    )
+    _port = field_validator("port", mode="before")(classmethod(lambda cls, v: _port_ranges(v)))
+    _show = field_serializer("port")(lambda self, v: _show_ports(v))
+
+    @model_validator(mode="after")
+    def _tcp_udp(self) -> ForwardSpec:
+        if not self.protocol or set(self.protocol) - {FirewallProtocol.TCP, FirewallProtocol.UDP}:
+            raise ValueError(f"forward {self.name}: protocol must be tcp and/or udp")
+        return self
+
+
+class FirewallSpec(Spec):
+    """What Signalbox manages on one device's firewall. Rules and forwards it created there
+    earlier and that are no longer declared are removed; the device's own are left alone."""
+
+    device: str
+    policies: list[PolicySpec] = Field(default_factory=list)
+    rules: list[RuleSpec] = Field(default_factory=list)
+    forwards: list[ForwardSpec] = Field(default_factory=list)
+
+
 def _as_datetime(value: datetime | date | None) -> datetime | None:
     if value is None or isinstance(value, datetime):
         return value
@@ -231,6 +426,8 @@ class SiteSpec(Spec):
     segments: list[SegmentSpec] = Field(default_factory=list)
     wlans: list[WlanSpec] = Field(default_factory=list)
     ports: list[PortSpec] = Field(default_factory=list)
+    #: Zone policies, rules and port forwards per device (#295).
+    firewalls: list[FirewallSpec] = Field(default_factory=list)
     #: User annotations of objects of the site (#186).
     annotations: list[AnnotationSpec] = Field(default_factory=list)
     #: Accepted findings (#186).
@@ -260,6 +457,7 @@ class DesiredState(Spec):
                     segments=[*old.segments, *spec.segments],
                     wlans=[*old.wlans, *spec.wlans],
                     ports=[*old.ports, *spec.ports],
+                    firewalls=[*old.firewalls, *spec.firewalls],
                     annotations=[*old.annotations, *spec.annotations],
                     acknowledgements=[*old.acknowledgements, *spec.acknowledgements],
                 )
@@ -309,6 +507,29 @@ def _check_unique(state: DesiredState, source: str) -> None:
         dup = sorted({f"{d}/{p}" for d, p in ports if ports.count((d, p)) > 1})
         if dup:
             raise DesiredError(f"{source}: site {site}: port declared twice: {', '.join(dup)}")
+        devs = [f.device for f in spec.firewalls]
+        dup = sorted({d for d in devs if devs.count(d) > 1})
+        if dup:
+            raise DesiredError(
+                f"{source}: site {site}: firewall of {', '.join(dup)} declared twice"
+            )
+        for fw in spec.firewalls:
+            for what, names in (
+                ("rule", [firewall_key(r.name) for r in fw.rules]),
+                ("forward", [firewall_key(f.name) for f in fw.forwards]),
+            ):
+                dup = sorted({n for n in names if names.count(n) > 1})
+                if dup:
+                    raise DesiredError(
+                        f"{source}: firewall of {fw.device}: {what} declared twice: "
+                        + ", ".join(dup)
+                    )
+            pairs = [(zone_label(p.from_), zone_label(p.to)) for p in fw.policies]
+            dup = sorted({f"{a} to {b}" for a, b in pairs if pairs.count((a, b)) > 1})
+            if dup:
+                raise DesiredError(
+                    f"{source}: firewall of {fw.device}: policy declared twice: {', '.join(dup)}"
+                )
 
 
 def load(data_dir: Path) -> DesiredState | None:
@@ -325,7 +546,7 @@ def load(data_dir: Path) -> DesiredState | None:
 
 
 def dump(state: DesiredState) -> str:
-    data = state.model_dump(mode="json", exclude_defaults=True)
+    data = state.model_dump(mode="json", exclude_defaults=True, by_alias=True)
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
 
@@ -500,9 +721,77 @@ def from_network(net: Network, site_id: str) -> DesiredState:
             ports.append(
                 PortSpec(device=p.device_id, port=p.name, untagged=untagged, tagged=sorted(tagged))
             )
+    firewalls = [
+        spec
+        for fw in net.firewalls
+        if fw.device_id in devices and (spec := _firewall_spec(fw)) is not None
+    ]
     return DesiredState(
-        sites={site_id: SiteSpec(segments=segs, wlans=list(wlans.values()), ports=ports)}
+        sites={
+            site_id: SiteSpec(
+                segments=segs, wlans=list(wlans.values()), ports=ports, firewalls=firewalls
+            )
+        }
     )
+
+
+def _export_name(name: str | None, key: str) -> str:
+    import re
+
+    if name and re.match(FIREWALL_NAME, name) and firewall_key(name) == key:
+        return name
+    return key
+
+
+def _firewall_spec(fw: Firewall) -> FirewallSpec | None:
+    """The zone policies a firewall states and the rules and forwards Signalbox created
+    there (the device's own rules are not exported: declaring them would duplicate them)."""
+    policies = [
+        PolicySpec(from_=p.source, to=p.destination or "device", action=p.action)
+        for p in fw.policies
+    ]
+    rules = []
+    for r in fw.rules:
+        if not r.signalbox_key or r.chain not in (FirewallChain.INPUT, FirewallChain.FORWARD):
+            continue
+        to: Literal["device"] | EndpointSpec = (
+            "device"
+            if r.chain is FirewallChain.INPUT
+            else EndpointSpec(
+                zone=r.destination.zones[0] if r.destination.zones else None,
+                network=list(r.destination.networks),
+            )
+        )
+        rules.append(
+            RuleSpec(
+                name=_export_name(r.name, r.signalbox_key),
+                from_=EndpointSpec(
+                    zone=r.source.zones[0] if r.source.zones else None,
+                    network=list(r.source.networks),
+                ),
+                to=to,
+                protocol=list(r.protocols),
+                port=list(r.destination.ports),
+                family=r.family,
+                action=r.action,
+                enabled=r.enabled,
+            )
+        )
+    forwards = [
+        ForwardSpec(
+            name=_export_name(f.name, f.signalbox_key),
+            protocol=list(f.protocols),
+            port=list(f.external_ports),
+            from_=f.zones[0] if f.zones else None,
+            to=ForwardTargetSpec(address=f.target_address, port=f.target_port),
+            enabled=f.enabled,
+        )
+        for f in fw.port_forwards
+        if f.signalbox_key and f.external_ports and f.protocols
+    ]
+    if not (policies or rules or forwards):
+        return None
+    return FirewallSpec(device=fw.device_id, policies=policies, rules=rules, forwards=forwards)
 
 
 # drift ---------------------------------------------------------------------------------------
@@ -748,6 +1037,48 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                 if want_t != have_t:
                     yield found(_differ(f"port {pid} tagged", want_t, have_t), [pid], key="tagged")
 
+    def firewalls(net: Network) -> Iterator[Result]:
+        # the planner resolves zone references; imported here (it imports this module)
+        from signalbox.changes import PlanError, firewall_changes
+
+        for site_id, spec in state.sites.items():
+            for fw in spec.firewalls:
+                if net.device(fw.device) is None or net.firewall_of(fw.device) is None:
+                    yield incomplete(
+                        f"firewall of {fw.device}: not read", [fw.device], key=fw.device
+                    )
+                    continue
+                target = net.firewall_of(fw.device)
+                assert target is not None
+                try:
+                    found_changes = firewall_changes(net, site_id, fw)
+                except PlanError as exc:
+                    yield found(
+                        f"Firewall of {fw.device} cannot be compared: {exc}",
+                        [target.id],
+                        key="invalid",
+                        fix="Correct the desired state (zone names, segments).",
+                    )
+                    continue
+                for c in found_changes:
+                    what = c.kind.value.replace("-", " ")
+                    name = c.key.partition("/")[2]
+                    if c.old is None:
+                        message = f"Firewall of {fw.device}: {what} {name} is missing"
+                    elif c.new is None:
+                        message = (
+                            f"Firewall of {fw.device}: {what} {name} was created by Signalbox "
+                            "and is no longer declared (a deployment removes it)"
+                        )
+                    else:
+                        old = c.old.model_dump(mode="json")
+                        new = c.new.model_dump(mode="json")
+                        diffs = [
+                            _differ(k, new[k], old.get(k)) for k in new if old.get(k) != new[k]
+                        ]
+                        message = f"Firewall of {fw.device}: {what} {name}: " + "; ".join(diffs)
+                    yield found(message, [target.id], key=c.key)
+
     explanation = (
         "The observed configuration differs from the desired state. Either deploy the desired "
         "state, or change the desired state to accept what is there."
@@ -773,6 +1104,15 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
             Severity.WARNING,
             explanation,
             ports,
+        ),
+        Rule(
+            "drift.firewall",
+            "Firewall differs from the desired state",
+            Severity.WARNING,
+            explanation
+            + " Only zone policies and the rules and port forwards Signalbox created are "
+            "compared; the device's own rules are left alone.",
+            firewalls,
         ),
     ]
 

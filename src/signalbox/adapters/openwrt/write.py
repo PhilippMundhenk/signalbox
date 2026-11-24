@@ -1,11 +1,11 @@
 """OpenWrt (write): change sets as UCI operations for rpcd's ``uci`` ubus object.
 
 Pure translation, no I/O: :func:`translate` takes the ``uci get`` answers of ``network``,
-``wireless`` and ``dhcp`` (and the running interfaces), applies the changes one by one to an
-in-memory copy and records every ``uci set`` / ``add`` / ``delete`` it needs. Later changes see
-the result of earlier ones (a PORT change that creates VLAN 30 comes before the WLAN that uses
-it). :func:`restore_ops` turns a backup into the operations that put it back. The transaction
-(staging, ``uci apply`` with rollback, ``uci confirm``) is in :class:`OpenWrtAdapter`.
+``wireless``, ``dhcp`` and ``firewall`` (and the running interfaces), applies the changes one by
+one to an in-memory copy and records every ``uci set`` / ``add`` / ``delete`` it needs. Later
+changes see the result of earlier ones (a PORT change that creates VLAN 30 comes before the WLAN
+that uses it). :func:`restore_ops` turns a backup into the operations that put it back. The
+transaction (staging, ``uci apply`` with rollback, ``uci confirm``) is in :class:`OpenWrtAdapter`.
 
 What each change does is documented in ``docs/adapters/openwrt.md`` ("Writing").
 """
@@ -23,19 +23,32 @@ from pydantic import JsonValue
 
 from signalbox.adapters import AdapterError, VendorCall
 from signalbox.adapters import openwrt as h  # the read helpers (circular, used at run time)
+from signalbox.adapters.openwrt.firewall import FORWARD_TAG, POLICY_TAG, RULE_TAG
+from signalbox.adapters.openwrt.firewall import tag as fw_tag
 from signalbox.changes import (
     Change,
     ChangeKind,
     DhcpValue,
+    FirewallRuleValue,
+    PortForwardValue,
     PortValue,
     ReservationValue,
     WlanValue,
+    ZonePolicyValue,
 )
 from signalbox.desired import SegmentRef, seg_key
-from signalbox.model import Pmf, Security, segment_id
+from signalbox.model import (
+    FirewallAction,
+    FirewallChain,
+    FirewallProtocol,
+    Pmf,
+    PortRange,
+    Security,
+    segment_id,
+)
 
 #: The UCI configs Signalbox writes (and backs up); the rpcd ACL grants write access to these only.
-CONFIGS = ("network", "wireless", "dhcp")
+CONFIGS = ("network", "wireless", "dhcp", "firewall")
 BACKUP_FORMAT = "openwrt-uci-json"
 #: Inverse of the read mapping; enterprise needs RADIUS settings the change model does not carry.
 ENCRYPTION_OF = {
@@ -92,12 +105,17 @@ class Configs:
     removed_vlans: set[str] = field(default_factory=set)
 
     def values(self, config: str) -> dict[str, Any]:
+        if config not in self.data:
+            raise AdapterError(
+                f"uci {config} could not be read (the rpcd ACL of the login does not allow it)"
+            )
         values = self.data[config].get("values")
         if not isinstance(values, dict):
             raise AdapterError(f"unexpected answer to uci.get ({config})")
         return values
 
     def sections(self, config: str, kind: str) -> list[tuple[str, dict[str, Any]]]:
+        self.values(config)  # a config that could not be read: a clear error
         return list(h._sections(self.data[config], kind))
 
     def view(self) -> h.NetworkView:
@@ -472,6 +490,241 @@ def _reservation(cfg: Configs, c: Change) -> None:
         cfg.drop("dhcp", n, ["name"], f"{label}: no host name")
 
 
+# --- firewall (#295) ------------------------------------------------------------------------
+#
+# Signalbox only creates named sections with its prefix (``sb_rule_<key>``, ``sb_fwd_<key>``,
+# ``sb_pol_<src>_<dest>``) and only changes or deletes those. The device's own sections are
+# left alone, except: a zone's ``input`` / ``forward`` option for a declared policy, and the
+# device's own rule, redirect or forwarding a change adopts (``Change.adopt``), which is deleted
+# and replaced by Signalbox's section.
+
+#: Options of a rule and a redirect that Signalbox writes (others it removes from its sections).
+RULE_OPTIONS = (
+    "name",
+    "enabled",
+    "src",
+    "src_ip",
+    "src_port",
+    "dest",
+    "dest_ip",
+    "dest_port",
+    "proto",
+    "family",
+    "target",
+)
+FORWARD_OPTIONS = (
+    "name",
+    "enabled",
+    "target",
+    "src",
+    "src_ip",
+    "src_dip",
+    "src_dport",
+    "dest",
+    "dest_ip",
+    "dest_port",
+    "proto",
+)
+
+
+def _ports_text(ports: list[PortRange]) -> str:
+    return " ".join(str(r) for r in ports)
+
+
+def _proto(protocols: list[FirewallProtocol]) -> str | list[str]:
+    if not protocols:
+        return "all"
+    return [p.value for p in protocols]
+
+
+def _zone_section(cfg: Configs, name: str, label: str) -> str:
+    for section, z in cfg.sections("firewall", "zone"):
+        if str(z.get("name")) == name:
+            return section
+    raise AdapterError(f"{label}: the firewall has no zone {name!r}")
+
+
+def _replace(
+    cfg: Configs,
+    kind: str,
+    section: str,
+    adopt: str | None,
+    values: dict[str, Any] | None,
+    managed: tuple[str, ...],
+    label: str,
+) -> bool:
+    """Signalbox's section ``section`` gets ``values`` (``None``: deleted); an adopted section
+    of the device's own is deleted first. True when the section was created."""
+    have = cfg.values("firewall")
+    if section not in have and adopt:
+        own = [
+            n
+            for n, x in cfg.sections("firewall", kind)
+            if str(x.get("name")) == adopt
+            and not fw_tag(x, RULE_TAG if kind == "rule" else FORWARD_TAG)
+        ]
+        if len(own) != 1:
+            raise AdapterError(
+                f"{label}: the device has {'no' if not own else 'several'} {kind} named {adopt!r} "
+                "to adopt"
+            )
+        cfg.delete("firewall", own[0], f"{label}: adopt the device's {kind} {adopt!r}")
+    if values is None:
+        if section in have:
+            cfg.delete("firewall", section, f"{label}: remove")
+        return False
+    if section in have:
+        cfg.set("firewall", section, values, f"{label}: " + ", ".join(sorted(values)))
+        cfg.drop(
+            "firewall",
+            section,
+            [o for o in managed if o not in values],
+            f"{label}: remove options",
+        )
+        return False
+    cfg.add("firewall", kind, section, values, f"{label}: new")
+    return True
+
+
+def _policy(cfg: Configs, c: Change) -> None:
+    _, source, dest_text = c.key.split("/", 2)
+    dest = None if dest_text == "device" else dest_text
+    label = f"policy {source} → {dest or 'device'}"
+    if not isinstance(c.new, ZonePolicyValue):  # pragma: no cover - policies are never removed
+        return
+    action = c.new.action.value.upper()
+    zone = _zone_section(cfg, source, label)
+    if dest is None or dest == source:
+        option = "input" if dest is None else "forward"
+        cfg.set("firewall", zone, {option: action}, f"{label}: zone {source} {option} {action}")
+        return
+    _zone_section(cfg, dest, label)
+    pair = [
+        (n, x)
+        for n, x in cfg.sections("firewall", "forwarding")
+        if str(x.get("src")) == source
+        and str(x.get("dest")) == dest
+        and h._flag(x.get("enabled"), default=True)
+    ]
+    if c.new.action is FirewallAction.ACCEPT:
+        if not pair:
+            cfg.add(
+                "firewall",
+                "forwarding",
+                f"{POLICY_TAG}{source}_{dest}",
+                {"src": source, "dest": dest},
+                f"{label}: new forwarding",
+            )
+        return
+    if c.new.action is FirewallAction.DROP:
+        raise AdapterError(
+            f"{label}: OpenWrt rejects traffic between two zones without a forwarding; declare "
+            "reject, or a rule that drops"
+        )
+    for n, x in pair:
+        if fw_tag(x, POLICY_TAG) is None and not c.adopt:
+            raise AdapterError(
+                f"{label}: the forwarding {n} is the device's own, not created by Signalbox; "
+                "remove it on the device, or declare the policy with `adopt: true`"
+            )
+        cfg.delete("firewall", n, f"{label}: remove forwarding {n}")
+
+
+def _rule_values(v: FirewallRuleValue) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "name": v.name,
+        "src": v.source_zone or "*",
+        "proto": _proto(v.protocols),
+        "target": v.action.value.upper(),
+    }
+    if v.chain is FirewallChain.FORWARD:
+        out["dest"] = v.destination_zone or "*"
+    if v.source_networks:
+        out["src_ip"] = [str(n) for n in v.source_networks]
+    if v.destination_networks:
+        out["dest_ip"] = [str(n) for n in v.destination_networks]
+    if v.destination_ports:
+        out["dest_port"] = _ports_text(v.destination_ports)
+    if v.family is not None:
+        out["family"] = f"ipv{v.family}"
+    if not v.enabled:
+        out["enabled"] = "0"
+    return out
+
+
+def _rule_change(cfg: Configs, c: Change) -> str | None:
+    key = c.key.partition("/")[2]
+    section = RULE_TAG + key
+    v = c.new if isinstance(c.new, FirewallRuleValue) else None
+    created = _replace(
+        cfg,
+        "rule",
+        section,
+        c.adopt,
+        _rule_values(v) if v else None,
+        RULE_OPTIONS,
+        f"firewall rule {key}",
+    )
+    return section if created else None
+
+
+def _zone_of_address(cfg: Configs, dump: Mapping[str, Any], address: Any, label: str) -> str:
+    """The firewall zone of the interface whose IPv4 subnet holds ``address``."""
+    for name, _ in cfg.sections("network", "interface"):
+        addr = _v4(cfg, dump, name)
+        if addr is None or address not in addr.network:
+            continue
+        for _, z in cfg.sections("firewall", "zone"):
+            nets = h._list(z.get("network")) or [str(z.get("name"))]
+            if name in nets:
+                return str(z.get("name"))
+    raise AdapterError(f"{label}: {address} is in no network of a firewall zone on this router")
+
+
+def _forward_change(cfg: Configs, c: Change, dump: Mapping[str, Any]) -> None:
+    key = c.key.partition("/")[2]
+    label = f"port forward {key}"
+    v = c.new if isinstance(c.new, PortForwardValue) else None
+    values: dict[str, Any] | None = None
+    if v is not None:
+        _zone_section(cfg, v.zone, label)
+        values = {
+            "name": v.name,
+            "target": "DNAT",
+            "src": v.zone,
+            "src_dport": _ports_text(v.external_ports),
+            "dest": _zone_of_address(cfg, dump, v.target_address, label),
+            "dest_ip": str(v.target_address),
+            "proto": _proto(v.protocols),
+        }
+        if v.target_port is not None:
+            first = v.external_ports[0]
+            span = first.last - first.start
+            values["dest_port"] = (
+                str(v.target_port) if not span else f"{v.target_port}-{v.target_port + span}"
+            )
+        if not v.enabled:
+            values["enabled"] = "0"
+    _replace(cfg, "redirect", FORWARD_TAG + key, c.adopt, values, FORWARD_OPTIONS, label)
+
+
+def _order_rules(cfg: Configs, created: list[str]) -> None:
+    """Signalbox's rules first (before the device's own), the new ones after the older ones."""
+    if not created:
+        return
+    values = cfg.values("firewall")
+    ours = [
+        n for n, x in cfg.sections("firewall", "rule") if fw_tag(x, RULE_TAG) and n not in created
+    ]
+    order = [*ours, *created]
+    for i, name in enumerate(sorted(values, key=lambda n: _index(values[n]))):
+        values[name][".index"] = i + len(order)
+    for i, name in enumerate(order):
+        values[name][".index"] = i
+    args = {"config": "firewall", "sections": order}
+    cfg.ops.append(UciOp("order", "firewall", "*", args, "Signalbox's rules before the others"))
+
+
 # --- whole change sets ------------------------------------------------------------------------
 
 
@@ -498,11 +751,20 @@ def translate(
     secrets: Mapping[str, str],
 ) -> Configs:
     """The UCI operations for a device's changes, in order."""
-    cfg = Configs({name: copy.deepcopy(data[name]) for name in CONFIGS})
-    for name in CONFIGS:
+    # ``firewall`` is missing where an older ACL does not let the login read it
+    cfg = Configs({name: copy.deepcopy(data[name]) for name in CONFIGS if name in data})
+    for name in cfg.data:
         cfg.values(name)  # shape check
+    created: list[str] = []
     for c in changes:
-        if c.kind is ChangeKind.PORT:
+        if c.kind is ChangeKind.ZONE_POLICY:
+            _policy(cfg, c)
+        elif c.kind is ChangeKind.FIREWALL_RULE:
+            if (new := _rule_change(cfg, c)) is not None:
+                created.append(new)
+        elif c.kind is ChangeKind.PORT_FORWARD:
+            _forward_change(cfg, c, dump)
+        elif c.kind is ChangeKind.PORT:
             _port(cfg, c)
         elif c.kind is ChangeKind.WLAN:
             _wlan(cfg, c, site, secrets)
@@ -512,6 +774,7 @@ def translate(
             _reservation(cfg, c)
         else:
             raise AdapterError(f"the OpenWrt integration cannot change {c.kind.value}")
+    _order_rules(cfg, created)
     _cleanup(cfg)
     return cfg
 

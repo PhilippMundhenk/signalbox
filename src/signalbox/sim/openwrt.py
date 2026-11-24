@@ -46,10 +46,10 @@ MAC = "02:00:00:00:{:02x}:{:02x}"
 #: Devices with a DHCP reservation keep their real (universally administered) MAC: the
 #: documentation range of RFC 7042, so that `clients.random-mac` stays quiet for them.
 FIXED_MAC = "00:00:5e:00:53:{:02x}"
-#: UCI configs the simulator knows (and can write)
-CONFIGS = ("network", "wireless", "dhcp")
-#: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173; firewall, #135)
-READ_ONLY = ("system", "dropbear", "uhttpd", "firewall")
+#: UCI configs the simulator knows (and can write; firewall since #295)
+CONFIGS = ("network", "wireless", "dhcp", "firewall")
+#: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173)
+READ_ONLY = ("system", "dropbear", "uhttpd")
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
     "/tmp/dhcp.leases",

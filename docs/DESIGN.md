@@ -364,9 +364,12 @@ firewall is taken as not filtering; a gateway without one is `unknown`.
 
 The device page shows a firewall card: zones and what is in them, the default action per zone
 pair as a matrix (`/api/network` adds it as `matrix`), the number of rules, the port forwards.
-Desired state and writes come later: declare per segment what it may reach (`allow:
-[internet]`, `isolate: true`), plan zone, forwarding and rule changes with the other changes,
-OpenWrt first (which then enables its router writes, #41), then OPNsense.
+Desired state and writes (#295, [ADR 0017](adr/0017-firewall-desired-state-and-deployments.md)):
+zone policies, rules and port forwards per device in the desired state, planned as the change
+kinds `zone-policy`, `firewall-rule` and `port-forward`. Only objects Signalbox created (tagged
+on the device) are changed or removed, unless the desired state adopts the device's own; a plan
+that may cut Signalbox off from a device (reachability before and after) needs an explicit
+override. OpenWrt writes them now; OPNsense and MikroTik follow.
 
 ### Annotations and acknowledged findings
 
@@ -513,7 +516,8 @@ and per adapter; every deployment is approved by a person.
    before trunks before access ports and SSIDs; deletions in reverse order. No step may cut off
    the path to a later device or to Signalbox itself.
 4. The checks run on the **predicted state** (observed state with the change set applied). A plan
-   that would create an error finding is refused unless explicitly overridden.
+   that would create an error finding is refused unless explicitly overridden; one whose
+   firewall changes may cut Signalbox off from a device needs its own override (#295).
 5. Each integration translates its part into the exact vendor calls, shown in the review.
 
 ### Deploy (one transaction)

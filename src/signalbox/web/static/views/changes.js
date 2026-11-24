@@ -108,9 +108,10 @@ export async function renderChange(main, ctx, route) {
   const actions = h('div', { class: 'row' });
   if (rec.status === 'planned') {
     const override = rec.plan.blocking.length ? h('input', { type: 'text', 'data-testid': 'override', placeholder: t('changes.override.placeholder') }) : null;
+    const lockout = (rec.plan.lockouts || []).length ? h('input', { type: 'checkbox', 'data-testid': 'allow-lockout' }) : null;
     const approve = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'change-approve' }, t('changes.approve'));
     approve.addEventListener('click', () => run(approve, async () => {
-      await post(`/changes/${enc(rec.id)}/approve`, { override: override ? override.value : null });
+      await post(`/changes/${enc(rec.id)}/approve`, { override: override ? override.value : null, allow_lockout: lockout ? lockout.checked : false });
       ctx.refresh();
     }));
     const reject = h('button', { class: 'btn', type: 'button', 'data-testid': 'change-reject' }, t('changes.reject'));
@@ -118,7 +119,7 @@ export async function renderChange(main, ctx, route) {
       await post(`/changes/${enc(rec.id)}/reject`);
       ctx.refresh();
     }));
-    place(actions, override ? field(t('changes.override.label'), override) : null, approve, reject);
+    place(actions, override ? field(t('changes.override.label'), override) : null, lockout ? h('label', { class: 'error' }, lockout, ' ', t('changes.allowLockout')) : null, approve, reject);
   }
   if (rec.status === 'approved') {
     const deploy = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'change-deploy' }, t('changes.deploy.now'));
@@ -155,7 +156,7 @@ export async function renderChange(main, ctx, route) {
     card(
       null,
       h('p', { 'data-testid': 'change-status' }, statusTag(rec.status), ' ', rec.reason),
-      h('p', { class: 'muted' }, t('changes.byAuthor', { time: fmtTime(rec.created_at), author: rec.author }), rec.desired_commit ? ` · ${t('changes.desiredState', { commit: rec.desired_commit.slice(0, 7) })}` : '', rec.override ? ` · ${t('changes.overrideNote', { text: rec.override })}` : ''),
+      h('p', { class: 'muted' }, t('changes.byAuthor', { time: fmtTime(rec.created_at), author: rec.author }), rec.desired_commit ? ` · ${t('changes.desiredState', { commit: rec.desired_commit.slice(0, 7) })}` : '', rec.override ? ` · ${t('changes.overrideNote', { text: rec.override })}` : '', rec.allow_lockout ? ` · ${t('changes.lockoutAllowed')}` : ''),
       rec.reverts ? h('p', {}, t('changes.reverts'), h('a', { href: `#/change/${enc(rec.reverts)}` }, rec.reverts)) : null,
       rec.reverted_by ? h('p', {}, t('changes.revertedBy'), h('a', { href: `#/change/${enc(rec.reverted_by)}` }, rec.reverted_by)) : null,
       actions,

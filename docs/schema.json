@@ -2091,6 +2091,18 @@
           "title": "Protocols",
           "type": "array"
         },
+        "signalbox_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signalbox Key"
+        },
         "source": {
           "$ref": "#/$defs/FirewallMatch"
         }
@@ -3655,6 +3667,18 @@
           ],
           "default": null,
           "title": "Reflection"
+        },
+        "signalbox_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signalbox Key"
         },
         "sources": {
           "items": {
@@ -6169,6 +6193,18 @@
           ],
           "default": null,
           "title": "Destination"
+        },
+        "signalbox_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signalbox Key"
         },
         "source": {
           "minLength": 1,
