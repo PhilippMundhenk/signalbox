@@ -874,14 +874,26 @@ class OmadaAdapter(_Adapter):
                 rules = firewall.acl_rules(rows, names)
         except (NotFound, OmadaError) as exc:
             rules_complete = False
-            gaps.append(Gap(message=f"firewall: the gateway ACLs are not read ({exc})"))
+            gaps.append(
+                Gap(
+                    message=f"firewall: the gateway ACLs are not read ({exc})",
+                    message_id="omada.aclsNotRead",
+                    params={"cause": str(exc)},
+                )
+            )
         forwards: list[PortForward] = []
         try:
             rows = await self._rows(f"{self._site_path}/nat/port-forwardings")
             forwards = firewall.port_forwards(rows)
         except (NotFound, OmadaError) as exc:
             port_forwards_complete = False
-            gaps.append(Gap(message=f"firewall: the port forwarding is not read ({exc})"))
+            gaps.append(
+                Gap(
+                    message=f"firewall: the port forwarding is not read ({exc})",
+                    message_id="omada.forwardsNotRead",
+                    params={"cause": str(exc)},
+                )
+            )
         return Observation(
             firewalls=[
                 Firewall(

@@ -37,7 +37,7 @@ from signalbox.adapters.provision import Redactor, progress_sink
 from signalbox.secrets import SecretError
 from signalbox.service import Services
 from signalbox.store import DeviceRecord, StoreError, _secret_fields, slug
-from signalbox.web.app import DeviceTestBody, error
+from signalbox.web.app import DeviceTestBody, error, error_ids
 
 log = logging.getLogger(__name__)
 #: Placeholder for the secrets the setup generates, to validate the form before anything runs.
@@ -202,7 +202,13 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             if isinstance(exc, Unreachable)
             else "setup_failed"
         )
-        return error(422, code, redact(str(exc)), fix=redact(exc.fix) if exc.fix else None)
+        return error(
+            422,
+            code,
+            redact(str(exc)),
+            fix=redact(exc.fix) if exc.fix else None,
+            **error_ids(exc, redact),
+        )
 
     def redactor(request: SetupRequest) -> Redactor:
         redact = Redactor()

@@ -72,6 +72,11 @@ class NoData(AdapterError):
 SETUP = "https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/openwrt.md"
 
 
+def acl_fix_id(username: str) -> str:
+    """Catalogue id of :func:`acl_fix` (#204); its values are ``{"setup": SETUP}``."""
+    return "openwrt.acl.root.fix" if username == "root" else "openwrt.acl.user.fix"
+
+
 def acl_fix(username: str) -> str:
     """What to do when rpcd's permissions (ACL) refuse a call."""
     who = (
@@ -157,6 +162,9 @@ class Ubus:
                 fix="Check the user name and password. A login other than root needs a "
                 "config login section in /etc/config/rpcd with a password hashed by uhttpd -m "
                 f"(see {SETUP}#read-only-user-on-the-device), then service rpcd restart.",
+                message_id="openwrt.loginRefused",
+                fix_id="openwrt.loginRefused.fix",
+                params={"login": repr(self.username), "setup": SETUP},
             ) from None
         session = data.get("ubus_rpc_session")
         if not isinstance(session, str):
@@ -193,4 +201,7 @@ class Ubus:
             f"access denied for {what}: the login {self.username!r} is not allowed to call it",
             fix=acl_fix(self.username),
             remedy="access",
+            message_id="openwrt.accessDenied",
+            fix_id=acl_fix_id(self.username),
+            params={"what": what, "login": repr(self.username), "setup": SETUP},
         )

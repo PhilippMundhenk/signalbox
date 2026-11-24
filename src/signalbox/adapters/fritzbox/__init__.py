@@ -572,6 +572,14 @@ class FritzboxAdapter(Adapter):
             return type(exc)(
                 f"{exc}; this Fritz!Box serves TR-064 on port {reported}, not {configured}",
                 fix=f"Change the address in the settings to https://{netloc}:{reported}.",
+                message_id="fritzbox.otherPort",
+                fix_id="fritzbox.otherPort.fix",
+                params={
+                    "cause": str(exc),
+                    "reported": reported,
+                    "configured": configured,
+                    "netloc": netloc,
+                },
             )
         return type(exc)(
             str(exc),
@@ -843,7 +851,12 @@ class FritzboxAdapter(Adapter):
                 if (found := port_forward(row)) is not None:
                     forwards.append(found)
                 else:
-                    gaps.append(Gap(message="firewall: a port mapping without a usable target"))
+                    gaps.append(
+                        Gap(
+                            message="firewall: a port mapping without a usable target",
+                            message_id="fritzbox.mappingNoTarget",
+                        )
+                    )
         return Observation(
             firewalls=[
                 Firewall(
@@ -879,10 +892,21 @@ class FritzboxAdapter(Adapter):
                     fix=f"Give the user the right {RIGHT!r} (see the setup guide)."
                     if exc.code == 606
                     else None,
+                    message_id="fritzbox.sharingNotRead",
+                    fix_id="fritzbox.needRight.fix" if exc.code == 606 else None,
+                    params={"cause": str(exc), "right": repr(RIGHT)},
                 )
             except NotFound:
-                return rows, Gap(message=f"firewall: this FRITZ!OS has no {service} port sharing")
-        return rows, Gap(message=f"firewall: more than {MAX_PORT_MAPPINGS} port mappings")
+                return rows, Gap(
+                    message=f"firewall: this FRITZ!OS has no {service} port sharing",
+                    message_id="fritzbox.noSharing",
+                    params={"service": service},
+                )
+        return rows, Gap(
+            message=f"firewall: more than {MAX_PORT_MAPPINGS} port mappings",
+            message_id="fritzbox.tooManyMappings",
+            params={"count": MAX_PORT_MAPPINGS},
+        )
 
     # dhcp -----------------------------------------------------------------------------
 

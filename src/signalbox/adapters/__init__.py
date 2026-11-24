@@ -117,6 +117,16 @@ class AdapterError(Exception):
         self.message_id = message_id
         self.params: MessageParams = params or {}
 
+    def redacted(self, redact: Callable[[str], str]) -> AdapterError:
+        """The same error with the secrets of every text and value removed (#204 keeps ids)."""
+        return type(self)(
+            redact(str(self)),
+            fix=self.fix,
+            fix_id=self.fix_id,
+            message_id=self.message_id,
+            params={k: redact(v) if isinstance(v, str) else v for k, v in self.params.items()},
+        )
+
 
 class Unreachable(AdapterError):
     pass

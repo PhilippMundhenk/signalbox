@@ -148,6 +148,9 @@ def _translate(exc: BaseException, errors: Any, address: str) -> AdapterError:
             fix="Check the switch's management password in the device settings (the one of "
             "its web interface). The switch locks after a few wrong tries; Signalbox does not "
             "resend a refused password for a while.",
+            message_id="plusswitch.authFailed",
+            fix_id="plusswitch.authFailed.fix",
+            params={"address": address, "cause": str(exc)},
         )
     if isinstance(exc, errors.Unreachable | TimeoutError):
         return Unreachable(f"{address}: the switch does not answer")
@@ -163,6 +166,9 @@ def _translate(exc: BaseException, errors: Any, address: str) -> AdapterError:
                 fix="Older NETGEAR firmware protects some settings even for reading. Enter "
                 "the switch's management password in the device settings, or report the "
                 "model and firmware so the setting can be skipped.",
+                message_id="plusswitch.needsPassword",
+                fix_id="plusswitch.needsPassword.fix",
+                params={"address": address, "setting": name, "cause": str(exc)},
             )
         return AdapterError(f"{address}: {exc}")
     return AdapterError(f"{address}: unexpected answer from the switch ({type(exc).__name__})")
@@ -260,6 +266,9 @@ class _PlusSwitch(Adapter):
                     "Signalbox reads without logging in, as Switchyard does. A newer firmware "
                     "for the switch may answer them. Until then the VLAN and link checks for "
                     "this switch are incomplete; acknowledge them if that is fine.",
+                    message_id="plusswitch.skipped",
+                    fix_id="plusswitch.skipped.fix",
+                    params={"host": self._host, "what": what},
                 )
                 for what in reading.skipped
             ]
@@ -544,6 +553,9 @@ class ProsafeAdapter(_PlusSwitch):
                     raise AuthFailed(
                         f"{self._host}: changing the switch needs its password",
                         fix="Enter the switch's management password in the device settings.",
+                        message_id="plusswitch.changeNeedsPassword",
+                        fix_id="plusswitch.changeNeedsPassword.fix",
+                        params={"host": self._host},
                     )
                 await self._login(lambda: client.login(self._password))
             return await work(client)

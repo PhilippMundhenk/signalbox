@@ -531,7 +531,7 @@ class OpenWrtSetup:
                 compare=COMPARE,
             )
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         return SetupPlan(
             fingerprint=fingerprint,
             fingerprint_kind="ssh-host-key",
@@ -548,7 +548,7 @@ class OpenWrtSetup:
         except UntrustedHostKey:
             raise
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         if self.request.remove or not ok:
             return SetupResult(ok=ok, steps=steps)
         return SetupResult(
@@ -658,6 +658,9 @@ class OpenWrtFix(OpenWrtSetup):
                 f"there is no rpcd login {self.login!r} on the router",
                 fix="Set the device up again (device settings: Set up automatically, or the "
                 "setup guide): Fix it only repairs the permissions of an existing login.",
+                message_id="openwrt.noLogin",
+                fix_id="openwrt.noLogin.fix",
+                params={"login": repr(self.login)},
             )
         login = mine[0]
         lines = []

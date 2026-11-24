@@ -33,7 +33,7 @@ from signalbox.model import Snapshot
 from signalbox.secrets import SecretError
 from signalbox.service import Services
 from signalbox.store import StoreError, _secret_fields
-from signalbox.web.app import error
+from signalbox.web.app import error, error_ids
 from signalbox.web.setup_api import FINGERPRINT, NO_SECRET, AdminBody
 
 log = logging.getLogger(__name__)
@@ -128,7 +128,13 @@ def router(
             if isinstance(exc, Unreachable)
             else "fix_failed"
         )
-        return error(422, code, redact(str(exc)), fix=redact(exc.fix) if exc.fix else None)
+        return error(
+            422,
+            code,
+            redact(str(exc)),
+            fix=redact(exc.fix) if exc.fix else None,
+            **error_ids(exc, redact),
+        )
 
     @api.post("/devices/{device_id}/fix", response_model=None)
     async def plan(device_id: str, body: FixBody) -> dict[str, Any] | JSONResponse:

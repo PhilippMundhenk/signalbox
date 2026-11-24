@@ -147,6 +147,7 @@ class PinnedSsh:
         private_key: str | None = None,
         login: str = _DEFAULT_LOGIN,
         auth_fix: str = _DEFAULT_AUTH_FIX,
+        auth_fix_id: str | None = None,
     ) -> None:
         self.host, self.port, self.user = host, port, user
         self._password = password
@@ -157,6 +158,9 @@ class PinnedSsh:
         self.timeout = timeout
         self.login = login
         self.auth_fix = auth_fix
+        self.auth_fix_id = auth_fix_id or (
+            "transport.sshAuth.fix" if auth_fix == _DEFAULT_AUTH_FIX else None
+        )
         self._conn: asyncssh.SSHClientConnection | None = None
         self.fingerprint: str | None = None
         #: The presented host key as hex SHA-256 (see :func:`host_key_sha256`).
@@ -206,7 +210,7 @@ class PinnedSsh:
             raise AuthFailed(
                 f"{where}: the device refused {self.login} over SSH",
                 fix=self.auth_fix,
-                fix_id="transport.sshAuth.fix" if self.auth_fix == _DEFAULT_AUTH_FIX else None,
+                fix_id=self.auth_fix_id,
                 message_id="transport.sshDeniedAdmin" if default else "transport.sshDenied",
                 params={"where": where, "login": self.login},
             ) from None
