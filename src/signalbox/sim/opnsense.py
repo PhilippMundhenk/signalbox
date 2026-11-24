@@ -998,6 +998,44 @@ def sample_data() -> dict[str, Any]:
     return copy.deepcopy(data)
 
 
+#: The simulated releases (#390) and the firmware version each reports.
+RELEASES = {"26.7": "26.7.8_1", "25.1": "25.1.12_4", "24.7": "24.7.12_1"}
+
+
+def older_release(data: dict[str, Any], release: str) -> None:
+    """Make ``data`` what OPNsense ``release`` answers, from the public sources of the tags
+    24.7.12, 25.1.12 and 25.7.11 (docs/adapters/opnsense.md, "Versions"):
+
+    - all older than 26.7: no destination NAT API (26.1), no ntpd API (25.7), the disk table of
+      ``df -h`` without byte counts, no legacy or automatic rules in ``search_rule`` (no
+      ``sort_order``), no interface assignment API;
+    - 24.7: also no dnsmasq (25.1), no user manager (25.1), no ``interfacenot`` on rules.
+    """
+    if release not in RELEASES:
+        raise ValueError(f"unknown OPNsense release {release!r}: {', '.join(RELEASES)}")
+    if release == "26.7":
+        return
+    product = data["/api/core/firmware/status"]["product"]
+    product["product_version"] = RELEASES[release]
+    product["product_latest"] = RELEASES[release].split("_")[0]
+    for path in ("/api/firewall/d_nat/search_rule", "/api/ntpd/service/status"):
+        data.pop(path, None)
+    for row in data["/api/diagnostics/system/system_disk"]["devices"]:
+        for key in ("total", "total_bytes", "used_bytes", "available_bytes"):
+            row.pop(key, None)
+    rules = data["/api/firewall/filter/search_rule"]
+    rules["rows"] = [
+        {k: v for k, v in r.items() if k != "sort_order"}
+        for r in rules["rows"]
+        if not r.get("legacy") and not r.get("is_automatic")
+    ]
+    rules.update(total=len(rules["rows"]), rowCount=len(rules["rows"]))
+    if release == "24.7":
+        data.pop("/api/dnsmasq/settings/get", None)
+        for row in rules["rows"]:
+            row.pop("interfacenot", None)
+
+
 # --- writing ---------------------------------------------------------------------------------
 
 SYSTEM_TIME = "/api/diagnostics/system/system_time"
@@ -1197,6 +1235,8 @@ class _Writes:
     def write(self, path: str, body: Any) -> Any:
         match = _WRITE.match(path)
         if match is None or (path.startswith("/api/kea/") and KEA not in self.data):
+            return None
+        if path.startswith("/api/firewall/d_nat/") and DNAT not in self.data:
             return None
         area, action, arg, arg2 = match.groups()
         body = body if isinstance(body, dict) else {}
@@ -1754,8 +1794,14 @@ class OpnsenseSimulator(_Writes):
     pending: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
     #: Devices left in the "kernel" by a revert (overview rows that are not configuration).
     leftovers: list[dict[str, Any]] = field(default_factory=list)
-    #: "26.7.6": assignment rows with addresses; "26.7": only device, description, lock.
+    #: "26.7.6": assignment rows with addresses; "26.7": only device, description, lock;
+    #: "none": no assignment API (404, before 26.7).
     assignment_api: str = "26.7.6"
+    #: The simulated release (``RELEASES``); older ones answer as :func:`older_release` says.
+    release: str = "26.7"
+    #: False: only camelCase actions exist (``searchItem``), snake_case answers 404 (a guess for
+    #: releases before 24.7, whose router is not known to translate it).
+    snake_case: bool = True
     #: Assigned interfaces that are locked against removal.
     locked: set[str] = field(default_factory=set)
     #: Write requests received: (path, body).
@@ -1776,6 +1822,16 @@ class OpnsenseSimulator(_Writes):
     routes: dict[str, list[tuple[str | None, float | None]]] = field(default_factory=dict)
     #: Traces received (the request bodies).
     traces: list[Any] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        older_release(self.data, self.release)
+        if self.release != "26.7":
+            self.assignment_api = "none"
+
+    @property
+    def user_api(self) -> bool:
+        """The user manager API (``/api/auth/user``) exists from 25.1."""
+        return self.release != "24.7"
 
     def traceroute(self, caller: str, body: Any) -> Response:
         """``diagnostics/traceroute/set``: as configd's traceroute.py answers (unanswered hops
@@ -1854,6 +1910,9 @@ class OpnsenseSimulator(_Writes):
         @app.api_route("/{path:path}", methods=["GET", "POST"])
         async def answer(path: str, request: Request) -> Response:
             # OPNsense routes camelCase and snake_case actions alike (snake_case is canonical)
+            if not self.snake_case and any("_" in part for part in path.split("/")[3:4]):
+                self.requests.append("/" + path)
+                return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
             path = "/" + "/".join(_snake(part) for part in path.split("/"))
             self.requests.append(path)
             if path == "/" and request.method == "GET":
@@ -1868,6 +1927,10 @@ class OpnsenseSimulator(_Writes):
                     status_code=401,
                     headers={"WWW-Authenticate": 'Basic realm="api"'},
                 )
+            if path.startswith(USERS) and not self.user_api:
+                return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
+            if path.startswith(ASSIGN) and self.assignment_api == "none":
+                return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
             if path.startswith(USERS) and not self.may_manage_users(caller):
                 return JSONResponse({"status": 403, "message": "Forbidden"}, status_code=403)
             if self.delay:

@@ -64,9 +64,9 @@ from signalbox.adapters import (
     unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.opnsense import compat, provision, vitals
 from signalbox.adapters.opnsense import discovery as _discovery
 from signalbox.adapters.opnsense import firewall as fw
-from signalbox.adapters.opnsense import provision, vitals
 from signalbox.adapters.opnsense import routes as route_reader
 from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import write as w
@@ -460,6 +460,22 @@ def _rules_gap() -> Gap:
         message_id="opnsense.rulesIncomplete",
         fix_id="opnsense.rulesIncomplete.fix",
         params={"doc": RULES_DOC},
+    )
+
+
+def _forwards_gap(version: compat.Version | None) -> Gap:
+    """The destination NAT page has no API (404): OPNsense before 26.1 keeps port forwards on
+    the classic page (#390). Optional: the forwards stay unread, the rest of the firewall is."""
+    where = f"OPNsense {compat.release(version)}" if version else "this OPNsense"
+    return Gap(
+        message=f"port forwards: not readable on {where}, its API has no destination NAT "
+        "(the page is classic; 26.1 and newer have it)",
+        fix="Optional: nothing to grant. Port forwards are shown once OPNsense is updated to "
+        "26.1 or newer.",
+        optional=True,
+        message_id="opnsense.forwardsUnread",
+        fix_id="opnsense.forwardsUnread.fix",
+        params={"where": where},
     )
 
 
@@ -934,6 +950,8 @@ class OpnsenseAdapter(_Adapter):
         )
         self._cache: dict[str, Any] = {}
         self._layout_cache: _Layout | None = None
+        #: The release read from ``core/firmware/status`` (None: not read yet or unparsable).
+        self._version: compat.Version | None = None
 
     async def close(self) -> None:
         await self.http.close()
@@ -941,9 +959,15 @@ class OpnsenseAdapter(_Adapter):
     async def _get(self, endpoint: str, grid: bool = False) -> Any:
         """GET once per observation (DHCP and clients both need the leases, ...)."""
         if endpoint not in self._cache:
-            self._cache[endpoint] = await self.http.get_json(
-                endpoint, params=ALL_ROWS if grid else None
-            )
+            params = ALL_ROWS if grid else None
+            try:
+                self._cache[endpoint] = await self.http.get_json(endpoint, params=params)
+            except NotFound:
+                # snake_case is canonical; a release that does not know it may know camelCase
+                other = compat.camel_path(endpoint)
+                if other == endpoint:
+                    raise
+                self._cache[endpoint] = await self.http.get_json(other, params=params)
         return self._cache[endpoint]
 
     async def _optional(self, endpoint: str, grid: bool = False) -> Any:
@@ -968,6 +992,7 @@ class OpnsenseAdapter(_Adapter):
         latest = _text(product.get("product_latest"))
         # product_version carries the package revision (26.7.9_3), product_latest does not
         newer = latest and latest not in (current, current.split("_", 1)[0])
+        self._version = compat.parse_version(current)
         return SystemInfo(
             vendor="Deciso",
             model=_text(product.get("product_name")) or "OPNsense",
@@ -975,6 +1000,14 @@ class OpnsenseAdapter(_Adapter):
             management_address=self.http.host,
             transport_encrypted=self.http.secure,
         )
+
+    async def _release(self) -> compat.Version | None:
+        """The firmware version, read once per observation (None: not readable)."""
+        if self._version is None:
+            data = _dict(await self._get(FIRMWARE), FIRMWARE, "the answer")
+            product = _sub(data, "product") or data
+            self._version = compat.parse_version(_text(product.get("product_version")))
+        return self._version
 
     # --- interfaces ---------------------------------------------------------------------------
 
@@ -1183,7 +1216,7 @@ class OpnsenseAdapter(_Adapter):
         every account), so Signalbox's documented user cannot read it unless it is given the
         privilege on purpose (#349): then the accounts stay unread (None, not an empty list)
         with an optional gap naming the privilege. An OPNsense without the API (404, before
-        24.7) has nothing to report. A key that can read it is an administrator's."""
+        25.1) has nothing to report. A key that can read it is an administrator's."""
         try:
             rows = _rows(await self.http.post_json(USERS, ALL_ROWS), USERS)
             keys = _rows(await self.http.post_json(USER_KEYS, ALL_ROWS), USER_KEYS)
@@ -1976,6 +2009,8 @@ class OpnsenseAdapter(_Adapter):
         ctx = fw.Context(ifaces, groups, aliases)
         built = fw.build(dev, ctx, rows, forwards, snat, binat)
         gaps = [] if built.rules_complete else [_rules_gap()]
+        if forwards is None:
+            gaps.append(_forwards_gap(await self._release()))
         return Observation(firewalls=[built], incomplete=gaps)
 
     async def read_time(self) -> Observation:
@@ -2010,6 +2045,9 @@ class OpnsenseAdapter(_Adapter):
         root = await self._kea_config()
         isc = {s.segment_id for s in await self._isc(layout)}
         st = w.WriteState(site=self.context.site_id, layout=layout, vlans=vlans, kea=None, isc=isc)
+        version = await self._release()
+        st.interface_not = version is None or version >= compat.INTERFACE_NOT
+        st.release = compat.release(version) if version else ""
         if root is not None:
             general = _sub(root, "general")
             st.kea = root
@@ -2030,7 +2068,7 @@ class OpnsenseAdapter(_Adapter):
             if nat is None:
                 raise AdapterError(
                     f"{DNAT_RULES}: not available on this firewall (HTTP 404); OPNsense before "
-                    "26.7 has no API for port forwards",
+                    "26.1 has no API for port forwards",
                     message_id="opnsense.noForwardApi",
                     params={"path": DNAT_RULES},
                 )
@@ -2087,7 +2125,13 @@ class OpnsenseAdapter(_Adapter):
 
     async def _send(self, call: w.Call) -> dict[str, Any]:
         try:
-            answer = await self.http.post_json(call.path, call.payload)
+            try:
+                answer = await self.http.post_json(call.path, call.payload)
+            except NotFound:
+                other = compat.camel_path(call.path)
+                if other == call.path:
+                    raise
+                answer = await self.http.post_json(other, call.payload)
         except NotFound as exc:
             raise AdapterError(
                 f"{call.path}: not available on this firewall (HTTP 404)",

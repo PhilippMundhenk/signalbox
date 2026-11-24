@@ -42,7 +42,7 @@ from signalbox.adapters import (
     UntrustedCertificate,
     UntrustedHostKey,
 )
-from signalbox.adapters.https import DeviceHttp, device_url
+from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.provision import Redactor, Step, plan_steps, run_steps
 from signalbox.adapters.ssh import PinnedSsh
 
@@ -129,6 +129,22 @@ grep -v ' {KEY_COMMENT}$' {AUTH_KEYS} > {AUTH_KEYS}.signalbox || true
 FINISH_KEY = f"""chmod 600 {AUTH_KEYS}.signalbox
 mv {AUTH_KEYS}.signalbox {AUTH_KEYS}
 """
+
+
+async def _user_rows(http: DeviceHttp, path: str) -> list[dict[str, Any]]:
+    """A grid of the user manager API. Releases before 25.1 have none (404): the setup and
+    *Fix it* cannot work there, the manual setup of the guide does."""
+    try:
+        return _rows(await http.post_json(path, ALL))
+    except NotFound as exc:
+        raise AdapterError(
+            f"{path}: this OPNsense has no user manager API (OPNsense 25.1 or newer has it)",
+            fix="Create the user and its API key by hand (the setup guide, Setup); automatic "
+            "setup and Fix it need OPNsense 25.1 or newer.",
+            message_id="opnsense.noUserApi",
+            fix_id="opnsense.noUserApi.fix",
+            params={"path": path},
+        ) from exc
 
 
 def authorized_line(public_key: str) -> str:
@@ -269,7 +285,7 @@ class OpnsenseSetup:
     async def inspect(self, http: DeviceHttp) -> tuple[str | None, dict[str, Any]]:
         """The uuid and settings of the user ``signalbox`` (None, {}: there is none)."""
         await http.get_json("/api/core/firmware/status")
-        for row in _rows(await http.post_json(USERS, ALL)):
+        for row in await _user_rows(http, USERS):
             if row.get("name") == LOGIN:
                 uuid = str(row.get("uuid", ""))
                 answer = await http.get_json(f"/api/auth/user/get/{quote(uuid)}")
@@ -386,7 +402,7 @@ class OpnsenseSetup:
             self.key = {"key": key, "secret": secret}
             old = [
                 str(r.get("id") or r.get("key"))
-                for r in _rows(await http.post_json(KEYS, ALL))
+                for r in await _user_rows(http, KEYS)
                 if LOGIN in (r.get("username"), r.get("user"), r.get("name"))
                 and key not in (r.get("key"), r.get("id"))
                 and (r.get("id") or r.get("key"))
@@ -643,7 +659,7 @@ class OpnsenseFix(OpnsenseSetup):
         owner = next(
             (
                 str(r.get("username") or r.get("user") or r.get("name") or "")
-                for r in _rows(await http.post_json(KEYS, ALL))
+                for r in await _user_rows(http, KEYS)
                 if self.stored_key in (r.get("key"), r.get("id"))
             ),
             "",
@@ -656,7 +672,7 @@ class OpnsenseFix(OpnsenseSetup):
                 message_id="opnsense.noKeyUser",
                 fix_id="opnsense.noKeyUser.fix",
             )
-        for row in _rows(await http.post_json(USERS, ALL)):
+        for row in await _user_rows(http, USERS):
             if row.get("name") == owner:
                 uuid = str(row.get("uuid", ""))
                 answer = await http.get_json(f"/api/auth/user/get/{quote(uuid)}")
