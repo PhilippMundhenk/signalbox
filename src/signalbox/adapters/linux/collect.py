@@ -30,6 +30,11 @@ WG_FIELDS = (
 #: The one nftables command that needs ``CAP_NET_ADMIN``; the sudoers rule allows exactly this.
 NFT = "/usr/sbin/nft"
 NFT_ARGS = "-j list ruleset"
+#: The legacy iptables dumps (#394): ``iptables-save`` / ``ip6tables-save`` without arguments, the
+#: only commands of the sudoers rule that print the rules (``-f FILE`` would write a file as root,
+#: so the rule allows the empty argument list only).
+IPTABLES_SAVE = "/usr/sbin/iptables-save"
+IP6TABLES_SAVE = "/usr/sbin/ip6tables-save"
 #: Words that must never appear in a command sent to the device (checked by the tests).
 FORBIDDEN = ("dump", "private-key", "preshared-key", "/etc/wireguard", "showconf")
 
@@ -59,6 +64,20 @@ show() {{
   done
 }}
 """
+
+# iptables-save needs CAP_NET_ADMIN: directly (root) or through the sudoers rule
+_IPT = "".join(
+    f"""P=$(command -v {tool} 2>/dev/null); S=""
+if [ -n "$P" ]; then
+  if S=$("$P" 2>/dev/null); then :
+  elif S=$(sudo -n "$P" 2>/dev/null); then :
+  else S=""; echo @@{key}-denied; fi
+fi
+echo @@{key}-tool; echo "${{P:-none}}"
+echo @@{key}-save; printf '%s\\n' "$S"
+"""
+    for key, tool in (("ipt4", "iptables-save"), ("ipt6", "ip6tables-save"))
+)
 
 _WG = "".join(f'echo @@wg-{f}; [ -n "$WG" ] && $WG show all {f} 2>/dev/null\n' for f in WG_FIELDS)
 
@@ -139,6 +158,7 @@ echo @@nft-tool; echo "${N:-none}"
 echo @@nft; printf '%s\\n' "$J"
 echo @@iptables; iptables -V 2>/dev/null
 """
+    + _IPT
     + _WG
     + "echo @@end\n"
 )

@@ -196,6 +196,84 @@ async def test_firewall_from_the_real_nft(lx: Target) -> None:
     assert nat.masquerade and nat.zones == ["eth0"]
 
 
+#: The legacy iptables twin of the nft ruleset of start.sh (#394), loaded with iptables-legacy
+#: after the alternatives of iptables and ip6tables were switched and the nft rules removed.
+LEGACY_RULES = """set -e
+for t in iptables ip6tables; do update-alternatives --set $t /usr/sbin/$t-legacy >/dev/null; done
+iptables -V | grep -q legacy
+iptables -F; iptables -t nat -F; iptables -X
+iptables -N from_vpn
+iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -A INPUT -p tcp --dport 22 -m comment --comment ssh -j ACCEPT
+iptables -A INPUT -i lo -j ACCEPT
+iptables -A INPUT -i br0 -j ACCEPT
+iptables -A INPUT -i eth0 -s 203.0.113.0/24 -p tcp --dport 8080 \
+  -m comment --comment "web from the office" -j ACCEPT
+iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -A FORWARD -i br0 -o eth0 -j ACCEPT
+iptables -A FORWARD -i eth0 -m conntrack --ctstate DNAT -j ACCEPT
+iptables -A FORWARD -i wg0 -j from_vpn
+iptables -A from_vpn -d 192.0.2.20 -p tcp -m multiport --dports 80,443 -j ACCEPT
+iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 8443 -m comment --comment nas \
+  -j DNAT --to-destination 192.0.2.20:443
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+"""
+LEGACY_RESET = """iptables -P INPUT ACCEPT; iptables -P FORWARD ACCEPT
+iptables -F; iptables -t nat -F; iptables -X
+for t in iptables ip6tables; do update-alternatives --set $t /usr/sbin/$t-nft >/dev/null; done
+nft -f /root/nft.saved
+"""
+
+
+async def test_legacy_iptables_is_read_with_iptables_save(lx: Target) -> None:
+    """#394: with the iptables-legacy alternative and no nft rules, ``iptables-save`` (through
+    the documented sudoers rule) gives the same model as the nft ruleset above."""
+    container = lx.extra["CONTAINER"]
+
+    def run(script: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["docker", "exec", "-i", container, "sh", "-s"],
+            input=script,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    docker(lx, "sh", "-c", "nft list ruleset > /root/nft.saved && nft flush ruleset")
+    try:
+        loaded = run(LEGACY_RULES)
+        if loaded.returncode != 0:
+            pytest.skip(f"the runner kernel has no legacy iptables: {loaded.stderr.strip()[-200:]}")
+        snap = await observe(context(lx))
+    finally:
+        reset = run(LEGACY_RESET)
+    assert reset.returncode == 0, reset.stderr
+    (fw,) = snap.firewalls
+    assert [e for e in snap.errors if e.capability == "firewall"] == []
+    assert fw.vendor_extra == {"source": "iptables-save"}
+    assert fw.enabled and fw.rules_complete and fw.port_forwards_complete
+    zones = {z.name: z for z in fw.zones}
+    assert zones["br0"].segments == ["it/segment/native"]
+    assert zones["eth0"].uplinks == ["gw2/uplink/eth0"] and zones["wg0"].tunnels
+    web = next(r for r in fw.rules if r.name == "web from the office")
+    assert [str(n) for n in web.source.networks] == ["203.0.113.0/24"]
+    assert [str(p) for p in web.destination.ports] == ["8080"] and web.exact
+    vpn = next(r for r in fw.rules if r.source.zones == ["wg0"])
+    assert [str(n) for n in vpn.destination.networks] == ["192.0.2.20/32"]
+    assert [str(p) for p in vpn.destination.ports] == ["80", "443"]
+    assert any(r.forwarded for r in fw.rules)
+    (fwd,) = fw.port_forwards
+    assert fwd.name == "nas" and fwd.zones == ["eth0"] and str(fwd.target_address) == "192.0.2.20"
+    assert fwd.target_port == 443 and [str(p) for p in fwd.external_ports] == ["8443"]
+    (nat,) = fw.nat
+    assert nat.masquerade and nat.zones == ["eth0"]
+    # restored: the nft rules are read again
+    again = await observe(context(lx), contract=False)
+    assert again.firewalls[0].vendor_extra == {"source": "nft"}
+
+
 async def test_without_the_sudoers_rule_wireguard_is_a_gap(lx: Target) -> None:
     docker(lx, "mv", SUDOERS_PATH, "/root/sudoers.saved")
     try:

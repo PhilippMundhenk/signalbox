@@ -24,7 +24,14 @@ from signalbox.model import (
     Flow,
     Verdict,
 )
-from signalbox.sim.linux import LinuxSim, User, serve_ssh
+from signalbox.sim.linux import (
+    LEGACY_IP6TABLES_SAVE,
+    LEGACY_IPTABLES_SAVE,
+    NFT_BACKED_IPTABLES_SAVE,
+    LinuxSim,
+    User,
+    serve_ssh,
+)
 from signalbox.testing import assert_contract
 
 KEY = asyncssh.generate_private_key("ssh-ed25519")
@@ -126,26 +133,114 @@ async def test_without_the_sudoers_rule_nothing_is_reported() -> None:
     assert "nft" in err.message and err.fix and "sudoers" in err.fix
 
 
-async def test_legacy_iptables_and_missing_tools() -> None:
-    legacy = device()
+async def test_legacy_iptables_rules_next_to_nft_rules_are_incomplete() -> None:
+    legacy = device(iptables_save=LEGACY_IPTABLES_SAVE)
     legacy.sections["iptables"] = "iptables v1.8.9 (legacy)\n"
     snap, fw = await firewall_of(legacy)
     assert fw.rules_complete is False and fw.rules  # what nft shows is kept
+    assert fw.vendor_extra == {"source": "nft"}
     assert snap.status is DeviceStatus.PARTIAL
     assert "iptables-legacy" in next(e for e in snap.errors if e.capability == "firewall").message
 
-    only_iptables = device(nft_installed=False)
+    # the legacy backend in use but without rules (the rules are in nft): nothing is hidden
+    empty = device()
+    empty.sections["iptables"] = "iptables v1.8.9 (legacy)\n"
+    snap, fw = await firewall_of(empty)
+    assert fw.rules_complete and snap.status is DeviceStatus.OK
+
+
+async def test_only_iptables_without_iptables_save_and_nothing_at_all() -> None:
+    only_iptables = device(nft_installed=False, iptables_installed=False)
     only_iptables.sections["iptables"] = "iptables v1.8.9 (legacy)\n"
     snap, fw = await firewall_of(only_iptables)
     assert fw.rules_complete is False and fw.port_forwards_complete is False and not fw.rules
     assert "no nft command" in next(e for e in snap.errors if e.capability == "firewall").message
 
-    nothing = device(nft_installed=False)
+    nothing = device(nft_installed=False, iptables_installed=False)
     nothing.sections["iptables"] = ""
     snap, fw = await firewall_of(nothing)
     assert fw.enabled is False and snap.status is DeviceStatus.OK
     flow = Flow(chain=FirewallChain.INPUT, source_zones={"x"})
     assert fw.evaluate(flow).verdict is Verdict.ALLOWED
+
+
+async def test_legacy_iptables_without_nft_is_read_like_nft() -> None:
+    """#394: ``iptables-save`` and ``ip6tables-save`` give the model of the nft reader."""
+    box = device(
+        nft_installed=False,
+        iptables_save=LEGACY_IPTABLES_SAVE,
+        ip6tables_save=LEGACY_IP6TABLES_SAVE,
+    )
+    box.sections["iptables"] = "iptables v1.8.9 (legacy)\n"
+    snap, fw = await firewall_of(box)
+    assert snap.status is DeviceStatus.OK and not [
+        e for e in snap.errors if e.capability == "firewall"
+    ]
+    assert fw.id == "gw2/firewall" and fw.enabled and fw.rules_complete
+    assert fw.vendor_extra == {"source": "iptables-save"}
+    assert fw.input_policy is FirewallAction.DROP and fw.forward_policy is FirewallAction.DROP
+    zones = {z.name: z for z in fw.zones}
+    assert set(zones) == {"br0", "eth0", "lo", "wg0"}
+    assert zones["br0"].segments == ["home/segment/native"]
+    assert zones["eth0"].uplinks == ["gw2/uplink/eth0"] and zones["wg0"].tunnels == [
+        "gw2/tunnel/wg0"
+    ]
+    v4 = [r for r in fw.rules if r.family == 4]
+    v6 = [r for r in fw.rules if r.family == 6]
+    # the same rules as the nft ruleset (default_nft) except its two IPv6-only and its set
+    assert [r.chain.value for r in v4] == ["input"] * 4 + ["forward"] * 3
+    assert len(v6) == 3 and all(r.chain is FirewallChain.INPUT for r in v6)
+    ssh = next(r for r in fw.rules if r.name == "ssh from the office")
+    assert [str(n) for n in ssh.source.networks] == ["203.0.113.0/24"]
+    assert [str(p) for p in ssh.destination.ports] == ["22"] and ssh.exact
+    assert next(r for r in v4 if FirewallProtocol.ICMP in r.protocols).exact is False
+    vpn = v4[-1]
+    assert vpn.source.zones == ["wg0"] and [str(p) for p in vpn.destination.ports] == ["80", "443"]
+    dnat = next(r for r in fw.rules if r.forwarded)
+    assert dnat.source.zones == ["eth0"]
+    (fwd,) = fw.port_forwards
+    assert fwd.name == "nas" and fwd.zones == ["eth0"] and fwd.passes_filter is False
+    assert str(fwd.target_address) == "192.0.2.20" and fwd.target_port == 443 and fwd.exact
+    (nat,) = fw.nat
+    assert nat.zones == ["eth0"] and nat.masquerade and nat.exact
+
+
+async def test_nft_wins_when_it_has_rules_and_iptables_fills_in_when_it_is_empty() -> None:
+    backed = device(iptables_save=NFT_BACKED_IPTABLES_SAVE)
+    _, fw = await firewall_of(backed)
+    assert fw.vendor_extra == {"source": "nft"} and len(fw.rules) == 9
+
+    empty_nft = device(iptables_save=LEGACY_IPTABLES_SAVE, nft=nft_json())
+    empty_nft.sections["iptables"] = "iptables v1.8.9 (legacy)\n"
+    snap, fw = await firewall_of(empty_nft)
+    assert fw.vendor_extra == {"source": "iptables-save"} and fw.rules_complete
+    assert not [e for e in snap.errors if e.capability == "firewall"]
+
+    nothing = device(nft=nft_json())  # neither has rules: nft is the source
+    _, fw = await firewall_of(nothing)
+    assert fw.vendor_extra == {"source": "nft"} and fw.enabled is False
+
+
+async def test_iptables_save_needs_the_sudoers_rule() -> None:
+    box = device(nft_installed=False, iptables_save=LEGACY_IPTABLES_SAVE)
+    box.sudoers_files.clear()
+    snap, fw = await firewall_of(box)
+    assert fw is None
+    err = next(e for e in snap.errors if e.capability == "firewall")
+    assert "iptables-save" in err.message and err.fix and "sudoers" in err.fix
+
+
+async def test_ip6tables_save_not_allowed_keeps_the_ipv4_rules_incomplete() -> None:
+    box = device(
+        nft_installed=False,
+        iptables_save=LEGACY_IPTABLES_SAVE,
+        ip6tables_save=LEGACY_IP6TABLES_SAVE,
+        ip6tables_denied=True,
+    )
+    snap, fw = await firewall_of(box)
+    assert fw.rules_complete is False and fw.rules and all(r.family == 4 for r in fw.rules)
+    err = next(e for e in snap.errors if e.capability == "firewall")
+    assert "ip6tables-save" in err.message and "IPv6" in err.message
 
 
 async def test_unparsable_nft_output() -> None:

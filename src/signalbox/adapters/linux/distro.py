@@ -50,7 +50,7 @@ _INSTALL = {
     "apt": "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y {pkgs}",
     "pacman": "pacman -S --needed --noconfirm {pkgs}",
     "dnf": "dnf install -y {pkgs}",
-    "apk": "apk add {pkgs}",
+    "apk": "apk update && apk add {pkgs}",
 }
 
 #: ID (or an ID_LIKE word) -> (family name, package manager).

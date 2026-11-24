@@ -36,7 +36,26 @@ def start(work: Path) -> None:
     work.mkdir(parents=True, exist_ok=True)
     sh("sudo", "modprobe", "-a", "dummy", "8021q", "bridge", "wireguard")
     # nftables in the container uses the host's kernel modules (a missing one: the test shows it)
-    for module in ("nf_tables", "nft_ct", "nft_nat", "nft_masq", "nft_chain_nat", "nf_nat"):
+    for module in (
+        "nf_tables",
+        "nft_ct",
+        "nft_nat",
+        "nft_masq",
+        "nft_chain_nat",
+        "nf_nat",
+        # the legacy iptables backend (iptables-legacy alternative, #394)
+        "ip_tables",
+        "iptable_filter",
+        "iptable_nat",
+        "ip6_tables",
+        "ip6table_filter",
+        "xt_conntrack",
+        "xt_comment",
+        "xt_multiport",
+        "xt_tcpudp",
+        "xt_MASQUERADE",
+        "xt_nat",
+    ):
         sh("sudo", "modprobe", module, check=False)
     sh("docker", "build", "-q", "-t", IMAGE, str(HERE))
     sh("docker", "rm", "-f", NAME, check=False, capture_output=True)
