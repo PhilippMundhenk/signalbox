@@ -1,3 +1,4 @@
+import asyncio
 import io
 from collections.abc import Iterator
 from pathlib import Path
@@ -7,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from factories import SITE
-from signalbox.model import Security, Wlan
+from signalbox.model import Security, Site, Wlan
 from signalbox.service import Services, build, data_dir_from
 from signalbox.web import auth as authmod
 from signalbox.web.app import create_app, public_network
@@ -130,6 +131,45 @@ def test_sites_crud(logged_in: TestClient) -> None:
     assert logged_in.put("/api/sites/nope", json={"name": "x"}).status_code == 404
     assert logged_in.delete("/api/sites/second-house").status_code == 204
     assert [s["id"] for s in logged_in.get("/api/sites").json()] == ["home"]
+
+
+def test_moving_a_device_to_another_site_updates_the_views_at_once(
+    logged_in: TestClient, services: Services
+) -> None:
+    """#368: the stored snapshot carries the site; a save must not leave the old one in view."""
+    services.store.put_site(Site(id="away", name="Away"))
+    r = logged_in.post("/api/devices", json=device_body())
+    assert r.status_code == 201, r.text
+    rec = services.store.device("main-gateway")
+    assert rec is not None
+    asyncio.run(services.runner.observe_device(rec))
+    before = logged_in.get("/api/network").json()
+    assert {d["site_id"] for d in before["devices"]} == {"home"}
+    assert any(sub["segment_id"].startswith("home/segment/") for sub in before["subnets"])
+
+    r = logged_in.put(
+        "/api/devices/main-gateway", json=device_body(site_id="away", config={"url": "ok"})
+    )
+    assert r.status_code == 200 and r.json()["site_id"] == "away"
+
+    # no read in between: the snapshot was re-stamped by the save
+    net = logged_in.get("/api/network").json()
+    assert [d["site_id"] for d in net["devices"]] == ["away"]
+    assert net["subnets"] and all(
+        sub["segment_id"].startswith("away/segment/") for sub in net["subnets"]
+    )
+    assert not any(seg["id"].startswith("home/") for seg in net["segments"])
+    assert all(seg["site_id"] == "away" for seg in net["segments"])
+    topology = logged_in.get("/api/topology").json()
+    assert [n["site_id"] for n in topology["nodes"]] == ["away"]
+    assert not any(sid.startswith("home/") for sid in topology["segments"])
+
+    # renaming is carried over as well
+    logged_in.put(
+        "/api/devices/main-gateway",
+        json=device_body(site_id="away", name="Edge", config={"url": "ok"}),
+    )
+    assert [d["name"] for d in logged_in.get("/api/network").json()["devices"]] == ["Edge"]
 
 
 def test_device_lifecycle(logged_in: TestClient) -> None:

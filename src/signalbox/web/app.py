@@ -492,7 +492,12 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
             if body.trust_fingerprint
             else (old.pending_fingerprint if old else None),
         )
-        return store.put_device(rec, body.config, cls.manifest.config, set(body.clear_secrets))
+        saved = store.put_device(rec, body.config, cls.manifest.config, set(body.clear_secrets))
+        if old and (old.site_id, old.name, old.role) != (saved.site_id, saved.name, saved.role):
+            # what the snapshot carries changed (#368): views follow at once, the read follows
+            store.restamp_snapshot(saved)
+            runner.trigger()
+        return saved
 
     def test_json(snap: Snapshot, presented: str | None) -> dict[str, Any]:
         dev = snap.device
