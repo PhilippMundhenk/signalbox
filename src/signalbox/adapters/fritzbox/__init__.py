@@ -48,6 +48,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.fritzbox import discovery
 from signalbox.adapters.fritzbox.accounts import box_rights, user_names
+from signalbox.adapters.fritzbox.routes import ENTRY_LIMIT, default_route, static_route
 from signalbox.adapters.fritzbox.soap import UPNP_PORT, SoapFault, Tr064, security_port
 from signalbox.adapters.fritzbox.write import (
     BACKUP_FORMAT,
@@ -97,6 +98,7 @@ from signalbox.model import (
     PortRange,
     PurposeSource,
     Radio,
+    Route,
     Security,
     Segment,
     SegmentPurpose,
@@ -729,14 +731,41 @@ class FritzboxAdapter(Adapter):
                     gateway=self.context.role is DeviceRole.GATEWAY,
                 )
             )
+        uplinks = await self._uplinks()
         return Observation(
             ports=[port],
             segments=segments,
             subnets=subnets,
-            uplinks=await self._uplinks(),
+            routes=await self._routes(uplinks),
+            uplinks=uplinks,
             services=await self._services(),
             **await self._accounts(),
         )
+
+    async def _routes(self, uplinks: list[Uplink]) -> list[Route]:
+        """Static IPv4 routes and the default route (#149) from ``Layer3Forwarding:1``; a box
+        without the service (or a user without the right for it) reports none."""
+        d = self.context.device_id
+        count = await self._try("Layer3Forwarding1", "GetForwardNumberOfEntries")
+        if count is None:
+            return []
+        out: list[Route] = []
+        for index in range(min(_int(count.get("NewForwardNumberOfEntries")) or 0, ENTRY_LIMIT)):
+            try:
+                entry = await self.tr064.call(
+                    "Layer3Forwarding1", "GetGenericForwardingEntry", NewForwardingIndex=index
+                )
+            except (SoapFault, NotFound):
+                break
+            if (route := static_route(d, entry)) is not None:
+                out.append(route)
+        service = await self._try("Layer3Forwarding1", "GetDefaultConnectionService")
+        default = default_route(
+            d,
+            uplinks[0] if uplinks else None,
+            (service or {}).get("NewDefaultConnectionService", ""),
+        )
+        return ([default] if default else []) + out
 
     async def _accounts(self) -> dict[str, Any]:
         """Users and the factory-password state (#126, #175) from ``LANConfigSecurity``:

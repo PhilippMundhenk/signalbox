@@ -332,6 +332,38 @@ PORT_MAPPINGS = [
 ]
 
 
+def forwarding_entry(
+    destination: str,
+    mask: str,
+    gateway: str,
+    *,
+    interface: str = "",
+    metric: int = 0,
+    enabled: bool = True,
+    kind: str = "Network",
+) -> dict[str, str]:
+    """``GetGenericForwardingEntry`` of Layer3Forwarding:1 (static IPv4 routes, #149)."""
+    return {
+        "NewEnable": "1" if enabled else "0",
+        "NewStatus": "Enabled" if enabled else "Disabled",
+        "NewType": kind,
+        "NewDestIPAddress": destination,
+        "NewDestSubnetMask": mask,
+        "NewSourceIPAddress": "0.0.0.0",
+        "NewSourceSubnetMask": "0.0.0.0",
+        "NewGatewayIPAddress": gateway,
+        "NewInterface": interface,
+        "NewForwardingMetric": str(metric),
+    }
+
+
+#: Static routes of the sample box (a lab network behind a second router, and a disabled one).
+FORWARDING = [
+    forwarding_entry("198.18.20.0", "255.255.255.0", "192.0.2.254"),
+    forwarding_entry("198.18.30.0", "255.255.255.0", "192.0.2.254", enabled=False),
+]
+
+
 class NotSimulated(Exception):
     """An action of the description that the simulator does not implement (fault 501)."""
 
@@ -377,6 +409,11 @@ class FritzboxSim:
     #: ``X_AVM-DE_Storage GetInfo``: FTP in the LAN and from the internet
     storage: dict[str, str] = field(default_factory=lambda: dict(STORAGE))
     upnp: dict[str, str] = field(default_factory=lambda: dict(UPNP))
+    #: Layer3Forwarding:1 (#149): static IPv4 routes and the connection the default route uses.
+    forwarding: list[dict[str, str]] = field(default_factory=lambda: [dict(e) for e in FORWARDING])
+    default_connection: str = (
+        "uuid:00000000-0000-4000-8000-000000000149,urn:upnp-org:serviceId:WANIPConn1"
+    )
     #: ``LANEthernetInterfaceConfig GetInfo``: NewMaxBitRate is a maximum (or ``Auto``)
     ethernet: dict[str, str] = field(default_factory=lambda: dict(ETHERNET))
     wlans: dict[int, dict[str, str]] = field(default_factory=lambda: copy.deepcopy(WLANS))
@@ -539,6 +576,14 @@ class FritzboxSim:
             return self._wlan(int(number), action, args)
         if name in ("WANPPPConnection", "WANIPConnection", "WANCommonInterfaceConfig"):
             return self._wan(name, action, args)
+        if name == "Layer3Forwarding":
+            if action == "GetDefaultConnectionService":
+                return {"NewDefaultConnectionService": self.default_connection}
+            if action == "GetForwardNumberOfEntries":
+                return {"NewForwardNumberOfEntries": str(len(self.forwarding))}
+            if action == "GetGenericForwardingEntry":
+                index = int(args["NewForwardingIndex"])
+                return dict(self.forwarding[index]) if index < len(self.forwarding) else 713
         if name == "Hosts":
             if action == "GetHostNumberOfEntries":
                 return {"NewHostNumberOfEntries": str(len(HOSTS))}
