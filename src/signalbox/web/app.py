@@ -36,6 +36,7 @@ from signalbox.model import (
 )
 from signalbox.mqtt import MqttBridge
 from signalbox.neighbours import radio_neighbours, scan_rows
+from signalbox.notifications import Notifier
 from signalbox.prober import Prober
 from signalbox.rules import ENGINE_RULES, rule_enabled
 from signalbox.secrets import SecretError
@@ -49,6 +50,7 @@ from signalbox.web.changes_api import router as changes_router
 from signalbox.web.desired_api import router as desired_router
 from signalbox.web.discovery_api import router as discovery_router
 from signalbox.web.manage_url import manage_url
+from signalbox.web.notifications_api import router as notifications_router
 from signalbox.web.probes_api import router as probes_router
 from signalbox.web.traces_api import router as traces_router
 
@@ -228,6 +230,8 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     )
 
     bridge = MqttBridge(config.mqtt, config.server.base_url)
+    notifier = Notifier(config.notifications, store, config.server.base_url)
+    runner.round_listeners.append(notifier.on_round)
     discovery = Discovery(store, runner, services.adapters, config.discovery)
     tracer = Tracer(store, runner, services.adapters, config)
     prober = Prober(store, runner, config)
@@ -253,6 +257,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
                     with contextlib.suppress(asyncio.CancelledError):
                         await background
             await asyncio.to_thread(bridge.stop)
+            notifier.close()
             if task is not None:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
@@ -270,6 +275,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     app.state.discovery = discovery
     app.state.tracer = tracer
     app.state.prober = prober
+    app.state.notifier = notifier
 
     @app.exception_handler(RequestValidationError)
     async def _invalid(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -699,6 +705,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
 
     app.include_router(api)
     app.include_router(desired_router(services))
+    app.include_router(notifications_router(notifier))
     app.include_router(annotations_router(services))
     app.include_router(changes_router(services, Deployer(runner)))
     app.include_router(discovery_router(discovery))

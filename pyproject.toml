@@ -33,7 +33,10 @@ dev = [
   "playwright>=1.47",
   "pytest-playwright>=0.5",
   "amqtt>=0.11",
+  "aiosmtpd>=1.4",
 ]
+# Apprise URLs as one more notification channel kind (docs/NOTIFICATIONS.md)
+apprise = ["apprise>=1.8"]
 # NETGEAR ProSAFE Plus and TP-Link Easy Smart switches (docs/adr/0003-switchyard-library.md)
 switches = [
   "switchyard @ git+https://github.com/PhilippMundhenk/switchyard@4f8e93fd196c408fa45338a45837f61c97cf32a9",

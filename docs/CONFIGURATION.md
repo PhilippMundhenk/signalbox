@@ -113,6 +113,15 @@ Generated from the code by `tools/gen_docs.py`.
 | `probes.wait_seconds` | `SIGNALBOX_PROBES_WAIT_SECONDS` | `3` | How long to listen for answers per interface, in seconds. |
 | `probes.min_gap_seconds` | `SIGNALBOX_PROBES_MIN_GAP_SECONDS` | `300` | Probe now is refused this soon after the last run. |
 
+## `notifications`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `notifications.language` | `SIGNALBOX_NOTIFICATIONS_LANGUAGE` | `en` | Language of notification texts (a code of the UI languages, e.g. de). |
+| `notifications.timeout_seconds` | `SIGNALBOX_NOTIFICATIONS_TIMEOUT_SECONDS` | `10` | Timeout of one delivery attempt, in seconds. |
+| `notifications.retries` | `SIGNALBOX_NOTIFICATIONS_RETRIES` | `2` | Retries after a failed delivery (bounded). |
+| `notifications.channels` | `SIGNALBOX_NOTIFICATIONS_CHANNELS` | - | Channels set in the file (docs/NOTIFICATIONS.md); more can be added in the web interface. Every channel is off until enabled: true. |
+
 ## `plugins`
 
 | Setting | Environment variable | Default | Meaning |

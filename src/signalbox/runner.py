@@ -50,6 +50,8 @@ class Runner:
     desired_source: Callable[[], DesiredState | None] | None = None
     #: Called after every evaluation (MQTT export, UI push).
     listeners: list[Callable[[Network, list[Finding]], None]] = field(default_factory=list)
+    #: Called once after every observation round (not after every evaluation): notifications.
+    round_listeners: list[Callable[[Network, list[Finding]], None]] = field(default_factory=list)
     #: Extra context values per device id (the demo points the switch adapters at simulators).
     context_extra: dict[str, dict[str, Any]] = field(default_factory=dict)
     _wake: asyncio.Event = field(default_factory=asyncio.Event)
@@ -266,7 +268,13 @@ class Runner:
 
         await asyncio.gather(*(one(r) for r in self.store.devices() if r.enabled))
         self.last_run = datetime.now(UTC)
-        return self.evaluate(record=True)
+        net, findings = self.evaluate(record=True)
+        for listener in self.round_listeners:
+            try:
+                listener(net, findings)
+            except Exception:
+                log.exception("round listener failed")
+        return net, findings
 
     # loop -------------------------------------------------------------------------------
 
