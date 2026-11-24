@@ -2,7 +2,7 @@
 import { del, enc, get, post } from '../api.js';
 import { compare, fmtDate, fmtNumber, t } from '../i18n.js';
 import { fdbText, loadNetwork } from '../net.js';
-import { PORT_ROLE, clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, place, portDetails, portSpeed, yesNo } from '../util.js';
+import { PORT_ROLE, clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, ltr, place, portDetails, portSpeed, yesNo } from '../util.js';
 import { busy, card, confirmDialog, empty, kv, manageLink, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
 import { fixPanel, remedyOf } from './devicefix.js';
@@ -194,7 +194,7 @@ function firewallCard(ix, deviceId) {
   if (!fw) return null;
   const forwards = fw.port_forwards.map((p) => [
     `${p.protocols.length ? p.protocols.join('/').toUpperCase() : t('device.fw.allProtocols')} ${p.external_ports.length ? p.external_ports.map((r) => (r.end && r.end !== r.start ? `${r.start}-${r.end}` : `${r.start}`)).join(', ') : t('device.fw.allPorts')}`,
-    `→ ${p.target_address}${p.target_port ? `:${p.target_port}` : ''}${p.name ? ` (${p.name})` : ''}${p.enabled ? '' : `, ${t('device.off')}`}`,
+    [h('span', { class: 'mirror', 'aria-hidden': 'true' }, '→'), ' ', ltr(`${p.target_address}${p.target_port ? `:${p.target_port}` : ''}`), `${p.name ? ` (${p.name})` : ''}${p.enabled ? '' : `, ${t('device.off')}`}`],
   ]);
   return h(
     'section',

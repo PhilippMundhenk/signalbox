@@ -2,7 +2,7 @@
 import { fmtNumber, t } from '../i18n.js';
 import { get } from '../api.js';
 import { fdbText, loadNetwork, noData } from '../net.js';
-import { by, clear, fmtAgo, fmtDuration, fmtTime, h, place } from '../util.js';
+import { by, clear, fmtAgo, fmtDuration, fmtTime, h, ltr, place } from '../util.js';
 import { pageHead, table } from '../ui.js';
 import { editNote, noteOf } from '../annotations.js';
 
@@ -70,7 +70,7 @@ export async function renderClients(main, ctx) {
         [
           [t('clients.col.name'), name],
           [t('clients.col.mac'), (r) => h('span', { class: 'mono' }, r.mac)],
-          [t('clients.col.addresses'), (r) => [...r.addresses].map((a) => (r.sources[a] && r.sources[a] !== 'unknown' ? `${a} (${sourceLabel(r.sources[a])})` : a)).join(', ')],
+          [t('clients.col.addresses'), (r) => [...r.addresses].flatMap((a, i) => [i ? ', ' : null, ltr(a), r.sources[a] && r.sources[a] !== 'unknown' ? ` (${sourceLabel(r.sources[a])})` : null])],
           [t('clients.col.lease'), (r) => (r.lease_expires ? h('span', { title: fmtTime(r.lease_expires), 'data-testid': 'client-lease' }, fmtTime(r.lease_expires)) : null)],
           [t('clients.col.segment'), (r) => (r.segment_id ? ix.segmentName(r.segment_id) : null)],
           [t('clients.col.seenOn'), (r) => seenOn(ix, r, learned.get(r.mac) || [])],

@@ -134,3 +134,71 @@ def test_overview_and_device_page_render_in_each_new_language(
             "() => document.documentElement.scrollWidth > document.documentElement.clientWidth"
         )
         assert not overflow, f"{code} {hash_}: page scrolls horizontally"
+
+
+def _rtl_codes() -> list[str]:
+    return [e["code"] for e in _catalogue_languages() if e.get("dir") == "rtl"]
+
+
+#: Does `needle` in the element run left to right on screen (first glyph left of the last)?
+_RUNS_LTR = """([selector, needle]) => {
+  const root = document.querySelector(selector);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const at = node.data.indexOf(needle);
+    if (at < 0) continue;
+    const box = (i) => {
+      const range = document.createRange();
+      range.setStart(node, i);
+      range.setEnd(node, i + 1);
+      return range.getBoundingClientRect();
+    };
+    return box(at).left < box(at + needle.length - 1).left;
+  }
+  return null;
+}"""
+
+
+@pytest.mark.parametrize("code", _rtl_codes())
+def test_right_to_left_layout_and_ltr_values(page: Any, server: Any, code: str) -> None:
+    """RTL languages (#204): dir on <html>, sidebar on the right, addresses stay left to right."""
+    page.add_init_script(f"localStorage.setItem('lang', '{code}')")
+    login(page, server)
+    expect(page.locator("html")).to_have_attribute("lang", code)
+    expect(page.locator("html")).to_have_attribute("dir", "rtl")
+    add_site(page)
+    add_lab(page, "Gateway")
+    observe(page)
+    page.goto(f"{server.url}/#/")
+    page.reload()
+    page.locator("main h1").first.wait_for()
+    # the sidebar sits on the right edge, the content to its left
+    sidebar = page.locator(".sidebar").bounding_box()
+    content = page.locator(".content").bounding_box()
+    width = page.evaluate("() => document.documentElement.clientWidth")
+    assert sidebar is not None and content is not None
+    assert sidebar["x"] + sidebar["width"] >= width - 1, sidebar
+    assert sidebar["x"] > width / 2
+    assert content["x"] + content["width"] <= sidebar["x"] + 1
+    # an IP and a MAC address in a finding keep their order, isolated from the surrounding text
+    selector = '[data-testid="finding"][data-rule="clients.random-mac"]'
+    finding = page.locator(selector).first
+    finding.wait_for()
+    text = finding.inner_text()
+    assert "⁨192.0.2.10⁩" in text, text
+    assert "⁨02:00:00:00:aa:01⁩" in text, text
+    for value in ("192.0.2.10", "02:00:00:00:aa:01"):
+        assert page.evaluate(_RUNS_LTR, [selector, value]) is True, value
+    # technical values in tables are isolated left to right
+    page.goto(f"{server.url}/#/clients")
+    page.reload()
+    page.locator("main h1").first.wait_for()
+    mono = page.locator("main .mono, main bdi.ltr").first
+    mono.wait_for()
+    assert mono.evaluate("el => getComputedStyle(el).direction") == "ltr"
+    # the topology diagram keeps its left-to-right geometry
+    page.goto(f"{server.url}/#/topology")
+    page.reload()
+    svg = page.locator("svg.topo").first
+    svg.wait_for()
+    assert svg.evaluate("el => getComputedStyle(el).direction") == "ltr"

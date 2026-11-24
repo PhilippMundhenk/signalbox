@@ -3,7 +3,7 @@
 // firmware) is untrusted text: it only ever goes into text nodes (h() never parses markup).
 import { enc, get, post } from '../api.js';
 import { fmtNumber, t } from '../i18n.js';
-import { clear, h, place } from '../util.js';
+import { clear, h, ltr, place } from '../util.js';
 import { field, notice, run, table, tag } from '../ui.js';
 
 // The candidate the device form takes its values from (set by "Add", taken once by the form).
@@ -94,7 +94,7 @@ export function discoveryPanel(ctx, status, open) {
             [
               t('discovery.col.address'),
               (c) => [
-                h('span', { 'data-testid': 'candidate-address' }, c.address),
+                h('span', { 'data-testid': 'candidate-address' }, ltr(c.address)),
                 c.addresses.length > 1
                   ? h('span', { class: 'muted small', 'data-testid': 'candidate-other-addresses', title: t('discovery.otherAddresses') }, t('discovery.also', { addresses: c.addresses.slice(1).join(', ') }))
                   : null,
