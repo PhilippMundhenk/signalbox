@@ -3,6 +3,7 @@ import { del, enc, get, post, put } from '../api.js';
 import { clear, h, place } from '../util.js';
 import { availableLanguages, savedLanguage, setLanguage, t } from '../i18n.js';
 import { card, clearNotice, confirmDialog, field, pageHead, run, select, setNotice, severityBadge, slot, table, tag, toast } from '../ui.js';
+import { notificationsCard } from './notifications.js';
 import { ruleExplanation, ruleTitle } from '../texts.js';
 
 function sitesCard(ctx, sites, devices) {
@@ -145,7 +146,7 @@ function rulesCard(rules) {
 
 export async function renderSettings(main, ctx, session) {
   const id = ctx.renderId;
-  const [sites, devices, rules] = await Promise.all([get('/sites'), get('/devices'), get('/rules')]);
+  const [sites, devices, rules, notify] = await Promise.all([get('/sites'), get('/devices'), get('/rules'), notificationsCard(ctx)]);
   if (!ctx.alive(id)) return;
-  place(main, pageHead(t('nav.settings')), languageCard(ctx), sitesCard(ctx, sites, devices), passwordCard(session), rulesCard(rules));
+  place(main, pageHead(t('nav.settings')), languageCard(ctx), sitesCard(ctx, sites, devices), passwordCard(session), notify, rulesCard(rules));
 }

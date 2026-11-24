@@ -8,15 +8,18 @@ example ``server.port`` → ``SIGNALBOX_SERVER_PORT``. Environment wins over the
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
+from datetime import time as dtime
+from enum import StrEnum
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, get_args
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 
-from signalbox.rules import RuleSettings
+from signalbox.rules import RuleSettings, Severity
 
 ENV_PREFIX = "SIGNALBOX_"
 FILE_NAME = "signalbox.yaml"
@@ -221,6 +224,98 @@ class ProbesConfig(Section):
     )
 
 
+Kind = Literal["email", "ntfy", "matrix", "telegram", "gotify", "webhook", "browser", "apprise"]
+
+
+KINDS_LIST: tuple[str, ...] = get_args(Kind)
+
+
+class EventKind(StrEnum):
+    FINDING = "finding"  # a new or a resolved finding
+    DEVICE = "device"  # a device cannot be reached or only partly read, or is back
+    DRIFT = "drift"  # the network differs from the desired state
+    DEPLOY = "deploy"  # the result of a deployment
+
+
+def parse_clock(text: str) -> dtime:
+    match = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", text)
+    if match is None:
+        raise ValueError("a time looks like 22:30")
+    return dtime(int(match.group(1)), int(match.group(2)))
+
+
+class ChannelSpec(BaseModel):
+    """One notification channel (#367). ``secret`` is the token, the password or (Apprise) the
+    URL: encrypted when set in the web interface, write-only there."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Kind
+    enabled: bool = Field(False, description="Send to this channel.")
+    min_severity: Severity = Field(Severity.WARNING, description="Lowest severity to send.")
+    events: list[EventKind] = Field(
+        default_factory=lambda: list(EventKind), description="Event kinds to send."
+    )
+    quiet_start: str = Field("", description="Quiet hours start (HH:MM, server local time).")
+    quiet_end: str = Field("", description="Quiet hours end; events wait until then.")
+    language: str = Field("", description="Message language; empty: notifications.language.")
+    url: str = Field("", description="Server URL (ntfy, Matrix, Gotify, Telegram API, webhook).")
+    topic: str = Field("", description="ntfy topic.")
+    room_id: str = Field("", description="Matrix room id.")
+    chat_id: str = Field("", description="Telegram chat id.")
+    host: str = Field("", description="SMTP host.")
+    port: int = Field(0, ge=0, le=65535, description="SMTP port; 0: 587, 465 or 25 by security.")
+    security: Literal["starttls", "ssl", "none"] = "starttls"
+    verify_tls: bool = True
+    username: str = ""
+    sender: str = Field("", description="From address of e-mails.")
+    recipients: list[str] = Field(default_factory=list)
+    secret: SecretStr | None = None
+
+    @field_validator("quiet_start", "quiet_end")
+    @classmethod
+    def _clock(cls, value: str) -> str:
+        value = value.strip()
+        if value:
+            parse_clock(value)
+        return value
+
+    @field_validator("url")
+    @classmethod
+    def _url(cls, value: str) -> str:
+        value = value.strip()
+        if value and not value.startswith(("http://", "https://")):
+            raise ValueError("the URL must start with http:// or https://")
+        return value
+
+    @property
+    def quiet(self) -> bool:
+        return bool(self.quiet_start and self.quiet_end)
+
+
+class NotificationsConfig(Section):
+    language: str = Field(
+        "en", description="Language of notification texts (a code of the UI languages, e.g. de)."
+    )
+    timeout_seconds: float = Field(
+        10, gt=0, le=60, description="Timeout of one delivery attempt, in seconds."
+    )
+    retries: int = Field(2, ge=0, le=5, description="Retries after a failed delivery (bounded).")
+    channels: dict[str, ChannelSpec] = Field(
+        default_factory=dict,
+        description="Channels set in the file (docs/NOTIFICATIONS.md); more can be added in the "
+        "web interface. Every channel is off until enabled: true.",
+    )
+
+    @field_validator("channels")
+    @classmethod
+    def _names(cls, value: dict[str, ChannelSpec]) -> dict[str, ChannelSpec]:
+        for name in value:
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", name):
+                raise ValueError(f"channel name {name!r}: use lower case letters, digits, - and _")
+        return value
+
+
 class PluginsConfig(Section):
     remote_adapters: dict[str, list[str]] = Field(
         default_factory=dict,
@@ -240,6 +335,7 @@ class Config(Section):
     setup: SetupConfig = SetupConfig()
     traces: TracesConfig = TracesConfig()
     probes: ProbesConfig = ProbesConfig()
+    notifications: NotificationsConfig = NotificationsConfig()
     plugins: PluginsConfig = PluginsConfig()
     rules: dict[str, RuleSettings] = Field(
         default_factory=dict,
@@ -374,6 +470,27 @@ probes:
   # Seconds to listen per interface; "Probe now" is refused this soon after the last run.
   wait_seconds: 3
   min_gap_seconds: 300
+
+notifications:
+  # Send findings and events to e-mail, ntfy, Matrix, Telegram, Gotify, a webhook, the browser or
+  # Apprise (docs/NOTIFICATIONS.md). Off by default and outbound only; channels are added here or
+  # in Settings. One message per observation round and channel. Tokens set in this file are
+  # stored as written: prefer the web interface, which encrypts them.
+  language: en
+  timeout_seconds: 10
+  retries: 2
+  # Example (all channels are off until enabled: true):
+  #   channels:
+  #     phone:
+  #       kind: ntfy
+  #       enabled: true
+  #       url: https://ntfy.example.org
+  #       topic: signalbox
+  #       min_severity: warning
+  #       events: [finding, device, drift, deploy]
+  #       quiet_start: "22:00"
+  #       quiet_end: "07:00"
+  channels: {}
 
 plugins:
   # Adapters that run as separate programs, each with only the settings of its device:

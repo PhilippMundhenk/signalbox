@@ -374,6 +374,12 @@ class FritzboxSim:
 
     username: str = "signalbox"
     password: str = "example-password"
+    #: A box set to log in with its password only (#373): TR-064 wants the user the box made up
+    #: (``generated_user``, an empty name gets HTTP 401) and ``/login_sid.lua`` lists it.
+    password_only: bool = False
+    generated_user: str = "fritz0000"
+    #: ``/login_sid.lua`` answers 404 (a FRITZ!OS without it, or the lookup blocked)
+    no_login_page: bool = False
     #: FRITZ!OS whose descriptions are served (a name from ``tr064.VERSIONS``)
     version: str = tr064.VERSIONS[0]
     #: actions (``GetSecurityKeys``) the user has no right for: UPnP fault 606
@@ -497,15 +503,34 @@ class FritzboxSim:
             media_type="text/html",
         )
 
+    @property
+    def login_name(self) -> str:
+        """The user TR-064 accepts."""
+        return self.generated_user if self.password_only else self.username
+
+    def login_page(self) -> str:
+        """``/login_sid.lua?version=2``: no login needed, lists the users (#373)."""
+        names = [self.generated_user] if self.password_only else [self.username]
+        users = "".join(
+            f'<User last="{int(i == len(names) - 1)}">{escape(n)}</User>'
+            for i, n in enumerate(names)
+            if n
+        )
+        return (
+            '<?xml version="1.0" encoding="utf-8"?><SessionInfo><SID>0000000000000000</SID>'
+            "<Challenge>00000000</Challenge><BlockTime>0</BlockTime>"
+            f"<Users>{users}</Users></SessionInfo>"
+        )
+
     def authorised(self, method: str, header: str | None, realm: str) -> bool:
         if not header or not header.lower().startswith("digest "):
             return False
         params = {k: a or b for k, a, b in _PARAM.findall(header[7:])}
-        if params.get("username") != self.username or params.get("realm") != realm:
+        if params.get("username") != self.login_name or params.get("realm") != realm:
             return False
         if params.get("nonce") not in self.nonces or params.get("qop") != "auth":
             return False
-        ha1 = _md5(f"{self.username}:{realm}:{self.password}")
+        ha1 = _md5(f"{self.login_name}:{realm}:{self.password}")
         ha2 = _md5(f"{method}:{params.get('uri', '')}")
         expected = _md5(
             f"{ha1}:{params['nonce']}:{params.get('nc', '')}:{params.get('cnonce', '')}:auth:{ha2}"
@@ -909,6 +934,13 @@ def create_app(sim: FritzboxSim | None = None) -> FastAPI:
             await request.body(),
             request.headers.get("soapaction", ""),
         )
+
+    @app.get("/login_sid.lua")
+    async def login_sid() -> Response:
+        state.requests += 1
+        if state.no_login_page:
+            return Response("<html>404 Not Found</html>", status_code=404)
+        return Response(state.login_page(), media_type="text/xml")
 
     @app.get(HOST_LIST)
     async def hosts(sid: str = "") -> Response:

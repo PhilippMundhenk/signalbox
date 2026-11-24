@@ -19,7 +19,7 @@ adapter may change, and a restore sets them back.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Mapping
+from collections.abc import Generator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Address, IPv4Interface, ip_address, ip_network
@@ -49,7 +49,13 @@ from signalbox.adapters import (
 from signalbox.adapters.fritzbox import discovery
 from signalbox.adapters.fritzbox.accounts import box_rights, user_names
 from signalbox.adapters.fritzbox.routes import ENTRY_LIMIT, default_route, static_route
-from signalbox.adapters.fritzbox.soap import UPNP_PORT, SoapFault, Tr064, security_port
+from signalbox.adapters.fritzbox.soap import (
+    UPNP_PORT,
+    SoapFault,
+    Tr064,
+    login_user,
+    security_port,
+)
 from signalbox.adapters.fritzbox.write import (
     BACKUP_FORMAT,
     Call,
@@ -136,6 +142,21 @@ MAX_PORT_MAPPINGS = 512
 END_OF_ARRAY = (713, 714)
 
 
+#: Web interface port of the box; its login page names the user in password-only mode (#373).
+WEB_PORT = 443
+
+
+class _User(httpx.Auth):
+    """Digest login whose user name is known only after the lookup (#373)."""
+
+    def __init__(self, name: str, password: str) -> None:
+        self.name = name
+        self.password = password
+
+    def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response, None]:
+        return httpx.DigestAuth(self.name, self.password).auth_flow(request)
+
+
 class FritzboxConfig(AdapterConfig):
     url: str = Field(
         description="The box's address in your home network, for example fritz.box or "
@@ -145,7 +166,10 @@ class FritzboxConfig(AdapterConfig):
     username: str = Field(
         default="",
         description="Fritz!Box user with the right 'FRITZ!Box settings'. Leave empty if the "
-        "box asks only for its password (no users set up).",
+        "box asks only for its password: Signalbox then reads the user name from the box. Even "
+        "if the box asks only for a password, it usually has a user: look under System > "
+        "FRITZ!Box-Benutzer (or https://<box>/login_sid.lua?version=2) and enter that name "
+        "with the same password.",
     )
     password: SecretStr = Field(description="Password of that user")
     allow_insecure_http: bool = Field(
@@ -525,14 +549,18 @@ class FritzboxAdapter(Adapter):
     def __init__(self, context: AdapterContext) -> None:
         super().__init__(context)
         cfg = self.config
+        self._login = _User(cfg.username, cfg.password.get_secret_value())
         self.http = DeviceHttp(
             cfg.url,
             pinned_fingerprint=context.pinned_fingerprint,
             timeout=context.timeout,
-            auth=httpx.DigestAuth(cfg.username, cfg.password.get_secret_value()),
+            auth=self._login,
             allow_insecure_http=cfg.allow_insecure_http,
         )
-        self.tr064 = Tr064(self.http)
+        self.tr064 = Tr064(self.http, self._ensure_user)
+        self._user_known = bool(cfg.username)
+        #: The user name read from the box because the configured one is empty (#373).
+        self._looked_up: str | None = None
         self._host_cache: list[dict[str, str]] | None = None
 
     @classmethod
@@ -558,13 +586,80 @@ class FritzboxAdapter(Adapter):
 
     # system ---------------------------------------------------------------------------
 
+    async def _ensure_user(self) -> None:
+        """Empty user name: ask the box's login page for it, once per observation (#373).
+
+        Only the name is read: no password goes to that page, and nothing is logged.
+        """
+        if self._user_known:
+            return
+        self._user_known = True
+        self._looked_up = await self._lookup_user()
+        self._login.name = self._looked_up or ""
+
+    async def _lookup_user(self) -> str | None:
+        host = self.http.host
+        netloc = f"[{host}]" if ":" in host else host
+        if self.http.secure:
+            base = f"https://{netloc}" + ("" if WEB_PORT == 443 else f":{WEB_PORT}")
+        else:  # simulators: one plain-http port serves everything
+            base = self.http.base_url
+        web = DeviceHttp(
+            base,
+            pinned_fingerprint=self.context.pinned_fingerprint,
+            timeout=self.context.timeout,
+            allow_insecure_http=self.config.allow_insecure_http,
+        )
+        try:
+            response = await web.request(
+                "GET", "/login_sid.lua", params={"version": "2"}, headers={"Accept": "text/xml"}
+            )
+            return login_user(response.content)
+        except AdapterError:  # not found, a certificate that is not the pinned one, bad XML...
+            return None
+        finally:
+            await web.close()
+
+    def _login_refused(self, exc: AuthFailed) -> AdapterError:
+        """A TR-064 401 (#373): say what is usually behind it on a Fritz!Box."""
+        if exc.message_id != "transport.http401":
+            return exc
+        host = self.http.host
+        netloc = f"[{host}]" if ":" in host else host
+        if not self.config.username and not self._looked_up:
+            return AuthFailed(
+                f"{exc}; the box needs a user name even when it asks only for a password",
+                fix="Even if the box asks only for a password, it usually has a user: look under "
+                "System > FRITZ!Box Users (FRITZ!Box-Benutzer) or open "
+                f"https://{netloc}/login_sid.lua?version=2 and enter that name (for example "
+                "fritz0000) with the same password. Or set up a FRITZ!Box user with the right "
+                "'FRITZ!Box settings' (FRITZ!Box Einstellungen).",
+                message_id="fritzbox.noUserName",
+                fix_id="fritzbox.noUserName.fix",
+                params={"cause": str(exc), "netloc": netloc},
+            )
+        return AuthFailed(
+            f"{exc}; check the right of the user, the spelling of the user name and whether "
+            "the box blocks logins",
+            fix="The user needs the right 'FRITZ!Box settings' (FRITZ!Box Einstellungen). The "
+            "user name is case-sensitive. After several failed logins the box blocks further "
+            "attempts for a while: wait a minute before testing again.",
+            message_id="fritzbox.loginRefused",
+            fix_id="fritzbox.loginRefused.fix",
+            params={"cause": str(exc)},
+        )
+
     async def read_system(self) -> SystemInfo:
         await self.http.reset()  # a new observation: probe the certificate again
         self._host_cache = None
+        self._user_known = bool(self.config.username)
+        self._looked_up = None
         try:
             info = await self.tr064.call("DeviceInfo1", "GetInfo")
         except (NotFound, Unreachable) as exc:
             raise await self._no_tr064(exc) from exc
+        except AuthFailed as exc:
+            raise self._login_refused(exc) from exc
         version = info.get("NewSoftwareVersion")
         return SystemInfo(
             vendor=info.get("NewManufacturerName") or "AVM",

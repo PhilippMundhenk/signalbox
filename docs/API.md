@@ -46,6 +46,11 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | GET | `/api/secrets` | Names of stored secrets (values are never returned). |
 | PUT | `/api/secrets/{name}` | Store a secret (encrypted), e.g. a Wi-Fi passphrase named in the desired state. |
 | DELETE | `/api/secrets/{name}` | Delete a secret. |
+| GET | `/api/notifications` | State |
+| PUT | `/api/notifications/channels/{name}` | Put |
+| DELETE | `/api/notifications/channels/{name}` | Delete |
+| POST | `/api/notifications/channels/{name}/test` | Test |
+| GET | `/api/notifications/browser` | Messages for the browser channels newer than ``after`` (the page polls this). |
 | GET | `/api/annotations` | Annotations and acknowledgements in effect, declared and stored (with `source`). |
 | GET | `/api/annotations/export` | The annotations and acknowledgements set in the UI as desired-state YAML. |
 | PUT | `/api/annotations/{target}` | Set the label, purpose, owner, notes, tags and expectations of an object. |

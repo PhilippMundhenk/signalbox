@@ -13,6 +13,7 @@ import { renderServices } from './views/services.js';
 import { renderClients } from './views/clients.js';
 import { renderTopology } from './views/topology.js';
 import { renderSettings } from './views/settings.js';
+import { pollBrowserNotifications } from './views/notifications.js';
 import { renderDesired } from './views/desired.js';
 import { renderChange, renderChanges, renderNewChange } from './views/changes.js';
 
@@ -232,6 +233,7 @@ async function boot() {
     return;
   }
   await render();
+  pollBrowserNotifications();
 }
 
 window.addEventListener('hashchange', () => {

@@ -279,6 +279,10 @@ class Store:
                 (key, value),
             )
 
+    def delete_setting(self, key: str) -> None:
+        with self._tx() as db:
+            db.execute("DELETE FROM settings WHERE key = ?", (key,))
+
     # secrets (Wi-Fi passphrases of the desired state), encrypted ---------------------------
 
     # Besides the named secrets the deployer keeps (#188), never listed and never returned by the
