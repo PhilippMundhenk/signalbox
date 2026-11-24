@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from ipaddress import ip_network
 from typing import TYPE_CHECKING, Any
 
-from signalbox.adapters import AdapterError
+from signalbox.adapters import AdapterError, Described
 from signalbox.adapters.mikrotik.firewall import POLICY_MARK, TAG, describe, split_mark, tagged
 from signalbox.changes import Change, FirewallRuleValue, PortForwardValue, ZonePolicyValue
 from signalbox.model import FirewallAction, FirewallChain, FirewallProtocol, PortRange
@@ -202,7 +202,11 @@ def _adopted(cfg: _Config, menu: str, name: str, what: str, label: str) -> dict[
     if len(own) == 1:
         return own[0]
     found = "no" if not own else "several"
-    raise AdapterError(f"{label}: the router has {found} {what} commented {name!r} to adopt")
+    raise AdapterError(
+        f"{label}: the router has {found} {what} commented {name!r} to adopt",
+        message_id="mikrotik.adoptNone" if not own else "mikrotik.adoptSeveral",
+        params={"label": label, "what": what, "name": repr(name)},
+    )
 
 
 def _anchor(cfg: _Config, menu: str, chain: str) -> dict[str, Any] | None:
@@ -249,7 +253,12 @@ def _update(
     (of the properties the writer models; every other property of the row stays)."""
     old = {k: _text(row.get(k)) for k in props}
     comment = want["comment"]
-    cfg.patch(menu, row, {k: v for k, v in want.items() if k in props}, f"{label}: {what}")
+    cfg.patch(
+        menu,
+        row,
+        {k: v for k, v in want.items() if k in props},
+        what if isinstance(what, Described) else f"{label}: {what}",
+    )
     undo_unset: list[str] = []
     undo_set: dict[str, str] = {}
     for k in props:
@@ -315,7 +324,9 @@ def _refuse_kept(kept: dict[str, str], body: dict[str, str], label: str) -> None
         raise AdapterError(
             f"{label}: the router's row has properties the declaration does not model and "
             f"that do not fit it: {'; '.join(clash)}. Adopting would keep: {everything}. "
-            "Change the declaration or the row on the router"
+            "Change the declaration or the row on the router",
+            message_id="mikrotik.keptClash",
+            params={"label": label, "clash": "; ".join(clash), "kept": everything},
         )
 
 
@@ -345,7 +356,17 @@ def _write(
         kept = _kept(menu, adopted, body, props)
         _refuse_kept(kept, body, label)
         shown = ", ".join(f"{k}={v}" for k, v in kept.items())
-        what = "adopt the device's own row in place" + (f" (keeps {shown})" if shown else "")
+        if shown:
+            what: str = Described(
+                f"{label}: adopt the device's own row in place (keeps {shown})",
+                "plan.adoptRowKeeps",
+                label=label,
+                kept=shown,
+            )
+        else:
+            what = Described(
+                f"{label}: adopt the device's own row in place", "plan.adoptRow", label=label
+            )
         _update(cfg, menu, adopted, body, props, revert, label, what)
         return
     _create(cfg, menu, body, before, revert, label)

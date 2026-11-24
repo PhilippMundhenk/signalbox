@@ -29,6 +29,7 @@ from signalbox.adapters import (
     SystemInfo,
     Unreachable,
     dnsmap,
+    unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.pihole import discovery as _discovery
@@ -96,7 +97,7 @@ class PiholeConfig(AdapterConfig):
 
 def _obj(value: Any, where: str) -> dict[str, Any]:
     if not isinstance(value, dict):
-        raise AdapterError(f"unexpected answer from {where}: not an object")
+        raise unexpected_answer(where, "not an object")
     return value
 
 
@@ -181,6 +182,8 @@ class PiholeAdapter(Adapter):
             message = dnsmap.text(session.get("message")) or "login refused"
             raise AuthFailed(
                 f"{AUTH}: {message}",
+                message_id="pihole.loginRefusedWith",
+                params={"endpoint": AUTH, "detail": message},
                 fix="Use an app password (Settings > Web interface / API > Configure app "
                 "password); a password with two-factor authentication cannot be used.",
                 fix_id="pihole.loginRefused.fix",
@@ -237,7 +240,7 @@ class PiholeAdapter(Adapter):
         core = _sub(_sub(data, "core"), "local")
         current = dnsmap.text(ftl.get("version")) or dnsmap.text(core.get("version"))
         if not current:
-            raise AdapterError(f"unexpected answer from {VERSION}: no version")
+            raise unexpected_answer(VERSION, "no version")
         if current.lstrip("v").startswith(("3", "4", "5")):
             raise AdapterError(
                 f"Pi-hole {current} is not supported: Signalbox needs v6",
@@ -273,7 +276,7 @@ class PiholeAdapter(Adapter):
         dns = _sub(cfg, "dns")
         upstream = dns.get("upstreams")
         if not isinstance(upstream, list):
-            raise AdapterError(f"unexpected answer from {CONFIG}: no dns.upstreams")
+            raise unexpected_answer(CONFIG, "no dns.upstreams")
         upstreams = dnsmap.parse_upstreams([str(x) for x in upstream])
         # conditional forwarding: "true,192.0.2.0/24,192.0.2.1,lan" (on, network, server, domain)
         reverse: dict[str, list[str]] = {}

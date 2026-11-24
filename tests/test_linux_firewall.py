@@ -271,6 +271,9 @@ def test_jump_goto_return_and_loops() -> None:
     assert not p.complete
     assert sum("cannot be followed" in g for g in p.gaps) == 2
     assert any("vmap" in g for g in p.gaps)
+    assert {g.message_id for g in p.gaps} == {"linux.nft.chainJump", "linux.nft.vmap"}
+    jump = next(g for g in p.gaps if g.message_id == "linux.nft.chainJump")
+    assert set(jump.params) == {"kind", "chain"}
     first, second, third = p.rules[0], p.rules[1], p.rules[2]
     assert first.source.zones == ["eth9"] and first.exact is False
     assert second.source.zones == ["eth0"] and second.destination.zones == ["eth2"]

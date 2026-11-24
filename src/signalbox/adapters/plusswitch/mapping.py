@@ -79,12 +79,16 @@ def _ports(values: Any, known: set[int]) -> list[int]:
 
 def system_info(info: Mapping[str, Any], vendor: str, address: str) -> SystemInfo:
     if not isinstance(info, Mapping):
-        raise AdapterError("unexpected answer to the identity read")
+        raise AdapterError(
+            "unexpected answer to the identity read", message_id="plusswitch.badIdentity"
+        )
     extra: dict[str, JsonValue] = {}
     try:
         extra["mac"] = normalise_mac(str(info.get("mac")))
     except ValueError:
-        raise AdapterError("the switch reported no valid MAC address") from None
+        raise AdapterError(
+            "the switch reported no valid MAC address", message_id="plusswitch.noMac"
+        ) from None
     for key in _INFO_EXTRA:
         value = _json(info.get(key))
         if value is not None and value != "":

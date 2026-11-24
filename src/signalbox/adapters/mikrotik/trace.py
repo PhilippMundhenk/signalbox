@@ -43,7 +43,11 @@ def _rtt(value: Any) -> float | None:
 
 def parse(answer: Any, target: IPv4Address | IPv6Address, max_hops: int) -> TraceAnswer:
     if not isinstance(answer, list):
-        raise AdapterError(f"{TRACEROUTE}: unexpected answer")
+        raise AdapterError(
+            f"{TRACEROUTE}: unexpected answer",
+            message_id="transport.unexpectedShort",
+            params={"endpoint": TRACEROUTE},
+        )
     rows = [r for r in answer if isinstance(r, dict)]
     sections = [str(r.get(".section", "")) for r in rows]
     if sections and any(sections):

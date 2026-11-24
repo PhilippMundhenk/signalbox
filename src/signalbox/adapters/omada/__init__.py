@@ -47,6 +47,7 @@ from signalbox.adapters import (
     Observation,
     SystemInfo,
     VendorCall,
+    unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.omada import discovery as _discovery
@@ -222,7 +223,12 @@ class OmadaError(AdapterError):
 
     def __init__(self, path: str, code: int, msg: str) -> None:
         self.code = code
-        super().__init__(f"{path}: Omada error {code}: {msg or 'no message'}")
+        detail = msg or "no message"
+        super().__init__(
+            f"{path}: Omada error {code}: {detail}",
+            message_id="omada.error",
+            params={"path": path, "code": code, "detail": detail},
+        )
 
 
 class TokenRefused(AuthFailed):
@@ -233,7 +239,7 @@ class TokenRefused(AuthFailed):
 
 
 def _unexpected(endpoint: str, what: str) -> AdapterError:
-    return AdapterError(f"unexpected answer from {endpoint}: {what}")
+    return unexpected_answer(endpoint, what)
 
 
 def _dict(value: Any, endpoint: str, what: str) -> dict[str, Any]:
@@ -674,7 +680,11 @@ class OmadaAdapter(_Adapter):
         try:
             result = _check(data, TOKEN)
         except OmadaError as exc:
-            raise AuthFailed(f"the controller refused the client credentials: {exc}") from exc
+            raise AuthFailed(
+                f"the controller refused the client credentials: {exc}",
+                message_id="omada.clientRefused",
+                params={"detail": str(exc)},
+            ) from exc
         token = _text(_dict(result, TOKEN, "result").get("accessToken"))
         if not token:
             raise _unexpected(TOKEN, "no accessToken")
@@ -754,7 +764,11 @@ class OmadaAdapter(_Adapter):
         site_id = _text(site.get("siteId") or site.get("id")) if site else ""
         if not site_id:
             names = ", ".join(sorted(_text(s.get("name")) for s in sites)) or "none"
-            raise AdapterError(f"the controller has no site {wanted!r} (sites: {names})")
+            raise AdapterError(
+                f"the controller has no site {wanted!r} (sites: {names})",
+                message_id="omada.noSite",
+                params={"site": repr(wanted), "sites": names},
+            )
         self._site_path = f"/openapi/v1/{self._omadac_id}/sites/{site_id}"
         self._site_zone = site.get("timeZone") if site else None
         version = _text(info.get("controllerVer"))

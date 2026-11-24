@@ -37,6 +37,7 @@ from signalbox.adapters import (
     Backup,
     Unreachable,
     VendorCall,
+    message_fields,
 )
 from signalbox.adapters.https import NotFound
 from signalbox.adapters.mikrotik import fwwrite
@@ -223,6 +224,7 @@ class _Op:
         }
         return VendorCall(
             description=self.description,
+            **message_fields(self.description),
             method=self.method,
             target=self.target,
             payload=payload,

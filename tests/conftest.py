@@ -86,3 +86,48 @@ def _read_errors_match_their_english_catalogue_entries(monkeypatch: pytest.Monke
         return error
 
     monkeypatch.setattr(adapters, "ReadError", checked)
+
+
+@pytest.fixture(autouse=True)
+def _errors_and_plan_texts_match_their_english_catalogue_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Wherever an adapter error, a gap text of the nft parser, a plan text or a path trace
+    carries a message id, the English catalogue entry filled with its params is exactly its
+    English text (#204)."""
+    from signalbox import adapters, tracer
+    from signalbox.adapters.linux import nftables
+
+    original = adapters.AdapterError.__init__
+
+    def error_init(self: Any, *args: object, **kw: Any) -> None:
+        original(self, *args, **kw)
+        if self.message_id:
+            assert _english(self.message_id, self.params) == str(self)
+        if self.fix_id:
+            assert self.fix and _english(self.fix_id, self.params) == self.fix
+
+    monkeypatch.setattr(adapters.AdapterError, "__init__", error_init)
+
+    for klass in (adapters.Described, nftables.NftGap):
+        original_new = klass.__new__
+
+        def described_new(
+            cls: Any, message: str, message_id: str, orig: Any = original_new, **params: Any
+        ) -> Any:
+            assert _english(message_id, params) == message
+            return orig(cls, message, message_id, **params)
+
+        monkeypatch.setattr(klass, "__new__", described_new)
+
+    original_trace = tracer.PathTrace
+
+    def trace(**fields: Any) -> Any:
+        made = original_trace(**fields)
+        if made.message_id:
+            assert made.error and _english(made.message_id, made.params) == made.error
+        if made.fix_id:
+            assert made.fix and _english(made.fix_id, made.params) == made.fix
+        return made
+
+    monkeypatch.setattr(tracer, "PathTrace", trace)

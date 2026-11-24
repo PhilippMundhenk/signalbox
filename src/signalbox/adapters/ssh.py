@@ -203,7 +203,11 @@ class PinnedSsh:
             self.fingerprint = client.presented
             self.fingerprint_hex = client.presented_hex
             if client.presented is None:  # pragma: no cover - a host key certificate
-                raise AdapterError(f"{where}: the SSH host key cannot be checked") from None
+                raise AdapterError(
+                    f"{where}: the SSH host key cannot be checked",
+                    message_id="transport.sshHostKey",
+                    params={"where": where},
+                ) from None
             raise UntrustedHostKey(client.presented, self.pin) from None
         except asyncssh.PermissionDenied:
             default = self.login == _DEFAULT_LOGIN
@@ -267,9 +271,17 @@ class PinnedSsh:
                 timeout=limit,
             )
         except TimeoutError:
-            raise Unreachable(f"{self.host}: no answer within {limit:g} s over SSH") from None
+            raise Unreachable(
+                f"{self.host}: no answer within {limit:g} s over SSH",
+                message_id="transport.sshTimeout",
+                params={"host": self.host, "seconds": f"{limit:g}"},
+            ) from None
         except (OSError, asyncssh.Error) as exc:
-            raise Unreachable(f"{self.host}: the SSH session failed: {_reason(exc)}") from None
+            raise Unreachable(
+                f"{self.host}: the SSH session failed: {_reason(exc)}",
+                message_id="transport.sshSession",
+                params={"host": self.host, "reason": _reason(exc)},
+            ) from None
         out = proc.stdout or b""
         err = proc.stderr or b""
         code = proc.exit_status if proc.exit_status is not None else 255

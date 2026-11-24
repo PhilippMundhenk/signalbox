@@ -94,6 +94,12 @@ def acl_fix(username: str) -> str:
     )
 
 
+def unexpected(what: str) -> AdapterError:
+    return AdapterError(
+        f"unexpected answer to {what}", message_id="openwrt.unexpected", params={"what": what}
+    )
+
+
 class _Denied(Exception):
     pass
 
@@ -116,7 +122,7 @@ class Ubus:
         if params[1] == "uci" and isinstance(params[3], dict) and "config" in params[3]:
             what += f" ({params[3]['config']})"
         if not isinstance(answer, dict):
-            raise AdapterError(f"unexpected answer to {what}")
+            raise unexpected(what)
         error = answer.get("error")
         if isinstance(error, dict):
             code = error.get("code")
@@ -124,10 +130,15 @@ class Ubus:
                 raise _Denied
             if code in (RPC_OBJECT_NOT_FOUND, RPC_METHOD_NOT_FOUND):
                 raise NotFound(f"ubus {what} not found")
-            raise AdapterError(f"ubus {what} failed: {error.get('message', code)}")
+            detail = str(error.get("message", code))
+            raise AdapterError(
+                f"ubus {what} failed: {detail}",
+                message_id="openwrt.ubusFailed",
+                params={"what": what, "detail": detail},
+            )
         result = answer.get("result")
         if not isinstance(result, list) or not result or not isinstance(result[0], int):
-            raise AdapterError(f"unexpected answer to {what}")
+            raise unexpected(what)
         status = result[0]
         if status == UBUS_PERMISSION_DENIED:
             raise _Denied
@@ -140,10 +151,15 @@ class Ubus:
         if status == UBUS_UNKNOWN_ERROR:
             raise CallFailed(f"ubus {what} failed: {UBUS_STATUS[status]}")
         if status != UBUS_OK:
-            raise AdapterError(f"ubus {what} failed: {UBUS_STATUS.get(status, status)}")
+            detail = str(UBUS_STATUS.get(status, status))
+            raise AdapterError(
+                f"ubus {what} failed: {detail}",
+                message_id="openwrt.ubusFailed",
+                params={"what": what, "detail": detail},
+            )
         data = result[1] if len(result) > 1 else {}
         if not isinstance(data, dict):
-            raise AdapterError(f"unexpected answer to {what}")
+            raise unexpected(what)
         return data
 
     async def login(self) -> None:
@@ -169,7 +185,7 @@ class Ubus:
             ) from None
         session = data.get("ubus_rpc_session")
         if not isinstance(session, str):
-            raise AdapterError("unexpected answer to session.login")
+            raise unexpected("session.login")
         self.session = session
 
     async def try_login(self, username: str, password: str) -> bool:

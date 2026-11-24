@@ -317,7 +317,13 @@ class LinuxAdapter(Adapter):
             try:
                 key = load_private_key(cfg.private_key.get_secret_value())
             except ValueError as exc:
-                raise AdapterError(str(exc), fix=AUTH_FIX, fix_id="linux.auth.fix") from None
+                raise AdapterError(
+                    f"private key: {exc}",
+                    fix=AUTH_FIX,
+                    message_id="linux.privateKey",
+                    fix_id="linux.auth.fix",
+                    params={"detail": str(exc)},
+                ) from None
         ssh = PinnedSsh(
             cfg.host,
             cfg.port,
@@ -607,7 +613,7 @@ class LinuxAdapter(Adapter):
                     )
                 ]
             )
-        gaps = [Gap(message=m) for m in parsed.gaps]
+        gaps = [Gap(message=m, message_id=m.message_id, params=m.params) for m in parsed.gaps]
         complete = parsed.complete
         if "legacy" in iptables:
             complete = False

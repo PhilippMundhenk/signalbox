@@ -44,6 +44,7 @@ from signalbox.adapters import (
     SystemInfo,
     Unreachable,
     VendorCall,
+    unexpected_answer,
 )
 from signalbox.adapters.fritzbox import discovery
 from signalbox.adapters.fritzbox.accounts import box_rights, user_names
@@ -1052,7 +1053,9 @@ class FritzboxAdapter(Adapter):
         except (SoapFault, AuthFailed) as exc:
             raise AdapterError(
                 f"{wlan.service} GetSecurityKeys refused ({exc}); give the Fritz!Box user "
-                f"the right '{RIGHT}' to compare Wi-Fi passphrases"
+                f"the right '{RIGHT}' to compare Wi-Fi passphrases",
+                message_id="fritzbox.securityKeysRefused",
+                params={"service": wlan.service, "detail": str(exc), "right": RIGHT},
             ) from exc
         return keys.get("NewKeyPassphrase") or None
 
@@ -1164,7 +1167,7 @@ class FritzboxAdapter(Adapter):
             )
         )
         if count is None:
-            raise AdapterError("Hosts1 GetHostNumberOfEntries: unexpected answer")
+            raise unexpected_answer("Hosts1 GetHostNumberOfEntries", "no entry count")
         return [
             await self.tr064.call("Hosts1", "GetGenericHostEntry", NewIndex=i) for i in range(count)
         ]

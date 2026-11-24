@@ -49,16 +49,32 @@ def _address(row: dict[str, Any]) -> IPv4Address | IPv6Address | None:
 
 def parse(answer: Any, target: IPv4Address | IPv6Address, max_hops: int) -> TraceAnswer:
     if not isinstance(answer, dict):
-        raise AdapterError(f"{TRACEROUTE}: unexpected answer")
+        raise AdapterError(
+            f"{TRACEROUTE}: unexpected answer",
+            message_id="transport.unexpectedShort",
+            params={"endpoint": TRACEROUTE},
+        )
     if answer.get("result") == "failed":
         detail = answer.get("validations") or {}
-        raise AdapterError(f"{TRACEROUTE}: the firewall refused the trace ({detail})")
+        raise AdapterError(
+            f"{TRACEROUTE}: the firewall refused the trace ({detail})",
+            message_id="opnsense.traceRefused",
+            params={"endpoint": TRACEROUTE, "detail": str(detail)},
+        )
     response = answer.get("response")
     if not isinstance(response, dict):
-        raise AdapterError(f"{TRACEROUTE}: no traceroute result (is configd running?)")
+        raise AdapterError(
+            f"{TRACEROUTE}: no traceroute result (is configd running?)",
+            message_id="opnsense.traceNoResult",
+            params={"endpoint": TRACEROUTE},
+        )
     rows = response.get("rows")
     if not isinstance(rows, list):
-        raise AdapterError(f"{TRACEROUTE}: unexpected answer")
+        raise AdapterError(
+            f"{TRACEROUTE}: unexpected answer",
+            message_id="transport.unexpectedShort",
+            params={"endpoint": TRACEROUTE},
+        )
     found: dict[int, TraceHop] = {}
     for row in rows:
         if not isinstance(row, dict):
@@ -75,7 +91,11 @@ def parse(answer: Any, target: IPv4Address | IPv6Address, max_hops: int) -> Trac
         )
     if not found:
         if response.get("error"):
-            raise AdapterError(f"traceroute on the firewall: {response['error']}")
+            raise AdapterError(
+                f"traceroute on the firewall: {response['error']}",
+                message_id="opnsense.traceError",
+                params={"detail": str(response["error"])},
+            )
         return TraceAnswer()
     hops = [found.get(t, TraceHop(ttl=t)) for t in range(1, max(found) + 1)]
     return TraceAnswer(hops=hops, reached=hops[-1].address == target)

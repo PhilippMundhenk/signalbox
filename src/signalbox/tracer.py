@@ -235,16 +235,40 @@ class Tracer:
         try:
             answer = await asyncio.wait_for(self._answer(pair), timeout=s.timeout_seconds)
         except TimeoutError:
-            base["error"] = f"no result within {s.timeout_seconds:g} s"
+            seconds = f"{s.timeout_seconds:g}"
+            base |= {
+                "error": f"no result within {seconds} s",
+                "message_id": "trace.timeout",
+                "params": {"seconds": seconds},
+            }
         except NotImplementedError:
-            base["error"] = "this device cannot run traceroutes"
+            base |= {
+                "error": "this device cannot run traceroutes",
+                "message_id": "trace.unsupported",
+            }
         except AdapterError as exc:
-            base |= {"error": str(exc) or type(exc).__name__, "fix": exc.fix, "remedy": exc.remedy}
+            base |= {
+                "error": str(exc) or type(exc).__name__,
+                "fix": exc.fix,
+                "remedy": exc.remedy,
+                "message_id": exc.message_id,
+                "fix_id": exc.fix_id,
+                "params": dict(exc.params),
+            }
         except (StoreError, SecretError, ValueError) as exc:
-            base["error"] = f"settings unusable: {exc}"
+            base |= {
+                "error": f"settings unusable: {exc}",
+                "message_id": "trace.settings",
+                "params": {"detail": str(exc)},
+            }
         except Exception as exc:  # a broken adapter must be visible, not fatal
             log.exception("trace %s failed", pair.id)
-            base["error"] = f"adapter error: {type(exc).__name__}: {exc}"
+            detail = f"{type(exc).__name__}: {exc}"
+            base |= {
+                "error": f"adapter error: {detail}",
+                "message_id": "trace.adapter",
+                "params": {"detail": detail},
+            }
         else:
             hops = [h for h in answer.hops if h.ttl <= s.max_hops]
             base |= {"hops": hops, "reached": answer.reached}
@@ -257,7 +281,7 @@ class Tracer:
             return answer
         rec = self.store.device(pair.source)
         if rec is None:
-            raise AdapterError("the device was removed")
+            raise AdapterError("the device was removed", message_id="trace.removed")
         cls = self.adapters[rec.adapter]
         ctx = AdapterContext(
             site_id=rec.site_id,

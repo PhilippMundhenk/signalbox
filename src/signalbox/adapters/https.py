@@ -121,7 +121,11 @@ async def peer_certificate(host: str, port: int, timeout: float) -> bytes:
         with contextlib.suppress(OSError, ssl.SSLError):
             await writer.wait_closed()
     if not der:  # pragma: no cover - a TLS server always presents a certificate here
-        raise Unreachable(f"{where} presented no certificate")
+        raise Unreachable(
+            f"{where} presented no certificate",
+            message_id="transport.noCertificate",
+            params={"where": where},
+        )
     return bytes(der)
 
 
@@ -162,11 +166,17 @@ class DeviceHttp:
     ) -> None:
         parts = urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.hostname:
-            raise AdapterError(f"not an http(s) URL: {url!r}")
+            raise AdapterError(
+                f"not an http(s) URL: {url!r}",
+                message_id="transport.notUrl",
+                params={"url": repr(url)},
+            )
         if parts.scheme == "http" and not allow_insecure_http:
             raise AdapterError(
                 f"{url}: plain http sends credentials unencrypted; use https "
-                "(or enable insecure http explicitly, for simulators only)"
+                "(or enable insecure http explicitly, for simulators only)",
+                message_id="transport.plainHttp",
+                params={"url": url},
             )
         self.base_url = url.rstrip("/")
         self.host = parts.hostname
@@ -229,7 +239,11 @@ class DeviceHttp:
         try:
             return response.json()
         except ValueError as exc:
-            raise AdapterError(f"{path}: answer is not valid JSON") from exc
+            raise AdapterError(
+                f"{path}: answer is not valid JSON",
+                message_id="transport.notJson",
+                params={"path": path},
+            ) from exc
 
     async def request(
         self, method: str, path: str, *, accept: Collection[int] = (), **kw: Any
@@ -293,5 +307,10 @@ class DeviceHttp:
                 params={"path": path},
             )
         if not 200 <= code < 300:
-            raise AdapterError(f"{path}: HTTP {code} {response.reason_phrase}".rstrip())
+            status = f"{code} {response.reason_phrase}".rstrip()
+            raise AdapterError(
+                f"{path}: HTTP {status}",
+                message_id="transport.httpStatus",
+                params={"path": path, "status": status},
+            )
         return response

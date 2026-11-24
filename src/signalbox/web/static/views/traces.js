@@ -5,6 +5,7 @@ import { get, post } from '../api.js';
 import { by, clear, fmtAgo, h, place } from '../util.js';
 import { card, field, run, select, table, tag, toast } from '../ui.js';
 import { fmtNumber, t } from '../i18n.js';
+import { errorFix, errorMessage } from '../texts.js';
 
 const DOCS = 'https://github.com/PhilippMundhenk/signalbox/blob/main/docs/TRACES.md';
 const PURPOSE = { gateway: 'traces.purpose.gateway', internet: 'traces.purpose.internet', address: 'traces.purpose.address' };
@@ -19,7 +20,7 @@ function hopChip(hop) {
 }
 
 function pathCell(p) {
-  if (p.error) return h('span', { class: 'error', 'data-testid': 'trace-error' }, p.error, p.fix ? h('small', { class: 'muted block' }, p.fix) : null, p.remedy && p.source !== 'signalbox' ? h('a', { class: 'small block', href: `#/device/${encodeURIComponent(p.source)}`, 'data-testid': 'trace-fix-link' }, t('traces.fixOnDevice')) : null);
+  if (p.error) return h('span', { class: 'error', 'data-testid': 'trace-error' }, errorMessage({ message: p.error, message_id: p.message_id, params: p.params }), p.fix ? h('small', { class: 'muted block' }, errorFix({ fix: p.fix, fix_id: p.fix_id, params: p.params })) : null, p.remedy && p.source !== 'signalbox' ? h('a', { class: 'small block', href: `#/device/${encodeURIComponent(p.source)}`, 'data-testid': 'trace-fix-link' }, t('traces.fixOnDevice')) : null);
   const parts = [h('span', { class: 'hop source' }, p.source_name)];
   for (const hop of p.hops) parts.push(h('span', { class: 'arrow', 'aria-hidden': 'true' }, ' → '), hopChip(hop));
   if (!p.reached) parts.push(h('span', { class: 'arrow', 'aria-hidden': 'true' }, ' → '), h('span', { class: 'hop none' }, '…'));

@@ -513,7 +513,7 @@ async function overview(main, ctx, device, adapters, sites) {
   const observed = ix.net.devices.find((d) => d.id === device.id);
   const adapter = adapters.find((a) => a.id === device.adapter);
   // a refused path trace (#253) is shown like a read problem, with its Fix it where there is one
-  const traceErrors = (ix.net.traces || []).filter((tr) => tr.source === device.id && tr.error).map((tr) => ({ device_id: device.id, capability: t('device.traceTo', { target: tr.target }), message: tr.error, fix: tr.fix, remedy: tr.remedy }));
+  const traceErrors = (ix.net.traces || []).filter((tr) => tr.source === device.id && tr.error).map((tr) => ({ device_id: device.id, capability: t('device.traceTo', { target: tr.target }), message: tr.error, fix: tr.fix, remedy: tr.remedy, message_id: tr.message_id, fix_id: tr.fix_id, params: tr.params }));
   const errors = [...ix.net.errors.filter((e) => e.device_id === device.id), ...traceErrors];
   const result = h('div', {});
   const trustBox = h('div', {});

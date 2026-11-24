@@ -2411,6 +2411,10 @@ class PathTrace(Model):
     error: str | None = None
     fix: str | None = None
     remedy: str | None = None
+    #: Translation ids and values of ``error`` / ``fix`` (#204), see ``ReadError``.
+    message_id: str | None = None
+    fix_id: str | None = None
+    params: MessageParams = Field(default_factory=dict)
 
     @field_validator("started_at", "finished_at")
     @classmethod
