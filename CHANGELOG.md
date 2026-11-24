@@ -100,6 +100,7 @@ All notable changes to this project are documented here. The format follows
 - Translations: the UI is translatable (language from the browser or Settings), German is complete; server texts carry translatable ids, starting with the device form, setup, read errors and DHCP/address checks (#204)
 
 ### Changed
+- Topology diagram redesigned: layers by role and uplink direction with fewer crossings, parallel cables bundled with a count badge, sites as groups, wires end at the port squares, collapsible legend, device names link to their page, hover highlight, zoom/pan/pinch and a full-screen view (#303)
 - Setup preview: a test per integration (Linux, OpenWrt, MikroTik, OPNsense with its ISC SSH script, every *Fix it* remedy) checks that the credential-free preview lists every step the real plan can contain (fixing three missing ones); OPNsense with the optional SSH step now fetches the HTTPS certificate and the SSH host key together before any password, so the passwords are asked once (#290)
 - VLAN 1 counts as the native (untagged) network, so devices that report their LAN as VLAN 1 and devices that report it untagged agree; a VLAN tagged on only one end of a link is a warning (#17)
 - Both adapters use one HTTPS helper that pins the device certificate in the TLS connection itself; the plain-HTTP setting is `allow_insecure_http` for every adapter (#34)
