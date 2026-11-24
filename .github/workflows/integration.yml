@@ -215,6 +215,11 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends qemu-system-x86 qemu-utils zstd \
             build-essential gawk gettext file rsync unzip wget
+          # the 23.05 image builder refuses uutils' install ("Please install GNU 'install'")
+          if ! install --version 2>&1 | grep -q GNU; then
+            sudo apt-get install -y -q coreutils-from-gnu || true
+          fi
+          install --version | head -1
       - name: Cache the image
         id: cache
         uses: actions/cache@v4
