@@ -14,6 +14,13 @@ RouterOS semantics used here (*(guess)*: not yet confirmed against a router):
   ``established``, ``related``, ``invalid`` or ``untracked`` does not (the model is stateful);
 - ``connection-nat-state=dstnat`` is a port-forwarded connection;
 - an interface list is a zone, a single interface a rule names is a zone of its own.
+
+What Signalbox created (#295) is tagged by its comment: ``signalbox:<key>[ <name>]`` for a rule or
+a port forward (the key is the declared name with ``-`` as ``_``; the name follows when it
+differs) and ``signalbox:policy/<from>/<to|device>`` for a zone policy. The readers report the
+first as ``signalbox_key`` and the policies as :class:`ZonePolicy`. Only rows of the base chains
+``input`` and ``forward`` (of ``dstnat`` for forwards) carry the tag: what the writer
+(write.py) produces and what a declared rule is compared with.
 """
 
 from __future__ import annotations
@@ -36,8 +43,13 @@ from signalbox.model import (
     NatRule,
     PortForward,
     PortRange,
+    ZonePolicy,
     firewall_id,
 )
+
+#: Prefix of the comment of what Signalbox created, and of its zone policies after it.
+TAG = "signalbox:"
+POLICY_MARK = "policy/"
 
 #: ``(segments, uplinks, tunnels, ports)`` of an interface; ``None``: it maps to nothing known.
 Mapped = tuple[list[str], list[str], list[str], list[str]]
@@ -121,6 +133,40 @@ def _flag(value: Any) -> bool:
 def _names(value: Any) -> list[str]:
     parts = value if isinstance(value, list) else _text(value).split(",")
     return [p.strip() for p in parts if isinstance(p, str) and p.strip()]
+
+
+def tagged(row: dict[str, Any]) -> str | None:
+    """What follows the tag in the comment of a row Signalbox created, else ``None`` (the
+    device's own, or a dynamic row)."""
+    if _flag(row.get("dynamic")):
+        return None
+    text = _text(row.get("comment"))
+    return text[len(TAG) :] if text.startswith(TAG) and len(text) > len(TAG) else None
+
+
+def key_of(name: str) -> str:
+    """The key of a declared name (desired.firewall_key: ``-`` becomes ``_``)."""
+    return name.replace("-", "_")
+
+
+def describe(key: str, name: str) -> str:
+    """The comment of a rule or forward Signalbox creates: ``signalbox:<key>``, and the name
+    after a space when it is not the key."""
+    return f"{TAG}{key}" + ("" if name == key else f" {name}")
+
+
+def split_mark(mark: str) -> tuple[str, str]:
+    """``(key, name)`` of what :func:`tagged` returns."""
+    key, _, name = mark.partition(" ")
+    return key, name or key
+
+
+def _owned(row: dict[str, Any]) -> tuple[str, str] | None:
+    """``(key, name)`` of a rule or forward of Signalbox's (not a zone policy)."""
+    mark = tagged(row)
+    if mark is None or mark.startswith(POLICY_MARK):
+        return None
+    return split_mark(mark)
 
 
 def _is_set(row: dict[str, Any], key: str) -> bool:
@@ -327,8 +373,10 @@ def _rule(
             forwarded = not neg
         else:
             exact = False
+    owned = _owned(row) if _text(row.get("chain")) in ("input", "forward") else None
     return FirewallRule(
-        name=_text(row.get("comment")) or None,
+        name=owned[1] if owned else (_text(row.get("comment")) or None),
+        signalbox_key=owned[0] if owned else None,
         enabled=not _flag(row.get("disabled")),
         chain=chain,
         family=6 if ipv6 else 4,
@@ -515,7 +563,8 @@ def nat(
         extra = not ipsec or any(
             _is_set(row, k) for k in (*_INEXACT, "src-port") if k != "dst-address-type"
         )
-        name = _text(row.get("comment")) or None
+        owned = _owned(row) if chain == "dstnat" else None
+        name = owned[1] if owned else (_text(row.get("comment")) or None)
         to_nets, to_ok = addresses(row.get("to-addresses"), lists)
         to = _first_address(to_nets)
         if chain == "srcnat":
@@ -555,6 +604,7 @@ def nat(
                 forwards.append(
                     PortForward(
                         name=name,
+                        signalbox_key=owned[0] if owned else None,
                         enabled=enabled,
                         protocols=protocols,
                         zones=in_zones,
@@ -580,6 +630,34 @@ def nat(
     if exceptions:  # accept rules in srcnat leave some traffic untranslated
         rules = [r.model_copy(update={"exact": False}) for r in rules]
     return rules, forwards, complete
+
+
+def policies(rows: list[dict[str, Any]]) -> list[ZonePolicy]:
+    """The zone policies Signalbox wrote: tagged rules ``signalbox:policy/<from>/<to|device>``
+    (enabled ones; the action accept, drop or reject)."""
+    out: dict[tuple[str, str | None], ZonePolicy] = {}
+    for row in rows:
+        mark = tagged(row)
+        action = _DECIDING.get(_text(row.get("action")))
+        if mark is None or not mark.startswith(POLICY_MARK) or action is None:
+            continue
+        if _flag(row.get("disabled")) or _text(row.get("chain")) not in ("input", "forward"):
+            continue
+        parts = mark[len(POLICY_MARK) :].split("/")
+        if len(parts) != 2 or not all(parts):
+            continue
+        source, dest = parts
+        between = dest not in ("device", source)
+        out.setdefault(
+            (source, None if dest == "device" else dest),
+            ZonePolicy(
+                source=source,
+                destination=None if dest == "device" else dest,
+                action=action,
+                signalbox_key=f"{source}/{dest}" if between else None,
+            ),
+        )
+    return list(out.values())
 
 
 def build(
@@ -632,6 +710,7 @@ def build(
         # the built-in chains accept what no rule matches
         input_policy=FirewallAction.ACCEPT,
         forward_policy=FirewallAction.ACCEPT,
+        policies=policies([*filter4, *filter6]),
         rules=[*rules4, *rules6],
         rules_complete=complete4 and complete6 and not raw_drops,
         nat=nat_rules,
@@ -640,4 +719,17 @@ def build(
     )
 
 
-__all__ = ["Lists", "Mapper", "build", "filter_rules", "nat"]
+__all__ = [
+    "POLICY_MARK",
+    "TAG",
+    "Lists",
+    "Mapper",
+    "build",
+    "describe",
+    "filter_rules",
+    "key_of",
+    "nat",
+    "policies",
+    "split_mark",
+    "tagged",
+]
