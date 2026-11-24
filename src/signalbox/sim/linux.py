@@ -269,6 +269,15 @@ def default_sections() -> dict[str, str]:
             }
         ),
         "resolv": _files({"/etc/resolv.conf": "nameserver 127.0.0.1\nsearch home.example\n"}),
+        # rsyslog as Debian ships it, plus a forward to the collector in the LAN (#180)
+        "syslog": _files(
+            {
+                "/etc/rsyslog.conf": 'module(load="imuxsock")\n*.*;auth,authpriv.none '
+                "-/var/log/syslog\nauth,authpriv.* /var/log/auth.log\n"
+                "$IncludeConfig /etc/rsyslog.d/*.conf\n",
+                "/etc/rsyslog.d/50-forward.conf": "*.info @192.0.2.5:514\n",
+            }
+        ),
         "dnsmasq": _files({"/etc/dnsmasq.conf": DNSMASQ_CONF}),
         "dnsmasq-leases": _files({"/var/lib/misc/dnsmasq.leases": DNSMASQ_LEASES}),
         "kea": "",
@@ -302,6 +311,7 @@ def arch_sections() -> dict[str, str]:
         {"dst": "192.0.2.0/24", "dev": "eth0", "protocol": "kernel", "scope": "link"},
     ]
     return default_sections() | {
+        "syslog": "",  # journald only: nothing forwarded (#180)
         "os": _files(
             {
                 "/etc/os-release": 'NAME="Arch Linux ARM"\nPRETTY_NAME="Arch Linux ARM"\n'

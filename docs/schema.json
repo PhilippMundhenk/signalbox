@@ -445,6 +445,21 @@
           "title": "Id",
           "type": "string"
         },
+        "log_targets": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/LogTarget"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Log Targets"
+        },
         "managed_by": {
           "anyOf": [
             {
@@ -2444,6 +2459,97 @@
         "tunnel"
       ],
       "title": "LinkOrigin",
+      "type": "string"
+    },
+    "LogKind": {
+      "description": "What a device sends to a log or monitoring target (#180).",
+      "enum": [
+        "syslog",
+        "netflow",
+        "ipfix",
+        "sflow",
+        "snmp-trap",
+        "metrics",
+        "other"
+      ],
+      "title": "LogKind",
+      "type": "string"
+    },
+    "LogTarget": {
+      "additionalProperties": false,
+      "description": "A remote target a device sends logs, flow records, traps or metrics to (#180, ADR 0018).\n\nPart of :attr:`Device.log_targets`; the address is the user's own collector (internal,\nnot a secret). Never a credential: no SNMP trap community, no TLS key.",
+      "properties": {
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/LogKind"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port"
+        },
+        "topics": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Topics",
+          "type": "array"
+        },
+        "transport": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LogTransport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "kind",
+        "address"
+      ],
+      "title": "LogTarget",
+      "type": "object"
+    },
+    "LogTransport": {
+      "enum": [
+        "udp",
+        "tcp",
+        "tls"
+      ],
+      "title": "LogTransport",
       "type": "string"
     },
     "ManagementService": {

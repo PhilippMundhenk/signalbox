@@ -790,6 +790,22 @@ are the `services` dump group), as the read-only user of this page.
 - `from_wan` stays unknown: the firewall is not read (#135).
 
 
+## Log and flow targets (#180)
+
+- `GET /rest/system/logging/action`: every action with `target=remote` and a `remote` address
+  other than `0.0.0.0` is a syslog target (`remote-port`, 514; `remote-protocol` `tcp` where
+  RouterOS has it, else UDP). It is enabled when an enabled, valid rule of
+  `GET /rest/system/logging` uses it; the topics are those rules' `topics`.
+- `GET /rest/ip/traffic-flow` (`enabled`) and `/rest/ip/traffic-flow/target` (`dst-address`,
+  `port`, `version` `1`/`5`/`9` as NetFlow or `ipfix`, `disabled`).
+- `GET /rest/snmp`: `trap-target` (comma-separated) as `snmp-trap` targets, enabled while SNMP is
+  on and `trap-generators` is not empty; `trap-community` is never read.
+
+The read user's `read` policy covers all of them. A refused `/system/logging/action` leaves the
+targets unread with an optional gap; a missing traffic-flow menu only leaves out flows. *CI*
+(CHR 7.25.1, dump group `logging`): the defaults read as "nothing sent". *Guess:* the fields of
+a router with targets configured.
+
 ## Firewall and NAT (#135)
 
 Read with the `firewall` capability (adapter API 1.4, [ADR 0013](../adr/0013-firewall-zones-rules-and-reachability.md))

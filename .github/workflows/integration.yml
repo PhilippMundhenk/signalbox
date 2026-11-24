@@ -114,6 +114,8 @@ jobs:
         run: python3 tools/integration/opnsense/dump.py "$VM_DIR" health
       - name: Record the API answers (WireGuard)
         run: python3 tools/integration/opnsense/dump.py "$VM_DIR" vpn
+      - name: Record the API answers (log and flow targets)
+        run: python3 tools/integration/opnsense/dump.py "$VM_DIR" logging
       - name: Integration tests
         run: |
           set -o pipefail
@@ -336,6 +338,8 @@ jobs:
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" uplink
       - name: Record the REST answers (read user, management services)
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" services
+      - name: Record the REST answers (read user, log and flow targets)
+        run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" logging
       - name: Record the REST answers (write user)
         run: python3 tools/integration/mikrotik/dump.py "$VM_DIR" write
       - name: Record the REST answers (refused and missing)

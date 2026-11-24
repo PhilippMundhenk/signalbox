@@ -50,6 +50,7 @@ from signalbox.adapters.linux import (
     parse,
     provision,
     setup,
+    syslog,
     wireguard,
 )
 from signalbox.adapters.linux import trace as _trace
@@ -71,6 +72,7 @@ from signalbox.model import (
     Firmware,
     IPAddress,
     IPInterface,
+    LogTarget,
     ManagementService,
     Membership,
     Port,
@@ -425,7 +427,28 @@ class LinuxAdapter(Adapter):
             uplinks=lay.uplinks,
             services=self._services(lay),
             fdb=self._fdb(lay),
+            log_targets=self._log_targets(gaps),
         )
+
+    def _log_targets(self, gaps: list[Gap]) -> dict[str, list[LogTarget]]:
+        """rsyslog and syslog-ng forward targets (#180): none read from an older script, an
+        optional gap for a configuration file the user may not read."""
+        a = self.answer
+        if not a.has("syslog"):
+            return {}
+        unreadable = a.unreadable("syslog")
+        if unreadable:
+            gaps.append(
+                Gap(
+                    message=f"log targets: {', '.join(unreadable)} not readable for "
+                    f"{self.config.username}",
+                    fix="Give the user read access to these files, or accept that the remote "
+                    "syslog targets are not read.",
+                    optional=True,
+                )
+            )
+            return {}
+        return {self.context.device_id: syslog.targets(a.files("syslog"))}
 
     def _fdb(self, lay: _Layout) -> list[FdbEntry]:
         """The bridges' MAC address tables (``bridge -j -s fdb show``, as the read user, #160)."""

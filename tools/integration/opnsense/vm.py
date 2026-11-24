@@ -440,6 +440,40 @@ def api_setup(d: Path, root: dict[str, str]) -> None:
     checked(root, "/api/unbound/service/reconfigure", {}, d)
     wireguard_setup(d, root)
     firewall_setup(d, root)
+    logging_setup(d, root)
+
+
+def logging_setup(d: Path, root: dict[str, str]) -> None:
+    """A remote syslog destination and NetFlow export of the LAN to one collector (#180)."""
+    checked(
+        root,
+        "/api/syslog/settings/add_destination",
+        {
+            "destination": {
+                "enabled": "1",
+                "transport": "udp4",
+                "hostname": "192.0.2.5",
+                "port": "514",
+                "level": "info,notice,warn,err,crit,alert,emerg",
+                "facility": "",
+                "program": "",
+                "rfc5424": "0",
+                "description": "collector",
+            }
+        },
+        d,
+    )
+    checked(root, "/api/syslog/service/reconfigure", {}, d)
+    checked(
+        root,
+        "/api/diagnostics/netflow/setconfig",
+        {
+            "netflow": {
+                "capture": {"interfaces": "lan", "version": "v9", "targets": "192.0.2.5:2055"}
+            }
+        },
+        d,
+    )
 
 
 def firewall_setup(d: Path, root: dict[str, str]) -> None:

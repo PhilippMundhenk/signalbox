@@ -13,7 +13,15 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from signalbox.adapters import AdapterContext, load_adapters
-from signalbox.adapters.linux import LinuxAdapter, LinuxConfig, collect, dhcp, parse, wireguard
+from signalbox.adapters.linux import (
+    LinuxAdapter,
+    LinuxConfig,
+    collect,
+    dhcp,
+    parse,
+    syslog,
+    wireguard,
+)
 from signalbox.adapters.linux.collect import FORBIDDEN, split
 from signalbox.adapters.linux.setup import SUDOERS_PATH, sudoers
 from signalbox.adapters.ssh import host_key_sha256, load_private_key, sha256_hex
@@ -839,3 +847,72 @@ async def test_discovery_silent_and_closed() -> None:
     assert await probe.banner(closed) is None
     probe.silent = True
     assert await probe.banner(free_port()) is None
+
+
+# --- remote syslog (#180) --------------------------------------------------------------------
+
+
+async def test_log_targets_from_rsyslog() -> None:
+    async with adapter_for(device()) as adapter:
+        await adapter.read_system()
+        obs = await adapter.read_interfaces()
+    (t,) = obs.log_targets["gw2"]
+    assert (t.endpoint(), t.transport.value, t.topics, t.name) == (
+        "192.0.2.5:514",
+        "udp",
+        ["*.info"],
+        "rsyslog",
+    )
+
+
+async def test_log_targets_unreadable_or_not_collected() -> None:
+    box = device()
+    box.sections["syslog"] = "@@! /etc/rsyslog.conf\n"
+    async with adapter_for(box) as adapter:
+        await adapter.read_system()
+        obs = await adapter.read_interfaces()
+    assert obs.log_targets == {}
+    (gap,) = [g for g in obs.incomplete if g.message.startswith("log targets")]
+    assert gap.optional
+    box.sections["syslog"] = ""  # read, nothing configured (journald only)
+    async with adapter_for(box) as adapter:
+        await adapter.read_system()
+        assert (await adapter.read_interfaces()).log_targets == {"gw2": []}
+        adapter._answer = split("@@os\n@@end\n")  # an answer without the section: not read
+        assert adapter._log_targets([]) == {}
+
+
+def test_rsyslog_and_syslog_ng_forms() -> None:
+    rs = {
+        "/etc/rsyslog.d/a.conf": "auth.* @@(o)[2001:db8::5]:1514\n# *.* @192.0.2.9\n"
+        "*.* @@logs.example\n"
+        'action(type="omfwd" target="192.0.2.7" port="6514" protocol="tcp" '
+        'StreamDriver="gtls" StreamDriverMode="1")\n'
+        'action(type="omfwd" target="192.0.2.8" protocol="tcp")\n'
+        'action(type="omfwd" target="192.0.2.10")\n'
+        'action(type="omfwd" port="1")\n',
+    }
+    got = [(t.endpoint(), t.transport.value) for t in syslog.targets(rs)]
+    assert got == [
+        ("[2001:db8::5]:1514", "tcp"),
+        ("logs.example:514", "tcp"),
+        ("192.0.2.7:6514", "tls"),
+        ("192.0.2.8:514", "tcp"),
+        ("192.0.2.10:514", "udp"),
+    ]
+    ng = {
+        "/etc/syslog-ng/conf.d/remote.conf": 'destination d_net { network("192.0.2.5" '
+        'transport("tls") port(6514)); };\n'
+        'destination d_tcp { tcp("192.0.2.6"); };\n'
+        'destination d_sys { syslog("192.0.2.7"); };\n'
+        'destination d_udp { udp("192.0.2.8" port(1514)); };\n'
+        'destination d_file { file("/var/log/x"); };\n'
+        "log { source(s_src); destination(d_net); destination(d_udp); };\n"
+    }
+    got = [(t.name, t.endpoint(), t.transport.value, t.enabled) for t in syslog.targets(ng)]
+    assert got == [
+        ("d_net", "192.0.2.5:6514", "tls", True),
+        ("d_tcp", "192.0.2.6:514", "tcp", False),
+        ("d_sys", "192.0.2.7:514", "tcp", False),
+        ("d_udp", "192.0.2.8:1514", "udp", True),
+    ]

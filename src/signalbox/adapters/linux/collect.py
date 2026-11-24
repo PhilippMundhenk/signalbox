@@ -108,6 +108,8 @@ for p in /opt/AdGuardHome /etc/pihole /etc/unbound/unbound.conf; do [ -e "$p" ] 
 echo @@listen; ss -Hltun 2>/dev/null
 echo @@sshd; show /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf
 echo @@resolv; show /etc/resolv.conf
+echo @@syslog; show /etc/rsyslog.conf /etc/rsyslog.d/*.conf \
+  /etc/syslog-ng/syslog-ng.conf /etc/syslog-ng/conf.d/*.conf
 echo @@dnsmasq; show /etc/dnsmasq.conf /etc/dnsmasq.d/*.conf
 echo @@dnsmasq-leases; show /var/lib/misc/dnsmasq.leases
 echo @@kea; show /etc/kea/kea-dhcp4.conf

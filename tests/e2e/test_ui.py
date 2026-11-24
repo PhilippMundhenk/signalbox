@@ -273,6 +273,14 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(card).to_contain_text("default community")
     expect(card).to_contain_text("off")
 
+    # log and monitoring targets (#180)
+    logs = app.get_by_test_id("device-logging")
+    expect(logs).to_contain_text("Logging and monitoring")
+    expect(logs.get_by_test_id("log-target")).to_have_count(2)
+    expect(logs).to_contain_text("Syslog (collector)")
+    expect(logs).to_contain_text("203.0.113.50:6514 · TLS · info, warning")
+    expect(logs).to_contain_text("203.0.113.51:2055 · off")
+
     go(app, "#/device/router/advanced")
     expect(app.get_by_test_id("raw-services")).to_contain_text("services (6)")
     expect(app.get_by_test_id("raw-uplinks")).to_contain_text("uplinks (1)")

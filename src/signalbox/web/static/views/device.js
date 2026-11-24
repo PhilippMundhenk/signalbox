@@ -276,6 +276,42 @@ function managementCard(ix, observed) {
   return h('section', { class: 'card', 'data-testid': 'device-management' }, h('h2', {}, t('device.mgmt.title')), kv(rows));
 }
 
+const LOG_KIND = {
+  syslog: 'device.logs.syslog',
+  netflow: 'device.logs.netflow',
+  ipfix: 'device.logs.ipfix',
+  sflow: 'device.logs.sflow',
+  'snmp-trap': 'device.logs.snmpTrap',
+  metrics: 'device.logs.metrics',
+  other: 'device.logs.other',
+};
+
+// Where the device sends logs, flow records, traps and metrics (#180); null: not read.
+function loggingCard(observed) {
+  const targets = observed.log_targets;
+  if (!Array.isArray(targets)) return null;
+  const rows = targets.map((x) => {
+    const ip6 = x.address.includes(':');
+    const host = x.port ? `${ip6 ? `[${x.address}]` : x.address}:${x.port}` : x.address;
+    const facts = [host, x.transport ? x.transport.toUpperCase() : null, x.topics.length ? x.topics.join(', ') : null];
+    const label = x.name ? `${t(LOG_KIND[x.kind] || LOG_KIND.other)} (${x.name})` : t(LOG_KIND[x.kind] || LOG_KIND.other);
+    return [
+      label,
+      h(
+        'span',
+        { class: x.enabled ? '' : 'muted', 'data-testid': 'log-target' },
+        x.enabled ? facts.filter(Boolean).join(' · ') : `${facts[0]} · ${t('device.off')}`,
+      ),
+    ];
+  });
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-logging' },
+    h('h2', {}, t('device.logs.title')),
+    rows.length ? kv(rows) : h('p', { class: 'muted' }, t('device.logs.none')),
+  );
+}
+
 const BAND = { 2.4: '2.4 GHz', 5: '5 GHz', 6: '6 GHz' };
 
 // One entry of the port tree (#252): the port (or radio), what it is, and what runs on it.
@@ -472,6 +508,7 @@ async function overview(main, ctx, device, adapters, sites) {
     tunnelsCard(ix, device.id),
     firewallCard(ix, device.id),
     observed ? managementCard(ix, observed) : null,
+    observed ? loggingCard(observed) : null,
     observed ? healthCard(observed.health) : null,
     observed ? timeCard(observed.time) : null,
     trustBox,

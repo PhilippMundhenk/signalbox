@@ -414,6 +414,18 @@ async def test_management_services_of_chr(rt: dict[str, str]) -> None:
     assert snap.device.transport_encrypted is True
 
 
+async def test_log_targets_of_chr(rt: dict[str, str]) -> None:
+    """RouterOS defaults (#180): the action ``remote`` points to 0.0.0.0 and no logging rule
+    uses it, traffic-flow has no target and SNMP no trap target: read, and nothing is sent."""
+    a = adapter(rt)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    assert snap.device.log_targets == [], snap.device.log_targets
+
+
 async def test_refused_password_is_auth_failed(rt: dict[str, str]) -> None:
     a = adapter(rt, password="not-the-password")
     try:

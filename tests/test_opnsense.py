@@ -1015,3 +1015,54 @@ def test_wireguard_endpoints() -> None:
     assert _endpoint("[2001:db8::1]:51820") == ("2001:db8::1", 51820)
     assert _endpoint("site.example:70000") == ("site.example:70000", None)
     assert _endpoint("vpn.example") == ("vpn.example", None)
+
+
+# --- log and flow targets (#180) -------------------------------------------------------------
+
+
+async def test_log_targets(snap: Snapshot) -> None:
+    rows = [
+        (t.kind.value, t.endpoint(), t.transport.value, t.enabled, t.name)
+        for t in snap.device.log_targets or []
+    ]
+    assert rows == [
+        ("syslog", "192.0.2.5:514", "udp", True, "collector"),
+        ("netflow", "192.0.2.5:2055", "udp", False, "netflow"),  # on no interface
+    ]
+    assert snap.device.log_targets is not None and "info" in snap.device.log_targets[0].topics
+
+
+async def test_log_targets_shapes_and_refusals(sim: OpnsenseSimulator, http_url: str) -> None:
+    rows = sim.data["/api/syslog/settings/search_destinations"]["rows"]
+    rows[0] |= {"transport": "TLS(6)", "hostname": "2001:db8::5", "port": "6514", "enabled": "0"}
+    rows.append({"hostname": "", "transport": "tcp4"})
+    rows.append({"hostname": "logs.home.example", "transport": "tcp4", "port": "x"})
+    capture = sim.data["/api/diagnostics/netflow/getconfig"]["netflow"]["capture"]
+    capture["interfaces"] = "lan"
+    capture["targets"] = "127.0.0.1:2056,[2001:db8::6]:2055"
+    a = adapter(http_url)
+    try:
+        snap = await a.observe()
+        got = [(t.endpoint(), t.transport.value, t.enabled) for t in snap.device.log_targets or []]
+        assert got == [
+            ("[2001:db8::5]:6514", "tls", False),
+            ("logs.home.example:514", "tcp", True),
+            ("[2001:db8::6]:2055", "udp", True),
+        ]
+        sim.fail = {"/api/diagnostics/netflow/getconfig": 403}
+        snap = await a.observe()
+        assert [t.kind.value for t in snap.device.log_targets or []] == ["syslog", "syslog"]
+        (gap,) = snap.errors
+        assert (
+            gap.optional
+            and gap.remedy == "privileges"
+            and "page-diagnostics-netflow" in (gap.fix or "")
+        )
+        sim.fail = {"/api/syslog/settings/search_destinations": 403}
+        snap = await a.observe()
+        assert snap.device.log_targets is None and snap.status.value == "ok"
+        sim.fail = {"/api/syslog/settings/search_destinations": 404}
+        snap = await a.observe()
+        assert [t.kind.value for t in snap.device.log_targets or []] == ["netflow"]
+    finally:
+        await a.close()

@@ -65,6 +65,8 @@ READ_PRIVILEGES: tuple[str, ...] = (
     "page-firewall-nat-portforward-edit",
     "page-filter-snat-api",
     "page-firewall-nat-1-1-edit",
+    "page-diagnostics-logs-settings-targets",
+    "page-diagnostics-netflow",
 )
 #: Added while path traces are on (#253, docs: "Path traces").
 TRACE_PRIVILEGES: tuple[str, ...] = ("page-diagnostics-traceroute",)

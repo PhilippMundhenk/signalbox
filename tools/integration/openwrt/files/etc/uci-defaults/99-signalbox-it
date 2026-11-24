@@ -94,6 +94,27 @@ uci set system.ntp.enabled='1'
 uci set system.ntp.enable_server='1'
 uci set system.ntp.interface='lan'
 
+# --- remote logging (#180): logd to a collector over TCP; a snmpd config as the package ships
+# it (the package itself is not installed: only the UCI shape and the ACL are tested)
+uci set system.@system[0].log_ip='192.0.2.5'
+uci set system.@system[0].log_port='1514'
+uci set system.@system[0].log_proto='tcp'
+touch /etc/config/snmpd
+uci set snmpd.general='snmpd'
+uci set snmpd.general.enabled='1'
+uci set snmpd.public='com2sec'
+uci set snmpd.public.secname='ro'
+uci set snmpd.public.source='default'
+uci set snmpd.public.community='public'
+uci set snmpd.public_v2c='group'
+uci set snmpd.public_v2c.group='public'
+uci set snmpd.public_v2c.version='v2c'
+uci set snmpd.public_v2c.secname='ro'
+uci add snmpd trap2sink
+uci set snmpd.@trap2sink[-1].host='192.0.2.5'
+uci set snmpd.@trap2sink[-1].community='public'
+uci commit snmpd
+
 # --- wireless (radios detected by "wifi config" from mac80211_hwsim, see /etc/modules.conf) --
 for r in 0 1 2; do uci -q delete wireless.default_radio$r; done
 for r in 0 1 2; do

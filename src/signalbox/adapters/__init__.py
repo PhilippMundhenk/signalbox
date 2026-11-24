@@ -44,6 +44,7 @@ from signalbox.model import (
     FdbKind,
     Firewall,
     Firmware,
+    LogTarget,
     ManagementService,
     MessageParams,
     Neighbour,
@@ -583,6 +584,10 @@ class Observation(BaseModel):
     health: dict[str, DeviceHealth] = Field(default_factory=dict)
     #: Clock and NTP per device id: the observed device or one of ``devices`` (API 1.2).
     time: dict[str, DeviceTime] = Field(default_factory=dict)
+    #: Remote log, flow, trap and metrics targets per device id (#180, ADR 0018), read with
+    #: ``interfaces``; no API version needed. A device that was read and sends nothing gets
+    #: ``[]``; leave a device out when its targets could not be read (add a gap then).
+    log_targets: dict[str, list[LogTarget]] = Field(default_factory=dict)
     #: What this read could not get although the rest was read: the device counts as partly
     #: read for this capability, so checks needing the missing part report incomplete.
     incomplete: list[Gap] = Field(default_factory=list)
@@ -818,6 +823,7 @@ class Adapter(ABC):
         reads: list[Observation] = []
         health: dict[str, DeviceHealth] = {}
         times: dict[str, DeviceTime] = {}
+        logs: dict[str, list[LogTarget]] = {}
         try:
             info = await self._call(self.read_system)
         except UntrustedCertificate as exc:
@@ -861,6 +867,8 @@ class Adapter(ABC):
                     health[key] = _complete_health(value, now)
                 for key, tvalue in result.time.items():
                     times[key] = _complete_time(tvalue, start, end)
+                for key, targets in result.log_targets.items():
+                    logs.setdefault(key, []).extend(targets)
             if any(not e.optional for e in errors):
                 status = DeviceStatus.PARTIAL
 
@@ -877,8 +885,9 @@ class Adapter(ABC):
             firmware=info.firmware,
             health=health.get(ctx.device_id),
             time=times.get(ctx.device_id),
+            log_targets=logs.get(ctx.device_id),
         )
-        skip = {"devices", "device_status", "health", "time", "incomplete"}
+        skip = {"devices", "device_status", "health", "time", "log_targets", "incomplete"}
         lists: dict[str, list[Any]] = {n: [] for n in Observation.model_fields if n not in skip}
         extra: dict[str, Device] = {}
         extra_status: dict[str, DeviceStatus] = {}
@@ -897,6 +906,7 @@ class Adapter(ABC):
                             "observed_at": now,
                             "health": health.get(d.id, d.health),
                             "time": times.get(d.id, d.time),
+                            "log_targets": logs.get(d.id, d.log_targets),
                         }
                     ),
                 )

@@ -1269,3 +1269,59 @@ def test_wireguard_peers_are_parsed_defensively() -> None:
     assert [str(n) for n in peer.allowed_ips] == ["192.0.2.0/24"]
     assert peer.latest_handshake == now - timedelta(seconds=65)
     assert (peer.keepalive_seconds, peer.rx_bytes, peer.enabled) == (0, None, False)
+
+
+# --- log and flow targets (#180) -------------------------------------------------------------
+
+
+async def test_log_targets(sim: MikrotikSimulator, http_url: str) -> None:
+    sim.data["/rest/ip/traffic-flow"]["enabled"] = "true"
+    sim.data["/rest/ip/traffic-flow/target"] = [
+        {
+            ".id": "*1",
+            "dst-address": "192.0.2.5",
+            "port": "2055",
+            "version": "9",
+            "disabled": "false",
+        },
+        {".id": "*2", "dst-address": "192.0.2.6", "version": "ipfix", "disabled": "true"},
+        {".id": "*3", "dst-address": ""},
+    ]
+    sim.data["/rest/snmp"] |= {"trap-target": "192.0.2.5,0.0.0.0", "trap-generators": "interfaces"}
+    a = adapter(http_url)
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    rows = [
+        (t.kind.value, t.endpoint(), t.enabled, t.name, t.topics)
+        for t in snap.device.log_targets or []
+    ]
+    assert rows == [
+        (
+            "syslog",
+            "192.0.2.5:514",
+            True,
+            "syslog",
+            ["info", "warning"],
+        ),  # "remote" (0.0.0.0) is left out
+        ("netflow", "192.0.2.5:2055", True, "traffic-flow", ["v9"]),
+        ("ipfix", "192.0.2.6:2055", False, "traffic-flow", []),
+        ("snmp-trap", "192.0.2.5:162", True, "snmp", ["interfaces"]),
+    ]
+
+
+async def test_log_targets_refused_and_unused(sim: MikrotikSimulator, http_url: str) -> None:
+    sim.data["/rest/system/logging"] = []  # no rule uses the remote action
+    a = adapter(http_url)
+    try:
+        snap = await a.observe()
+        (t,) = snap.device.log_targets or []
+        assert not t.enabled and t.topics == []
+        sim.fail = {"/rest/system/logging/action": 403}
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.device.log_targets is None
+    (gap,) = snap.errors
+    assert gap.optional and gap.message.startswith("log targets") and snap.status.value == "ok"

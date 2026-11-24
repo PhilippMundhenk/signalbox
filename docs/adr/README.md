@@ -19,5 +19,6 @@
 | [0015](0015-foreign-dhcp-servers-and-routers.md) | Foreign DHCP servers and routers: device sightings always, an optional probe from Signalbox's host that never takes a lease (#184, #61) |
 | [0016](0016-mac-address-tables.md) | MAC address tables: raw entries per device, bounded, one core module derives client placement and links (#160) |
 | [0017](0017-firewall-desired-state-and-deployments.md) | Firewall desired state and deployments: tagged objects only, zone references, a lockout check with an explicit override (#295) |
+| [0018](0018-log-and-monitoring-targets.md) | Log and monitoring targets belong to their device; the SNMP agent stays a management service (#180) |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.

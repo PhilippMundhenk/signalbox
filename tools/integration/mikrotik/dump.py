@@ -9,8 +9,9 @@ answers go to DIR/api-<GROUP>.json (uploaded as an artifact). Only the throw-awa
 in there (documentation prefixes, the 02: MACs of the test setup). GROUP is ``read`` (the
 read user, every menu the read side uses), ``more`` (the rest of them), ``health`` (resource,
 sensors, clock, NTP and UPS, #178 and #179), ``uplink`` (the WAN client menus and the PPPoE
-monitor, #148), ``services`` (management services, #173), ``write`` (the write user: the
-export, refused changes, the menus of the backup) or ``refused`` (a wrong password, the read
+monitor, #148), ``services`` (management services, #173), ``logging`` (log and flow
+targets, #180), ``write`` (the write user: the export, refused changes, the menus of the
+backup) or ``refused`` (a wrong password, the read
 user writing, unknown menus). At most ten notices per call (the limit of one step).
 """
 
@@ -79,6 +80,12 @@ GROUPS: dict[str, list[tuple[str, str, str, object]]] = {
         (R, "GET", "/rest/snmp/community", None),
         (W, "GET", "/rest/snmp/community", None),
         (R, "GET", "/rest/ip/upnp", None),
+    ],
+    "logging": [
+        (R, "GET", "/rest/system/logging/action", None),
+        (R, "GET", "/rest/system/logging", None),
+        (R, "GET", "/rest/ip/traffic-flow", None),
+        (R, "GET", "/rest/ip/traffic-flow/target", None),
     ],
     "write": [
         (W, "POST", "/rest/export", {}),

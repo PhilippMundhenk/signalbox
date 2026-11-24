@@ -811,6 +811,45 @@ def sample_data() -> dict[str, Any]:
                 },
             ],
         },
+        # Remote syslog (#180): one destination for the collector in the LAN (grid rows; option
+        # fields as their keys, as the integration image answers them: *guess* until CI says)
+        "/api/syslog/settings/search_destinations": {
+            "total": 1,
+            "rowCount": 1,
+            "current": 1,
+            "rows": [
+                {
+                    "uuid": "5a3c2a84-0000-4000-8000-000000000180",
+                    "enabled": "1",
+                    "transport": "udp4",
+                    "program": "",
+                    "level": "info,notice,warn,err,crit,alert,emerg",
+                    "facility": "",
+                    "hostname": "192.0.2.5",
+                    "certificate": "",
+                    "port": "514",
+                    "rfc5424": "0",
+                    "description": "collector",
+                }
+            ],
+        },
+        # NetFlow export (#180): configured to the collector but on no interface (off)
+        "/api/diagnostics/netflow/getconfig": {
+            "netflow": {
+                "capture": {
+                    "interfaces": {"lan": {"value": "LAN", "selected": 0}},
+                    "egress_only": {"lan": {"value": "LAN", "selected": 0}},
+                    "version": {
+                        "v5": {"value": "v5", "selected": 0},
+                        "v9": {"value": "v9", "selected": 1},
+                    },
+                    "targets": {"192.0.2.5:2055": {"value": "192.0.2.5:2055", "selected": 1}},
+                },
+                "collect": {"enable": "0"},
+                "activeTimeout": "1800",
+                "inactiveTimeout": "15",
+            }
+        },
         # os-net-snmp (not part of the base system): general settings, v2c community "public"
         "/api/netsnmp/general/get": {
             "general": {

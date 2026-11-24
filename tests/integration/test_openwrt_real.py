@@ -337,6 +337,27 @@ async def test_management_services(ow: Target, pin: str) -> None:
     assert snap.device.transport_encrypted is True
 
 
+async def test_log_targets_and_snmpd(ow: Target, pin: str) -> None:
+    """logd's remote target from ``system`` and a snmpd config (the image writes both, #180;
+    needs ``snmpd`` in the ACL): the target, the agent with its default community (never the
+    string itself) and its trap target."""
+    adapter = OpenWrtAdapter(context(ow, pin))
+    try:
+        snap = await adapter.observe()
+    finally:
+        await adapter.close()
+    assert snap.status is DeviceStatus.OK, snap.errors
+    targets = {(t.kind.value, t.name): t for t in snap.device.log_targets or []}
+    logd = targets[("syslog", "logd")]
+    assert (logd.endpoint(), logd.transport.value, logd.enabled) == ("192.0.2.5:1514", "tcp", True)
+    trap = targets[("snmp-trap", "trap2sink")]
+    assert (trap.endpoint(), trap.topics) == ("192.0.2.5:162", ["v2c"]), trap
+    (agent,) = [s for s in snap.services if s.kind.value == "snmp"]
+    assert agent.enabled and agent.snmp is not None and agent.snmp.default_community, agent
+    assert [v.value for v in agent.snmp.versions] == ["2c"], agent
+    assert "public" not in snap.model_dump_json()
+
+
 async def test_firewall_of_the_default_config(ow: Target, pin: str) -> None:
     """The image's default ``/etc/config/firewall`` (zones lan and wan, one forwarding, the
     ``Allow-*`` rules) as the read-only login sees it (#135; needs ``firewall`` in the ACL's
