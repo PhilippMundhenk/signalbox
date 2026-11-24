@@ -23,11 +23,11 @@ STALE_AFTER = timedelta(minutes=5)
 
 
 def _tunnel(net: Network, t: Tunnel) -> str:
-    return f"tunnel {t.name} of {device_name(net, t.device_id)}"
+    return f"{device_name(net, t.device_id)}/{t.name}"
 
 
 def _peer(p: TunnelPeer) -> str:
-    return f"peer {p.name}" if p.name else f"the peer with the key {p.public_key[:8]}…"
+    return p.name if p.name else f"{p.public_key[:8]}\u2026"
 
 
 def _overlap(a: IPNetwork, b: IPNetwork) -> bool:
@@ -87,7 +87,7 @@ def handshake_stale(net: Network) -> Iterator[Result]:
                 else f"has not completed a handshake for {int(age // 60)} minutes"
             )
             yield found(
-                f"On {_tunnel(net, t)}, {_peer(p)} {when}",
+                f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} {when}",
                 [t.id],
                 fix="Check that the other end is running and reachable (its public address or "
                 "name, the port, the firewall in front of it) and that both ends have the "
@@ -99,6 +99,13 @@ def handshake_stale(net: Network) -> Iterator[Result]:
                 "other's public key.",
                 severity=Severity.WARNING if keeps else Severity.INFO,
                 key=p.public_key,
+                mid="vpn.handshakeNever" if age is None else "vpn.handshakeStale",
+                fix_id="vpn.handshake.fix" if keeps else "vpn.handshake.idleFix",
+                params={
+                    "tunnel": _tunnel(net, t),
+                    "peer": _peer(p),
+                    "minutes": int(age // 60) if age is not None else 0,
+                },
             )
 
 
@@ -119,13 +126,21 @@ def allowed_ips_overlap(net: Network) -> Iterator[Result]:
                 same = sorted(set(p.allowed_ips) & set(q.allowed_ips), key=str)
                 for shared in (n for n in same if n.num_addresses > 1):
                     yield found(
-                        f"On {_tunnel(net, t)}, {_peer(p)} and {_peer(q)} both route {shared}: "
+                        f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} and peer {_peer(q)} both route {shared}: "
                         "only one of them gets that traffic",
                         [t.id],
                         fix="Give each peer its own networks in its allowed IPs; remove the "
                         "network from the peer that should not carry it.",
                         key=f"{shared}/{min(p.public_key, q.public_key)}/"
                         f"{max(p.public_key, q.public_key)}",
+                        mid="vpn.overlap",
+                        fix_id="vpn.overlap.fix",
+                        params={
+                            "tunnel": _tunnel(net, t),
+                            "a": _peer(p),
+                            "b": _peer(q),
+                            "network": str(shared),
+                        },
                     )
         local = _local_networks(net, t.device_id)
         for p in peers:
@@ -135,13 +150,21 @@ def allowed_ips_overlap(net: Network) -> Iterator[Result]:
                 clash = next((n for n in local if _overlap(network, n)), None)
                 if clash is not None:
                     yield found(
-                        f"On {_tunnel(net, t)}, {_peer(p)} routes {network}, which overlaps the "
+                        f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} routes {network}, which overlaps the "
                         f"local network {clash}: the two cannot be told apart",
                         [t.id],
                         fix="Use different address ranges at the two ends (a VPN between two "
                         "sites with the same network cannot route), or narrow the allowed IPs "
                         "of the peer.",
                         key=f"{p.public_key}/{network}",
+                        mid="vpn.localOverlap",
+                        fix_id="vpn.localOverlap.fix",
+                        params={
+                            "tunnel": _tunnel(net, t),
+                            "peer": _peer(p),
+                            "network": str(network),
+                            "local": str(clash),
+                        },
                     )
 
 
@@ -164,7 +187,7 @@ def allowed_ips_unrouted(net: Network) -> Iterator[Result]:
                 if _covered(network, t.routes):
                     continue
                 yield found(
-                    f"On {_tunnel(net, t)}, {_peer(p)} accepts {network}, but the device has no "
+                    f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} accepts {network}, but the device has no "
                     "route for it through the tunnel",
                     [t.id],
                     fix="Let the device add the routes of the allowed IPs (OpenWrt: route "
@@ -172,6 +195,9 @@ def allowed_ips_unrouted(net: Network) -> Iterator[Result]:
                     "tunnel interface. A route set by a script is not seen: acknowledge the "
                     "finding then.",
                     key=f"{p.public_key}/{network}",
+                    mid="vpn.unrouted",
+                    fix_id="vpn.unrouted.fix",
+                    params={"tunnel": _tunnel(net, t), "peer": _peer(p), "network": str(network)},
                 )
 
 
@@ -200,11 +226,14 @@ def keepalive_behind_nat(net: Network) -> Iterator[Result]:
         for p in t.peers:
             if _active(t, p) and p.endpoint_host and p.keepalive_seconds == 0:
                 yield found(
-                    f"{_tunnel(net, t).capitalize()} is behind NAT and has no persistent "
-                    f"keepalive for {_peer(p)}: the tunnel stops working when it is idle",
+                    f"Tunnel {_tunnel(net, t)} is behind NAT and has no persistent "
+                    f"keepalive for peer {_peer(p)}: the tunnel stops working when it is idle",
                     [t.id],
                     fix="Set the persistent keepalive of the peer to 25 seconds.",
                     key=p.public_key,
+                    mid="vpn.keepaliveNat",
+                    fix_id="vpn.keepaliveNat.fix",
+                    params={"tunnel": _tunnel(net, t), "peer": _peer(p)},
                 )
 
 
@@ -227,13 +256,20 @@ def ends_disagree(net: Network) -> Iterator[Result]:
             there = other.peer(t.public_key)
             if there is None or not there.enabled:
                 yield found(
-                    f"On {_tunnel(net, t)}, {_peer(p)} is {_tunnel(net, other)}, but that "
-                    f"tunnel does not list {t.name} of {device_name(net, t.device_id)} as a "
-                    "peer",
+                    f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} is tunnel "
+                    f"{_tunnel(net, other)}, but that tunnel does not list {_tunnel(net, t)} "
+                    "as a peer",
                     [t.id, other.id],
                     fix="Add the public key of this tunnel as a peer on the other end (with "
                     "the networks of this site as its allowed IPs), or remove the peer here.",
                     key=p.public_key,
+                    mid="vpn.notListed",
+                    fix_id="vpn.notListed.fix",
+                    params={
+                        "tunnel": _tunnel(net, t),
+                        "peer": _peer(p),
+                        "other": _tunnel(net, other),
+                    },
                 )
                 continue
             theirs = _local_networks(net, other.device_id)
@@ -243,12 +279,20 @@ def ends_disagree(net: Network) -> Iterator[Result]:
                 if network.prefixlen == 0 or any(_overlap(network, n) for n in theirs):
                     continue
                 yield found(
-                    f"On {_tunnel(net, t)}, {_peer(p)} ({_tunnel(net, other)}) is sent {network}, "
+                    f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} ({_tunnel(net, other)}) is sent {network}, "
                     "but no network like it exists at the other end",
                     [t.id, other.id],
                     fix="Correct the allowed IPs of the peer to the networks that really lie "
                     "behind the other end, or add the network there.",
                     key=f"{p.public_key}/{network}",
+                    mid="vpn.noSuchNetwork",
+                    fix_id="vpn.noSuchNetwork.fix",
+                    params={
+                        "tunnel": _tunnel(net, t),
+                        "peer": _peer(p),
+                        "other": _tunnel(net, other),
+                        "network": str(network),
+                    },
                 )
 
 

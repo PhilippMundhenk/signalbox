@@ -21,7 +21,7 @@ _GLOBAL = ip_network("2000::/3")
 def _label(net: Network, up: Uplink, *, start: bool = False) -> str:
     """``the internet connection (pppoe-out1) of Router`` (``The …`` at the start)."""
     name = f" ({up.name})" if up.name else ""
-    text = f"internet connection{name} of {device_name(net, up.device_id)}"
+    text = f"internet connection {device_name(net, up.device_id)}{name}"
     return f"{'The' if start else 'the'} {text}"
 
 
@@ -64,8 +64,10 @@ def cgnat(net: Network) -> Iterator[Result]:
                 if net.upstream_router(up) is not None:
                     continue  # a known router of the site uses that range: double NAT (#60)
                 how = "carrier-grade NAT"
+                kind = "cgnat"
             elif up.kind is UplinkKind.DSLITE:
                 how = "DS-Lite (IPv4 through the provider's carrier-grade NAT)"
+                kind = "dslite"
             else:
                 continue
             if _has_ipv6(up):
@@ -83,6 +85,9 @@ def cgnat(net: Network) -> Iterator[Result]:
                 "connections from the internet over IPv4 cannot reach the site",
                 [up.id],
                 fix=fix,
+                mid=f"wan.{kind}",
+                fix_id="wan.cgnat.fixIpv6" if _has_ipv6(up) else "wan.cgnat.fix",
+                params={"label": _label(net, up)[len("the internet connection "):]},
             )
 
 
@@ -102,6 +107,7 @@ def down(net: Network) -> Iterator[Result]:
             if up.up is not False:
                 continue
             label = _label(net, up, start=True)
+            label_text = label[len("The internet connection "):]
             if working:
                 yield found(
                     f"{label} is down; the internet works through {', '.join(working)}",
@@ -109,6 +115,9 @@ def down(net: Network) -> Iterator[Result]:
                     fix="Check the cable or modem of this line, and the account details if it "
                     "logs in (PPPoE). Turn the rule off for this line if it is a standby line.",
                     severity=Severity.INFO,
+                    mid="wan.downWorking",
+                    fix_id="wan.downWorking.fix",
+                    params={"label": label_text, "working": ", ".join(working)},
                 )
             else:
                 yield found(
@@ -116,6 +125,9 @@ def down(net: Network) -> Iterator[Result]:
                     [up.id],
                     fix="Check the cable and the modem, the account details if it logs in "
                     "(PPPoE), and whether the provider reports an outage.",
+                    mid="wan.down",
+                    fix_id="wan.down.fix",
+                    params={"label": label_text},
                 )
 
 
@@ -170,6 +182,14 @@ def dns_mismatch(net: Network) -> Iterator[Result]:
                     fix=f"Forward to the DNS servers the provider hands out ({servers}), or to "
                     "a resolver you chose, instead of the old address.",
                     key=str(fwd),
+                    mid="wan.dnsMismatch",
+                    fix_id="wan.dnsMismatch.fix",
+                    params={
+                        "device": device_name(net, dns.device_id),
+                        "forwarder": str(fwd),
+                        "label": _label(net, up)[len("the internet connection "):],
+                        "servers": servers,
+                    },
                 )
 
 
@@ -207,6 +227,12 @@ def no_ipv6(net: Network) -> Iterator[Result]:
                     f"prefix ({prefixes}), but {device_name(net, up.device_id)} reported no "
                     "IPv6 on its networks, so it is not known whether they use it",
                     [up.id],
+                    mid="wan.noIpv6Unknown",
+                    params={
+                        "label": _label(net, up)[len("the internet connection "):],
+                        "prefixes": prefixes,
+                        "device": device_name(net, up.device_id),
+                    },
                 )
                 continue
             yield found(
@@ -215,6 +241,9 @@ def no_ipv6(net: Network) -> Iterator[Result]:
                 [up.id],
                 fix="Give each client network a /64 from the delegated prefix (router "
                 "advertisements on), or turn this rule off if IPv6 stays off on purpose.",
+                mid="wan.noIpv6",
+                fix_id="wan.noIpv6.fix",
+                params={"label": _label(net, up)[len("the internet connection "):], "prefixes": prefixes},
             )
 
 

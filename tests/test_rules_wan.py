@@ -72,7 +72,7 @@ def test_cgnat_address_is_reported_with_ipv6_hint() -> None:
     [f] = run(cgnat, network(uplinks=[up]))
     assert f.severity is Severity.INFO
     assert f.objects == [up.id]
-    assert f.message.startswith("The internet connection (pppoe-out1) of Router is behind")
+    assert f.message.startswith("The internet connection Router (pppoe-out1) is behind")
     assert "carrier-grade NAT" in f.message
     assert f.fix and "IPv6" in f.fix and f.fix.startswith("Reach")
 
@@ -140,7 +140,7 @@ def test_down_without_other_line_is_a_warning() -> None:
     up = uplink("gw", up=False, since=None)
     [f] = run(down, network(uplinks=[up]))
     assert f.severity is Severity.WARNING
-    assert f.message == "The internet connection (wan) of Router is down"
+    assert f.message == "The internet connection Router (wan) is down"
     assert f.objects == [up.id]
 
 
@@ -158,7 +158,7 @@ def test_up_or_unknown_state_is_quiet() -> None:
 def test_down_uplink_without_name() -> None:
     up = uplink("gw", up=False, name=None)
     [f] = run(down, network(uplinks=[up]))
-    assert f.message == "The internet connection of Router is down"
+    assert f.message == "The internet connection Router is down"
 
 
 # wan.dns-mismatch
