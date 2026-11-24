@@ -301,6 +301,21 @@ class _PlusSwitch(Adapter):
                 )
                 for what in reading.skipped
             ]
+            gaps.append(
+                Gap(
+                    message=f"{self._host}: the switch's protocol has no MAC address table; "
+                    "cables through this switch are inferred from the tables of the devices "
+                    "around it",
+                    fix="Nothing to fix: NSDP and the Easy Smart protocol do not report which "
+                    "address was learned on which port. Cables through this switch are drawn "
+                    "dashed (inferred) from the tables of the other devices; enter them under "
+                    "Topology to make them exact.",
+                    optional=True,
+                    message_id="plusswitch.noMacTable",
+                    fix_id="plusswitch.noMacTable.fix",
+                    params={"host": self._host},
+                )
+            )
         except (ValueError, TypeError, AttributeError) as exc:
             raise AdapterError(
                 f"{self._host}: unexpected port or VLAN answer: {exc}",

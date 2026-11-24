@@ -2975,5 +2975,15 @@
  "wifimap.legend.bubbles": "Bubbles",
  "wifimap.legend.own": "Your radio (solid ring, opens the device)",
  "wifimap.legend.neighbour": "Neighbour (dashed ring, anonymous; larger means a stronger signal)",
- "wifimap.legend.overlap": "Co-channel overlap (red ring)"
+ "wifimap.legend.overlap": "Co-channel overlap (red ring)",
+ "topology.legend.line.inferred": "Inferred: a port is guessed or no MAC table confirms the cable",
+ "topology.origin.inferred": "{origin}, inferred",
+ "topology.evidence": "Seen by: {sources}",
+ "topology.evidence.fdb": "MAC table",
+ "topology.evidence.arp": "ARP/NDP table",
+ "topology.evidence.address": "management address in the ARP table",
+ "device.inferredLinks": "Inferred cables",
+ "msg.openwrt.fdbRead": "MAC address table (which device is behind which port): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: the switch's protocol has no MAC address table; cables through this switch are inferred from the tables of the devices around it",
+ "msg.plusswitch.noMacTable.fix": "Nothing to fix: NSDP and the Easy Smart protocol do not report which address was learned on which port. Cables through this switch are drawn dashed (inferred) from the tables of the other devices; enter them under Topology to make them exact."
 }

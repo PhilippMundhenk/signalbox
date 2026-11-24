@@ -2975,5 +2975,15 @@
  "wifimap.legend.bubbles": "Balonlar",
  "wifimap.legend.own": "Telsiziniz (düz halka, cihazı açar)",
  "wifimap.legend.neighbour": "Komşu (kesikli halka, anonim; büyük olan daha güçlü sinyal demektir)",
- "wifimap.legend.overlap": "Aynı kanalda örtüşme (kırmızı halka)"
+ "wifimap.legend.overlap": "Aynı kanalda örtüşme (kırmızı halka)",
+ "topology.legend.line.inferred": "Çıkarım: bir port tahmin edildi veya hiçbir MAC tablosu kabloyu doğrulamıyor",
+ "topology.origin.inferred": "{origin}, çıkarım",
+ "topology.evidence": "Gören: {sources}",
+ "topology.evidence.fdb": "MAC tablosu",
+ "topology.evidence.arp": "ARP/NDP tablosu",
+ "topology.evidence.address": "ARP tablosundaki yönetim adresi",
+ "device.inferredLinks": "Çıkarılan kablolar",
+ "msg.openwrt.fdbRead": "MAC adres tablosu (hangi cihaz hangi portun arkasında): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: anahtarın protokolünde MAC adres tablosu yok; bu anahtardan geçen kablolar çevresindeki cihazların tablolarından çıkarılır",
+ "msg.plusswitch.noMacTable.fix": "Düzeltilecek bir şey yok: NSDP ve Easy Smart protokolü hangi adresin hangi portta öğrenildiğini bildirmez. Bu anahtardan geçen kablolar diğer cihazların tablolarından kesik çizgiyle (çıkarım) çizilir; kesin olmaları için Topoloji altında girin."
 }

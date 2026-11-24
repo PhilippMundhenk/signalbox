@@ -2975,5 +2975,15 @@
  "wifimap.legend.bubbles": "Пузыри",
  "wifimap.legend.own": "Ваш радиомодуль (сплошное кольцо, открывает устройство)",
  "wifimap.legend.neighbour": "Сосед (пунктирное кольцо, анонимно; больше — сильнее сигнал)",
- "wifimap.legend.overlap": "Перекрытие на одном канале (красное кольцо)"
+ "wifimap.legend.overlap": "Перекрытие на одном канале (красное кольцо)",
+ "topology.legend.line.inferred": "Выведено: порт предположен или ни одна таблица MAC не подтверждает кабель",
+ "topology.origin.inferred": "{origin}, выведено",
+ "topology.evidence": "Видно: {sources}",
+ "topology.evidence.fdb": "таблица MAC",
+ "topology.evidence.arp": "таблица ARP/NDP",
+ "topology.evidence.address": "адрес управления в таблице ARP",
+ "device.inferredLinks": "Выведенные кабели",
+ "msg.openwrt.fdbRead": "таблица MAC-адресов (какое устройство за каким портом): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: протокол коммутатора не имеет таблицы MAC-адресов; кабели через этот коммутатор выводятся из таблиц окружающих устройств",
+ "msg.plusswitch.noMacTable.fix": "Исправлять нечего: NSDP и протокол Easy Smart не сообщают, какой адрес изучен на каком порту. Кабели через этот коммутатор рисуются пунктиром (выведены) по таблицам других устройств; внесите их в разделе «Топология», чтобы они были точными."
 }

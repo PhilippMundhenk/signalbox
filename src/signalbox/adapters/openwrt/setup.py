@@ -49,6 +49,11 @@ READ_ACL: dict[str, Any] = {
                 "/sys/class/net/*/bonding_slave/*": ["read"],
                 "/sys/class/net/*/bridge/*": ["read"],
                 "/sys/class/net/*/brport/*": ["read"],
+                "/sys/class/net/*/brforward": ["read"],
+                # rpcd checks the path after resolving the /sys/class/net symlinks (#378)
+                "/sys/devices/*/net/*/brforward": ["read"],
+                "/sys/devices/*/net/*/bridge/*": ["read"],
+                "/sys/devices/*/net/*/brport/*": ["read"],
             },
         },
     }

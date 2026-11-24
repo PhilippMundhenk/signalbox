@@ -2975,5 +2975,15 @@
  "wifimap.legend.bubbles": "Bolhas",
  "wifimap.legend.own": "O seu rádio (anel contínuo, abre o dispositivo)",
  "wifimap.legend.neighbour": "Vizinho (anel tracejado, anónimo; maior significa sinal mais forte)",
- "wifimap.legend.overlap": "Sobreposição no mesmo canal (anel vermelho)"
+ "wifimap.legend.overlap": "Sobreposição no mesmo canal (anel vermelho)",
+ "topology.legend.line.inferred": "Inferido: uma porta é estimada ou nenhuma tabela MAC confirma o cabo",
+ "topology.origin.inferred": "{origin}, inferido",
+ "topology.evidence": "Visto por: {sources}",
+ "topology.evidence.fdb": "tabela MAC",
+ "topology.evidence.arp": "tabela ARP/NDP",
+ "topology.evidence.address": "endereço de gestão na tabela ARP",
+ "device.inferredLinks": "Cabos inferidos",
+ "msg.openwrt.fdbRead": "tabela de endereços MAC (que dispositivo está atrás de que porta): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: o protocolo do switch não tem tabela de endereços MAC; os cabos através deste switch são inferidos a partir das tabelas dos dispositivos à sua volta",
+ "msg.plusswitch.noMacTable.fix": "Nada a corrigir: o NSDP e o protocolo Easy Smart não indicam que endereço foi aprendido em que porta. Os cabos através deste switch são desenhados tracejados (inferidos) a partir das tabelas dos outros dispositivos; introduza-os em Topologia para os tornar exatos."
 }

@@ -2975,5 +2975,15 @@
  "wifimap.legend.bubbles": "بلبلے",
  "wifimap.legend.own": "آپ کا ریڈیو (ٹھوس حلقہ، ڈیوائس کھولتا ہے)",
  "wifimap.legend.neighbour": "پڑوسی (ٹوٹا ہوا حلقہ، گمنام؛ بڑا یعنی مضبوط سگنل)",
- "wifimap.legend.overlap": "ایک ہی چینل پر اوورلیپ (سرخ حلقہ)"
+ "wifimap.legend.overlap": "ایک ہی چینل پر اوورلیپ (سرخ حلقہ)",
+ "topology.legend.line.inferred": "اخذ شدہ: کوئی پورٹ اندازہ ہے یا کوئی MAC جدول کیبل کی تصدیق نہیں کرتا",
+ "topology.origin.inferred": "{origin}، اخذ شدہ",
+ "topology.evidence": "دیکھا: {sources}",
+ "topology.evidence.fdb": "MAC جدول",
+ "topology.evidence.arp": "ARP/NDP جدول",
+ "topology.evidence.address": "ARP جدول میں انتظامی پتہ",
+ "device.inferredLinks": "اخذ شدہ کیبلز",
+ "msg.openwrt.fdbRead": "MAC پتوں کا جدول (کون سا آلہ کس پورٹ کے پیچھے ہے): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: سوئچ کے پروٹوکول میں MAC پتوں کا جدول نہیں؛ اس سوئچ سے گزرنے والی کیبلز اردگرد کے آلات کے جدولوں سے اخذ کی جاتی ہیں",
+ "msg.plusswitch.noMacTable.fix": "ٹھیک کرنے کو کچھ نہیں: NSDP اور Easy Smart پروٹوکول نہیں بتاتے کہ کون سا پتہ کس پورٹ پر سیکھا گیا۔ اس سوئچ سے گزرنے والی کیبلز دوسرے آلات کے جدولوں سے ڈیش (اخذ شدہ) لکیروں میں بنائی جاتی ہیں؛ درست کرنے کے لیے انہیں ٹوپولوجی میں درج کریں۔"
 }

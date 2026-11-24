@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import Field
 
-from signalbox.fdb import fdb_access_ports
+from signalbox.fdb import fdb_access_ports, managed_sightings
 from signalbox.model import Client, DeviceStatus, Model, Network, PortKind
 
 #: Statuses in which a device answered (it was read, perhaps not completely).
@@ -32,8 +32,13 @@ BOOT, CPU = "boot", "cpu"
 #: Per MAC address: the access port its device-table entries put it behind (``mac.flapping``,
 #: #298), as the id of the port.
 FDB = "fdb"
+#: Per port and MAC address of a managed device: it was seen there (``<port id> <mac>``, the
+#: value is the :class:`~signalbox.model.EvidenceSource`), for the link inference (#378).
+MAC_PORT = "mac-port"
+#: How long such a sighting still counts after it was last seen.
+MAC_HOLD = timedelta(hours=24)
 #: Kinds whose key is a device id (deleted with the device).
-DEVICE_KINDS = (DEVICE, PORT, BOOT, CPU)
+DEVICE_KINDS = (DEVICE, PORT, BOOT, CPU, MAC_PORT)
 #: CPU load (percent) from which an observation counts as high for ``device.resources``.
 CPU_HIGH_PCT = 90.0
 
@@ -204,6 +209,8 @@ def observed_values(net: Network) -> dict[tuple[str, str], str | None]:
         fdb_ok = reliable and not any(e.optional for e in net.errors)
         for mac, port_id in fdb_access_ports(net).items():
             out[(FDB, mac)] = port_id if fdb_ok else None
+    for port_id, mac, source in managed_sightings(net):
+        out[(MAC_PORT, f"{port_id} {mac}")] = source.value
     for port in net.ports:
         if port.up is not None and port.kind in (PortKind.ETHERNET, PortKind.LAG):
             out[(PORT, port.id)] = "up" if port.up else "down"

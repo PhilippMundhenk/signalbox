@@ -49,6 +49,7 @@ from signalbox.adapters.bonding import Bond
 from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.openwrt import (
     accounts,
+    brforward,
     firewall,
     lag,
     monitoring,
@@ -93,6 +94,8 @@ from signalbox.model import (
     DhcpServer,
     DnsForwarder,
     DnsService,
+    FdbEntry,
+    FdbKind,
     Firmware,
     HostRecord,
     IPAddress,
@@ -124,6 +127,7 @@ from signalbox.model import (
     Wlan,
     Wps,
     WpsMethod,
+    fdb_id,
     normalise_capabilities,
     normalise_mac,
     object_id,
@@ -2005,12 +2009,69 @@ class OpenWrtAdapter(Adapter):
                     entry.setdefault("address_sources", {})[a] = AddressSource.DHCP
             if hostname:
                 entry["hostname"] = hostname
+        fdb, gaps = await self._fdb()
         return Observation(
             clients=[
                 Client(id=object_id(d, "client", m), mac=m, **fields)
                 for m, fields in sorted(clients.items())
-            ]
+            ],
+            fdb=fdb,
+            incomplete=gaps,
         )
+
+    async def _fdb(self) -> tuple[list[FdbEntry], list[Gap]]:
+        """The bridges' MAC address tables (#378) from sysfs through ``file read``
+        (:mod:`~signalbox.adapters.openwrt.brforward`). Optional: an ACL of an older setup
+        without ``/sys/class/net/*/brforward`` is an optional gap that *Fix it* repairs."""
+        d = self.context.device_id
+        out: dict[str, FdbEntry] = {}
+        try:
+            status = await self.ubus.call("network.device", "status")
+            for name, st in sorted(status.items()):
+                if not isinstance(st, dict) or st.get("type") != "bridge":
+                    continue
+                path = f"/sys/class/net/{name}/brforward"
+                try:
+                    answer = await self.ubus.call("file", "read", {"path": path, "base64": True})
+                except (NotFound, NoData):
+                    continue  # the bridge is down, or its table is empty
+                data = answer.get("data")
+                raw = brforward.decode(data) if isinstance(data, str) else None
+                if raw is None:
+                    raise unexpected(f"file read {path}")
+                numbers: dict[int, str] = {}
+                for m_name in [str(m) for m in st.get("bridge-members") or []]:
+                    value = await self._stp_file(f"/sys/class/net/{m_name}/brport/port_no")
+                    if (no := brforward.port_number(value)) is not None:
+                        numbers[no] = m_name
+                for row in brforward.parse(raw):
+                    if (member := numbers.get(row.port_no)) is None:
+                        continue
+                    fid = fdb_id(d, member, row.mac)
+                    out.setdefault(
+                        fid,
+                        FdbEntry(
+                            id=fid,
+                            device_id=d,
+                            port_id=port_id(d, member),
+                            mac=row.mac,
+                            kind=FdbKind.SELF if row.local else FdbKind.DYNAMIC,
+                            age_seconds=None if row.local else row.age_seconds,
+                        ),
+                    )
+        except AdapterError as exc:
+            return [], [
+                Gap(
+                    message=f"MAC address table (which device is behind which port): {exc}",
+                    fix=exc.fix,
+                    remedy=exc.remedy,
+                    optional=True,
+                    message_id="openwrt.fdbRead",
+                    fix_id=exc.fix_id,
+                    params={**exc.params, "cause": str(exc)},
+                )
+            ]
+        return [out[k] for k in sorted(out)], []
 
     # writing --------------------------------------------------------------------------
 

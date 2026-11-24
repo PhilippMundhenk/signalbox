@@ -29,7 +29,7 @@ from signalbox.model import (
 )
 from signalbox.rules import Finding, Rule, Severity, evaluate, found
 from signalbox.secrets import SecretError
-from signalbox.sightings import History
+from signalbox.sightings import MAC_HOLD, History
 from signalbox.store import DeviceRecord, Store, StoreError
 from signalbox.traces import attach as attach_traces
 
@@ -202,10 +202,13 @@ class Runner:
         snaps = [s for s in self.store.snapshots() if s.device.id in enabled]
         manual = self.store.links()
         net = merge(self.store.sites(), snaps, manual)
+        # earlier rounds' sightings keep links from flipping as ARP entries age out (#378)
+        held = self.store.held_sightings(datetime.now(UTC) - MAC_HOLD)
+        seen = net.model_copy(update={"held_sightings": held}) if held else net
         derived: dict[str, Link] = {}
         manual_pairs = {frozenset((link.a, link.b)) for link in manual}
         for source in self.link_sources:
-            for link in source(net):
+            for link in source(seen):
                 if frozenset((link.a, link.b)) not in manual_pairs:
                     derived.setdefault(link.id, link)
         if not derived:

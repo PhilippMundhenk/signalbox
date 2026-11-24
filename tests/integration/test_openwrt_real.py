@@ -285,6 +285,19 @@ async def test_port_structure(ow: Target, pin: str) -> None:
     assert bridged, (bridge.lower, [w.port_id for w in lab])
 
 
+async def test_bridge_mac_table(ow: Target, pin: str) -> None:
+    """#378 on the real OpenWrt: ``file read`` of ``/sys/class/net/br-lan/brforward`` with
+    ``base64`` through the read ACL of the docs, port numbers from ``brport/port_no``. The
+    QEMU NICs eth1 and eth2 (02:00:00:00:a0:01/02) are bridge members: their own addresses
+    are the bridge's local entries on them."""
+    snap = await observe(context(ow, pin))
+    assert not [e for e in snap.errors if e.message_id == "openwrt.fdbRead"], snap.errors
+    own = {(e.port_id, e.mac) for e in snap.fdb if e.kind.value == "self"}
+    assert (f"{DEV}/port/eth1", "02:00:00:00:a0:01") in own, sorted(own)
+    assert (f"{DEV}/port/eth2", "02:00:00:00:a0:02") in own, sorted(own)
+    assert all(e.device_id == DEV and e.port_id.startswith(f"{DEV}/port/") for e in snap.fdb)
+
+
 async def test_health_and_time(ow: Target, pin: str) -> None:
     """``system info``, the thermal zones (none in QEMU: no temperatures, no error) and
     ``uci get system`` (Europe/Berlin, NTP server on lan) as the read-only login sees them."""

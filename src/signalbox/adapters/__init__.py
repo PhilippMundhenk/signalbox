@@ -583,6 +583,8 @@ class SystemInfo(BaseModel):
     #: Whether the adapter reads the device encrypted (#173): ``False`` for NSDP, Easy Smart
     #: UDP or plain HTTP (``allow_insecure_http``). Copied to ``Device.transport_encrypted``.
     transport_encrypted: bool | None = None
+    #: The device's own MAC address where no port carries it (#378). Copied to ``Device.mac``.
+    mac: str | None = Field(default=None, pattern=r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")
     #: Vendor fields of the device itself (MAC, serial, protocol details); shown on the
     #: device's advanced tab only, never read by rules.
     vendor_extra: dict[str, JsonValue] = Field(default_factory=dict)

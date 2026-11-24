@@ -2975,5 +2975,15 @@
  "wifimap.legend.bubbles": "원",
  "wifimap.legend.own": "내 무선(실선 고리, 장치 열기)",
  "wifimap.legend.neighbour": "이웃(점선 고리, 익명, 클수록 신호가 강함)",
- "wifimap.legend.overlap": "동일 채널 겹침(빨간 고리)"
+ "wifimap.legend.overlap": "동일 채널 겹침(빨간 고리)",
+ "topology.legend.line.inferred": "추론: 포트를 추측했거나 케이블을 확인하는 MAC 테이블이 없습니다",
+ "topology.origin.inferred": "{origin}, 추론",
+ "topology.evidence": "확인한 곳: {sources}",
+ "topology.evidence.fdb": "MAC 테이블",
+ "topology.evidence.arp": "ARP/NDP 테이블",
+ "topology.evidence.address": "ARP 테이블의 관리 주소",
+ "device.inferredLinks": "추론된 케이블",
+ "msg.openwrt.fdbRead": "MAC 주소 테이블 (어떤 장치가 어떤 포트 뒤에 있는지): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: 스위치의 프로토콜에는 MAC 주소 테이블이 없습니다. 이 스위치를 지나는 케이블은 주변 장치의 테이블에서 추론됩니다",
+ "msg.plusswitch.noMacTable.fix": "고칠 것이 없습니다: NSDP와 Easy Smart 프로토콜은 어떤 주소가 어떤 포트에서 학습되었는지 알려 주지 않습니다. 이 스위치를 지나는 케이블은 다른 장치의 테이블에서 점선(추론)으로 그려집니다. 정확하게 하려면 토폴로지에서 입력하세요."
 }

@@ -237,6 +237,8 @@ svg.topo { display: block; font-family: var(--font); }
 .topo .port:focus-visible { outline: none; stroke: var(--accent); stroke-width: 3; }
 .topo .edge { fill: none; stroke: var(--muted); stroke-width: 2.5; }
 .topo .edge.mac { stroke-dasharray: 2 4; }
+/* drawn from partial MAC data (#378): the dash of the inferred links of #375 */
+.topo .edge.inferred { stroke-dasharray: 10 4 2 4; }
 .topo .edge.wireless { stroke-dasharray: 6 4; }
 /* a router behind another one, inferred from its uplink address (#375) */
 .topo .edge.address { stroke-dasharray: 10 4 2 4; }

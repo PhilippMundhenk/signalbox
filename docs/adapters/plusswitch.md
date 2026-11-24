@@ -202,8 +202,11 @@ password only obfuscated.
 ## MAC address table (#160)
 
 Not read: NSDP (NETGEAR) and the Easy Smart protocol (TP-Link) have no MAC address table on
-the supported models, and Switchyard reads none. Links to these switches come from their port
-MACs in the tables of the devices around them.
+the supported models, and Switchyard reads none: an optional gap (`plusswitch.noMacTable`,
+nothing to fix) says so. The switch's own MAC, which no port carries, is `Device.mac` (#378):
+the tables and ARP entries of the devices around it find the switch by it (also by its
+management address in an ARP table). Links to it are *inferred*: the port of the switch is
+chosen by VLAN membership, PVID and speed, drawn dashed, and the checks do not use it (ADR 0026).
 
 ## Factory password (#126, #175)
 

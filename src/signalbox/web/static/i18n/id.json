@@ -2975,5 +2975,15 @@
  "wifimap.legend.bubbles": "Gelembung",
  "wifimap.legend.own": "Radio Anda (cincin penuh, membuka perangkat)",
  "wifimap.legend.neighbour": "Tetangga (cincin putus-putus, anonim; lebih besar berarti sinyal lebih kuat)",
- "wifimap.legend.overlap": "Tumpang tindih kanal sama (cincin merah)"
+ "wifimap.legend.overlap": "Tumpang tindih kanal sama (cincin merah)",
+ "topology.legend.line.inferred": "Disimpulkan: sebuah port ditebak atau tidak ada tabel MAC yang mengonfirmasi kabel",
+ "topology.origin.inferred": "{origin}, disimpulkan",
+ "topology.evidence": "Dilihat oleh: {sources}",
+ "topology.evidence.fdb": "tabel MAC",
+ "topology.evidence.arp": "tabel ARP/NDP",
+ "topology.evidence.address": "alamat manajemen di tabel ARP",
+ "device.inferredLinks": "Kabel yang disimpulkan",
+ "msg.openwrt.fdbRead": "tabel alamat MAC (perangkat mana di belakang port mana): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: protokol switch tidak memiliki tabel alamat MAC; kabel melalui switch ini disimpulkan dari tabel perangkat di sekitarnya",
+ "msg.plusswitch.noMacTable.fix": "Tidak ada yang perlu diperbaiki: NSDP dan protokol Easy Smart tidak melaporkan alamat mana yang dipelajari di port mana. Kabel melalui switch ini digambar putus-putus (disimpulkan) dari tabel perangkat lain; masukkan di Topologi agar tepat."
 }

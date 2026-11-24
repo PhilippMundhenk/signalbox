@@ -2975,5 +2975,15 @@
  "wifimap.legend.bubbles": "الفقاعات",
  "wifimap.legend.own": "جهاز الراديو لديك (حلقة متصلة، تفتح الجهاز)",
  "wifimap.legend.neighbour": "جار (حلقة متقطعة، مجهول؛ الأكبر يعني إشارة أقوى)",
- "wifimap.legend.overlap": "تداخل على القناة نفسها (حلقة حمراء)"
+ "wifimap.legend.overlap": "تداخل على القناة نفسها (حلقة حمراء)",
+ "topology.legend.line.inferred": "مستنتج: منفذ مُخمَّن أو لا يؤكد أي جدول MAC الكابل",
+ "topology.origin.inferred": "{origin}، مستنتج",
+ "topology.evidence": "رآه: {sources}",
+ "topology.evidence.fdb": "جدول MAC",
+ "topology.evidence.arp": "جدول ARP/NDP",
+ "topology.evidence.address": "عنوان الإدارة في جدول ARP",
+ "device.inferredLinks": "كابلات مستنتجة",
+ "msg.openwrt.fdbRead": "جدول عناوين MAC (أي جهاز خلف أي منفذ): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: لا يحتوي بروتوكول المحوّل على جدول عناوين MAC؛ تُستنتج الكابلات عبر هذا المحوّل من جداول الأجهزة المحيطة به",
+ "msg.plusswitch.noMacTable.fix": "لا شيء لإصلاحه: لا يذكر NSDP وبروتوكول Easy Smart أي عنوان تم تعلمه على أي منفذ. تُرسم الكابلات عبر هذا المحوّل متقطعة (مستنتجة) من جداول الأجهزة الأخرى؛ أدخلها في الطوبولوجيا لتصبح دقيقة."
 }

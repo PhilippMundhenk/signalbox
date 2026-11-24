@@ -101,6 +101,7 @@ def system_info(info: Mapping[str, Any], vendor: str, address: str) -> SystemInf
         firmware=Firmware(current=str(firmware)) if firmware else None,
         management_address=address,
         transport_encrypted=False,  # UDP, the password is only obfuscated
+        mac=str(extra["mac"]),  # no port carries it: the MAC tables of others find it (#378)
         vendor_extra=extra,
     )
 
