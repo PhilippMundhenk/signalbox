@@ -80,12 +80,15 @@ def test_translation_has_no_stale_keys_and_matching_placeholders(code: str) -> N
 
 
 @pytest.mark.parametrize("code", [c for c in _languages() if c != "en"])
-def test_translation_is_complete_for_the_ui(code: str) -> None:
-    """The first complete language is German; a language added later may start partial."""
-    if code != "de":
-        pytest.skip("only German is required to be complete")
+def test_translation_is_complete(code: str) -> None:
+    """Every language in index.json has every key of en.json."""
     missing = sorted(set(_load("en")) - set(_load(code)))
-    assert not missing, f"de.json lacks: {missing}"
+    assert not missing, f"{code}.json lacks: {missing}"
+
+
+def test_every_catalogue_file_is_listed_in_the_index() -> None:
+    files = {p.stem for p in I18N.glob("*.json")} - {"index"}
+    assert files == set(_languages())
 
 
 def test_index_lists_existing_catalogues() -> None:
