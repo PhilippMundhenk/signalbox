@@ -9,9 +9,11 @@ Every call and the JSON it expects is documented in ``docs/adapters/openwrt.md``
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import re
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -136,6 +138,10 @@ class OpenWrtConfig(AdapterConfig):
 
 
 # --- small helpers ------------------------------------------------------------------------
+
+
+def _touches_wireless(ops: list[write.UciOp]) -> bool:
+    return any(op.config == "wireless" for op in ops)
 
 
 def _list(value: Any) -> list[str]:
@@ -1699,6 +1705,36 @@ class OpenWrtAdapter(Adapter):
             await self._revert(ops)
             raise
 
+    async def _radios_running(self) -> set[str]:
+        """The radios netifd has up now (none if the device cannot say)."""
+        try:
+            return {n for n, r in (await self._radios_up()).items() if r.get("up")}
+        except AdapterError:
+            return set()
+
+    async def _wireless_settled(self, radios: set[str], seconds: float = 30) -> None:
+        """Wait until netifd finished reloading the Wi-Fi after an apply (#339).
+
+        ``uci apply`` returns before netifd has brought the radios back: they are down or
+        pending for a moment, and a read in that window reports every SSID as disabled
+        (``Wlan.enabled`` follows the radio). Wait for the condition, not for a time: no radio
+        pending, and every radio that was up before is up again. A radio that never comes
+        back (no such hardware) ends the wait at the deadline; the read-back then judges.
+        """
+        if not radios:
+            return
+        deadline = time.monotonic() + seconds
+        while True:
+            try:
+                status = await self._radios_up()
+            except AdapterError:
+                return
+            pending = any(r.get("pending") for r in status.values())
+            back = all(status.get(n, {}).get("up") for n in radios)
+            if (back and not pending) or time.monotonic() >= deadline:
+                return
+            await asyncio.sleep(0.5)
+
     async def _twice(self, attempt: Any) -> Any:
         """Run a transaction; once more in a new session if access was denied.
 
@@ -1731,11 +1767,13 @@ class OpenWrtAdapter(Adapter):
             if not ops:
                 return ApplyResult()
             self._pending = True  # also if the answer to apply is lost
+            radios = await self._radios_running() if _touches_wireless(ops) else set()
             try:
                 await self._transaction(ops, {"rollback": True, "timeout": rollback_seconds})
             except BaseException:
                 self._pending = False
                 raise
+            await self._wireless_settled(radios)
             return ApplyResult(
                 confirm_deadline=datetime.now(UTC) + timedelta(seconds=rollback_seconds),
                 calls=[op.call() for op in ops],
@@ -1785,7 +1823,9 @@ class OpenWrtAdapter(Adapter):
             ops = write.restore_ops(saved, current)
             if not ops:
                 return
+            radios = await self._radios_running() if _touches_wireless(ops) else set()
             await self._transaction(ops, {"rollback": False})
+            await self._wireless_settled(radios)
             # rpcd answers OK to an apply without rollback while another change waits for its
             # confirmation, but applies nothing: the changes are still staged.
             if await self._staged():
