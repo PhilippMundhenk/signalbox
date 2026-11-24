@@ -814,3 +814,22 @@ async def test_a_removed_row_returns_to_its_place_when_the_next_row_has_no_comme
         assert rows(sim) == before
     finally:
         await a.close()
+
+
+async def test_restore_does_not_unset_disabled_of_an_adopted_row(
+    sim: MikrotikSimulator, svc: Services
+) -> None:
+    """RouterOS refuses ``unset disabled``: a row whose snapshot has no ``disabled`` (the
+    router leaves out false) gets ``disabled=false`` back instead (the CHR test of #331)."""
+    del _own_dns(sim)["disabled"]
+    await net_of(svc)
+    d = Deployer(svc.runner)
+    _, done = await deploy(d, svc, ADOPT)
+    assert done.status is ChangeStatus.APPLIED, [r.error for r in done.devices]
+    rec = svc.store.change(done.id)
+    assert rec is not None and rec.devices[0].backup_id
+    restore = await d.restore_backup(rec.devices[0].backup_id, "not wanted", "tester")
+    d.approve(restore.id, "tester")
+    assert (await d.deploy(restore.id)).status is ChangeStatus.APPLIED
+    row = _own_dns(sim)
+    assert row["disabled"] == "false"

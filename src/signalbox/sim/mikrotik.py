@@ -1412,6 +1412,8 @@ class MikrotikSimulator:
             self._settle(menu, None)
             return Response(status_code=204)
         if method == "POST":
+            if values.get("value-name") == "disabled" and menu in (FW_FILTER, FW_FILTER6, FW_NAT):
+                return _bad("input does not match any value of value-name")  # as the CHR (#331)
             changed = {k: v for k, v in row.items() if k != values.get("value-name")}
         else:
             changed = {**row, **values}
