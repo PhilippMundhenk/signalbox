@@ -110,7 +110,16 @@ def spec() -> dict[str, Any]:
     return out
 
 
-def firewall_spec() -> dict[str, Any]:
+def firewall_spec(
+    words: tuple[str, ...] = (
+        "acl",
+        "port-forward",
+        "portforward",
+        "/nat",
+        "firewall",
+        "virtual-server",
+    ),
+) -> dict[str, Any]:
     """The controller's own Open API description of everything about gateway ACLs, port
     forwarding, NAT and firewalls (#135): each path with its methods and, for GET, the fields
     of the answer, so the adapter's names can be confirmed without a gateway. The paths are
@@ -133,7 +142,6 @@ def firewall_spec() -> dict[str, Any]:
             return f"{node.get('type')} {text}".strip()
         return {k: fields(v, depth + 1) for k, v in props.items()}
 
-    words = ("acl", "port-forward", "portforward", "/nat", "firewall", "virtual-server")
     out: dict[str, Any] = {}
     for path in sorted(paths):
         if not path.startswith("/openapi/") or not any(w in path.lower() for w in words):
@@ -226,8 +234,14 @@ def main(d: Path, group: str, part: int) -> None:
     cached = d / f"api-{group}.json"
     if part and cached.exists():
         full = json.loads(cached.read_text())
-    elif group in ("spec", "firewall"):
-        full = spec() if group == "spec" else firewall_spec()
+    elif group in ("spec", "firewall", "users"):
+        full = (
+            spec()
+            if group == "spec"
+            else firewall_spec()
+            if group == "firewall"
+            else firewall_spec(("user", "admin", "role", "account", "member"))  # #354
+        )
         cached.write_text(json.dumps(full, indent=1))
     else:
         full = {}
