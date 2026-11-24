@@ -87,8 +87,18 @@ export function setLanguage(code) {
 
 export const savedLanguage = () => stored() || 'auto';
 
+// In right-to-left text every parameter (an address, a name, a number) is wrapped in a first-strong
+// isolate, so Latin values keep their own order and do not reorder the words around them (#204).
+const FSI = '\u2068';
+const PDI = '\u2069';
+
 function fill(text, params) {
-  return text.replace(/\{(\w+)\}/g, (whole, name) => (params && name in params && params[name] !== null && params[name] !== undefined ? String(params[name]) : whole));
+  const rtl = document.documentElement.dir === 'rtl';
+  return text.replace(/\{(\w+)\}/g, (whole, name) => {
+    if (!params || !(name in params) || params[name] === null || params[name] === undefined) return whole;
+    const value = String(params[name]);
+    return rtl && value ? `${FSI}${value}${PDI}` : value;
+  });
 }
 
 function lookup(key, params) {

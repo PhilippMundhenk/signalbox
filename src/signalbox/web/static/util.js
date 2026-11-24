@@ -37,6 +37,11 @@ export function append(el, children) {
   return el;
 }
 
+// A technical value (address, MAC, id) that stays left-to-right inside right-to-left text (#204).
+export function ltr(text, tag = 'bdi') {
+  return h(tag, { dir: 'ltr', class: 'ltr' }, text);
+}
+
 // Appends children, skipping null/undefined/false and flattening arrays (unlike Element.append).
 export function place(el, ...children) {
   return append(el, children);
