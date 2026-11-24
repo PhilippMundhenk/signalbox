@@ -238,6 +238,8 @@ svg.topo { display: block; font-family: var(--font); }
 .topo .edge { fill: none; stroke: var(--muted); stroke-width: 2.5; }
 .topo .edge.mac { stroke-dasharray: 2 4; }
 .topo .edge.wireless { stroke-dasharray: 6 4; }
+/* a router behind another one, inferred from its uplink address (#375) */
+.topo .edge.address { stroke-dasharray: 10 4 2 4; }
 .topo .edge.manual { stroke: var(--text); }
 .topo .edge.carry { stroke: var(--accent); stroke-width: 4.5; }
 .topo .edge.inconsistent { stroke: var(--danger); stroke-width: 4.5; }

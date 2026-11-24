@@ -9,7 +9,7 @@ import { layoutTopology } from '../topolayout.js';
 import { attachZoom } from '../topozoom.js';
 import { t } from '../i18n.js';
 
-const ORIGIN = { lldp: 'topology.origin.lldp', mac: 'topology.origin.mac', manual: 'topology.origin.manual', tunnel: 'topology.origin.tunnel' };
+const ORIGIN = { lldp: 'topology.origin.lldp', mac: 'topology.origin.mac', manual: 'topology.origin.manual', tunnel: 'topology.origin.tunnel', address: 'topology.origin.address' };
 // Port states of spanning tree in which a port forwards nothing (#155).
 const BLOCKED = new Set(['blocking', 'discarding']);
 const ROLE = { gateway: 'topology.role.gateway', remote: 'topology.role.remote', switch: 'topology.role.switch', ap: 'topology.role.ap', other: 'topology.role.other' };
@@ -440,6 +440,7 @@ function legendBlock() {
         item(line('lldp'), t('topology.legend.line.lldp')),
         item(line('mac'), t('topology.legend.line.mac')),
         item(line('manual'), t('topology.legend.line.manual')),
+        item(line('address'), t('topology.legend.line.address')),
         item(line('wireless'), t('topology.legend.line.wireless')),
       ]),
       group(t('topology.legend.boxes'), [

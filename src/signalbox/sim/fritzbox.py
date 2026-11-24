@@ -433,10 +433,15 @@ class FritzboxSim:
     writes: list[str] = field(default_factory=list)
     #: the internet connection: ``"dsl"`` (PPPoE, public 203.0.113.0/24), ``"cable"`` (DHCP
     #: behind the provider's carrier-grade NAT, 100.64.0.0/10), ``"lte"`` (WANIPConnection on a
-    #: mobile access) or ``"client"`` (neither connection enabled: an IP client on LAN 1)
+    #: mobile access) or ``"client"`` (neither connection enabled: an IP client on LAN 1; with
+    #: :meth:`behind`, WANIPConnection:1 reports its LAN 1 address)
     wan: str = "dsl"
     #: the connection is up (else ``Disconnected``, uptime 0)
     wan_up: bool = True
+    #: ``wan`` ``"client"`` behind another router (#375, :meth:`behind`): the LAN 1 address
+    #: WANIPConnection:1 reports (empty: none), and whether it reports the connection enabled
+    lan1_address: str = ""
+    lan1_enabled: bool = False
     #: port sharing of the active internet connection (``GetGenericPortMappingEntry``)
     port_mappings: list[dict[str, str]] = field(
         default_factory=lambda: [dict(m) for m in PORT_MAPPINGS]
@@ -455,6 +460,31 @@ class FritzboxSim:
         default_factory=lambda: {"BoxAdmin": "readwrite", "Phone": "none", "NAS": "none"}
     )
     users: list[str] = field(default_factory=lambda: ["fritz0000", "signalbox"])
+
+    def behind(
+        self,
+        address: str,
+        gateway: str,
+        lan: str,
+        *,
+        enabled: bool = False,
+        mask: str = "255.255.255.0",
+    ) -> None:
+        """A box that reaches the internet over LAN 1 through another router (double NAT,
+        #375): its LAN 1 *address* in the front router's network, the default route to
+        *gateway* and its own LAN *lan* (``x.y.z.1``, DHCP from ``.20`` to ``.200``)."""
+        self.wan = "client"
+        self.lan1_address = address
+        self.lan1_enabled = enabled
+        self.forwarding.append(forwarding_entry("0.0.0.0", "0.0.0.0", gateway, kind="Default"))
+        prefix = lan.rsplit(".", 1)[0]
+        self.lan |= {
+            "NewIPRouters": lan,
+            "NewDNSServers": lan,
+            "NewSubnetMask": mask,
+            "NewMinAddress": f"{prefix}.20",
+            "NewMaxAddress": f"{prefix}.200",
+        }
 
     def reset(self) -> None:
         fresh = FritzboxSim()
@@ -670,6 +700,18 @@ class FritzboxSim:
         ppp = name == "WANPPPConnection"
         active = self.wan != "client" and ppp == (self.wan == "dsl")
         info = wan_info(ppp, active, self.wan_up, self.wan)
+        if not ppp and self.wan == "client" and self.lan1_address:
+            # the LAN 1 address of a box behind another router (what FRITZ!OS reports here
+            # is a guess, #21); GetInfo leaves it out, GetExternalIPAddress has it
+            up = self.wan_up
+            info |= {
+                "NewEnable": "1" if self.lan1_enabled else "0",
+                "NewConnectionStatus": "Connected" if up else "Disconnected",
+                "NewUptime": "3600" if up else "0",
+                "NewExternalIPAddress": self.lan1_address if up and self.lan1_enabled else "",
+            }
+            if action == "GetExternalIPAddress":
+                return {"NewExternalIPAddress": self.lan1_address if up else ""}
         if action == "GetInfo":
             return info
         if action == "GetStatusInfo":

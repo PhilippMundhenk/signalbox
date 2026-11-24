@@ -451,6 +451,12 @@ The topology view is built from `Port` and `Link` objects:
 - VPN tunnels: a `vpn` link between two read tunnels whose peers name each other's public keys,
   drawn between the gateways (also of two sites), and an unmanaged remote site for a site peer
   whose other end is not read,
+- a router behind another one (double NAT, #375): a gateway whose uplink address lies in another
+  known router's gateway subnet (`Network.upstream_router`, any integration) gets a dashed edge
+  of origin `address` ("inferred from addresses") from its uplink port to the front router,
+  to the port LLDP, a MAC table or a host table names, else to the device
+  (`topology.front_links`). Only where no reported link joins the two already; the layout puts
+  the inner router below the front one. It is a view edge, not a `Link`: checks never see it,
 - routed paths (#253, optional): the layer-3 path of each path trace with the known routers on
   it and the hops inside a tunnel, and which router is in front of which
   (`signalbox.traces.routed_view`); it never adds links to the wiring view.

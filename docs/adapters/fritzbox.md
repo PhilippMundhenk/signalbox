@@ -222,9 +222,22 @@ WANCommonInterfaceConfig:1 GetCommonLinkProperties   NewWANAccessType DSL
 ```
 
 With role `gateway` the internet connection is one uplink `<device>/uplink/internet` (#148),
-from the service whose `NewEnable` is `1`, PPP first; neither enabled (the box is an IP client
-on LAN 1, or has no access configured): no uplink. The three actions are read with the same
+from the service whose `NewEnable` is `1`, PPP first. The three actions are read with the same
 right; a fault or a missing service leaves the uplink (or its line rate) out, the rest is read.
+
+**Behind another router** ("Internetzugang über LAN 1", "existing access via LAN", #375): the
+box's internet side is LAN 1 with an address in the front router's network. Only actions that
+FRITZ!OS 6.8x already has are used: `WANIPConnection:1` `GetInfo` and `GetExternalIPAddress`,
+`Layer3Forwarding:1`. When `GetInfo` of `WANIPConnection` has no address and PPP is not
+enabled, `GetExternalIPAddress` is asked; a `WANIPConnection` with an address is the uplink
+even with `NewEnable` `0`. The upstream gateway is the next hop of an enabled `0.0.0.0/0`
+entry of `GetGenericForwardingEntry` (which then is the default route, listed once). The
+topology finds the front router by that address and draws the link (see DESIGN.md, Topology).
+Neither enabled and no address: no access configured, no uplink.
+*To confirm on a real box (#21)*: whether LAN 1 mode reports `WANIPConnection` enabled with the
+LAN 1 address in `GetInfo`, disabled with it only in `GetExternalIPAddress`, or neither (then
+no uplink is read); whether `Layer3Forwarding` lists the default route with the front
+router as gateway; the `NewWANAccessType` in that mode (assumed `Ethernet`).
 
 - **Kind**: `pppoe` on `WANPPPConnection`; on `WANIPConnection` `other`, because TR-064 does
   not say whether the address is from DHCP or fixed; `lte` for the access types
@@ -232,7 +245,8 @@ right; a fault or a missing service leaves the uplink (or its line rate) out, th
 - **State**: up when `NewConnectionStatus` is `Connected`; `since` is the read time minus
   `NewUptime` (seconds).
 - **Addresses**: `NewExternalIPAddress` as /32 (TR-064 gives no prefix length); the PPP peer
-  `NewRemoteIPAddress` is the upstream gateway (`WANIPConnection` has none); `NewDNSServers` the
+  `NewRemoteIPAddress` is the upstream gateway (`WANIPConnection` has none: the default
+  route's next hop, see above); `NewDNSServers` the
   provider's resolvers. The PPP user name in the same answer is not kept.
 - **Line rate**: `NewLayer1DownstreamMaxBitRate`/`NewLayer1UpstreamMaxBitRate` in bit/s, reported
   in kbit/s (0: not known). `NewWANAccessType`, `NewConnectionType` and `NewPhysicalLinkStatus`
