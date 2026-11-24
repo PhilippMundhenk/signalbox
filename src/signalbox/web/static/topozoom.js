@@ -1,5 +1,7 @@
 // Zoom and pan of the topology drawing (#303): wheel, drag, pinch, and calls for the buttons.
 // The picture is one group with a transform attribute (no inline styles).
+// Fit may enlarge a small drawing up to this factor, so the labels stay readable on a wide canvas.
+const MAX_FIT = 1.8;
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
 export function attachZoom(svg, vp, size) {
@@ -14,7 +16,7 @@ export function attachZoom(svg, vp, size) {
     if (!r.width || !r.height) {
       Object.assign(v, { k: 1, x: 0, y: 0 });
     } else {
-      v.k = clamp(Math.min(1, (r.width - 24) / size.width, (r.height - 24) / size.height), 0.1, 1);
+      v.k = clamp(Math.min(MAX_FIT, (r.width - 24) / size.width, ((r.height - 24) / size.height)), 0.1, MAX_FIT);
       v.x = (r.width - size.width * v.k) / 2;
       v.y = 12;
     }

@@ -1614,5 +1614,6 @@
  "wireless.sec.wpaEnterprise": "WPA Enterprise (Version 1)",
  "wireless.sec.wpaPsk": "WPA Personal (Version 1)",
  "wireless.sec.wpaWpa2Psk": "WPA/WPA2 Personal",
- "wireless.title": "WLAN"
+ "wireless.title": "WLAN",
+ "topology.notCabled": "Ohne Kabel"
 }

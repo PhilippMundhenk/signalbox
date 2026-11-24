@@ -194,7 +194,7 @@ details.group > summary h2 { display: inline; }
 .rule p { margin: 6px 0 0; }
 
 /* topology */
-.topo-wrap { position: relative; height: 62vh; min-height: 320px; overflow: hidden; touch-action: none; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.topo-wrap { position: relative; height: 70vh; min-height: 320px; overflow: hidden; touch-action: none; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
 .topo-card.full { position: fixed; inset: 0; z-index: 50; margin: 0; border-radius: 0; display: flex; flex-direction: column; overflow: auto; background: var(--surface); }
 .topo-card.full .topo-wrap { height: auto; flex: 1 1 auto; min-height: 200px; }
 .topo-card:fullscreen { display: flex; flex-direction: column; overflow: auto; background: var(--surface); }
@@ -212,6 +212,7 @@ svg.topo { display: block; font-family: var(--font); }
 .topo .role { fill: var(--muted); font-size: 11px; }
 .topo .site-frame { fill: none; stroke: var(--border); stroke-width: 1.5; stroke-dasharray: 2 4; }
 .topo .site-name { fill: var(--muted); font-size: 12px; font-weight: 700; }
+.topo .strip-name { fill: var(--muted); font-size: 12px; font-weight: 700; }
 .topo .port { fill: var(--surface); stroke: var(--muted); stroke-width: 1; cursor: pointer; }
 .topo .port.up { fill: color-mix(in srgb, var(--ok) 35%, var(--surface)); }
 .topo .port.down { opacity: .6; }

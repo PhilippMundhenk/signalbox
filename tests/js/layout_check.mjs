@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { countCrossings, layoutTopology, pairKey, polylines } from '../../src/signalbox/web/static/topolayout.js';
 
-const { nodes, edges } = JSON.parse(readFileSync(0, 'utf8'));
+const { nodes, edges, siteNames } = JSON.parse(readFileSync(0, 'utf8'));
 const sized = nodes.map((n) => ({ ...n, w: n.w || 150, h: 88 }));
 
 // the layout before #303: four rows by role, sorted by name, centred
@@ -32,7 +32,7 @@ function previous() {
   return countCrossings(polylines({ nodes: pos, pairs, routes: {} }));
 }
 
-const lay = layoutTopology({ nodes: sized, edges });
+const lay = layoutTopology({ nodes: sized, edges, siteNames });
 const lines = polylines(lay);
 const canon = (l) => JSON.stringify(Object.entries(l.nodes).sort(([a], [b]) => (a < b ? -1 : 1)));
 const again = layoutTopology({ nodes: [...sized].reverse(), edges: [...edges].reverse() });
@@ -45,6 +45,12 @@ console.log(
     ranks: Object.fromEntries(Object.entries(lay.nodes).map(([id, n]) => [id, n.rank])),
     boxes: Object.values(lay.nodes).map((n) => [n.x, n.y, n.w, n.h]),
     pairs: lay.pairs,
+    nodes: lay.nodes,
+    sites: lay.sites,
+    vpns: lay.vpns,
+    frameY: lay.frameY,
+    titleY: lay.titleY,
+    uncabled: lay.uncabled,
     width: lay.width,
     height: lay.height,
   }),

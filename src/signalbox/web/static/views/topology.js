@@ -67,6 +67,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
   const sized = nodes.map((n) => ({ id: n.id, name: n.name, role: n.role, site: n.site_id || '', w: Math.max(150, ports.get(n.id).length * (PORT + PORT_GAP) + 16, n.name.length * 8 + 24), h: BOX_H }));
   const lay = layoutTopology({
     nodes: sized,
+    siteNames,
     edges: [...cables, ...tunnels].map((e) => ({ id: e.id, a: e.a.device_id, b: e.b.device_id, kind: e.kind, up: e.a.uplink && !e.b.uplink ? 'a' : e.b.uplink && !e.a.uplink ? 'b' : null })),
   });
   const rankOf = (id) => lay.nodes[id].rank;
@@ -105,7 +106,13 @@ function drawGraph(data, nodes, onPort, siteNames) {
   place(vp, frameLayer, edgeLayer, nodeLayer, markLayer);
   if (lay.sites.length > 1) {
     for (const site of lay.sites) {
-      place(frameLayer, s('rect', { x: String(site.x), y: '6', width: String(site.w), height: String(lay.height - 12), rx: '14', class: 'site-frame', 'data-testid': 'topo-site' }), s('text', { x: String(site.x + 12), y: '24', class: 'site-name' }, siteNames[site.id] || site.id));
+      place(frameLayer, s('rect', { x: String(site.x), y: String(lay.frameY), width: String(site.w), height: String(lay.height - lay.frameY - 6), rx: '14', class: 'site-frame', 'data-testid': 'topo-site' }), s('text', { x: String(site.x + 12), y: String(lay.titleY), class: 'site-name' }, siteNames[site.id] || site.id));
+    }
+  }
+  // the devices no cable reaches sit in a labelled strip at the bottom of their site
+  for (const site of lay.sites) {
+    if (site.strip) {
+      place(frameLayer, s('text', { x: String(site.x + 12), y: String(site.strip.y + 16), class: 'strip-name', 'data-testid': 'topo-uncabled' }, t('topology.notCabled')));
     }
   }
   const links = new Map(nodes.map((n) => [n.id, { edges: [], near: new Set() }]));
@@ -115,6 +122,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
     links.get(a).near.add(b);
     links.get(b).near.add(a);
   };
+  const vpnArc = new Map(lay.vpns.map((v) => [v.id, v]));
   // tunnels: an arc over the boxes, or a wire down from an unmanaged site
   for (const e of tunnels) {
     const ba = lay.nodes[e.a.device_id];
@@ -125,6 +133,11 @@ function drawGraph(data, nodes, onPort, siteNames) {
       const [hi, lo] = rankOf(e.a.device_id) < rankOf(e.b.device_id) ? [ba, bb] : [bb, ba];
       const key = [e.a.device_id, e.b.device_id].sort().join('|');
       d = smooth([{ x: hi.x + hi.w / 2, y: hi.y + BOX_H }, ...(lay.routes[key] || []), { x: lo.x + lo.w / 2, y: lo.y }]);
+    } else if (vpnArc.has(e.id)) {
+      const v = vpnArc.get(e.id);
+      const r = 8;
+      const dir = v.bx > v.ax ? 1 : -1;
+      d = `M${v.ax},${v.ay} V${v.y + r} Q${v.ax},${v.y} ${v.ax + dir * r},${v.y} H${v.bx - dir * r} Q${v.bx},${v.y} ${v.bx},${v.y + r} V${v.by}`;
     } else {
       const ax = ba.x + ba.w / 2;
       const bx = bb.x + bb.w / 2;

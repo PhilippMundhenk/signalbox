@@ -15,8 +15,7 @@ export const TIER = { remote: 0, gateway: 1, switch: 2, ap: 3, other: 3 };
 const GAP = 36; // between two devices of a layer
 const DUMMY_GAP = 14;
 const DUMMY_W = 6;
-const ROW = 176; // distance of two layers
-const TOP = 36; // room for VPN arcs and site titles above the first layer
+const ROW = 150; // distance of two layers
 const SITE_GAP = 56;
 const SWEEPS = 14;
 
@@ -223,9 +222,40 @@ function layoutSite(siteNodes, rank, pairs, byId) {
   return { cx, min, max, dummies, crossings, layers };
 }
 
-export function layoutTopology({ nodes, edges }) {
+const TITLE_PAD = 24;
+const titleWidth = (name) => Math.round(String(name).length * 7.4 + TITLE_PAD);
+const STRIP_MAX = 900; // widest row of the "not cabled" strip when the cabled tree is narrower
+const STRIP_LABEL = 34; // room for the strip label above its first row
+const LANE = 9; // distance of two VPN lanes above the site frames
+
+// Devices that no cable or tunnel reaches (gateways stay in the tree: they are its top).
+function isUncabled(n, linked) {
+  return !linked.has(n.id) && (TIER[n.role] ?? 3) > 1;
+}
+
+// Rows of the "not cabled" strip, wrapped at maxW.
+function stripRows(items, maxW) {
+  const rows = [];
+  let row = [];
+  let w = 0;
+  for (const n of items) {
+    const add = (row.length ? GAP : 0) + n.w;
+    if (row.length && w + add > maxW) (rows.push(row), (row = []), (w = 0));
+    w += (row.length ? GAP : 0) + n.w;
+    row.push(n);
+  }
+  if (row.length) rows.push(row);
+  return rows.map((r) => ({ items: r, w: r.reduce((a, n, i) => a + n.w + (i ? GAP : 0), 0) }));
+}
+
+// siteNames {id: title} only sizes the site titles, which the VPN arcs must stay clear of.
+export function layoutTopology({ nodes, edges, siteNames = {} }) {
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const rank = assignRanks(nodes, edges);
+  const linked = new Set();
+  for (const e of edges) if (e.a !== e.b && byId.has(e.a) && byId.has(e.b)) (linked.add(e.a), linked.add(e.b));
+  const loose = new Set(nodes.filter((n) => isUncabled(n, linked)).map((n) => n.id));
+  const treeNodes = nodes.filter((n) => !loose.has(n.id));
+  const rank = assignRanks(treeNodes, edges);
   // one pair per two devices, however many cables
   const pairMap = new Map();
   for (const e of [...edges].sort((x, y) => cmp(x.id, y.id))) {
@@ -237,34 +267,86 @@ export function layoutTopology({ nodes, edges }) {
   }
   const pairs = [...pairMap.values()].sort((x, y) => cmp(x.key, y.key));
   const siteIds = [...new Set(nodes.map((n) => n.site || ''))].sort(cmp);
-  const out = { nodes: {}, routes: {}, pairs: pairs.map((p) => ({ key: p.key, a: p.a, b: p.b, edges: p.edges.map((e) => e.id) })), sites: [], width: 0, height: 0, crossings: 0, ranks: 0 };
-  let x0 = 20;
+  const out = { nodes: {}, routes: {}, pairs: pairs.map((p) => ({ key: p.key, a: p.a, b: p.b, edges: p.edges.map((e) => e.id) })), sites: [], vpns: [], width: 0, height: 0, crossings: 0, ranks: 0, frameY: 6, titleY: 24, uncabled: 0 };
+  // tunnels between devices of one layer are drawn as arcs in lanes above the site frames
+  const arcs = edges.filter((e) => e.kind === 'vpn' && byId.has(e.a) && byId.has(e.b) && !loose.has(e.a) && !loose.has(e.b) && rank.get(e.a) === rank.get(e.b));
+  const lanes = arcs.length ? 10 + arcs.length * LANE : 0;
+  const frameY = lanes ? lanes + 4 : 6;
+  const titleY = frameY + 18;
+  const top = frameY + 46;
+  out.frameY = frameY;
+  out.titleY = titleY;
+  const maxH = Math.max(0, ...nodes.map((n) => n.h));
   let maxRank = 0;
+  const parts = [];
   for (const site of siteIds) {
-    const members = nodes.filter((n) => (n.site || '') === site);
+    const members = treeNodes.filter((n) => (n.site || '') === site);
     const sitePairs = pairs.filter((p) => (byId.get(p.a).site || '') === site && (byId.get(p.b).site || '') === site);
-    const lay = layoutSite(members, rank, sitePairs, byId);
-    const dx = x0 - lay.min;
+    const lay = members.length ? layoutSite(members, rank, sitePairs, byId) : { cx: new Map(), min: 0, max: 0, dummies: new Map(), crossings: 0 };
+    for (const n of members) maxRank = Math.max(maxRank, rank.get(n.id));
+    const treeW = members.length ? lay.max - lay.min : 0;
+    const items = nodes.filter((n) => loose.has(n.id) && (n.site || '') === site).sort((x, y) => cmp(`${x.role}\u0000${x.name || ''}\u0000${x.id}`, `${y.role}\u0000${y.name || ''}\u0000${y.id}`));
+    const rows = stripRows(items, Math.max(treeW, STRIP_MAX));
+    const stripW = Math.max(0, ...rows.map((r) => r.w));
+    const title = titleWidth(siteNames[site] || site);
+    parts.push({ site, members, sitePairs, lay, treeW, rows, w: Math.max(treeW, stripW, title) });
+  }
+  const treeBottom = treeNodes.length ? top + maxRank * ROW + maxH : top - STRIP_LABEL;
+  const stripTop = treeBottom + 40;
+  let x0 = 20;
+  let bottom = treeBottom;
+  for (const part of parts) {
+    const { site, members, sitePairs, lay, rows } = part;
+    const dx = x0 + (part.w - part.treeW) / 2 - lay.min;
     for (const n of members) {
       const r = rank.get(n.id);
-      maxRank = Math.max(maxRank, r);
-      out.nodes[n.id] = { x: lay.cx.get(n.id) - n.w / 2 + dx, y: TOP + r * ROW, w: n.w, h: n.h, rank: r, site };
+      out.nodes[n.id] = { x: lay.cx.get(n.id) - n.w / 2 + dx, y: top + r * ROW, w: n.w, h: n.h, rank: r, site };
     }
     for (const p of sitePairs) {
+      if (loose.has(p.a) || loose.has(p.b)) continue;
       const chain = lay.dummies.get(p.key) || [];
       const upper = rank.get(p.a) <= rank.get(p.b) ? p.a : p.b;
-      const lower = upper === p.a ? p.b : p.a;
       const r0 = rank.get(upper);
-      out.routes[p.key] = chain.map((id, i) => ({ x: lay.cx.get(id) + dx, y: TOP + (r0 + 1 + i) * ROW + byId.get(upper).h / 2 }));
+      out.routes[p.key] = chain.map((id, i) => ({ x: lay.cx.get(id) + dx, y: top + (r0 + 1 + i) * ROW + byId.get(upper).h / 2 }));
       out.routes[p.key].upper = upper;
-      void lower;
     }
-    out.sites.push({ id: site, x: x0 - 14, w: lay.max - lay.min + 28 });
+    let strip = null;
+    if (rows.length) {
+      let y = stripTop + 24;
+      strip = { x: x0, y: stripTop, count: 0 };
+      rows.forEach((row, ri) => {
+        let x = x0 + (part.w - row.w) / 2;
+        for (const n of row.items) {
+          out.nodes[n.id] = { x, y, w: n.w, h: n.h, rank: maxRank + 1 + ri, site };
+          x += n.w + GAP;
+          strip.count++;
+        }
+        y += maxH + 22;
+      });
+      bottom = Math.max(bottom, y - 22);
+      out.uncabled += strip.count;
+    }
+    const sname = siteNames[site] || site;
+    out.sites.push({ id: site, x: x0 - 14, w: part.w + 28, strip, title: { x: x0 - 2, y: titleY - 14, w: titleWidth(sname), h: 20 } });
     out.crossings += lay.crossings;
-    x0 += lay.max - lay.min + SITE_GAP;
+    x0 += part.w + SITE_GAP;
   }
+  // the arcs: the start of a wire is moved sideways when it would run through a site title
+  const startX = (id) => {
+    const b = out.nodes[id];
+    let x = b.x + b.w / 2;
+    const t = out.sites.find((s) => s.id === (b.site || ''))?.title;
+    if (t && x > t.x - 8 && x < t.x + t.w + 8) {
+      const right = t.x + t.w + 12;
+      x = right <= b.x + b.w - 10 ? right : Math.max(b.x + 10, t.x - 12);
+    }
+    return x;
+  };
+  [...arcs]
+    .sort((p, q) => Math.abs(out.nodes[q.a].x - out.nodes[q.b].x) - Math.abs(out.nodes[p.a].x - out.nodes[p.b].x) || cmp(p.id, q.id))
+    .forEach((e, i) => out.vpns.push({ id: e.id, a: e.a, b: e.b, ax: startX(e.a), bx: startX(e.b), y: 10 + i * LANE, ay: out.nodes[e.a].y, by: out.nodes[e.b].y }));
   out.width = Math.max(320, x0 - SITE_GAP + 20);
-  out.height = TOP + maxRank * ROW + Math.max(0, ...nodes.map((n) => n.h)) + 70;
+  out.height = bottom + 40;
   out.ranks = maxRank + 1;
   return out;
 }
