@@ -851,6 +851,14 @@ async def test_a_box_without_the_user_actions_reports_nothing(
     dev = snap.device
     assert dev.accounts is None and dev.signalbox_account_privilege is None
     assert dev.default_credentials is False
+    assert not [e for e in snap.errors if e.message.startswith("accounts")]
+    # a user without the right: not "no accounts" but an optional gap naming the right (#349)
+    sim.faults = {"LANConfigSecurity#X_AVM-DE_GetUserList": 606}
+    snap = await adapter.observe()
+    assert snap.device.accounts is None
+    (gap,) = [e for e in snap.errors if e.message.startswith("accounts")]
+    assert gap.optional and gap.message_id == "fritzbox.accounts"
+    assert "FRITZ!Box settings" in (gap.fix or "")
     sim.faults = {"LANConfigSecurity#GetInfo": 401}
     snap = await adapter.observe()
     assert snap.device.default_credentials is None

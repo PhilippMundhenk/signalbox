@@ -62,6 +62,48 @@ def test_privileges_are_those_of_the_integration_test_image() -> None:
     assert list(WRITE_PRIVILEGES) == tested["signalbox-write"]
 
 
+async def test_accounts_extra_adds_the_user_manager_privilege(
+    url: str, tls: TlsFiles, sim: OpnsenseSimulator
+) -> None:
+    """Optional extra (#349): without it the read user has no user manager privilege; with it
+    the new key lists the accounts, and ticking it off again takes the privilege away."""
+    offered = OpnsenseAdapter.manifest.admin_login
+    assert offered is not None and [e.id for e in offered.extras] == ["accounts"]
+    plain = await OpnsenseAdapter.plan_setup(request(url, tls.fingerprint))
+    assert "page-system-usermanager" not in plain.steps[1].detail
+    with_extra = request(url, tls.fingerprint, extras=["accounts"])
+    plan = await OpnsenseAdapter.plan_setup(with_extra)
+    assert plan.steps[1].detail.splitlines() == sorted(
+        [*READ_PRIVILEGES, "page-system-usermanager"]
+    )
+    result = await OpnsenseAdapter.apply_setup(with_extra)
+    assert result.ok, result.steps
+    adapter = OpnsenseAdapter(
+        AdapterContext(
+            site_id="home",
+            device_id="fw",
+            device_name="fw",
+            role=DeviceRole.GATEWAY,
+            config=OpnsenseConfig(
+                url=url,
+                api_key=result.secrets["api_key"],
+                api_secret=result.secrets["api_secret"],
+            ),
+            pinned_fingerprint=result.certificate,
+        )
+    )
+    try:
+        snap = await adapter.observe()
+    finally:
+        await adapter.close()
+    assert snap.status is DeviceStatus.OK and not snap.errors
+    assert {a.name for a in snap.device.accounts or []} >= {"root", "signalbox"}
+    # setup again without the extra: back to the documented privileges
+    await OpnsenseAdapter.apply_setup(request(url, tls.fingerprint))
+    user = next(u for u in sim.accounts.users if u["name"] == "signalbox")
+    assert sorted(user["priv"]) == sorted(READ_PRIVILEGES)
+
+
 def test_saved_answers() -> None:
     assert _saved("/x", {"status": "ok"}) == {"status": "ok"}
     with pytest.raises(AdapterError, match=r"user\.name: taken"):

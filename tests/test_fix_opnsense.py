@@ -145,5 +145,5 @@ async def test_a_refused_read_names_the_remedy(
         snap = await adapter.observe()
     finally:
         await adapter.close()
-    denied = [e for e in snap.errors if "403" in e.message]
+    denied = [e for e in snap.errors if "403" in e.message and not e.message.startswith("accounts")]
     assert denied and all(e.remedy == "privileges" for e in denied), snap.errors

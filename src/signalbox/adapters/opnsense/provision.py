@@ -72,6 +72,9 @@ READ_PRIVILEGES: tuple[str, ...] = (
 )
 #: Added while path traces are on (#253, docs: "Path traces").
 TRACE_PRIVILEGES: tuple[str, ...] = ("page-diagnostics-traceroute",)
+#: Optional extra "accounts" (#349): lets Signalbox list the local users. The user manager has no
+#: read-only privilege: this one lets the user change every account too.
+ACCOUNTS_PRIVILEGES: tuple[str, ...] = ("page-system-usermanager",)
 #: Added for writing (docs: "A separate API user for writing").
 WRITE_PRIVILEGES: tuple[str, ...] = (
     *READ_PRIVILEGES,
@@ -215,6 +218,7 @@ class OpnsenseSetup:
             {
                 *(WRITE_PRIVILEGES if request.allow_writes else READ_PRIVILEGES),
                 *(TRACE_PRIVILEGES if request.traces else ()),
+                *(ACCOUNTS_PRIVILEGES if "accounts" in request.extras else ()),
             }
         )
         self.key: dict[str, str] = {}

@@ -58,6 +58,8 @@ SECRET = "sim-secret"
 USERS = "/api/auth/user/"
 TRACEROUTE = "/api/diagnostics/traceroute/set"
 TRACE_PRIVILEGE = "page-diagnostics-traceroute"
+#: *System: Access: Users*: the user manager's API (#349).
+ACCOUNTS_PRIVILEGE = "page-system-usermanager"
 
 
 def _wg_key(name: str) -> str:
@@ -1790,6 +1792,14 @@ class OpnsenseSimulator(_Writes):
             now = datetime.now(UTC)
         return f"{now:%a %b} {now.day} {now.hour}:{now:%M:%S} {now.tzname()} {now.year}"
 
+    def may_manage_users(self, caller: str) -> bool:
+        """Root, and users with *System: Access: Users* (or everything), may call the user
+        manager; no other privilege reaches it."""
+        if caller == "root":
+            return True
+        user = next((u for u in self.accounts.users if u["name"] == caller), None)
+        return user is not None and bool({ACCOUNTS_PRIVILEGE, "page-all"} & set(user["priv"]))
+
     def authorised(self, header: str | None) -> bool:
         return self.caller(header) is not None
 
@@ -1827,7 +1837,7 @@ class OpnsenseSimulator(_Writes):
                     status_code=401,
                     headers={"WWW-Authenticate": 'Basic realm="api"'},
                 )
-            if path.startswith(USERS) and caller != "root":
+            if path.startswith(USERS) and not self.may_manage_users(caller):
                 return JSONResponse({"status": 403, "message": "Forbidden"}, status_code=403)
             if self.delay:
                 await asyncio.sleep(self.delay)

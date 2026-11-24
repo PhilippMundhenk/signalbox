@@ -749,8 +749,22 @@ class FritzboxAdapter(Adapter):
         rights = box_rights((current or {}).get("NewX_AVM-DE_CurrentUserRights", ""))
         if current is not None and rights is not None:
             out["signalbox_privilege"] = {d: rights}
-        listed = await self._try("LANConfigSecurity1", "X_AVM-DE_GetUserList")
-        if listed is None:
+        try:
+            listed = await self.tr064.call("LANConfigSecurity1", "X_AVM-DE_GetUserList")
+        except NotFound:
+            return out  # this FRITZ!OS has no such action: nothing to report
+        except SoapFault as exc:
+            if exc.code == 606:  # refused for this user (#349): not "no accounts"
+                out["incomplete"] = [
+                    Gap(
+                        message=f"accounts: the user list is not read ({exc})",
+                        fix=f"Give the user the right {RIGHT!r} (see the setup guide).",
+                        optional=True,
+                        message_id="fritzbox.accounts",
+                        fix_id="fritzbox.needRight.fix",
+                        params={"cause": str(exc), "right": repr(RIGHT)},
+                    )
+                ]
             return out
         names = user_names(listed.get("NewX_AVM-DE_UserList", ""))
         if own and own not in names:

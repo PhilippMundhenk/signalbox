@@ -604,7 +604,8 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         out.append(f"device id/site {dev.id}/{dev.site_id} != context {ctx.device_id}")
     if snapshot.status is not DeviceStatus.OK:
         out.append(f"status {snapshot.status.value}, expected ok")
-    out += [f"read error {e.capability}: {e.message}" for e in snapshot.errors]
+    # optional gaps (#278, #349) leave the device ok: a missing optional privilege or feature
+    out += [f"read error {e.capability}: {e.message}" for e in snapshot.errors if not e.optional]
     out += credential_problems(adapter, snapshot)
 
     own = f"{ctx.device_id}/"

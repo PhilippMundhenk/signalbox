@@ -919,5 +919,13 @@ async def test_controller_users_and_the_site_device_account(
     del sim.data[f"{SITE}/device-account"]
     snap = await observe(adapter(http_url))
     assert all(d.accounts is None for d in snap.extra_devices)
+    # refused (not "no accounts") is an optional gap (#349); a missing endpoint is not
+    sim.data[f"{SITE}/device-account"] = {"username": "admin", "password": "x"}
+    sim.error = {f"/openapi/v1/{OMADAC_ID}/users": (-1005, "no permission")}
+    snap = await observe(adapter(http_url))
+    assert snap.device.accounts is None
+    (gap,) = [e for e in snap.errors if e.message.startswith("accounts")]
+    assert gap.optional and gap.message_id == "omada.accounts"
+    assert snap.status.value == "ok"
     assert omada_role({"roleName": "Operator"}) is AccountPrivilege.OTHER
     assert omada_role({"role": "read-only"}) is AccountPrivilege.READ

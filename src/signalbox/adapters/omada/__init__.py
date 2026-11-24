@@ -1039,7 +1039,23 @@ class OmadaAdapter(_Adapter):
         endpoint the controller does not offer (or the client may not read) gives nothing."""
         dev = self.context.device_id
         out: dict[str, Any] = {"accounts": {}, "default_credentials": {}}
-        users = await self._optional_rows(f"/openapi/v1/{self._omadac_id}/users")
+        users: list[dict[str, Any]] = []
+        try:
+            users = await self._rows(f"/openapi/v1/{self._omadac_id}/users")
+        except NotFound:
+            pass  # this controller has no such endpoint: nothing to report
+        except OmadaError as exc:  # refused for this client (#349): not "no accounts"
+            out["incomplete"] = [
+                Gap(
+                    message=f"accounts: the controller's users are not read ({exc})",
+                    fix="Optional: use an Open API client with a role that may read the "
+                    "controller's users (for example Administrator).",
+                    optional=True,
+                    message_id="omada.accounts",
+                    fix_id="omada.accounts.fix",
+                    params={"cause": str(exc)},
+                )
+            ]
         if users:
             out["accounts"][dev] = [
                 DeviceAccount(name=name, privilege=omada_role(row), enabled=_on(row))
