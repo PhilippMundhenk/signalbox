@@ -161,7 +161,9 @@ def test_sites(store: Store) -> None:
 
 
 def test_device_secrets_encrypted_and_kept(store: Store, tmp_path: Path) -> None:
-    saved = store.put_device(rec(), {"url": "https://192.0.2.1", "password": "pw1"}, DevConfig)
+    saved = store.put_device(
+        rec(), {"url": "https://192.0.2.1", "password": "first-test-password-3f9c7a"}, DevConfig
+    )
     assert saved.secrets_set == ["password"] and saved.config == {
         "url": "https://192.0.2.1",
         "username": "signalbox",
@@ -169,13 +171,13 @@ def test_device_secrets_encrypted_and_kept(store: Store, tmp_path: Path) -> None
     db = sqlite3.connect(tmp_path / "db.sqlite")
     raw = db.execute("SELECT * FROM devices").fetchone()
     db.close()
-    assert "pw1" not in repr(raw)
+    assert "first-test-password-3f9c7a" not in repr(raw)
 
     # editing without a password keeps the stored one; a new one replaces it
     store.put_device(rec(name="GW"), {"url": "https://192.0.2.2", "password": ""}, DevConfig)
     cfg = store.adapter_config("gw", DevConfig)
     assert isinstance(cfg, DevConfig) and cfg.url == "https://192.0.2.2"
-    assert cfg.password.get_secret_value() == "pw1"
+    assert cfg.password.get_secret_value() == "first-test-password-3f9c7a"
     store.put_device(rec(), {"url": "x", "password": "pw2", "api_secret": "s"}, DevConfig)
     cfg = store.adapter_config("gw", DevConfig)
     assert isinstance(cfg, DevConfig)
