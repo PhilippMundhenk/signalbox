@@ -121,6 +121,7 @@ All notable changes to this project are documented here. The format follows
 
 - Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
+- Firewall writers: adopting a device's own row keeps every property the desired state does not model (MikroTik in place, OpenWrt options carried over, OPNsense `set_rule` in place; listed in the plan, refused with the list where they do not fit); MikroTik's revert script returns a removed row before the next row by id when that has no comment, and a restore sets `disabled=false` instead of unsetting it; the MikroTik CI job shows its test results again (annotation cap) and a job summary of collected tests; real devices unconfirmed (#331, #21)
 - Flaky e2e tests: the traces test waits for the finished run, and the live test server keeps its bound port (#321)
 - Automatic setup UI: Enter never saves the device form (Enter runs the setup), connection fields come before the setup box, a spinner progress state, an admin login in the settings is replaced by the login Signalbox creates, and a refused admin login returns to the password step keeping the preview and identity (#299)
 - Device page: one read state (status, last read, problems) that a connection test or Fix it replaces, so an old error no longer stays beside a good test; problems are not listed twice; shared notice component (#300)
