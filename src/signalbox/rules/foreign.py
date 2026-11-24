@@ -24,7 +24,7 @@ _CULPRITS = (
 
 
 def _network(net: Network, server: ForeignServer) -> str:
-    return segment_name(net, server.segment_id) if server.segment_id else f"site {server.site_id}"
+    return segment_name(net, server.segment_id) if server.segment_id else server.site_id
 
 
 def _who(net: Network, server: ForeignServer) -> str:
@@ -32,32 +32,40 @@ def _who(net: Network, server: ForeignServer) -> str:
     mac = mac_of(net, server)
     if mac:
         parts.append(f"MAC {mac}")
-    return ", ".join(parts) or "address not known"
+    return ", ".join(parts) or "?"
+
+
+#: What the sighting means: the English verb and the id part of the message.
+_HOW = {
+    SightingSource.PROBE: ("answered", "probe"),
+    SightingSource.DEVICE_ALERT: ("reported as unknown by", "alert"),
+    SightingSource.CLIENT_LEASE: ("gave an address to", "lease"),
+}
 
 
 def _seen(net: Network, server: ForeignServer) -> str:
-    names = [
-        "Signalbox's probe" if s.startswith("signalbox/") else device_name(net, s)
-        for s in server.seen_by
-    ]
-    how = {
-        SightingSource.PROBE: "answered",
-        SightingSource.DEVICE_ALERT: "reported as unknown by",
-        SightingSource.CLIENT_LEASE: "gave an address to",
-    }[server.source]
-    return f"{how} {', '.join(dict.fromkeys(names))}"
+    """Who saw it: the devices, and Signalbox itself for its own probe."""
+    names = ["Signalbox" if s.startswith("signalbox/") else device_name(net, s) for s in server.seen_by]
+    return ", ".join(dict.fromkeys(names))
 
 
-def _find(net: Network, server: ForeignServer) -> str:
+def _find(net: Network, server: ForeignServer) -> tuple[str, str, dict[str, str]]:
+    """The first step of the fix: (English text, id part, values)."""
     ports = where(net, server)
     if ports:
-        return f"Its MAC address is seen on {', '.join(ports)}: follow that cable."
+        return (
+            f"Its MAC address is seen on {', '.join(ports)}: follow that cable.",
+            "ports",
+            {"ports": ", ".join(ports)},
+        )
     if mac_of(net, server):
         return (
             "Find the port with that MAC address in your switches' MAC address tables (or "
-            "the router's client list)."
+            "the router's client list).",
+            "mac",
+            {},
         )
-    return "Look up its address in the router's ARP table to get the MAC, then the port."
+    return "Look up its address in the router's ARP table to get the MAC, then the port.", "arp", {}
 
 
 @rule(
@@ -80,14 +88,27 @@ def foreign_dhcp(net: Network) -> Iterator[Result]:
         if offer.dns_servers:
             hands.append(f"DNS {', '.join(str(a) for a in offer.dns_servers)}")
         what = f", handing out {' and '.join(hands)}" if hands else ""
+        verb, how = _HOW[server.source]
+        step, step_id, step_values = _find(net, server)
+        kind = ("gw" if offer.routers else "") + ("dns" if offer.dns_servers else "") or "none"
         yield found(
             f"Unknown DHCP server ({_who(net, server)}) on {_network(net, server)}{what}; "
-            f"it {_seen(net, server)}",
+            f"it {verb} {_seen(net, server)}",
             [server.id, *([server.segment_id] if server.segment_id else [])],
-            fix=f"{_find(net, server)} Then turn off that device's DHCP server (or put it "
+            fix=f"{step} Then turn off that device's DHCP server (or put it "
             f"into bridge / access point mode). {_CULPRITS} If it is meant to be there (a "
             "second server of a failover pair Signalbox does not read), acknowledge this.",
             key=server.id,
+            mid=f"foreign.dhcp.{how}.{kind}",
+            fix_id=f"foreign.dhcp.fix.{step_id}",
+            params={
+                "who": _who(net, server),
+                "network": _network(net, server),
+                "gateways": ", ".join(str(a) for a in offer.routers),
+                "dns": ", ".join(str(a) for a in offer.dns_servers),
+                "seen": _seen(net, server),
+                **step_values,
+            },
         )
 
 
@@ -112,15 +133,27 @@ def foreign_ra(net: Network) -> Iterator[Result]:
         if offer.autonomous:
             bits.append(f"prefix {', '.join(str(p) for p in offer.autonomous)}")
         what = f" ({', '.join(bits)})" if bits else ""
+        verb, how = _HOW[server.source]
+        step, step_id, step_values = _find(net, server)
+        kind = ("router" if offer.router_lifetime else "") + ("prefix" if offer.autonomous else "")
         yield found(
             f"Unknown IPv6 router ({_who(net, server)}) advertises on "
-            f"{_network(net, server)}{what}; it {_seen(net, server)}",
+            f"{_network(net, server)}{what}; it {verb} {_seen(net, server)}",
             [server.id, *([server.segment_id] if server.segment_id else [])],
-            fix=f"{_find(net, server)} Then turn off IPv6 router advertisements on that device "
+            fix=f"{step} Then turn off IPv6 router advertisements on that device "
             "(or its router mode), or enable RA guard on the switch port. "
             f"{_CULPRITS} If it is a router you run on purpose, add it to Signalbox or "
             "acknowledge this.",
             key=server.id,
+            mid=f"foreign.ra.{how}.{kind or 'none'}",
+            fix_id=f"foreign.ra.fix.{step_id}",
+            params={
+                "who": _who(net, server),
+                "network": _network(net, server),
+                "prefixes": ", ".join(str(p) for p in offer.autonomous),
+                "seen": _seen(net, server),
+                **step_values,
+            },
         )
 
 

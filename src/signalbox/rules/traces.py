@@ -76,6 +76,14 @@ def not_via_tunnel(net: Network) -> Iterator[Result]:
             [trace.id, trace.source, tunnel.id],
             fix="Check the route to that network on the device (it should point into the "
             "tunnel) and whether the tunnel is up; trace again afterwards.",
+            mid="trace.notViaTunnel",
+            fix_id="trace.notViaTunnel.fix",
+            params={
+                "source": device_name(net, trace.source),
+                "target": str(trace.target),
+                "where": where,
+                "tunnel": tunnel.description or tunnel.name,
+            },
         )
 
 
@@ -144,6 +152,14 @@ def extra_nat(net: Network) -> Iterator[Result]:
             fix="Find the router at that address: put an ISP box into bridge or exposed-host "
             "mode, or add the router to Signalbox; acknowledge this if the provider numbers "
             "its routers privately.",
+            mid="trace.extraNat.unknown" if unknown else "trace.extraNat",
+            fix_id="trace.extraNat.fix",
+            params={
+                "source": device_name(net, trace.source),
+                "count": len(leading),
+                "expected": expected,
+                "unknown": ", ".join(unknown),
+            },
         )
 
 

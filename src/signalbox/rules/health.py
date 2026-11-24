@@ -51,10 +51,10 @@ def _pct(value: float) -> str:
 def _span(delta: timedelta) -> str:
     minutes = int(delta.total_seconds() // 60)
     if minutes < 120:
-        return f"{minutes} minutes"
+        return f"{minutes} min"
     if minutes < 48 * 60:
-        return f"{minutes // 60} hours"
-    return f"{minutes // (24 * 60)} days"
+        return f"{minutes // 60} h"
+    return f"{minutes // (24 * 60)} d"
 
 
 def _when(at: datetime) -> str:
@@ -81,6 +81,9 @@ def resources(net: Network, history: History) -> Iterator[Result]:
                 fix="Restart it, remove unused packages or features, or check for a memory leak "
                 "in its firmware (an update may fix it).",
                 key="memory",
+                mid="health.memory",
+                fix_id="health.memory.fix",
+                params={"name": dev.name, "percent": _pct(mem)},
             )
         cpu = history.cpu.get(dev.id)
         if (
@@ -98,6 +101,9 @@ def resources(net: Network, history: History) -> Iterator[Result]:
                 "process that hangs); a device that is too small for the connection may need "
                 "hardware offloading or a replacement.",
                 key="cpu",
+                mid="health.cpu",
+                fix_id="health.cpu.fix",
+                params={"name": dev.name, "percent": _pct(h.cpu_load_pct), "since": _when(cpu.since)},
             )
         for sensor in h.temperatures:
             limit = sensor.limit_c if sensor.limit_c is not None else TEMPERATURE_C
@@ -110,6 +116,16 @@ def resources(net: Network, history: History) -> Iterator[Result]:
                     fix="Give it more air (not in a closed cupboard, not stacked on other "
                     "devices), clean its vents and check its fans.",
                     key=f"temperature:{sensor.name}",
+                    mid="health.temperatureOwn"
+                    if sensor.limit_c is not None
+                    else "health.temperature",
+                    fix_id="health.temperature.fix",
+                    params={
+                        "name": dev.name,
+                        "sensor": sensor.name,
+                        "value": f"{sensor.value_c:.0f}",
+                        "limit": f"{limit:.0f}",
+                    },
                 )
 
 
@@ -137,6 +153,9 @@ def storage_full(net: Network) -> Iterator[Result]:
                 "another disk. Settings and updates fail when it is full.",
                 severity=Severity.ERROR if used >= STORAGE_ERROR_PCT else None,
                 key=st.name,
+                mid="health.systemStorage" if st.kind is StorageKind.SYSTEM else "health.storage",
+                fix_id="health.storage.fix",
+                params={"name": dev.name, "storage": st.name, "percent": _pct(used)},
             )
 
 
@@ -158,6 +177,9 @@ def fan_failed(net: Network) -> Iterator[Result]:
                     [dev.id],
                     fix="Clean or replace the fan; until then, keep the device cool.",
                     key=fan.name,
+                    mid="health.fanRpm" if fan.rpm is not None else "health.fan",
+                    fix_id="health.fan.fix",
+                    params={"name": dev.name, "fan": fan.name, "rpm": fan.rpm},
                 )
 
 
@@ -179,6 +201,9 @@ def psu_failed(net: Network) -> Iterator[Result]:
                     fix="Check its power cable and the outlet or UPS it is plugged into; replace "
                     "the power supply if it has power.",
                     key=psu.name,
+                    mid="health.psu",
+                    fix_id="health.psu.fix",
+                    params={"name": dev.name, "psu": psu.name},
                 )
 
 
@@ -200,6 +225,13 @@ def ups_on_battery(net: Network) -> Iterator[Result]:
                     fix="Check the mains power and the UPS input cable; shut down devices that "
                     "are not needed to make the battery last.",
                     key=ups.name,
+                    mid="health.upsBatteryCharge" if charge else "health.upsBattery",
+                    fix_id="health.upsBattery.fix",
+                    params={
+                        "ups": ups.name,
+                        "name": dev.name,
+                        "charge": _pct(ups.charge_pct) if ups.charge_pct is not None else "",
+                    },
                 )
 
 
@@ -225,6 +257,15 @@ def ups_runtime_low(net: Network) -> Iterator[Result]:
                 fix="Replace the battery (they last 3 to 5 years) or move devices that do not "
                 "need it to another outlet.",
                 key=ups.name,
+                mid="health.upsRuntimeLoad" if load else "health.upsRuntime",
+                fix_id="health.upsRuntime.fix",
+                params={
+                    "ups": ups.name,
+                    "name": dev.name,
+                    "minutes": ups.runtime_seconds // 60,
+                    "limit": limit // 60,
+                    "load": _pct(ups.load_pct) if ups.load_pct is not None else "",
+                },
             )
 
 
@@ -249,6 +290,9 @@ def ups_not_tested(net: Network, history: History) -> Iterator[Result]:
                 [dev.id],
                 fix="Run a self-test (and schedule one, for example every three months).",
                 key=ups.name,
+                mid="health.upsNotTested",
+                fix_id="health.upsNotTested.fix",
+                params={"ups": ups.name, "name": dev.name, "age": age},
             )
 
 
@@ -270,6 +314,9 @@ def uptime_very_long(net: Network) -> Iterator[Result]:
                 [dev.id],
                 fix="Check for a firmware update and install it in a quiet hour (it restarts "
                 "the device); this also shows whether the device comes back up by itself.",
+                mid="health.uptime",
+                fix_id="health.uptime.fix",
+                params={"name": dev.name, "days": int(h.uptime_seconds // 86400)},
             )
 
 
@@ -320,6 +367,14 @@ def reboot(net: Network, history: History) -> Iterator[Result]:
                 fix="Check its power supply or PoE budget, its temperature and its memory use; "
                 "look for a firmware update if it crashes.",
                 severity=Severity.WARNING,
+                mid="health.rebootsReason" if reason else "health.reboots",
+                fix_id="health.reboots.fix",
+                params={
+                    "name": dev.name,
+                    "count": len(unplanned),
+                    "when": _when(at),
+                    "reason": reason,
+                },
             )
         else:
             yield found(
@@ -327,6 +382,9 @@ def reboot(net: Network, history: History) -> Iterator[Result]:
                 [dev.id],
                 fix="If nobody restarted it, check its power supply or PoE budget and its "
                 "temperature.",
+                mid="health.rebootReason" if reason else "health.reboot",
+                fix_id="health.reboot.fix",
+                params={"name": dev.name, "when": _when(at), "reason": reason},
             )
 
 

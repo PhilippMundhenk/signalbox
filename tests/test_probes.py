@@ -571,7 +571,7 @@ def test_foreign_dhcp_server_finding() -> None:
     [(message, fix)] = messages(net)["dhcp.foreign-server"]
     assert message == (
         "Unknown DHCP server (192.0.2.254, MAC 02:00:00:00:00:99) on untagged network, "
-        "handing out gateway 192.0.2.254 and DNS 192.0.2.254; it answered Signalbox's probe"
+        "handing out gateway 192.0.2.254 and DNS 192.0.2.254; it answered Signalbox"
     )
     assert fix is not None and "seen on port 7 of sw" in fix and "router mode" in fix
 
@@ -585,7 +585,7 @@ def test_foreign_dhcp_from_alerts_and_leases() -> None:
     )
     found = messages(attach(network(clients=[]), [alert, lease]))["dhcp.foreign-server"]
     assert sorted(m for m, _ in found) == [
-        "Unknown DHCP server (203.0.113.9) on site home; it gave an address to sw",
+        "Unknown DHCP server (203.0.113.9) on home; it gave an address to sw",
         "Unknown DHCP server (MAC 02:00:00:00:00:77) on untagged network; it reported as "
         "unknown by sw",
     ]
@@ -616,12 +616,12 @@ def test_foreign_router_finding_and_thread_border_routers() -> None:
     [(message, fix)] = found["ra.foreign-router"]
     assert message == (
         "Unknown IPv6 router (fe80::99, MAC 02:00:00:00:00:98) advertises on untagged network "
-        "(as a default router, prefix 2001:db8:66::/64); it answered Signalbox's probe"
+        "(as a default router, prefix 2001:db8:66::/64); it answered Signalbox"
     )
     assert fix is not None and "RA guard" in fix
     unknown_lifetime = probed("fe80::5", "02:00:00:00:00:96", ServerKind.RA)
     [(message, _)] = messages(attach(network(clients=[]), [unknown_lifetime]))["ra.foreign-router"]
-    assert message.endswith("advertises on untagged network; it answered Signalbox's probe")
+    assert message.endswith("advertises on untagged network; it answered Signalbox")
 
 
 def test_checks_are_quiet_without_evidence() -> None:

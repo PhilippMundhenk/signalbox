@@ -82,12 +82,17 @@ def unknown_prefix(net: Network) -> Iterator[Result]:
             fix="Look for another router, hotspot or virtual machine host on this network that "
             "sends router advertisements, and turn them off there.",
             key=str(prefix),
+            mid="ipv6.unknownPrefix",
+            fix_id="ipv6.unknownPrefix.fix",
+            params={"count": n, "label": label, "prefix": str(prefix)},
         )
     for seg_id in sorted(unchecked):
         yield incomplete(
             f"Clients on {segment_name(net, seg_id)} have IPv6 addresses, but no router at the "
             "site reported IPv6 subnets, so it is not known whether a router announces them",
             [seg_id],
+            mid="ipv6.unchecked",
+            params={"segment": segment_name(net, seg_id)},
         )
 
 
@@ -114,6 +119,9 @@ def prefix_64(net: Network) -> Iterator[Result]:
             [sub.segment_id, sub.id],
             fix="Use a /64 per network; split a larger delegated prefix into /64s.",
             key=str(prefix),
+            mid="ipv6.prefixLength",
+            fix_id="ipv6.prefixLength.fix",
+            params={"segment": segment_name(net, sub.segment_id), "prefix": str(prefix)},
         )
 
 
@@ -157,6 +165,13 @@ def partial(net: Network) -> Iterator[Result]:
                 fix="Add a /64 from the delegated prefix to this network, or turn this rule off "
                 "if IPv6 is disabled there on purpose.",
                 key="none",
+                mid="ipv6.none",
+                fix_id="ipv6.none.fix",
+                params={
+                    "segment": segment_name(net, seg_id),
+                    "others": others,
+                    "count": len(with_v6),
+                },
             )
         if groups["global"]:
             names = ", ".join(sorted(segment_name(net, s) for s in groups["global"]))
@@ -168,6 +183,13 @@ def partial(net: Network) -> Iterator[Result]:
                     fix="Add a /64 from the delegated prefix to this network, or turn this rule "
                     "off if it should stay local on purpose.",
                     key="ula",
+                    mid="ipv6.ulaOnly",
+                    fix_id="ipv6.ulaOnly.fix",
+                    params={
+                        "segment": segment_name(net, seg_id),
+                        "names": names,
+                        "count": len(groups["global"]),
+                    },
                 )
 
 
