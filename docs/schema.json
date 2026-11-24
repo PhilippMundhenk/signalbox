@@ -5252,7 +5252,7 @@
     },
     "Route": {
       "additionalProperties": false,
-      "description": "One route of a device's routing table (#149, ADR 0023).\n\nRead with ``interfaces``. Connected routes are not reported by most adapters: they are\nderived from :class:`Subnet` (see :func:`signalbox.routing.next_hop`). A route of an IPv4\ndefault is ``0.0.0.0/0``, of IPv6 ``::/0``. Routes of VPN peers can reveal remote sites:\ntreat them like addresses.",
+      "description": "One route of a device's routing table (#149, ADR 0024).\n\nRead with ``interfaces``. Connected routes are not reported by most adapters: they are\nderived from :class:`Subnet` (see :func:`signalbox.routing.next_hop`). A route of an IPv4\ndefault is ``0.0.0.0/0``, of IPv6 ``::/0``. Routes of VPN peers can reveal remote sites:\ntreat them like addresses.",
       "properties": {
         "active": {
           "anyOf": [

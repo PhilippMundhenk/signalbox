@@ -482,6 +482,7 @@ async def test_spanning_tree_of_chr(rt: dict[str, str]) -> None:
         assert stp is not None and stp.bpdu_guard is False, (name, stp)
     assert ports["ether1"].stp is None
 
+
 async def test_routes_of_chr(rt: dict[str, str]) -> None:
     """The lab's static route and blackhole route
     from ``/ip/route`` (#149); connected networks are derived, not read."""
