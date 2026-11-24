@@ -1973,7 +1973,8 @@ class OpenWrtAdapter(Adapter):
         if stale and await self._staged():
             raise AdapterError(
                 "another change waits for its confirmation on the device (rpcd accepts no "
-                "other change until it is confirmed or rolled back); try again later"
+                "other change until it is confirmed or rolled back); try again later",
+                message_id="openwrt.changeWaiting",
             )
 
     async def _transaction(self, ops: list[write.UciOp], apply: dict[str, Any]) -> None:
@@ -2077,12 +2078,14 @@ class OpenWrtAdapter(Adapter):
             self._pending = False
             raise AdapterError(
                 "uci confirm: nothing waits for confirmation; the deadline passed and the device "
-                "rolled the change back"
+                "rolled the change back",
+                message_id="openwrt.confirmNothing",
             ) from None
         except AccessDenied:
             raise AdapterError(
                 "uci confirm refused (session expired, or not allowed by the rpcd ACL); the "
-                "device rolls the change back at the deadline"
+                "device rolls the change back at the deadline",
+                message_id="openwrt.confirmRefused",
             ) from None
         self._pending = False
         # confirming commits the change; netifd may reload the Wi-Fi once more (#339)
@@ -2091,15 +2094,23 @@ class OpenWrtAdapter(Adapter):
 
     async def restore(self, backup: Backup) -> None:
         if backup.format != write.BACKUP_FORMAT:
-            raise AdapterError(f"not an OpenWrt backup (format {backup.format})")
+            raise AdapterError(
+                f"not an OpenWrt backup (format {backup.format})",
+                message_id="openwrt.notBackup",
+                params={"format": backup.format},
+            )
         try:
             saved = json.loads(backup.content)
         except ValueError:
-            raise AdapterError("the backup is not valid JSON") from None
+            raise AdapterError(
+                "the backup is not valid JSON", message_id="openwrt.backupNotJson"
+            ) from None
         if not isinstance(saved, dict) or not all(
             c in write.CONFIGS and isinstance(v, dict) for c, v in saved.items()
         ):
-            raise AdapterError("the backup does not hold UCI configs")
+            raise AdapterError(
+                "the backup does not hold UCI configs", message_id="openwrt.backupNoConfigs"
+            )
         if self._pending:
             # our own change still waits for confirmation: let rpcd undo it at once
             with contextlib.suppress(AdapterError, OSError):
@@ -2122,7 +2133,8 @@ class OpenWrtAdapter(Adapter):
             if await self._staged():
                 raise AdapterError(
                     "the backup was not applied: another change waits for its confirmation on "
-                    "the device (rpcd applies nothing until it is confirmed or rolled back)"
+                    "the device (rpcd applies nothing until it is confirmed or rolled back)",
+                    message_id="openwrt.restoreWaiting",
                 )
 
         await self._twice(attempt)

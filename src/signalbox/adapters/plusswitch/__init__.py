@@ -415,7 +415,11 @@ class _PlusSwitch(Adapter):
 
     async def restore(self, backup: Backup) -> None:
         if backup.format != writes.BACKUP_FORMAT:
-            raise AdapterError(f"cannot restore a backup in the format {backup.format!r}")
+            raise AdapterError(
+                f"cannot restore a backup in the format {backup.format!r}",
+                message_id="plusswitch.restoreFormat",
+                params={"format": repr(backup.format)},
+            )
         wanted = writes.Table.from_json(backup.content)
 
         async def work(client: Any) -> None:

@@ -24,8 +24,9 @@ from dataclasses import dataclass, field
 from ipaddress import IPv4Address
 from typing import Any
 
-from signalbox.adapters import AdapterError, VendorCall
+from signalbox.adapters import AdapterError, Described, VendorCall, message_fields
 from signalbox.changes import Change, DhcpValue, WlanValue
+from signalbox.messages import Label
 from signalbox.model import Security
 
 #: ``Backup.format`` of this adapter: the TR-064 values of every setting it may change.
@@ -61,6 +62,7 @@ class Call:
     def vendor(self) -> VendorCall:
         return VendorCall(
             description=self.description,
+            **message_fields(self.description),
             method="SOAP",
             target=f"{self.service} {self.action}",
             payload={k: SECRET if k in self.secret else v for k, v in self.args.items()},
@@ -74,29 +76,47 @@ def dhcp_wanted(c: Change, current: Mapping[str, str]) -> dict[str, str]:
     """The LAN values a DHCP change asks for; refuses what TR-064 cannot set."""
     if c.new is None:
         raise AdapterError(
-            f"{c.key}: the DHCP server of a Fritz!Box cannot be removed; set enabled: false"
+            f"{c.key}: the DHCP server of a Fritz!Box cannot be removed; set enabled: false",
+            message_id="fritzbox.dhcpNoRemove",
+            params={"subject": c.key},
         )
     if c.old is None:
-        raise AdapterError(f"{c.key}: the Fritz!Box reported no DHCP server to change")
+        raise AdapterError(
+            f"{c.key}: the Fritz!Box reported no DHCP server to change",
+            message_id="fritzbox.noDhcpServer",
+            params={"subject": c.key},
+        )
     assert isinstance(c.new, DhcpValue)
     new = c.new
     if new.lease_seconds is not None:
-        raise AdapterError(f"{c.key}: the DHCP lease time cannot be set over TR-064")
+        raise AdapterError(
+            f"{c.key}: the DHCP lease time cannot be set over TR-064",
+            message_id="fritzbox.leaseNotSettable",
+            params={"subject": c.key},
+        )
     if new.dns is not None and [str(a) for a in new.dns] != _dns(current):
         raise AdapterError(
             f"{c.key}: the DNS servers the Fritz!Box hands out cannot be set over TR-064 "
-            "(it always announces itself)"
+            "(it always announces itself)",
+            message_id="fritzbox.dnsNotSettable",
+            params={"subject": c.key},
         )
     wanted = {"NewDHCPServerEnable": "1" if new.enabled else "0"}
     if new.pool is None:
         if current.get("NewMinAddress") and current.get("NewMaxAddress"):
             raise AdapterError(
-                f"{c.key}: the Fritz!Box DHCP server always has an address range; give a pool"
+                f"{c.key}: the Fritz!Box DHCP server always has an address range; give a pool",
+                message_id="fritzbox.dhcpNeedsPool",
+                params={"subject": c.key},
             )
         return wanted
     first, last = new.pool
     if not (isinstance(first, IPv4Address) and isinstance(last, IPv4Address)):
-        raise AdapterError(f"{c.key}: the Fritz!Box DHCP server hands out IPv4 addresses only")
+        raise AdapterError(
+            f"{c.key}: the Fritz!Box DHCP server hands out IPv4 addresses only",
+            message_id="fritzbox.dhcpIpv4Only",
+            params={"subject": c.key},
+        )
     return {"NewMinAddress": str(first), "NewMaxAddress": str(last)} | wanted
 
 
@@ -118,7 +138,12 @@ def lan_calls(current: Mapping[str, str], wanted: Mapping[str, str]) -> list[Cal
                 LAN_SERVICE,
                 "SetAddressRange",
                 {"NewMinAddress": rng[0], "NewMaxAddress": rng[1]},
-                f"DHCP address range {rng[0]}-{rng[1]}",
+                Described(
+                    f"DHCP address range {rng[0]}-{rng[1]}",
+                    "plan.fritzbox.addressRange",
+                    first=rng[0],
+                    last=rng[1],
+                ),
             )
         )
     on = wanted.get("NewDHCPServerEnable")
@@ -127,7 +152,9 @@ def lan_calls(current: Mapping[str, str], wanted: Mapping[str, str]) -> list[Cal
             LAN_SERVICE,
             "SetDHCPServerEnable",
             {"NewDHCPServerEnable": on},
-            "switch the DHCP server " + ("on" if on == "1" else "off"),
+            Described("switch the DHCP server on", "plan.fritzbox.dhcpOn")
+            if on == "1"
+            else Described("switch the DHCP server off", "plan.fritzbox.dhcpOff"),
         )
         calls = [*calls, switch] if on == "1" else [switch, *calls]
     return calls
@@ -150,7 +177,9 @@ def wlan_wanted(
         offered = ", ".join(s.value for s in WRITE_BEACON)
         raise AdapterError(
             f"SSID {c.key}: security {new.security.value} cannot be set on a Fritz!Box "
-            f"(offered: {offered})"
+            f"(offered: {offered})",
+            message_id="fritzbox.securityNotOffered",
+            params={"subject": _ssid(c), "security": new.security.value, "offered": offered},
         )
     if have is new.security:
         beacon = current.get("NewBeaconType", beacon)  # already right: keep the exact type
@@ -165,14 +194,23 @@ def wlan_wanted(
         if spelled is None:
             raise AdapterError(
                 f"SSID {c.key}: this Fritz!Box does not offer {new.security.value} "
-                f"(beacon type {beacon}; it offers {current['NewX_AVM-DE_PossibleBeaconTypes']})"
+                f"(beacon type {beacon}; it offers {current['NewX_AVM-DE_PossibleBeaconTypes']})",
+                message_id="fritzbox.beaconNotOffered",
+                params={
+                    "subject": _ssid(c),
+                    "security": new.security.value,
+                    "beacon": beacon,
+                    "offers": current["NewX_AVM-DE_PossibleBeaconTypes"],
+                },
             )
         beacon = spelled
     low, high = _limits(current, "SSID", 1, 32)
     if not low <= len(new.ssid) <= high or len(new.ssid.encode()) > 32:
         raise AdapterError(
             f"SSID {c.key}: the Fritz!Box takes an SSID of {low} to {high} characters "
-            "(at most 32 bytes)"
+            "(at most 32 bytes)",
+            message_id="fritzbox.ssidLength",
+            params={"subject": _ssid(c), "low": low, "high": high},
         )
     wanted = {
         "NewSSID": new.ssid,
@@ -184,15 +222,26 @@ def wlan_wanted(
     if name and new.security is not Security.OPEN:
         value = secrets.get(name)
         if value is None:
-            raise AdapterError(f"SSID {c.key}: secret {name!r} was not given")
+            raise AdapterError(
+                f"SSID {c.key}: secret {name!r} was not given",
+                message_id="fritzbox.secretMissing",
+                params={"subject": _ssid(c), "name": repr(name)},
+            )
         low, high = _limits(current, "PSK", 8, 63)
         if not low <= len(value) <= high:
             raise AdapterError(
                 f"SSID {c.key}: the passphrase in secret {name!r} must be {low} to {high} "
-                "characters"
+                "characters",
+                message_id="fritzbox.passphraseLength",
+                params={"subject": _ssid(c), "name": repr(name), "low": low, "high": high},
             )
         wanted["NewKeyPassphrase"] = value
     return wanted
+
+
+def _ssid(c: Change) -> Label:
+    """``SSID <key>``: the name Signalbox gives a Wi-Fi network in a message."""
+    return Label(f"SSID {c.key}", "ssid", c.key)
 
 
 def _limits(current: Mapping[str, str], what: str, low: int, high: int) -> tuple[int, int]:
@@ -214,18 +263,24 @@ def check_wlan(c: Change) -> None:
         assert isinstance(c.new, WlanValue)
         raise AdapterError(
             f"SSID {c.new.ssid}: a Fritz!Box cannot create a Wi-Fi network; its networks are "
-            "fixed (one per band and the guest network). Rename or change an existing one."
+            "fixed (one per band and the guest network). Rename or change an existing one.",
+            message_id="fritzbox.wlanNoCreate",
+            params={"subject": Label(f"SSID {c.new.ssid}", "ssid", c.new.ssid)},
         )
     if c.new is None:
         raise AdapterError(
-            f"SSID {c.key}: a Fritz!Box cannot delete a Wi-Fi network; set enabled: false"
+            f"SSID {c.key}: a Fritz!Box cannot delete a Wi-Fi network; set enabled: false",
+            message_id="fritzbox.wlanNoDelete",
+            params={"subject": _ssid(c)},
         )
     assert isinstance(c.new, WlanValue)
     new = c.new
     if new.segment != "native":
         raise AdapterError(
             f"SSID {c.key}: the Fritz!Box has no VLANs; its Wi-Fi networks stay in the LAN "
-            "or the guest network"
+            "or the guest network",
+            message_id="fritzbox.noVlans",
+            params={"subject": _ssid(c)},
         )
     unsupported = [
         label
@@ -241,7 +296,9 @@ def check_wlan(c: Change) -> None:
     if unsupported:
         raise AdapterError(
             f"SSID {c.key}: {', '.join(unsupported)} cannot be set over TR-064; "
-            "leave it out of the desired state"
+            "leave it out of the desired state",
+            message_id="fritzbox.optionsNotSettable",
+            params={"subject": _ssid(c), "options": ", ".join(unsupported)},
         )
 
 
@@ -257,7 +314,16 @@ def wlan_calls(
     calls: list[Call] = []
     ssid = wanted.get("NewSSID")
     if ssid is not None and ssid != current.get("NewSSID"):
-        calls.append(Call(service, "SetSSID", {"NewSSID": ssid}, f"{service}: SSID {ssid}"))
+        calls.append(
+            Call(
+                service,
+                "SetSSID",
+                {"NewSSID": ssid},
+                Described(
+                    f"{service}: SSID {ssid}", "plan.fritzbox.ssid", service=service, ssid=ssid
+                ),
+            )
+        )
     beacon = wanted.get("NewBeaconType")
     if beacon is not None and beacon.lower() != current.get("NewBeaconType", "").lower():
         calls.append(
@@ -265,7 +331,12 @@ def wlan_calls(
                 service,
                 "SetBeaconType",
                 {"NewBeaconType": beacon},
-                f"{service}: security (beacon type {beacon})",
+                Described(
+                    f"{service}: security (beacon type {beacon})",
+                    "plan.fritzbox.beacon",
+                    service=service,
+                    beacon=beacon,
+                ),
             )
         )
     key = wanted.get("NewKeyPassphrase")
@@ -282,7 +353,7 @@ def wlan_calls(
                     "NewPreSharedKey": "",
                     "NewKeyPassphrase": key,
                 },
-                f"{service}: passphrase",
+                Described(f"{service}: passphrase", "plan.fritzbox.passphrase", service=service),
                 secret=frozenset({"NewKeyPassphrase"}),
             )
         )
@@ -293,7 +364,11 @@ def wlan_calls(
                 service,
                 "SetBeaconAdvertisement",
                 {"NewBeaconAdvertisementEnabled": advertise},
-                f"{service}: " + ("show the SSID" if advertise == "1" else "hide the SSID"),
+                Described(f"{service}: show the SSID", "plan.fritzbox.showSsid", service=service)
+                if advertise == "1"
+                else Described(
+                    f"{service}: hide the SSID", "plan.fritzbox.hideSsid", service=service
+                ),
             )
         )
     on = wanted.get("NewEnable")
@@ -302,7 +377,9 @@ def wlan_calls(
             service,
             "SetEnable",
             {"NewEnable": on},
-            f"{service}: switch " + ("on" if on == "1" else "off"),
+            Described(f"{service}: switch on", "plan.fritzbox.switchOn", service=service)
+            if on == "1"
+            else Described(f"{service}: switch off", "plan.fritzbox.switchOff", service=service),
         )
         calls = [*calls, switch] if on == "1" else [switch, *calls]
     return calls
@@ -342,5 +419,9 @@ def parse_backup(content: str) -> tuple[dict[str, str], dict[int, dict[str, str]
             for i, values in data["wlans"].items()
         }
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
-        raise AdapterError(f"not a {BACKUP_FORMAT} backup of this adapter") from exc
+        raise AdapterError(
+            f"not a {BACKUP_FORMAT} backup of this adapter",
+            message_id="fritzbox.backupInvalid",
+            params={"format": BACKUP_FORMAT},
+        ) from exc
     return lan, wlans

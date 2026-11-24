@@ -72,8 +72,29 @@ def router(services: Services, deployer: Deployer) -> APIRouter:
     store, runner = services.store, services.runner
     tasks: dict[str, asyncio.Task[Any]] = {}
 
-    def err(status: int, message: str, code: str = "invalid") -> JSONResponse:
-        return JSONResponse({"error": code, "message": message}, status_code=status)
+    def err(
+        status: int,
+        message: str,
+        code: str = "invalid",
+        message_id: str | None = None,
+        **params: Any,
+    ) -> JSONResponse:
+        body: dict[str, Any] = {"error": code, "message": message}
+        if message_id:
+            body["message_id"] = message_id
+            if params:
+                body["params"] = params
+        return JSONResponse(body, status_code=status)
+
+    def failed(status: int, exc: Exception) -> JSONResponse:
+        """The answer for a plan or deploy error, with its translation id and values (#204)."""
+        body: dict[str, Any] = {"error": "invalid", "message": str(exc)}
+        if getattr(exc, "message_id", None):
+            body["message_id"] = exc.message_id  # type: ignore[attr-defined]
+            body["params"] = dict(exc.params)  # type: ignore[attr-defined]
+        if getattr(exc, "device", None):
+            body["device"] = exc.device  # type: ignore[attr-defined]
+        return JSONResponse(body, status_code=status)
 
     @api.get("/changes")
     def list_changes() -> dict[str, Any]:
@@ -91,7 +112,12 @@ def router(services: Services, deployer: Deployer) -> APIRouter:
         except desired.DesiredError as exc:
             return err(422, str(exc))
         if state is None:
-            return err(409, "Nothing is declared in the desired state yet.", "no_desired_state")
+            return err(
+                409,
+                "Nothing is declared in the desired state yet.",
+                "no_desired_state",
+                "api.noDesired",
+            )
         try:
             p = changes.plan(
                 state,
@@ -103,7 +129,7 @@ def router(services: Services, deployer: Deployer) -> APIRouter:
             )
             rec = await deployer.prepare(p, body.reason, AUTHOR, desired_commit=_commit(services))
         except (changes.PlanError, DeployError) as exc:
-            return err(422, str(exc))
+            return failed(422, exc)
         return record_json(rec, services)
 
     @api.get("/changes/{change_id}", response_model=None)
@@ -111,7 +137,9 @@ def router(services: Services, deployer: Deployer) -> APIRouter:
         """One change with its plan, per-device results and event log."""
         rec = store.change(change_id)
         return (
-            err(404, "No such change.", "not_found") if rec is None else record_json(rec, services)
+            err(404, "No such change.", "not_found", "api.noChange")
+            if rec is None
+            else record_json(rec, services)
         )
 
     @api.post("/changes/{change_id}/approve", response_model=None)
@@ -122,7 +150,7 @@ def router(services: Services, deployer: Deployer) -> APIRouter:
                 deployer.approve(change_id, AUTHOR, body.override, body.allow_lockout), services
             )
         except DeployError as exc:
-            return err(409, str(exc))
+            return failed(409, exc)
 
     @api.post("/changes/{change_id}/reject", response_model=None)
     def reject(change_id: str) -> dict[str, Any] | JSONResponse:
@@ -130,20 +158,31 @@ def router(services: Services, deployer: Deployer) -> APIRouter:
         try:
             return record_json(deployer.reject(change_id, AUTHOR), services)
         except DeployError as exc:
-            return err(409, str(exc))
+            return failed(409, exc)
 
     @api.post("/changes/{change_id}/deploy", status_code=202, response_model=None)
     async def deploy(change_id: str) -> dict[str, Any] | JSONResponse:
         """Deploy an approved change in the background; poll the change for its progress."""
         if change_id in tasks and not tasks[change_id].done():
-            return err(409, "This change is being deployed.")
+            return err(409, "This change is being deployed.", "invalid", "api.deploying")
         rec = store.change(change_id)
         if rec is None:
-            return err(404, "No such change.", "not_found")
+            return err(404, "No such change.", "not_found", "api.noChange")
         if not services.config.deploy.enabled:
-            return err(409, "Deploying is turned off (deploy.enabled in the configuration).")
+            return err(
+                409,
+                "Deploying is turned off (deploy.enabled in the configuration).",
+                "invalid",
+                "api.deployDisabled",
+            )
         if rec.status.value != "approved":
-            return err(409, f"The change is {rec.status.value}; it must be approved first.")
+            return err(
+                409,
+                f"The change is {rec.status.value}; it must be approved first.",
+                "invalid",
+                "api.notApproved",
+                state=rec.status.value,
+            )
         tasks[change_id] = asyncio.create_task(deployer.deploy(change_id))
         await asyncio.sleep(0)
         return {"started": True}
@@ -154,7 +193,7 @@ def router(services: Services, deployer: Deployer) -> APIRouter:
         try:
             return record_json(await deployer.revert(change_id, body.reason, AUTHOR), services)
         except DeployError as exc:
-            return err(409, str(exc))
+            return failed(409, exc)
 
     @api.get("/backups")
     def backups(device: str | None = None) -> list[dict[str, Any]]:
@@ -167,7 +206,7 @@ def router(services: Services, deployer: Deployer) -> APIRouter:
         try:
             rec = await deployer.restore_backup(backup_id, body.reason, AUTHOR)
         except DeployError as exc:
-            return err(409, str(exc))
+            return failed(409, exc)
         return record_json(rec, services)
 
     return api

@@ -112,18 +112,21 @@ class LinuxSetup:
             host = host.removeprefix(prefix)
         self.host = host.split("/", 1)[0]
         if not self.host:
-            raise AdapterError("give the device's address first")
+            raise AdapterError("give the device's address first", message_id="linux.addressNeeded")
         self.port = request.port or int(str(request.config.get("port") or 22))
         self.login = str(request.config.get("username") or "signalbox").strip()
         if not LOGIN_NAME.match(self.login):
             raise AdapterError(
                 "the login to set up must be lower-case letters, digits, - and _ "
-                f"(not {self.login!r})"
+                f"(not {self.login!r})",
+                message_id="linux.loginName",
+                params={"login": repr(self.login)},
             )
         if self.login in REFUSED or self.login == request.admin_user:
             raise AdapterError(
                 "the login to set up must not be the admin login or a system account: give "
-                "Signalbox a login of its own, for example signalbox"
+                "Signalbox a login of its own, for example signalbox",
+                message_id="linux.loginIsAdmin",
             )
         self.key = asyncssh.generate_private_key("ssh-ed25519", comment=KEY_COMMENT)
         self.private = self.key.export_private_key().decode()
@@ -187,7 +190,11 @@ class LinuxSetup:
                     fix_id="linux.noSudo.fix",
                     params={"user": self.request.admin_user, "detail": detail},
                 )
-            raise AdapterError(f"the device did not answer like Linux: {detail}")
+            raise AdapterError(
+                f"the device did not answer like Linux: {detail}",
+                message_id="linux.notLinux",
+                params={"detail": detail},
+            )
         sudo_text = "\n".join(parts.get("sudoers", [])).strip()
         return DeviceState(
             exists=bool([x for x in parts.get("user", []) if x.strip()]),
@@ -207,7 +214,11 @@ class LinuxSetup:
             res = await ssh.run(script, timeout=timeout, command=self.command, prefix=self.prefix)
             if res.code != 0:
                 tail = (res.err or res.text).strip()[-400:]
-                raise AdapterError(f"failed (exit status {res.code}): {self.redact(tail)}")
+                raise AdapterError(
+                    f"failed (exit status {res.code}): {self.redact(tail)}",
+                    message_id="linux.stepFailed",
+                    params={"code": res.code, "detail": self.redact(tail)},
+                )
             return None
 
         return act
@@ -247,7 +258,9 @@ class LinuxSetup:
         if state.exists and bad:
             raise AdapterError(
                 f"the user {self.login} exists and is in the group(s) {', '.join(sorted(bad))}: "
-                "Signalbox's login must not have more than read access; choose another name"
+                "Signalbox's login must not have more than read access; choose another name",
+                message_id="linux.loginPrivileged",
+                params={"login": self.login, "groups": ", ".join(sorted(bad))},
             )
         u = f"U={_q(self.login)}\n"
         create = (
@@ -347,7 +360,9 @@ class LinuxSetup:
         if state.exists and bad:
             raise AdapterError(
                 f"the user {self.login} is in the group(s) {', '.join(sorted(bad))}: it is not "
-                "the login the setup created, so it is not deleted"
+                "the login the setup created, so it is not deleted",
+                message_id="linux.loginNotOurs",
+                params={"login": self.login, "groups": ", ".join(sorted(bad))},
             )
         return [
             Step(
@@ -447,7 +462,11 @@ class LinuxFix(LinuxSetup):
 
     def __init__(self, request: RemedyRequest) -> None:
         if request.remedy not in {r.id for r in REMEDIES}:
-            raise AdapterError(f"Linux has no remedy {request.remedy!r}")
+            raise AdapterError(
+                f"Linux has no remedy {request.remedy!r}",
+                message_id="linux.noRemedy",
+                params={"remedy": repr(request.remedy)},
+            )
         super().__init__(
             SetupRequest(
                 config=request.config,

@@ -1,9 +1,12 @@
-import { t } from './i18n.js';
+import { t, tServer } from './i18n.js';
 // Thin fetch wrapper. Errors carry the server's code ({"error": ..., "message": ...}).
 
 export class ApiError extends Error {
   constructor(status, body) {
-    super(body.message || t('api.requestFailed'));
+    // An answer with a message id is shown in the language of the page (#204); a deploy error names
+    // the device first.
+    const text = body.message_id ? tServer(`msg.${body.message_id}`, body.params, body.message) : body.message;
+    super(text ? (body.device && body.message_id ? `${body.device}: ${text}` : text) : t('api.requestFailed'));
     this.status = status;
     this.code = body.error || 'error';
     this.body = body;

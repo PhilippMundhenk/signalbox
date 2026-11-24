@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from ipaddress import ip_network
 from typing import TYPE_CHECKING, Any
 
-from signalbox.adapters import AdapterError, Described
+from signalbox.adapters import AdapterError, Described, Label
 from signalbox.adapters.mikrotik.firewall import POLICY_MARK, TAG, describe, split_mark, tagged
 from signalbox.changes import Change, FirewallRuleValue, PortForwardValue, ZonePolicyValue
 from signalbox.model import FirewallAction, FirewallChain, FirewallProtocol, PortRange
@@ -134,13 +134,18 @@ def _zone(cfg: _Config, name: str | None, label: str, what: str) -> str | None:
     wanted = name.removeprefix("!")
     if "," in wanted:
         raise AdapterError(
-            f"{label}: give one {what}, RouterOS matches one interface list per rule"
+            f"{label}: give one {what}, RouterOS matches one interface list per rule",
+            message_id="mikrotik.oneInterfaceList",
+            params={"label": label, "what": what},
         )
     known = sorted(str(r.get("name")) for r in cfg.rows(m.INTERFACE_LIST) if r.get("name"))
     if wanted not in known:
+        lists = ", ".join(known) or Label("none", "none")
         raise AdapterError(
             f"{label}: the router has no interface list {wanted!r} ({what}s are interface "
-            f"lists: {', '.join(known) or 'none'})"
+            f"lists: {lists})",
+            message_id="mikrotik.noInterfaceList",
+            params={"label": label, "name": repr(wanted), "what": what, "lists": lists},
         )
     return name
 
@@ -149,10 +154,18 @@ def _address(nets: list[Any], family: int | None, label: str, what: str) -> str 
     if not nets:
         return None
     if len(nets) > 1:
-        raise AdapterError(f"{label}: give one {what} network, RouterOS matches one per rule")
+        raise AdapterError(
+            f"{label}: give one {what} network, RouterOS matches one per rule",
+            message_id="mikrotik.oneNetwork",
+            params={"label": label, "what": what},
+        )
     net = ip_network(nets[0], strict=False)
     if family is not None and net.version != family:
-        raise AdapterError(f"{label}: {net} is not an IPv{family} network")
+        raise AdapterError(
+            f"{label}: {net} is not an IPv{family} network",
+            message_id="mikrotik.wrongFamily",
+            params={"label": label, "network": str(net), "family": family},
+        )
     return str(net.network_address) if net.num_addresses == 1 else str(net)
 
 
@@ -163,14 +176,20 @@ def _protocol(protocols: list[FirewallProtocol], family: int, label: str) -> str
     if len(kinds) > 1:
         names = ", ".join(sorted(p.value for p in kinds))
         raise AdapterError(
-            f"{label}: RouterOS matches one protocol per rule, not {names}: declare one rule each"
+            f"{label}: RouterOS matches one protocol per rule, not {names}: declare one rule each",
+            message_id="mikrotik.oneProtocol",
+            params={"label": label, "protocols": names},
         )
     kind = kinds[0]
     if kind is FirewallProtocol.ICMP:
         return "icmp" if family == 4 else "icmpv6"
     found = _PROTOCOL_NAMES.get(kind)
     if found is None:
-        raise AdapterError(f"{label}: RouterOS cannot match the protocol {kind.value} here")
+        raise AdapterError(
+            f"{label}: RouterOS cannot match the protocol {kind.value} here",
+            message_id="mikrotik.protocolUnsupported",
+            params={"label": label, "protocol": kind.value},
+        )
     return found
 
 
@@ -231,7 +250,7 @@ def _create(
 ) -> None:
     """Add a tagged row before ``before`` (an existing row), or at the end."""
     sent = {**body, "place-before": str(before[".id"])} if before is not None else dict(body)
-    row = cfg.put(menu, sent, f"{label}: create")
+    row = cfg.put(menu, sent, Described(f"{label}: create", "plan.mikrotik.fwCreate", label=label))
     row.pop("place-before", None)
     rows = cfg.rows(menu)
     rows.remove(row)
@@ -247,7 +266,7 @@ def _update(
     props: tuple[str, ...],
     revert: Revert,
     label: str,
-    what: str = "update",
+    what: str | None = None,
 ) -> None:
     """Set the properties of a tagged row to ``want``; what it has and ``want`` lacks is cleared
     (of the properties the writer models; every other property of the row stays)."""
@@ -257,7 +276,7 @@ def _update(
         menu,
         row,
         {k: v for k, v in want.items() if k in props},
-        what if isinstance(what, Described) else f"{label}: {what}",
+        what or Described(f"{label}: update", "plan.mikrotik.fwUpdate", label=label),
     )
     undo_unset: list[str] = []
     undo_set: dict[str, str] = {}
@@ -269,7 +288,12 @@ def _update(
                 else:
                     undo_unset.append(k)
         elif old[k]:
-            cfg.unset(menu, row, k, f"{label}: clear {k}")
+            cfg.unset(
+                menu,
+                row,
+                k,
+                Described(f"{label}: clear {k}", "plan.mikrotik.fwClear", label=label, prop=k),
+            )
             undo_set[k] = old[k]
     lines = [f"{_CLI[menu]} unset {_find(comment)} {k}" for k in undo_unset]
     if undo_set:
@@ -280,7 +304,7 @@ def _update(
 
 
 def _delete(
-    cfg: _Config, menu: str, row: dict[str, Any], revert: Revert, label: str, what: str = "remove"
+    cfg: _Config, menu: str, row: dict[str, Any], revert: Revert, label: str
 ) -> dict[str, Any] | None:
     """Delete a row; the revert adds it again before the row that followed it, found by its
     comment or, without one, by its row id (a deployment deletes only rows with a comment, so a
@@ -296,7 +320,7 @@ def _delete(
         line += f" place-before={_find(_text(after['comment']))}"
     elif after is not None and _text(after.get(".id")):
         line += f" place-before={_text(after['.id'])}"
-    cfg.delete(menu, row, f"{label}: {what}")
+    cfg.delete(menu, row, Described(f"{label}: remove", "plan.mikrotik.fwRemove", label=label))
     revert.add(line)
     return after
 
@@ -379,7 +403,7 @@ def firewall_rule(cfg: _Config, c: Change, revert: Revert) -> None:
     from signalbox.adapters import mikrotik as m
 
     key = c.key.partition("/")[2]
-    label = f"firewall rule {key}"
+    label = Label(f"firewall rule {key}", "fwRule", key)
     ours = _ours(cfg, (m.FW_FILTER, m.FW_FILTER6), key)
     v = c.new if isinstance(c.new, FirewallRuleValue) else None
     if v is None:
@@ -387,29 +411,50 @@ def firewall_rule(cfg: _Config, c: Change, revert: Revert) -> None:
         return
     if v.family is None:
         raise AdapterError(
-            f"{label}: RouterOS has separate IPv4 and IPv6 filters: give `family: 4` or `family: 6`"
+            f"{label}: RouterOS has separate IPv4 and IPv6 filters: "
+            "give `family: 4` or `family: 6`",
+            message_id="mikrotik.familyNeeded",
+            params={"label": label},
         )
     menu = m.FW_FILTER if v.family == 4 else m.FW_FILTER6
     if v.chain not in (FirewallChain.INPUT, FirewallChain.FORWARD):  # pragma: no cover
-        raise AdapterError(f"{label}: rules for the router's own traffic are not written")
+        raise AdapterError(
+            f"{label}: rules for the router's own traffic are not written",
+            message_id="write.ownTraffic",
+            params={"subject": label},
+        )
     if v.chain is FirewallChain.INPUT and v.destination_zone:
         raise AdapterError(
             f"{label}: a rule to the router itself has no destination zone (RouterOS refuses "
-            "out-interface in the input chain)"
+            "out-interface in the input chain)",
+            message_id="mikrotik.inputNoDestination",
+            params={"label": label},
         )
     protocol = _protocol(v.protocols, v.family, label)
     ports = _ports(v.destination_ports)
     if ports and protocol not in ("tcp", "udp"):
-        raise AdapterError(f"{label}: ports need the protocol tcp or udp")
+        raise AdapterError(
+            f"{label}: ports need the protocol tcp or udp",
+            message_id="write.portProtocol",
+            params={"subject": label, "protocols": "tcp or udp"},
+        )
     body = _clean(
         {
             "chain": v.chain.value,
             "action": _ACTIONS[v.action],
             "protocol": protocol,
-            "in-interface-list": _zone(cfg, v.source_zone, label, "source zone"),
-            "out-interface-list": _zone(cfg, v.destination_zone, label, "destination zone"),
-            "src-address": _address(v.source_networks, v.family, label, "source"),
-            "dst-address": _address(v.destination_networks, v.family, label, "destination"),
+            "in-interface-list": _zone(
+                cfg, v.source_zone, label, Label("source zone", "sourceZone")
+            ),
+            "out-interface-list": _zone(
+                cfg, v.destination_zone, label, Label("destination zone", "destinationZone")
+            ),
+            "src-address": _address(
+                v.source_networks, v.family, label, Label("source", "sourceSide")
+            ),
+            "dst-address": _address(
+                v.destination_networks, v.family, label, Label("destination", "destinationSide")
+            ),
             "dst-port": ports,
             "disabled": "false" if v.enabled else "true",
             "comment": describe(key, v.name),
@@ -436,7 +481,7 @@ def zone_policy(cfg: _Config, c: Change, revert: Revert) -> None:
 
     _, source, dest_text = c.key.split("/", 2)
     dest = None if dest_text == "device" else dest_text
-    label = f"zone policy {source} to {dest_text}"
+    label = Label(f"zone policy {source} to {dest_text}", "zonePolicy", source, dest_text)
     mark = f"{TAG}{POLICY_MARK}{source}/{dest_text}"
     new = c.new if isinstance(c.new, ZonePolicyValue) else None
     menus = [m.FW_FILTER]
@@ -444,9 +489,9 @@ def zone_policy(cfg: _Config, c: Change, revert: Revert) -> None:
     if m.FW_FILTER6 not in cfg.absent:
         menus.append(m.FW_FILTER6)
     if new is not None:
-        _zone(cfg, source, label, "zone")
+        _zone(cfg, source, label, Label("zone", "zone"))
         if dest is not None:
-            _zone(cfg, dest, label, "zone")
+            _zone(cfg, dest, label, Label("zone", "zone"))
     chain = "input" if dest is None else "forward"
     for menu in (m.FW_FILTER, m.FW_FILTER6):
         row = next((r for r in cfg.static(menu) if _text(r.get("comment")) == mark), None)
@@ -484,7 +529,7 @@ def port_forward(cfg: _Config, c: Change, revert: Revert) -> None:
     from signalbox.adapters import mikrotik as m
 
     key = c.key.partition("/")[2]
-    label = f"port forward {key}"
+    label = Label(f"port forward {key}", "portForward", key)
     ours = _ours(cfg, (m.FW_NAT,), key)
     v = c.new if isinstance(c.new, PortForwardValue) else None
     if v is None:
@@ -492,11 +537,23 @@ def port_forward(cfg: _Config, c: Change, revert: Revert) -> None:
         return
     protocol = _protocol(v.protocols, 4, label)
     if protocol not in ("tcp", "udp"):
-        raise AdapterError(f"{label}: a port forward needs the protocol tcp or udp")
+        raise AdapterError(
+            f"{label}: a port forward needs the protocol tcp or udp",
+            message_id="write.forwardProtocol",
+            params={"subject": label, "protocols": "tcp or udp"},
+        )
     if len(v.external_ports) != 1:
-        raise AdapterError(f"{label}: give one external port or one range")
+        raise AdapterError(
+            f"{label}: give one external port or one range",
+            message_id="write.oneExternalPort",
+            params={"subject": label},
+        )
     if v.target_address.version != 4:
-        raise AdapterError(f"{label}: only IPv4 targets are written")
+        raise AdapterError(
+            f"{label}: only IPv4 targets are written",
+            message_id="write.ipv4TargetsOnly",
+            params={"subject": label},
+        )
     external = v.external_ports[0]
     to_ports = None
     if v.target_port is not None:
@@ -507,7 +564,7 @@ def port_forward(cfg: _Config, c: Change, revert: Revert) -> None:
             "chain": "dstnat",
             "action": "dst-nat",
             "protocol": protocol,
-            "in-interface-list": _zone(cfg, v.zone, label, "zone"),
+            "in-interface-list": _zone(cfg, v.zone, label, Label("zone", "zone")),
             "dst-port": str(external),
             "to-addresses": str(v.target_address),
             "to-ports": to_ports,

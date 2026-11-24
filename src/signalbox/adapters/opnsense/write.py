@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from ipaddress import IPv4Interface, ip_network
 from typing import TYPE_CHECKING, Any
 
-from signalbox.adapters import AdapterError, Described, VendorCall, message_fields
+from signalbox.adapters import AdapterError, Described, Label, VendorCall, message_fields
 from signalbox.adapters.opnsense.firewall import POLICY_MARK, TAG, describe, split_mark, tagged
 from signalbox.changes import (
     Change,
@@ -35,6 +35,7 @@ from signalbox.changes import (
     RouterValue,
     ZonePolicyValue,
 )
+from signalbox.messages import plain_params
 from signalbox.model import (
     FirewallAction,
     FirewallChain,
@@ -88,9 +89,12 @@ class Call:
     method: str = "POST"
 
     def vendor(self) -> VendorCall:
+        fields = message_fields(self.description)
+        if "params" in fields:
+            fields["params"] = plain_params(fields["params"])
         return VendorCall(
             description=self.description,
-            **message_fields(self.description),
+            **fields,
             method=self.method,
             target=self.path,
             payload=self.payload,
@@ -148,7 +152,10 @@ class WriteState:
         lan = self.layout.by_identifier("lan")
         if lan is None or lan.port is None:
             if required:
-                raise AdapterError("no LAN port found to carry a new VLAN; add the VLAN first")
+                raise AdapterError(
+                    "no LAN port found to carry a new VLAN; add the VLAN first",
+                    message_id="opnsense.noLanPort",
+                )
             return None
         return lan.port.rsplit("/port/", 1)[-1]
 
@@ -196,7 +203,11 @@ def calls_for(change: Change, st: WriteState) -> list[Call]:
         return _rule(change, st)
     if change.kind is ChangeKind.PORT_FORWARD:
         return _forward(change, st)
-    raise AdapterError(f"OPNsense cannot change {change.kind.value}")
+    raise AdapterError(
+        f"OPNsense cannot change {change.kind.value}",
+        message_id="write.unsupportedKind",
+        params={"vendor": "OPNsense", "kind": change.kind.value},
+    )
 
 
 # --- router interfaces ---------------------------------------------------------------------
@@ -215,29 +226,56 @@ def _router(c: Change, st: WriteState) -> list[Call]:
         if tag is None:
             raise AdapterError(
                 f"{sid}: Signalbox removes only VLAN networks; the LAN and networks on their "
-                "own port stay assigned (unassign them in the web interface)"
+                "own port stay assigned (unassign them in the web interface)",
+                message_id="opnsense.removeVlanOnly",
+                params={"subject": sid},
             )
         calls = [
-            Call(f"unassign interface {iface.identifier}", ASSIGN_DEL + iface.identifier),
-            Call("apply the interface assignments", ASSIGN_APPLY),
+            Call(
+                Described(
+                    f"unassign interface {iface.identifier}",
+                    "plan.opnsense.unassign",
+                    identifier=iface.identifier,
+                ),
+                ASSIGN_DEL + iface.identifier,
+            ),
+            _apply_assignments(),
         ]
         st.layout.ifaces.remove(iface)
         row = next((v for v in st.vlans if v.get("vlanif") == iface.device), None)
         if row is not None and st.layout.by_device(iface.device) is None:
             calls += [
-                Call(f"delete VLAN device {iface.device}", VLAN_DEL + str(row["uuid"])),
-                Call("apply the VLAN devices", VLAN_APPLY),
+                Call(
+                    Described(
+                        f"delete VLAN device {iface.device}",
+                        "plan.opnsense.vlanDeleteDevice",
+                        device=iface.device,
+                    ),
+                    VLAN_DEL + str(row["uuid"]),
+                ),
+                _apply_vlans(),
             ]
             st.vlans.remove(row)
         return calls
     assert isinstance(new, RouterValue)
     if new.vlan != tag:
-        raise AdapterError(f"{sid}: VLAN {new.vlan} does not belong to this network")
+        raise AdapterError(
+            f"{sid}: VLAN {new.vlan} does not belong to this network",
+            message_id="opnsense.vlanNotOfNetwork",
+            params={"subject": sid, "vlan": str(new.vlan)},
+        )
     if not isinstance(new.address, IPv4Interface):
-        raise AdapterError(f"{sid}: only IPv4 router addresses can be set")
+        raise AdapterError(
+            f"{sid}: only IPv4 router addresses can be set",
+            message_id="opnsense.routerIpv4Only",
+            params={"subject": sid},
+        )
     if new.name is not None and not DESCR.match(new.name):
         raise AdapterError(
-            f"{sid}: OPNsense interface names may only contain letters, digits and _ ({new.name!r})"
+            f"{sid}: OPNsense interface names may only contain letters, digits and _ "
+            f"({new.name!r})",
+            message_id="opnsense.interfaceName",
+            params={"subject": sid, "name": repr(new.name)},
         )
     item: dict[str, Any] = {"enable": "1", "type4": "staticv4", "ipaddr": str(new.address)}
     if new.name is not None:
@@ -245,11 +283,16 @@ def _router(c: Change, st: WriteState) -> list[Call]:
     if iface is not None:
         calls = [
             Call(
-                f"set address {new.address} on interface {iface.identifier}",
+                Described(
+                    f"set address {new.address} on interface {iface.identifier}",
+                    "plan.opnsense.setAddress",
+                    address=str(new.address),
+                    identifier=iface.identifier,
+                ),
                 ASSIGN_SET + iface.identifier,
                 {"interface": item},
             ),
-            Call("apply the interface assignments", ASSIGN_APPLY),
+            _apply_assignments(),
         ]
         iface.addresses = [
             new.address,
@@ -260,10 +303,16 @@ def _router(c: Change, st: WriteState) -> list[Call]:
     if tag is None:
         raise AdapterError(
             f"{sid}: no interface is assigned to this network ({last}); assign its port in the "
-            "web interface first"
+            "web interface first",
+            message_id="opnsense.noInterface",
+            params={"subject": sid, "segment": last},
         )
     if new.name is None:
-        raise AdapterError(f"{sid}: give the network a name (OPNsense names every interface)")
+        raise AdapterError(
+            f"{sid}: give the network a name (OPNsense names every interface)",
+            message_id="opnsense.needsName",
+            params={"subject": sid},
+        )
     calls = []
     row = st.vlan(tag)
     if row is None:
@@ -271,17 +320,23 @@ def _router(c: Change, st: WriteState) -> list[Call]:
         assert parent is not None
         row = _new_vlan(st, parent, tag, new.name)
         calls += [
-            Call(f"create VLAN {tag} on {parent}", VLAN_ADD, {"vlan": _vlan_item(row)}),
-            Call("apply the VLAN devices", VLAN_APPLY),
+            _create_vlan(tag, parent, row),
+            _apply_vlans(),
         ]
     vlanif = str(row["vlanif"])
     calls += [
         Call(
-            f"assign {vlanif} as {new.name} with {new.address}",
+            Described(
+                f"assign {vlanif} as {new.name} with {new.address}",
+                "plan.opnsense.assign",
+                device=vlanif,
+                name=new.name,
+                address=str(new.address),
+            ),
             ASSIGN_ADD,
             {"interface": {"if": vlanif, "lock": "0", **item}},
         ),
-        Call("apply the interface assignments", ASSIGN_APPLY),
+        _apply_assignments(),
     ]
     parent_port = next(
         (p.id for p in st.layout.ports if p.name == row["if"]),
@@ -299,6 +354,23 @@ def _router(c: Change, st: WriteState) -> list[Call]:
         )
     )
     return calls
+
+
+def _apply_assignments() -> Call:
+    return Call(
+        Described("apply the interface assignments", "plan.opnsense.applyAssign"), ASSIGN_APPLY
+    )
+
+
+def _apply_vlans() -> Call:
+    return Call(Described("apply the VLAN devices", "plan.opnsense.applyVlan"), VLAN_APPLY)
+
+
+def _create_vlan(tag: int, parent: str, row: dict[str, Any]) -> Call:
+    text = Described(
+        f"create VLAN {tag} on {parent}", "plan.opnsense.vlanCreate", tag=str(tag), port=parent
+    )
+    return Call(text, VLAN_ADD, {"vlan": _vlan_item(row)})
 
 
 def _new_vlan(st: WriteState, parent: str, tag: int, descr: str) -> dict[str, Any]:
@@ -328,10 +400,15 @@ def _kea(st: WriteState, sid: str) -> None:
     if sid in st.isc:
         raise AdapterError(
             f"{sid} is served by ISC DHCP, which the OPNsense API cannot change; move the "
-            "network to Kea DHCP (Services > Kea DHCP) to manage it with Signalbox"
+            "network to Kea DHCP (Services > Kea DHCP) to manage it with Signalbox",
+            message_id="opnsense.iscServed",
+            params={"subject": sid},
         )
     if st.kea is None:
-        raise AdapterError("Kea DHCP is not available on this firewall (API answered 404)")
+        raise AdapterError(
+            "Kea DHCP is not available on this firewall (API answered 404)",
+            message_id="opnsense.keaMissing",
+        )
 
 
 def _dhcp(c: Change, st: WriteState) -> list[Call]:
@@ -345,9 +422,11 @@ def _dhcp(c: Change, st: WriteState) -> list[Call]:
     enable = st.kea_enabled
     if new is None:
         if found is not None:
-            calls.append(
-                Call(f"delete Kea subnet {found[1].get('subnet')}", KEA_DEL_SUBNET + found[0])
+            subnet = str(found[1].get("subnet"))
+            text = Described(
+                f"delete Kea subnet {subnet}", "plan.opnsense.subnetDelete", subnet=subnet
             )
+            calls.append(Call(text, KEA_DEL_SUBNET + found[0]))
             del st.subnets[found[0]]
         if iface is not None and iface.identifier in listen:
             listen.remove(iface.identifier)
@@ -356,12 +435,16 @@ def _dhcp(c: Change, st: WriteState) -> list[Call]:
         if iface is None or (own := _v4(iface)) is None:
             raise AdapterError(
                 f"{sid}: the firewall has no IPv4 interface on this network; set its router "
-                "address first"
+                "address first",
+                message_id="opnsense.noIpv4Interface",
+                params={"subject": sid},
             )
         if new.lease_seconds is None and st.lifetime is not None:
             raise AdapterError(
                 f"{sid}: give lease_seconds; Kea always hands out a lease time (the default "
-                f"here is {st.lifetime} s)"
+                f"here is {st.lifetime} s)",
+                message_id="opnsense.leaseSeconds",
+                params={"subject": sid, "seconds": st.lifetime},
             )
         old = found[1] if found else {}
         options = old.get("option_data") if isinstance(old.get("option_data"), dict) else {}
@@ -379,14 +462,21 @@ def _dhcp(c: Change, st: WriteState) -> list[Call]:
         data["option_data"] = option_data
         if found is None:
             data["description"] = iface.description
-            calls.append(
-                Call(f"create Kea subnet {data['subnet']}", KEA_ADD_SUBNET, {"subnet4": data})
+            text = Described(
+                f"create Kea subnet {data['subnet']}",
+                "plan.opnsense.subnetCreate",
+                subnet=data["subnet"],
             )
+            calls.append(Call(text, KEA_ADD_SUBNET, {"subnet4": data}))
             st.subnets[f"{{new subnet {data['subnet']}}}"] = data
         else:
             calls.append(
                 Call(
-                    f"update Kea subnet {data['subnet']}",
+                    Described(
+                        f"update Kea subnet {data['subnet']}",
+                        "plan.opnsense.subnetUpdate",
+                        subnet=data["subnet"],
+                    ),
                     KEA_SET_SUBNET + found[0],
                     {"subnet4": data},
                 )
@@ -399,9 +489,14 @@ def _dhcp(c: Change, st: WriteState) -> list[Call]:
         enable = enable or new.enabled
     if listen != st.listen or enable != st.kea_enabled:
         general = {"enabled": "1" if enable else "0", "interfaces": ",".join(listen)}
+        shown = ", ".join(listen) or Label("none", "none")
         calls.append(
             Call(
-                "set the interfaces Kea listens on: " + (", ".join(listen) or "none"),
+                Described(
+                    f"set the interfaces Kea listens on: {shown}",
+                    "plan.opnsense.keaListen",
+                    interfaces=shown,
+                ),
                 KEA_SET,
                 {"dhcpv4": {"general": general}},
             )
@@ -418,7 +513,11 @@ def _reservation(c: Change, st: WriteState) -> list[Call]:
     if found is None:
         if c.new is None:
             return []
-        raise AdapterError(f"{sid}: no Kea subnet on this network; set up DHCP first")
+        raise AdapterError(
+            f"{sid}: no Kea subnet on this network; set up DHCP first",
+            message_id="opnsense.noKeaSubnet",
+            params={"subject": sid},
+        )
     uuid = found[0]
     existing = next(
         (
@@ -433,7 +532,10 @@ def _reservation(c: Change, st: WriteState) -> list[Call]:
         if existing is None:
             return []
         del st.reservations[existing]
-        return [Call(f"delete the reservation of {mac}", KEA_DEL_RES + existing)]
+        text = Described(
+            f"delete the reservation of {mac}", "plan.opnsense.reservationDelete", mac=mac
+        )
+        return [Call(text, KEA_DEL_RES + existing)]
     assert isinstance(new, ReservationValue)
     item = {
         "subnet": uuid,
@@ -445,12 +547,26 @@ def _reservation(c: Change, st: WriteState) -> list[Call]:
     if existing is None:
         st.reservations[f"{{new reservation {mac}}}"] = item
         return [
-            Call(f"reserve {new.address} for {mac}", KEA_ADD_RES, {"reservation": item}),
+            Call(
+                Described(
+                    f"reserve {new.address} for {mac}",
+                    "plan.opnsense.reservationAdd",
+                    address=str(new.address),
+                    mac=mac,
+                ),
+                KEA_ADD_RES,
+                {"reservation": item},
+            ),
         ]
     st.reservations[existing] = item
     return [
         Call(
-            f"change the reservation of {mac} to {new.address}",
+            Described(
+                f"change the reservation of {mac} to {new.address}",
+                "plan.opnsense.reservationChange",
+                mac=mac,
+                address=str(new.address),
+            ),
             KEA_SET_RES + existing,
             {"reservation": item},
         )
@@ -480,7 +596,11 @@ def _same_mac(value: Any, mac: str) -> bool:
 def _port(c: Change, st: WriteState) -> list[Call]:
     port = next((p for p in st.layout.ports if p.id == c.key), None)
     if port is None:
-        raise AdapterError(f"{c.key}: no such port on the firewall")
+        raise AdapterError(
+            f"{c.key}: no such port on the firewall",
+            message_id="write.noSuchPort",
+            params={"subject": c.key},
+        )
     new = c.new if isinstance(c.new, PortValue) else PortValue()
     untagged = None
     for seg in st.layout.segments.values():
@@ -489,25 +609,40 @@ def _port(c: Change, st: WriteState) -> list[Call]:
     if new.untagged != untagged:
         raise AdapterError(
             f"{c.key}: the untagged network of a port is its interface assignment, which "
-            "Signalbox does not change; change it in the web interface"
+            "Signalbox does not change; change it in the web interface",
+            message_id="opnsense.untaggedIsAssignment",
+            params={"subject": c.key},
         )
     have = {t: v for v in st.vlans if v["if"] == port.name and (t := _tag(v)) is not None}
     calls: list[Call] = []
     for tag in sorted(set(new.tagged) - set(have)):
         row = _new_vlan(st, port.name, tag, "")
-        calls.append(Call(f"create VLAN {tag} on {port.name}", VLAN_ADD, {"vlan": _vlan_item(row)}))
+        calls.append(_create_vlan(tag, port.name, row))
     for tag in sorted(set(have) - set(new.tagged)):
         row = have[tag]
         user = st.layout.by_device(str(row.get("vlanif")))
         if user is not None:
             raise AdapterError(
                 f"{c.key}: VLAN {tag} carries the network {user.description} "
-                f"({user.identifier}); remove its router interface first"
+                f"({user.identifier}); remove its router interface first",
+                message_id="opnsense.vlanInUse",
+                params={
+                    "subject": c.key,
+                    "vlan": str(tag),
+                    "network": user.description,
+                    "identifier": user.identifier,
+                },
             )
-        calls.append(Call(f"delete VLAN {tag} on {port.name}", VLAN_DEL + str(row["uuid"])))
+        text = Described(
+            f"delete VLAN {tag} on {port.name}",
+            "plan.opnsense.vlanDelete",
+            tag=str(tag),
+            port=port.name,
+        )
+        calls.append(Call(text, VLAN_DEL + str(row["uuid"])))
         st.vlans.remove(row)
     if calls:
-        calls.append(Call("apply the VLAN devices", VLAN_APPLY))
+        calls.append(_apply_vlans())
     return calls
 
 
@@ -560,8 +695,12 @@ def _zone_check(st: WriteState, zone: str, label: str, interface: bool = False) 
     known = st.interfaces if interface else st.zones
     if zone not in known:
         what = "interface" if interface else "zone"
-        names = ", ".join(sorted(known)) or "none"
-        raise AdapterError(f"{label}: the firewall has no {what} {zone!r} ({what}s: {names})")
+        names = ", ".join(sorted(known)) or Label("none", "none")
+        raise AdapterError(
+            f"{label}: the firewall has no {what} {zone!r} ({what}s: {names})",
+            message_id="opnsense.noInterfaceNamed" if interface else "opnsense.noZoneNamed",
+            params={"label": label, "zone": repr(zone), "names": names},
+        )
 
 
 def _tagged_row(rows: list[dict[str, Any]], key: str) -> dict[str, Any] | None:
@@ -606,19 +745,29 @@ def _protocol(protocols: list[FirewallProtocol], family: int | None, label: str)
     if kinds == {FirewallProtocol.ICMP}:
         if family is None:
             raise AdapterError(
-                f"{label}: ICMP needs family 4 or 6 on OPNsense (separate IPv4 and IPv6 ICMP)"
+                f"{label}: ICMP needs family 4 or 6 on OPNsense (separate IPv4 and IPv6 ICMP)",
+                message_id="opnsense.icmpFamily",
+                params={"label": label},
             )
         return "ICMP" if family == 4 else "ipv6-icmp"
     found = _PROTOCOL_NAMES.get(kinds)
     if found is None:
         names = ", ".join(sorted(p.value for p in kinds))
-        raise AdapterError(f"{label}: OPNsense cannot match the protocols {names} in one rule")
+        raise AdapterError(
+            f"{label}: OPNsense cannot match the protocols {names} in one rule",
+            message_id="opnsense.protocolMix",
+            params={"label": label, "protocols": names},
+        )
     return found
 
 
 def _one_port(ports: list[PortRange], label: str) -> str:
     if len(ports) > 1:
-        raise AdapterError(f"{label}: give one port or one range, OPNsense matches one per rule")
+        raise AdapterError(
+            f"{label}: give one port or one range, OPNsense matches one per rule",
+            message_id="opnsense.onePortPerRule",
+            params={"label": label},
+        )
     return str(ports[0]) if ports else ""
 
 
@@ -637,7 +786,11 @@ def _rule_item(
     v: FirewallRuleValue, st: WriteState, key: str, sequence: int, label: str
 ) -> dict[str, Any]:
     if v.chain is FirewallChain.OUTPUT:  # pragma: no cover - the planner never makes one
-        raise AdapterError(f"{label}: rules for the firewall's own traffic are not written")
+        raise AdapterError(
+            f"{label}: rules for the firewall's own traffic are not written",
+            message_id="write.ownTraffic",
+            params={"subject": label},
+        )
     interface, negated = _zones_of(v.source_zone, st, label)
     dest_not = False
     if v.chain is FirewallChain.INPUT:
@@ -646,11 +799,17 @@ def _rule_item(
         if v.destination_networks:
             raise AdapterError(
                 f"{label}: OPNsense matches the destination as one thing: give a destination "
-                "zone or destination addresses, not both"
+                "zone or destination addresses, not both",
+                message_id="opnsense.destinationExclusive",
+                params={"label": label},
             )
         destination, dest_not = _zones_of(v.destination_zone, st, label)
         if "," in destination:
-            raise AdapterError(f"{label}: give one destination zone, OPNsense matches one per rule")
+            raise AdapterError(
+                f"{label}: give one destination zone, OPNsense matches one per rule",
+                message_id="opnsense.oneDestinationZone",
+                params={"label": label},
+            )
     elif v.destination_networks:
         destination = ",".join(str(n) for n in v.destination_networks)
     else:
@@ -659,11 +818,17 @@ def _rule_item(
     if v.family is None and (v.source_networks or v.destination_networks):
         raise AdapterError(
             f"{label}: OPNsense wants the IP version of a rule with addresses: give `family: 4` "
-            "or `family: 6`"
+            "or `family: 6`",
+            message_id="opnsense.familyNeeded",
+            params={"label": label},
         )
     protocol = _protocol(v.protocols, v.family, label)
     if v.destination_ports and protocol not in ("TCP", "UDP", "TCP/UDP"):
-        raise AdapterError(f"{label}: ports need the protocol tcp, udp or both")
+        raise AdapterError(
+            f"{label}: ports need the protocol tcp, udp or both",
+            message_id="write.portProtocol",
+            params={"subject": label, "protocols": "tcp, udp or both"},
+        )
     return {
         "enabled": "1" if v.enabled else "0",
         "sequence": str(sequence),
@@ -759,19 +924,22 @@ def _write_row(
         if ours is None:
             return calls
         rows.remove(ours)
-        return [*calls, Call(f"{label}: remove", del_ + _uuid_of(ours))]
+        text = Described(f"{label}: remove", "plan.opnsense.rowRemove", label=label)
+        return [*calls, Call(text, del_ + _uuid_of(ours))]
     shown = {**item, "descr": _descr(item)}
     if ours is not None:
         item = {**item, "sequence": str(ours.get("sequence", item["sequence"]))}
         rows[rows.index(ours)] = {**shown, "sequence": item["sequence"], "uuid": _uuid_of(ours)}
-        return [*calls, Call(f"{label}: update", set_ + _uuid_of(ours), {"rule": item})]
+        text = Described(f"{label}: update", "plan.opnsense.rowUpdate", label=label)
+        return [*calls, Call(text, set_ + _uuid_of(ours), {"rule": item})]
     rows.append({**shown, "uuid": f"{{new {label}}}"})
-    return [*calls, Call(f"{label}: create", add, {"rule": item})]
+    text = Described(f"{label}: create", "plan.opnsense.rowCreate", label=label)
+    return [*calls, Call(text, add, {"rule": item})]
 
 
 def _rule(c: Change, st: WriteState) -> list[Call]:
     key = c.key.partition("/")[2]
-    label = f"firewall rule {key}"
+    label = Label(f"firewall rule {key}", "fwRule", key)
     ours = _tagged_row(st.filter_rows, key)
     v = c.new if isinstance(c.new, FirewallRuleValue) else None
     adopted = None
@@ -789,7 +957,7 @@ def _rule(c: Change, st: WriteState) -> list[Call]:
 def _policy(c: Change, st: WriteState) -> list[Call]:
     _, source, dest_text = c.key.split("/", 2)
     dest = None if dest_text == "device" else dest_text
-    label = f"zone policy {source} to {dest_text}"
+    label = Label(f"zone policy {source} to {dest_text}", "zonePolicy", source, dest_text)
     mark = f"{TAG}{POLICY_MARK}{source}/{dest_text}"
     ours = next((r for r in st.filter_rows if _descr(r) == mark and not _legacy(r)), None)
     new = c.new if isinstance(c.new, ZonePolicyValue) else None
@@ -826,11 +994,23 @@ def _forward_item(
     _zone_check(st, v.zone, label, interface=True)
     protocol = _protocol(v.protocols, 4, label)
     if protocol not in ("TCP", "UDP", "TCP/UDP"):
-        raise AdapterError(f"{label}: a port forward needs the protocol tcp, udp or both")
+        raise AdapterError(
+            f"{label}: a port forward needs the protocol tcp, udp or both",
+            message_id="write.forwardProtocol",
+            params={"subject": label, "protocols": "tcp, udp or both"},
+        )
     if len(v.external_ports) != 1:
-        raise AdapterError(f"{label}: give one external port or one range")
+        raise AdapterError(
+            f"{label}: give one external port or one range",
+            message_id="write.oneExternalPort",
+            params={"subject": label},
+        )
     if v.target_address.version != 4:
-        raise AdapterError(f"{label}: only IPv4 targets are written")
+        raise AdapterError(
+            f"{label}: only IPv4 targets are written",
+            message_id="write.ipv4TargetsOnly",
+            params={"subject": label},
+        )
     return {
         "disabled": "0" if v.enabled else "1",
         "sequence": str(sequence),
@@ -848,7 +1028,7 @@ def _forward_item(
 
 def _forward(c: Change, st: WriteState) -> list[Call]:
     key = c.key.partition("/")[2]
-    label = f"port forward {key}"
+    label = Label(f"port forward {key}", "portForward", key)
     ours = _tagged_row(st.dnat_rows, key)
     v = c.new if isinstance(c.new, PortForwardValue) else None
     adopted = None

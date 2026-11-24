@@ -92,11 +92,25 @@ export const savedLanguage = () => stored() || 'auto';
 const FSI = '\u2068';
 const PDI = '\u2069';
 
+// A name Signalbox gives a thing travels as a token (@lbl.<key>:<arg>\u001f<arg>); it is translated
+// with the catalogue entry lbl.<key>, whose {1}, {2} take the arguments (#204). Anything else, and
+// a token without an entry, is shown as it is.
+const LABEL = /^@(lbl\.[\w.]+)(?::([\s\S]*))?$/;
+
+function label(value) {
+  const match = typeof value === 'string' ? LABEL.exec(value) : null;
+  if (!match || !(catalog[match[1]] ?? fallback[match[1]])) return value;
+  const args = match[2] === undefined ? [] : match[2].split('\u001f');
+  const values = {};
+  args.forEach((a, i) => { values[String(i + 1)] = a; });
+  return t(match[1], values);
+}
+
 function fill(text, params) {
   const rtl = document.documentElement.dir === 'rtl';
   return text.replace(/\{(\w+)\}/g, (whole, name) => {
     if (!params || !(name in params) || params[name] === null || params[name] === undefined) return whole;
-    const value = String(params[name]);
+    const value = String(label(params[name]));
     return rtl && value ? `${FSI}${value}${PDI}` : value;
   });
 }

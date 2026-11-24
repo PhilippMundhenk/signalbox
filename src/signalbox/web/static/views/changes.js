@@ -1,6 +1,6 @@
 // Changes: the change log; approve, deploy, revert; backups.
 import { t } from '../i18n.js';
-import { findingMessage } from '../texts.js';
+import { deviceProblem, findingMessage } from '../texts.js';
 import { enc, get, post } from '../api.js';
 import { clear, fmtTime, h, place, sleep } from '../util.js';
 import { busy, card, confirmDialog, empty, field, notice, pageHead, run, table, tag, toast } from '../ui.js';
@@ -178,7 +178,7 @@ export async function renderChange(main, ctx, route) {
           [t('changes.col.device'), (d) => d.device_id],
           [t('changes.col.result'), (d) => statusTag(d.status)],
           [t('changes.col.calls'), (d) => h('ul', {}, d.calls.map((c) => h('li', {}, findingMessage({ message: c.description, message_id: c.message_id, params: c.params }))))],
-          [t('changes.col.problem'), (d) => d.error || ''],
+          [t('changes.col.problem'), (d) => deviceProblem(d)],
         ],
         rec.devices,
         { testid: 'change-devices', rowTestid: 'change-device' },

@@ -21,8 +21,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from signalbox.adapters import AdapterError, VendorCall
+from signalbox.adapters import AdapterError, Described, VendorCall, message_fields
 from signalbox.changes import Change, ChangeKind, PortValue
+from signalbox.messages import Label
 from signalbox.model import port_id
 
 #: the format of a switch backup (``Backup.format``)
@@ -41,13 +42,23 @@ class Table:
         """The table of a ``read_vlan`` answer; refused unless the switch is in 802.1Q mode."""
         mode = str(vlan.get("mode", "disabled")) if isinstance(vlan, Mapping) else None
         if vlan is None or mode is None:
-            raise AdapterError(f"{host}: the switch reports no VLAN settings; nothing is changed")
+            raise AdapterError(
+                f"{host}: the switch reports no VLAN settings; nothing is changed",
+                message_id="plusswitch.noVlanSettings",
+                params={"host": host},
+            )
         if not mode.startswith("dot1q"):
-            kind = "port-based VLANs" if mode.startswith("port") else "VLANs switched off"
+            kind = (
+                Label("port-based VLANs", "portBasedVlans")
+                if mode.startswith("port")
+                else Label("VLANs switched off", "vlansOff")
+            )
             raise AdapterError(
                 f"{host}: the switch is in {mode} mode ({kind}); Signalbox changes VLANs only "
                 "in 802.1Q mode. Switch to 802.1Q in the vendor utility or Switchyard first; "
-                "nothing is changed"
+                "nothing is changed",
+                message_id="plusswitch.notDot1q",
+                params={"host": host, "mode": mode, "kind": kind},
             )
         table = cls()
         for entry in vlan.get("dot1q") or []:
@@ -102,21 +113,41 @@ class Table:
                 }
             table.pvid = {int(p): int(v) for p, v in data["pvid"].items()}
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
-            raise AdapterError(f"the backup is not a switch VLAN table: {exc}") from exc
+            raise AdapterError(
+                f"the backup is not a switch VLAN table: {exc}",
+                message_id="plusswitch.backupNotTable",
+                params={"detail": str(exc)},
+            ) from exc
         if 1 not in table.vlans:
-            raise AdapterError("the backup is not a switch VLAN table: VLAN 1 is missing")
+            raise AdapterError(
+                "the backup is not a switch VLAN table: VLAN 1 is missing",
+                message_id="plusswitch.backupNotTable",
+                params={"detail": Label("VLAN 1 is missing", "vlan1Missing")},
+            )
         return table
 
 
 def port_number(device_id: str, change: Change) -> int:
     """The switch port a change is for (``<device>/port/<n>``)."""
     if change.kind is not ChangeKind.PORT:
-        raise AdapterError(f"{change.id}: these switches only change ports (VLAN membership)")
+        raise AdapterError(
+            f"{change.id}: these switches only change ports (VLAN membership)",
+            message_id="plusswitch.portsOnly",
+            params={"subject": change.id},
+        )
     if change.device_id != device_id:
-        raise AdapterError(f"{change.id}: not a change of this switch ({device_id})")
+        raise AdapterError(
+            f"{change.id}: not a change of this switch ({device_id})",
+            message_id="plusswitch.notThisSwitch",
+            params={"subject": change.id, "device": device_id},
+        )
     name = change.key.removeprefix(port_id(device_id, ""))
     if change.key == name or not name.isdigit() or int(name) < 1:
-        raise AdapterError(f"{change.id}: {change.key} is not a port of this switch")
+        raise AdapterError(
+            f"{change.id}: {change.key} is not a port of this switch",
+            message_id="plusswitch.notAPort",
+            params={"subject": change.id, "key": change.key},
+        )
     return int(name)
 
 
@@ -126,18 +157,30 @@ def wanted(change: Change) -> tuple[int | None, list[int]]:
     untagged = None if new.untagged is None else 1 if new.untagged == "native" else new.untagged
     tagged = sorted(set(new.tagged))
     if untagged in tagged:
-        raise AdapterError(f"{change.id}: VLAN {untagged} cannot be both untagged and tagged")
+        raise AdapterError(
+            f"{change.id}: VLAN {untagged} cannot be both untagged and tagged",
+            message_id="write.vlanTaggedUntagged",
+            params={"subject": change.id, "vlan": untagged},
+        )
     for vid in [*([untagged] if untagged else []), *tagged]:
         if not 1 <= vid <= 4093:
-            raise AdapterError(f"{change.id}: VLAN {vid} is outside 1-4093")
+            raise AdapterError(
+                f"{change.id}: VLAN {vid} is outside 1-4093",
+                message_id="plusswitch.vlanRange",
+                params={"subject": change.id, "vlan": vid},
+            )
     if 1 in tagged:
         raise AdapterError(
-            f"{change.id}: VLAN 1 is the native network here and cannot be sent tagged"
+            f"{change.id}: VLAN 1 is the native network here and cannot be sent tagged",
+            message_id="plusswitch.vlan1Tagged",
+            params={"subject": change.id},
         )
     if untagged is None and not tagged:
         raise AdapterError(
             f"{change.id}: a port in no VLAN at all is not possible on these switches "
-            "(every port needs a PVID it is a member of)"
+            "(every port needs a PVID it is a member of)",
+            message_id="plusswitch.noVlanAtAll",
+            params={"subject": change.id},
         )
     return untagged, tagged
 
@@ -148,12 +191,30 @@ def plan(device_id: str, host: str, changes: list[Change]) -> list[VendorCall]:
     for c in changes:
         port = port_number(device_id, c)
         untagged, tagged = wanted(c)
+        untagged_text = (
+            Label(f"untagged VLAN {untagged} (PVID {untagged})", "untaggedVlan", untagged)
+            if untagged
+            else Label("no untagged", "noUntagged")
+        )
+        tagged_text = (
+            Label(
+                "tagged " + ", ".join(map(str, tagged)), "taggedList", ", ".join(map(str, tagged))
+            )
+            if tagged
+            else Label("nothing tagged", "nothingTagged")
+        )
+        description = Described(
+            f"port {port}: {untagged_text}, {tagged_text}; "
+            "VLANs created as needed, VLANs left empty deleted",
+            "plan.plusswitch.port",
+            port=str(port),
+            untagged=untagged_text,
+            tagged=tagged_text,
+        )
         calls.append(
             VendorCall(
-                description=f"port {port}: "
-                + (f"untagged VLAN {untagged} (PVID {untagged})" if untagged else "no untagged")
-                + (", tagged " + ", ".join(map(str, tagged)) if tagged else ", nothing tagged")
-                + "; VLANs created as needed, VLANs left empty deleted",
+                description=description,
+                **message_fields(description),
                 method="apply_dot1q",
                 target=f"{host} port {port}",
                 payload={"port": port, "untagged": untagged, "tagged": list(tagged)},
@@ -175,7 +236,11 @@ def apply(table: Table, device_id: str, changes: list[Change], ports: int) -> Ta
     for c in changes:
         port = port_number(device_id, c)
         if port > ports:
-            raise AdapterError(f"{c.id}: the switch has {ports} ports, not port {port}")
+            raise AdapterError(
+                f"{c.id}: the switch has {ports} ports, not port {port}",
+                message_id="plusswitch.portCount",
+                params={"subject": c.id, "ports": ports, "port": port},
+            )
         untagged, tagged = wanted(c)
         for vid, v in out.vlans.items():
             if port in v["members"]:

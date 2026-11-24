@@ -36,6 +36,8 @@ from signalbox.adapters import (
     ApplyResult,
     AuthFailed,
     Backup,
+    Described,
+    Label,
     Unreachable,
     VendorCall,
     message_fields,
@@ -323,9 +325,15 @@ def _refused(description: str, response: Any, scrub: Callable[[str], str]) -> Ad
     detail = detail or f"HTTP {response.status_code}"
     if "not enough permissions" in detail:
         return AuthFailed(
-            scrub(f"{description}: access denied ({detail}); the user's group needs write")
+            scrub(f"{description}: access denied ({detail}); the user's group needs write"),
+            message_id="mikrotik.writeDenied",
+            params={"request": scrub(str(description)), "detail": scrub(detail)},
         )
-    return AdapterError(scrub(f"{description}: the router refused the change: {detail}"))
+    return AdapterError(
+        scrub(f"{description}: the router refused the change: {detail}"),
+        message_id="mikrotik.refused",
+        params={"request": scrub(str(description)), "detail": scrub(detail)},
+    )
 
 
 # --- the write side of the adapter -----------------------------------------------------------
@@ -393,7 +401,11 @@ class MikrotikWrites:
         cfg, wifi = await self._snapshot()
         for c in changes:
             if c.device_id != self.context.device_id:
-                raise AdapterError(f"{c.id}: not a change of {self.context.device_id}")
+                raise AdapterError(
+                    f"{c.id}: not a change of {self.context.device_id}",
+                    message_id="write.notThisDevice",
+                    params={"subject": c.id},
+                )
             layout = await self._layout_of(cfg)
             if c.kind is ChangeKind.ROUTER:
                 await self._router(cfg, layout, c)
@@ -417,7 +429,9 @@ class MikrotikWrites:
                 if not wifi:
                     raise AdapterError(
                         f"SSID {c.key}: only the RouterOS 7 wifi package (/interface/wifi) "
-                        "can be changed; the legacy wireless package is read only"
+                        "can be changed; the legacy wireless package is read only",
+                        message_id="mikrotik.wifiPackageOnly",
+                        params={"subject": _ssid(c.key)},
                     )
                 await self._wlan(cfg, layout, c, secrets, strict)
         return cfg
@@ -428,10 +442,20 @@ class MikrotikWrites:
         try:
             conf = m._object(await m.get_menu(self.http, m.SNMP), m.SNMP)
         except NotFound:
-            raise AdapterError("the router has no /snmp menu to change") from None
+            raise AdapterError(
+                "the router has no /snmp menu to change", message_id="mikrotik.noSnmpMenu"
+            ) from None
         body = logwrite.snmp_policy(c, _flag(conf.get("enabled")), cfg.revert)
         if body is not None:
-            cfg.ops.append(_Op("SET", m.SNMP, None, body, "switch the SNMP agent"))
+            cfg.ops.append(
+                _Op(
+                    "SET",
+                    m.SNMP,
+                    None,
+                    body,
+                    Described("switch the SNMP agent", "plan.mikrotik.snmpSwitch"),
+                )
+            )
 
     # WritesConfig -----------------------------------------------------------------------------
 
@@ -476,7 +500,8 @@ class MikrotikWrites:
         if not await self._disarm_revert():
             raise AdapterError(
                 "the revert timer of the change is gone: it ran before the change was "
-                "confirmed, so the router has the old rules again"
+                "confirmed, so the router has the old rules again",
+                message_id="mikrotik.revertTimerGone",
             )
 
     async def _scheduled(self) -> list[dict[str, Any]]:
@@ -497,7 +522,11 @@ class MikrotikWrites:
                 "DELETE", f"{SCHEDULER}/{ref}", accept=(400, 404, 500)
             )
             if response.status_code >= 400 and response.status_code != 404:
-                raise _refused("remove the revert timer", response, lambda t: t)
+                raise _refused(
+                    Described("remove the revert timer", "plan.mikrotik.removeRevert"),
+                    response,
+                    lambda t: t,
+                )
         return bool(rows)
 
     async def _device_time(self, seconds: int) -> str:
@@ -511,7 +540,9 @@ class MikrotikWrites:
         if day is None or match is None:
             raise AdapterError(
                 "cannot arm the revert timer: the router's clock is unreadable "
-                f"({clock.get('date')!r} {clock.get('time')!r}); firewall changes need it"
+                f"({clock.get('date')!r} {clock.get('time')!r}); firewall changes need it",
+                message_id="mikrotik.clockUnreadable",
+                params={"date": repr(clock.get("date")), "time": repr(clock.get("time"))},
             )
         hh, mm, ss = (int(g) for g in match.groups())
         at = datetime(day.year, day.month, day.day, hh, mm, ss) + timedelta(seconds=seconds)
@@ -555,12 +586,19 @@ class MikrotikWrites:
 
     async def restore(self, backup: Backup) -> None:
         if backup.format != BACKUP_FORMAT:
-            raise AdapterError(f"cannot restore a {backup.format!r} backup on RouterOS")
+            raise AdapterError(
+                f"cannot restore a {backup.format!r} backup on RouterOS",
+                message_id="write.restoreFormat",
+                params={"format": repr(backup.format), "vendor": "RouterOS"},
+            )
         try:
             saved = json.loads(backup.content)["menus"]
             assert isinstance(saved, dict)
         except (ValueError, KeyError, TypeError, AssertionError):
-            raise AdapterError("the backup holds no menu snapshot; it cannot be restored") from None
+            raise AdapterError(
+                "the backup holds no menu snapshot; it cannot be restored",
+                message_id="mikrotik.noSnapshot",
+            ) from None
         from signalbox.adapters import mikrotik as m
 
         await self._disarm_revert()  # the timer must not undo a change that is restored now
@@ -571,7 +609,16 @@ class MikrotikWrites:
             kept = {id(row) for _, row in pairs[menu] if row is not None}
             for row in list(cfg.static(menu)):
                 if id(row) not in kept:
-                    cfg.delete(menu, row, f"restore: remove {menu} {_label(row)}")
+                    cfg.delete(
+                        menu,
+                        row,
+                        Described(
+                            f"restore: remove {menu} {_label(row)}",
+                            "plan.mikrotik.restoreRemove",
+                            menu=menu,
+                            item=_label(row),
+                        ),
+                    )
         for menu in order:
             # firewall rows are ordered: add them last to first, each before the one after it
             ordered = list(reversed(pairs[menu])) if menu in _fw_menus() else pairs[menu]
@@ -581,16 +628,51 @@ class MikrotikWrites:
                 if have is None:
                     if anchor is not None:
                         want = {**want, "place-before": anchor}
-                    anchor = str(cfg.put(menu, want, f"restore: add {menu} {_label(old)}")[".id"])
+                    added = Described(
+                        f"restore: add {menu} {_label(old)}",
+                        "plan.mikrotik.restoreAdd",
+                        menu=menu,
+                        item=_label(old),
+                    )
+                    anchor = str(cfg.put(menu, want, added)[".id"])
                     continue
                 anchor = str(have.get(".id"))
-                cfg.patch(menu, have, want, f"restore: set {menu} {_label(old)} back")
+                cfg.patch(
+                    menu,
+                    have,
+                    want,
+                    Described(
+                        f"restore: set {menu} {_label(old)} back",
+                        "plan.mikrotik.restoreSet",
+                        menu=menu,
+                        item=_label(old),
+                    ),
+                )
                 for prop in list(_writable(menu, have)):
                     if prop not in want and prop == "disabled":
                         # RouterOS cannot unset it (the snapshot of a row never had it: false)
-                        cfg.patch(menu, have, {prop: "false"}, f"restore: enable {_label(old)}")
+                        cfg.patch(
+                            menu,
+                            have,
+                            {prop: "false"},
+                            Described(
+                                f"restore: enable {_label(old)}",
+                                "plan.mikrotik.restoreEnable",
+                                item=_label(old),
+                            ),
+                        )
                     elif prop not in want:
-                        cfg.unset(menu, have, prop, f"restore: unset {prop} of {_label(old)}")
+                        cfg.unset(
+                            menu,
+                            have,
+                            prop,
+                            Described(
+                                f"restore: unset {prop} of {_label(old)}",
+                                "plan.mikrotik.restoreUnset",
+                                prop=prop,
+                                item=_label(old),
+                            ),
+                        )
         saved_snmp = json.loads(backup.content).get("snmp_enabled")
         if isinstance(saved_snmp, str) and saved_snmp:
             try:
@@ -599,7 +681,15 @@ class MikrotikWrites:
                 now = saved_snmp
             if _flag(now) != _flag(saved_snmp):
                 body = {"enabled": "true" if _flag(saved_snmp) else "false"}
-                cfg.ops.append(_Op("SET", m.SNMP, None, body, "restore: SNMP agent"))
+                cfg.ops.append(
+                    _Op(
+                        "SET",
+                        m.SNMP,
+                        None,
+                        body,
+                        Described("restore: SNMP agent", "plan.mikrotik.restoreSnmp"),
+                    )
+                )
         await self._send(cfg.ops, {})
         self._cache.clear()
         self._layout_cache = None
@@ -634,7 +724,11 @@ class MikrotikWrites:
             try:
                 response = await self.http.request(verb, path, accept=(400, 500), **kw)
             except AdapterError as exc:
-                raise AdapterError(scrub(f"{op.description}: {exc}")) from None
+                raise AdapterError(
+                    scrub(f"{op.description}: {exc}"),
+                    message_id="mikrotik.sendFailed",
+                    params={"request": scrub(str(op.description)), "detail": scrub(str(exc))},
+                ) from None
             if response.status_code >= 400:
                 raise _refused(op.description, response, scrub)
             if op.method == "PUT":
@@ -645,7 +739,11 @@ class MikrotikWrites:
                 if isinstance(created, list) and len(created) == 1:
                     created = created[0]
                 if not isinstance(created, dict) or not _text(created.get(".id")):
-                    raise AdapterError(f"{op.description}: the router did not return the new .id")
+                    raise AdapterError(
+                        f"{op.description}: the router did not return the new .id",
+                        message_id="mikrotik.noNewId",
+                        params={"request": scrub(str(op.description))},
+                    )
                 ids[str(op.ref)] = _text(created[".id"])
         self._cache.clear()
         self._layout_cache = None
@@ -689,16 +787,33 @@ class MikrotikWrites:
                 if _flag(r.get("dynamic")):
                     raise AdapterError(
                         f"{c.key}: {r.get('address')} is a dynamic address (DHCP client, ...); "
-                        "it cannot be removed"
+                        "it cannot be removed",
+                        message_id="mikrotik.dynamicAddressRemove",
+                        params={"subject": c.key, "address": str(r.get("address"))},
                     )
-                cfg.delete(m.IP_ADDRESS, r, f"remove {r.get('address')} from {_iface(r)}")
+                cfg.delete(
+                    m.IP_ADDRESS,
+                    r,
+                    Described(
+                        f"remove {r.get('address')} from {_iface(r)}",
+                        "plan.mikrotik.addressRemove",
+                        address=str(r.get("address")),
+                        interface=_iface(r),
+                    ),
+                )
             for name in names:
                 vlan = next((r for r in cfg.static(m.VLAN) if _text(r.get("name")) == name), None)
                 if vlan is None or any(_iface(r) == name for r in cfg.rows(m.IP_ADDRESS)):
                     continue
                 old_vid = m._int(vlan.get("vlan-id")) or 0
                 parent = _text(vlan.get("interface"))
-                cfg.delete(m.VLAN, vlan, f"remove VLAN interface {name}")
+                cfg.delete(
+                    m.VLAN,
+                    vlan,
+                    Described(
+                        f"remove VLAN interface {name}", "plan.mikrotik.vlanIfRemove", name=name
+                    ),
+                )
                 if parent in layout.filtering:
                     self._untag(cfg, parent, parent, old_vid, c.key)
             return
@@ -707,27 +822,60 @@ class MikrotikWrites:
             if vid is None:
                 raise AdapterError(
                     f"{c.key}: the device has no interface for this network; "
-                    "only VLAN interfaces are created"
+                    "only VLAN interfaces are created",
+                    message_id="mikrotik.noInterface",
+                    params={"subject": c.key},
                 )
             bridge = self._bridge(cfg, layout, c.key)
             name = f"vlan{vid}"
             if any(_text(r.get("name")) == name for r in cfg.rows(m.INTERFACE) + cfg.rows(m.VLAN)):
-                raise AdapterError(f"{c.key}: an interface named {name} exists already")
+                raise AdapterError(
+                    f"{c.key}: an interface named {name} exists already",
+                    message_id="mikrotik.interfaceExists",
+                    params={"subject": c.key, "name": name},
+                )
             body = {"name": name, "vlan-id": str(vid), "interface": bridge}
             if new.name:
                 body["comment"] = new.name
-            cfg.put(m.VLAN, body, f"create VLAN interface {name} (VLAN {vid}) on {bridge}")
+            cfg.put(
+                m.VLAN,
+                body,
+                Described(
+                    f"create VLAN interface {name} (VLAN {vid}) on {bridge}",
+                    "plan.mikrotik.vlanIfCreate",
+                    name=name,
+                    vlan=str(vid),
+                    bridge=bridge,
+                ),
+            )
             if bridge in layout.filtering:
                 entry = self._entry(cfg, bridge, vid, c.key)
                 if entry is None:
                     body = {"bridge": bridge, "vlan-ids": str(vid), "tagged": bridge}
                     if new.name:
                         body["comment"] = new.name
-                    cfg.put(m.BRIDGE_VLAN, body, f"VLAN {vid}: tag it on {bridge} itself")
+                    cfg.put(
+                        m.BRIDGE_VLAN,
+                        body,
+                        Described(
+                            f"VLAN {vid}: tag it on {bridge} itself",
+                            "plan.mikrotik.vlanTagSelf",
+                            vlan=str(vid),
+                            bridge=bridge,
+                        ),
+                    )
                 elif bridge not in _names(entry.get("tagged")):
                     tagged = _join([*_names(entry.get("tagged")), bridge])
                     cfg.patch(
-                        m.BRIDGE_VLAN, entry, {"tagged": tagged}, f"VLAN {vid}: tag it on {bridge}"
+                        m.BRIDGE_VLAN,
+                        entry,
+                        {"tagged": tagged},
+                        Described(
+                            f"VLAN {vid}: tag it on {bridge}",
+                            "plan.mikrotik.vlanTagBridge",
+                            vlan=str(vid),
+                            bridge=bridge,
+                        ),
                     )
             names = [name]
         address = str(new.address)
@@ -736,15 +884,32 @@ class MikrotikWrites:
             row = static_v4[0]
             if _v4(row) != new.address:
                 cfg.patch(
-                    m.IP_ADDRESS, row, {"address": address}, f"set {_iface(row)} to {address}"
+                    m.IP_ADDRESS,
+                    row,
+                    {"address": address},
+                    Described(
+                        f"set {_iface(row)} to {address}",
+                        "plan.mikrotik.addressSet",
+                        interface=_iface(row),
+                        address=address,
+                    ),
                 )
         elif v4:
-            raise AdapterError(f"{c.key}: the address is dynamic (DHCP client); it cannot be set")
+            raise AdapterError(
+                f"{c.key}: the address is dynamic (DHCP client); it cannot be set",
+                message_id="mikrotik.dynamicAddressSet",
+                params={"subject": c.key},
+            )
         else:
             cfg.put(
                 m.IP_ADDRESS,
                 {"address": address, "interface": names[0]},
-                f"add {address} to {names[0]}",
+                Described(
+                    f"add {address} to {names[0]}",
+                    "plan.mikrotik.addressAdd",
+                    address=address,
+                    interface=names[0],
+                ),
             )
         await self._name(cfg, c.key, new.name)
 
@@ -756,7 +921,11 @@ class MikrotikWrites:
         bridges = [_text(r.get("name")) for r in cfg.rows(m.BRIDGE) if _text(r.get("name"))]
         if not layout.filtering and len(bridges) == 1:
             return bridges[0]
-        raise AdapterError(f"{key}: no single bridge to put the VLAN interface on")
+        raise AdapterError(
+            f"{key}: no single bridge to put the VLAN interface on",
+            message_id="mikrotik.noBridge",
+            params={"subject": key},
+        )
 
     def _entry(self, cfg: _Config, bridge: str, vid: int, key: str) -> dict[str, Any] | None:
         """The static bridge VLAN entry of one VLAN id (refused when it shares an entry)."""
@@ -770,7 +939,9 @@ class MikrotikWrites:
                 if len(vids) > 1:
                     raise AdapterError(
                         f"{key}: VLAN {vid} shares the bridge VLAN entry "
-                        f"{row.get('vlan-ids')!r} with other VLANs; split it on the device first"
+                        f"{row.get('vlan-ids')!r} with other VLANs; split it on the device first",
+                        message_id="mikrotik.vlanEntryShared",
+                        params={"subject": key, "vlan": vid, "entry": repr(row.get("vlan-ids"))},
                     )
                 return row
         return None
@@ -783,9 +954,27 @@ class MikrotikWrites:
             return
         tagged = [p for p in _names(entry.get("tagged")) if p != port]
         if not tagged and not _names(entry.get("untagged")):
-            cfg.delete(m.BRIDGE_VLAN, entry, f"VLAN {vid}: remove the bridge VLAN entry")
+            cfg.delete(
+                m.BRIDGE_VLAN,
+                entry,
+                Described(
+                    f"VLAN {vid}: remove the bridge VLAN entry",
+                    "plan.mikrotik.vlanEntryRemove",
+                    vlan=str(vid),
+                ),
+            )
         else:
-            cfg.patch(m.BRIDGE_VLAN, entry, {"tagged": _join(tagged)}, f"VLAN {vid}: untag {port}")
+            cfg.patch(
+                m.BRIDGE_VLAN,
+                entry,
+                {"tagged": _join(tagged)},
+                Described(
+                    f"VLAN {vid}: untag {port}",
+                    "plan.mikrotik.vlanUntag",
+                    vlan=str(vid),
+                    port=port,
+                ),
+            )
 
     async def _name(self, cfg: _Config, key: str, name: str | None) -> None:
         """Set the comment the read side takes the segment's name from."""
@@ -796,7 +985,6 @@ class MikrotikWrites:
         if seg is None or seg.name == name:
             return
         vid = seg.vlan or 1
-        what = f"name of {key}"
         sources: list[tuple[str, dict[str, Any]]] = []
         for row in cfg.static(m.BRIDGE):
             b = _text(row.get("name"))
@@ -814,14 +1002,28 @@ class MikrotikWrites:
         # name clears them all.
         for menu, row in sources[:1] if name else sources:
             if name:
-                cfg.patch(menu, row, {"comment": name}, f"{what}: {name}")
+                cfg.patch(
+                    menu,
+                    row,
+                    {"comment": name},
+                    Described(
+                        f"name of {key}: {name}", "plan.mikrotik.nameSet", key=key, name=name
+                    ),
+                )
             else:
-                cfg.unset(menu, row, "comment", f"{what}: none")
+                cfg.unset(
+                    menu,
+                    row,
+                    "comment",
+                    Described(f"name of {key}: none", "plan.mikrotik.nameClear", key=key),
+                )
         after = (await self._layout_of(cfg)).segments.get(key)
         if after is not None and after.name != name:
             raise AdapterError(
                 f"{key}: the name cannot be set to {name!r} (RouterOS shows {after.name!r}, "
-                "from an entry Signalbox does not change)"
+                "from an entry Signalbox does not change)",
+                message_id="mikrotik.nameNotSet",
+                params={"subject": key, "name": repr(name), "shown": repr(after.name)},
             )
 
     # DHCP ---------------------------------------------------------------------------------------
@@ -843,7 +1045,11 @@ class MikrotikWrites:
             a = _v4(row)
             if a is not None and layout.l3.get(_iface(row)) == key:
                 return _iface(row), a
-        raise AdapterError(f"{key}: the device has no IPv4 address in this network for DHCP")
+        raise AdapterError(
+            f"{key}: the device has no IPv4 address in this network for DHCP",
+            message_id="mikrotik.noDhcpAddress",
+            params={"subject": key},
+        )
 
     def _network_row(self, cfg: _Config, a: IPv4Interface) -> Any:
         """The most specific DHCP network holding an address (as the read side picks it)."""
@@ -867,12 +1073,26 @@ class MikrotikWrites:
         if new is None:
             for srv in servers:
                 sname = _text(srv.get("name"))
-                cfg.delete(m.DHCP_SERVER, srv, f"remove DHCP server {sname}")
+                cfg.delete(
+                    m.DHCP_SERVER,
+                    srv,
+                    Described(
+                        f"remove DHCP server {sname}",
+                        "plan.mikrotik.dhcpServerRemove",
+                        name=sname,
+                    ),
+                )
                 pname = _text(srv.get("address-pool"))
                 used = any(_text(r.get("address-pool")) == pname for r in cfg.rows(m.DHCP_SERVER))
                 prow = next((r for r in cfg.static(m.POOL) if _text(r.get("name")) == pname), None)
                 if prow is not None and not used:
-                    cfg.delete(m.POOL, prow, f"remove address pool {pname}")
+                    cfg.delete(
+                        m.POOL,
+                        prow,
+                        Described(
+                            f"remove address pool {pname}", "plan.mikrotik.poolRemove", name=pname
+                        ),
+                    )
                 own = [
                     a
                     for r in cfg.rows(m.IP_ADDRESS)
@@ -888,7 +1108,15 @@ class MikrotikWrites:
                         for r in cfg.rows(m.DHCP_SERVER)
                     )
                 ):
-                    cfg.delete(m.DHCP_NETWORK, net, f"remove DHCP network {net.get('address')}")
+                    cfg.delete(
+                        m.DHCP_NETWORK,
+                        net,
+                        Described(
+                            f"remove DHCP network {net.get('address')}",
+                            "plan.mikrotik.dhcpNetworkRemove",
+                            network=str(net.get("address")),
+                        ),
+                    )
             return
         iface, own = self._own(cfg, layout, c.key)
         fresh = not servers
@@ -910,18 +1138,33 @@ class MikrotikWrites:
                         else {}
                     ),
                 },
-                f"create DHCP server {sname} on {iface}",
+                Described(
+                    f"create DHCP server {sname} on {iface}",
+                    "plan.mikrotik.dhcpServerCreate",
+                    name=sname,
+                    interface=iface,
+                ),
             )
         body: dict[str, str] = {"disabled": _FALSE if new.enabled else _TRUE}
         if new.lease_seconds is not None and m.duration(srv.get("lease-time")) != new.lease_seconds:
             body["lease-time"] = ros_duration(new.lease_seconds)
-        cfg.patch(m.DHCP_SERVER, srv, body, f"DHCP server {sname}")
+        cfg.patch(
+            m.DHCP_SERVER,
+            srv,
+            body,
+            Described(f"DHCP server {sname}", "plan.mikrotik.dhcpServerSet", name=sname),
+        )
         # pool: the first range of the server's pool
         pools = {_text(r.get("name")): r for r in cfg.rows(m.POOL)}
         pool = pools.get(_text(srv.get("address-pool")))
         if new.pool is None:
             if pool is not None:
-                cfg.patch(m.DHCP_SERVER, srv, {"address-pool": "static-only"}, f"{sname}: no pool")
+                cfg.patch(
+                    m.DHCP_SERVER,
+                    srv,
+                    {"address-pool": "static-only"},
+                    Described(f"{sname}: no pool", "plan.mikrotik.dhcpNoPool", name=sname),
+                )
         else:
             text = f"{new.pool[0]}-{new.pool[1]}"
             if pool is None:
@@ -932,8 +1175,21 @@ class MikrotikWrites:
                     _text(same[0].get("name")) if same else self._free(cfg, m.POOL, f"dhcp-{iface}")
                 )
                 if not same:
-                    cfg.put(m.POOL, {"name": pname, "ranges": text}, f"create address pool {pname}")
-                cfg.patch(m.DHCP_SERVER, srv, {"address-pool": pname}, f"{sname}: use {pname}")
+                    cfg.put(
+                        m.POOL,
+                        {"name": pname, "ranges": text},
+                        Described(
+                            f"create address pool {pname}", "plan.mikrotik.poolCreate", name=pname
+                        ),
+                    )
+                cfg.patch(
+                    m.DHCP_SERVER,
+                    srv,
+                    {"address-pool": pname},
+                    Described(
+                        f"{sname}: use {pname}", "plan.mikrotik.dhcpUsePool", name=sname, pool=pname
+                    ),
+                )
             else:
                 ranges = _names(pool.get("ranges"))
                 current = m._pool(ranges[0]) if ranges else None
@@ -942,7 +1198,12 @@ class MikrotikWrites:
                         m.POOL,
                         pool,
                         {"ranges": _join([text, *ranges[1:]])},
-                        f"address pool {pool.get('name')}: {text}",
+                        Described(
+                            f"address pool {pool.get('name')}: {text}",
+                            "plan.mikrotik.poolSet",
+                            name=str(pool.get("name")),
+                            ranges=text,
+                        ),
                     )
         # network: gateway and DNS servers
         dns = _join([str(a) for a in new.dns or []])
@@ -951,16 +1212,27 @@ class MikrotikWrites:
             body = {"address": str(own.network), "gateway": str(own.ip)}
             if dns:
                 body["dns-server"] = dns
-            cfg.put(m.DHCP_NETWORK, body, f"create DHCP network {own.network}")
+            cfg.put(
+                m.DHCP_NETWORK,
+                body,
+                Described(
+                    f"create DHCP network {own.network}",
+                    "plan.mikrotik.dhcpNetworkCreate",
+                    network=str(own.network),
+                ),
+            )
         elif [ip_address(a) for a in _names(net.get("dns-server")) if _is_ip(a)] != list(
             new.dns or []
         ):
+            what = Described(
+                f"DHCP network {own.network}: DNS",
+                "plan.mikrotik.dhcpNetworkDns",
+                network=str(own.network),
+            )
             if dns:
-                cfg.patch(
-                    m.DHCP_NETWORK, net, {"dns-server": dns}, f"DHCP network {own.network}: DNS"
-                )
+                cfg.patch(m.DHCP_NETWORK, net, {"dns-server": dns}, what)
             else:
-                cfg.unset(m.DHCP_NETWORK, net, "dns-server", f"DHCP network {own.network}: DNS")
+                cfg.unset(m.DHCP_NETWORK, net, "dns-server", what)
 
     def _free(self, cfg: _Config, menu: str, base: str) -> str:
         taken = {_text(r.get("name")) for r in cfg.rows(menu)}
@@ -978,7 +1250,11 @@ class MikrotikWrites:
         sid, mac = c.key.rsplit("/", 1)
         servers = self._servers(cfg, layout, sid)
         if not servers:
-            raise AdapterError(f"{c.key}: no DHCP server for {sid} on the device")
+            raise AdapterError(
+                f"{c.key}: no DHCP server for {sid} on the device",
+                message_id="mikrotik.noDhcpServer",
+                params={"subject": c.key, "segment": sid},
+            )
         sname = _text(servers[0].get("name"))
         _, own = self._own(cfg, layout, sid)
         rows = []
@@ -994,20 +1270,56 @@ class MikrotikWrites:
         new = c.new if isinstance(c.new, ReservationValue) else None
         if new is None:
             for row in rows:
-                cfg.delete(m.DHCP_LEASE, row, f"remove the static lease of {mac}")
+                cfg.delete(
+                    m.DHCP_LEASE,
+                    row,
+                    Described(
+                        f"remove the static lease of {mac}", "plan.mikrotik.leaseRemove", mac=mac
+                    ),
+                )
             return
         body = {"address": str(new.address), "mac-address": normalise_mac(new.mac).upper()}
         if rows:
-            cfg.patch(m.DHCP_LEASE, rows[0], body, f"static lease of {mac}: {new.address}")
+            cfg.patch(
+                m.DHCP_LEASE,
+                rows[0],
+                body,
+                Described(
+                    f"static lease of {mac}: {new.address}",
+                    "plan.mikrotik.leaseSet",
+                    mac=mac,
+                    address=str(new.address),
+                ),
+            )
             if new.hostname:
-                cfg.patch(m.DHCP_LEASE, rows[0], {"comment": new.hostname}, f"{mac}: comment")
+                cfg.patch(
+                    m.DHCP_LEASE,
+                    rows[0],
+                    {"comment": new.hostname},
+                    Described(f"{mac}: comment", "plan.mikrotik.leaseComment", mac=mac),
+                )
             else:
-                cfg.unset(m.DHCP_LEASE, rows[0], "comment", f"{mac}: no comment")
+                cfg.unset(
+                    m.DHCP_LEASE,
+                    rows[0],
+                    "comment",
+                    Described(f"{mac}: no comment", "plan.mikrotik.leaseNoComment", mac=mac),
+                )
             return
         body["server"] = sname
         if new.hostname:
             body["comment"] = new.hostname
-        cfg.put(m.DHCP_LEASE, body, f"static lease {new.address} for {mac} on {sname}")
+        cfg.put(
+            m.DHCP_LEASE,
+            body,
+            Described(
+                f"static lease {new.address} for {mac} on {sname}",
+                "plan.mikrotik.leaseCreate",
+                address=str(new.address),
+                mac=mac,
+                server=sname,
+            ),
+        )
 
     # PORT ---------------------------------------------------------------------------------------
 
@@ -1017,21 +1329,38 @@ class MikrotikWrites:
         prefix = f"{self.context.device_id}/port/"
         name = c.key[len(prefix) :] if c.key.startswith(prefix) else ""
         if name not in layout.ports:
-            raise AdapterError(f"{c.key}: no such port on the device")
+            raise AdapterError(
+                f"{c.key}: no such port on the device",
+                message_id="write.noSuchPort",
+                params={"subject": c.key},
+            )
         row = next(
             (r for r in cfg.static(m.BRIDGE_PORT) if _text(r.get("interface")) == name), None
         )
         bridge = _text(row.get("bridge")) if row else ""
         if row is None or bridge not in layout.filtering:
+            if bridge:
+                raise AdapterError(
+                    f"{c.key}: only ports of a bridge with vlan-filtering can be changed "
+                    f"({name} is in {bridge})",
+                    message_id="mikrotik.portBridge",
+                    params={"subject": c.key, "name": name, "bridge": bridge},
+                )
             raise AdapterError(
                 f"{c.key}: only ports of a bridge with vlan-filtering can be changed "
-                f"({name} is {'in ' + bridge if bridge else 'not a bridge port'})"
+                f"({name} is not a bridge port)",
+                message_id="mikrotik.portNoBridge",
+                params={"subject": c.key, "name": name},
             )
         new = c.new if isinstance(c.new, PortValue) else PortValue()
         untagged = None if new.untagged is None else (seg_key(new.untagged) or 1)
         tagged = set(new.tagged) - {1}
         if untagged in tagged:
-            raise AdapterError(f"{c.key}: VLAN {untagged} cannot be untagged and tagged")
+            raise AdapterError(
+                f"{c.key}: VLAN {untagged} cannot be untagged and tagged",
+                message_id="write.vlanTaggedUntagged",
+                params={"subject": c.key, "vlan": untagged},
+            )
         covered: set[int] = set()
         for entry in list(cfg.static(m.BRIDGE_VLAN)):
             if _text(entry.get("bridge")) != bridge:
@@ -1043,15 +1372,25 @@ class MikrotikWrites:
             if want_t and not vids <= tagged:
                 raise AdapterError(
                     f"{c.key}: the bridge VLAN entry {entry.get('vlan-ids')!r} holds several "
-                    "VLANs and the port needs only some of them; split it on the device first"
+                    "VLANs and the port needs only some of them; split it on the device first",
+                    message_id="mikrotik.vlanEntryPartial",
+                    params={"subject": c.key, "entry": repr(entry.get("vlan-ids"))},
                 )
             t2 = [p for p in t if p != name] + ([name] if want_t else [])
             u2 = [p for p in u if p != name or vids == {untagged}]
             if t2 == t and u2 == u:
                 continue
-            label = f"VLAN {entry.get('vlan-ids')}"
+            vlans = str(entry.get("vlan-ids"))
             if not t2 and not u2:
-                cfg.delete(m.BRIDGE_VLAN, entry, f"{label}: remove the bridge VLAN entry")
+                cfg.delete(
+                    m.BRIDGE_VLAN,
+                    entry,
+                    Described(
+                        f"VLAN {vlans}: remove the bridge VLAN entry",
+                        "plan.mikrotik.vlanEntryRemove",
+                        vlan=vlans,
+                    ),
+                )
                 continue
             body = {}
             if t2 != t:
@@ -1062,13 +1401,23 @@ class MikrotikWrites:
                 m.BRIDGE_VLAN,
                 entry,
                 body,
-                f"{label}: {name} " + ("tagged" if want_t else "not tagged"),
+                Described(
+                    f"VLAN {vlans}: {name} " + ("tagged" if want_t else "not tagged"),
+                    "plan.mikrotik.portTagged" if want_t else "plan.mikrotik.portNotTagged",
+                    vlan=vlans,
+                    port=name,
+                ),
             )
         for vid in sorted(tagged - covered):
             cfg.put(
                 m.BRIDGE_VLAN,
                 {"bridge": bridge, "vlan-ids": str(vid), "tagged": name},
-                f"VLAN {vid}: tag {name}",
+                Described(
+                    f"VLAN {vid}: tag {name}",
+                    "plan.mikrotik.vlanTagPort",
+                    vlan=str(vid),
+                    port=name,
+                ),
             )
         frames = _text(row.get("frame-types")) or "admit-all"
         if untagged is None:
@@ -1077,13 +1426,18 @@ class MikrotikWrites:
             body = {"pvid": str(untagged)}
             if frames == m._TAGGED_ONLY or (tagged and frames != "admit-all"):
                 body["frame-types"] = "admit-all"
-        cfg.patch(
-            m.BRIDGE_PORT,
-            row,
-            body,
-            f"bridge port {name}: "
-            + ("tagged only" if untagged is None else f"untagged VLAN {untagged}"),
-        )
+        if untagged is None:
+            what = Described(
+                f"bridge port {name}: tagged only", "plan.mikrotik.bridgePortTaggedOnly", port=name
+            )
+        else:
+            what = Described(
+                f"bridge port {name}: untagged VLAN {untagged}",
+                "plan.mikrotik.bridgePortUntagged",
+                port=name,
+                vlan=str(untagged),
+            )
+        cfg.patch(m.BRIDGE_PORT, row, body, what)
 
     # WLAN ---------------------------------------------------------------------------------------
 
@@ -1120,19 +1474,33 @@ class MikrotikWrites:
                 if not _text(row.get("master-interface")):
                     raise AdapterError(
                         f"SSID {c.key} is the main SSID of the radio {row.get('name')}; "
-                        "it cannot be removed, only disabled"
+                        "it cannot be removed, only disabled",
+                        message_id="mikrotik.mainSsid",
+                        params={"subject": _ssid(c.key), "radio": str(row.get("name"))},
                     )
-                cfg.delete(m.WIFI, row, f"remove the Wi-Fi interface {row.get('name')}")
+                cfg.delete(
+                    m.WIFI,
+                    row,
+                    Described(
+                        f"remove the Wi-Fi interface {row.get('name')}",
+                        "plan.mikrotik.wifiRemove",
+                        name=str(row.get("name")),
+                    ),
+                )
             return
         if new.client_isolation is not None:
             raise AdapterError(
                 f"SSID {c.key}: client isolation is not read or changed on RouterOS yet; "
-                "leave client_isolation out of the desired state"
+                "leave client_isolation out of the desired state",
+                message_id="mikrotik.clientIsolation",
+                params={"subject": _ssid(c.key)},
             )
         if new.security not in _SECURITY_TYPES:
             raise AdapterError(
                 f"SSID {c.key}: {new.security.value} cannot be set through Signalbox on RouterOS "
-                "(only open, OWE and WPA2/WPA3 personal)"
+                "(only open, OWE and WPA2/WPA3 personal)",
+                message_id="mikrotik.securityUnsupported",
+                params={"subject": _ssid(c.key), "security": new.security.value},
             )
         passphrase: str | None = None
         if new.passphrase_secret:
@@ -1140,7 +1508,9 @@ class MikrotikWrites:
             if passphrase is None:
                 if strict:
                     raise AdapterError(
-                        f"SSID {c.key}: the secret {new.passphrase_secret!r} was not given"
+                        f"SSID {c.key}: the secret {new.passphrase_secret!r} was not given",
+                        message_id="write.secretMissing",
+                        params={"subject": _ssid(c.key), "name": repr(new.passphrase_secret)},
                     )
                 passphrase = "***"
         vid = seg_key(new.segment) or 1
@@ -1152,9 +1522,17 @@ class MikrotikWrites:
         radios = [r.name for r in observed.radios]
         if not rows:
             if not radios:
-                raise AdapterError(f"SSID {c.key}: the device has no radio")
+                raise AdapterError(
+                    f"SSID {c.key}: the device has no radio",
+                    message_id="write.noRadio",
+                    params={"subject": _ssid(c.key)},
+                )
             if new.security in _PERSONAL and passphrase is None:
-                raise AdapterError(f"SSID {c.key}: a new SSID needs a passphrase secret")
+                raise AdapterError(
+                    f"SSID {c.key}: a new SSID needs a passphrase secret",
+                    message_id="mikrotik.newSsidPassphrase",
+                    params={"subject": _ssid(c.key)},
+                )
             bridge = next(iter(sorted(layout.filtering)), "")
             for radio in radios:
                 iname = self._free(cfg, m.WIFI, f"{radio}-{_slug(c.key)}")
@@ -1186,13 +1564,25 @@ class MikrotikWrites:
                         body["datapath.vlan-id"] = str(vid)
                 elif vid != 1:
                     raise AdapterError(
-                        f"SSID {c.key}: VLAN {vid} needs a bridge with vlan-filtering"
+                        f"SSID {c.key}: VLAN {vid} needs a bridge with vlan-filtering",
+                        message_id="mikrotik.vlanNeedsBridge",
+                        params={"subject": _ssid(c.key), "vlan": vid},
                     )
-                cfg.put(m.WIFI, body, f"create the Wi-Fi interface {iname} for SSID {c.key}")
+                cfg.put(
+                    m.WIFI,
+                    body,
+                    Described(
+                        f"create the Wi-Fi interface {iname} for SSID {c.key}",
+                        "plan.mikrotik.wifiCreate",
+                        name=iname,
+                        ssid=c.key,
+                    ),
+                )
             return
         for row in rows:
             iname = _text(row.get("name"))
             what = f"{iname} (SSID {c.key})"
+            ids = {"name": iname, "ssid": c.key}
             body = {}
             unset: list[str] = []
             if _flag(row.get("disabled")) == new.enabled:
@@ -1215,7 +1605,11 @@ class MikrotikWrites:
                     and m.security_of(prop(cur, "security", "authentication-types"))
                     not in _PERSONAL
                 ):
-                    raise AdapterError(f"SSID {c.key}: {new.security.value} needs a passphrase")
+                    raise AdapterError(
+                        f"SSID {c.key}: {new.security.value} needs a passphrase",
+                        message_id="mikrotik.securityNeedsPassphrase",
+                        params={"subject": _ssid(c.key), "security": new.security.value},
+                    )
             # None: not set (the inverse of setting it); the inline value is cleared
             pmf = m._PMF.get(_text(prop(cur, "security", "management-protection")))
             if new.pmf is None and pmf is not None:
@@ -1238,15 +1632,32 @@ class MikrotikWrites:
             )
             current_vid = m._int(prop(row, "datapath", "vlan-id"))
             if port is not None and _text(port.get("bridge")) in layout.filtering:
-                cfg.patch(m.BRIDGE_PORT, port, {"pvid": str(vid)}, f"{what}: VLAN {vid}")
+                cfg.patch(
+                    m.BRIDGE_PORT,
+                    port,
+                    {"pvid": str(vid)},
+                    Described(
+                        f"{what}: VLAN {vid}", "plan.mikrotik.wifiVlan", vlan=str(vid), **ids
+                    ),
+                )
             if (current_vid or 1) != vid:
                 if vid == 1:
                     unset.append("datapath.vlan-id")
                 else:
                     body["datapath.vlan-id"] = str(vid)
-            cfg.patch(m.WIFI, row, body, f"Wi-Fi interface {what}")
+            cfg.patch(
+                m.WIFI,
+                row,
+                body,
+                Described(f"Wi-Fi interface {what}", "plan.mikrotik.wifiSet", **ids),
+            )
             for key in unset:
-                cfg.unset(m.WIFI, row, key, f"{what}: unset {key}")
+                cfg.unset(
+                    m.WIFI,
+                    row,
+                    key,
+                    Described(f"{what}: unset {key}", "plan.mikrotik.wifiUnset", prop=key, **ids),
+                )
 
 
 def _revert_op(revert: fwwrite.Revert, when: str) -> _Op:
@@ -1261,7 +1672,17 @@ def _revert_op(revert: fwwrite.Revert, when: str) -> _Op:
         "on-event": revert.script(),
         "comment": "signalbox: undoes the change unless it is confirmed",
     }
-    return _Op("PUT", SCHEDULER, "revert-timer", body, "arm the revert timer of the change")
+    return _Op(
+        "PUT",
+        SCHEDULER,
+        "revert-timer",
+        body,
+        Described("arm the revert timer of the change", "plan.mikrotik.armRevert"),
+    )
+
+
+def _ssid(key: str) -> Label:
+    return Label(f"SSID {key}", "ssid", key)
 
 
 def _iface(row: dict[str, Any]) -> str:

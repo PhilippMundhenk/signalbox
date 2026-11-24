@@ -25,11 +25,13 @@ from importlib.metadata import entry_points
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr, field_validator
 
 from signalbox import certificates
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import BroadcastResult, Candidate, HostProbe, NetworkProbe
+from signalbox.messages import Label as Label
+from signalbox.messages import plain_params
 from signalbox.model import (
     FDB_LIMIT,
     AccountPrivilege,
@@ -119,7 +121,7 @@ class AdapterError(Exception):
         self.fix_id = fix_id
         #: Translation id of the message and the values its placeholders take (#204).
         self.message_id = message_id
-        self.params: MessageParams = params or {}
+        self.params: MessageParams = plain_params(params)
 
     def redacted(self, redact: Callable[[str], str]) -> AdapterError:
         """The same error with the secrets of every text and value removed (#204 keeps ids)."""
@@ -196,6 +198,12 @@ class VendorCall(BaseModel):
     #: Translation id and values of ``description`` (#204), where it has one.
     message_id: str | None = None
     params: MessageParams = Field(default_factory=dict)
+
+    @field_validator("params", mode="before")
+    @classmethod
+    def _tokens(cls, value: Any) -> Any:
+        return plain_params(value) if isinstance(value, Mapping) else value
+
     method: str
     target: str
     #: Secrets replaced by "***".
@@ -348,6 +356,9 @@ class SetupStep(BaseModel):
     #: Translation (#204): catalogue id of ``title`` (``msg.<id>``) and its values.
     title_id: str | None = None
     params: MessageParams = Field(default_factory=dict)
+    #: Translation of ``message`` when the step failed with an error that has an id (#204).
+    message_id: str | None = None
+    message_params: MessageParams = Field(default_factory=dict)
 
 
 class SetupRequest(BaseModel):

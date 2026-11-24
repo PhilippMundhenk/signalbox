@@ -254,23 +254,30 @@ class OpenWrtSetup:
         self.redact.add(request.admin_secret.get_secret_value())
         raw = str(request.config.get("url") or "").strip()
         if not raw:
-            raise AdapterError("give the router's address first")
+            raise AdapterError(
+                "give the router's address first", message_id="openwrt.addressNeeded"
+            )
         try:
             self.url = device_url(raw, path="/ubus")
         except ValueError as exc:
-            raise AdapterError(str(exc)) from None
+            raise AdapterError(
+                str(exc), message_id="openwrt.addressInvalid", params={"detail": str(exc)}
+            ) from None
         self.host = urlsplit(self.url).hostname or ""
         self.port = request.port or 22
         self.login = str(request.config.get("username") or "signalbox").strip()
         if not LOGIN_NAME.match(self.login):
             raise AdapterError(
                 "the login to set up must be lower-case letters, digits, - and _ "
-                f"(not {self.login!r})"
+                f"(not {self.login!r})",
+                message_id="openwrt.loginName",
+                params={"login": repr(self.login)},
             )
         if self.login in ("root", request.admin_user):
             raise AdapterError(
                 "the login to set up must not be the admin login: give Signalbox a login of "
-                "its own, for example signalbox"
+                "its own, for example signalbox",
+                message_id="openwrt.loginIsAdmin",
             )
         self.password = new_password()
         self.hash = md5_crypt(self.password, new_password(8))
@@ -292,7 +299,9 @@ class OpenWrtSetup:
         if "end" not in parts or "rpcd" not in parts:
             raise AdapterError(
                 "the device did not answer like OpenWrt: "
-                + self.redact((res.err or res.text).strip())[:300]
+                + self.redact((res.err or res.text).strip())[:300],
+                message_id="openwrt.notOpenWrt",
+                params={"detail": self.redact((res.err or res.text).strip())[:300]},
             )
         pm = parts.get("pm", "").split()
         acl_text = parts.get("acl", "").strip()
@@ -510,7 +519,11 @@ class OpenWrtSetup:
             res = await ssh.run(script, timeout=timeout)
             if res.code != 0:
                 tail = (res.err or res.text).strip()[-400:]
-                raise AdapterError(f"failed (exit status {res.code}): {self.redact(tail)}")
+                raise AdapterError(
+                    f"failed (exit status {res.code}): {self.redact(tail)}",
+                    message_id="openwrt.stepFailed",
+                    params={"code": res.code, "detail": self.redact(tail)},
+                )
             return None
 
         return run
@@ -582,7 +595,11 @@ class OpenWrtFix(OpenWrtSetup):
 
     def __init__(self, request: RemedyRequest) -> None:
         if request.remedy not in {r.id for r in REMEDIES}:
-            raise AdapterError(f"OpenWrt has no remedy {request.remedy!r}")
+            raise AdapterError(
+                f"OpenWrt has no remedy {request.remedy!r}",
+                message_id="openwrt.noRemedy",
+                params={"remedy": repr(request.remedy)},
+            )
         self.fix = request
         super().__init__(
             SetupRequest(
