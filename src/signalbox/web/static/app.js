@@ -7,6 +7,7 @@ import { buildShell } from './nav.js';
 import { renderFindings } from './views/findings.js';
 import { renderDevices, renderDeviceForm } from './views/devices.js';
 import { renderDevice } from './views/device.js';
+import { renderFixes } from './views/fixes.js';
 import { renderSegments } from './views/segments.js';
 import { renderWireless } from './views/wireless.js';
 import { renderServices } from './views/services.js';
@@ -95,6 +96,7 @@ export function routeInfo() {
   if (first === 'devices' && second === 'new') return { name: 'device-new', nav: 'devices' };
   if (first === 'devices') return { name: 'devices', nav: 'devices' };
   if (first === 'device' && second) return { name: 'device', nav: 'devices', id: second, tab: third || 'overview' };
+  if (first === 'fixes') return { name: 'fixes', nav: 'devices' };
   if (first === 'dhcp-dns') return { name: 'services', nav: 'services' };
   if (first === 'change' && second === 'new') return { name: 'change-new', nav: 'changes' };
   if (first === 'change' && second) return { name: 'change', nav: 'changes', id: second };
@@ -185,6 +187,7 @@ async function render() {
     else if (route.name === 'devices') await renderDevices(main, ctx);
     else if (route.name === 'device-new') await renderDeviceForm(main, ctx, null);
     else if (route.name === 'device') await renderDevice(main, ctx, route);
+    else if (route.name === 'fixes') await renderFixes(main, ctx);
     else if (route.name === 'segments') await renderSegments(main, ctx);
     else if (route.name === 'wireless') await renderWireless(main, ctx);
     else if (route.name === 'services') await renderServices(main, ctx);

@@ -5,6 +5,7 @@ import { del, enc, get, post } from '../api.js';
 import { confirmRemoveAck } from '../annotations.js';
 import { loadNetwork, objectRef, siteFilter } from '../net.js';
 import { clear, fmtAgo, fmtTime, h, place, sleep } from '../util.js';
+import { fixesNotice } from './fixes.js';
 import { checkField, empty, field, modal, pageHead, run, select, severityBadge, showError, slot, toast } from '../ui.js';
 
 const ORDER = { error: 0, warning: 1, info: 2 };
@@ -114,6 +115,7 @@ export async function renderFindings(main, ctx) {
   let ix = await loadNetwork();
   let records = await get(`/findings${filters.resolved ? '?resolved=true' : ''}`);
   const adapters = records.some((r) => r.finding.remedy) ? await get('/adapters') : [];
+  const fixes = await fixesNotice();
   if (!ctx.alive(id)) return;
   const fixable = (f) => {
     const dev = f.remedy && f.objects.length ? ix.devices.get(f.objects[0]) : null;
@@ -227,6 +229,7 @@ export async function renderFindings(main, ctx) {
 
   place(main, 
     pageHead(t('findings.title'), observe),
+    fixes,
     ix.deviceList.length ? h('div', { class: 'filters' }, site, sev, h('label', { class: 'check' }, resolved, t('findings.showResolved'))) : null,
     list,
   );
