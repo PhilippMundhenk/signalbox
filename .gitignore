@@ -13,3 +13,4 @@ test-results/
 node_modules/
 /.claude/
 .it/
+.mypy_cache/
