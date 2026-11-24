@@ -371,7 +371,8 @@ class Deployer:
                         rec,
                         result,
                         "the device changed since the plan was made: "
-                        + "; ".join(c.describe() for c in stale),
+                        + "; ".join(c.describe() for c in stale)
+                        + " [DIAG have=%r]" % [current_value(net, c) for c in stale],
                     )
             try:
                 backup = await adapter.backup()
