@@ -3,7 +3,7 @@
   --text: #17202e; --muted: #5d6a82; --accent: #1e7f5c; --accent-text: #fff;
   --ok: #1f9d55; --warn: #b7791f; --danger: #d64545;
   --radius: 10px; --shadow: 0 1px 2px rgb(20 30 50 / 8%), 0 4px 16px rgb(20 30 50 / 6%);
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Hiragino Sans", "Yu Gothic UI", "Meiryo", "Noto Sans CJK JP", sans-serif;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Hiragino Sans", "Yu Gothic UI", "Meiryo", "Noto Sans CJK JP", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 :root[data-theme="dark"] {
@@ -23,7 +23,10 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body { background: var(--bg); color: var(--text); font: 15px/1.5 var(--font); }
-:lang(ja) body { line-break: strict; overflow-wrap: anywhere; }
+:lang(ja) body, :lang(zh) body { line-break: strict; overflow-wrap: anywhere; }
+:root:lang(zh) { --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+:root:lang(ko) { --font: system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", sans-serif; }
+:lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }
 a { color: var(--accent); }
 code, pre, .mono { font-family: var(--mono); font-size: 0.9em; }
 code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
