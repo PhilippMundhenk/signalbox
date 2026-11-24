@@ -2730,7 +2730,7 @@
  "msg.opnsense.noAssignmentApi": "this OPNsense version has no interface assignment API with addresses (OPNsense 26.7.6 or newer is needed to change router interfaces)",
  "msg.opnsense.forwardsUnread": "port forwards: not readable on {where}, its API has no destination NAT (the page is classic; 26.1 and newer have it)",
  "msg.opnsense.forwardsUnread.fix": "Optional: nothing to grant. Port forwards are shown once OPNsense is updated to 26.1 or newer.",
- "msg.opnsense.noUserApi": "{path}: this OPNsense has no user manager API (OPNsense 25.1 or newer has it)",
+ "msg.opnsense.noUserApi": "{path}: not available (HTTP 404): this OPNsense has no user manager API (OPNsense 25.1 or newer has it)",
  "msg.opnsense.noUserApi.fix": "Create the user and its API key by hand (the setup guide, Setup); automatic setup and Fix it need OPNsense 25.1 or newer.",
  "msg.opnsense.noInterfaceNot": "{label}: this OPNsense ({release}) cannot negate an interface in a rule (OPNsense 25.1 or newer can): name the zones instead of `!zone`",
  "msg.opnsense.notAvailable": "{path}: not available on this firewall (HTTP 404)",

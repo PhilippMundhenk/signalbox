@@ -27,13 +27,14 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv6Network, ip_address, ip_interface, ip_network
 from typing import Any
 from urllib.parse import quote, urlsplit
 
+import httpx
 from pydantic import Field, SecretStr, field_validator, model_validator
 
 from signalbox.adapters import Adapter as _Adapter
@@ -817,6 +818,22 @@ OPNSENSE_STEPS = (
 )
 
 
+class _ApiHttp(DeviceHttp):
+    """Every request tries the ``snake_case`` action first (the spelling of 26.7) and, on a 404,
+    once more in camelCase: a release that does not know the first may know the second (#390)."""
+
+    async def request(
+        self, method: str, path: str, *, accept: Collection[int] = (), **kw: Any
+    ) -> httpx.Response:
+        try:
+            return await super().request(method, path, accept=accept, **kw)
+        except NotFound:
+            other = compat.camel_path(path)
+            if other == path:
+                raise
+            return await super().request(method, other, accept=accept, **kw)
+
+
 class OpnsenseAdapter(_Adapter):
     manifest = Manifest(
         setup_steps=OPNSENSE_STEPS,
@@ -940,7 +957,7 @@ class OpnsenseAdapter(_Adapter):
         cfg = context.config
         assert isinstance(cfg, OpnsenseConfig)
         self.config = cfg
-        self.http = DeviceHttp(
+        self.http = _ApiHttp(
             cfg.url,
             pinned_fingerprint=context.pinned_fingerprint,
             timeout=context.timeout,
@@ -959,15 +976,9 @@ class OpnsenseAdapter(_Adapter):
     async def _get(self, endpoint: str, grid: bool = False) -> Any:
         """GET once per observation (DHCP and clients both need the leases, ...)."""
         if endpoint not in self._cache:
-            params = ALL_ROWS if grid else None
-            try:
-                self._cache[endpoint] = await self.http.get_json(endpoint, params=params)
-            except NotFound:
-                # snake_case is canonical; a release that does not know it may know camelCase
-                other = compat.camel_path(endpoint)
-                if other == endpoint:
-                    raise
-                self._cache[endpoint] = await self.http.get_json(other, params=params)
+            self._cache[endpoint] = await self.http.get_json(
+                endpoint, params=ALL_ROWS if grid else None
+            )
         return self._cache[endpoint]
 
     async def _optional(self, endpoint: str, grid: bool = False) -> Any:
@@ -2125,13 +2136,7 @@ class OpnsenseAdapter(_Adapter):
 
     async def _send(self, call: w.Call) -> dict[str, Any]:
         try:
-            try:
-                answer = await self.http.post_json(call.path, call.payload)
-            except NotFound:
-                other = compat.camel_path(call.path)
-                if other == call.path:
-                    raise
-                answer = await self.http.post_json(other, call.payload)
+            answer = await self.http.post_json(call.path, call.payload)
         except NotFound as exc:
             raise AdapterError(
                 f"{call.path}: not available on this firewall (HTTP 404)",

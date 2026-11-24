@@ -138,7 +138,8 @@ async def _user_rows(http: DeviceHttp, path: str) -> list[dict[str, Any]]:
         return _rows(await http.post_json(path, ALL))
     except NotFound as exc:
         raise AdapterError(
-            f"{path}: this OPNsense has no user manager API (OPNsense 25.1 or newer has it)",
+            f"{path}: not available (HTTP 404): this OPNsense has no user manager API "
+            "(OPNsense 25.1 or newer has it)",
             fix="Create the user and its API key by hand (the setup guide, Setup); automatic "
             "setup and Fix it need OPNsense 25.1 or newer.",
             message_id="opnsense.noUserApi",
