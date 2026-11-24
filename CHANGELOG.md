@@ -132,6 +132,7 @@ All notable changes to this project are documented here. The format follows
 
 - Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
+- Omada 6.3: the controller's users cannot be read in client mode (`/users`, `/all-users`, `/roles/available` answer -44118, `/users/local` and `/users/cloud` -1007; confirmed from the controller's own API description in CI), so the optional accounts gap now says so (`omada.accounts.client_mode`, all 15 catalogues), `/users` is not asked again after -44118, and the limit is documented (#354)
 - Accounts: when OPNsense, Omada or FRITZ!Box refuse the account list, Signalbox reports an optional gap naming the missing privilege instead of showing no accounts; the OPNsense user-manager privilege is an optional, off-by-default setup extra (#349)
 - OpenWrt: after applying, confirming or restoring a Wi-Fi change, wait until the radios have finished reloading before reading them; fixes the flaky wireless deploy test (#339)
 - Firewall writers: adopting a device's own row keeps every property the desired state does not model (MikroTik in place, OpenWrt options carried over, OPNsense `set_rule` in place; listed in the plan, refused with the list where they do not fit); MikroTik's revert script returns a removed row before the next row by id when that has no comment, and a restore sets `disabled=false` instead of unsetting it; the MikroTik CI job shows its test results again (annotation cap) and a job summary of collected tests; real devices unconfirmed (#331, #21)
