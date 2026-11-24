@@ -2951,8 +2951,6 @@
  "wifimap.allSites": "所有站点",
  "wifimap.ownAria": "打开 {device}：{radio}，{band} GHz，信道 {channel}",
  "wifimap.ownSub": "{band} GHz · 信道 {channel}",
- "wifimap.neighbour": "邻居 {n}",
- "wifimap.neighbourSub": "信道 {channel}",
  "wifimap.neighbourTitle": "邻居 {n}：{band} GHz，信道 {channel}，最强信号 {dbm} dBm",
  "wifimap.channelUnknown": "未知",
  "wifimap.noScan.title": "没有扫描数据",

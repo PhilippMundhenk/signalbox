@@ -2951,8 +2951,6 @@
  "wifimap.allSites": "すべてのサイト",
  "wifimap.ownAria": "{device} を開く：{radio}、{band} GHz、チャンネル {channel}",
  "wifimap.ownSub": "{band} GHz · チャンネル {channel}",
- "wifimap.neighbour": "近隣 {n}",
- "wifimap.neighbourSub": "チャンネル {channel}",
  "wifimap.neighbourTitle": "近隣 {n}：{band} GHz、チャンネル {channel}、最強信号 {dbm} dBm",
  "wifimap.channelUnknown": "不明",
  "wifimap.noScan.title": "スキャンデータなし",

@@ -2951,8 +2951,6 @@
  "wifimap.allSites": "সব সাইট",
  "wifimap.ownAria": "{device} খুলুন: {radio}, {band} GHz, চ্যানেল {channel}",
  "wifimap.ownSub": "{band} GHz · চ্যানেল {channel}",
- "wifimap.neighbour": "প্রতিবেশী {n}",
- "wifimap.neighbourSub": "চ্যানেল {channel}",
  "wifimap.neighbourTitle": "প্রতিবেশী {n}: {band} GHz, চ্যানেল {channel}, সবচেয়ে শক্তিশালী সংকেত {dbm} dBm",
  "wifimap.channelUnknown": "অজানা",
  "wifimap.noScan.title": "স্ক্যানের তথ্য নেই",

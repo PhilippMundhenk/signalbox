@@ -2951,8 +2951,6 @@
  "wifimap.allSites": "كل المواقع",
  "wifimap.ownAria": "فتح {device}: {radio}، {band} غيغاهرتز، القناة {channel}",
  "wifimap.ownSub": "{band} غيغاهرتز · القناة {channel}",
- "wifimap.neighbour": "جار {n}",
- "wifimap.neighbourSub": "القناة {channel}",
  "wifimap.neighbourTitle": "جار {n}: {band} غيغاهرتز، القناة {channel}، أقوى إشارة {dbm} ديسيبل مللي واط",
  "wifimap.channelUnknown": "غير معروف",
  "wifimap.noScan.title": "لا توجد بيانات مسح",

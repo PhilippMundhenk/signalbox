@@ -2951,8 +2951,6 @@
  "wifimap.allSites": "Все площадки",
  "wifimap.ownAria": "Открыть {device}: {radio}, {band} ГГц, канал {channel}",
  "wifimap.ownSub": "{band} ГГц · канал {channel}",
- "wifimap.neighbour": "Сосед {n}",
- "wifimap.neighbourSub": "канал {channel}",
  "wifimap.neighbourTitle": "Сосед {n}: {band} ГГц, канал {channel}, сильнейший сигнал {dbm} дБм",
  "wifimap.channelUnknown": "неизвестно",
  "wifimap.noScan.title": "Нет данных сканирования",

@@ -2951,8 +2951,6 @@
  "wifimap.allSites": "Semua lokasi",
  "wifimap.ownAria": "Buka {device}: {radio}, {band} GHz, kanal {channel}",
  "wifimap.ownSub": "{band} GHz · kanal {channel}",
- "wifimap.neighbour": "Tetangga {n}",
- "wifimap.neighbourSub": "kanal {channel}",
  "wifimap.neighbourTitle": "Tetangga {n}: {band} GHz, kanal {channel}, sinyal terkuat {dbm} dBm",
  "wifimap.channelUnknown": "tidak diketahui",
  "wifimap.noScan.title": "Tidak ada data pindai",

@@ -2951,8 +2951,6 @@
  "wifimap.allSites": "All sites",
  "wifimap.ownAria": "Open {device}: {radio}, {band} GHz, channel {channel}",
  "wifimap.ownSub": "{band} GHz · channel {channel}",
- "wifimap.neighbour": "Neighbour {n}",
- "wifimap.neighbourSub": "channel {channel}",
  "wifimap.neighbourTitle": "Neighbour {n}: {band} GHz, channel {channel}, strongest signal {dbm} dBm",
  "wifimap.channelUnknown": "unknown",
  "wifimap.noScan.title": "No scan data",
