@@ -18,7 +18,8 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import Field
 
-from signalbox.model import DeviceStatus, Model, Network, PortKind
+from signalbox.fdb import fdb_access_ports
+from signalbox.model import Client, DeviceStatus, Model, Network, PortKind
 
 #: Statuses in which a device answered (it was read, perhaps not completely).
 ANSWERED = frozenset({DeviceStatus.OK, DeviceStatus.PARTIAL})
@@ -28,6 +29,9 @@ DEVICE, CLIENT, CLIENT_SEGMENT, PORT = "device", "client", "client-segment", "po
 #: Per device: its boot time rounded to the minute and the reboot reason (``BOOT``), and
 #: whether its CPU load was high (``CPU``, see :data:`CPU_HIGH_PCT`).
 BOOT, CPU = "boot", "cpu"
+#: Per MAC address: the access port its device-table entries put it behind (``mac.flapping``,
+#: #298), as the id of the port.
+FDB = "fdb"
 #: Kinds whose key is a device id (deleted with the device).
 DEVICE_KINDS = (DEVICE, PORT, BOOT, CPU)
 #: CPU load (percent) from which an observation counts as high for ``device.resources``.
@@ -149,6 +153,8 @@ class History(Model):
     #: By device id: boot times (``boot_value``) and whether the CPU load was high.
     boots: dict[str, ValueHistory] = Field(default_factory=dict)
     cpu: dict[str, ValueHistory] = Field(default_factory=dict)
+    #: By MAC address: the access port its MAC address table entries put it behind.
+    fdb: dict[str, ValueHistory] = Field(default_factory=dict)
 
     @classmethod
     def empty(cls) -> History:
@@ -167,6 +173,14 @@ class History(Model):
         return start is not None and self.now is not None and self.now - start >= period
 
 
+def client_segment(net: Network, client: Client) -> str | None:
+    """A client's network: as reported, else the one its switches learned it in (#85)."""
+    if client.segment_id is not None:
+        return client.segment_id
+    learned = {e.segment_id for e in net.fdb_of(client.mac) if e.segment_id is not None}
+    return next(iter(learned)) if len(learned) == 1 else None
+
+
 def observed_values(net: Network) -> dict[tuple[str, str], str | None]:
     """What one round saw, as ``(kind, key) -> value`` for the store.
 
@@ -182,9 +196,14 @@ def observed_values(net: Network) -> dict[tuple[str, str], str | None]:
         e.capability == "clients" for e in net.errors
     )
     for client in net.clients:
-        out[(CLIENT, client.mac)] = client.segment_id if reliable else None
-        if client.segment_id is not None:
-            out[(CLIENT_SEGMENT, f"{client.mac} {client.segment_id}")] = None
+        segment = client_segment(net, client)
+        out[(CLIENT, client.mac)] = segment if reliable else None
+        if segment is not None:
+            out[(CLIENT_SEGMENT, f"{client.mac} {segment}")] = None
+    if net.fdb:
+        fdb_ok = reliable and not any(e.optional for e in net.errors)
+        for mac, port_id in fdb_access_ports(net).items():
+            out[(FDB, mac)] = port_id if fdb_ok else None
     for port in net.ports:
         if port.up is not None and port.kind in (PortKind.ETHERNET, PortKind.LAG):
             out[(PORT, port.id)] = "up" if port.up else "down"

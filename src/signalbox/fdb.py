@@ -209,3 +209,28 @@ def _far_port(ix: Index, here: str, far: str, mac: str) -> str | None:
     if toward:
         return min(toward, key=lambda p: (-toward[p], p))
     return ix.port_of_mac.get(mac)
+
+
+def fdb_access_ports(net: Network) -> dict[str, str]:
+    """MAC address → the wired access port the device tables put it behind (#298).
+
+    Only addresses a device's own table reports (not ``seen_on`` of an ARP-based router);
+    uplinks, wireless ports and the addresses of managed devices are left out. With several
+    access ports the one that learns the fewest addresses wins, as in :func:`placement`.
+    """
+    ix = index(net)
+    out: dict[str, str] = {}
+    for mac, seen in ix.where.items():
+        own = ix.owner.get(mac)
+        ports = {
+            s.port_id
+            for s in seen
+            if s.device_id != own
+            and s.device_id in ix.tables
+            and s.port_id not in ix.uplinks
+            and (p := net.port(s.port_id)) is not None
+            and p.kind is not PortKind.WIRELESS
+        }
+        if ports:
+            out[mac] = min(ports, key=lambda p: (ix.count(p), p))
+    return out

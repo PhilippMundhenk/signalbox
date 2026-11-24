@@ -36,7 +36,8 @@
   chassis MAC, system name and management address match no device in Signalbox. One finding per
   announced device, listing the ports that see it. LLDP capabilities are not read yet, so phones
   or computers that send LLDP with an address are reported as well. A device whose MAC address
-  is annotated as a known neighbour (`known_neighbour`) is not reported.
+  is annotated as a known neighbour (`known_neighbour`) is not reported, nor is one that a
+  device reports as its own address in its MAC address table.
 - **Fix:** add the device under *Devices* if it is a router, switch or access point; otherwise
   ignore the finding.
 

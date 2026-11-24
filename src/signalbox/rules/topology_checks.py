@@ -16,6 +16,7 @@ from signalbox.model import (
     Client,
     Device,
     DeviceRole,
+    FdbKind,
     Membership,
     Network,
     Port,
@@ -198,7 +199,8 @@ HIDDEN_THRESHOLD = 3
 
 
 def _device_macs(net: Network) -> set[str]:
-    return {p.mac for p in net.ports if p.mac}
+    """Port MACs and the addresses devices report as their own in their MAC table (#160)."""
+    return {p.mac for p in net.ports if p.mac} | {e.mac for e in net.fdb if e.kind is FdbKind.SELF}
 
 
 def _device_addresses(net: Network) -> set[str]:

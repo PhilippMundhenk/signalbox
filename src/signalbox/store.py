@@ -40,6 +40,7 @@ from signalbox.sightings import (
     CPU,
     DEVICE,
     DEVICE_KINDS,
+    FDB,
     PORT,
     ClientHistory,
     DeviceHistory,
@@ -872,7 +873,7 @@ class Store:
         devices: dict[str, DeviceHistory] = {}
         clients: dict[str, ClientHistory] = {}
         ports: dict[str, PortHistory] = {}
-        values: dict[str, dict[str, ValueHistory]] = {BOOT: {}, CPU: {}}
+        values: dict[str, dict[str, ValueHistory]] = {BOOT: {}, CPU: {}, FDB: {}}
         segments: dict[str, list[SegmentSighting]] = {}
         for r in self._all("SELECT * FROM sightings ORDER BY kind, key"):
             kind, key = r["kind"], str(r["key"])
@@ -931,4 +932,5 @@ class Store:
             ports=ports,
             boots=values[BOOT],
             cpu=values[CPU],
+            fdb=values[FDB],
         )
