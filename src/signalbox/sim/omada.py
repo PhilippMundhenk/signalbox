@@ -570,6 +570,11 @@ def sample_data() -> dict[str, Any]:
             "model": "EAP650",
             "firmwareVersion": "1.1.0",
             "wirelessLinked": False,
+            # radio state (#172) *(guess: field names, from the controller's web UI)*
+            "wp2g": {"rdMode": "802.11b/g/n/ax", "txUtil": 9, "rxUtil": 14, "interUtil": 12},
+            "wp5g": {"rdMode": "802.11a/n/ac/ax", "txUtil": 4, "rxUtil": 3, "interUtil": 2},
+            "clientNum2g": 1,
+            "clientNum5g": 2,
             "uplinkDeviceMac": SWITCH,
             "uplinkDeviceName": "Switch",
             "uplinkDevicePort": "5",

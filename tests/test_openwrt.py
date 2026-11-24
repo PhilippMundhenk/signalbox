@@ -41,6 +41,7 @@ from signalbox.adapters.openwrt import (
     width,
     wireguard,
 )
+from signalbox.adapters.openwrt import radio as radio_state
 from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
 from signalbox.model import (
@@ -49,6 +50,7 @@ from signalbox.model import (
     Cipher,
     DeviceRole,
     DeviceStatus,
+    DfsState,
     LeaseState,
     Membership,
     Network,
@@ -59,6 +61,7 @@ from signalbox.model import (
     PortRole,
     SaePwe,
     Security,
+    WifiStandard,
     WpsMethod,
     passphrase_digest,
     passphrase_fingerprint,
@@ -1604,3 +1607,108 @@ def test_rpcd_scrub_and_privileges() -> None:
     ]
     assert accounts.logins({"values": None}, "x") == [] and accounts.scrub({}) == {}
     assert accounts.privilege(["signalbox"], []) is AccountPrivilege.READ
+
+
+# radio capabilities and state (#172) ----------------------------------------------------------
+
+
+async def test_radio_capabilities_and_state(adapter: OpenWrtAdapter) -> None:
+    obs = await adapter.read_wireless()
+    radios = {r.name: r for r in obs.radios}
+    r0, r1 = radios["radio0"], radios["radio1"]
+    assert r0.standard is WifiStandard.AX and r0.channel_auto is False
+    assert r0.standards == [WifiStandard.B, WifiStandard.G, WifiStandard.N, WifiStandard.AX]
+    assert r0.supported_channels == list(range(1, 14)) and r0.supported_widths_mhz == [20, 40]
+    assert (r0.max_tx_power_dbm, r0.noise_dbm, r0.dfs_capable) == (20, -92, None)
+    assert (r0.channel_utilisation_pct, r0.interference_pct) == (31.0, 10.3)
+    assert r0.client_count == 2 and r0.center_channel is None and r0.dfs_state is None
+    assert r1.standards == [WifiStandard.A, WifiStandard.N, WifiStandard.AC, WifiStandard.AX]
+    assert r1.supported_widths_mhz == [20, 40, 80, 160] and r1.dfs_capable is True
+    assert 149 not in (r1.supported_channels or []) and r1.center_channel == 42
+    assert r1.client_count == 1 and r1.channel_utilisation_pct == 12.0
+    assert not obs.incomplete
+
+
+async def test_radio_state_with_an_acl_from_before_172(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    sim.denied = {"iwinfo", "hostapd.phy0-ap0.get_status"}
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.OK  # optional: the rest is read
+    (gap,) = [e for e in snap.errors if e.capability == "wireless"]
+    assert gap.optional and gap.message_id == "openwrt.radioState" and "iwinfo" in gap.message
+    r0 = next(r for r in snap.radios if r.name == "radio0")
+    assert r0.standard is WifiStandard.AX and r0.standards is None and r0.dfs_state is None
+
+
+async def test_radio_state_without_rpcd_mod_iwinfo(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    sim.iwinfo = False
+    obs = await adapter.read_wireless()
+    (gap,) = obs.incomplete
+    assert gap.optional and gap.message_id == "openwrt.noIwinfo"
+    assert gap.fix_id == "openwrt.noIwinfo.fix" and "rpcd-mod-iwinfo" in (gap.fix or "")
+    assert all(r.standards is None for r in obs.radios)
+
+
+async def test_radio_state_without_radios_makes_no_call(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    sim.no_wireless_object = True
+    sim.denied = {"iwinfo"}
+    obs = await adapter.read_wireless()
+    assert not obs.incomplete and all(not r.enabled for r in obs.radios)
+
+
+@pytest.mark.parametrize(
+    ("htmode", "band", "expected"),
+    [
+        ("EHT320", Band.GHZ_6, WifiStandard.BE),
+        ("HE80", Band.GHZ_5, WifiStandard.AX),
+        ("VHT40", Band.GHZ_5, WifiStandard.AC),
+        ("HT20", Band.GHZ_2_4, WifiStandard.N),
+        ("NOHT", Band.GHZ_2_4, WifiStandard.G),
+        ("NOHT", Band.GHZ_5, WifiStandard.A),
+        ("", Band.GHZ_5, None),
+        ("HE", Band.GHZ_5, None),
+        ("odd", Band.GHZ_5, None),
+    ],
+)
+def test_standard_of_htmode(htmode: str, band: Band, expected: WifiStandard | None) -> None:
+    assert radio_state.standard_of(htmode, band) is expected
+
+
+def test_radio_capability_parsing() -> None:
+    modes = ["b", "g", "n", "a", "ac", "ax", "be", "x"]
+    info = {"hwmodes": modes, "htmodes": ["HT20", "EHT320", "VHT80+80"], "noise": 0}
+    six = radio_state.capabilities(Band.GHZ_6, info, None, None)
+    assert six == {
+        "standards": [WifiStandard.AX, WifiStandard.BE],
+        "supported_widths_mhz": [20, 320],
+    }
+    two = radio_state.capabilities(Band.GHZ_2_4, {"htmodes": ["HE80"]}, {"results": "odd"}, {})
+    assert two == {"supported_widths_mhz": None}
+    freqs = {"results": [{"channel": 36, "mhz": 5180}, {"channel": 1, "mhz": 5955}, {"mhz": 5200}]}
+    assert radio_state.capabilities(Band.GHZ_5, None, freqs, None) == {
+        "supported_channels": [36],
+        "dfs_capable": False,
+    }
+    assert radio_state.band_of_mhz(900) is None
+
+
+def test_radio_utilisation_and_status_parsing() -> None:
+    row = {"mhz": 5180, "active_time": 100, "busy_time": 50, "noise": -90}
+    assert radio_state.utilisation({"results": [row]}, 5180) == {
+        "channel_utilisation_pct": 50.0,
+        "noise_dbm": -90,
+    }
+    assert radio_state.utilisation({"results": [row]}, 2412) == {}
+    assert radio_state.utilisation({"results": [{**row, "active_time": 0}]}, 5180) == {}
+    assert radio_state.status(None, True) == {}
+    cac = {"dfs": {"cac_active": True}, "airtime": {"utilization": 255}}
+    assert radio_state.status(cac, True) == {
+        "dfs_state": DfsState.CAC,
+        "channel_utilisation_pct": 100.0,
+    }
+    assert radio_state.status(cac, False) == {"channel_utilisation_pct": 100.0}

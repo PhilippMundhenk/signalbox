@@ -31,7 +31,8 @@
     channel width is ignored.
   - 5 and 6 GHz: a radio occupies the aligned block of 20 MHz channels of its width (20 MHz if
     not reported) in the standard channel plan (5 GHz blocks start at 36 and at 149, 6 GHz at
-    1); radios overlap if their blocks share a 20 MHz channel. For example 36 at 80 MHz
+    1); radios overlap if their blocks share a 20 MHz channel. Where a radio reports the centre
+    of its channel (#172) and the span around it contains its channel, that span is used. For example 36 at 80 MHz
     occupies 36-48 and overlaps 44 at 20 MHz but not 52 at 80 MHz.
 - **Fix:** move one access point to a channel that does not overlap, or use a narrower width.
 

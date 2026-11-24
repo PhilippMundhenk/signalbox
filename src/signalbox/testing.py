@@ -23,6 +23,7 @@ from signalbox.factory_defaults import FACTORY_DEFAULTS
 from signalbox.model import (
     FDB_LIMIT,
     TYPED_OPTION_CODES,
+    Band,
     Cipher,
     Client,
     Device,
@@ -203,6 +204,21 @@ def radio_problems(radio: Radio) -> list[str]:
         out.append(f"radio {radio.id}: empty supported_security (None: not reported)")
     if sup is not None and len(set(sup)) != len(sup):
         out.append(f"radio {radio.id}: supported_security lists a mode twice")
+    # capabilities and state (#172): lists are None or non-empty, the state fits them
+    for name in ("standards", "supported_channels", "supported_widths_mhz"):
+        values = getattr(radio, name)
+        if values is not None and (not values or len(set(values)) != len(values)):
+            out.append(f"radio {radio.id}: {name} empty or with duplicates (None: not reported)")
+    if radio.standard is not None and radio.standards and radio.standard not in radio.standards:
+        out.append(f"radio {radio.id}: standard {radio.standard.value} is not in its standards")
+    widths = radio.supported_widths_mhz
+    if radio.width_mhz is not None and widths and radio.width_mhz not in widths:
+        out.append(f"radio {radio.id}: width {radio.width_mhz} MHz is not a supported width")
+    busy, other = radio.channel_utilisation_pct, radio.interference_pct
+    if busy is not None and other is not None and other > busy:
+        out.append(f"radio {radio.id}: interference_pct above channel_utilisation_pct")
+    if radio.dfs_state is not None and radio.band is not Band.GHZ_5:
+        out.append(f"radio {radio.id}: dfs_state outside 5 GHz")
     return out
 
 

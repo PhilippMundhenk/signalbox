@@ -547,6 +547,18 @@ CLI shows them. The `steering.*` names (802.11k/v) are from RouterOS 7.13+.
 Registration tables: `/rest/interface/wifi/registration-table`, or
 `/rest/interface/wireless/registration-table` for the older package.
 
+Radio capabilities and state (#172), with the wireless read: `Radio.standard` is the newest
+standard of the configured band (`channel.band` `2ghz-ax`: ax; legacy `band` `5ghz-a/n/ac`:
+ac), `channel_auto` is on when no single frequency is set (legacy: `frequency` `auto`), and
+`client_count` counts the registration-table rows of the radio and its virtual interfaces
+(not readable: not reported). For the `wifi` package, `/rest/interface/wifi/radio` gives
+`standards` from `bands` (`2ghz-g,2ghz-n,2ghz-ax`), `supported_channels` from `2g-channels` /
+`5g-channels` (MHz), `antennas` from `tx-chains`/`rx-chains` (`0,1`: 2x2) and `dfs_capable`;
+rows are matched by `interface`, else by `radio-mac` *(guess: the REST field names and the
+`interface` column; from the RouterOS 7.13 `print` output)*. Missing or refused: not
+reported. Not read: utilisation, noise and DFS state (`/interface/wifi/monitor` is a command
+that runs until stopped), `max_tx_power_dbm`, `mlo`.
+
 ### `/rest/ip/neighbor` (neighbours)
 
 ```json

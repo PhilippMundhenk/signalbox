@@ -54,6 +54,7 @@ from signalbox.adapters.openwrt import (
     wireguard,
 )
 from signalbox.adapters.openwrt import discovery as _discovery
+from signalbox.adapters.openwrt import radio as radio_state
 from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import (
     AccessDenied,
@@ -1296,6 +1297,8 @@ class OpenWrtAdapter(Adapter):
                 country=str(s["country"]) if s.get("country") else None,
                 enabled=not _flag(s.get("disabled")) and bool(up.get(name, {}).get("up")),
                 supported_security=supported,
+                standard=radio_state.standard_of(s.get("htmode"), b),
+                channel_auto=str(s.get("channel", "auto")) == "auto",
                 vendor_extra=_extra(s, "htmode", "type", "cell_density"),
             )
         # wifi-iface section -> its running interface (``phy0-ap0``), for Wlan.port_id (#252)
@@ -1305,6 +1308,16 @@ class OpenWrtAdapter(Adapter):
             for i in radio.get("interfaces") or []
             if isinstance(i, dict) and i.get("section") and i.get("ifname")
         }
+        gaps: list[Gap] = []
+        for name, found in list(radios.items()):
+            running = [
+                str(i["ifname"])
+                for i in (up.get(name) or {}).get("interfaces") or []
+                if isinstance(i, dict) and i.get("ifname")
+            ]
+            if found.enabled and running:
+                fields = await self._radio_state(found, running, gaps)
+                radios[name] = found.model_copy(update=fields)
         wlans: list[Wlan] = []
         for name, s in _sections(uci, "wifi-iface"):
             radio = radios.get(str(s.get("device")))
@@ -1350,7 +1363,81 @@ class OpenWrtAdapter(Adapter):
                     vendor_extra=_extra(s, "encryption", "network"),
                 )
             )
-        return Observation(radios=list(radios.values()), wlans=wlans)
+        return Observation(radios=list(radios.values()), wlans=wlans, incomplete=gaps[:1])
+
+    async def _radio_state(
+        self, radio: Radio, ifnames: list[str], gaps: list[Gap]
+    ) -> dict[str, Any]:
+        """Capabilities and current state of a running radio (#172) from ``iwinfo`` and
+        ``hostapd``; what the device does not answer stays None. A refused iwinfo call (an ACL from
+        before #172) or a missing rpcd-mod-iwinfo is an optional gap, reported once."""
+
+        async def ask(obj: str, method: str, args: dict[str, Any]) -> dict[str, Any] | None:
+            try:
+                answer = await self.ubus.call(obj, method, args)
+                return answer if isinstance(answer, dict) else None
+            except AccessDenied as exc:
+                if obj != "iwinfo":  # hostapd: the clients read reports it; iwinfo covers old ACLs
+                    return None
+                gaps.append(
+                    Gap(
+                        message=f"radio state: {exc}",
+                        fix=exc.fix,
+                        remedy=exc.remedy,
+                        optional=True,
+                        message_id="openwrt.radioState",
+                        fix_id=exc.fix_id,
+                        params={**exc.params, "cause": str(exc)},
+                    )
+                )
+            except NotFound:
+                if obj == "iwinfo":
+                    gaps.append(
+                        Gap(
+                            message="radio state: the ubus object iwinfo is missing (install "
+                            "rpcd-mod-iwinfo)",
+                            fix="Install the package rpcd-mod-iwinfo on the router (LuCI: "
+                            "System, Software) to see the radios' capabilities and channel "
+                            "utilisation.",
+                            optional=True,
+                            message_id="openwrt.noIwinfo",
+                            fix_id="openwrt.noIwinfo.fix",
+                        )
+                    )
+            except (InvalidArgument, NoData, CallFailed):
+                pass
+            return None
+
+        dev = {"device": ifnames[0]}
+        info = await ask("iwinfo", "info", dev)
+        if gaps and info is None:
+            return {}  # refused or missing: do not ask the other iwinfo methods in vain
+        fields = radio_state.capabilities(
+            radio.band,
+            info,
+            await ask("iwinfo", "freqlist", dev),
+            await ask("iwinfo", "txpowerlist", dev),
+        )
+        mhz = info.get("frequency") if info else None
+        survey = radio_state.utilisation(
+            await ask("iwinfo", "survey", dev), mhz if isinstance(mhz, int) else None
+        )
+        channel = radio.channel or (info or {}).get("channel")
+        dfs = radio.band is Band.GHZ_5 and isinstance(channel, int) and 52 <= channel <= 144
+        clients = 0
+        counted = False
+        for i, ifname in enumerate(ifnames):
+            if i == 0:
+                state = radio_state.status(await ask(f"hostapd.{ifname}", "get_status", {}), dfs)
+                fields |= {k: v for k, v in state.items() if k not in survey}
+            answer = await ask(f"hostapd.{ifname}", "get_clients", {})
+            if answer is not None and isinstance(answer.get("clients"), dict):
+                clients += len(answer["clients"])
+                counted = True
+        fields |= survey
+        if counted:
+            fields["client_count"] = clients
+        return fields
 
     # dhcp -----------------------------------------------------------------------------
 

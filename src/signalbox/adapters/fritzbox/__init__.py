@@ -104,6 +104,7 @@ from signalbox.model import (
     Subnet,
     Uplink,
     UplinkKind,
+    WifiStandard,
     Wlan,
     Wps,
     WpsMethod,
@@ -192,6 +193,8 @@ PERSONAL = {
     Security.OTHER,
 }
 BANDS = {"2400": Band.GHZ_2_4, "5000": Band.GHZ_5, "6000": Band.GHZ_6}
+#: ``NewStandard`` of WLANConfiguration GetInfo (#172).
+_STANDARDS = {s.value: s for s in WifiStandard}
 
 
 def security(beacon_type: str | None, basic_modes: str | None = None) -> Security:
@@ -1093,10 +1096,49 @@ class FritzboxAdapter(Adapter):
             raise
         return _flag(answer.get("NewBeaconAdvertisementEnabled", "1"))
 
+    async def _optional(self, wlan: WlanService, action: str) -> dict[str, str]:
+        """An answer that only adds detail (#172): empty when the box refuses the action."""
+        try:
+            return dict(await self.tr064.call(wlan.service, action))
+        except SoapFault:
+            return {}
+
+    async def _radio_details(self, wlan: WlanService, b: Band) -> dict[str, Any]:
+        """Standard, channels and auto channel of a radio (#172): ``NewStandard`` of GetInfo,
+        ``GetChannelInfo`` (``NewPossibleChannels``, ``NewX_AVM-DE_AutoChannelEnabled``)."""
+        out: dict[str, Any] = {"standard": _STANDARDS.get(wlan.info.get("NewStandard", ""))}
+        channels = await self._optional(wlan, "GetChannelInfo")
+        possible = sorted(
+            {c for x in channels.get("NewPossibleChannels", "").split(",") if (c := _int(x))}
+        )
+        if possible:
+            out["supported_channels"] = possible
+            if b is Band.GHZ_5:
+                out["dfs_capable"] = any(52 <= c <= 144 for c in possible)
+        auto = channels.get("NewX_AVM-DE_AutoChannelEnabled")
+        if auto in ("0", "1"):
+            out["channel_auto"] = auto == "1"
+        return out
+
+    async def _client_counts(
+        self, wlans: list[WlanService], radio_ids: dict[int, str]
+    ) -> dict[str, int]:
+        """Stations per radio id: ``GetTotalAssociations`` of every WLAN on it (guest too)."""
+        counts: dict[str, int] = {}
+        for w in wlans:
+            total = _int(
+                (await self._optional(w, "GetTotalAssociations")).get("NewTotalAssociations")
+            )
+            rid = radio_ids.get(w.index)
+            if total is not None and rid:
+                counts[rid] = counts.get(rid, 0) + total
+        return counts
+
     async def read_wireless(self) -> Observation:
         d = self.context.device_id
         wlans = await self._wlans()
         radio_ids = self._radio_ids(wlans)
+        counts = await self._client_counts(wlans, radio_ids)
         radios: list[Radio] = []
         out: list[Wlan] = []
         for w in wlans:
@@ -1104,18 +1146,23 @@ class FritzboxAdapter(Adapter):
             on = _flag(info.get("NewEnable"))
             hidden = await self._advertised(w) is False
             if not w.guest:
+                b = band(info, w.index, len(wlans))
+                details = await self._radio_details(w, b)
+                if radio_ids[w.index] in counts:
+                    details["client_count"] = counts[radio_ids[w.index]]
                 radios.append(
                     Radio(
                         id=radio_ids[w.index],
                         device_id=d,
-                        name=f"{band(info, w.index, len(wlans)).value} GHz",
-                        band=band(info, w.index, len(wlans)),
+                        name=f"{b.value} GHz",
+                        band=b,
                         channel=_int(info.get("NewChannel")) or None,
                         enabled=on,
                         supported_security=supported_security(
                             info.get("NewX_AVM-DE_PossibleBeaconTypes")
                         ),
                         vendor_extra=_extra(info, "NewStandard", "NewX_AVM-DE_FrequencyBand"),
+                        **details,
                     )
                 )
             if not radio_ids[w.index]:

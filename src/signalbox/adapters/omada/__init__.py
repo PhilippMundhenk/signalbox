@@ -57,6 +57,7 @@ from signalbox.discovery import Candidate, HostProbe
 from signalbox.factory_defaults import is_factory_default
 from signalbox.model import (
     SERVICE_PORTS,
+    STANDARD_RANK,
     AccountPrivilege,
     Band,
     Cipher,
@@ -97,6 +98,7 @@ from signalbox.model import (
     Subnet,
     Uplink,
     UplinkKind,
+    WifiStandard,
     Wlan,
     fdb_id,
     firewall_id,
@@ -255,6 +257,48 @@ def _sub(parent: dict[str, Any], key: str) -> dict[str, Any]:
 
 def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _pct(value: Any) -> float | None:
+    """A percentage (0-100) as a number or text; anything else: None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        number = float(value)
+    else:
+        try:
+            number = float(_text(value).rstrip("%"))
+        except ValueError:
+            return None
+    return number if 0 <= number <= 100 else None
+
+
+_STANDARDS = {x.value: x for x in WifiStandard}
+
+
+def radio_state(detail: dict[str, Any], short: str) -> dict[str, Any]:
+    """Current state of one radio from the EAP's detail (#172): ``wp<band>`` (``rdMode``
+    ``802.11a/n/ac/ax``, ``txUtil``, ``rxUtil``, ``interUtil``, ``channelUtil``) and
+    ``clientNum<band>`` *(guess: field names, from the controller's web UI)*."""
+    out: dict[str, Any] = {}
+    wp = detail.get(f"wp{short}")
+    if isinstance(wp, dict):
+        mode = _text(wp.get("rdMode")).lower().removeprefix("802.11")
+        found = [_STANDARDS[w] for w in mode.replace(" ", "/").split("/") if w in _STANDARDS]
+        if found:
+            out["standard"] = max(found, key=lambda x: STANDARD_RANK[x])
+        parts = [_pct(wp.get(k)) for k in ("txUtil", "rxUtil", "interUtil")]
+        busy = _pct(wp.get("channelUtil"))
+        if busy is None and all(x is not None for x in parts):
+            busy = min(100.0, sum(x for x in parts if x is not None))
+        if busy is not None:
+            out["channel_utilisation_pct"] = busy
+        if parts[2] is not None:
+            out["interference_pct"] = parts[2]
+    count = _int(detail.get(f"clientNum{short}"))
+    if count is not None and count >= 0:
+        out["client_count"] = count
+    return out
 
 
 def _lag_id(value: Any) -> str | None:
@@ -1397,6 +1441,7 @@ class OmadaAdapter(_Adapter):
             group = ap.wlan_id if ap.wlan_id in groups else primary
             ssids = await self._ssids(group) if group else []
             settings = await self._object(f"{self._site_path}/aps/{ap.raw_mac}/radio-config")
+            detail = await self._object(f"{self._site_path}/aps/{ap.raw_mac}") or {}
             radios: dict[str, Radio] = {}
             if settings is None:  # no radio settings: the radios the SSIDs need, details unknown
                 needed = {
@@ -1422,7 +1467,9 @@ class OmadaAdapter(_Adapter):
                     width_mhz=_width(cfg.get("channelWidth")),
                     tx_power_dbm=_int(cfg.get("txPower")),
                     enabled=_flag(cfg.get("radioEnable"), default=True),
+                    channel_auto=channel == 0 if channel is not None else None,
                     vendor_extra=ap.extra(),
+                    **radio_state(detail, short),
                 )
             out.radios += radios.values()
             for s in ssids:

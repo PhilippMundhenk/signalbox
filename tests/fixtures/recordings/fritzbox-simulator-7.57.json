@@ -158,6 +158,30 @@
   },
   {
    "method": "POST",
+   "path": "/upnp/control/wlanconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#GetChannelInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetChannelInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"></u:GetChannelInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetChannelInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:1\"><NewChannel>6</NewChannel><NewPossibleChannels>1,2,3,4,5,6,7,8,9,10,11,12,13</NewPossibleChannels><NewX_AVM-DE_AutoChannelEnabled>1</NewX_AVM-DE_AutoChannelEnabled><NewX_AVM-DE_FrequencyBand>2400</NewX_AVM-DE_FrequencyBand></u:GetChannelInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wlanconfig2",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:2#GetChannelInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetChannelInfo xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"></u:GetChannelInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetChannelInfoResponse xmlns:u=\"urn:dslforum-org:service:WLANConfiguration:2\"><NewChannel>36</NewChannel><NewPossibleChannels>36,40,44,48,52,56,60,64,100,104,108,112,116,120,124,128,132,136,140</NewPossibleChannels><NewX_AVM-DE_AutoChannelEnabled>1</NewX_AVM-DE_AutoChannelEnabled><NewX_AVM-DE_FrequencyBand>5000</NewX_AVM-DE_FrequencyBand></u:GetChannelInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
    "path": "/upnp/control/wlanconfig3",
    "headers": {
     "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:3#GetGenericAssociatedDeviceInfo\"",
@@ -1391,7 +1415,38 @@
      "wpa-wpa2-psk",
      "wpa3-sae",
      "wpa2-wpa3"
-    ]
+    ],
+    "center_channel": null,
+    "secondary_channel": null,
+    "standards": null,
+    "supported_channels": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13
+    ],
+    "supported_widths_mhz": null,
+    "max_tx_power_dbm": null,
+    "antennas": null,
+    "dfs_capable": null,
+    "mlo": null,
+    "standard": "ax",
+    "channel_auto": true,
+    "channel_utilisation_pct": null,
+    "noise_dbm": null,
+    "interference_pct": null,
+    "client_count": 1,
+    "dfs_state": null,
+    "last_radar": null
    },
    {
     "id": "recorded/radio/2",
@@ -1417,7 +1472,44 @@
      "wpa-wpa2-psk",
      "wpa3-sae",
      "wpa2-wpa3"
-    ]
+    ],
+    "center_channel": null,
+    "secondary_channel": null,
+    "standards": null,
+    "supported_channels": [
+     36,
+     40,
+     44,
+     48,
+     52,
+     56,
+     60,
+     64,
+     100,
+     104,
+     108,
+     112,
+     116,
+     120,
+     124,
+     128,
+     132,
+     136,
+     140
+    ],
+    "supported_widths_mhz": null,
+    "max_tx_power_dbm": null,
+    "antennas": null,
+    "dfs_capable": true,
+    "mlo": null,
+    "standard": "ax",
+    "channel_auto": true,
+    "channel_utilisation_pct": null,
+    "noise_dbm": null,
+    "interference_pct": null,
+    "client_count": 1,
+    "dfs_state": null,
+    "last_radar": null
    }
   ],
   "wlans": [

@@ -683,3 +683,28 @@ async def test_rpcd_logins_and_the_root_probe(ow: Target, pin: str) -> None:
     assert snap.device.default_credentials is False
     text = snap.model_dump_json()
     assert "$1$" not in text and "$p$" not in text
+
+
+async def test_radio_capabilities_and_state(ow: Target, pin: str) -> None:
+    """#172: the mac80211_hwsim radios read through ``iwinfo`` (rpcd-mod-iwinfo) and
+    ``hostapd get_status`` with the read-only ACL of the guide: no radio-state gap, the
+    standard from ``htmode HT20``, the capabilities hwsim reports."""
+    from signalbox.model import WifiStandard
+
+    adapter = OpenWrtAdapter(context(ow, pin))
+    try:
+        snap = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    assert snap.status is DeviceStatus.OK, snap.errors
+    gaps = [e for e in snap.errors if e.message_id in ("openwrt.radioState", "openwrt.noIwinfo")]
+    assert not gaps, gaps
+    radios = {r.name: r for r in snap.radios}
+    r0, r1 = radios["radio0"], radios["radio1"]
+    assert r0.standard is WifiStandard.N and r0.channel_auto is False, r0
+    for r in (r0, r1):
+        assert r.standards and WifiStandard.N in r.standards, r
+        assert r.supported_channels and r.channel in r.supported_channels, r
+        assert r.supported_widths_mhz and 20 in r.supported_widths_mhz, r
+        assert r.max_tx_power_dbm is not None and r.client_count is not None, r
+    assert 1 in (r0.supported_channels or []) and 36 in (r1.supported_channels or [])

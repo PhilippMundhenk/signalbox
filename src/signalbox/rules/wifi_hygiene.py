@@ -10,7 +10,7 @@ from collections.abc import Iterable, Iterator
 from signalbox.model import Band, LinkKind, Network, Pmf, Radio, Security, Wlan
 from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
 from signalbox.rules._names import device_name, segment_name, site_of_device
-from signalbox.rules.wireless import _occupied
+from signalbox.rules.wireless import DFS, _occupied, channel_ranges, quiet_channels
 
 SECURITY_TEXT = {
     Security.OPEN: "no password (open)",
@@ -290,6 +290,16 @@ def channel_width(net: Network) -> Iterator[Result]:
             if n < 2:
                 continue
             narrower = "80 MHz" if r.band is Band.GHZ_5 else "160 MHz or less"
+            fix_id = "wifi.widthWide.fix5" if r.band is Band.GHZ_5 else "wifi.widthWide.fix6"
+            extra: dict[str, int] = {}
+            target = 80 if r.band is Band.GHZ_5 else 160
+            supported = r.supported_widths_mhz or []
+            if supported and target not in supported:  # what the radio can do (#172)
+                fits = [w for w in supported if w < target]
+                if not fits:
+                    continue
+                extra["narrower"] = max(fits)
+                narrower, fix_id = f"{max(fits)} MHz", "wifi.widthWide.fixWidth"
             yield found(
                 f"Radio {_radio_of(net, r)} uses {r.width_mhz} MHz at a site with {n} "
                 f"{r.band.value} GHz access points",
@@ -298,12 +308,13 @@ def channel_width(net: Network) -> Iterator[Result]:
                 "overlap.",
                 severity=Severity.INFO,
                 mid="wifi.widthWide",
-                fix_id="wifi.widthWide.fix5" if r.band is Band.GHZ_5 else "wifi.widthWide.fix6",
+                fix_id=fix_id,
                 params={
                     "radio": _radio_of(net, r),
                     "width": r.width_mhz,
                     "count": n,
                     "band": r.band.value,
+                    **extra,
                 },
             )
 
@@ -329,7 +340,7 @@ ELEVEN_CHANNEL_COUNTRIES = {"US", "CA"}
 )
 def channel_plan_24(net: Network) -> Iterator[Result]:
     for r in sorted(net.radios, key=lambda r: r.id):
-        if not r.enabled or r.band is not Band.GHZ_2_4 or r.channel is None:
+        if not r.enabled or r.band is not Band.GHZ_2_4 or r.channel is None or r.channel_auto:
             continue
         country = (r.country or "").upper()
         allowed = set(STANDARD_24)
@@ -337,20 +348,30 @@ def channel_plan_24(net: Network) -> Iterator[Result]:
             allowed |= EUROPEAN_24
         if r.channel in allowed:
             continue
+        fix = "Use channel 1, 6 or 11" + (
+            " (or 1, 5, 9 and 13 on all access points)." if allowed >= EUROPEAN_24 else "."
+        )
+        fix_id = "wifi.channelPlan.fixEu" if allowed >= EUROPEAN_24 else "wifi.channelPlan.fix"
+        params: dict[str, str | int] = {"radio": _radio_of(net, r), "channel": r.channel}
+        if r.supported_channels is not None and not set(r.supported_channels) >= STANDARD_24:
+            # only channels the radio can use (#172)
+            usable = sorted(STANDARD_24 & set(r.supported_channels))
+            if not usable:
+                continue
+            listed = ", ".join(str(c) for c in usable)
+            fix, fix_id = f"Use channel {listed}.", "wifi.channelPlan.fixSupported"
+            params["channels"] = listed
         yield found(
             f"Radio {_radio_of(net, r)} uses channel {r.channel}",
             [r.id],
-            fix="Use channel 1, 6 or 11"
-            + (" (or 1, 5, 9 and 13 on all access points)." if allowed >= EUROPEAN_24 else "."),
+            fix=fix,
             mid="wifi.channelPlan",
-            fix_id="wifi.channelPlan.fixEu" if allowed >= EUROPEAN_24 else "wifi.channelPlan.fix",
-            params={"radio": _radio_of(net, r), "channel": r.channel},
+            fix_id=fix_id,
+            params=params,
         )
 
 
 # DFS (#95) ------------------------------------------------------------------------------------
-
-DFS = range(52, 145)
 
 
 @rule(
@@ -378,20 +399,47 @@ def dfs(net: Network) -> Iterator[Result]:
                 f"channel {r.channel} at {r.width_mhz} MHz, which reaches the DFS channels "
                 f"{used[0]}-{used[-1]}"
             )
+        fix, fix_id, channels = dfs_fix(r)
         yield found(
             f"Radio {_radio_of(net, r)} uses {detail}",
             [r.id],
-            fix="If clients lose Wi-Fi now and then, try channels 36-48 or 149-165.",
+            fix=fix,
             mid="wifi.dfs" if r.channel in DFS else "wifi.dfsReach",
-            fix_id="wifi.dfs.fix",
+            fix_id=fix_id,
             params={
                 "radio": _radio_of(net, r),
                 "channel": r.channel,
                 "width": r.width_mhz,
                 "first": used[0],
                 "last": used[-1],
+                **({"channels": channels} if channels else {}),
             },
         )
+
+
+def dfs_fix(radio: Radio) -> tuple[str, str, str | None]:
+    """(fix, fix id, channels) to leave the radar channels, with only channels the radio
+    supports where it reported them (#172)."""
+    quiet = quiet_channels(radio)
+    if quiet is None:
+        return (
+            "If clients lose Wi-Fi now and then, try channels 36-48 or 149-165.",
+            "wifi.dfs.fix",
+            None,
+        )
+    if not quiet:
+        return (
+            "This radio has no 5 GHz channel without radar detection: if clients lose Wi-Fi "
+            "now and then, move them to another band or access point.",
+            "wifi.dfs.fixNone",
+            None,
+        )
+    listed = channel_ranges(quiet, Band.GHZ_5)
+    return (
+        f"If clients lose Wi-Fi now and then, try channels {listed}.",
+        "wifi.dfs.fixSupported",
+        listed,
+    )
 
 
 # transmit power (#97) -------------------------------------------------------------------------

@@ -1115,6 +1115,36 @@ def sample_data() -> dict[str, Any]:
             }
         ),
         "/rest/interface/wifi/channel": [],
+        # what the radios support (#172); field names from RouterOS 7.13 ``/interface/wifi/radio
+        # print`` *(guess: REST spelling, the ``interface`` column)*
+        "/rest/interface/wifi/radio": _ids(
+            {
+                "interface": "wifi1",
+                "radio-mac": _mac(0, 6),
+                "phy-id": "wifi1",
+                "tx-chains": "0,1",
+                "rx-chains": "0,1",
+                "bands": "2ghz-g,2ghz-n,2ghz-ax",
+                "countries": "all",
+                "2g-channels": ",".join(str(2407 + 5 * c) for c in range(1, 14)),
+                "ciphers": "tkip,ccmp,gcmp,ccmp-256,gcmp-256,cmac,gmac,cmac-256,gmac-256",
+                "max-interfaces": "16",
+            },
+            {
+                "interface": "wifi2",
+                "radio-mac": _mac(0, 7),
+                "phy-id": "wifi2",
+                "tx-chains": "0,1,2,3",
+                "rx-chains": "0,1,2,3",
+                "bands": "5ghz-a,5ghz-n,5ghz-ac,5ghz-ax",
+                "countries": "all",
+                "5g-channels": ",".join(
+                    str(5000 + 5 * c) for c in [*range(36, 65, 4), *range(100, 141, 4)]
+                ),
+                "ciphers": "tkip,ccmp,gcmp,ccmp-256,gcmp-256,cmac,gmac,cmac-256,gmac-256",
+                "max-interfaces": "16",
+            },
+        ),
         # users and groups (#231: the automatic setup creates its own); no passwords shown
         "/rest/user": _ids({"name": "admin", "group": "full", "disabled": "false"}),
         "/rest/user/group": _ids(
@@ -1210,6 +1240,7 @@ WIFI_PATHS = (
     "/rest/interface/wifi/security",
     "/rest/interface/wifi/channel",
     "/rest/interface/wifi/registration-table",
+    "/rest/interface/wifi/radio",
 )
 LEGACY_PATHS = (
     "/rest/interface/wireless",

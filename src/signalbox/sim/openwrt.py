@@ -886,6 +886,99 @@ def clients(ifname: str, section: str) -> dict[str, Any]:
     }
 
 
+#: Channels of the sample radios with country DE (5 GHz: 36-140, no 149-165 in the EU).
+CHANNELS_24 = list(range(1, 14))
+CHANNELS_5 = [*range(36, 65, 4), *range(100, 141, 4)]
+
+
+def _mhz(band: str, channel: int) -> int:
+    return 2407 + 5 * channel if band == "2g" else 5000 + 5 * channel
+
+
+def _width(htmode: str) -> int:
+    digits = htmode.lstrip("EHTVN")
+    return int(digits) if digits.isdigit() else 20
+
+
+def iwinfo(method: str, radio: dict[str, Any]) -> dict[str, Any] | None:
+    """``iwinfo info/freqlist/txpowerlist/survey`` of a radio's interface (#172), derived from
+    its UCI section: an ax radio, quiet channels."""
+    band = str(radio.get("band", "2g"))
+    channel = int(radio.get("channel", 6 if band == "2g" else 36))
+    htmode = str(radio.get("htmode", "HE20"))
+    mhz = _mhz(band, channel)
+    noise = -92 if band == "2g" else -95
+    if method == "info":
+        n = _width(htmode) // 20
+        start = 36 + 4 * n * ((channel - 36) // (4 * n)) if band != "2g" else channel
+        return {
+            "phy": "phy0" if band == "2g" else "phy1",
+            "mode": "Master",
+            "channel": channel,
+            "center_chan1": start + 2 * (n - 1) if band != "2g" else channel,
+            "frequency": mhz,
+            "txpower": int(radio.get("txpower", 20)),
+            "quality": 0,
+            "quality_max": 70,
+            "signal": 0,
+            "noise": noise,
+            "country": str(radio.get("country", "00")),
+            "hwmodes": ["b", "g", "n", "ax"] if band == "2g" else ["a", "n", "ac", "ax"],
+            "htmode": htmode,
+            "htmodes": ["HT20", "HT40", "HE20", "HE40"]
+            if band == "2g"
+            else ["HT20", "HT40", "VHT20", "VHT40", "VHT80", "HE20", "HE40", "HE80", "HE160"],
+        }
+    if method == "freqlist":
+        chans = CHANNELS_24 if band == "2g" else CHANNELS_5
+        return {
+            "results": [
+                {"channel": c, "mhz": _mhz(band, c), "restricted": False, "active": c == channel}
+                for c in chans
+            ]
+        }
+    if method == "txpowerlist":
+        top = 20 if band == "2g" else 23
+        return {
+            "results": [
+                {"dbm": d, "mw": round(10 ** (d / 10)), "active": False} for d in range(top + 1)
+            ]
+        }
+    if method == "survey":
+        busy = 31 if band == "2g" else 12  # percent of the time
+        active = 1_000_000
+        return {
+            "results": [
+                {
+                    "mhz": mhz,
+                    "noise": noise,
+                    "active_time": active,
+                    "busy_time": active * busy // 100,
+                    "busy_time_ext": 0,
+                    "rx_time": active * busy // 300,
+                    "tx_time": active * busy // 300,
+                }
+            ]
+        }
+    return None
+
+
+def hostapd_status(ifname: str, radio: dict[str, Any]) -> dict[str, Any]:
+    """``hostapd.<ifname> get_status`` (#172): channel, DFS and air time."""
+    band = str(radio.get("band", "2g"))
+    channel = int(radio.get("channel", 6 if band == "2g" else 36))
+    return {
+        "status": "ENABLED",
+        "freq": _mhz(band, channel),
+        "channel": channel,
+        "op_class": 81 if band == "2g" else 128,
+        "beacon_interval": 100,
+        "phy": ifname.split("-")[0],
+        "dfs": {"cac_seconds": 60, "cac_active": False, "cac_seconds_left": 0},
+        "airtime": {"time": 0, "time_busy": 0, "utilization": 0},
+    }
+
+
 LEASE = (_mac(0x20, 3), "192.0.2.103", "laptop")
 
 
@@ -1054,6 +1147,8 @@ class OpenWrtSim:
     luci_wireguard: bool = True
     #: seconds since the site peer's last handshake
     wg_handshake_ago: int = 42
+    #: rpcd-mod-iwinfo installed (ubus object ``iwinfo``, #172)
+    iwinfo: bool = True
     #: ``luci getFeatures`` answers (rpcd-mod-luci); off: the adapter reads the wpad package
     luci_features: bool = True
     #: installed hostapd package (``rpc-sys packagelist``); ``wpad-basic-mbedtls``: no SAE, OWE, EAP
@@ -1251,6 +1346,15 @@ class OpenWrtSim:
         self.history.append("apply")
         return [OK]
 
+    def _radio_of(self, ifname: str) -> dict[str, Any] | None:
+        """The UCI wifi-device section of a running interface (``phy0-ap0``) or phy."""
+        wireless = self.state["wireless"]
+        radios = dict(_of(wireless, "wifi-device"))
+        for _, radio, name, _ in running_ifaces(wireless):
+            if ifname in (name, name.split("-")[0]):
+                return radios.get(radio)
+        return None
+
     def _data(self, sid: str, obj: str, method: str, args: dict[str, Any]) -> list[Any] | None:
         """ubus result list, or None when the object does not exist."""
         if obj == "system" and method == "board":
@@ -1282,7 +1386,15 @@ class OpenWrtSim:
             running = {ifname: s for s, _, ifname, mode in running_ifaces(self.state["wireless"])}
             if obj[8:] in running:
                 ifname = obj[8:]
+                if method == "get_status":
+                    return [0, hostapd_status(ifname, self._radio_of(ifname) or {})]
                 return [0, clients(ifname, running[ifname])] if method == "get_clients" else [3]
+        if obj == "iwinfo" and self.iwinfo:
+            radio = self._radio_of(str(args.get("device", "")))
+            if radio is None:
+                return [INVALID_ARGUMENT]
+            answer = iwinfo(method, radio)
+            return [3] if answer is None else [0, answer]
         if obj == "luci" and self.luci_features and method == "getFeatures":
             full = "-basic" not in self.wpad
             flags = {"adhoc": True, "ieee80211r": True, "ieee80211w": True, "wps": full}

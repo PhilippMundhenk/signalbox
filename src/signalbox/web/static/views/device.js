@@ -420,6 +420,64 @@ function storedCertificatesCard(ix, deviceId) {
 
 const BAND = { 2.4: '2.4 GHz', 5: '5 GHz', 6: '6 GHz' };
 
+const DFS_STATE = { available: 'device.radios.dfs.available', cac: 'device.radios.dfs.cac', 'radar-detected': 'device.radios.dfs.radar' };
+
+// "36-64, 100-140": runs of neighbouring channels (4 apart on 5 and 6 GHz).
+function channelRuns(channels, band) {
+  const step = band === '2.4' ? 1 : 4;
+  const runs = [];
+  for (const c of [...new Set(channels)].sort((a, b) => a - b)) {
+    const last = runs[runs.length - 1];
+    if (last && c - last[1] === step) last[1] = c;
+    else runs.push([c, c]);
+  }
+  return runs.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(', ');
+}
+
+// The radios with what they support and their state at the last read (#172); only the values
+// the device reports. Null when the device has no radios.
+function radiosCard(ix, deviceId) {
+  const radios = ix.net.radios.filter((r) => r.device_id === deviceId).sort((a, b) => compare(a.name, b.name));
+  if (!radios.length) return null;
+  const std = (s) => `802.11${s}`;
+  const rows = radios.map((r) => {
+    const now = [
+      BAND[r.band],
+      r.enabled === false ? t('device.off') : null,
+      opt(r.standard, std),
+      r.channel ? t('device.port.channel', { channel: r.channel }) : null,
+      r.channel_auto ? t('device.radios.auto') : null,
+      opt(r.width_mhz, (w) => `${w} MHz`),
+      opt(r.tx_power_dbm, (v) => `${v} dBm`),
+      opt(r.client_count, (n) => t('device.radios.clients', { count: n })),
+      opt(r.channel_utilisation_pct, (v) => t('device.radios.busy', { value: pct(v) })),
+      opt(r.interference_pct, (v) => t('device.radios.interference', { value: pct(v) })),
+      opt(r.noise_dbm, (v) => t('device.radios.noise', { value: v })),
+      opt(r.dfs_state, (v) => t(DFS_STATE[v])),
+      opt(r.last_radar, (v) => t('device.radios.lastRadar', { time: fmtTime(v) })),
+    ].filter(Boolean);
+    const can = [
+      r.standards && r.standards.length ? r.standards.map(std).join(', ') : null,
+      r.supported_channels && r.supported_channels.length ? t('device.radios.channels', { channels: channelRuns(r.supported_channels, r.band) }) : null,
+      r.supported_widths_mhz && r.supported_widths_mhz.length ? `${r.supported_widths_mhz.join('/')} MHz` : null,
+      opt(r.max_tx_power_dbm, (v) => t('device.radios.maxPower', { value: v })),
+      opt(r.antennas, (v) => t('device.radios.antennas', { value: v })),
+      r.dfs_capable ? t('device.radios.dfsCapable') : null,
+      r.mlo ? t('device.radios.mlo') : null,
+    ].filter(Boolean);
+    return [
+      r.name,
+      h(
+        'span',
+        { 'data-testid': 'radio', 'data-id': r.id },
+        h('span', { class: r.enabled === false ? 'muted' : '' }, now.join(' · ')),
+        can.length ? h('span', { class: 'muted small radio-caps' }, t('device.radios.supports', { list: can.join(' · ') })) : null,
+      ),
+    ];
+  });
+  return h('section', { class: 'card', 'data-testid': 'device-radios' }, h('h2', {}, t('device.radios.title')), kv(rows));
+}
+
 // One entry of the port tree (#252): the port (or radio), what it is, and what runs on it.
 function portNode(ix, node) {
   const name = (pid) => (ix.ports.get(pid) || {}).name || pid.split('/port/').pop();
@@ -610,6 +668,7 @@ async function overview(main, ctx, device, adapters, sites) {
     notesCard(ix, device.id, 'device', t('device.notes', { name: device.name }), () => ctx.refresh()),
     internetCard(ix, device.id),
     portsCard(ix, tree),
+    radiosCard(ix, device.id),
     learnedCard(ix, learned),
     tunnelsCard(ix, device.id),
     firewallCard(ix, device.id),

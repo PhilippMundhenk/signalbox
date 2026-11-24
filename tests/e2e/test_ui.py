@@ -294,6 +294,19 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(accounts.get_by_test_id("account").first).to_contain_text("last login")
     expect(accounts.get_by_test_id("account").last).to_contain_text("read only · no password")
 
+    # radio capabilities and state (#172)
+    radios = app.get_by_test_id("device-radios")
+    expect(radios.get_by_test_id("radio")).to_have_count(2)
+    five = radios.locator('[data-id="router/radio/radio1"]')
+    expect(five).to_contain_text("5 GHz · 802.11ax · channel 36 · automatic channel · 80 MHz")
+    expect(five).to_contain_text("clients: 3 · busy 34.5 % · neighbours and interference 12 %")
+    expect(five).to_contain_text(
+        "Supports: 802.11a, 802.11n, 802.11ac, 802.11ax · channels 36-64, 100-140 · "
+        "20/40/80/160 MHz · up to 23 dBm · antennas 2x2 · radar (DFS) channels"
+    )
+    two = radios.locator('[data-id="router/radio/radio0"]')
+    expect(two).to_have_text("2.4 GHz · channel 6 · 20 MHz · 20 dBm")
+
     go(app, "#/device/router/advanced")
     expect(app.get_by_test_id("raw-services")).to_contain_text("services (6)")
     expect(app.get_by_test_id("raw-uplinks")).to_contain_text("uplinks (1)")

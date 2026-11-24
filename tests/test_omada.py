@@ -27,6 +27,7 @@ from signalbox.adapters.omada import (
     _width,
     ap_link,
     jumbo_of,
+    radio_state,
     vitals,
 )
 from signalbox.model import (
@@ -40,6 +41,7 @@ from signalbox.model import (
     PortRole,
     Security,
     Snapshot,
+    WifiStandard,
     passphrase_digest,
     passphrase_fingerprint,
 )
@@ -929,3 +931,33 @@ async def test_controller_users_and_the_site_device_account(
     assert snap.status.value == "ok"
     assert omada_role({"roleName": "Operator"}) is AccountPrivilege.OTHER
     assert omada_role({"role": "read-only"}) is AccountPrivilege.READ
+
+
+# radio state (#172) ---------------------------------------------------------------------------
+
+
+async def test_radio_state(snap: Snapshot) -> None:
+    radios = {r.id: r for r in snap.radios}
+    r2, r5 = radios[f"{AP1}/radio/2g"], radios[f"{AP1}/radio/5g"]
+    assert (r2.standard, r2.channel_utilisation_pct, r2.interference_pct) == (
+        WifiStandard.AX,
+        35.0,
+        12.0,
+    )
+    assert (r2.client_count, r2.channel_auto, r5.client_count) == (1, False, 2)
+    off = radios[f"{AP2}/radio/5g"]  # no state in its detail, channel 0: automatic
+    assert (off.standard, off.client_count, off.channel_auto) == (None, None, True)
+
+
+def test_radio_state_fields() -> None:
+    wp = {"rdMode": "802.11a/n/ac", "channelUtil": "40%", "interUtil": "odd", "txUtil": 1}
+    assert radio_state({"wp5g": wp, "clientNum5g": -1}, "5g") == {
+        "standard": WifiStandard.AC,
+        "channel_utilisation_pct": 40.0,
+    }
+    assert radio_state({"wp2g": {"txUtil": 70, "rxUtil": 30, "interUtil": 20}}, "2g") == {
+        "channel_utilisation_pct": 100.0,
+        "interference_pct": 20.0,
+    }
+    assert radio_state({"wp6g": {"channelUtil": 120, "rdMode": ""}}, "6g") == {}
+    assert radio_state({"wp6g": "odd", "clientNum6g": True}, "6g") == {}
