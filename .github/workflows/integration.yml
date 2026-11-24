@@ -215,6 +215,12 @@ jobs:
           set -o pipefail
           pytest -m integration tests/integration/test_openwrt_real.py -ra --tb=short -p no:cacheprovider \
             -o junit_family=xunit2 --junitxml=.it/openwrt-junit.xml 2>&1 | tee .it/pytest.log
+      - name: THROWAWAY repeat wlan deploy (#339)
+        if: success()
+        run: |
+          for i in $(seq 1 8); do
+            pytest -m integration tests/integration/test_openwrt_real.py -k "test_deploy_and_revert" -q -p no:cacheprovider || exit 1
+          done
       - name: Automatic setup tests (root over SSH, #231)
         id: setup
         if: success() || steps.tests.outcome == 'failure'
