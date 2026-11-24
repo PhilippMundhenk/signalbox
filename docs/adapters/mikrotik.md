@@ -852,15 +852,15 @@ with the existing read-only group (`read`, `api`, `rest-api`): `/rest/ip/firewal
 The kinds `log-target` and `snmp-policy`
 ([ADR 0021](../adr/0021-logging-and-snmp-desired-state.md)):
 
-- **Syslog target**: an action `signalbox-<address>` in `/system/logging/action`
+- **Syslog target**: an action `signalbox<address>` (`192.0.2.5` becomes `signalbox192x0x2x5`: RouterOS allows only letters and numbers in the name) in `/system/logging/action`
   (`target=remote`, `remote`, `remote-port`, `remote-protocol` `udp` or `tcp`) and four rules in
   `/system/logging` (`topics` `info`, `warning`, `error`, `critical`; RouterOS needs all topics of
   a rule on a message, so each is a rule of its own) that send to it. Only actions with that name
   prefix are changed or removed, together with the rules that use them; the device's own action
   (the one the user made) only when the change adopts its address (it and its rules are then
-  removed, and an undo creates it again as `signalbox-<address>`). Several targets are fine. TLS
+  removed, and an undo creates it again as `signalbox<address>`). Several targets are fine. TLS
   is refused.
-- **SNMP**: `PATCH /rest/snmp {"enabled": "false"}`; the revert sets `enabled=yes`. `v3-only` is
+- **SNMP**: `POST /rest/snmp/set {"enabled": "false"}`; the revert sets `enabled=yes`. `v3-only` is
   refused (SNMPv3 users need secrets). Communities are neither read into the model nor touched.
 - **Revert**: both are protected by the scheduler entry `signalbox-revert` of the firewall
   changes (armed first, removed by `confirm`); its script removes the created action and rules,

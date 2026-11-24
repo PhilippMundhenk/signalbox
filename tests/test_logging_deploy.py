@@ -468,7 +468,7 @@ async def test_a_second_target_is_added_beside_the_devices_own(
     assert calls[0] == ("PUT", SCHEDULER)  # the revert timer comes first
     assert sim_timer_gone(ros)
     [action] = [a for a in ros.data[LOG_ACTION] if a["name"].startswith(PREFIX)]
-    assert action["name"] == "signalbox-192-0-2-9"
+    assert action["name"] == "signalbox192x0x2x9"
     assert (action["remote"], action["remote-port"], action["remote-protocol"]) == (
         "192.0.2.9",
         "1514",
@@ -519,14 +519,14 @@ async def test_adopting_the_devices_own_target_removes_it_with_its_rules(
         "disk",
         "echo",
         "remote",
-        "signalbox-192-0-2-9",
+        "signalbox192x0x2x9",
     ]
     assert not [r for r in ros.data[LOG_RULES] if r["action"] == "syslog"]
     back = await undo(d, rec.id)
     assert back.status is ChangeStatus.APPLIED, [r.error for r in back.devices]
     # the target is back, now created by Signalbox (an undone adoption is a creation)
     [again] = [a for a in ros.data[LOG_ACTION] if a.get("remote") == "192.0.2.5"]
-    assert again["name"] == "signalbox-192-0-2-5"
+    assert again["name"] == "signalbox192x0x2x5"
     assert len([r for r in ros.data[LOG_RULES] if r["action"] == again["name"]]) == 4
 
 

@@ -821,7 +821,7 @@ LOGGING_MENUS = ("/rest/system/logging/action", "/rest/system/logging", "/rest/s
 
 
 async def test_syslog_target_then_revert(svc: Services, rt: dict[str, str]) -> None:
-    """#327: a remote action ``signalbox-192-0-2-77`` and four logging rules, the revert timer
+    """#327: a remote action ``signalbox192x0x2x77`` and four logging rules, the revert timer
     armed and removed again; read back as declared, then reverted to the router's own menus."""
     raw = menus(rt, *LOGGING_MENUS)
     d, cid = await deploy(svc, LOGGING_WANT, {ChangeKind.LOG_TARGET})

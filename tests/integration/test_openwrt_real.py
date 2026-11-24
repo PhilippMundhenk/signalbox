@@ -64,7 +64,7 @@ NATIVE = f"{SITE}/segment/native"
 SSID = "Example-IT"
 PSK = "example-it-passphrase"
 SECRETS = {"it-guest": "integration guest passphrase"}
-CONFIGS = ("network", "wireless", "dhcp", "firewall")
+CONFIGS = ("network", "wireless", "dhcp", "firewall", "system", "snmpd")
 
 pytestmark = pytest.mark.integration
 

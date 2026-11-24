@@ -152,7 +152,7 @@ sites:
 ```
 
 - **Ownership**: Signalbox changes or removes only a target it created (OpenWrt: the option
-  `signalbox_syslog` in the `system` section; MikroTik: an action named `signalbox-<address>`
+  `signalbox_syslog` in the `system` section; MikroTik: an action named `signalbox<address>`
   with its logging rules) and a target of the device's own whose address is under `adopt`. A
   declared target at an address where the device has its own, different one is refused with the
   hint (`adopt`); a device's other targets are never touched. `syslog: []` removes the targets

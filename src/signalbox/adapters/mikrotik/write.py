@@ -220,8 +220,8 @@ class _Op:
             return self.menu
         if self.method == "POST":
             return f"{self.menu}/unset"
-        if self.ref is None:  # a single-value menu (/snmp)
-            return self.menu
+        if self.method == "SET":  # a single-value menu (/snmp)
+            return f"{self.menu}/set"
         return f"{self.menu}/{self.ref}"
 
     def call(self) -> VendorCall:
@@ -431,7 +431,7 @@ class MikrotikWrites:
             raise AdapterError("the router has no /snmp menu to change") from None
         body = logwrite.snmp_policy(c, _flag(conf.get("enabled")), cfg.revert)
         if body is not None:
-            cfg.ops.append(_Op("PATCH", m.SNMP, None, body, "switch the SNMP agent"))
+            cfg.ops.append(_Op("SET", m.SNMP, None, body, "switch the SNMP agent"))
 
     # WritesConfig -----------------------------------------------------------------------------
 
@@ -599,7 +599,7 @@ class MikrotikWrites:
                 now = saved_snmp
             if _flag(now) != _flag(saved_snmp):
                 body = {"enabled": "true" if _flag(saved_snmp) else "false"}
-                cfg.ops.append(_Op("PATCH", m.SNMP, None, body, "restore: SNMP agent"))
+                cfg.ops.append(_Op("SET", m.SNMP, None, body, "restore: SNMP agent"))
         await self._send(cfg.ops, {})
         self._cache.clear()
         self._layout_cache = None
@@ -620,7 +620,9 @@ class MikrotikWrites:
             body: dict[str, Any] = dict(op.body)
             if "place-before" in body:
                 body["place-before"] = ids.get(body["place-before"], body["place-before"])
-            if op.method == "POST":
+            if op.method == "SET":  # a single-value menu: POST <menu>/set
+                path = f"{op.menu}/set"
+            elif op.method == "POST":
                 body["numbers"] = ref
                 path = f"{op.menu}/unset"
             elif op.method == "PUT" or ref is None:
@@ -628,8 +630,9 @@ class MikrotikWrites:
             else:
                 path = f"{op.menu}/{ref}"
             kw: dict[str, Any] = {} if op.method == "DELETE" else {"json": body}
+            verb = "POST" if op.method == "SET" else op.method
             try:
-                response = await self.http.request(op.method, path, accept=(400, 500), **kw)
+                response = await self.http.request(verb, path, accept=(400, 500), **kw)
             except AdapterError as exc:
                 raise AdapterError(scrub(f"{op.description}: {exc}")) from None
             if response.status_code >= 400:

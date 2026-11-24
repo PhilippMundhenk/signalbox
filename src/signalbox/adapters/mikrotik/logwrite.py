@@ -2,7 +2,8 @@
 
 A syslog target is a ``/system/logging/action`` with ``target=remote`` plus the logging rules
 (``/system/logging``) that send topics to it. Signalbox creates actions named
-``signalbox-<address>`` and one rule per topic (``info``, ``warning``, ``error``, ``critical``:
+``signalbox<address>`` (``192.0.2.5``: ``signalbox192x0x2x5``) and one rule per topic (``info``,
+``warning``, ``error``, ``critical``:
 RouterOS matches a rule when a message has *all* its topics, so each is a rule of its own). Only
 actions with that name prefix, and the device's own action at an address the change adopts, are
 changed or removed (with the rules that use it); every other action and rule is left alone.
@@ -28,7 +29,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from signalbox.adapters.mikrotik.write import _Config
 
 #: Name prefix that marks an action as Signalbox's.
-PREFIX = "signalbox-"
+PREFIX = "signalbox"
 #: One rule per topic: the messages Signalbox sends on.
 TOPICS = ("info", "warning", "error", "critical")
 _ACTION_CLI = "/system logging action"
@@ -60,7 +61,8 @@ def _flag(value: Any) -> bool:
 
 
 def action_name(address: str) -> str:
-    return PREFIX + (re.sub(r"[^a-z0-9]+", "-", address.lower()).strip("-")[:32] or "x")
+    # RouterOS accepts only letters and numbers in the name of an action
+    return PREFIX + (re.sub(r"[^a-z0-9]+", "x", address.lower()).strip("x")[:32] or "x")
 
 
 def _ours(cfg: _Config, address: str, adopt: str | None) -> dict[str, Any] | None:

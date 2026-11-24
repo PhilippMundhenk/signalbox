@@ -1418,7 +1418,7 @@ class MikrotikSimulator:
             menu, ref = path, ""
         else:
             menu, _, ref = path.rpartition("/")
-        if method == "PATCH" and path == SNMP:
+        if method == "POST" and path == SNMP + "/set":
             if self.read_only:
                 return JSONResponse(NO_POLICY, status_code=500)
             if SNMP in self.fail_write:
