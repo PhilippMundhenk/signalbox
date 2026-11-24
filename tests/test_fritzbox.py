@@ -656,7 +656,9 @@ async def test_host_count_unexpected(sim: FritzboxSim, adapter: FritzboxAdapter)
 
     adapter.tr064.call = call  # type: ignore[method-assign]
     snap = await adapter.observe()
-    assert [e.message for e in snap.errors] == ["Hosts1 GetHostNumberOfEntries: unexpected answer"]
+    assert [e.message for e in snap.errors] == [
+        "unexpected answer from Hosts1 GetHostNumberOfEntries: no entry count"
+    ]
 
 
 async def test_odd_station_and_host_entries(
