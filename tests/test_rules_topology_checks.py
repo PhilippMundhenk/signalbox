@@ -174,7 +174,7 @@ def test_trunk_scope_reports_unused_vlans_on_the_ap_link() -> None:
     (f,) = run(ap_net(), trunk_scope)
     assert f.severity == "info" and f.objects == [AP_LINK.id, UP]
     assert f.message == (
-        "The link to ap carries Cameras (VLAN 40), but ap only uses IoT (VLAN 20) and "
+        "The link to ap carries Cameras (VLAN 40), but ap only uses IoT (VLAN 20), "
         "Management (VLAN 99)."
     )
     assert f.fix == "Remove Cameras (VLAN 40) from sw port 5."
@@ -266,10 +266,10 @@ GOOD = {"up": True, "speed_mbps": 1000, "full_duplex": True}
 def test_slow_link_between_network_devices() -> None:
     (f,) = run(slow_net(GOOD, GOOD | {"speed_mbps": 100}), slow)
     assert f.severity == "warning" and f.objects == [GW_LINK.id]
-    assert f.message == "The link gw port 1 to sw port 1 runs at 100 Mbit/s."
+    assert f.message == "The link gw port 1 ↔ sw port 1 runs at 100 Mbit/s."
     assert "two pairs" in (f.fix or "")
     (d,) = run(slow_net(GOOD, GOOD | {"full_duplex": False}), slow)
-    assert d.message == "The link gw port 1 to sw port 1 runs in half duplex on sw port 1."
+    assert d.message == "The link gw port 1 ↔ sw port 1 runs in half duplex on sw port 1."
     # only one end known (the other device does not report ports)
     one = slow_net(GOOD | {"speed_mbps": 100}, GOOD)
     one = one.model_copy(update={"ports": one.ports[:1]})
@@ -366,8 +366,7 @@ def test_lag_members_differ() -> None:
     ]
     out = {f.message: f for f in run(lag_net(members), lag_consistent)}
     speed = out[
-        "sw lag1 [7, 8]: the members run at different speeds (7: 1000 Mbit/s, "
-        "8: 100 Mbit/s)."
+        "sw lag1 [7, 8]: the members run at different speeds (7: 1000 Mbit/s, 8: 100 Mbit/s)."
     ]
     assert speed.severity == "warning"
     assert out["sw lag1 [7, 8]: some members run in half duplex."].severity == "warning"
@@ -544,8 +543,7 @@ def test_management_in_client_network() -> None:
     (f,) = evaluate(mgmt_net(), [management_separate], ON)
     assert f.severity == "info" and f.objects == [LAN]
     assert (
-        f.message
-        == "ap, gw, sw are managed in LAN (untagged network), which also has clients: 2."
+        f.message == "ap, gw, sw are managed in LAN (untagged network), which also has clients: 2."
     )
     assert "management VLAN" in (f.fix or "")
     wlans = [wlan("ap", "Home", LAN), wlan("ap", "Off", LAN, enabled=False)]

@@ -294,7 +294,7 @@ def test_down_long() -> None:
     assert list(down_long.history_check(net, past()) or []) == []  # type: ignore[misc]
     for ago, sev, text in [
         (timedelta(minutes=30), None, None),
-        (timedelta(minutes=90), Severity.WARNING, "for 90 minutes"),
+        (timedelta(minutes=90), Severity.WARNING, "for 90 min"),
         (timedelta(hours=30), Severity.ERROR, "for 30 hours"),
         (timedelta(days=3), Severity.ERROR, "for 3 days"),
     ]:

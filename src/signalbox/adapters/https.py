@@ -98,10 +98,20 @@ async def peer_certificate(host: str, port: int, timeout: float) -> bytes:
             asyncio.open_connection(host, port, ssl=ctx), timeout=timeout
         )
     except TimeoutError as exc:
-        raise Unreachable(f"{where}: no TLS answer within {timeout:g} s", fix=REACH_FIX) from exc
+        raise Unreachable(
+            f"{where}: no TLS answer within {timeout:g} s",
+            fix=REACH_FIX,
+            fix_id="transport.reach.fix",
+            message_id="transport.tlsTimeout",
+            params={"where": where, "seconds": f"{timeout:g}"},
+        ) from exc
     except (OSError, ssl.SSLError) as exc:
         raise Unreachable(
-            f"cannot open a TLS connection to {where}: {_reason(exc)}", fix=REACH_FIX
+            f"cannot open a TLS connection to {where}: {_reason(exc)}",
+            fix=REACH_FIX,
+            fix_id="transport.reach.fix",
+            message_id="transport.tlsFailed",
+            params={"where": where, "reason": _reason(exc)},
         ) from exc
     try:
         der = writer.get_extra_info("ssl_object").getpeercert(binary_form=True)
@@ -235,6 +245,9 @@ class DeviceHttp:
             raise Unreachable(
                 f"{path}: no answer within {self.timeout:g} s",
                 fix=REACH_FIX,
+                fix_id="transport.reach.fix",
+                message_id="transport.httpTimeout",
+                params={"path": path, "seconds": f"{self.timeout:g}"},
                 remedy=self.unreachable_remedy,
             ) from exc
         except httpx.HTTPError as exc:
@@ -242,6 +255,9 @@ class DeviceHttp:
             raise Unreachable(
                 f"{path}: cannot reach {self.base_url}: {_reason(exc)}",
                 fix=REACH_FIX,
+                fix_id="transport.reach.fix",
+                message_id="transport.httpFailed",
+                params={"path": path, "base": str(self.base_url), "reason": _reason(exc)},
                 remedy=self.unreachable_remedy,
             ) from exc
         code = response.status_code
@@ -251,12 +267,18 @@ class DeviceHttp:
             raise AuthFailed(
                 f"{path}: the device refused the credentials (HTTP 401)",
                 fix="Check the user name and password (or API key and secret) in the settings.",
+                fix_id="transport.http401.fix",
+                message_id="transport.http401",
+                params={"path": path},
             )
         if code == 403:
             raise AuthFailed(
                 f"{path}: access denied (HTTP 403); check the user's privileges",
                 fix="The login works but may not read this. Give the user the privileges the "
                 "setup guide of this integration lists (the link is in the device settings).",
+                fix_id="transport.http403.fix",
+                message_id="transport.http403",
+                params={"path": path},
                 remedy=self.denied_remedy,
             )
         if code == 404:
@@ -264,6 +286,9 @@ class DeviceHttp:
                 f"{path}: not found (HTTP 404); is the API enabled?",
                 fix="Check that the address points to the device itself (with the right port "
                 "and path) and that its API is enabled; some parts need an extra package.",
+                fix_id="transport.http404.fix",
+                message_id="transport.http404",
+                params={"path": path},
             )
         if not 200 <= code < 300:
             raise AdapterError(f"{path}: HTTP {code} {response.reason_phrase}".rstrip())

@@ -371,7 +371,7 @@ def test_reported_case_has_no_errors(uplinks: bool) -> None:
     paths = run(net, path_to_gateway)
     assert [(f.incomplete, f.objects) for f in paths] == [(True, [AP_LINK, port_id("ap", "eth0")])]
     assert paths[0].message == (
-        "ap was not fully read, so OPNsense port em1 to ap port eth0 could not be checked."
+        "ap was not fully read, so OPNsense port em1 ↔ ap port eth0 could not be checked."
     )
 
 
@@ -381,7 +381,7 @@ def test_double_nat_is_information_naming_both_routers() -> None:
     assert f.objects == ["fw", "isp", "fw/uplink/wan"]
     assert f.message == (
         "OPNsense gets its WAN address 192.0.2.2 from Fritz!Box (lan (Fritz!Box) (untagged "
-        "network), 192.0.2.1/24): two routers in a row (cable Fritz!Box port lan to OPNsense "
+        "network), 192.0.2.1/24): two routers in a row (Fritz!Box port lan ↔ OPNsense "
         "port em0)."
     )
     assert f.fix is not None
@@ -491,7 +491,7 @@ def test_mac_inferred_link_disagreement_is_incomplete() -> None:
     ]
     assert paths[0].message.startswith(
         "VLAN 20, used on ap, is not configured on OPNsense port em1. The link OPNsense port "
-        "em1 to ap port eth0 is only inferred from a MAC table"
+        "em1 ↔ ap port eth0 is only inferred from a MAC table"
     )
 
 

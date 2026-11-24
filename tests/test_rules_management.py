@@ -73,10 +73,7 @@ def test_mikrotik_defaults() -> None:
     n = make(services=mikrotik_default_services("gw"))
     (f,) = run(insecure_services, n)
     assert f.severity == "warning"
-    assert (
-        f.message
-        == "gw has FTP, MAC telnet, Telnet, HTTP (www) (no HTTPS redirect) enabled"
-    )
+    assert f.message == "gw has FTP, MAC telnet, Telnet, HTTP (www) (no HTTPS redirect) enabled"
     assert "gw/service/telnet" in f.objects
 
 

@@ -106,8 +106,7 @@ def test_guest_wifi_next_to_main_ssid() -> None:
     (f,) = run(guest_isolation, net(wlans=wl))
     assert f.severity == "error"
     assert f.message == (
-        "The guest Wi-Fi 'Visitors' on ap, ap2 is in Things (VLAN 20), "
-        "the same network as 'Home'"
+        "The guest Wi-Fi 'Visitors' on ap, ap2 is in Things (VLAN 20), the same network as 'Home'"
     )
     assert f.objects == ["ap/wlan/Visitors-0", "ap2/wlan/Visitors-0", IOT]
     assert "separate guest VLAN" in (f.fix or "")
@@ -321,4 +320,4 @@ def test_ssid_consistent_compares_client_isolation() -> None:
     ]
     (f,) = [x for x in run(ssid_consistent, net(wlans=wl)) if x.message.find("isolation") >= 0]
     assert f.severity == "warning"
-    assert "client isolation differs (ap: on; ap2: off)" in f.message
+    assert "client isolation differs (ap: ✓; ap2: ✗)" in f.message

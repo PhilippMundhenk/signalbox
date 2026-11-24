@@ -104,7 +104,9 @@ def duplicate_hostname(net: Network) -> Iterator[Result]:
                 "should keep one name and address.",
                 severity=Severity.INFO,
                 key=f"{scope}:{name}",
-                mid="clients.duplicateName.random.shared" if shared else "clients.duplicateName.random",
+                mid="clients.duplicateName.random.shared"
+                if shared
+                else "clients.duplicateName.random",
                 fix_id="clients.duplicateName.random.fix",
                 params=values,
             )

@@ -411,7 +411,11 @@ def management_separate(net: Network) -> Iterator[Result]:
                 if mgmt
                 else "Consider a management VLAN that only admin devices can reach, and move the "
                 "management addresses there.",
-                mid="topology.mgmtShared." + ("both" if clients and ssids else "clients" if clients else "ssids"),
+                mid="topology.mgmtShared.both"
+                if clients and ssids
+                else "topology.mgmtShared.clients"
+                if clients
+                else "topology.mgmtShared.ssids",
                 fix_id="topology.mgmtShared.fix" if mgmt else "topology.mgmtShared.fixNone",
                 params={
                     "count": len(names),

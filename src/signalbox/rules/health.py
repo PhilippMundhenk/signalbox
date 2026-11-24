@@ -103,7 +103,11 @@ def resources(net: Network, history: History) -> Iterator[Result]:
                 key="cpu",
                 mid="health.cpu",
                 fix_id="health.cpu.fix",
-                params={"name": dev.name, "percent": _pct(h.cpu_load_pct), "since": _when(cpu.since)},
+                params={
+                    "name": dev.name,
+                    "percent": _pct(h.cpu_load_pct),
+                    "since": _when(cpu.since),
+                },
             )
         for sensor in h.temperatures:
             limit = sensor.limit_c if sensor.limit_c is not None else TEMPERATURE_C

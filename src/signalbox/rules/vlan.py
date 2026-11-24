@@ -659,6 +659,9 @@ def slow(net: Network) -> Iterator[Result]:
                 fix="Replace the cable (it may use only two pairs) or check that both ports are "
                 "set to auto-negotiation.",
                 key="speed",
+                mid="vlan.slowLink",
+                fix_id="vlan.slowLink.fix",
+                params={"link": _link_name(net, link), "speed": min(speeds)},
             )
         elif speeds and len(ports) == 2 and len(maxima) == 2 and min(speeds) < min(maxima):
             yield found(
@@ -670,16 +673,25 @@ def slow(net: Network) -> Iterator[Result]:
                 "auto-negotiation, and replace a damaged cable.",
                 severity=Severity.INFO,
                 key="max-speed",
+                mid="vlan.belowMax",
+                fix_id="vlan.belowMax.fix",
+                params={"link": _link_name(net, link), "speed": min(speeds), "max": min(maxima)},
             )
         half = [p for p in ports if p.full_duplex is False]
         if half:
             yield found(
                 f"The link {_link_name(net, link)} runs in half duplex on "
-                f"{' and '.join(_port_name(net, p.id) for p in half)}.",
+                f"{', '.join(_port_name(net, p.id) for p in half)}.",
                 [link.id],
                 fix="Set both ports to auto-negotiation (or the same fixed speed and full "
                 "duplex); if it stays, replace the cable.",
                 key="duplex",
+                mid="vlan.halfDuplex",
+                fix_id="vlan.halfDuplex.fix",
+                params={
+                    "link": _link_name(net, link),
+                    "ports": ", ".join(_port_name(net, p.id) for p in half),
+                },
             )
     for p in net.ports:
         dev = devices.get(p.device_id)
@@ -694,6 +706,9 @@ def slow(net: Network) -> Iterator[Result]:
                 fix="Set the port and the connected device to auto-negotiation; if it stays, "
                 "replace the cable.",
                 key="duplex",
+                mid="vlan.portHalfDuplex",
+                fix_id="vlan.portHalfDuplex.fix",
+                params={"port": _port_name(net, p.id)},
             )
         elif (
             p.speed_mbps is not None
@@ -707,6 +722,9 @@ def slow(net: Network) -> Iterator[Result]:
                 "reaches at least 100 Mbit/s.",
                 severity=Severity.INFO,
                 key="speed",
+                mid="vlan.portSlow",
+                fix_id="vlan.portSlow.fix",
+                params={"port": _port_name(net, p.id), "speed": p.speed_mbps},
             )
 
 

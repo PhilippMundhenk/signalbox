@@ -103,12 +103,17 @@ class AdapterError(Exception):
         fix: str | None = None,
         remedy: str | None = None,
         fix_id: str | None = None,
+        message_id: str | None = None,
+        params: MessageParams | None = None,
     ) -> None:
         super().__init__(*args)
         self.fix = fix
         self.remedy = remedy
         #: Translation id of ``fix`` (#204), catalogue ``msg.<id>``; no values.
         self.fix_id = fix_id
+        #: Translation id of the message and the values its placeholders take (#204).
+        self.message_id = message_id
+        self.params: MessageParams = params or {}
 
 
 class Unreachable(AdapterError):
@@ -921,8 +926,8 @@ class Adapter(ABC):
 
     def _error(self, capability: str, exc: BaseException) -> ReadError:
         message = str(exc) or type(exc).__name__
-        message_id = None
-        params: MessageParams = {}
+        message_id = getattr(exc, "message_id", None)
+        params: MessageParams = dict(getattr(exc, "params", None) or {})
         if isinstance(exc, TimeoutError):
             message = f"no answer within {self.context.timeout:g} s"
             message_id = "read.timeout"

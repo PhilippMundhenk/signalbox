@@ -87,7 +87,7 @@ def cgnat(net: Network) -> Iterator[Result]:
                 fix=fix,
                 mid=f"wan.{kind}",
                 fix_id="wan.cgnat.fixIpv6" if _has_ipv6(up) else "wan.cgnat.fix",
-                params={"label": _label(net, up)[len("the internet connection "):]},
+                params={"label": _label(net, up)[len("the internet connection ") :]},
             )
 
 
@@ -107,7 +107,7 @@ def down(net: Network) -> Iterator[Result]:
             if up.up is not False:
                 continue
             label = _label(net, up, start=True)
-            label_text = label[len("The internet connection "):]
+            label_text = label[len("The internet connection ") :]
             if working:
                 yield found(
                     f"{label} is down; the internet works through {', '.join(working)}",
@@ -187,7 +187,7 @@ def dns_mismatch(net: Network) -> Iterator[Result]:
                     params={
                         "device": device_name(net, dns.device_id),
                         "forwarder": str(fwd),
-                        "label": _label(net, up)[len("the internet connection "):],
+                        "label": _label(net, up)[len("the internet connection ") :],
                         "servers": servers,
                     },
                 )
@@ -229,7 +229,7 @@ def no_ipv6(net: Network) -> Iterator[Result]:
                     [up.id],
                     mid="wan.noIpv6Unknown",
                     params={
-                        "label": _label(net, up)[len("the internet connection "):],
+                        "label": _label(net, up)[len("the internet connection ") :],
                         "prefixes": prefixes,
                         "device": device_name(net, up.device_id),
                     },
@@ -243,7 +243,10 @@ def no_ipv6(net: Network) -> Iterator[Result]:
                 "advertisements on), or turn this rule off if IPv6 stays off on purpose.",
                 mid="wan.noIpv6",
                 fix_id="wan.noIpv6.fix",
-                params={"label": _label(net, up)[len("the internet connection "):], "prefixes": prefixes},
+                params={
+                    "label": _label(net, up)[len("the internet connection ") :],
+                    "prefixes": prefixes,
+                },
             )
 
 

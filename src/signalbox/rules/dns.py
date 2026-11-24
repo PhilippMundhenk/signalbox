@@ -551,7 +551,9 @@ def conflicting_records(net: Network) -> Iterator[Result]:
             names = {
                 d.id: device_name(net, d.device_id) for d in _services(net) if d.id in by_service
             }
-            parts = ", ".join(f"{names[sid]}: {_addresses(a)}" for sid, a in sorted(by_service.items()))
+            parts = ", ".join(
+                f"{names[sid]}: {_addresses(a)}" for sid, a in sorted(by_service.items())
+            )
             yield found(
                 f"{name} resolves differently: {parts}",
                 sorted(by_service),

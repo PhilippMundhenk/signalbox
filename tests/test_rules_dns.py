@@ -284,9 +284,7 @@ def test_two_resolvers_forwarding_to_each_other_loop() -> None:
     )
     (f,) = run(forwarder_loop, net)
     assert f.severity == "error"
-    assert f.message == (
-        "DNS lookups loop: gw → 192.0.2.2 (mt), mt → 192.0.2.1 (gw)"
-    )
+    assert f.message == ("DNS lookups loop: gw → 192.0.2.2 (mt), mt → 192.0.2.1 (gw)")
     assert f.objects == ["gw/dns/main", "mt/dns/main"] and f.fix
 
 
@@ -366,9 +364,7 @@ def test_port_must_match_across_devices() -> None:
         ]
     )
     (f,) = run(forwarder_loop, net)
-    assert f.message == (
-        "DNS lookups loop: gw → 192.0.2.2:5353 (mt), mt → 192.0.2.1 (gw)"
-    )
+    assert f.message == ("DNS lookups loop: gw → 192.0.2.2:5353 (mt), mt → 192.0.2.1 (gw)")
 
 
 # --- dns.forwarder-missing ----------------------------------------------------------------------

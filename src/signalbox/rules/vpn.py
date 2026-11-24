@@ -126,7 +126,8 @@ def allowed_ips_overlap(net: Network) -> Iterator[Result]:
                 same = sorted(set(p.allowed_ips) & set(q.allowed_ips), key=str)
                 for shared in (n for n in same if n.num_addresses > 1):
                     yield found(
-                        f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} and peer {_peer(q)} both route {shared}: "
+                        f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} and peer {_peer(q)} both "
+                        f"route {shared}: "
                         "only one of them gets that traffic",
                         [t.id],
                         fix="Give each peer its own networks in its allowed IPs; remove the "
@@ -150,7 +151,8 @@ def allowed_ips_overlap(net: Network) -> Iterator[Result]:
                 clash = next((n for n in local if _overlap(network, n)), None)
                 if clash is not None:
                     yield found(
-                        f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} routes {network}, which overlaps the "
+                        f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} routes {network}, which "
+                        "overlaps the "
                         f"local network {clash}: the two cannot be told apart",
                         [t.id],
                         fix="Use different address ranges at the two ends (a VPN between two "
@@ -187,8 +189,8 @@ def allowed_ips_unrouted(net: Network) -> Iterator[Result]:
                 if _covered(network, t.routes):
                     continue
                 yield found(
-                    f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} accepts {network}, but the device has no "
-                    "route for it through the tunnel",
+                    f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} accepts {network}, but the "
+                    "device has no route for it through the tunnel",
                     [t.id],
                     fix="Let the device add the routes of the allowed IPs (OpenWrt: route "
                     "allowed IPs on the peer) or add a static route for the network through the "
@@ -279,7 +281,8 @@ def ends_disagree(net: Network) -> Iterator[Result]:
                 if network.prefixlen == 0 or any(_overlap(network, n) for n in theirs):
                     continue
                 yield found(
-                    f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} ({_tunnel(net, other)}) is sent {network}, "
+                    f"On tunnel {_tunnel(net, t)}, peer {_peer(p)} ({_tunnel(net, other)}) is sent "
+                    f"{network}, "
                     "but no network like it exists at the other end",
                     [t.id, other.id],
                     fix="Correct the allowed IPs of the peer to the networks that really lie "

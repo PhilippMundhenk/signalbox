@@ -220,7 +220,7 @@ def test_native_mismatch() -> None:
     )
     sw2 = switch(segments=[seg("sw", None, **{"2": U}), seg("sw", 20, **{"1": T, "2": T})])
     (g,) = run(net(gateway(), sw2, ap()), native_mismatch)
-    assert "sw port 1 sends – untagged" in g.message
+    assert "sw port 1 sends \u2013 untagged" in g.message
 
 
 def test_tagged_on_one_end_only() -> None:

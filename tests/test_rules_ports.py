@@ -394,7 +394,7 @@ def test_slow_below_port_maximum_is_info() -> None:
     net = uplink({"max_speed_mbps": 2500}, {"max_speed_mbps": 2500, "description": "core"})
     (res,) = run(slow, net)
     assert res.message == (
-        "The link gw port 1 to core-switch port 1 (core) runs at 1000 Mbit/s, but both ports "
+        "The link gw port 1 ↔ core-switch port 1 (core) runs at 1000 Mbit/s, but both ports "
         "support 2500 Mbit/s."
     )
     assert (res.severity, res.key) == (Severity.INFO, "max-speed")

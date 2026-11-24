@@ -45,7 +45,9 @@ _HOW = {
 
 def _seen(net: Network, server: ForeignServer) -> str:
     """Who saw it: the devices, and Signalbox itself for its own probe."""
-    names = ["Signalbox" if s.startswith("signalbox/") else device_name(net, s) for s in server.seen_by]
+    names = [
+        "Signalbox" if s.startswith("signalbox/") else device_name(net, s) for s in server.seen_by
+    ]
     return ", ".join(dict.fromkeys(names))
 
 

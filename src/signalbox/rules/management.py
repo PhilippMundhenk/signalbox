@@ -157,7 +157,9 @@ def wan_management(net: Network) -> Iterator[Result]:
                 "whether they are blocked from the internet",
                 [dev, *(s.id for s in unknown)],
                 key="unknown",
-                mid="mgmt.wanUnknownNoFirewall" if net.firewall_of(dev) is None else "mgmt.wanUnknown",
+                mid="mgmt.wanUnknownNoFirewall"
+                if net.firewall_of(dev) is None
+                else "mgmt.wanUnknown",
                 params={
                     "name": name,
                     "services": _join([_with_port(s) for s in unknown]),
@@ -290,7 +292,11 @@ def plaintext_read(net: Network) -> Iterator[Result]:
             severity=Severity.WARNING if bad else Severity.INFO,
             fix="Move the management of the device to a separate VLAN without clients or "
             "Wi-Fi, so nobody else can capture the password.",
-            mid="mgmt.plaintext." + ("both" if clients and ssids else "clients" if clients else "ssids"),
+            mid="mgmt.plaintext.both"
+            if clients and ssids
+            else "mgmt.plaintext.clients"
+            if clients
+            else "mgmt.plaintext.ssids",
             fix_id="mgmt.plaintext.fix",
             params={
                 "name": d.name,
