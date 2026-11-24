@@ -24,6 +24,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StringConstraints,
     ValidationError,
     field_validator,
     model_validator,
@@ -57,8 +58,26 @@ FOLDER = "desired"
 SegmentRef = int | Literal["native"]
 
 
-def seg_key(ref: SegmentRef | None) -> int | None:
-    return None if ref is None or ref == "native" or ref == 1 else int(ref)
+NativeKey = Annotated[str, StringConstraints(pattern=r"^native-[A-Za-z0-9._-]+$")]
+"""Key of the untagged network of a further router (ADR 0005): ``native-<router id>``."""
+
+
+def seg_key(ref: SegmentRef | NativeKey | None) -> int | None:
+    if (
+        ref is None
+        or ref == "native"
+        or ref == 1
+        or (isinstance(ref, str) and ref.startswith("native-"))
+    ):
+        return None
+    return int(ref)
+
+
+def seg_sid(site_id: str, ref: SegmentRef | NativeKey | None) -> str:
+    """Segment id of a segment entry; ``native-<router>`` names a further router's network."""
+    if isinstance(ref, str) and ref.startswith("native-"):
+        return f"{site_id}/segment/{ref}"
+    return segment_id(site_id, seg_key(ref))
 
 
 class Spec(BaseModel):
@@ -90,7 +109,10 @@ class ReservationSpec(Spec):
 
 
 class SegmentSpec(Spec):
-    vlan: SegmentRef = Field(description='VLAN id, or "native" for the untagged LAN')
+    vlan: SegmentRef | NativeKey = Field(
+        description='VLAN id, "native" for the (main) untagged LAN, or native-<router id> for '
+        "the untagged LAN of a further router"
+    )
     name: str | None = None
     purpose: SegmentPurpose | None = Field(
         None, description="What the network is for (main, guest, iot, management, ...)"
@@ -275,8 +297,8 @@ def _check_unique(state: DesiredState, source: str) -> None:
     if dup:
         raise DesiredError(f"{source}: annotation declared twice: {', '.join(dup)}")
     for site, spec in state.sites.items():
-        vlans = [seg_key(s.vlan) for s in spec.segments]
-        dup = sorted({str(v or "native") for v in vlans if vlans.count(v) > 1})
+        vlans = [seg_sid(site, s.vlan) for s in spec.segments]
+        dup = sorted({v.rsplit("/", 1)[-1] for v in vlans if vlans.count(v) > 1})
         if dup:
             raise DesiredError(f"{source}: site {site}: segment declared twice: {', '.join(dup)}")
         ssids = [w.ssid for w in spec.wlans]
@@ -356,7 +378,7 @@ def apply_declared(net: Network, state: DesiredState | None) -> Network:
     for site_id, spec in state.sites.items():
         for s in spec.segments:
             if s.purpose is not None:
-                segs[segment_id(site_id, seg_key(s.vlan))] = s.purpose
+                segs[seg_sid(site_id, s.vlan)] = s.purpose
         for w in spec.wlans:
             if w.purpose is not None:
                 ssids[(site_id, w.ssid)] = (w.purpose, w.devices)
@@ -400,10 +422,8 @@ def from_network(net: Network, site_id: str) -> DesiredState:
     """The observed state of one site as a desired-state starting point (no passphrases)."""
     devices = {d.id: d for d in net.devices if d.site_id == site_id}
     segs: list[SegmentSpec] = []
-    main = segment_id(site_id, None)
     for seg in (s for s in net.segments if s.site_id == site_id):
-        if is_native_segment(seg.id) and seg.id != main:
-            continue  # the LAN of a further router (#205): "native" names the main one only
+        key = seg.id.rsplit("/segment/", 1)[-1]
         sub = next(
             (
                 s
@@ -421,7 +441,9 @@ def from_network(net: Network, site_id: str) -> DesiredState:
         )
         segs.append(
             SegmentSpec(
-                vlan="native" if seg.vlan in (None, 1) else seg.vlan,
+                vlan=key
+                if is_native_segment(seg.id)
+                else ("native" if seg.vlan in (None, 1) else seg.vlan),
                 name=seg.name,
                 purpose=_known_purpose(seg),
                 gateway=GatewaySpec(device=sub.device_id, address=sub.interface) if sub else None,
@@ -514,7 +536,7 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
     def segments(net: Network) -> Iterator[Result]:
         for site_id, spec in state.sites.items():
             for s in spec.segments:
-                sid = segment_id(site_id, seg_key(s.vlan))
+                sid = seg_sid(site_id, s.vlan)
                 seg = net.segment(sid)
                 if seg is None:
                     yield found(

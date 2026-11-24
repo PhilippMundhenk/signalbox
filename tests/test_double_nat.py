@@ -9,13 +9,14 @@ read (its interfaces failed), and a switch ``sw`` between them that is not read 
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from factories import SITE, device, iface, ip, port, snapshot, uplink
 from signalbox.changes import ChangeKind, PortValue, WlanValue, apply_change
-from signalbox.desired import drift_rules, from_network, parse
+from signalbox.desired import DesiredError, drift_rules, dump, from_network, load, parse
 from signalbox.merge import merge
 from signalbox.model import (
     Band,
@@ -544,9 +545,10 @@ def test_desired_state_native_means_the_devices_own_untagged_network() -> None:
     net = reported()
     state = from_network(net, SITE.id)
     spec = state.sites[SITE.id]
-    # only the main untagged network is exported as "native"; the ISP router's is not declared
+    # every untagged network gets its own key (#305): "native" is the main one
     assert [(s.vlan, s.gateway.device if s.gateway else None) for s in spec.segments] == [
-        ("native", "fw")
+        ("native", "fw"),
+        ("native-isp", "isp"),
     ]
     ports = {(p.device, p.port): p.untagged for p in spec.ports}
     assert ports == {("ap", "wlan0"): "native", ("fw", "em1"): "native", ("isp", "lan"): "native"}
@@ -589,3 +591,23 @@ def test_pvid_one_lands_in_the_devices_untagged_network() -> None:
     snap = isp().model_copy(update={"ports": [port("isp", "lan", mac=ISP_MAC, pvid=1)]})
     net = site(snap, firewall())
     assert net.pvid_segment(port_id("isp", "lan")) == ISP_LAN
+
+
+def test_two_router_export_round_trips_through_save_and_drift() -> None:
+    """#305: loading the network state into the editor and saving it must work."""
+    net = reported()
+    text = dump(from_network(net, SITE.id))
+    state = parse(text)  # no "segment declared twice: native"
+    assert [s.vlan for s in state.sites[SITE.id].segments] == ["native", "native-isp"]
+    assert [f for r in drift_rules(state) for f in run(net, r)] == []
+    twice = text.replace("native-isp", "native", 1)
+    with pytest.raises(DesiredError, match="segment declared twice: native"):
+        parse(twice)
+
+
+def test_two_router_state_saves_through_the_api(tmp_path: Path) -> None:
+    from signalbox.desired import save
+
+    text = dump(from_network(reported(), SITE.id))
+    save(tmp_path, text, "import")
+    assert load(tmp_path) is not None

@@ -23,6 +23,7 @@ export function discoveryPanel(ctx, status, open) {
   const box = h('section', { class: 'card discovery', 'data-testid': 'discovery' });
   let timer = null;
   let showIgnored = false;
+  let searchedOpen = false; // "What was searched" keeps its state across refreshes
   ctx.onCleanup(() => clearTimeout(timer));
 
   const ranges = h('input', {
@@ -101,7 +102,6 @@ export function discoveryPanel(ctx, status, open) {
             ],
             [t('discovery.col.model'), (c) => h('span', { 'data-testid': 'candidate-model' }, [c.model || c.name, c.firmware ? ` (${c.firmware})` : ''].join(''))],
             [t('discovery.col.found'), (c) => h('span', { class: 'muted small', title: c.evidence || '' }, c.why)],
-            [t('discovery.col.todo'), (c) => (c.note ? h('span', { class: 'small' }, c.note) : null)],
             ['', actions],
           ],
           rows,
@@ -143,7 +143,12 @@ export function discoveryPanel(ctx, status, open) {
       if (status.state !== 'idle') place(box, h('p', { class: 'muted small', 'data-testid': 'discovery-done' }, t('discovery.lastSearch', { total: fmtNumber(status.total), found: fmtNumber(status.candidates.length) })));
     }
     if (status.scope.length) {
-      place(box, h('details', { class: 'small' }, h('summary', {}, t('discovery.searched')), h('ul', {}, status.scope.map((s) => h('li', {}, s)))));
+      const details = h('details', { class: 'small', 'data-testid': 'discovery-searched' }, h('summary', {}, t('discovery.searched')), h('ul', {}, status.scope.map((s) => h('li', {}, s))));
+      details.open = searchedOpen;
+      details.addEventListener('toggle', () => {
+        searchedOpen = details.open;
+      });
+      place(box, details);
     }
     if (status.notes.length) {
       place(box, h('div', { class: 'notice', 'data-testid': 'discovery-notes' }, h('ul', {}, status.notes.map((n) => h('li', {}, n)))));

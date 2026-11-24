@@ -690,6 +690,11 @@ def test_find_devices_and_add_one_through_the_prefilled_form(app: Any) -> None:
         "LR-2 <img src=x onerror=alert(1)> (2.0)"
     )
     expect(app.get_by_test_id("candidates").locator("img")).to_have_count(0)
+    # #301: no "What to do" column; "What was searched" keeps its state across refreshes
+    expect(app.get_by_test_id("candidates").locator("th", has_text="What to do")).to_have_count(0)
+    searched = app.get_by_test_id("discovery-searched")
+    searched.locator("summary").click()
+    expect(searched).to_have_attribute("open", "")
     # #224: the AP answered on 203.0.113.5 too: one entry, both addresses, the one in a known
     # network is offered and the other is listed
     expect(lab.get_by_test_id("candidate-address")).to_have_text("192.0.2.7")

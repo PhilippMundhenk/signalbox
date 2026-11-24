@@ -33,8 +33,9 @@ network, characters other than letters, digits, `.`, `_`, `-` replaced by `-`;
 `Network.native_segment(device)` gives a device's own untagged network.
 
 In the desired state, `native` keeps meaning "untagged": for a port or an SSID it is the
-device's own untagged network; as a segment entry it is the main one. The LANs of further routers
-are not declared (an import leaves them out) and cannot be planned as segments.
+device's own untagged network; as a segment entry it is the main one. A further router's
+LAN is a segment entry with `vlan: native-<router id>` (#305): the import writes it, each key
+may appear once per site, and `native` stays the main one.
 
 ## Consequences
 

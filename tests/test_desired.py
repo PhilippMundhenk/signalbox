@@ -215,6 +215,23 @@ def test_save_commits_into_a_git_folder(tmp_path: Path) -> None:
         desired.save(tmp_path, "sites: [", "broken")
 
 
+def test_api_two_routers_import_and_save(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#305: the editor loads the import of a two-router site and saving it works."""
+    from test_double_nat import reported
+
+    svc = build(tmp_path, env={"SIGNALBOX_AUTH_PASSWORD": PW})
+    try:
+        with demo_devices(svc), TestClient(create_app(svc, run_background=False)) as c:
+            c.post("/api/login", json={"password": PW})
+            monkeypatch.setattr(svc.runner, "network", reported)
+            text = c.post("/api/desired/import/home").json()["yaml"]
+            assert "vlan: native-isp" in text
+            r = c.put("/api/desired", json={"yaml": text})
+            assert r.status_code == 200 and r.json()["saved"], r.text
+    finally:
+        svc.close()
+
+
 def test_api_and_runner(tmp_path: Path) -> None:
     import asyncio
 
