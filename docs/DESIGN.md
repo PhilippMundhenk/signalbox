@@ -157,6 +157,13 @@ is ours and how many foreign access points share a radio's channel are derived i
 `signalbox.neighbours`. They are other people's data: not in `GET /api/network` (read with
 `GET /api/wifi-scan`), never in exporters or MQTT, and findings never name them.
 
+The Wi-Fi map (#366, Wireless, tab Map) reads `GET /api/wifi-map` (`signalbox.wifimap`): one node per
+enabled radio of ours, neighbours as anonymous numbered nodes (band, channel, strongest signal; never
+an SSID or BSSID; BSSIDs that differ only in the last byte count as one access point, at most 40),
+and the strongest signal heard between two nodes as an edge. The browser places the bubbles with a
+pure, deterministic force layout (`wifimaplayout.js`): signal is the attraction, pairs without a
+signal are pushed apart. Positions are inferred from signal strength, not real geometry.
+
 Passphrases are never stored. `passphrase_fingerprint(ssid, passphrase)` (PBKDF2 salted with
 the SSID, the WPA PMK, hashed again) compares one SSID across access points, but never two
 SSIDs. `Wlan.passphrase_digest` (`passphrase_digest(passphrase)`) compares across SSIDs (#101):

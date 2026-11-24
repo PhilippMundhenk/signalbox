@@ -32,6 +32,7 @@ DESKTOP = [
     ("topology", "#/topology"),
     ("device", "#/device/core-switch"),
     ("wireless", "#/wireless"),
+    ("wifi-map", "#/wireless/map"),
     ("segments", "#/segments"),
 ]
 PHONE = [("phone-findings", "#/"), ("phone-devices", "#/devices")]

@@ -1,7 +1,8 @@
 // Wireless: SSIDs grouped by name with the settings of every access point, and the radios.
 import { loadNetwork, noData } from '../net.js';
 import { by, h, place, yesNo } from '../util.js';
-import { card, pageHead, purposeTag, table, tag } from '../ui.js';
+import { card, pageHead, purposeTag, table, tabs, tag } from '../ui.js';
+import { renderWifiMap } from './wifimap.js';
 import { t } from '../i18n.js';
 
 const SECURITY = {
@@ -58,11 +59,15 @@ function roaming(w) {
   return on.map(([name, v]) => tag(v ? t('wireless.roaming.on', { name }) : v === false ? t('wireless.roaming.off', { name }) : t('wireless.roaming.unknown', { name }), v ? 'ok' : '')).flatMap((x, i) => (i ? [' ', x] : [x]));
 }
 
-export async function renderWireless(main, ctx) {
+export async function renderWireless(main, ctx, route = {}) {
   const id = ctx.renderId;
   const ix = await loadNetwork();
   if (!ctx.alive(id)) return;
-  place(main, pageHead(t('wireless.title')));
+  place(main, pageHead(t('wireless.title')), tabs([['networks', t('wireless.tab.networks'), '#/wireless'], ['map', t('wireless.tab.map'), '#/wireless/map']], route.tab || 'networks', 'wireless-tab'));
+  if (route.tab === 'map') {
+    await renderWifiMap(main, ctx, ix);
+    return;
+  }
   const { wlans, radios } = ix.net;
   if (!wlans.length && !radios.length) {
     place(main, noData('wireless networks'));

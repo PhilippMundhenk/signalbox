@@ -141,6 +141,47 @@ def _renumber(value: Any, old: str, new: str) -> Any:
     return value
 
 
+#: What the radios of the demo access points hear (#366): for each scanning access point, the
+#: signal (dBm) of the other access point of its site on 2.4 and 5 GHz (own BSSIDs, so the map
+#: links the two) and of the neighbours' networks of the simulator (by the end of their BSSID).
+_HEARD: dict[str, tuple[tuple[int, int, int] | None, dict[str, int]]] = {
+    "ap-1": ((2, -52, -61), {"01:01": -58, "01:02": -71, "01:04": -84, "02:01": -67, "02:02": -80}),
+    "ap-2": ((1, -55, -64), {"01:01": -76, "01:03": -62, "01:04": -70, "02:01": -74, "02:02": -63}),
+    "ap-b": (None, {"03:01": -66, "03:02": -79, "04:01": -72}),
+}
+
+
+#: The networks around the branch (site B): other ones than around site A.
+_SITE_B_NEIGHBOURS = [
+    openwrt_sim._neighbour("02:5e:00:00:03:01", "Bakery-WiFi", 1, -66, [2], ["psk"], 20),
+    openwrt_sim._neighbour("02:5e:00:00:03:02", "", 11, -79, [2], ["psk"], 20),
+    openwrt_sim._neighbour("02:5e:00:00:04:01", "Bakery-WiFi", 36, -72, [3], ["sae"], 80),
+]
+
+
+def _heard_by(dev: str) -> list[dict[str, Any]]:
+    """The access points one demo access point hears: its peer and some neighbours."""
+    peer, signals = _HEARD[dev]
+    rows = []
+    for row in [*openwrt_sim.NEIGHBOURS, *_SITE_B_NEIGHBOURS]:
+        signal = signals.get(row["bssid"][-5:])
+        if signal is not None:
+            rows.append({**row, "signal": signal, "quality": max(0, signal + 110)})
+    if peer is not None:
+        base, dbm_24, dbm_5 = peer
+        rows.append(
+            openwrt_sim._neighbour(
+                f"02:00:00:{base:02x}:01:00", "Example", 6, dbm_24, [2], ["psk"], 20
+            )
+        )
+        rows.append(
+            openwrt_sim._neighbour(
+                f"02:00:00:{base:02x}:01:02", "Example", 36, dbm_5, [3], ["sae"], 80
+            )
+        )
+    return rows
+
+
 def _openwrt(
     n: int, address: str, ip6: str, hostname: str, prefix: str = "192.0.2.", **options: Any
 ) -> openwrt_sim.OpenWrtSim:
@@ -254,7 +295,14 @@ def demo_devices(services: Services, *, compact: bool = False) -> Iterator[dict[
         def openwrt(dev: str, site: Site, name: str, role: DeviceRole, sim: Any) -> None:
             url, tls = https(dev, openwrt_sim.create_app(sim))
             url += "/ubus"
-            values = {"url": url, "username": sim.username, "password": sim.password}
+            values: dict[str, object] = {
+                "url": url,
+                "username": sim.username,
+                "password": sim.password,
+            }
+            if dev in _HEARD:  # the optional neighbour scan (#169) feeds the Wi-Fi map (#366)
+                sim.neighbours = _heard_by(dev)
+                values["scan_neighbours"] = True
             add(dev, site, name, role, "openwrt", values, url, tls.fingerprint)
 
         # site A -------------------------------------------------------------------------
