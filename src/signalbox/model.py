@@ -175,12 +175,11 @@ class KeyType(StrEnum):
     OTHER = "other"
 
 
-class CertificateInfo(Model):
-    """The TLS certificate a device presents on its management port (#174).
+class CertificateFacts(Model):
+    """What is known about a public X.509 certificate: shared by the certificate a device
+    presents (:class:`CertificateInfo`) and those it stores (:class:`Certificate`).
 
-    Read by core during the pinning handshake of :class:`~signalbox.adapters.https.DeviceHttp`,
-    so every HTTPS integration provides it. Dates are those in the certificate: Signalbox
-    pins the certificate and ignores them, browsers and apps do not.
+    Only public data. A private key is never part of the model (#330).
     """
 
     fingerprint_sha256: str
@@ -196,6 +195,16 @@ class CertificateInfo(Model):
     signature_algorithm: str
     #: DNS names and IP addresses of the subject alternative name extension.
     san: list[str] = Field(default_factory=list)
+
+
+class CertificateInfo(CertificateFacts):
+    """The TLS certificate a device presents on its management port (#174).
+
+    Read by core during the pinning handshake of :class:`~signalbox.adapters.https.DeviceHttp`,
+    so every HTTPS integration provides it. Dates are those in the certificate: Signalbox
+    pins the certificate and ignores them, browsers and apps do not.
+    """
+
     #: The management address (or the host Signalbox connects to) is covered by the
     #: certificate (SAN, or the common name when there is no SAN). ``None``: no address known.
     matches_management_address: bool | None = None
@@ -208,6 +217,45 @@ class CertificateInfo(Model):
     #: (``cert.renewed`` explains the untrusted-certificate status with it).
     previous_fingerprint_sha256: str | None = None
     previous_not_after: datetime | None = None
+
+
+class CertificateUse(StrEnum):
+    """What a stored certificate is used for, as far as the device says (#330)."""
+
+    #: The web interface or API of the device itself (MikroTik ``www-ssl``, ``api-ssl``).
+    MANAGEMENT = "management"
+    #: A VPN server or peer (IPsec identity, OpenVPN, SSTP).
+    VPN = "vpn"
+    RADIUS = "radius"
+    OTHER = "other"
+
+
+class Certificate(Observed, CertificateFacts):
+    """A certificate stored on a device (VPN, RADIUS, web proxy, CA; #330),
+    ``object_id(device, "cert", <name>)``.
+
+    The facts are those of :class:`CertificateFacts`, read from the device's list of
+    certificates. Adapters report only public data: the private key, its passphrase and the
+    certificate request never enter the model, not even in ``vendor_extra`` (the device
+    only says whether a key exists: ``has_private_key``). An empty ``Snapshot.certificates``
+    means "not read", never "none".
+    """
+
+    device_id: str
+    #: The device's own name for it (MikroTik certificate name, OPNsense description).
+    name: str
+    #: A certificate authority (basic constraints), the issuer of leaf certificates.
+    ca: bool = False
+    #: The device holds the private key of this certificate (the key itself is never read).
+    has_private_key: bool | None = None
+    #: The device trusts it as an anchor (MikroTik ``trusted``).
+    trusted_on_device: bool | None = None
+    #: The device says something uses it (OPNsense ``in_use``); ``None``: it does not say.
+    in_use: bool | None = None
+    #: Management services (``ManagementService`` ids) that use it, where the device names
+    #: the certificate of a service.
+    used_by: list[str] = Field(default_factory=list)
+    uses: list[CertificateUse] = Field(default_factory=list)
 
 
 class Firmware(Model):
@@ -2748,6 +2796,8 @@ class Snapshot(Model):
     uplinks: list[Uplink] = Field(default_factory=list)
     #: Management services of the devices (#173; part of ``interfaces``).
     services: list[ManagementService] = Field(default_factory=list)
+    #: Certificates stored on the devices (#330; part of ``interfaces``).
+    certificates: list[Certificate] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     #: DHCP relays (#183; part of ``dhcp``).
     dhcp_relays: list[DhcpRelay] = Field(default_factory=list)
@@ -2826,6 +2876,8 @@ class Network(Model):
     uplinks: list[Uplink] = Field(default_factory=list)
     #: Management services of the devices (#173; part of ``interfaces``).
     services: list[ManagementService] = Field(default_factory=list)
+    #: Certificates stored on the devices (#330; part of ``interfaces``).
+    certificates: list[Certificate] = Field(default_factory=list)
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     #: DHCP relays (#183; part of ``dhcp``).
     dhcp_relays: list[DhcpRelay] = Field(default_factory=list)
@@ -2890,6 +2942,7 @@ class Network(Model):
             self.segments,
             self.subnets,
             self.uplinks,
+            self.certificates,
             self.dhcp_servers,
             self.dhcp_relays,
             self.dns_services,
@@ -3076,6 +3129,9 @@ class Network(Model):
             if any(a.ip in sub.interface.network for a in uplink.addresses):
                 return sub
         return None
+
+    def certificates_of(self, device_id: str) -> list[Certificate]:
+        return [c for c in self.certificates if c.device_id == device_id]
 
     def services_of(self, device_id: str) -> list[ManagementService]:
         return [s for s in self.services if s.device_id == device_id]

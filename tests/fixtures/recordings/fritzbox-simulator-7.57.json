@@ -1271,6 +1271,7 @@
     "snmp": null
    }
   ],
+  "certificates": [],
   "dhcp_servers": [
    {
     "id": "recorded/dhcp/lan",

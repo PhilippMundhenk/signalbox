@@ -569,6 +569,68 @@ def sample_data() -> dict[str, Any]:
         "/rest/interface/pppoe-client": [],
         # as RouterOS 7.25.1 (CHR) answers: ``available-from``, dynamic rows for the resolver and
         # open connections, a ``reverse-proxy`` row that is no service of the adapter's list
+        # Certificates (#330), as RouterOS 7 lists them: public data and the ``private-key`` flag.
+        # *Guess* until a CHR run says otherwise: the date and ``key-size`` formats.
+        "/rest/certificate": _ids(
+            {
+                "name": "signalbox-ca",
+                "common-name": "signalbox-ca",
+                "issuer": "CN=signalbox-ca",
+                "key-type": "rsa",
+                "key-size": "2048",
+                "digest-algorithm": "sha256",
+                "fingerprint": "a1" * 32,
+                "invalid-before": "2026-01-01T00:00:00",
+                "invalid-after": "2036-01-01T00:00:00",
+                "key-usage": "key-cert-sign,crl-sign",
+                "akid": "0a0b",
+                "skid": "0a0b",
+                "authority": "true",
+                "trusted": "true",
+                "private-key": "true",
+            },
+            {
+                "name": "signalbox-www",
+                "common-name": "router",
+                "issuer": "CN=signalbox-ca",
+                "subject-alt-name": "DNS:router.lab.example,IP:192.0.2.1",
+                "key-type": "rsa",
+                "key-size": "2048",
+                "digest-algorithm": "sha256",
+                "fingerprint": "b2" * 32,
+                "invalid-before": "2026-01-01T00:00:00",
+                "invalid-after": "2031-01-01T00:00:00",
+                "akid": "0a0b",
+                "skid": "0c0d",
+                "authority": "false",
+                "trusted": "false",
+                "private-key": "true",
+            },
+            {
+                "name": "vpn-gateway",
+                "common-name": "vpn.lab.example",
+                "issuer": "CN=signalbox-ca",
+                "key-type": "rsa",
+                "key-size": "3072",
+                "digest-algorithm": "sha256",
+                "fingerprint": "c3" * 32,
+                "invalid-before": "2026-01-01T00:00:00",
+                "invalid-after": "2031-01-01T00:00:00",
+                "akid": "0a0b",
+                "skid": "0e0f",
+                "authority": "false",
+                "trusted": "false",
+                "private-key": "true",
+            },
+        ),
+        "/rest/ip/ipsec/identity": _ids(
+            {
+                "peer": "site-b",
+                "auth-method": "digital-signature",
+                "certificate": "vpn-gateway",
+                "disabled": "false",
+            }
+        ),
         "/rest/ip/service": _ids(
             *(
                 {

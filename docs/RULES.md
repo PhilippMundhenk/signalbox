@@ -166,6 +166,11 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`port.autoneg-mismatch`](rules/ports.md#portautoneg-mismatch)
 - [`port.description-mismatch`](rules/ports.md#portdescription-mismatch)
 
+## [Certificates stored on devices](rules/stored_certificates.md)
+
+- [`cert.vpn-expiring`](rules/stored_certificates.md#certvpn-expiring)
+- [`cert.ca-expiring`](rules/stored_certificates.md#certca-expiring)
+
 ## [Time and NTP](rules/time_checks.md)
 
 - [`time.offset`](rules/time_checks.md#timeoffset)

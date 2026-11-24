@@ -14,10 +14,11 @@ from collections.abc import Iterator
 from ipaddress import ip_address
 
 from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.x509.oid import NameOID
 
-from signalbox.model import CertificateInfo, KeyType
+from signalbox.model import CertificateFacts, CertificateInfo, KeyType
 
 _SINK: contextvars.ContextVar[dict[tuple[str, int], bytes] | None] = contextvars.ContextVar(
     "certificate_sink", default=None
@@ -86,11 +87,9 @@ def covers(names: list[str], host: str) -> bool:
     return False
 
 
-def describe(der: bytes, address: str | None) -> CertificateInfo:
-    """The certificate facts; ``address`` is the host to check against the names (or ``None``)."""
+def _facts(cert: x509.Certificate) -> CertificateFacts:
     from signalbox.adapters.https import fingerprint  # local: https imports this module
 
-    cert = x509.load_der_x509_certificate(der)
     pub = cert.public_key()
     key_type, bits = KeyType.OTHER, 0
     if isinstance(pub, rsa.RSAPublicKey):
@@ -101,9 +100,9 @@ def describe(der: bytes, address: str | None) -> CertificateInfo:
         key_type, bits = KeyType.ED25519, 256
     oid = cert.signature_algorithm_oid
     algorithm = getattr(oid, "_name", "") or oid.dotted_string
-    san, cns = _names(cert)
-    return CertificateInfo(
-        fingerprint_sha256=fingerprint(der),
+    san, _ = _names(cert)
+    return CertificateFacts(
+        fingerprint_sha256=fingerprint(cert.public_bytes(serialization.Encoding.DER)),
         subject=_rfc4514(cert.subject),
         issuer=_rfc4514(cert.issuer),
         self_signed=cert.subject == cert.issuer,
@@ -113,8 +112,41 @@ def describe(der: bytes, address: str | None) -> CertificateInfo:
         key_bits=bits,
         signature_algorithm=algorithm,
         san=san,
+    )
+
+
+def describe(der: bytes, address: str | None) -> CertificateInfo:
+    """The certificate facts; ``address`` is the host to check against the names (or ``None``)."""
+    cert = x509.load_der_x509_certificate(der)
+    facts = _facts(cert)
+    san, cns = _names(cert)
+    return CertificateInfo(
+        **facts.model_dump(),
         matches_management_address=covers(san or cns, address) if address else None,
     )
+
+
+def describe_pem(text: str) -> tuple[CertificateFacts, bool] | None:
+    """The public facts of the first certificate in a PEM text and whether it is a CA (#330).
+
+    For devices that list certificates with their PEM. Only the ``CERTIFICATE`` block is parsed;
+    a private key or request in the same text is never looked at, and nothing of ``text`` is
+    kept. ``None``: no certificate in it.
+    """
+    start = text.find("-----BEGIN CERTIFICATE-----")
+    end = text.find("-----END CERTIFICATE-----", start)
+    if start < 0 or end < 0:
+        return None
+    block = text[start : end + len("-----END CERTIFICATE-----")]
+    try:
+        cert = x509.load_pem_x509_certificate(block.encode("ascii"))
+    except ValueError:
+        return None
+    try:
+        ca = cert.extensions.get_extension_for_class(x509.BasicConstraints).value.ca
+    except x509.ExtensionNotFound:
+        ca = False
+    return _facts(cert), ca
 
 
 def weak_signature(algorithm: str) -> bool:

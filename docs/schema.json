@@ -263,6 +263,170 @@
       "title": "Band",
       "type": "string"
     },
+    "Certificate": {
+      "additionalProperties": false,
+      "description": "A certificate stored on a device (VPN, RADIUS, web proxy, CA; #330),\n``object_id(device, \"cert\", <name>)``.\n\nThe facts are those of :class:`CertificateFacts`, read from the device's list of\ncertificates. Adapters report only public data: the private key, its passphrase and the\ncertificate request never enter the model, not even in ``vendor_extra`` (the device\nonly says whether a key exists: ``has_private_key``). An empty ``Snapshot.certificates``\nmeans \"not read\", never \"none\".",
+      "properties": {
+        "ca": {
+          "default": false,
+          "title": "Ca",
+          "type": "boolean"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "fingerprint_sha256": {
+          "title": "Fingerprint Sha256",
+          "type": "string"
+        },
+        "has_private_key": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Has Private Key"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "in_use": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "In Use"
+        },
+        "issuer": {
+          "title": "Issuer",
+          "type": "string"
+        },
+        "key_bits": {
+          "title": "Key Bits",
+          "type": "integer"
+        },
+        "key_type": {
+          "$ref": "#/$defs/KeyType"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "not_after": {
+          "format": "date-time",
+          "title": "Not After",
+          "type": "string"
+        },
+        "not_before": {
+          "format": "date-time",
+          "title": "Not Before",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "san": {
+          "items": {
+            "type": "string"
+          },
+          "title": "San",
+          "type": "array"
+        },
+        "self_signed": {
+          "title": "Self Signed",
+          "type": "boolean"
+        },
+        "signature_algorithm": {
+          "title": "Signature Algorithm",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "trusted_on_device": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trusted On Device"
+        },
+        "used_by": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Used By",
+          "type": "array"
+        },
+        "uses": {
+          "items": {
+            "$ref": "#/$defs/CertificateUse"
+          },
+          "title": "Uses",
+          "type": "array"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "fingerprint_sha256",
+        "subject",
+        "issuer",
+        "self_signed",
+        "not_before",
+        "not_after",
+        "key_type",
+        "key_bits",
+        "signature_algorithm",
+        "id",
+        "device_id",
+        "name"
+      ],
+      "title": "Certificate",
+      "type": "object"
+    },
     "CertificateInfo": {
       "additionalProperties": false,
       "description": "The TLS certificate a device presents on its management port (#174).\n\nRead by core during the pinning handshake of :class:`~signalbox.adapters.https.DeviceHttp`,\nso every HTTPS integration provides it. Dates are those in the certificate: Signalbox\npins the certificate and ignores them, browsers and apps do not.",
@@ -380,6 +544,17 @@
       ],
       "title": "CertificateInfo",
       "type": "object"
+    },
+    "CertificateUse": {
+      "description": "What a stored certificate is used for, as far as the device says (#330).",
+      "enum": [
+        "management",
+        "vpn",
+        "radius",
+        "other"
+      ],
+      "title": "CertificateUse",
+      "type": "string"
     },
     "Cipher": {
       "description": "Pairwise or group data cipher of a WLAN.",
@@ -3279,6 +3454,13 @@
           "title": "Certificate Warn Days",
           "type": "integer"
         },
+        "certificates": {
+          "items": {
+            "$ref": "#/$defs/Certificate"
+          },
+          "title": "Certificates",
+          "type": "array"
+        },
         "clients": {
           "items": {
             "$ref": "#/$defs/Client"
@@ -5148,6 +5330,13 @@
       "additionalProperties": false,
       "description": "Everything one adapter observed on one device at one time.",
       "properties": {
+        "certificates": {
+          "items": {
+            "$ref": "#/$defs/Certificate"
+          },
+          "title": "Certificates",
+          "type": "array"
+        },
         "clients": {
           "items": {
             "$ref": "#/$defs/Client"

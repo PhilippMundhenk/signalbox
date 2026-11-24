@@ -66,6 +66,8 @@ from signalbox.adapters.opnsense import firewall as fw
 from signalbox.adapters.opnsense import provision, vitals
 from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import write as w
+from signalbox.adapters.opnsense.certificates import CA_PRIVILEGE, CERT_PRIVILEGE, issuer_names
+from signalbox.adapters.opnsense.certificates import parse as parse_certificates
 from signalbox.adapters.ssh import PinnedSsh
 from signalbox.changes import FIREWALL_KINDS, Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
@@ -76,6 +78,7 @@ from signalbox.model import (
     WIREGUARD_KEY,
     AccountPrivilege,
     AddressSource,
+    Certificate,
     Client,
     DeviceAccount,
     DeviceRole,
@@ -158,6 +161,9 @@ SYSTEM_TEMPERATURE = "/api/diagnostics/system/system_temperature"
 CPU_TYPE = "/api/diagnostics/cpu_usage/get_cpu_type"
 NTP_STATUS = "/api/ntpd/service/status"
 NETSNMP = "/api/netsnmp/general/get"
+#: Certificates and certificate authorities stored on the firewall (#330).
+CERT_SEARCH = "/api/trust/cert/search"
+CA_SEARCH = "/api/trust/ca/search"
 #: Remote syslog destinations and NetFlow export (#180).
 SYSLOG_DESTINATIONS = "/api/syslog/settings/search_destinations"
 NETFLOW = "/api/diagnostics/netflow/getconfig"
@@ -1072,12 +1078,15 @@ class OpnsenseAdapter(_Adapter):
             None,
         )
         uplinks = [] if wan is None or row is None else [wan_uplink(row, dev, wan.port)]
+        certificates, cert_gaps = await self._certificates()
+        gaps = [*gaps, *cert_gaps]
         return Observation(
             ports=layout.ports,
             segments=list(layout.segments.values()),
             subnets=subnets,
             uplinks=uplinks,
             services=await self._services(),
+            certificates=certificates,
             log_targets={} if targets is None else {dev: targets},
             **await self._accounts(dev),
             incomplete=gaps,
@@ -1133,6 +1142,34 @@ class OpnsenseAdapter(_Adapter):
             )
         # the key could read the user manager: it may change every account
         return {"accounts": {dev: out}, "signalbox_privilege": {dev: AccountPrivilege.ADMIN}}
+
+    async def _certificates(self) -> tuple[list[Certificate], list[Gap]]:
+        """Certificates and authorities stored on the firewall (#330), public data only (see
+        :mod:`.certificates`). A grid the API user may not read is an optional gap naming its
+        privilege; what could be read is still reported."""
+        dev = self.context.device_id
+        gaps: list[Gap] = []
+        grids: dict[str, list[dict[str, Any]]] = {}
+        for key, endpoint, privilege in (
+            ("ca", CA_SEARCH, CA_PRIVILEGE),
+            ("cert", CERT_SEARCH, CERT_PRIVILEGE),
+        ):
+            try:
+                grids[key] = _rows(await self._get(endpoint, grid=True), endpoint)
+            except NotFound:
+                grids[key] = []
+            except AdapterError as exc:
+                gaps.append(_privilege_gap("certificates", exc, privilege))
+                grids[key] = []
+        issuers = issuer_names(grids["ca"])
+        found = [
+            *parse_certificates(dev, grids["ca"], ca=True, issuers=issuers),
+            *parse_certificates(dev, grids["cert"], ca=False, issuers=issuers),
+        ]
+        unique: dict[str, Certificate] = {}
+        for c in found:  # an authority and a certificate may share a description: first wins
+            unique.setdefault(c.id, c)
+        return list(unique.values()), gaps
 
     async def _log_targets(self) -> tuple[list[LogTarget] | None, list[Gap]]:
         """Remote syslog destinations and the NetFlow export (#180). A page the API user may

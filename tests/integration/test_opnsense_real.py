@@ -352,6 +352,23 @@ async def test_log_targets(fw: dict[str, str]) -> None:
     assert syslog.name == "collector" and "info" in syslog.topics, syslog
 
 
+async def test_stored_certificates(fw: dict[str, str]) -> None:
+    """The firewall's own web interface certificate (#330) through the grids the read user may
+    call (System: Certificate Manager and Authority Manager): listed with its dates, no key."""
+    a = adapter(fw)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors  # no privilege gap
+    assert snap.certificates, "the web interface certificate is listed"
+    assert all(c.not_after > c.not_before and c.name for c in snap.certificates), snap.certificates
+    assert any(c.in_use for c in snap.certificates), snap.certificates
+    dump = snap.model_dump_json()
+    assert "PRIVATE KEY" not in dump and "BEGIN" not in dump
+    assert all(c.vendor_extra == {} for c in snap.certificates)
+
+
 async def test_refused_api_key_is_auth_failed(fw: dict[str, str]) -> None:
     a = adapter(fw, secret="not-the-secret")
     try:

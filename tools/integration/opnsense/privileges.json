@@ -18,7 +18,9 @@
     "page-filter-snat-api",
     "page-firewall-nat-1-1-edit",
     "page-diagnostics-logs-settings-targets",
-    "page-diagnostics-netflow"
+    "page-diagnostics-netflow",
+    "page-system-certmanager",
+    "page-system-camanager"
   ],
   "signalbox-write": [
     "page-system-firmware-manualupdate",
@@ -40,6 +42,8 @@
     "page-firewall-nat-1-1-edit",
     "page-diagnostics-logs-settings-targets",
     "page-diagnostics-netflow",
+    "page-system-certmanager",
+    "page-system-camanager",
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory"
   ]
