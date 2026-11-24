@@ -1487,7 +1487,33 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         snmp = await self._snmp()
         if snmp is not None:
             out.append(snmp)
+        if (cloud := await self._cloud_service()) is not None:
+            out.append(cloud)
         return out
+
+    async def _cloud_service(self) -> ManagementService | None:
+        """MikroTik Cloud (``/ip/cloud``, #327): on when DDNS is ``yes`` (RouterOS 7.x), when
+        ``auto`` has reached the cloud (``status`` ``updated``), or with Back to Home VPN.
+        GUESS (needs a real router, #21): the meaning of ``auto`` and the field names
+        ``back-to-home-vpn`` and ``status`` on the installed versions."""
+        conf = await self._optional_object(CLOUD)
+        if not conf:
+            return None
+        ddns = _text(conf.get("ddns-enabled")).lower()
+        status = _text(conf.get("status")).lower()
+        on = (
+            _flag(ddns)
+            or (ddns == "auto" and status == "updated")
+            or _text(conf.get("back-to-home-vpn")).lower() == "enabled"
+        )
+        dev = self.context.device_id
+        return ManagementService(
+            id=object_id(dev, "service", "mikrotik-cloud"),
+            device_id=dev,
+            kind=ServiceKind.CLOUD,
+            name="mikrotik-cloud",
+            enabled=on,
+        )
 
     async def _optional_object(self, endpoint: str) -> dict[str, Any]:
         """A single-value menu that may be missing or refused: empty then."""

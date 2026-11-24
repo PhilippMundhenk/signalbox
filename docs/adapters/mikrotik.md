@@ -786,6 +786,11 @@ are the `services` dump group), as the read-only user of this page.
   fields are filled whatever the level (`DES` on `public`). The community string itself is
   never stored. The read user sees the community names without the `sensitive` policy (the
   passwords are `*****`).
+- `GET /rest/ip/cloud` (#327, kind `cloud`, name `mikrotik-cloud`): on when `ddns-enabled` is
+  `yes`, when it is `auto` and `status` is `updated` (the router has reached the cloud), or
+  when `back-to-home-vpn` is `enabled`. *Guess (#21)*: what `auto` means on each RouterOS
+  version and the field names `back-to-home-vpn` and `status`; the CHR in CI has no cloud
+  update. Feeds the info check `cloud.enabled`.
 - A menu the read group may not read (or `/ip/service` itself) leaves out its services; when
   `/ip/service` fails the list stays empty (not read) and the rest of the read is unaffected.
 - `transport_encrypted` is true for the https URL, false for `allow_insecure_http`.

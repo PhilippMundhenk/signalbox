@@ -1058,6 +1058,9 @@ class ServiceKind(StrEnum):
     UPNP = "upnp"  # UPnP IGD control (port forwards opened by any client)
     #: The vendor's own configuration protocol (NETGEAR NSDP, TP-Link Easy Smart UDP).
     VENDOR = "vendor"
+    #: Management through the vendor's cloud (MyFRITZ!, MikroTik Cloud, Omada Cloud access, #327):
+    #: the device connects out; ``name`` says which (:data:`CLOUD_NAMES`).
+    CLOUD = "cloud"
     OTHER = "other"
 
 
@@ -1086,6 +1089,7 @@ SERVICE_ENCRYPTED: dict[ServiceKind, bool | None] = {
     ServiceKind.TR064: None,  # HTTP on 49000 and HTTPS on 49443
     ServiceKind.UPNP: False,
     ServiceKind.VENDOR: False,
+    ServiceKind.CLOUD: True,
     ServiceKind.OTHER: None,
 }
 
@@ -1147,7 +1151,15 @@ SERVICE_LABELS: dict[ServiceKind, str] = {
     ServiceKind.TR064: "TR-064",
     ServiceKind.UPNP: "UPnP",
     ServiceKind.VENDOR: "configuration protocol",
+    ServiceKind.CLOUD: "cloud management",
     ServiceKind.OTHER: "service",
+}
+
+#: Vendor cloud management services (kind ``cloud``) by their ``name``.
+CLOUD_NAMES: dict[str, str] = {
+    "myfritz-cloud": "MyFRITZ!",
+    "mikrotik-cloud": "MikroTik Cloud",
+    "omada-cloud": "Omada Cloud access",
 }
 
 
@@ -1282,6 +1294,8 @@ class ManagementService(Observed):
     def label(self) -> str:
         """``SSH``, ``HTTPS (remote-access)``: for findings and the UI."""
         text = SERVICE_LABELS[self.kind]
+        if self.kind is ServiceKind.CLOUD and self.name in CLOUD_NAMES:
+            return CLOUD_NAMES[self.name]
         if self.name and self.name.lower() not in (self.kind.value, text.lower()):
             return f"{text} ({self.name})"
         return text
@@ -3149,8 +3163,8 @@ class Network(Model):
         subnets overlaps an allowed network (a segment without a known subnet is kept).
         A disabled service has none.
         """
-        if not service.enabled:
-            return []
+        if not service.enabled or service.kind is ServiceKind.CLOUD:
+            return []  # a cloud connection goes out; nobody in a network reaches it
         dev = service.device_id
         member_of = {
             s.id: {m.port_id for m in s.members}
@@ -3207,7 +3221,7 @@ class Network(Model):
         ``None`` in every other case: it listens on the uplink and only the firewall, which
         Signalbox does not read yet (#135), decides.
         """
-        if not service.enabled:
+        if not service.enabled or service.kind is ServiceKind.CLOUD:
             return False
         if service.from_wan is not None:
             return service.from_wan

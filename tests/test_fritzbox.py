@@ -765,6 +765,7 @@ async def test_services(adapter: FritzboxAdapter, sim: FritzboxSim) -> None:
         "http",
         "https",
         "myfritz",
+        "myfritz-cloud",
         "remote-access",
         "tr-064",
         "upnp",
@@ -775,6 +776,8 @@ async def test_services(adapter: FritzboxAdapter, sim: FritzboxSim) -> None:
     remote = by["remote-access"]  # off as shipped: not reachable from the internet
     assert (remote.enabled, remote.from_wan, remote.kind.value) == (False, False, "https")
     assert by["myfritz"].enabled and by["myfritz"].from_wan
+    cloud = by["myfritz-cloud"]  # the registration with AVM (#327)
+    assert (cloud.kind.value, cloud.enabled, cloud.label()) == ("cloud", True, "MyFRITZ!")
     assert by["ftp"].enabled and by["ftp"].from_wan is False
     wan = by["ftp-internet"]
     assert (wan.enabled, wan.from_wan, wan.port) == (False, False, 21)
@@ -795,6 +798,10 @@ async def test_services_open_to_the_internet(adapter: FritzboxAdapter, sim: Frit
         None,
         False,
     )
+    assert not by["myfritz-cloud"].enabled
+    sim.myfritz |= {"NewEnabled": "1", "NewDeviceRegistered": "0"}
+    unregistered = {s.name: s for s in (await adapter.read_interfaces()).services}
+    assert not unregistered["myfritz-cloud"].enabled  # on, but no account behind it
     sim.storage |= {"NewFTPWANSSLOnly": "1"}
     ftp = {s.name: s for s in (await adapter.read_interfaces()).services}["ftp-internet"]
     assert ftp.encrypted is True

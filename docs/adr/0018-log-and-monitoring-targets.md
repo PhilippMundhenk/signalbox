@@ -42,6 +42,9 @@ whether a factory community is set, v3 privacy, write access, `allowed_from`; an
   `Network`; `merge` needs nothing new. A rule that needs a target id uses the device id plus
   the endpoint as its finding key.
 - Vendor cloud management (MyFRITZ!, MikroTik Cloud, Omada Cloud) from #180 is not part of this:
-  it is a management path, a `ManagementService` (Fritz!Box remote access is one already).
+  it is a management path, a `ManagementService` (Fritz!Box remote access is one already). #327
+  adds it as kind `cloud` (name `myfritz-cloud`, `mikrotik-cloud`, `omada-cloud`) with the info
+  check `cloud.enabled`; it is outbound, so the exposure rules ignore it. NETGEAR Insight is
+  left out: no Plus switch exposes it.
 - Integrations without a read (Fritz!Box, Omada, ProSAFE/Easy Smart, Pi-hole, AdGuard Home)
   leave `log_targets` `None`; their devices are not counted by `log.inconsistent`.

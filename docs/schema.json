@@ -5284,6 +5284,7 @@
         "tr-064",
         "upnp",
         "vendor",
+        "cloud",
         "other"
       ],
       "title": "ServiceKind",

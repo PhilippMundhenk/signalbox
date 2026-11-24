@@ -308,6 +308,14 @@ def sample_data() -> dict[str, Any]:
             "communityString": "public",
             "snmpPort": 161,
         },
+        # GUESSED shapes (#327), not from a real controller: cloud access is a controller
+        # setting, the remote syslog server a site setting next to SNMP
+        f"/openapi/v1/{OMADAC_ID}/cloud-access": {"enable": True},
+        f"{SITE}/setting/service/logging": {
+            "enable": True,
+            "serverIp": "192.0.2.50",
+            "serverPort": 514,
+        },
         f"{SITE}/gateways/{GATEWAY}/wan-status": [
             _wan(1, "SFP WAN", "DHCP", connected=True),
             _wan(2, "WAN2", "PPPoE", connected=False, kind=1),

@@ -11,11 +11,21 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterator
 
-from signalbox.model import Device, DeviceStatus, IPAddress, LogKind, LogTarget, Network
+from signalbox.model import (
+    Device,
+    DeviceStatus,
+    IPAddress,
+    LogKind,
+    LogTarget,
+    LogTransport,
+    Network,
+)
+from signalbox.purpose import untrusted
 from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
 from signalbox.rules._names import segment_name
 from signalbox.rules.dns import _Index, _local_segment
 from signalbox.rules.time_checks import LOCAL_RANGES
+from signalbox.rules.vlan import address_segment
 
 #: Kinds whose target must answer for the data to arrive somewhere.
 _CHECKED = (LogKind.SYSLOG, LogKind.NETFLOW, LogKind.IPFIX, LogKind.SFLOW, LogKind.SNMP_TRAP)
@@ -172,4 +182,80 @@ def inconsistent(net: Network) -> Iterator[Result]:
         )
 
 
-RULES: list[Rule] = [target_unknown, inconsistent]
+# --- log.plain-transport ------------------------------------------------------------------
+
+
+@rule(
+    "log.plain-transport",
+    "Syslog is sent in clear text beyond the device's own network",
+    Severity.INFO,
+    "Syslog over UDP or TCP is not encrypted and not authenticated: whoever sits on the way can "
+    "read the messages (they name users, addresses and failed logins) and add or drop some. "
+    "Reported when a device sends it to a collector on the internet, to one in another network "
+    "than its own management network, or across a guest, IoT or camera network. A collector in "
+    "the device's own network, a host name, an address behind a VPN tunnel and syslog over TLS "
+    "are not reported; neither are devices whose management network is not known.",
+)
+def plain_transport(net: Network) -> Iterator[Result]:
+    for dev, targets in _logging(net):
+        own = address_segment(net, dev)
+        for t in targets:
+            address = t.ip()
+            if (
+                not t.enabled
+                or t.kind is not LogKind.SYSLOG
+                or t.transport not in (LogTransport.UDP, LogTransport.TCP)
+                or address is None
+                or address.is_loopback
+                or _tunnelled(net, address)
+            ):
+                continue
+            seg = _local_segment(net, None, address)
+            params = {
+                "device": dev.name,
+                "target": t.endpoint(),
+                "transport": t.transport.value.upper() if t.transport else "",
+            }
+            where: tuple[str, str, dict[str, str]] | None = None
+            if seg is None:
+                if not _private(address):
+                    where = (
+                        "on the internet",
+                        "log.plainPublic",
+                        {},
+                    )
+            elif own is not None and seg != own:
+                crossed = [
+                    segment_name(net, s)
+                    for s in (own, seg)
+                    if (o := net.segment(s)) is not None and untrusted(o.purpose)
+                ]
+                if crossed:
+                    where = (
+                        f"across {crossed[0]}, an untrusted network",
+                        "log.plainUntrusted",
+                        {"segment": crossed[0]},
+                    )
+                else:
+                    where = (
+                        f"in {segment_name(net, seg)}, outside its own network",
+                        "log.plainOtherSegment",
+                        {"segment": segment_name(net, seg)},
+                    )
+            if where is None:
+                continue
+            text, mid, extra = where
+            yield found(
+                f"{dev.name} sends syslog over {params['transport']} without encryption to "
+                f"{t.endpoint()}, {text}",
+                [dev.id],
+                fix="Send the syslog over TLS (TCP) or keep the collector in the management "
+                "network of the device.",
+                key=t.endpoint(),
+                mid=mid,
+                fix_id="log.plain.fix",
+                params={**params, **extra},
+            )
+
+
+RULES: list[Rule] = [target_unknown, inconsistent, plain_transport]

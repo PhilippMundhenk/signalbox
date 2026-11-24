@@ -12,12 +12,13 @@ from signalbox.model import (
     LogTransport,
     Network,
     Segment,
+    SegmentPurpose,
     Site,
     Subnet,
     segment_id,
 )
 from signalbox.rules import Finding, Rule, evaluate
-from signalbox.rules.logging_checks import RULES, inconsistent, target_unknown
+from signalbox.rules.logging_checks import RULES, inconsistent, plain_transport, target_unknown
 
 LAN = segment_id(SITE.id, None)
 
@@ -46,7 +47,11 @@ def run(r: Rule, n: Network) -> list[Finding]:
 
 
 def test_registered() -> None:
-    assert {r.id for r in RULES} == {"log.target-unknown", "log.inconsistent"}
+    assert {r.id for r in RULES} == {
+        "log.target-unknown",
+        "log.inconsistent",
+        "log.plain-transport",
+    }
 
 
 # --- log.target-unknown ----------------------------------------------------------------------
@@ -157,3 +162,83 @@ def test_nobody_logs_remotely_is_quiet() -> None:
         ),
     )
     assert run(inconsistent, n) == []
+
+
+# --- log.plain-transport (#327) --------------------------------------------------------------
+
+SRV = segment_id(SITE.id, 30)
+GUEST = segment_id(SITE.id, 40)
+
+
+def two_networks(*targets: LogTarget, purpose: SegmentPurpose | None = None) -> Network:
+    """The device at 192.0.2.1 in the LAN; a second network 198.51.100.0/24 (VLAN 30)."""
+    return make(
+        *targets,
+        devices=[device("gw", log_targets=list(targets), management_address="192.0.2.1")],
+        subnets=[
+            lan(),
+            Subnet(
+                id="gw/subnet/srv",
+                segment_id=SRV,
+                interface=iface("198.51.100.1/24"),
+                device_id="gw",
+                gateway=True,
+            ),
+        ],
+        segments=[
+            Segment(id=LAN, site_id=SITE.id),
+            Segment(id=SRV, site_id=SITE.id, vlan=30, purpose=purpose),
+        ],
+    )
+
+
+def test_plain_syslog_in_the_own_network_is_quiet() -> None:
+    n = make(
+        syslog("192.0.2.5", transport=LogTransport.UDP),
+        devices=[
+            device(
+                "gw",
+                management_address="192.0.2.1",
+                log_targets=[syslog("192.0.2.5", transport=LogTransport.UDP)],
+            )
+        ],
+    )
+    assert run(plain_transport, n) == []
+
+
+def test_plain_syslog_to_another_network() -> None:
+    (f,) = run(plain_transport, two_networks(syslog("198.51.100.5", transport=LogTransport.UDP)))
+    assert f.severity == "info" and f.objects == ["gw"]
+    assert f.message_id == "log.plainOtherSegment" and f.fix_id == "log.plain.fix"
+    assert f.params["transport"] == "UDP" and f.params["target"] == "198.51.100.5:514"
+
+
+def test_plain_syslog_across_an_untrusted_network() -> None:
+    n = two_networks(syslog("198.51.100.5", transport=LogTransport.TCP), purpose=SegmentPurpose.IOT)
+    (f,) = run(plain_transport, n)
+    assert f.message_id == "log.plainUntrusted" and f.params["transport"] == "TCP"
+    assert "untrusted" in f.message
+
+
+def test_plain_syslog_to_the_internet() -> None:
+    (f,) = run(plain_transport, two_networks(syslog("203.0.113.9", transport=LogTransport.UDP)))
+    assert f.message_id == "log.plainPublic"
+
+
+def test_syslog_over_tls_names_tunnels_and_unknowns_are_quiet() -> None:
+    quiet = [
+        syslog("203.0.113.9", transport=LogTransport.TLS),
+        syslog("logs.example", transport=LogTransport.UDP),
+        syslog("203.0.113.9"),  # transport not reported
+        syslog("203.0.113.9", transport=LogTransport.UDP, enabled=False),
+        syslog("127.0.0.1", transport=LogTransport.UDP),
+        syslog("192.168.77.5", transport=LogTransport.UDP),  # private, no network: target-unknown
+        LogTarget(kind=LogKind.NETFLOW, address="203.0.113.9", transport=LogTransport.UDP),
+    ]
+    assert run(plain_transport, two_networks(*quiet)) == []
+
+
+def test_plain_syslog_of_a_device_without_known_network() -> None:
+    n = two_networks(syslog("198.51.100.5", transport=LogTransport.UDP))
+    n = n.model_copy(update={"devices": [device("gw", log_targets=n.devices[0].log_targets)]})
+    assert run(plain_transport, n) == []  # its own network is not known: not judged

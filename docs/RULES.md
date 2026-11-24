@@ -139,11 +139,13 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 ## [Logging and monitoring targets](rules/logging_checks.md)
 
 - [`log.target-unknown`](rules/logging_checks.md#logtarget-unknown)
+- [`log.plain-transport`](rules/logging_checks.md#logplain-transport)
 - [`log.inconsistent`](rules/logging_checks.md#loginconsistent)
 
 ## [Management services](rules/management.md)
 
 - [`security.insecure-services`](rules/management.md#securityinsecure-services)
+- [`cloud.enabled`](rules/management.md#cloudenabled)
 - [`security.wan-management`](rules/management.md#securitywan-management)
 - [`security.service-exposure`](rules/management.md#securityservice-exposure)
 - [`security.plaintext-read`](rules/management.md#securityplaintext-read)

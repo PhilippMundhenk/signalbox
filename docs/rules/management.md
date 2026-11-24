@@ -16,6 +16,18 @@ rules are not read yet (issue #135), so where they would decide a rule says "not
 - **Fix:** turn the service off and use SSH or HTTPS; change the SNMP community or use SNMPv3;
   allow SSH keys only for root.
 
+## `cloud.enabled`
+
+- **Severity:** info
+- **Checks:** a device has vendor cloud management turned on (a management service of kind
+  `cloud`, #327): MyFRITZ! (Fritz!Box, TR-064), MikroTik Cloud (`/ip/cloud`) or Omada Cloud
+  access (controller setting). The finding names the service and says what it means (the
+  vendor knows the device and its public address, DDNS, relayed access); it does not judge
+  it. Not reported: NETGEAR Insight, because no Plus switch exposes it in NSDP. A cloud
+  service is outbound only: it never counts as reachable from the internet or from a
+  network, the exposure rules ignore it.
+- **Fix:** none; turn it off in the device if it is not wanted.
+
 ## `security.wan-management`
 
 - **Severity:** error; incomplete (info) when the firewall decides

@@ -73,6 +73,9 @@ from signalbox.model import (
     Firmware,
     IPAddress,
     IPInterface,
+    LogKind,
+    LogTarget,
+    LogTransport,
     ManagementService,
     Membership,
     Neighbour,
@@ -105,6 +108,14 @@ from signalbox.model import (
 
 INFO = "/api/info"
 TOKEN = "/openapi/authorize/token"
+#: Omada Cloud access, a controller setting (#327). GUESS: neither the path nor the field
+#: is confirmed; the integration job dumps the controller's API description (``cloud``
+#: paths) so it can be corrected (#21).
+CLOUD_ACCESS = "/openapi/v1/{omadac}/cloud-access"
+CLOUD_FIELD = "enable"
+#: The site's remote syslog server (#327). GUESS, same as above: sits next to the SNMP
+#: setting under ``setting/service``; fields ``enable``, ``serverIp``, ``serverPort``.
+SITE_LOGGING = "/setting/service/logging"
 #: Rows asked for per page; the controller may return fewer (paging follows ``totalRows``).
 PAGE_SIZE = 100
 #: Stop paging after this many pages, whatever ``totalRows`` says.
@@ -922,6 +933,7 @@ class OmadaAdapter(_Adapter):
             uplinks=uplinks,
             services=await self._services([m.id for m in managed]),
             **await self._accounts([m.id for m in managed]),
+            log_targets=await self._log_targets([m.id for m in managed]),
         )
 
     # --- access points and their uplinks (#336) -------------------------------------------------
@@ -1133,11 +1145,24 @@ class OmadaAdapter(_Adapter):
     async def _services(self, device_ids: list[str]) -> list[ManagementService]:
         """SSH and SNMP of the site (#173). The controller applies both to every device it
         manages, so each managed device gets the same two services; the controller's own web
-        interface and cloud access are not read (the Open API has no call for them). A site
-        setting the controller refuses or does not have is left out."""
+        interface is not read (the Open API has no call for it). Cloud access is a controller
+        setting (#327, guessed path, see ``CLOUD_ACCESS``). A setting the controller refuses
+        or does not have is left out."""
         ssh = await self._object(f"{self._site_path}/ssh")
         snmp = await self._object(f"{self._site_path}/setting/service/snmp")
         out: list[ManagementService] = []
+        cloud = await self._object(CLOUD_ACCESS.format(omadac=self._omadac_id))
+        if cloud is not None and isinstance(cloud.get(CLOUD_FIELD), bool):
+            controller = self.context.device_id
+            out.append(
+                ManagementService(
+                    id=object_id(controller, "service", "omada-cloud"),
+                    device_id=controller,
+                    kind=ServiceKind.CLOUD,
+                    name="omada-cloud",
+                    enabled=cloud[CLOUD_FIELD],
+                )
+            )
         for device in device_ids:
             if ssh is not None and isinstance(ssh.get("sshEnable"), bool):
                 out.append(
@@ -1176,6 +1201,31 @@ class OmadaAdapter(_Adapter):
                     )
                 )
         return out
+
+    async def _log_targets(self, device_ids: list[str]) -> dict[str, list[LogTarget]]:
+        """The site's remote syslog server (#327), which the controller applies to every device
+        it manages. GUESS (``SITE_LOGGING``): path and field names are not confirmed; a
+        controller that does not have the setting leaves the targets unread (``None``). Syslog
+        from Omada devices is UDP."""
+        conf = await self._object(f"{self._site_path}{SITE_LOGGING}")
+        if conf is None or not isinstance(conf.get("enable"), bool):
+            return {}
+        target = _text(conf.get("serverIp"))
+        targets = (
+            [
+                LogTarget(
+                    kind=LogKind.SYSLOG,
+                    address=target,
+                    port=_int(conf.get("serverPort")) or None,
+                    transport=LogTransport.UDP,
+                    enabled=conf["enable"],
+                    name="site",
+                )
+            ]
+            if target
+            else []
+        )
+        return {d: [t.model_copy() for t in targets] for d in device_ids}
 
     # --- health and time ----------------------------------------------------------------------
 

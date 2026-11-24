@@ -505,8 +505,28 @@ every device it manages; each managed device (`Observation.devices`) gets the sa
 AuthNoPriv, 2 AuthPriv; a site with both versions off answers only `snmpV1V2CEnable`,
 `snmpV3Enable`, `location`, `contact`). The test site has no managed device, so which devices
 apply the settings is a *guess* until a real site is read (#21). A site setting the controller
-refuses or does not have leaves its service out; the controller's own web interface and cloud
-access are not read (no Open API call). `transport_encrypted` is true for https.
+refuses or does not have leaves its service out; the controller's own web interface is not
+read (no Open API call). `transport_encrypted` is true for https.
+
+### Cloud access and remote syslog (#327): paths are guesses
+
+Two more settings are read, and **neither path is confirmed**; both are constants at the top
+of the adapter (`CLOUD_ACCESS`, `SITE_LOGGING`) and are left out when the controller answers
+with an error or another shape:
+
+- Omada Cloud access, a *controller* setting (not per site): *guess*
+  `GET /openapi/v1/{omadacId}/cloud-access` with a boolean `enable`. It becomes a service of
+  kind `cloud` (name `omada-cloud`) on the controller device and feeds `cloud.enabled`.
+- The site's remote syslog server, which the controller applies to every managed device:
+  *guess* `GET .../sites/{siteId}/setting/service/logging` (next to the SNMP setting) with
+  `enable`, `serverIp`, `serverPort`. Each managed device gets one `syslog` log target
+  (UDP, name `site`; disabled when `enable` is false; an empty `serverIp` means "sends
+  nothing"). Without the setting the targets stay unread.
+
+To confirm or correct them, the Omada integration job writes every path of the controller's
+`/v3/api-docs` whose name contains `cloud`, `log` or `syslog`, with the fields of its answer,
+into the `spec` dump (group `spec`); compare it with the constants. The Open API of 6.3 may
+have no such call at all; then both reads stay silent and nothing is lost.
 
 ## MAC address table (#160)
 
