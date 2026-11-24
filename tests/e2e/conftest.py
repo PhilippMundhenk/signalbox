@@ -27,13 +27,6 @@ os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
 os.environ.setdefault("no_proxy", "127.0.0.1,localhost")
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port: int = s.getsockname()[1]
-        return port
-
-
 class LiveServer:
     def __init__(
         self,
@@ -52,13 +45,19 @@ class LiveServer:
             adapters=adapters or {"lab": Lab, "labswitch": Switch, "labvpn": Gate, "w": Writable},
             rules=[*load_rules(), open_wifi],
         )
-        self.port = _free_port()
+        # Keep the listening socket open from the start (no close-then-rebind race with other
+        # xdist workers, which could answer the health check for a server that never started).
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.port: int = self.sock.getsockname()[1]
         app = create_app(self.services)
         if app_hook is not None:
             app_hook(app)  # replace parts of the app (the probe's socket layer, #184)
         config = uvicorn.Config(app, host="127.0.0.1", port=self.port, log_level="warning")
         self.server = uvicorn.Server(config)
-        self.thread = threading.Thread(target=self.server.run, daemon=True)
+        self.thread = threading.Thread(
+            target=self.server.run, kwargs={"sockets": [self.sock]}, daemon=True
+        )
         self.thread.start()
         self.url = f"http://127.0.0.1:{self.port}"
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -73,6 +72,7 @@ class LiveServer:
     def stop(self) -> None:
         self.server.should_exit = True
         self.thread.join(10)
+        self.sock.close()
         self.services.close()
 
 

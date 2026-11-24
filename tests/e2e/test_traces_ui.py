@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from playwright.sync_api import expect
 
 from .conftest import PASSWORD, LiveServer, add_site, api, observe
 from .fakes import Tracing
@@ -65,10 +66,11 @@ def test_trace_now_shows_the_routed_paths(page: Any, tracing: LiveServer) -> Non
     card.get_by_test_id("trace-now").click()
     rows = card.get_by_test_id("trace-row")
     rows.nth(3).wait_for()
-    assert rows.count() == 4  # two routers, each to the other and to the internet target
     progress = card.get_by_test_id("trace-progress")
-    assert progress.get_attribute("data-running") == "no"
-    assert "4 traces" in progress.inner_text()
+    # rows appear while the run is still going: wait for the finished state, do not read once
+    expect(progress).to_have_attribute("data-running", "no")
+    expect(progress).to_contain_text("4 traces")
+    assert rows.count() == 4  # two routers, each to the other and to the internet target
     home = card.locator('[data-testid="trace-row"][data-id="trace/home-router/10.2.0.1"]')
     hops = home.get_by_test_id("hop")
     assert [hops.nth(i).inner_text() for i in range(hops.count())] == [
@@ -88,7 +90,7 @@ def test_trace_now_shows_the_routed_paths(page: Any, tracing: LiveServer) -> Non
     card.get_by_test_id("trace-address").fill("198.51.100.7")
     card.get_by_test_id("trace-now").click()
     card.locator('[data-testid="trace-row"][data-id="trace/home-router/198.51.100.7"]').wait_for()
-    assert "1 traces" in card.get_by_test_id("trace-progress").inner_text()
+    expect(card.get_by_test_id("trace-progress")).to_contain_text("1 traces")
     # the extra NAT router on the way to the internet is a finding
     findings = api(app, "GET", "/findings")
     assert any(f["finding"]["rule_id"] == "trace.extra-nat" for f in findings)
