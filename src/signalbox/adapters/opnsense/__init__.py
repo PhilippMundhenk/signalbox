@@ -819,19 +819,24 @@ OPNSENSE_STEPS = (
 
 
 class _ApiHttp(DeviceHttp):
-    """Every request tries the ``snake_case`` action first (the spelling of 26.7) and, on a 404,
-    once more in camelCase: a release that does not know the first may know the second (#390)."""
+    """Every request uses the action spelling of the release's ACL and, on a 404, the other one
+    once more (#390). 26.7 and 25.7 want ``snake_case`` (also while the release is not known),
+    up to 25.1 the privileges name the actions in camelCase and refuse the other spelling with
+    a 403 (:data:`compat.SNAKE_ACL`)."""
+
+    camel_first = False
 
     async def request(
         self, method: str, path: str, *, accept: Collection[int] = (), **kw: Any
     ) -> httpx.Response:
+        camel = compat.camel_path(path)
+        first, second = (camel, path) if self.camel_first else (path, camel)
         try:
-            return await super().request(method, path, accept=accept, **kw)
+            return await super().request(method, first, accept=accept, **kw)
         except NotFound:
-            other = compat.camel_path(path)
-            if other == path:
+            if second == first:
                 raise
-            return await super().request(method, other, accept=accept, **kw)
+            return await super().request(method, second, accept=accept, **kw)
 
 
 class OpnsenseAdapter(_Adapter):
@@ -1003,7 +1008,7 @@ class OpnsenseAdapter(_Adapter):
         latest = _text(product.get("product_latest"))
         # product_version carries the package revision (26.7.9_3), product_latest does not
         newer = latest and latest not in (current, current.split("_", 1)[0])
-        self._version = compat.parse_version(current)
+        self._set_version(compat.parse_version(current))
         return SystemInfo(
             vendor="Deciso",
             model=_text(product.get("product_name")) or "OPNsense",
@@ -1017,8 +1022,12 @@ class OpnsenseAdapter(_Adapter):
         if self._version is None:
             data = _dict(await self._get(FIRMWARE), FIRMWARE, "the answer")
             product = _sub(data, "product") or data
-            self._version = compat.parse_version(_text(product.get("product_version")))
+            self._set_version(compat.parse_version(_text(product.get("product_version"))))
         return self._version
+
+    def _set_version(self, version: compat.Version | None) -> None:
+        self._version = version
+        self.http.camel_first = version is not None and version < compat.SNAKE_ACL
 
     # --- interfaces ---------------------------------------------------------------------------
 
@@ -1645,13 +1654,21 @@ class OpnsenseAdapter(_Adapter):
         return {k: v for k, v in section.items() if isinstance(v, dict)}, ""
 
     async def _isc(self, layout: _Layout) -> list[DhcpServer]:
-        status = await self._optional(ISC_STATUS)
+        try:
+            status = await self._optional(ISC_STATUS)
+        except AuthFailed:
+            # core's ISC DHCP has no privilege for its status before 26 (root only): the leases
+            # (Status: DHCP leases) are read without it
+            status = {"status": "running"}
         if status is None:
             return []
         state = _text(_dict(status, ISC_STATUS, "the answer").get("status"))
         if state == "disabled":
             return []
-        leases = _rows(await self._get(ISC_LEASES, grid=True), ISC_LEASES)
+        try:
+            leases = _rows(await self._get(ISC_LEASES, grid=True), ISC_LEASES)
+        except AuthFailed:  # no *Status: DHCP leases* either: ISC is not read (optional)
+            return []
         by_iface: dict[str, list[dict[str, Any]]] = {}
         for lease in leases:
             by_iface.setdefault(_text(lease.get("if")), []).append(lease)
@@ -1875,7 +1892,10 @@ class OpnsenseAdapter(_Adapter):
                     continue  # the firewall's own address
                 iface = layout.by_device(_text(row.get("intf")))
                 add(_mac(row.get("mac")), row.get("ip"), iface, row.get("hostname"))
-        isc = await self._optional(ISC_LEASES, grid=True)
+        try:
+            isc = await self._optional(ISC_LEASES, grid=True)
+        except AuthFailed:  # core's ISC leases need *Status: DHCP leases*, not in the read set
+            isc = None
         for row in _rows(isc, ISC_LEASES) if isc is not None else []:
             iface = layout.by_identifier(_text(row.get("if")))
             static = _text(row.get("type")) == "static"
@@ -1951,6 +1971,7 @@ class OpnsenseAdapter(_Adapter):
     async def trace(self, target: Any, max_hops: int, wait: float) -> TraceAnswer:
         """Traceroute through Diagnostics: Traceroute (#253); the firewall waits 2 s per hop
         and stops after 20 s, whatever ``wait`` says."""
+        await self._release()
         try:
             answer = await self.http.post_json(_trace.TRACEROUTE, _trace.request_body(target))
         except AuthFailed as exc:
@@ -2111,6 +2132,7 @@ class OpnsenseAdapter(_Adapter):
     async def plan_changes(
         self, changes: list[Change], secrets: Mapping[str, str]
     ) -> list[VendorCall]:
+        await self._release()  # the action spelling of the release's ACL
         await self._needs_assignments(changes)
         st = await self._write_state()
         if any(c.kind in FIREWALL_KINDS for c in changes):
@@ -2175,6 +2197,7 @@ class OpnsenseAdapter(_Adapter):
         timer for the packet filter either): no deadline is returned, and the deployment
         restores the backup when the verification fails.
         """
+        await self._release()
         await self._needs_assignments(changes)
         sent: list[w.Call] = []
         for change in changes:
@@ -2210,6 +2233,7 @@ class OpnsenseAdapter(_Adapter):
 
     async def backup(self) -> Backup:
         """The newest revision of the configuration history: the configuration in use."""
+        await self._release()
         history = await self._history()
         if not history:
             raise AdapterError(
@@ -2229,6 +2253,7 @@ class OpnsenseAdapter(_Adapter):
 
         Idempotent: reverting twice to the same revision leaves the same configuration.
         """
+        await self._release()
         if backup.format != "opnsense-config-xml":
             raise AdapterError(
                 f"not an OPNsense backup (format {backup.format})",

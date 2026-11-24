@@ -1009,6 +1009,7 @@ def older_release(data: dict[str, Any], release: str) -> None:
     - all older than 26.7: no destination NAT API (26.1), no ntpd API (25.7), the disk table of
       ``df -h`` without byte counts, no legacy or automatic rules in ``search_rule`` (no
       ``sort_order``), no interface assignment API;
+    - 25.1 and 24.7 refuse a snake_case action with 403 (camelCase ACL patterns);
     - 24.7: also no dnsmasq (25.1), no user manager (25.1), no ``interfacenot`` on rules.
     """
     if release not in RELEASES:
@@ -1829,6 +1830,11 @@ class OpnsenseSimulator(_Writes):
             self.assignment_api = "none"
 
     @property
+    def acl_camel(self) -> bool:
+        """Releases before 25.7: the ACL patterns are camelCase (``systemTime``, ``getArp``)."""
+        return self.release in ("25.1", "24.7")
+
+    @property
     def user_api(self) -> bool:
         """The user manager API (``/api/auth/user``) exists from 25.1."""
         return self.release != "24.7"
@@ -1913,6 +1919,12 @@ class OpnsenseSimulator(_Writes):
             if not self.snake_case and any("_" in part for part in path.split("/")[3:4]):
                 self.requests.append("/" + path)
                 return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
+            if self.acl_camel and any("_" in part for part in path.split("/")[3:4]):
+                # the privileges of 24.7 and 25.1 name camelCase actions: another spelling is
+                # refused (403) although the router would run it (seen on a real 25.1)
+                self.requests.append("/" + path)
+                if not path.startswith("api/auth/user/"):
+                    return JSONResponse({"status": 403, "message": "Forbidden"}, status_code=403)
             path = "/" + "/".join(_snake(part) for part in path.split("/"))
             self.requests.append(path)
             if path == "/" and request.method == "GET":

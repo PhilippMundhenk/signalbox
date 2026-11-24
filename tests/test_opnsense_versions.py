@@ -99,6 +99,39 @@ def test_older_release_data(release: str) -> None:
     assert any("interfacenot" in r for r in rows) is (release == "25.1")
 
 
+async def test_acl_spelling_by_release() -> None:
+    """Before 25.7 the privileges name camelCase actions: snake_case is refused with 403 and
+    the adapter asks in camelCase from the firmware version on (seen on a real 25.1)."""
+    import httpx
+
+    for release, refused in (("25.1", 403), ("24.7", 403), ("26.7", 200)):
+        sim = OpnsenseSimulator(release=release)
+        with serve(sim.app()) as url:
+            with httpx.Client(auth=httpx.BasicAuth(KEY, SECRET), trust_env=False) as client:
+                got = client.get(f"{url}/api/diagnostics/system/system_time")
+            assert got.status_code == refused, release
+            a = adapter(url)
+            try:
+                snap = await a.observe()
+                assert (a.http.camel_first, snap.device.health is not None) == (
+                    release != "26.7",
+                    True,
+                ), release
+            finally:
+                await a.close()
+
+
+async def test_isc_without_status_privilege() -> None:
+    """Core's ISC DHCP status is root only before 26: the read of the rest goes on."""
+    sim = OpnsenseSimulator(release="25.1")
+    sim.fail["/api/dhcpv4/service/status"] = 403
+    sim.fail["/api/dhcpv4/leases/search_lease"] = 403
+    with serve(sim.app()) as url:
+        snap = await observe(url)
+    assert snap.status is DeviceStatus.OK and snap.dhcp_servers
+    assert not any(s.id.endswith("isc-opt2") for s in snap.dhcp_servers)
+
+
 def test_unknown_release() -> None:
     with pytest.raises(ValueError, match="unknown OPNsense release"):
         OpnsenseSimulator(release="23.7")

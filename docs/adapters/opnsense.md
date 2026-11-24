@@ -812,9 +812,16 @@ becomes an optional gap), the version only picks what a 404 cannot say.
 What the sources showed, and what the adapter does about it:
 
 - **Action spelling.** The router of 24.7 and newer turns `search_item` and `searchItem` into
-  the same action (`Mvc/Router.php`); `snake_case` is what 26.7 uses. A 404 on a `snake_case`
-  action is retried once in camelCase (`compat.camel_path`), for reads and writes alike, so a
-  release that only knows camelCase works too. Releases before 24.7 are a guess (not checked).
+  the same action (`Mvc/Router.php`), but the privileges (ACL patterns) name the action as the
+  release spells it: camelCase up to 25.1 (`api/diagnostics/system/systemTime`, `getArp*`),
+  snake_case from 25.7. A key that is not root's gets **403** for the other spelling (seen on a
+  real 25.1: `system_time`, `get_arp`). So every request uses the spelling of the firmware
+  version read first (`compat.SNAKE_ACL`, `_ApiHttp`) and, on a 404, the other one. Releases
+  before 24.7 are a guess (not checked).
+- **ISC DHCP (core).** `dhcpv4/service/status` has no privilege before 26 (root only) and the
+  leases need *Status: DHCP leases* (`page-status-dhcpleases`), which the read set of the guide
+  does not include: a 403 there leaves ISC unread instead of failing DHCP and clients (found by
+  the 25.1 CI run).
 - **Port forwards.** `firewall/d_nat` is new in 26.1; on 25.x and 24.x the forwards stay unread
   (`port_forwards_complete` false) with the optional gap `opnsense.forwardsUnread`, naming the
   release. Changing a forward is refused with a message.

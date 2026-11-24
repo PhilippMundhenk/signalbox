@@ -7,6 +7,11 @@ models under ``src/opnsense/mvc/app``). What was found there, per release that h
 * ``/api/<module>/<controller>/<action>``: the router turns ``search_item`` and ``searchItem``
   into the same action since 24.7 (``Mvc/Router.php``); before that only camelCase is certain,
   so a 404 on the snake_case spelling is retried in camelCase (:func:`camel_path`).
+* The ACL patterns of the privileges name the action as requested: camelCase up to 25.1
+  (``api/diagnostics/system/systemTime``, ``getArp*``), snake_case from 25.7. A key that is not
+  root's gets HTTP 403 for the other spelling, even though the router would run it (seen on a
+  real 25.1: 403 on ``system_time`` and ``get_arp``). So the spelling is picked by version
+  (:data:`SNAKE_ACL`), the other one is the fallback on a 404.
 * ``auth/user`` (user manager): 25.1; ``dnsmasq/settings``: 25.1; ``ntpd/service``: 25.7.
 * ``firewall/d_nat`` (port forwards): 26.1; ``interfaces/assignment`` with addresses: 26.7.6.
 * Interface negation (``interfacenot`` of a filter rule): 25.1.
@@ -24,6 +29,8 @@ DNSMASQ_API = (25, 1, 0)
 NTPD_API = (25, 7, 0)
 DNAT_API = (26, 1, 0)
 INTERFACE_NOT = (25, 1, 0)
+#: First release whose ACL patterns are snake_case.
+SNAKE_ACL = (25, 7, 0)
 
 _VERSION = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
 
