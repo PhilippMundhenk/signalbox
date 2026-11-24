@@ -71,6 +71,7 @@ def main() -> None:
                     page.evaluate("localStorage.setItem('theme', 'dark')")
                     page.reload()
                     shoot(page, base, "findings-dark", "#/")
+                    shoot(page, base, "topology-dark", "#/topology")
                     page.evaluate("localStorage.removeItem('theme')")
                     phone = browser.new_page(**p.devices["Pixel 7"])
                     login(phone, base)
