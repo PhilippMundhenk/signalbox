@@ -21,15 +21,15 @@ Failure switches on :class:`OpnsenseSimulator`: ``api_enabled=False`` (404 on ev
 ``fail`` (a status code per endpoint);
 a wrong key or secret is answered with 401. ``data`` can be edited by tests.
 
-Writes (VLAN devices, interface assignments, Kea subnets and reservations, configuration
-history) change ``data``, so the read endpoints show the result: configuration endpoints at
-once, the interface overview after ``/api/interfaces/assignment/reconfigure`` (it shows the
-running interfaces). Every write stores a revision of the configuration history; a revision
-downloads as a ``config.xml`` serialising the configuration part of ``data``, and
-``revert_backup`` puts it back. Write failure switches: ``invalid`` (path or path prefix ->
-validation messages, answered as ``{"result": "failed", "validations": {...}}``) and ``fail``
-(also by prefix); the simulated firewall validates fields itself, too (descriptions, tags,
-networks, pools, MACs).
+Writes (VLAN devices, interface assignments, Kea subnets and reservations, rules of the new
+filter page and destination NAT (#295), configuration history) change ``data``, so the read
+endpoints show the result: configuration endpoints at once, the interface overview after
+``/api/interfaces/assignment/reconfigure`` (it shows the running interfaces). Every write stores
+a revision of the configuration history; a revision downloads as a ``config.xml`` serialising
+the configuration part of ``data``, and ``revert_backup`` puts it back.
+Write failure switches: ``invalid`` (path or path prefix -> validation messages, answered as
+``{"result": "failed", "validations": {...}}``) and ``fail`` (also by prefix); the simulated
+firewall validates fields itself, too (descriptions, tags, networks, pools, MACs).
 """
 
 from __future__ import annotations
@@ -891,9 +891,12 @@ KEA = "/api/kea/dhcpv4/get"
 KEA_SUBNETS = "/api/kea/dhcpv4/search_subnet"
 KEA_RESERVATIONS = "/api/kea/dhcpv4/search_reservation"
 #: The parts of ``data`` that are configuration (saved in config.xml, restored by a revert).
-CONFIG = (INTERFACES, VLANS, KEA)
+FILTER = "/api/firewall/filter/search_rule"
+DNAT = "/api/firewall/d_nat/search_rule"
+CONFIG = (INTERFACES, VLANS, KEA, FILTER, DNAT)
 _WRITE = re.compile(
-    r"^/api/(interfaces/vlan_settings|interfaces/assignment|kea/dhcpv4|kea/service|core/backup)"
+    r"^/api/(interfaces/vlan_settings|interfaces/assignment|kea/dhcpv4|kea/service|core/backup"
+    r"|firewall/filter|firewall/d_nat)"
     r"/(\w+)(?:/([^/]+))?(?:/([^/]+))?$"
 )
 _DESCR = re.compile(r"^[a-z_0-9]{0,255}$", re.IGNORECASE)
@@ -969,6 +972,7 @@ class _Writes:
     assignment_api: str
     locked: set[str]
     posts: list[tuple[str, Any]]
+    applied: list[str]
 
     # configuration history ----------------------------------------------------------------
 
@@ -1387,6 +1391,176 @@ class _Writes:
     def _kea_service_reconfigure(self, *_: Any) -> Any:
         return {"status": "ok"}
 
+    # packet filter and destination NAT (#295) ----------------------------------------------
+    #
+    # Rows are stored as the search grids answer them (flat; the NAT pages' nested ``source`` and
+    # ``destination`` as ``destination.network``). The new rules page and the NAT page have no
+    # savepoint or rollback timer on 26.7 (checked against the controllers of 26.7.9), nor has
+    # the simulator: ``filter/apply`` answers ``{"status": "OK"}`` and counts in ``applied``.
+
+    def _zone_names(self) -> set[str]:
+        groups = self.data.get("/api/firewall/group/search_item", {}).get("rows", [])
+        return set(self._assigned()) | {g["ifname"] for g in groups}
+
+    def _net_token(self, field: str, value: str, extra: set[str]) -> None:
+        """A network field: ``any``, an address, a network, an interface token or an alias."""
+        names = self._zone_names()
+        aliases = {
+            a["name"] for a in self.data.get("/api/firewall/alias/search_item", {}).get("rows", [])
+        }
+        for token in [t for t in value.split(",") if t]:
+            base = token.removesuffix("ip").removesuffix(":network")
+            try:
+                ipaddress.ip_network(token, strict=False)
+            except ValueError:
+                if token not in {"any", "(self)", *aliases, *extra} and base not in names:
+                    raise Refused(field, "Please specify a valid network or alias.") from None
+
+    def _ports(self, field: str, value: str, protocol: str) -> None:
+        if not value:
+            return
+        if protocol.lower() not in ("tcp", "udp", "tcp/udp"):
+            raise Refused(field, "A port needs the protocol TCP, UDP or TCP/UDP.")
+        first, _, last = value.partition("-")
+        if not (first.isdigit() and (not last or last.isdigit())):
+            raise Refused(
+                field, "Please specify a valid port number, well-known name, alias or range."
+            )
+        if not 1 <= int(first) <= int(last or first) <= 65535:
+            raise Refused(
+                field, "Please specify a valid port number, well-known name, alias or range."
+            )
+
+    def _sequence(self, field: str, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text.isdigit() or not 1 <= int(text) <= 999999:
+            raise Refused(field, "Sequence shall be between 1 and 999999.")
+        return text
+
+    def _filter_row(self, body: dict[str, Any], uuid: str, old: dict[str, Any]) -> dict[str, Any]:
+        item = {**{k: v for k, v in old.items() if k not in ("uuid", "sort_order")}, **body}
+        if item.get("action") not in ("pass", "block", "reject"):
+            raise Refused("rule.action", "Please select a valid action.")
+        zones = [z for z in str(item.get("interface", "")).split(",") if z]
+        for zone in zones:
+            if zone not in self._zone_names():
+                raise Refused("rule.interface", "Please select a valid interface.")
+        if item.get("direction") not in ("in", "out", "any"):
+            raise Refused("rule.direction", "Please select a valid direction.")
+        if item.get("ipprotocol") not in ("inet", "inet6", "inet46"):
+            raise Refused("rule.ipprotocol", "Please select a valid IP protocol.")
+        protocol = str(item.get("protocol", ""))
+        if protocol not in ("any", "TCP", "UDP", "TCP/UDP", "ICMP", "ipv6-icmp", "ESP", "GRE"):
+            raise Refused("rule.protocol", "Please select a valid protocol.")
+        for name in ("source_net", "destination_net"):
+            self._net_token(f"rule.{name}", str(item.get(name, "")), set())
+        self._ports("rule.destination_port", str(item.get("destination_port", "")), protocol)
+        item["sequence"] = self._sequence("rule.sequence", item.get("sequence", 1))
+        item["uuid"] = uuid
+        item["sort_order"] = f"300000.{int(item['sequence']):07d}"
+        item.setdefault("%interface", ",".join(zones))
+        return item
+
+    def _place(self, rows: list[dict[str, Any]], item: dict[str, Any], prefix: str) -> None:
+        """Insert a row among the rows of its own page, in the order of ``sort_order``."""
+        mine = [i for i, r in enumerate(rows) if str(r.get("sort_order", "")).startswith(prefix)]
+        for i in mine:
+            if str(rows[i]["sort_order"]) >= str(item["sort_order"]):
+                rows.insert(i, item)
+                return
+        rows.insert(mine[-1] + 1 if mine else len(rows), item)
+
+    def _firewall_filter_add_rule(self, body: dict[str, Any], *_: Any) -> Any:
+        uuid = self._uuid("fr")
+        defaults = {"enabled": "1", "quick": "1", "direction": "in", "interfacenot": "0"}
+        item = self._filter_row({**defaults, **body.get("rule", {})}, uuid, {})
+        self._place(self._rows(FILTER), item, "300000.")
+        self.save("filter rule added")
+        return {"result": "saved", "uuid": uuid}
+
+    def _own_row(self, path: str, uuid: str) -> dict[str, Any] | None:
+        row = next((r for r in self._rows(path) if r.get("uuid") == uuid), None)
+        return None if row is None or row.get("legacy") or row.get("is_automatic") else row
+
+    def _firewall_filter_set_rule(self, body: dict[str, Any], uuid: str, *_: Any) -> Any:
+        row = self._own_row(FILTER, uuid)
+        if row is None:
+            return {"result": "failed"}
+        new = self._filter_row(body.get("rule", {}), uuid, row)
+        self._rows(FILTER).remove(row)
+        self._place(self._rows(FILTER), new, "300000.")
+        self.save("filter rule changed")
+        return {"result": "saved"}
+
+    def _firewall_filter_del_rule(self, _: Any, uuid: str, *__: Any) -> Any:
+        row = self._own_row(FILTER, uuid)
+        if row is None:
+            return {"result": "not found"}
+        self._rows(FILTER).remove(row)
+        self.save("filter rule deleted")
+        return {"result": "deleted"}
+
+    def _firewall_filter_apply(self, *_: Any) -> Any:
+        self.applied.append("filter")
+        return {"status": "OK\n\n"}
+
+    def _dnat_row(self, body: dict[str, Any], uuid: str, old: dict[str, Any]) -> dict[str, Any]:
+        flat: dict[str, Any] = {}
+        for key, value in body.items():
+            if isinstance(value, dict):
+                flat |= {f"{key}.{k}": v for k, v in value.items()}
+            else:
+                flat[key] = value
+        item = {**{k: v for k, v in old.items() if k not in ("uuid", "sort_order")}, **flat}
+        zone = str(item.get("interface", ""))
+        if zone not in self._assigned():
+            raise Refused("rule.interface", "Please select a valid interface.")
+        if str(item.get("protocol", "")).lower() not in ("tcp", "udp", "tcp/udp"):
+            raise Refused("rule.protocol", "Please select a valid protocol.")
+        item["protocol"] = str(item["protocol"]).lower()
+        self._net_token("rule.destination.network", str(item.get("destination.network", "")), set())
+        self._ports("rule.destination.port", str(item.get("destination.port", "")), "tcp")
+        try:
+            ipaddress.ip_address(str(item.get("target", "")))
+        except ValueError:
+            raise Refused("rule.target", "Please specify a valid address.") from None
+        local = str(item.get("local-port", ""))
+        if local and not (local.isdigit() and 1 <= int(local) <= 65535):
+            raise Refused("rule.local-port", "Please specify a valid port number or alias.")
+        item["sequence"] = self._sequence("rule.sequence", item.get("sequence", 1))
+        item["uuid"] = uuid
+        item["sort_order"] = f"400000.{int(item['sequence']):07d}"
+        return item
+
+    def _firewall_d_nat_add_rule(self, body: dict[str, Any], *_: Any) -> Any:
+        uuid = self._uuid("dn")
+        item = self._dnat_row({"disabled": "0", **body.get("rule", {})}, uuid, {})
+        self._place(self._rows(DNAT), item, "400000.")
+        self.save("port forward added")
+        return {"result": "saved", "uuid": uuid}
+
+    def _firewall_d_nat_set_rule(self, body: dict[str, Any], uuid: str, *_: Any) -> Any:
+        row = self._own_row(DNAT, uuid)
+        if row is None:
+            return {"result": "failed"}
+        new = self._dnat_row(body.get("rule", {}), uuid, row)
+        self._rows(DNAT).remove(row)
+        self._place(self._rows(DNAT), new, "400000.")
+        self.save("port forward changed")
+        return {"result": "saved"}
+
+    def _firewall_d_nat_del_rule(self, _: Any, uuid: str, *__: Any) -> Any:
+        row = self._own_row(DNAT, uuid)
+        if row is None:
+            return {"result": "not found"}
+        self._rows(DNAT).remove(row)
+        self.save("port forward deleted")
+        return {"result": "deleted"}
+
+    def _firewall_d_nat_apply(self, *_: Any) -> Any:
+        self.applied.append("d_nat")
+        return {"status": "OK\n\n"}
+
     # backups ------------------------------------------------------------------------------
 
     def _core_backup_revert_backup(self, _: Any, rid: str, *__: Any) -> Any:
@@ -1457,6 +1631,8 @@ class OpnsenseSimulator(_Writes):
     locked: set[str] = field(default_factory=set)
     #: Write requests received: (path, body).
     posts: list[tuple[str, Any]] = field(default_factory=list)
+    #: Packet filter reloads (``filter/apply``, ``d_nat/apply``) received.
+    applied: list[str] = field(default_factory=list)
     #: Time zone of the firewall (System: Settings: General), for ``system_time``'s datetime.
     timezone: str = "Europe/Berlin"
     #: The user manager (``/api/auth/user/*``); ``api_key`` is root's key.

@@ -61,16 +61,31 @@ are the zone's `input` / `forward`; between zones `accept` is a forwarding, `rej
 `uci order`. The `firewall` config joins the written configs: the write ACL, the backup and the
 restore include it; an older login that cannot read it keeps working for the other kinds.
 
-### Later: OPNsense and MikroTik
+### OPNsense (#295, second part)
 
-- **OPNsense**: filter rules through `/api/firewall/filter` (`addRule`, `setRule`, `delRule`),
-  tagged by a description prefix and kept in a category `signalbox`; port forwards through the
-  d_nat API where the release has it (the first release with it is to be checked; without it
-  forwards are refused).
-  Transaction: `savepoint` before `apply`, `cancelRollback` to confirm, the automatic revert
-  after 60 s as the timer; zone policies map to "block/pass from interface X to net Y" rules
-  (OPNsense has no zone pair defaults), so a policy becomes a tagged rule at the end of
-  Signalbox's block.
+- **Objects**: rules of the new rules page (`/api/firewall/filter/add_rule`, `set_rule`,
+  `del_rule`) and port forwards of the destination NAT page (`/api/firewall/d_nat/*`), tagged by
+  the description: `signalbox:<key>` (and ` <name>` when the name is not the key), zone
+  policies `signalbox:policy/<from>/<to|device>`. Only rows with the tag are changed or removed;
+  the device's own rows only when a change says `adopt`, and only rows of the new pages (the
+  API cannot delete legacy or automatic rules). Signalbox's rules have the sequences 1, 2, ...
+  (the web interface numbers the device's own from 100), its policies come last (900000 and up).
+- **Zone policies** map to rules: pass, block or reject from interface X to the network of
+  zone Y (or `(self)` for the device); `drop` is no rule at all, because pf blocks what no
+  rule passes. Zones are the assigned interfaces and the interface groups. A policy of the
+  device's own (its rules) is never removed: `adopt: true` on a policy changes nothing here.
+- **No rollback timer**: OPNsense 25.7 and 26.1 had `savepoint`, `apply/<revision>` (an
+  automatic revert after 60 s) and `cancel_rollback`; the controllers of 26.7 (checked against
+  26.7.9) have none of them, `apply` only reloads. Signalbox does not fake one: the changes are
+  saved with the add, set and delete calls, applied with `filter/apply` (and `d_nat/apply`), and
+  when the verification fails the backup is restored (configuration history revert plus
+  `filter/apply`), as for the other OPNsense kinds. What the timer would have caught, a change
+  that cuts Signalbox off, is caught before by the lockout check, which needs the explicit
+  override; a change that slips through cannot be undone from here and needs the console.
+- A rule declares one thing per side: a destination zone **or** destination addresses (the
+  destination of an OPNsense rule is one network field), one port or range, one protocol set;
+  the rest is refused with the reason.
+
 - **MikroTik**: `/ip/firewall/filter` and `/ip/firewall/nat` over REST with
   `comment=signalbox:<key>` as the tag and `place-before` the first rule that is not
   Signalbox's; policies as tagged rules on interface lists. Safe mode is not available over REST,
@@ -87,5 +102,5 @@ restore include it; an older login that cannot read it keeps working for the oth
   negation), port forwards a single external range.
 - The lockout check is as good as the reachability model: where it cannot decide it says
   "unknown", which counts as worse than "allowed", so it errs towards asking for the override.
-- OPNsense and MikroTik plans with firewall changes are refused until their writers exist (the
-  manifests do not list the kinds).
+- MikroTik plans with firewall changes are refused until its writer exists (the manifest
+  does not list the kinds). OPNsense applies them without a rollback timer (see above).

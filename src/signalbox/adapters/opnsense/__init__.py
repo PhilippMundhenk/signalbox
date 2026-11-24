@@ -65,7 +65,7 @@ from signalbox.adapters.opnsense import provision, vitals
 from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import write as w
 from signalbox.adapters.ssh import PinnedSsh
-from signalbox.changes import Change, ChangeKind
+from signalbox.changes import FIREWALL_KINDS, Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     DNS_PORT,
@@ -743,10 +743,19 @@ class OpnsenseAdapter(_Adapter):
         config=OpnsenseConfig,
         description=(
             "Reads an OPNsense firewall through its REST API; writes router interfaces, VLANs "
-            "on ports and Kea DHCP (subnets, reservations)."
+            "on ports, Kea DHCP (subnets, reservations) and firewall rules, port forwards and "
+            "zone policies (tagged; without a rollback timer, which 26.7 does not have)."
         ),
         writes=frozenset(
-            {ChangeKind.ROUTER, ChangeKind.DHCP, ChangeKind.RESERVATION, ChangeKind.PORT}
+            {
+                ChangeKind.ROUTER,
+                ChangeKind.DHCP,
+                ChangeKind.RESERVATION,
+                ChangeKind.PORT,
+                ChangeKind.ZONE_POLICY,
+                ChangeKind.FIREWALL_RULE,
+                ChangeKind.PORT_FORWARD,
+            }
         ),
         admin_login=AdminLogin(
             transport="the API with an API key of root",
@@ -1727,6 +1736,25 @@ class OpnsenseAdapter(_Adapter):
             st.reservations = dict(_items(_sub(root, "reservations").get("reservation")))
         return st
 
+    async def _firewall_state(self, st: w.WriteState, changes: list[Change]) -> None:
+        """What the firewall changes need besides the layout: the rows of the new rules page
+        (and of the destination NAT page for port forwards) and the names of the zones."""
+        rows = _rows(await self._get(FILTER_RULES, grid=True), FILTER_RULES)
+        st.filter_rows = [r for r in rows if not r.get("is_automatic")]
+        if any(c.kind is ChangeKind.PORT_FORWARD for c in changes):
+            nat = await self._optional(DNAT_RULES, grid=True)
+            if nat is None:
+                raise AdapterError(
+                    f"{DNAT_RULES}: not available on this firewall (HTTP 404); OPNsense before "
+                    "26.7 has no API for port forwards"
+                )
+            st.dnat_rows = [r for r in _rows(nat, DNAT_RULES) if not r.get("is_automatic")]
+        groups = _rows(await self._get(IFACE_GROUPS, grid=True), IFACE_GROUPS)
+        st.interfaces = {i.identifier for i in st.layout.ifaces}
+        st.zones = st.interfaces | {
+            _text(g.get("ifname")) for g in groups if _text(g.get("ifname"))
+        }
+
     async def _needs_assignments(self, changes: list[Change]) -> None:
         if not any(c.kind is ChangeKind.ROUTER for c in changes):
             return
@@ -1749,10 +1777,23 @@ class OpnsenseAdapter(_Adapter):
     ) -> list[VendorCall]:
         await self._needs_assignments(changes)
         st = await self._write_state()
+        if any(c.kind in FIREWALL_KINDS for c in changes):
+            await self._firewall_state(st, changes)
         calls = [call for c in changes for call in w.calls_for(c, st)]
-        if any(call.kea for call in calls):
-            calls.append(w.Call("apply the Kea DHCP configuration", w.KEA_APPLY))
+        calls += self._applies(calls)
         return [call.vendor() for call in calls]
+
+    @staticmethod
+    def _applies(calls: list[w.Call]) -> list[w.Call]:
+        """The calls that make the saved configuration run: Kea, the packet filter."""
+        out = []
+        if any(call.kea for call in calls):
+            out.append(w.Call("apply the Kea DHCP configuration", w.KEA_APPLY))
+        if any(call.filter for call in calls):
+            out.append(w.Call("apply the packet filter rules", w.FILTER_APPLY))
+        if any(call.dnat for call in calls):
+            out.append(w.Call("apply the port forwards", w.DNAT_APPLY))
+        return out
 
     async def _send(self, call: w.Call) -> dict[str, Any]:
         try:
@@ -1780,18 +1821,20 @@ class OpnsenseAdapter(_Adapter):
     ) -> ApplyResult:
         """Send the calls change by change, each planned on a fresh read.
 
-        OPNsense has no confirm-or-revert for API changes: no deadline is returned, and the
-        deployment restores the backup when the verification fails.
+        OPNsense has no confirm-or-revert for API changes (26.7 has no savepoint and rollback
+        timer for the packet filter either): no deadline is returned, and the deployment
+        restores the backup when the verification fails.
         """
         await self._needs_assignments(changes)
         sent: list[w.Call] = []
         for change in changes:
             st = await self._write_state()
+            if change.kind in FIREWALL_KINDS:
+                await self._firewall_state(st, [change])
             for call in w.calls_for(change, st):
                 await self._send(call)
                 sent.append(call)
-        if any(call.kea for call in sent):
-            final = w.Call("apply the Kea DHCP configuration", w.KEA_APPLY)
+        for final in self._applies(sent):
             await self._send(final)
             sent.append(final)
         self._cache.clear()
@@ -1854,7 +1897,7 @@ class OpnsenseAdapter(_Adapter):
         answer = _dict(await self.http.post_json(w.REVERT + revision, {}), w.REVERT, "the answer")
         if _text(answer.get("status")) != "reverted":
             raise AdapterError(f"{w.REVERT}{revision}: revert refused ({answer.get('status')!r})")
-        for path in (w.VLAN_APPLY, w.ASSIGN_APPLY, w.KEA_APPLY):
+        for path in (w.VLAN_APPLY, w.ASSIGN_APPLY, w.KEA_APPLY, w.FILTER_APPLY):
             try:
                 await self._send(w.Call("apply the restored configuration", path))
             except AdapterError as exc:

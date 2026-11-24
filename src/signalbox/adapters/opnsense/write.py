@@ -7,6 +7,12 @@ batch can refer to it through a placeholder; ``apply`` reads the firewall again 
 change, so the calls it sends always refer to real identifiers.
 
 What each kind does, and why it is limited, is documented in ``docs/adapters/opnsense.md``.
+
+Firewall kinds (#295): only rules, port forwards and zone policies tagged ``signalbox:`` in their
+description are changed or removed; the device's own are touched only when the change says
+``adopt``. OPNsense 26.7 has no savepoint and rollback timer for the filter API (the controller
+of 26.7.9 has no such action), so these changes are applied with ``apply`` and undone, when the
+verification fails, by restoring the backup.
 """
 
 from __future__ import annotations
@@ -17,15 +23,27 @@ from ipaddress import IPv4Interface, ip_network
 from typing import TYPE_CHECKING, Any
 
 from signalbox.adapters import AdapterError, VendorCall
+from signalbox.adapters.opnsense.firewall import POLICY_MARK, TAG, describe, split_mark, tagged
 from signalbox.changes import (
     Change,
     ChangeKind,
     DhcpValue,
+    FirewallRuleValue,
+    PortForwardValue,
     PortValue,
     ReservationValue,
     RouterValue,
+    ZonePolicyValue,
 )
-from signalbox.model import IPInterface, Membership, normalise_mac
+from signalbox.model import (
+    FirewallAction,
+    FirewallChain,
+    FirewallProtocol,
+    IPInterface,
+    Membership,
+    PortRange,
+    normalise_mac,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime
     from signalbox.adapters.opnsense import _Iface, _Layout
@@ -38,6 +56,14 @@ ASSIGN_ADD = "/api/interfaces/assignment/add_item"
 ASSIGN_SET = "/api/interfaces/assignment/set_item/"
 ASSIGN_DEL = "/api/interfaces/assignment/del_item/"
 ASSIGN_APPLY = "/api/interfaces/assignment/reconfigure"
+FILTER_ADD = "/api/firewall/filter/add_rule"
+FILTER_SET = "/api/firewall/filter/set_rule/"
+FILTER_DEL = "/api/firewall/filter/del_rule/"
+FILTER_APPLY = "/api/firewall/filter/apply"
+DNAT_ADD = "/api/firewall/d_nat/add_rule"
+DNAT_SET = "/api/firewall/d_nat/set_rule/"
+DNAT_DEL = "/api/firewall/d_nat/del_rule/"
+DNAT_APPLY = "/api/firewall/d_nat/apply"
 KEA_SET = "/api/kea/dhcpv4/set"
 KEA_ADD_SUBNET = "/api/kea/dhcpv4/add_subnet"
 KEA_SET_SUBNET = "/api/kea/dhcpv4/set_subnet/"
@@ -70,6 +96,14 @@ class Call:
     def kea(self) -> bool:
         return self.path.startswith("/api/kea/")
 
+    @property
+    def filter(self) -> bool:
+        return self.path.startswith("/api/firewall/filter/")
+
+    @property
+    def dnat(self) -> bool:
+        return self.path.startswith("/api/firewall/d_nat/")
+
 
 @dataclass
 class WriteState:
@@ -89,6 +123,13 @@ class WriteState:
     listen: list[str] = field(default_factory=list)
     kea_enabled: bool = False
     lifetime: int | None = None
+    #: Rows of ``filter/search_rule`` and ``d_nat/search_rule`` (firewall changes only); a new
+    #: row of this plan has a uuid in braces.
+    filter_rows: list[dict[str, Any]] = field(default_factory=list)
+    dnat_rows: list[dict[str, Any]] = field(default_factory=list)
+    #: Assigned interfaces and interface groups (the zones), and the interfaces among them.
+    zones: set[str] = field(default_factory=set)
+    interfaces: set[str] = field(default_factory=set)
 
     def iface(self, sid: str) -> _Iface | None:
         return next((i for i in self.layout.ifaces if i.segment == sid), None)
@@ -145,6 +186,12 @@ def calls_for(change: Change, st: WriteState) -> list[Call]:
         return _reservation(change, st)
     if change.kind is ChangeKind.PORT:
         return _port(change, st)
+    if change.kind is ChangeKind.ZONE_POLICY:
+        return _policy(change, st)
+    if change.kind is ChangeKind.FIREWALL_RULE:
+        return _rule(change, st)
+    if change.kind is ChangeKind.PORT_FORWARD:
+        return _forward(change, st)
     raise AdapterError(f"OPNsense cannot change {change.kind.value}")
 
 
@@ -458,3 +505,287 @@ def _port(c: Change, st: WriteState) -> list[Call]:
     if calls:
         calls.append(Call("apply the VLAN devices", VLAN_APPLY))
     return calls
+
+
+# --- firewall (#295) -------------------------------------------------------------------------
+
+#: Sequence of Signalbox's rules: 1, 2, ... (the web interface numbers the device's own from
+#: 100 up, so they come first); its zone policies are fallbacks, after everything.
+POLICY_SEQUENCE = 900000
+_ACTION_OF = {
+    FirewallAction.ACCEPT: "pass",
+    FirewallAction.DROP: "block",
+    FirewallAction.REJECT: "reject",
+}
+_PROTOCOL_NAMES = {
+    frozenset({FirewallProtocol.TCP}): "TCP",
+    frozenset({FirewallProtocol.UDP}): "UDP",
+    frozenset({FirewallProtocol.TCP, FirewallProtocol.UDP}): "TCP/UDP",
+    frozenset({FirewallProtocol.ESP}): "ESP",
+    frozenset({FirewallProtocol.GRE}): "GRE",
+}
+_Paths = tuple[str, str, str]
+RULE_PATHS: _Paths = (FILTER_ADD, FILTER_SET, FILTER_DEL)
+FORWARD_PATHS: _Paths = (DNAT_ADD, DNAT_SET, DNAT_DEL)
+
+
+def _text(value: Any) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _descr(row: dict[str, Any]) -> str:
+    return _text(row.get("description")) or _text(row.get("descr"))
+
+
+def _seq(row: dict[str, Any]) -> int | None:
+    try:
+        return int(str(row.get("sequence", "")).strip())
+    except ValueError:
+        return None
+
+
+def _legacy(row: dict[str, Any]) -> bool:
+    return any(row.get(k) in (True, 1, "1", "true") for k in ("legacy", "is_automatic"))
+
+
+def _uuid_of(row: dict[str, Any]) -> str:
+    return str(row.get("uuid", ""))
+
+
+def _zone_check(st: WriteState, zone: str, label: str, interface: bool = False) -> None:
+    known = st.interfaces if interface else st.zones
+    if zone not in known:
+        what = "interface" if interface else "zone"
+        names = ", ".join(sorted(known)) or "none"
+        raise AdapterError(f"{label}: the firewall has no {what} {zone!r} ({what}s: {names})")
+
+
+def _tagged_row(rows: list[dict[str, Any]], key: str) -> dict[str, Any] | None:
+    """The row Signalbox created for ``key`` (zone policies are tagged differently)."""
+    for r in rows:
+        mark = tagged(r)
+        if mark is not None and not mark.startswith(POLICY_MARK) and split_mark(mark)[0] == key:
+            return r
+    return None
+
+
+def _adopted(rows: list[dict[str, Any]], name: str, what: str, label: str) -> dict[str, Any]:
+    """The device's own row of the new model that a change adopts (exactly one, by name)."""
+    named = [r for r in rows if _descr(r) == name]
+    own = [r for r in named if tagged(r) is None and not _legacy(r)]
+    if len(own) == 1:
+        return own[0]
+    if not own and named:
+        raise AdapterError(
+            f"{label}: {name!r} belongs to the legacy or automatic rules, which the API cannot "
+            "delete; only rows of the new rules and NAT pages can be adopted"
+        )
+    found = "no" if not own else "several"
+    raise AdapterError(f"{label}: the device has {found} {what} named {name!r} to adopt")
+
+
+def _next(rows: list[dict[str, Any]], base: int, limit: int) -> int:
+    used = [n for r in rows if (n := _seq(r)) is not None and base <= n < limit and tagged(r)]
+    return max(used, default=base - 1) + 1
+
+
+def _protocol(protocols: list[FirewallProtocol], family: int | None, label: str) -> str:
+    kinds = frozenset(protocols)
+    if not kinds:
+        return "any"
+    if kinds == {FirewallProtocol.ICMP}:
+        if family is None:
+            raise AdapterError(
+                f"{label}: ICMP needs family 4 or 6 on OPNsense (separate IPv4 and IPv6 ICMP)"
+            )
+        return "ICMP" if family == 4 else "ipv6-icmp"
+    found = _PROTOCOL_NAMES.get(kinds)
+    if found is None:
+        names = ", ".join(sorted(p.value for p in kinds))
+        raise AdapterError(f"{label}: OPNsense cannot match the protocols {names} in one rule")
+    return found
+
+
+def _one_port(ports: list[PortRange], label: str) -> str:
+    if len(ports) > 1:
+        raise AdapterError(f"{label}: give one port or one range, OPNsense matches one per rule")
+    return str(ports[0]) if ports else ""
+
+
+def _zones_of(value: str | None, st: WriteState, label: str) -> tuple[str, bool]:
+    """``(interface field, negated)`` of a declared zone (``a``, ``a,b``, ``!a``)."""
+    if not value:
+        return "", False
+    negated = value.startswith("!")
+    names = [z for z in value.lstrip("!").split(",") if z]
+    for z in names:
+        _zone_check(st, z, label)
+    return ",".join(names), negated
+
+
+def _rule_item(
+    v: FirewallRuleValue, st: WriteState, key: str, sequence: int, label: str
+) -> dict[str, Any]:
+    if v.chain is FirewallChain.OUTPUT:  # pragma: no cover - the planner never makes one
+        raise AdapterError(f"{label}: rules for the firewall's own traffic are not written")
+    interface, negated = _zones_of(v.source_zone, st, label)
+    dest_not = False
+    if v.chain is FirewallChain.INPUT:
+        destination = "(self)"
+    elif v.destination_zone:
+        if v.destination_networks:
+            raise AdapterError(
+                f"{label}: OPNsense matches the destination as one thing: give a destination "
+                "zone or destination addresses, not both"
+            )
+        destination, dest_not = _zones_of(v.destination_zone, st, label)
+        if "," in destination:
+            raise AdapterError(f"{label}: give one destination zone, OPNsense matches one per rule")
+    elif v.destination_networks:
+        destination = ",".join(str(n) for n in v.destination_networks)
+    else:
+        # routed traffic: anything but the firewall itself
+        destination, dest_not = "(self)", True
+    protocol = _protocol(v.protocols, v.family, label)
+    if v.destination_ports and protocol not in ("TCP", "UDP", "TCP/UDP"):
+        raise AdapterError(f"{label}: ports need the protocol tcp, udp or both")
+    return {
+        "enabled": "1" if v.enabled else "0",
+        "sequence": str(sequence),
+        "action": _ACTION_OF[v.action],
+        "quick": "1",
+        "interface": interface,
+        "interfacenot": "1" if negated else "0",
+        "direction": "in",
+        "ipprotocol": {4: "inet", 6: "inet6", None: "inet46"}[v.family],
+        "protocol": protocol,
+        "source_net": ",".join(str(n) for n in v.source_networks) or "any",
+        "source_not": "0",
+        "source_port": "",
+        "destination_net": destination,
+        "destination_not": "1" if dest_not else "0",
+        "destination_port": _one_port(v.destination_ports, label),
+        "description": describe(key, v.name),
+    }
+
+
+def _write_row(
+    rows: list[dict[str, Any]],
+    ours: dict[str, Any] | None,
+    adopted: dict[str, Any] | None,
+    item: dict[str, Any] | None,
+    paths: _Paths,
+    label: str,
+) -> list[Call]:
+    """Calls for one tagged row (add, set or delete), and for deleting the adopted row first;
+    ``rows`` follows along so that a later change of the plan sees the result."""
+    add, set_, del_ = paths
+    calls: list[Call] = []
+    if adopted is not None and ours is None and item is not None:
+        calls.append(
+            Call(f"{label}: adopt the device's {_descr(adopted)!r}", del_ + _uuid_of(adopted))
+        )
+        rows.remove(adopted)
+    if item is None:
+        if ours is None:
+            return calls
+        rows.remove(ours)
+        return [*calls, Call(f"{label}: remove", del_ + _uuid_of(ours))]
+    shown = {**item, "descr": _descr(item)}
+    if ours is not None:
+        item = {**item, "sequence": str(ours.get("sequence", item["sequence"]))}
+        rows[rows.index(ours)] = {**shown, "sequence": item["sequence"], "uuid": _uuid_of(ours)}
+        return [*calls, Call(f"{label}: update", set_ + _uuid_of(ours), {"rule": item})]
+    rows.append({**shown, "uuid": f"{{new {label}}}"})
+    return [*calls, Call(f"{label}: create", add, {"rule": item})]
+
+
+def _rule(c: Change, st: WriteState) -> list[Call]:
+    key = c.key.partition("/")[2]
+    label = f"firewall rule {key}"
+    ours = _tagged_row(st.filter_rows, key)
+    v = c.new if isinstance(c.new, FirewallRuleValue) else None
+    adopted = None
+    item = None
+    if v is not None:
+        if ours is None and c.adopt:
+            adopted = _adopted(st.filter_rows, c.adopt, "rule", label)
+        sequence = _next(st.filter_rows, 1, POLICY_SEQUENCE)
+        if adopted is not None and _seq(adopted) is not None:
+            sequence = _seq(adopted) or sequence  # the adopted rule's place
+        item = _rule_item(v, st, key, sequence, label)
+    return _write_row(st.filter_rows, ours, adopted, item, RULE_PATHS, label)
+
+
+def _policy(c: Change, st: WriteState) -> list[Call]:
+    _, source, dest_text = c.key.split("/", 2)
+    dest = None if dest_text == "device" else dest_text
+    label = f"zone policy {source} to {dest_text}"
+    mark = f"{TAG}{POLICY_MARK}{source}/{dest_text}"
+    ours = next((r for r in st.filter_rows if _descr(r) == mark and not _legacy(r)), None)
+    new = c.new if isinstance(c.new, ZonePolicyValue) else None
+    if new is None or new.action is FirewallAction.DROP:
+        # pf blocks what no rule passes: dropping is having no rule of ours
+        return _write_row(st.filter_rows, ours, None, None, RULE_PATHS, label)
+    _zone_check(st, source, label)
+    if dest is not None:
+        _zone_check(st, dest, label)
+    item = {
+        "enabled": "1",
+        "sequence": str(_next(st.filter_rows, POLICY_SEQUENCE, 1_000_000)),
+        "action": _ACTION_OF[new.action],
+        "quick": "1",
+        "interface": source,
+        "interfacenot": "0",
+        "direction": "in",
+        "ipprotocol": "inet46",
+        "protocol": "any",
+        "source_net": "any",
+        "source_not": "0",
+        "source_port": "",
+        "destination_net": "(self)" if dest is None else dest,
+        "destination_not": "0",
+        "destination_port": "",
+        "description": mark,
+    }
+    return _write_row(st.filter_rows, ours, None, item, RULE_PATHS, label)
+
+
+def _forward_item(
+    v: PortForwardValue, st: WriteState, key: str, sequence: int, label: str
+) -> dict[str, Any]:
+    _zone_check(st, v.zone, label, interface=True)
+    protocol = _protocol(v.protocols, 4, label)
+    if protocol not in ("TCP", "UDP", "TCP/UDP"):
+        raise AdapterError(f"{label}: a port forward needs the protocol tcp, udp or both")
+    if len(v.external_ports) != 1:
+        raise AdapterError(f"{label}: give one external port or one range")
+    if v.target_address.version != 4:
+        raise AdapterError(f"{label}: only IPv4 targets are written")
+    return {
+        "disabled": "0" if v.enabled else "1",
+        "sequence": str(sequence),
+        "interface": v.zone,
+        "ipprotocol": "inet",
+        "protocol": protocol,
+        "destination": {"network": f"{v.zone}ip", "port": str(v.external_ports[0])},
+        "target": str(v.target_address),
+        "local-port": "" if v.target_port is None else str(v.target_port),
+        # a filter rule that lets the forwarded traffic through (the model's passes_filter)
+        "pass": "pass",
+        "descr": describe(key, v.name),
+    }
+
+
+def _forward(c: Change, st: WriteState) -> list[Call]:
+    key = c.key.partition("/")[2]
+    label = f"port forward {key}"
+    ours = _tagged_row(st.dnat_rows, key)
+    v = c.new if isinstance(c.new, PortForwardValue) else None
+    adopted = None
+    item = None
+    if v is not None:
+        if ours is None and c.adopt:
+            adopted = _adopted(st.dnat_rows, c.adopt, "port forward", label)
+        item = _forward_item(v, st, key, _next(st.dnat_rows, 1, 1_000_000), label)
+    return _write_row(st.dnat_rows, ours, adopted, item, FORWARD_PATHS, label)
