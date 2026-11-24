@@ -74,6 +74,10 @@ echo @@link; ip -j -d link show
 echo @@addr; ip -j addr show
 echo @@route; ip -j route show table main
 echo @@route6; ip -j -6 route show table main
+echo @@routes4; ip -j route show table all 2>/dev/null
+echo @@routes6; ip -j -6 route show table all 2>/dev/null
+echo @@rules4; ip -j rule show 2>/dev/null
+echo @@rules6; ip -j -6 rule show 2>/dev/null
 echo @@sysnet
 for d in /sys/class/net/*; do
   n=${d##*/}; dev=0; wifi=0

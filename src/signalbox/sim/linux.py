@@ -275,6 +275,61 @@ def default_sections() -> dict[str, str]:
             ]
         )
         + "\n",
+        # ip -j route show table all / ip -j rule show (#149): the kernel's own routes, the
+        # local table, a static route through the WireGuard tunnel, a route of table 100 and
+        # the rules of a policy routing setup (one subnet through table 100). *guess* (#21)
+        "routes4": json.dumps(
+            [
+                {
+                    "dst": "default",
+                    "gateway": "198.51.100.1",
+                    "dev": "eth0",
+                    "protocol": "dhcp",
+                    "metric": 100,
+                    "flags": [],
+                },
+                {"dst": "192.0.2.0/25", "dev": "br0", "protocol": "kernel", "scope": "link"},
+                {"dst": "198.51.100.128/25", "dev": "wg0", "protocol": "static", "scope": "link"},
+                {
+                    "dst": "203.0.113.0/24",
+                    "gateway": "192.0.2.5",
+                    "dev": "br0",
+                    "protocol": "static",
+                },
+                {"dst": "default", "gateway": "198.51.100.1", "dev": "eth0", "table": "100"},
+                {"dst": "198.18.66.0/24", "type": "blackhole", "protocol": "static"},
+                {"type": "local", "dst": "192.0.2.1", "table": "local", "dev": "br0"},
+            ]
+        )
+        + "\n",
+        "routes6": json.dumps(
+            [
+                {
+                    "dst": "default",
+                    "gateway": "fe80::1",
+                    "dev": "eth0",
+                    "protocol": "ra",
+                    "metric": 1024,
+                }
+            ]
+        )
+        + "\n",
+        "rules4": json.dumps(
+            [
+                {"priority": 0, "src": "all", "table": "local"},
+                {"priority": 100, "src": "192.0.2.128", "srclen": 25, "table": "100"},
+                {"priority": 32766, "src": "all", "table": "main"},
+                {"priority": 32767, "src": "all", "table": "default"},
+            ]
+        )
+        + "\n",
+        "rules6": json.dumps(
+            [
+                {"priority": 0, "src": "all", "table": "local"},
+                {"priority": 32766, "src": "all", "table": "main"},
+            ]
+        )
+        + "\n",
         "sysnet": "eth0 1 0 1000 full\neth1 1 0 1000 full\nwlan0 1 1 - -\nbr0 0 0 - -\n"
         "eth1.30 0 0 1000 full\nwg0 0 0 - -\nlo 0 0 - -\n",
         "bridge-vlan": "",
@@ -776,6 +831,10 @@ class LinuxSim:
                 "addr",
                 "route",
                 "route6",
+                "routes4",
+                "routes6",
+                "rules4",
+                "rules6",
                 "bridge-vlan",
                 "fdb",
             ):

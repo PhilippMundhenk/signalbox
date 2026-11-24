@@ -637,6 +637,79 @@ def sample_data() -> dict[str, Any]:
                 "disabled": "false",
             }
         ),
+        # Routes (#149), as RouterOS 7 lists the table: the default route learned from DHCP on
+        # ether1, a static lab route (2nd router on the bridge) with a disabled twin, a
+        # blackhole, and the connected networks (left out by the adapter). *guess* (#21).
+        "/rest/ip/route": _ids(
+            {
+                "dst-address": "0.0.0.0/0",
+                "gateway": "203.0.113.1",
+                "distance": "1",
+                "routing-table": "main",
+                "dhcp": "true",
+                "dynamic": "true",
+                "active": "true",
+                "disabled": "false",
+            },
+            {
+                "dst-address": "198.18.20.0/24",
+                "gateway": "192.0.2.254",
+                "distance": "1",
+                "routing-table": "main",
+                "static": "true",
+                "dynamic": "false",
+                "active": "true",
+                "disabled": "false",
+            },
+            {
+                "dst-address": "198.18.30.0/24",
+                "gateway": "192.0.2.254",
+                "distance": "1",
+                "routing-table": "main",
+                "static": "true",
+                "dynamic": "false",
+                "active": "false",
+                "disabled": "true",
+            },
+            {
+                "dst-address": "198.18.99.0/24",
+                "distance": "1",
+                "routing-table": "main",
+                "static": "true",
+                "blackhole": "true",
+                "active": "true",
+                "disabled": "false",
+            },
+            {
+                "dst-address": "192.0.2.0/24",
+                "gateway": "bridge",
+                "distance": "0",
+                "routing-table": "main",
+                "connect": "true",
+                "dynamic": "true",
+                "active": "true",
+                "disabled": "false",
+            },
+        ),
+        "/rest/ipv6/route": _ids(
+            {
+                "dst-address": "::/0",
+                "gateway": "fe80::1%ether1",
+                "distance": "1",
+                "routing-table": "main",
+                "dynamic": "true",
+                "active": "true",
+                "disabled": "false",
+            },
+        ),
+        "/rest/routing/rule": _ids(
+            {
+                "src-address": "198.51.100.0/24",
+                "action": "lookup",
+                "table": "iot-out",
+                "disabled": "false",
+            },
+        ),
         "/rest/ip/service": _ids(
             *(
                 {

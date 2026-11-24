@@ -41,6 +41,8 @@ PRIVILEGES = (
     "page-diagnostics-netflow",
     "page-system-certmanager",
     "page-system-camanager",
+    "page-system-staticroutes",
+    "page-system-gateways",
     "page-system-usermanager",
 )
 GROUPS = ("admins",)

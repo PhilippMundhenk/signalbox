@@ -69,6 +69,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
+from signalbox.adapters.mikrotik import routes as route_reader
 from signalbox.adapters.mikrotik import stp as _stp
 from signalbox.adapters.mikrotik import trace as _trace
 from signalbox.adapters.mikrotik.certificates import USERS as CERT_USERS
@@ -1380,7 +1381,26 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             p.model_copy(update={"stp": port_stp[n]}) if n in port_stp else p
             for n, p in layout.ports.items()
         ]
+        route_rows = [
+            await self._readable(e) for e in (route_reader.IP_ROUTE, route_reader.IPV6_ROUTE)
+        ]
+        rule_rows = await self._readable(route_reader.ROUTING_RULE)
+        if None in route_rows:
+            gaps = [
+                *gaps,
+                Gap(
+                    message="routes: the routing table could not be read",
+                    fix="Optional: give the Signalbox user a group with the read policy.",
+                    optional=True,
+                    message_id="routing.readGap",
+                    fix_id="routing.readGap.fix",
+                    params={"what": "/ip/route"},
+                ),
+            ]
+        routes = [r for rows in route_rows if rows for r in route_reader.read_routes(dev, rows)]
         return Observation(
+            routes=routes if None not in route_rows else [],
+            routing_rules=route_reader.read_rules(dev, rule_rows or [], layout.l3.get),
             ports=ports,
             segments=list(layout.segments.values()),
             subnets=subnets,

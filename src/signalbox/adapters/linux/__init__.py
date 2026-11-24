@@ -50,6 +50,7 @@ from signalbox.adapters.linux import (
     nftables,
     parse,
     provision,
+    routes,
     setup,
     syslog,
     wireguard,
@@ -447,6 +448,16 @@ class LinuxAdapter(Adapter):
             uplinks=lay.uplinks,
             services=self._services(lay),
             fdb=self._fdb(lay),
+            routes=route_reader.read_routes(
+                self.context.device_id,
+                self.answer,
+                frozenset(n for n, p in lay.ports.items() if p.role is PortRole.TUNNEL),
+            ),
+            routing_rules=route_reader.read_rules(
+                self.context.device_id,
+                self.answer,
+                lambda n: lay.networks[n][0] if n in lay.networks else None,
+            ),
             log_targets=self._log_targets(gaps),
         )
 
