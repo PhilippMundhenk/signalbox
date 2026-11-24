@@ -391,8 +391,11 @@ async def test_management_services_of_chr(rt: dict[str, str]) -> None:
     by = {s.name: s for s in snap.services}
     assert set(by) == {
         *("telnet", "ftp", "www", "ssh", "www-ssl", "api", "winbox", "api-ssl"),
-        *("mac-telnet", "mac-winbox", "romon", "upnp", "snmp"),
+        *("mac-telnet", "mac-winbox", "romon", "upnp", "snmp", "mikrotik-cloud"),
     }, sorted(by)  # no dynamic rows (resolver, connections), no reverse-proxy
+    # /ip/cloud (#327): read as a service of kind cloud; on or off depends on whether the CHR
+    # reached MikroTik (no assertion: the meaning of ddns-enabled=auto is a guess, #21)
+    assert by["mikrotik-cloud"].kind.value == "cloud"
     assert (by["ssh"].kind.value, by["ssh"].port, by["ssh"].enabled) == ("ssh", 22, True)
     assert by["ssh"].password_login is None  # password-authentication=yes-if-no-key
     assert (by["www-ssl"].kind.value, by["www-ssl"].enabled) == ("https", True)
