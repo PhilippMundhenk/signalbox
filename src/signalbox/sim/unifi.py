@@ -39,7 +39,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 USERNAME = "sim-reader"
 PASSWORD = "sim-password"
-API_KEY = "sim-api-key-0123456789"
+API_KEY = "sim-api-key"
 SITE_UUID = "5f0000000000000000000a01"
 
 GATEWAY = "02:00:00:00:0a:01"
