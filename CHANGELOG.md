@@ -106,6 +106,8 @@ All notable changes to this project are documented here. The format follows
 
 - Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
+- Automatic setup UI: Enter never saves the device form (Enter runs the setup), connection fields come before the setup box, a spinner progress state, an admin login in the settings is replaced by the login Signalbox creates, and a refused admin login returns to the password step keeping the preview and identity (#299)
+- Device page: one read state (status, last read, problems) that a connection test or Fix it replaces, so an old error no longer stays beside a good test; problems are not listed twice; shared notice component (#300)
 - Desired state: loading the network state of a site with two routers no longer fails with "segment declared twice: native"; every untagged network is exported with its own key (`native`, `native-<router id>`), import accepts it and drift is clean on the round trip (#305)
 - Discovery list: the "What to do" column is gone (the device form explains it) and "What was searched" stays open or closed across progress refreshes (#301)
 - DNS: two DNS services on one router (AdGuard Home in front of Unbound on another port) are no longer a forwarding loop: services have a listen port, forwarders an address and port, and a forward to a service Signalbox cannot read is incomplete, not a loop (#241)
