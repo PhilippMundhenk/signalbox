@@ -2,13 +2,17 @@
 import { t } from '../i18n.js';
 import { del, enc, get, post, put } from '../api.js';
 import { clear, h, place } from '../util.js';
-import { card, confirmDialog, field, pageHead, run, select, table, toast } from '../ui.js';
+import { card, confirmDialog, field, notice, pageHead, run, select, setNotice, slot, table, toast } from '../ui.js';
 
 function editorCard(ctx, current, sites) {
   const text = h('textarea', { class: 'code', rows: '22', spellcheck: 'false', 'data-testid': 'desired-yaml' });
   text.value = current.yaml;
-  const status = h('p', { role: 'status', 'data-testid': 'desired-status', class: current.valid ? 'muted' : 'error' },
-    current.valid ? (current.yaml ? t('desired.status.valid', { sites: current.sites.join(', ') || t('desired.status.none') }) : t('desired.status.empty')) : current.error);
+  // the one place for what the declared state is: valid, empty, or why it is not; a newer
+  // result (a save, an import) replaces it
+  const status = slot();
+  const setStatus = (kind, text) => setNotice(status, kind, 'desired-status', text);
+  if (current.valid) setStatus('info', current.yaml ? t('desired.status.valid', { sites: current.sites.join(', ') || t('desired.status.none') }) : t('desired.status.empty'));
+  else setStatus('error', current.error);
   const message = h('input', { type: 'text', maxlength: '500', placeholder: t('desired.messagePlaceholder'), 'data-testid': 'desired-message' });
   const save = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'desired-save' }, t('common.save'));
   save.addEventListener('click', () =>
@@ -18,9 +22,7 @@ function editorCard(ctx, current, sites) {
         toast(r.commit ? t('desired.savedCommit', { commit: r.commit.slice(0, 7) }) : t('desired.saved'));
         ctx.refresh();
       } catch (err) {
-        status.className = 'error';
-        status.textContent = err.message;
-        throw err;
+        setStatus('error', err.message);
       }
     }),
   );
@@ -31,8 +33,7 @@ function editorCard(ctx, current, sites) {
       if (text.value.trim() && !(await confirmDialog({ title: t('desired.import.confirmTitle'), message: t('desired.import.confirmMessage'), confirmLabel: t('desired.import.replace') }))) return;
       const r = await post(`/desired/import/${enc(site.value)}`);
       text.value = r.yaml;
-      status.className = 'muted';
-      status.textContent = t('desired.import.done');
+      setStatus('info', t('desired.import.done'));
     }),
   );
   return card(
@@ -109,8 +110,8 @@ export function renderPlan(box, p) {
       { 'data-testid': 'plan-changes' },
       p.changes.map((c) => h('li', {}, c.text, c.risk ? h('div', { class: 'error' }, t('desired.plan.risk', { risk: c.risk })) : null)),
     ),
-    (p.lockouts || []).length ? h('div', { class: 'error', 'data-testid': 'plan-lockouts' }, h('strong', {}, t('desired.plan.lockouts')), h('ul', {}, p.lockouts.map((x) => h('li', {}, x)))) : null,
-    p.blocking.length ? h('p', { class: 'error', 'data-testid': 'plan-blocked' }, t('desired.plan.blocked')) : null,
+    (p.lockouts || []).length ? notice('error', 'plan-lockouts', h('strong', {}, t('desired.plan.lockouts')), h('ul', {}, p.lockouts.map((x) => h('li', {}, x)))) : null,
+    p.blocking.length ? notice('error', 'plan-blocked', t('desired.plan.blocked')) : null,
     findingList(t('desired.plan.newFindings'), p.new_findings, 'plan-new'),
     findingList(t('desired.plan.resolvedFindings'), p.resolved_findings, 'plan-resolved'),
   );

@@ -113,6 +113,12 @@ td.actions { text-align: right; white-space: nowrap; }
 .notice h3 { margin-top: 0; }
 .notice.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
 .notice.error { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+.notice-close { float: right; margin-left: 10px; background: none; border: 0; font-size: 1.3rem; line-height: 1; cursor: pointer; color: inherit; padding: 0 4px; }
+.notice.error ul { margin: 0; padding-left: 1.2em; }
+.notice-slot:empty { display: none; }
+.page-slot { max-width: 1180px; margin: 0 auto; padding: 14px 20px 0; }
+.page-slot + main { padding-top: 8px; }
+.notice-slot > .notice { margin: 0 0 12px; }
 .busy { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin: 10px 0; border: 1px solid var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); font-size: 1.05rem; }
 .busy-text strong { display: block; }
 .spinner { flex: none; width: 28px; height: 28px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
@@ -123,7 +129,6 @@ td.actions { text-align: right; white-space: nowrap; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 60; max-width: min(420px, calc(100vw - 32px)); }
 .toast { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--ok); border-radius: 8px; padding: 10px 14px; box-shadow: var(--shadow); }
-.toast.error { border-left-color: var(--danger); }
 .login { max-width: 380px; margin: 12vh auto 0; }
 hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .small { font-size: .82rem; }

@@ -2,7 +2,7 @@
 import { t } from './i18n.js';
 import { del, enc, put } from './api.js';
 import { h } from './util.js';
-import { checkField, confirmDialog, field, kv, modal, run, select, toast } from './ui.js';
+import { checkField, confirmDialog, field, kv, modal, run, select, slot, toast } from './ui.js';
 
 // Category labels are looked up at render time.
 const CATEGORY_KEYS = { '': 'ack.category.none', computer: 'ack.category.computer', phone: 'ack.category.phone', tablet: 'ack.category.tablet', iot: 'ack.category.iot', camera: 'ack.category.camera', printer: 'ack.category.printer', media: 'ack.category.media', server: 'ack.category.server', network: 'ack.category.network', other: 'ack.category.other' };
@@ -37,6 +37,7 @@ export function editNote(target, kind, note, title) {
     notes.value = n.notes || '';
     const checks = (EXPECT[kind] || []).map(([key, text]) => [key, h('input', { type: 'checkbox', checked: n.expected[key] === true, 'data-testid': `note-${key}` }), t(text)]);
     const category = kind === 'client' ? select(categories(), n.expected.category || '', { 'data-testid': 'note-category' }) : null;
+    const problem = slot(); // the dialog's one place for a refusal
     const body = h(
       'div',
       {},
@@ -48,6 +49,7 @@ export function editNote(target, kind, note, title) {
       field(t('ack.field.tags'), tags, t('ack.field.tagsHint')),
       checks.map(([, box, text]) => checkField(text, box)),
       h('p', { class: 'muted small' }, t('ack.localOnly')),
+      problem,
     );
     modal({
       title,
@@ -59,7 +61,7 @@ export function editNote(target, kind, note, title) {
           changed = true;
           toast(t('ack.removed'));
           close();
-        }) }, t('common.remove')) : null,
+        }, problem) }, t('common.remove')) : null,
         h('button', { class: 'btn', type: 'button', 'data-testid': 'note-cancel', onclick: () => close() }, t('common.cancel')),
         h('button', { class: 'btn primary', type: 'button', 'data-testid': 'note-save', onclick: (e) => run(e.target, async () => {
           const expected = {};
@@ -76,7 +78,7 @@ export function editNote(target, kind, note, title) {
           changed = true;
           toast(t('ack.saved'));
           close();
-        }) }, t('common.save')),
+        }, problem) }, t('common.save')),
       ],
     });
   });

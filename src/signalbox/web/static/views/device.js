@@ -3,7 +3,7 @@ import { del, enc, get, post } from '../api.js';
 import { compare, fmtNumber, t } from '../i18n.js';
 import { fdbText, loadNetwork } from '../net.js';
 import { PORT_ROLE, clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, place, portDetails, portSpeed, yesNo } from '../util.js';
-import { card, confirmDialog, empty, kv, manageLink, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
+import { busy, card, confirmDialog, empty, kv, manageLink, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
 import { fixPanel, remedyOf } from './devicefix.js';
 import { readErrors, testResult, trustPanel } from './devicetest.js';
@@ -405,8 +405,14 @@ async function overview(main, ctx, device, adapters, sites) {
 
   const testBtn = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'test' }, t('device.test'));
   async function test() {
-    place(clear(result), h('p', { class: 'muted', 'data-testid': 'testing' }, t('device.testing')));
-    const res = await post(`/devices/${enc(device.id)}/test`);
+    place(clear(result), busy('testing', t('device.testing')));
+    let res;
+    try {
+      res = await post(`/devices/${enc(device.id)}/test`);
+    } catch (err) {
+      clear(result); // the spinner ends; the error is the page's one notice
+      throw err;
+    }
     if (!ctx.alive(id)) return;
     place(clear(result), testResult(res, { errors: false }));
     applyReading(res);

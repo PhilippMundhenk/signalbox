@@ -6,7 +6,7 @@ import { post } from '../api.js';
 import { t } from '../i18n.js';
 import { stepTitle } from '../texts.js';
 import { clear, groupHex, h, place } from '../util.js';
-import { busy, checkField, confirmDialog, field, notice, run, toast } from '../ui.js';
+import { busy, checkField, clearNotice, confirmDialog, field, notice, run, setNotice, slot, toast } from '../ui.js';
 import { adminStep, previewList, previewSteps } from './adminstep.js';
 
 const STATE_KEY = { todo: 'setup.state.todo', unchanged: 'setup.state.unchanged', done: 'setup.state.done', failed: 'setup.state.failed', skipped: 'setup.state.skipped' };
@@ -95,7 +95,9 @@ export function autoSetup(a, collect, onDone, own = null) {
     sshPort.addEventListener('change', reset);
   }
 
-  const fail = (text, fix) => place(clear(out), h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, text), fix ? h('p', { class: 'fix' }, t('setup.whatToDo'), fix) : null);
+  const errorNotice = (text, fix) => notice('error', 'setup-error', h('p', {}, text), fix ? h('p', { class: 'fix' }, t('setup.whatToDo'), fix) : null);
+  const fail = (text, fix) => place(clear(out), errorNotice(text, fix));
+  const missBox = slot(); // "enter the password": one place, replaced by the next result
 
   // 1. what it does, without any credential
   function showPreview() {
@@ -120,7 +122,7 @@ export function autoSetup(a, collect, onDone, own = null) {
   async function identity() {
     const device = collectOwn();
     if (!device) return;
-    place(clear(out), h('p', { class: 'muted' }, t('setup.fetching')));
+    place(clear(out), busy('setup-fetching', t('setup.fetching')));
     try {
       const body = { device, admin: { user: login.user_default || '' }, remove: remove.checked, extras: ticked().filter((x) => x !== 'ssh') };
       if (port && port.value) body.admin.port = Number(port.value);
@@ -134,10 +136,7 @@ export function autoSetup(a, collect, onDone, own = null) {
       trust.addEventListener('click', () => { trusted = plan.fingerprint; confirmedFingerprint = fingerprintText(plan); trustedSsh = both ? plan.ssh_fingerprint : null; showFinal(null); });
       place(
         clear(out),
-        h(
-          'div',
-          { class: 'notice', 'data-testid': 'setup-untrusted' },
-          h('h3', {}, cert ? t('setup.presented.cert') : t('setup.presented.ssh')),
+        notice('warn', 'setup-untrusted', h('h3', {}, cert ? t('setup.presented.cert') : t('setup.presented.ssh')),
           h('p', {}, t('setup.compare')),
           h('p', { class: 'fingerprint mono', 'data-testid': 'setup-fingerprint' }, fingerprintText(plan)),
           plan.compare ? h('p', { class: 'muted small' }, plan.compare) : null,
@@ -172,6 +171,7 @@ export function autoSetup(a, collect, onDone, own = null) {
       // what was confirmed stays in view (also after a refused login)
       h('div', { class: 'setup-kept', 'data-testid': 'setup-kept' }, previewed.length ? previewList(previewed, 'setup-kept-steps') : null, confirmedFingerprint ? h('p', { class: 'fingerprint mono small', 'data-testid': 'setup-kept-fingerprint' }, t('setup.confirmedIdentity', { fingerprint: confirmedFingerprint })) : null),
       step.el,
+      clearNotice(missBox),
       h('div', { class: 'row' }, go),
     );
   }
@@ -181,7 +181,8 @@ export function autoSetup(a, collect, onDone, own = null) {
     const device = collectOwn();
     if (!device || !step) return;
     const removing = remove.checked;
-    const missing = (text) => step.el.append(h('p', { class: 'error', role: 'alert', 'data-testid': 'setup-error' }, text));
+    clearNotice(missBox);
+    const missing = (text) => setNotice(missBox, 'error', 'setup-error', text);
     if (!step.secret()) return missing(t('setup.enter', { label: login.secret_label }));
     if (sshSecret && !sshSecret.value) return missing(t('setup.enterSsh', { label: opt.secret_label, user: opt.user, option: opt.label }));
     if (removing && !(await confirmDialog({ title: t('setup.removeLogin.title'), message: t('setup.removeLogin.message'), confirmLabel: t('common.remove'), danger: true }))) {
@@ -208,7 +209,7 @@ export function autoSetup(a, collect, onDone, own = null) {
     }
     current.dispose(); // the password is gone as soon as the request is answered
     step = null;
-    place(out, h('p', { 'data-testid': 'setup-outcome', class: res.ok ? '' : 'error' }, res.ok ? (removing ? t('setup.removed') : t('setup.done')) : t('setup.stopped')), stepList(res.steps, 'setup-done-steps'));
+    place(clear(out), notice(res.ok ? 'info' : 'error', 'setup-outcome', res.ok ? (removing ? t('setup.removed') : t('setup.done')) : t('setup.stopped')), stepList(res.steps, 'setup-done-steps'));
     if (res.ok && res.device) {
       toast(t('setup.deviceSetUp', { name: res.device.name }));
       onDone(res.device);
@@ -219,17 +220,14 @@ export function autoSetup(a, collect, onDone, own = null) {
   function failed(err) {
     if (err.code === 'plan_changed' && err.body && err.body.plan) {
       acked = err.body.plan.steps.filter((s) => s.state === 'todo').map((s) => s.id);
-      return showFinal(h('div', { class: 'notice', 'data-testid': 'setup-plan-changed' }, h('p', {}, t('setup.planChanged')), stepList(err.body.plan.steps, 'setup-plan-steps')));
+      return showFinal(notice('warn', 'setup-plan-changed', h('p', {}, t('setup.planChanged')), stepList(err.body.plan.steps, 'setup-plan-steps')));
     }
     if (err.code === 'untrusted_ssh') {
       const trustSsh = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust-ssh' }, t('setup.trust.ssh'));
       trustSsh.addEventListener('click', () => { trustedSsh = err.body.fingerprint; showFinal(null); });
       return place(
         clear(out),
-        h(
-          'div',
-          { class: 'notice', 'data-testid': 'setup-untrusted-ssh' },
-          h('h3', {}, t('setup.untrustedSsh.title')),
+        notice('warn', 'setup-untrusted-ssh', h('h3', {}, t('setup.untrustedSsh.title')),
           h('p', {}, t('setup.untrustedSsh.text')),
           h('p', { class: 'fingerprint mono', 'data-testid': 'setup-ssh-fingerprint' }, err.body.fingerprint),
           err.body.compare ? h('p', { class: 'muted small' }, err.body.compare) : null,
@@ -239,7 +237,7 @@ export function autoSetup(a, collect, onDone, own = null) {
     }
     if (err.code === 'auth_failed') {
       // wrong admin login: back to the password step, preview and confirmed identity stay
-      return showFinal(h('div', { class: 'notice error', role: 'alert', 'data-testid': 'setup-error' }, h('p', { class: 'error' }, err.message), err.body && err.body.fix ? h('p', { class: 'fix' }, t('setup.whatToDo'), err.body.fix) : null));
+      return showFinal(errorNotice(err.message, err.body && err.body.fix));
     }
     if (err.code === 'untrusted') { trusted = null; trustedSsh = null; }
     fail(err.message, err.body && err.body.fix);

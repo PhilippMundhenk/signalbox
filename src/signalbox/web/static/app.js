@@ -2,7 +2,7 @@
 import { announceLogout, get, onReachability, onUnauthorized, post, watchSession } from './api.js';
 import { clear, h } from './util.js';
 import { initI18n, t } from './i18n.js';
-import { showError } from './ui.js';
+import { clearNotice, setNotice, setPageSlot, showError, slot } from './ui.js';
 import { buildShell } from './nav.js';
 import { renderFindings } from './views/findings.js';
 import { renderDevices, renderDeviceForm } from './views/devices.js';
@@ -109,10 +109,13 @@ function footer(session) {
 
 function renderLogin(message) {
   runCleanups();
+  setPageSlot(null);
   clear(root);
   clear(document.getElementById('modal-root'));
   const pw = h('input', { type: 'password', id: 'pw', autocomplete: 'current-password', required: true, 'data-testid': 'login-password' });
-  const err = h('p', { class: 'error', role: 'alert', 'data-testid': 'login-error' }, message || '');
+  const err = slot();
+  const say = (text) => setNotice(err, 'error', 'login-error', text);
+  if (message) say(message);
   const submit = h('button', { class: 'btn primary', type: 'submit', 'data-testid': 'login-submit' }, t('login.signIn'));
   const form = h(
     'form',
@@ -123,9 +126,10 @@ function renderLogin(message) {
         submit.disabled = true;
         try {
           await post('/login', { password: pw.value });
+          clearNotice(err);
           await boot();
         } catch (ex) {
-          err.textContent = ex.message;
+          say(ex.message);
           submit.disabled = false;
           pw.select();
         }
@@ -171,7 +175,10 @@ async function render() {
   const { shell, content } = buildShell({ items: NAV(), current: route.nav, brand: LOGO, actions });
   root.append(shell);
   const main = h('main', { id: 'main', tabindex: '-1' });
-  content.append(main, footer(session));
+  const pageBox = slot('page-notice');
+  pageBox.className = 'notice-slot page-slot';
+  setPageSlot(pageBox);
+  content.append(pageBox, main, footer(session));
   try {
     if (route.name === 'findings') await renderFindings(main, ctx);
     else if (route.name === 'devices') await renderDevices(main, ctx);

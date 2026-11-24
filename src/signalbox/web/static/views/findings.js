@@ -5,7 +5,7 @@ import { del, enc, get, post } from '../api.js';
 import { confirmRemoveAck } from '../annotations.js';
 import { loadNetwork, objectRef, siteFilter } from '../net.js';
 import { clear, fmtAgo, fmtTime, h, place, sleep } from '../util.js';
-import { checkField, empty, field, modal, pageHead, run, select, severityBadge, showError, toast } from '../ui.js';
+import { checkField, empty, field, modal, pageHead, run, select, severityBadge, showError, slot, toast } from '../ui.js';
 
 const ORDER = { error: 0, warning: 1, info: 2 };
 const GROUP_TITLE = { error: 'findings.group.error', warning: 'findings.group.warning', info: 'findings.group.info' };
@@ -18,6 +18,7 @@ function acknowledgeDialog(ix, f, onDone) {
   const scope = select(scopes, 'finding', { 'data-testid': 'ack-scope' });
   const until = h('input', { type: 'date', 'data-testid': 'ack-until' });
   const lapse = h('input', { type: 'checkbox', 'data-testid': 'ack-lapse' });
+  const problem = slot(); // the dialog's one place for a refusal, in view next to the button
   modal({
     title: t('findings.ack.dialogTitle'),
     body: h(
@@ -29,6 +30,7 @@ function acknowledgeDialog(ix, f, onDone) {
       field(t('findings.ack.untilOptional'), until, t('findings.ack.untilHint')),
       checkField(t('findings.ack.lapse'), lapse),
       h('p', { class: 'muted small' }, t('findings.ack.note')),
+      problem,
     ),
     actions: (close) => [
       h('button', { class: 'btn', type: 'button', 'data-testid': 'ack-cancel', onclick: () => close() }, t('common.cancel')),
@@ -44,7 +46,7 @@ function acknowledgeDialog(ix, f, onDone) {
         toast(t('findings.ack.done'));
         close();
         await onDone();
-      }) }, t('findings.ack.submit')),
+      }, problem) }, t('findings.ack.submit')),
     ],
   });
 }

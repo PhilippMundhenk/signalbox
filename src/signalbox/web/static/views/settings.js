@@ -2,7 +2,7 @@
 import { del, enc, get, post, put } from '../api.js';
 import { clear, h, place } from '../util.js';
 import { availableLanguages, savedLanguage, setLanguage, t } from '../i18n.js';
-import { card, confirmDialog, field, pageHead, run, select, severityBadge, table, tag, toast } from '../ui.js';
+import { card, clearNotice, confirmDialog, field, pageHead, run, select, setNotice, severityBadge, slot, table, tag, toast } from '../ui.js';
 import { ruleExplanation, ruleTitle } from '../texts.js';
 
 function sitesCard(ctx, sites, devices) {
@@ -83,18 +83,19 @@ function passwordCard(session) {
   const current = h('input', { type: 'password', autocomplete: 'current-password', 'data-testid': 'pw-current' });
   const next = h('input', { type: 'password', autocomplete: 'new-password', minlength: '10', 'data-testid': 'pw-new' });
   const again = h('input', { type: 'password', autocomplete: 'new-password', 'data-testid': 'pw-again' });
-  const msg = h('p', { class: 'error', role: 'alert', 'data-testid': 'pw-error' });
+  const msg = slot(); // the form's one place for problems
+  const problem = (text) => setNotice(msg, 'error', 'pw-error', text);
   const save = h('button', { class: 'btn primary', type: 'submit', 'data-testid': 'pw-save' }, t('settings.changePassword'));
   const form = h('form', {
     onsubmit: (e) => {
       e.preventDefault();
-      msg.textContent = '';
+      clearNotice(msg);
       if (next.value.length < 10) {
-        msg.textContent = t('settings.pwShort');
+        problem(t('settings.pwShort'));
         return;
       }
       if (next.value !== again.value) {
-        msg.textContent = t('settings.pwMismatch');
+        problem(t('settings.pwMismatch'));
         return;
       }
       run(save, async () => {
@@ -103,7 +104,7 @@ function passwordCard(session) {
           toast(t('settings.pwChanged'));
           setTimeout(() => location.reload(), 800);
         } catch (err) {
-          msg.textContent = err.message;
+          problem(err.message);
         }
       });
     },

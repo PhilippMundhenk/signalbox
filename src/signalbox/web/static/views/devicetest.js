@@ -2,7 +2,7 @@
 import { t } from '../i18n.js';
 import { errorFix, errorMessage } from '../texts.js';
 import { groupHex, h } from '../util.js';
-import { run, statusBadge } from '../ui.js';
+import { notice, run, statusBadge } from '../ui.js';
 
 const COUNT_TEXT = { ports: 'test.count.ports', segments: 'test.count.segments', subnets: 'test.count.subnets', wlans: 'test.count.wlans', clients: 'test.count.clients' };
 
@@ -22,7 +22,7 @@ export function readErrors(errors, testid, extra = null) {
   return h(
     'div',
     { 'data-testid': testid },
-    real.length ? h('ul', { class: 'error read-errors' }, real.map(item)) : null,
+    real.length ? notice('error', `${testid}-problems`, h('ul', { class: 'error read-errors' }, real.map(item))) : null,
     optional.length ? h('ul', { class: 'muted read-errors optional-notes', 'data-testid': `${testid}-optional` }, optional.map(item)) : null,
   );
 }
@@ -47,10 +47,7 @@ export function testResult(res, { errors = true } = {}) {
 export function trustPanel(fingerprint, onTrust, note) {
   const btn = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'trust' }, t('test.trust'));
   btn.addEventListener('click', () => run(btn, () => onTrust(fingerprint)));
-  return h(
-    'div',
-    { class: 'notice', 'data-testid': 'untrusted' },
-    h('h3', {}, t('test.untrustedTitle')),
+  return notice('warn', 'untrusted', h('h3', {}, t('test.untrustedTitle')),
     h('p', {}, t('test.untrustedText')),
     h('p', { class: 'fingerprint mono', 'data-testid': 'fingerprint' }, groupHex(fingerprint)),
     note ? h('p', { class: 'muted small' }, note) : null,
