@@ -548,4 +548,6 @@ compared with the Omada factory default `admin`/`admin` in memory (`default_cred
 each managed device) and dropped. A masked password (`***`) leaves `default_credentials`
 unknown. The privilege of the Open API client is not read. A controller that refuses the users
 list (an Omada error such as a missing permission) gives an optional gap `accounts` instead of
-an empty list (#349); a missing endpoint still gives nothing.
+an empty list (#349); a missing endpoint still gives nothing. Verified in CI on controller 6.3: the
+users endpoint answers error -44118 ("only supports the authorization code mode") to the
+client-mode credentials Signalbox uses, so the gap is what a real controller reports today.
