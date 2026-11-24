@@ -69,7 +69,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             with demo_devices(services):
                 logging.getLogger("signalbox").warning(
-                    "demo mode: three simulated devices, the network is not used"
+                    "demo mode: simulated devices over two sites, the network is not used"
                 )
                 run()
         else:

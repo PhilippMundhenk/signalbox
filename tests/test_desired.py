@@ -22,7 +22,7 @@ def demo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Services, N
     import asyncio
 
     svc = build(tmp_path_factory.mktemp("d"), env={"SIGNALBOX_AUTH_PASSWORD": PW})
-    with demo_devices(svc):
+    with demo_devices(svc, compact=True):
         asyncio.run(svc.runner.observe_all())
         yield svc, svc.runner.network()
     svc.close()
@@ -221,7 +221,10 @@ def test_api_two_routers_import_and_save(tmp_path: Path, monkeypatch: pytest.Mon
 
     svc = build(tmp_path, env={"SIGNALBOX_AUTH_PASSWORD": PW})
     try:
-        with demo_devices(svc), TestClient(create_app(svc, run_background=False)) as c:
+        with (
+            demo_devices(svc, compact=True),
+            TestClient(create_app(svc, run_background=False)) as c,
+        ):
             c.post("/api/login", json={"password": PW})
             monkeypatch.setattr(svc.runner, "network", reported)
             text = c.post("/api/desired/import/home").json()["yaml"]
@@ -237,7 +240,10 @@ def test_api_and_runner(tmp_path: Path) -> None:
 
     svc = build(tmp_path, env={"SIGNALBOX_AUTH_PASSWORD": PW})
     try:
-        with demo_devices(svc), TestClient(create_app(svc, run_background=False)) as c:
+        with (
+            demo_devices(svc, compact=True),
+            TestClient(create_app(svc, run_background=False)) as c,
+        ):
             asyncio.run(svc.runner.observe_all())
             c.post("/api/login", json={"password": PW})
             assert c.get("/api/desired").json() == {
@@ -281,7 +287,10 @@ def test_plan_api(tmp_path: Path) -> None:
 
     svc = build(tmp_path, env={"SIGNALBOX_AUTH_PASSWORD": PW})
     try:
-        with demo_devices(svc), TestClient(create_app(svc, run_background=False)) as c:
+        with (
+            demo_devices(svc, compact=True),
+            TestClient(create_app(svc, run_background=False)) as c,
+        ):
             asyncio.run(svc.runner.observe_all())
             c.post("/api/login", json={"password": PW})
             assert c.post("/api/plan").json()["error"] == "no_desired_state"

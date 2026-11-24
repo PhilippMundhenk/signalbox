@@ -29,8 +29,8 @@ curl -fsS "$B/health" | python3 -c 'import json,sys; assert json.load(sys.stdin)
 test "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/devices")" = 401
 test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d '{"password":"wrong"}' "$B/api/login")" = 401
 curl -fsS -c "$JAR" -H 'Content-Type: application/json' -d "{\"password\":\"$PASS\"}" "$B/api/login" >/dev/null
-curl -fsS -b "$JAR" "$B/api/devices" | python3 -c 'import json,sys; assert len(json.load(sys.stdin))==3'
-curl -fsS -b "$JAR" -X POST "$B/api/devices/gateway/test" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["status"]=="ok", d'
+curl -fsS -b "$JAR" "$B/api/devices" | python3 -c 'import json,sys; assert len(json.load(sys.stdin))>=10'
+curl -fsS -b "$JAR" -X POST "$B/api/devices/gateway-a/test" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["status"]=="ok", d'
 for _ in $(seq 1 30); do
   n=$(curl -fsS -b "$JAR" "$B/api/findings" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')
   [ "$n" -gt 0 ] && break
