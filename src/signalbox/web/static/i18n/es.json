@@ -1432,6 +1432,7 @@
  "topology.noNetworks": "sin redes",
  "topology.noOverlay": "Sin superposición de VLAN",
  "topology.noPortClients": "No se ven clientes en este puerto.",
+ "topology.notCabled": "Sin cable",
  "topology.notMember": "no es miembro",
  "topology.notRead": "No se leyó por completo: ",
  "topology.oneEnd": "Un extremo",

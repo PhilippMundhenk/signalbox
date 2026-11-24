@@ -28,10 +28,14 @@ def cable(a: str, b: str, up: str | None = None, n: int = 0) -> dict[str, Any]:
     return {"id": f"{a}-{b}-{n}", "a": a, "b": b, "kind": "cable", "up": up}
 
 
-def run(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> dict[str, Any]:
+def run(
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    site_names: dict[str, str] | None = None,
+) -> dict[str, Any]:
     done = subprocess.run(
         [str(NODE), str(SCRIPT)],
-        input=json.dumps({"nodes": nodes, "edges": edges}),
+        input=json.dumps({"nodes": nodes, "edges": edges, "siteNames": site_names or {}}),
         capture_output=True,
         text=True,
         check=True,
@@ -149,3 +153,70 @@ def test_two_sites_side_by_side() -> None:
     xs = sorted(x for x, _y, _w, _h in out["boxes"])
     assert xs[0] < xs[1]
     assert out["ranks"] == {"a": 0, "b": 0, "s": 1}
+
+
+def two_sites() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Two sites with a tunnel between the gateways; site A has devices without any cable."""
+    nodes = [
+        {**dev("gw-a", "Gateway A", "gateway"), "site": "a"},
+        {**dev("sw-a", "Core switch", "switch"), "site": "a"},
+        {**dev("ap-a", "Hall AP", "ap"), "site": "a"},
+        {**dev("gw-b", "Gateway B", "gateway"), "site": "b"},
+    ]
+    for i, role in enumerate(["ap", "ap", "other", "other"]):
+        nodes.append({**dev(f"loose{i}", f"Loose {i}", role), "site": "a"})
+    edges = [
+        cable("gw-a", "sw-a"),
+        cable("sw-a", "ap-a"),
+        {"id": "wg", "a": "gw-a", "b": "gw-b", "kind": "vpn", "up": None},
+    ]
+    return nodes, edges
+
+
+def test_uncabled_devices_are_grouped_below_the_cabled_tree() -> None:
+    nodes, edges = two_sites()
+    out = run(nodes, edges, {"a": "Site A", "b": "Site B"})
+    boxes = out["nodes"]
+    cabled = ["gw-a", "sw-a", "ap-a"]
+    loose = [f"loose{i}" for i in range(4)]
+    assert out["uncabled"] == 4
+    # no uncabled device shares a row with a cabled one, and all are below the tree
+    tree_bottom = max(boxes[i]["y"] + boxes[i]["h"] for i in cabled)
+    assert all(boxes[i]["y"] > tree_bottom for i in loose)
+    # the cabled tree keeps one device per layer: its width does not grow with the loose ones
+    assert {out["ranks"][i] for i in cabled} == {0, 1, 2}
+    site_a = next(s for s in out["sites"] if s["id"] == "a")
+    assert site_a["strip"]["count"] == 4
+    for i in loose:  # strip devices stay inside the site frame
+        assert site_a["x"] <= boxes[i]["x"]
+        assert boxes[i]["x"] + boxes[i]["w"] <= site_a["x"] + site_a["w"]
+    # the frame is tight: no empty margin larger than the frame padding beside the content
+    content = [boxes[i] for i in cabled + loose]
+    left = min(b["x"] for b in content)
+    right = max(b["x"] + b["w"] for b in content)
+    assert left - site_a["x"] <= 20
+    assert site_a["x"] + site_a["w"] - right <= 20
+    assert run(nodes, edges)["uncabled"] == 4
+
+
+def test_gateway_without_cable_stays_in_the_tree() -> None:
+    nodes = [{**dev("gw", "Gateway", "gateway")}, dev("x", "Lonely AP", "ap")]
+    out = run(nodes, [])
+    assert out["ranks"]["gw"] == 0
+    assert out["uncabled"] == 1
+
+
+def test_vpn_arc_clears_the_site_titles() -> None:
+    nodes, edges = two_sites()
+    out = run(nodes, edges, {"a": "Site A", "b": "Site B"})
+    (arc,) = out["vpns"]
+    titles = {s["id"]: s["title"] for s in out["sites"]}
+    # the horizontal run is above every site frame and title
+    assert arc["y"] < out["frameY"]
+    assert all(arc["y"] < t["y"] for t in titles.values())
+    # the vertical legs run beside the titles of their own sites, not through them
+    for key, dev_id, site in (("ax", "gw-a", "a"), ("bx", "gw-b", "b")):
+        t = titles[site]
+        assert not t["x"] <= arc[key] <= t["x"] + t["w"], (key, arc[key], t)
+        box = out["nodes"][dev_id]
+        assert box["x"] <= arc[key] <= box["x"] + box["w"]
