@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from datetime import UTC, datetime
@@ -2527,6 +2528,31 @@ class Client(Observed):
     address_sources: dict[IPAddress, AddressSource] = Field(default_factory=dict)
 
 
+#: Names other protocols and tools use for an LLDP system capability, as they are in ``Neighbour``.
+_CAPABILITY_ALIASES = {
+    "wlan": "wlan-access-point",
+    "wlan-ap": "wlan-access-point",
+    "ap": "wlan-access-point",
+    "station-only": "station",
+    "docsis": "docsis-cable-device",
+    "tpmr": "two-port-mac-relay",
+    "cvlan": "c-vlan-component",
+    "svlan": "s-vlan-component",
+}
+
+
+def normalise_capabilities(values: Iterable[str]) -> list[str]:
+    """LLDP system capabilities (from lldpcli, RouterOS, ...) in the names ``Neighbour`` uses:
+    lower case, hyphenated, without duplicates, in the order given."""
+    out: list[str] = []
+    for value in values:
+        name = "-".join(str(value).strip().lower().replace("_", " ").split())
+        name = _CAPABILITY_ALIASES.get(name, name)
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
 class Neighbour(Observed):
     """A device seen on a port by LLDP (or a similar protocol)."""
 
@@ -2535,6 +2561,12 @@ class Neighbour(Observed):
     remote_port: str | None = None
     system_name: str | None = None
     management_address: str | None = None
+    #: What the neighbour announces itself as (LLDP system capabilities, enabled ones, #113):
+    #: ``bridge``, ``router``, ``wlan-access-point``, ``telephone``, ``station``, ``other`` and the
+    #: rarer ``repeater``, ``docsis-cable-device``, ... Empty when the device did not say.
+    capabilities: list[str] = Field(default_factory=list)
+    #: The neighbour's system description (LLDP), for example ``OpenWrt 24.10 Linux 6.6``.
+    description: str | None = None
     #: A wireless link (a mesh uplink between two access points, #336): the topology draws it
     #: as a ``wireless`` link between the two wireless ports.
     wireless: bool = False

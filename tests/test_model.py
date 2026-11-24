@@ -205,3 +205,18 @@ def test_dns_forwarder_parses_addresses_with_ports() -> None:
     for bad in ("[2001:db8::1", "[2001:db8::1]x", "192.0.2.1:x", "192.0.2.1:0", "nas:53"):
         with pytest.raises(ValidationError):
             DnsForwarder.model_validate(bad)
+
+
+def test_normalise_capabilities() -> None:
+    from signalbox.model import Neighbour, normalise_capabilities
+
+    assert normalise_capabilities(
+        ["Bridge", " wlan-ap ", "Router", "bridge", "", "Station-Only"]
+    ) == [
+        "bridge",
+        "wlan-access-point",
+        "router",
+        "station",
+    ]
+    assert normalise_capabilities(["Docsis", "Two port"]) == ["docsis-cable-device", "two-port"]
+    assert Neighbour(id="n", local_port_id="p", chassis_id="c").capabilities == []

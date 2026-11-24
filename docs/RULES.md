@@ -206,6 +206,7 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`lag.consistent`](rules/topology_checks.md#lagconsistent)
 - [`topology.hidden-device`](rules/topology_checks.md#topologyhidden-device)
 - [`inventory.unknown-neighbour`](rules/topology_checks.md#inventoryunknown-neighbour)
+- [`inventory.unknown-network-device`](rules/topology_checks.md#inventoryunknown-network-device)
 - [`vlan.management-separate`](rules/topology_checks.md#vlanmanagement-separate)
 - [`inventory.duplicate-device`](rules/topology_checks.md#inventoryduplicate-device)
 - [`redundancy.single-point`](rules/topology_checks.md#redundancysingle-point)

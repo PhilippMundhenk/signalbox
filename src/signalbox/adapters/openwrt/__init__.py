@@ -120,6 +120,7 @@ from signalbox.model import (
     Wlan,
     Wps,
     WpsMethod,
+    normalise_capabilities,
     normalise_mac,
     object_id,
     passphrase_digest,
@@ -2255,6 +2256,8 @@ class OpenWrtAdapter(Adapter):
                         remote_port=_first(port.get("id")),
                         system_name=_first(chassis.get("name")),
                         management_address=_first(chassis.get("mgmt-ip")),
+                        capabilities=_capabilities(chassis.get("capability")),
+                        description=_first(chassis.get("descr")),
                     )
                 )
         return Observation(neighbours=neighbours)
@@ -2275,6 +2278,18 @@ class OpenWrtAdapter(Adapter):
             fix_id=fix_id,
         )
         return Observation(incomplete=[gap])
+
+
+def _capabilities(values: Any) -> list[str]:
+    """The enabled ``capability`` entries of lldpcli ``-f json0`` (``{"type": "Bridge",
+    "enabled": true}``); a lone object instead of a list is accepted too."""
+    if isinstance(values, dict):
+        values = [values]
+    if not isinstance(values, list):
+        return []
+    return normalise_capabilities(
+        str(v["type"]) for v in values if isinstance(v, dict) and v.get("enabled") and v.get("type")
+    )
 
 
 def _first(values: Any) -> str | None:

@@ -36,12 +36,30 @@
 - **Severity:** info
 - **Checks:** a device announced by LLDP (or a similar protocol) with a management address whose
   chassis MAC, system name and management address match no device in Signalbox. One finding per
-  announced device, listing the ports that see it. LLDP capabilities are not read yet, so phones
-  or computers that send LLDP with an address are reported as well. A device whose MAC address
+  announced device, listing the ports that see it. Only for neighbours that announce no system
+  capabilities and no description (then Signalbox cannot tell a switch from a phone, so such
+  neighbours with an address are reported); a neighbour that does is judged by
+  `inventory.unknown-network-device`. A device whose MAC address
   is annotated as a known neighbour (`known_neighbour`) is not reported, nor is one that a
   device reports as its own address in its MAC address table.
 - **Fix:** add the device under *Devices* if it is a router, switch or access point; otherwise
   ignore the finding.
+
+## `inventory.unknown-network-device`
+
+- **Severity:** warning
+- **Checks:** a neighbour seen by LLDP, MNDP or CDP that announces itself as a bridge (switch),
+  router or WLAN access point (the enabled LLDP system capabilities, `Neighbour.capabilities`),
+  or, when it announces no capabilities, whose system description names network equipment
+  (switch, router, access point, RouterOS, OpenWrt, ...), and whose chassis MAC, management
+  address and system name match no device, port MAC, own address of a device or subnet address
+  in Signalbox. One finding per announced device, listing the ports that see it. **Stays
+  quiet** for phones and stations (capability `telephone` or `station` without a network
+  capability), neighbours with other or no capabilities and no gear description, and a MAC
+  address annotated as `known_neighbour`.
+- **Fix:** add the device under *Devices*; when its address is known, *Find devices* on that
+  page can look for it there. Read from OpenWrt (lldpd), MikroTik (`/ip/neighbor`
+  `system-caps-enabled`, `system-description`).
 
 ## `vlan.management-separate`
 

@@ -462,6 +462,20 @@ async def test_neighbours(adapter: OpenWrtAdapter) -> None:
         "port 8",
         "192.0.2.3",
     )
+    # only the enabled system capabilities (#113)
+    assert nb.capabilities == ["bridge", "router"]
+    assert nb.description == "MikroTik RouterOS 7.15.3 CRS326-24G-2S+"
+
+
+def test_lldp_capabilities_shapes() -> None:
+    from signalbox.adapters.openwrt import _capabilities
+
+    assert _capabilities({"type": "Wlan", "enabled": True}) == ["wlan-access-point"]
+    assert _capabilities([{"type": "Telephone", "enabled": True}, "x", {"enabled": True}]) == [
+        "telephone"
+    ]
+    assert _capabilities([{"type": "Bridge", "enabled": False}]) == []
+    assert _capabilities(None) == [] and _capabilities("bridge") == []
 
 
 async def test_session_expiry_logs_in_again(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:

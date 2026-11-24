@@ -3473,9 +3473,28 @@
       "additionalProperties": false,
       "description": "A device seen on a port by LLDP (or a similar protocol).",
       "properties": {
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
         "chassis_id": {
           "title": "Chassis Id",
           "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
         },
         "id": {
           "title": "Id",
