@@ -1316,6 +1316,16 @@
       "title": "DeviceTime",
       "type": "object"
     },
+    "DfsState": {
+      "description": "Radar detection state of a radio on a DFS channel (#172).",
+      "enum": [
+        "available",
+        "cac",
+        "radar-detected"
+      ],
+      "title": "DfsState",
+      "type": "string"
+    },
     "DhcpBoot": {
       "additionalProperties": false,
       "description": "Network boot (PXE): ``next-server`` / ``siaddr``, option 66 and 67.",
@@ -4530,9 +4540,34 @@
     },
     "Radio": {
       "additionalProperties": false,
+      "description": "A radio of an access point. The capability and current-state fields (#172) are None\nwhere the device does not report them; a check needing them stays quiet then.",
       "properties": {
+        "antennas": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Antennas"
+        },
         "band": {
           "$ref": "#/$defs/Band"
+        },
+        "center_channel": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Center Channel"
         },
         "channel": {
           "anyOf": [
@@ -4545,6 +4580,45 @@
           ],
           "default": null,
           "title": "Channel"
+        },
+        "channel_auto": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel Auto"
+        },
+        "channel_utilisation_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel Utilisation Pct"
+        },
+        "client_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Count"
         },
         "country": {
           "anyOf": [
@@ -4562,6 +4636,29 @@
           "title": "Device Id",
           "type": "string"
         },
+        "dfs_capable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dfs Capable"
+        },
+        "dfs_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DfsState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "enabled": {
           "default": true,
           "title": "Enabled",
@@ -4571,9 +4668,72 @@
           "title": "Id",
           "type": "string"
         },
+        "interference_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interference Pct"
+        },
+        "last_radar": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Radar"
+        },
+        "max_tx_power_dbm": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tx Power Dbm"
+        },
+        "mlo": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mlo"
+        },
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "noise_dbm": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Noise Dbm"
         },
         "observed_at": {
           "anyOf": [
@@ -4588,6 +4748,18 @@
           "default": null,
           "title": "Observed At"
         },
+        "secondary_channel": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secondary Channel"
+        },
         "source": {
           "anyOf": [
             {
@@ -4598,6 +4770,47 @@
             }
           ],
           "default": null
+        },
+        "standard": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WifiStandard"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "standards": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/WifiStandard"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Standards"
+        },
+        "supported_channels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Supported Channels"
         },
         "supported_security": {
           "anyOf": [
@@ -4613,6 +4826,21 @@
           ],
           "default": null,
           "title": "Supported Security"
+        },
+        "supported_widths_mhz": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Supported Widths Mhz"
         },
         "tx_power_dbm": {
           "anyOf": [
@@ -6494,6 +6722,20 @@
       ],
       "title": "UpsStatus",
       "type": "object"
+    },
+    "WifiStandard": {
+      "description": "An IEEE 802.11 generation (#172); ``a`` is the 5 GHz counterpart of ``g``.",
+      "enum": [
+        "b",
+        "a",
+        "g",
+        "n",
+        "ac",
+        "ax",
+        "be"
+      ],
+      "title": "WifiStandard",
+      "type": "string"
     },
     "Wlan": {
       "additionalProperties": false,

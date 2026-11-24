@@ -683,3 +683,28 @@ async def test_rpcd_logins_and_the_root_probe(ow: Target, pin: str) -> None:
     assert snap.device.default_credentials is False
     text = snap.model_dump_json()
     assert "$1$" not in text and "$p$" not in text
+
+
+async def test_radio_state_acl_on_a_device_without_radios(ow: Target, pin: str) -> None:
+    """#172: the QEMU image has no radios, so the wireless read makes no ``iwinfo`` or
+    ``hostapd`` call and reports no radio-state gap. The read-only ACL of the guide allows
+    ``iwinfo info``: the call is not refused (an unknown device is an error of iwinfo, or the
+    object is missing where rpcd-mod-iwinfo is not installed)."""
+    from signalbox.adapters import AdapterError
+
+    adapter = OpenWrtAdapter(context(ow, pin))
+    try:
+        snap = await adapter.observe()
+        try:
+            await adapter.ubus.call("iwinfo", "info", {"device": "signalbox-none"})
+        except AccessDenied:
+            raise
+        except AdapterError:
+            pass  # not refused: iwinfo's own answer to an unknown device, or no such object
+    finally:
+        await adapter.close()
+    assert snap.status is DeviceStatus.OK, snap.errors
+    assert not [
+        e for e in snap.errors if e.message_id in ("openwrt.radioState", "openwrt.noIwinfo")
+    ]
+    assert all(r.standards is None and r.channel_utilisation_pct is None for r in snap.radios)

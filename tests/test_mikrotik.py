@@ -40,6 +40,8 @@ from signalbox.adapters.mikrotik import (
     ROUTERBOARD,
     VLAN,
     WIFI,
+    WIFI_RADIO,
+    WIFI_REGISTRATION,
     MikrotikAdapter,
     MikrotikConfig,
     _int,
@@ -47,6 +49,7 @@ from signalbox.adapters.mikrotik import (
     advertised,
     band_of,
     bridge_port_details,
+    channels_of,
     cipher_of,
     ciphers_of,
     clock_date,
@@ -58,6 +61,8 @@ from signalbox.adapters.mikrotik import (
     mtu_of,
     security_of,
     speed,
+    standard_of,
+    standards_of,
     time_of,
     vlan_ids,
     width_of,
@@ -81,6 +86,7 @@ from signalbox.model import (
     SaePwe,
     Security,
     Snapshot,
+    WifiStandard,
     WpsMethod,
     passphrase_digest,
     passphrase_fingerprint,
@@ -1429,3 +1435,76 @@ def test_user_privilege_and_login_time() -> None:
     assert user_privilege(["api", "!read"]) is AccountPrivilege.OTHER
     assert login_time("") is None and login_time("2026-13-01 00:00:00") is None
     assert login_time("2026-11-01 25:00") is None
+
+
+# radio capabilities and state (#172) ----------------------------------------------------------
+
+
+async def test_wifi_radio_capabilities_and_clients(http_url: str) -> None:
+    snap = await observe(adapter(http_url))
+    radios = {r.name: r for r in snap.radios}
+    w1, w2 = radios["wifi1"], radios["wifi2"]
+    assert (w1.standard, w1.channel_auto, w1.client_count) == (WifiStandard.AX, False, 1)
+    assert w1.standards == [WifiStandard.G, WifiStandard.N, WifiStandard.AX]
+    assert w1.supported_channels == list(range(1, 14)) and w1.antennas == "2x2"
+    assert w1.dfs_capable is None
+    assert (w2.standard, w2.channel_auto, w2.client_count) == (WifiStandard.AX, True, 0)
+    assert w2.antennas == "4x4" and w2.dfs_capable is True
+    assert w2.standards == [WifiStandard.A, WifiStandard.N, WifiStandard.AC, WifiStandard.AX]
+    assert 149 not in (w2.supported_channels or [])
+
+
+async def test_wifi_radio_menu_missing_or_refused(http_url: str, sim: MikrotikSimulator) -> None:
+    sim.fail = {WIFI_RADIO: 403}
+    snap = await observe(adapter(http_url))
+    assert snap.status is DeviceStatus.OK, snap.errors  # only detail: not an error
+    w1 = next(r for r in snap.radios if r.name == "wifi1")
+    assert w1.standards is None and w1.client_count == 1 and w1.standard is WifiStandard.AX
+    sim.fail = {WIFI_REGISTRATION: 403}  # the clients read reports it
+    snap = await observe(adapter(http_url))
+    assert next(r for r in snap.radios if r.name == "wifi1").client_count is None
+    del sim.data[WIFI_RADIO]
+    sim.fail = {}
+    snap = await observe(adapter(http_url))
+    assert next(r for r in snap.radios if r.name == "wifi1").standards is None
+
+
+async def test_wifi_radio_matched_by_mac(http_url: str, sim: MikrotikSimulator) -> None:
+    rows = sim.data[WIFI_RADIO]
+    for row in rows:
+        row.pop("interface")
+    rows.append({"radio-mac": "02:00:00:00:00:99", "bands": "5ghz-ax"})  # no such interface
+    snap = await observe(adapter(http_url))
+    w2 = next(r for r in snap.radios if r.name == "wifi2")
+    assert w2.antennas == "4x4"
+
+
+async def test_legacy_wireless_radio_state(http_url: str, sim: MikrotikSimulator) -> None:
+    sim.wireless = "legacy"
+    snap = await observe(adapter(http_url))
+    radios = {r.name: r for r in snap.radios}
+    assert (radios["wlan1"].standard, radios["wlan1"].channel_auto) == (WifiStandard.N, False)
+    assert (radios["wlan2"].standard, radios["wlan2"].channel_auto) == (WifiStandard.AC, True)
+    assert (radios["wlan1"].client_count, radios["wlan2"].client_count) == (1, 0)
+    assert radios["wlan1"].standards is None  # the legacy package has no radio menu
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("2ghz-ax", [WifiStandard.AX]),
+        ("5ghz-a/n/ac", [WifiStandard.A, WifiStandard.N, WifiStandard.AC]),
+        ("2ghz-onlyn", [WifiStandard.N]),
+        ("2ghz-g,2ghz-n,2ghz-ax", [WifiStandard.G, WifiStandard.N, WifiStandard.AX]),
+        ("", []),
+        ("5ghz", []),
+    ],
+)
+def test_standards_of(text: str, expected: list[WifiStandard]) -> None:
+    assert standards_of(text) == expected
+    assert standard_of(text) == (expected[-1] if expected else None)
+
+
+def test_channels_of() -> None:
+    assert channels_of("2412,5180,x", Band.GHZ_2_4) == [1]
+    assert channels_of("", Band.GHZ_5) is None

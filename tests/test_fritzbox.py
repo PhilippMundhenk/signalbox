@@ -38,6 +38,7 @@ from signalbox.model import (
     LeaseState,
     NtpClient,
     Security,
+    WifiStandard,
     Wps,
     WpsMethod,
     passphrase_digest,
@@ -886,3 +887,30 @@ def test_user_list_and_rights_parsing() -> None:
     assert box_rights("<rights><path>BoxAdmin</path><access>ReadWrite</access></rights>") is (
         AccountPrivilege.ADMIN
     )
+
+
+# radio capabilities and state (#172) ----------------------------------------------------------
+
+
+async def test_radio_channels_standard_and_clients(adapter: FritzboxAdapter) -> None:
+    obs = await adapter.read_wireless()
+    radios = {r.id: r for r in obs.radios}
+    r1, r2 = radios["fb/radio/1"], radios["fb/radio/2"]
+    assert (r1.standard, r1.channel_auto, r1.dfs_capable) == (WifiStandard.AX, True, None)
+    assert r1.supported_channels == list(range(1, 14))
+    assert r2.dfs_capable is True and 149 not in (r2.supported_channels or [])
+    # the guest WLAN shares the 2.4 GHz radio: its stations count there
+    stations = fritz_sim.STATIONS
+    assert r1.client_count == len(stations[1]) + len(stations[3])
+    assert r2.client_count == len(stations[2])
+
+
+async def test_radio_details_refused(sim: FritzboxSim, adapter: FritzboxAdapter) -> None:
+    sim.faults = {"GetChannelInfo": 401, "GetTotalAssociations": 606}
+    try:
+        obs = await adapter.read_wireless()
+    finally:
+        sim.faults = {}
+    r1 = next(r for r in obs.radios if r.id == "fb/radio/1")
+    assert r1.supported_channels is None and r1.channel_auto is None
+    assert r1.client_count is None and r1.standard is WifiStandard.AX

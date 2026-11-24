@@ -78,6 +78,7 @@ from signalbox.factory_defaults import is_factory_default
 from signalbox.model import (
     LOG_PORTS,
     SERVICE_PORTS,
+    STANDARD_RANK,
     TYPED_OPTION_CODES,
     WIREGUARD_KEY,
     AccountPrivilege,
@@ -146,6 +147,7 @@ from signalbox.model import (
     TunnelPeer,
     Uplink,
     UplinkKind,
+    WifiStandard,
     Wlan,
     Wps,
     WpsMethod,
@@ -200,6 +202,7 @@ WIFI_CHANNEL = "/rest/interface/wifi/channel"
 WIFI_DATAPATH = "/rest/interface/wifi/datapath"
 WIFI_STEERING = "/rest/interface/wifi/steering"
 WIFI_REGISTRATION = "/rest/interface/wifi/registration-table"
+WIFI_RADIO = "/rest/interface/wifi/radio"
 WIRELESS = "/rest/interface/wireless"
 WIRELESS_SECURITY = "/rest/interface/wireless/security-profiles"
 WIRELESS_REGISTRATION = "/rest/interface/wireless/registration-table"
@@ -578,6 +581,40 @@ def frequency_channel(mhz: int) -> tuple[Band, int] | None:
     if 5000 <= mhz < 5950:
         return Band.GHZ_5, (mhz - 5000) // 5
     return None
+
+
+_STANDARD_WORDS = {s.value: s for s in WifiStandard} | {"onlyn": WifiStandard.N}
+_STANDARD_WORDS |= {"onlyac": WifiStandard.AC, "onlyg": WifiStandard.G}
+
+
+def standards_of(text: Any) -> list[WifiStandard]:
+    """The standards a band text names: ``2ghz-ax`` -> [ax], ``5ghz-a/n/ac`` -> [a, n, ac],
+    ``2ghz-g,2ghz-n,2ghz-ax`` -> [g, n, ax] (#172)."""
+    found: set[WifiStandard] = set()
+    for part in _names(text):
+        words = part.lower().split("-", 1)[1] if "-" in part else ""
+        for word in words.replace("/", " ").split():
+            if word in _STANDARD_WORDS:
+                found.add(_STANDARD_WORDS[word])
+    return sorted(found, key=lambda x: STANDARD_RANK[x])
+
+
+def standard_of(text: Any) -> WifiStandard | None:
+    """The newest standard of a configured band (``2ghz-b/g/n`` -> n)."""
+    found = standards_of(text)
+    return found[-1] if found else None
+
+
+def channels_of(text: Any, band: Band) -> list[int] | None:
+    """``2g-channels``/``5g-channels`` of ``/interface/wifi/radio`` (MHz list) -> channels."""
+    out = sorted(
+        {
+            fc[1]
+            for f in _names(text)
+            if (mhz := _int(f)) and (fc := frequency_channel(mhz)) and fc[0] is band
+        }
+    )
+    return out or None
 
 
 def band_of(text: Any) -> Band | None:
@@ -1984,12 +2021,17 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 country=_text(prop(row, "configuration", "country")) or None,
                 enabled=_active(row),
                 supported_security=list(_WIFI_MODES),
+                standard=standard_of(prop(row, "channel", "band")),
+                channel_auto=len(freqs) != 1,
                 vendor_extra={
                     k: _text(v)
                     for k in ("band", "frequency", "width")
                     if _text(v := prop(row, "channel", k))
                 },
             )
+        masters = {n: _text(r.get("master-interface")) or n for n, r in by_name.items()}
+        await self._client_counts(radios, masters, WIFI_REGISTRATION)
+        await self._wifi_capabilities(radios, by_name)
         wlans = []
         for name, row in by_name.items():
             master = _text(row.get("master-interface")) or name
@@ -2042,6 +2084,53 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             )
         return Observation(radios=list(radios.values()), wlans=wlans)
 
+    async def _client_counts(
+        self, radios: dict[str, Radio], masters: dict[str, str], endpoint: str
+    ) -> None:
+        """``client_count`` of every radio from the registration table (#172): the stations
+        of its interfaces and their virtual ones. Not readable: not reported."""
+        table = await self._readable(endpoint)
+        if table is None:
+            return
+        counts = dict.fromkeys(radios, 0)
+        for row in table:
+            radio = masters.get(_text(row.get("interface")))
+            if radio in counts:
+                counts[radio] += 1
+        for name, count in counts.items():
+            radios[name] = radios[name].model_copy(update={"client_count": count})
+
+    async def _wifi_capabilities(
+        self, radios: dict[str, Radio], by_name: dict[str, dict[str, Any]]
+    ) -> None:
+        """What each radio supports, from ``/interface/wifi/radio`` (#172): ``bands``,
+        ``2g-channels``/``5g-channels``, ``tx-chains``/``rx-chains``; matched by ``interface``
+        or by the radio's MAC address *(guess: field names)*. Missing or refused: unreported."""
+        table = await self._readable(WIFI_RADIO)
+        if not table:
+            return
+        by_mac = {_text(r.get("mac-address")).lower(): n for n, r in by_name.items()}
+        for row in table:
+            name = _text(row.get("interface")) or by_mac.get(_text(row.get("radio-mac")).lower())
+            radio = radios.get(name or "")
+            if radio is None:
+                continue
+            key = {Band.GHZ_2_4: "2g-channels", Band.GHZ_5: "5g-channels"}.get(radio.band, "")
+            prefix = {Band.GHZ_2_4: "2ghz", Band.GHZ_5: "5ghz", Band.GHZ_6: "6ghz"}[radio.band]
+            bands = [b for b in _names(row.get("bands")) if b.lower().startswith(prefix)]
+            channels = channels_of(row.get(key), radio.band) if key else None
+            tx, rx = _names(row.get("tx-chains")), _names(row.get("rx-chains"))
+            update: dict[str, Any] = {
+                "standards": standards_of(",".join(bands)) or None,
+                "supported_channels": channels,
+                "antennas": f"{len(tx)}x{len(rx)}" if tx and rx else None,
+            }
+            if radio.band is Band.GHZ_5 and channels is not None:
+                update["dfs_capable"] = any(52 <= c <= 144 for c in channels)
+            radios[radio.name] = radio.model_copy(
+                update={k: v for k, v in update.items() if v is not None}
+            )
+
     async def _wireless(self, layout: _Layout, rows: list[dict[str, Any]]) -> Observation:
         dev = self.context.device_id
         profiles = {_text(r.get("name")): r for r in await self._optional_rows(WIRELESS_SECURITY)}
@@ -2066,8 +2155,15 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 country=_text(row.get("country")) or None,
                 enabled=_active(row),
                 supported_security=list(_WIRELESS_MODES),
+                standard=standard_of(row.get("band")),
+                channel_auto=_text(row.get("frequency")) in ("", "auto"),
                 vendor_extra=_extra(row, "band", "frequency", "channel-width"),
             )
+        masters = {
+            _text(r.get("name")): _text(r.get("master-interface")) or _text(r.get("name"))
+            for r in rows
+        }
+        await self._client_counts(radios, masters, WIRELESS_REGISTRATION)
         wlans = []
         for row in rows:
             name = _text(row.get("name"))

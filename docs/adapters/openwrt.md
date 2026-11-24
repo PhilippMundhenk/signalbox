@@ -301,6 +301,41 @@ through rpcd with "invalid argument". Signalbox then calls `luci-rpc getWireless
   package leaves it unreported, which is not an error. WEP is never listed (current hostapd
   builds have no WEP).
 
+### Radio capabilities and state: `iwinfo` and `hostapd.<ifname> get_status` (#172)
+
+For every running radio, with its first interface from `network.wireless status`
+(`{"device": "phy0-ap0"}`), from rpcd-mod-iwinfo:
+
+```json
+{"hwmodes": ["b", "g", "n", "ax"], "htmodes": ["HT20", "HT40", "HE20", "HE40"],
+ "channel": 6, "center_chan1": 6, "frequency": 2437, "noise": -92, "txpower": 20}
+```
+
+- `iwinfo info`: `standards` from `hwmodes` (only those of the radio's band, a dual-band phy
+  lists both), `supported_widths_mhz` from `htmodes`, `noise_dbm` from `noise` (0: not
+  reported), `center_channel` from `center_chan1` when it differs from the channel.
+- `iwinfo freqlist` (`{"results": [{"channel": 36, "mhz": 5180, ...}]}`):
+  `supported_channels` (the channels of the radio's band the country code allows),
+  `dfs_capable` (5 GHz: any of 52-144 listed).
+- `iwinfo txpowerlist` (`{"results": [{"dbm": 20, "mw": 100}]}`): `max_tx_power_dbm`.
+- `iwinfo survey` (`{"results": [{"mhz": 2437, "noise": -92, "active_time": …,
+  "busy_time": …, "rx_time": …, "tx_time": …}]}`): for the radio's frequency,
+  `channel_utilisation_pct` = busy of active time and `interference_pct` = busy time neither
+  received nor sent by the radio; the counters run since the driver started, so these are
+  averages *(guess: survey on ubus, its field names; not every driver fills it)*.
+- `hostapd.<ifname> get_status`: `dfs_state` on a radar channel (`dfs.cac_active` true:
+  `cac`, else `available`) and, without a survey, `channel_utilisation_pct` from
+  `airtime.utilization` (0-255) *(guess: field names)*. Radar events are ubus events, not
+  part of the status: `last_radar` and `radar-detected` are not read.
+- `client_count`: the stations of `hostapd.<ifname> get_clients` of all the radio's
+  interfaces.
+- From UCI: `standard` from `htmode` (`EHT*` be, `HE*` ax, `VHT*` ac, `HT*` n, `NOHT` a or g
+  by band), `channel_auto` from `channel auto` (or no channel).
+
+An ACL from before #172 (no `iwinfo`, no `hostapd get_status`) or a missing rpcd-mod-iwinfo
+is an optional gap (*radio state*): everything else is read, the fields stay unreported. Not
+read: `antennas`, `mlo`. A device without radios (the CI VMs) makes no such call.
+
 ### `uci get {"config": "dhcp"}` (dnsmasq)
 
 ```json
@@ -500,7 +535,8 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "network.interface": ["dump"],
         "network.wireless": ["status"],
         "uci": ["get"],
-        "hostapd.*": ["get_clients"],
+        "hostapd.*": ["get_clients", "get_status"],
+        "iwinfo": ["info", "freqlist", "txpowerlist", "survey"],
         "luci-rpc": ["getDHCPLeases", "getWirelessDevices", "getNetworkDevices"],
         "luci": ["getFeatures"],
         "rpc-sys": ["packagelist"],
@@ -606,7 +642,8 @@ only allows the `uci` methods of a transaction on the four configs it changes:
         "network.interface": ["dump"],
         "network.wireless": ["status"],
         "uci": ["get"],
-        "hostapd.*": ["get_clients"],
+        "hostapd.*": ["get_clients", "get_status"],
+        "iwinfo": ["info", "freqlist", "txpowerlist", "survey"],
         "luci-rpc": ["getDHCPLeases", "getWirelessDevices", "getNetworkDevices"],
         "luci": ["getFeatures"],
         "rpc-sys": ["packagelist"],

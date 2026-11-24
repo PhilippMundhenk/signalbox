@@ -46,16 +46,18 @@ not report (automatic channel, width or power).
 - **Checks:** channel widths fit the band and the number of access points. Radios with an
   unknown width are skipped.
 - **Fix:** use 20 MHz on 2.4 GHz; 80 MHz on 5 GHz (160 MHz or less on 6 GHz) with several
-  access points.
+  access points. Where the radio reports its widths (#172) and cannot use 80 (160) MHz, the
+  widest narrower width it supports is suggested; with none, nothing is reported.
 
 ## `wifi.24-channel-plan`
 
 - **Severity:** info
 - **Checks:** a 2.4 GHz radio uses channel 1, 6 or 11. Where the country code allows channel 13
   (any reported code except US and CA), 5, 9 and 13 of the plan 1, 5, 9, 13 are accepted too.
-  Radios on automatic channel selection are skipped. `wifi.channel-overlap` compares your own
-  access points; this rule is about the neighbours.
-- **Fix:** use channel 1, 6 or 11.
+  Radios on automatic channel selection (where reported, #172) are skipped.
+  `wifi.channel-overlap` compares your own access points; this rule is about the neighbours.
+- **Fix:** use channel 1, 6 or 11; where the radio reports its channels (#172), only those of
+  1, 6 and 11 it can use (none: nothing is reported).
 
 ## `wifi.dfs`
 
@@ -64,7 +66,9 @@ not report (automatic channel, width or power).
   them (for example 36 at 160 MHz occupies 36-64). The access point then waits up to ten minutes
   for radar after a start and leaves the channel when it detects one. Turn the rule off if you
   use DFS on purpose.
-- **Fix:** if clients lose Wi-Fi now and then, try channels 36-48 or 149-165.
+- **Fix:** if clients lose Wi-Fi now and then, try channels 36-48 or 149-165; where the radio
+  reports its channels (#172), the channels outside 52-144 it supports (for example only 36-48
+  with a European country code), or a note that it has none.
 
 ## `wifi.tx-power`
 

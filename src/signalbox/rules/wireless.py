@@ -150,13 +150,43 @@ def _base(band: Band, channel: int) -> int:
 
 
 def _occupied(radio: Radio) -> set[int]:
-    """The 20 MHz channels (by number) a 5 or 6 GHz radio occupies."""
+    """The 20 MHz channels (by number) a 5 or 6 GHz radio occupies: around the reported centre
+    channel (#172) where it fits the channel and width, else the aligned block of the width."""
     assert radio.channel is not None
     width = radio.width_mhz if radio.width_mhz and radio.width_mhz >= 20 else 20
     n = width // 20
+    centre = radio.center_channel
+    if centre is not None and n > 1:
+        span = {centre - 2 * (n - 1) + 4 * k for k in range(n)}
+        if radio.channel in span:
+            return span
     base = _base(radio.band, radio.channel)
     block = (radio.channel - base) // (4 * n)
     return {base + 4 * (block * n + k) for k in range(n)}
+
+
+#: 5 GHz channels with radar detection (DFS).
+DFS = range(52, 145)
+
+
+def channel_ranges(channels: list[int], band: Band) -> str:
+    """``36-48, 149-165``: runs of neighbouring channels (4 apart on 5 and 6 GHz)."""
+    step = 1 if band is Band.GHZ_2_4 else 4
+    runs: list[list[int]] = []
+    for c in sorted(set(channels)):
+        if runs and c - runs[-1][-1] == step:
+            runs[-1].append(c)
+        else:
+            runs.append([c])
+    return ", ".join(str(r[0]) if len(r) == 1 else f"{r[0]}-{r[-1]}" for r in runs)
+
+
+def quiet_channels(radio: Radio) -> list[int] | None:
+    """The 5 GHz channels without radar detection this radio supports (#172); None when it did
+    not report its channels."""
+    if radio.supported_channels is None:
+        return None
+    return sorted(c for c in radio.supported_channels if c not in DFS)
 
 
 def _overlap(a: Radio, b: Radio) -> bool:

@@ -101,7 +101,7 @@ carries its source (adapter and device), the time it was observed and a stable i
 | DnsService | Resolver with its port (several per device), host overrides, forwarders (address and port), split-DNS domains |
 | Tunnel | A VPN interface of a device (`wireguard`): name, description, port, up, enabled, listen port, own public key, addresses, MTU; peers with public key, name, endpoint, allowed IPs, last handshake, transfer counters, keepalive, whether a pre-shared key is set. Never a private or pre-shared key ([ADR 0011](adr/0011-vpn-tunnels-and-site-links.md)) |
 | Wlan | SSID, security (open, OWE, WEP, WPA/WPA2/WPA3 Personal and Enterprise incl. mixed and 192-bit modes; PMF), passphrase fingerprint and SSID-independent digest, segment, bands, hidden, roaming (802.11r/k/v), purpose and its source, client isolation; security details: pairwise and group ciphers, SAE (PWE, SAE-PK, anti-clogging), WPS (on, methods, AP PIN lock), group rekey interval, beacon protection |
-| Radio | Band, channel, width, transmit power, country code, security modes the hardware and firmware can offer |
+| Radio | Band, channel, width, transmit power, country code, security modes the hardware and firmware can offer; capabilities (standards, channels, widths, maximum power, antennas, DFS, MLO) and the state at the last read (configured standard, automatic channel, centre channel, channel utilisation, interference, noise, clients, DFS state, last radar) (#172) |
 | Firewall | One per device (#135, [ADR 0013](adr/0013-firewall-zones-rules-and-reachability.md)): enabled, zones (segments, uplinks, tunnels, ports in them), default action per zone pair and per chain, ordered filter rules (chain, family, protocols, source and destination zones / networks / ports with negation, action, forwarded-only, exact), source NAT, port forwards (external ports → target address and port, passes the filter, reflection), whether rules and forwards were read completely; reachability derived |
 | Client | MAC, IP, hostname, segment, where it was seen (port or access point), last seen, source per address (`dhcp`, `dhcp-reserved`, `static`, `slaac`, `slaac-privacy`, `dhcpv6`, `link-local`, `unknown`) |
 | Firmware | Current, available, end of life |
@@ -138,6 +138,15 @@ rekey interval (0: never), `beacon_protection` the BIGTK flag. `Radio.supported_
 what the radio could offer (an OpenWrt build with `wpad-basic` has no SAE), so a rule can say
 "WPA3 is possible here" and a plan that asks for a mode the radio cannot do can be refused.
 WLANs and radios belong to one snapshot each, so the merge passes the fields through.
+
+Radio capabilities and current state (#172) follow the same pattern: optional fields on
+`Radio`, read with `wireless`, `None` where not reported. Capabilities (`standards`,
+`supported_channels` with the current country code, `supported_widths_mhz`,
+`max_tx_power_dbm`, `antennas`, `dfs_capable`, `mlo`) let checks suggest only what the
+hardware can do; the state (`standard`, `channel_auto`, `center_channel`,
+`channel_utilisation_pct`, `interference_pct`, `noise_dbm`, `client_count`, `dfs_state`,
+`last_radar`) is a snapshot of the last read, so rules on it say "at the last read" and
+stay informational; trends need the observation history. Radios are not declarable yet.
 
 Passphrases are never stored. `passphrase_fingerprint(ssid, passphrase)` (PBKDF2 salted with
 the SSID, the WPA PMK, hashed again) compares one SSID across access points, but never two

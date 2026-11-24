@@ -260,7 +260,15 @@ Keys `radioSetting2g`, `radioSetting5g`, `radioSetting5g1` and `radioSetting5g2`
 `radioSetting6g`. `channelWidth` is a code: 2 = 20, 3 = 40, 5 = 80, 7 = 160, 10 = 320 MHz;
 4, 6 and 8 are "auto" (unknown). Channel 0 is auto (unknown). An unknown AP answers `-39303`;
 if there are no radio settings, the radios are derived from the bands of the SSIDs (channel and
-power unknown).
+power unknown). Channel 0 sets `channel_auto` (#172).
+
+Radio state (#172) from the EAP's detail (`GET …/aps/{mac}`, read for the uplink anyway), per
+band suffix (`2g`, `5g`, `5g2`, `6g`): `wp<band>.rdMode` (`802.11a/n/ac/ax`: the newest is
+`standard`), `wp<band>.channelUtil` or the sum of `txUtil`, `rxUtil` and `interUtil`
+(`channel_utilisation_pct`), `interUtil` (`interference_pct`), `clientNum<band>`
+(`client_count`) *(guess: field names, from the controller's web UI; not in the API
+description)*. Missing fields stay unreported. Not read: supported standards, channels and
+widths, noise, DFS state.
 
 ### `GET …/sites/{siteId}/wireless-network/wlans` and `…/wlans/{wlanId}/ssids` (paged)
 

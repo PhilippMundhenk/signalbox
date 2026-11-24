@@ -240,6 +240,12 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`wifi.segment-weakest-link`](rules/wifi_hygiene.md#wifisegment-weakest-link)
 - [`wifi.default-ssid`](rules/wifi_hygiene.md#wifidefault-ssid)
 
+## [Wi-Fi radio state](rules/wifi_radio.md)
+
+- [`wifi.channel-busy`](rules/wifi_radio.md#wifichannel-busy)
+- [`wifi.radar-hit`](rules/wifi_radio.md#wifiradar-hit)
+- [`wifi.legacy-standard`](rules/wifi_radio.md#wifilegacy-standard)
+
 ## [Wi-Fi security](rules/wifi_security.md)
 
 - [`wifi.weak-security`](rules/wifi_security.md#wifiweak-security)

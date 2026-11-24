@@ -2135,7 +2135,45 @@ class Security(StrEnum):
     OTHER = "other"
 
 
+class WifiStandard(StrEnum):
+    """An IEEE 802.11 generation (#172); ``a`` is the 5 GHz counterpart of ``g``."""
+
+    B = "b"
+    A = "a"
+    G = "g"
+    N = "n"  # Wi-Fi 4
+    AC = "ac"  # Wi-Fi 5
+    AX = "ax"  # Wi-Fi 6/6E
+    BE = "be"  # Wi-Fi 7
+
+
+#: Age order of the standards: a higher number is newer (``a`` and ``g`` are one generation).
+STANDARD_RANK: dict[WifiStandard, int] = {
+    WifiStandard.B: 0,
+    WifiStandard.A: 1,
+    WifiStandard.G: 1,
+    WifiStandard.N: 2,
+    WifiStandard.AC: 3,
+    WifiStandard.AX: 4,
+    WifiStandard.BE: 5,
+}
+
+
+class DfsState(StrEnum):
+    """Radar detection state of a radio on a DFS channel (#172)."""
+
+    #: On the channel and sending (the channel availability check passed).
+    AVAILABLE = "available"
+    #: Listening for radar before it may send (channel availability check running).
+    CAC = "cac"
+    #: Radar was detected on the channel: the radio left it.
+    RADAR_DETECTED = "radar-detected"
+
+
 class Radio(Observed):
+    """A radio of an access point. The capability and current-state fields (#172) are None
+    where the device does not report them; a check needing them stays quiet then."""
+
     device_id: str
     name: str
     band: Band
@@ -2147,6 +2185,40 @@ class Radio(Observed):
     #: Security modes this radio's hardware and firmware can offer (#167), for example no
     #: ``wpa3-sae`` on an OpenWrt build with ``wpad-basic``. None: not reported.
     supported_security: list[Security] | None = None
+    #: The 20 MHz channel at the centre of the occupied span (``center_chan1``), and the
+    #: secondary 20 MHz channel of a 40 MHz channel on 2.4 GHz. None: derived from the width.
+    center_channel: int | None = None
+    secondary_channel: int | None = None
+    # capabilities (#172) ----------------------------------------------------------------
+    #: Standards the hardware can use in this band. None: not reported.
+    standards: list[WifiStandard] | None = None
+    #: Channels the radio can use in this band with the current country code.
+    supported_channels: list[int] | None = None
+    #: Channel widths (MHz) the radio can use in this band.
+    supported_widths_mhz: list[int] | None = None
+    max_tx_power_dbm: int | None = None
+    #: Spatial streams as ``<tx>x<rx>``, for example ``2x2``.
+    antennas: str | None = None
+    #: The radio can use radar (DFS) channels.
+    dfs_capable: bool | None = None
+    #: Wi-Fi 7 multi-link operation is supported.
+    mlo: bool | None = None
+    # current state (#172), as of the last read ------------------------------------------
+    #: The newest standard the radio is set to use (older ones stay allowed for clients).
+    standard: WifiStandard | None = None
+    #: Automatic channel selection is on (``channel`` is then what it picked).
+    channel_auto: bool | None = None
+    #: Share of the time the channel was busy (own traffic, neighbours, interference).
+    channel_utilisation_pct: float | None = Field(default=None, ge=0, le=100)
+    noise_dbm: int | None = None
+    #: Share of the time the channel was busy with something other than Wi-Fi frames
+    #: received or sent by this radio (neighbours and non-Wi-Fi interference).
+    interference_pct: float | None = Field(default=None, ge=0, le=100)
+    #: Clients associated with the radio's SSIDs.
+    client_count: int | None = Field(default=None, ge=0)
+    dfs_state: DfsState | None = None
+    #: When radar was last detected on this radio's channel.
+    last_radar: datetime | None = None
 
 
 class Cipher(StrEnum):

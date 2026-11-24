@@ -727,6 +727,15 @@ class FritzboxSim:
                 "NewX_AVM-DE_EncryptionMode": "",
                 "NewX_AVM-DE_LastChangedStamp": "0",
             }
+        if action == "GetChannelInfo":  # (#172) channels of the band with country DE
+            five = info["NewX_AVM-DE_FrequencyBand"] == "5000"
+            channels = [*range(36, 65, 4), *range(100, 141, 4)] if five else range(1, 14)
+            return {
+                "NewChannel": info["NewChannel"],
+                "NewPossibleChannels": ",".join(str(c) for c in channels),
+                "NewX_AVM-DE_AutoChannelEnabled": "1",
+                "NewX_AVM-DE_FrequencyBand": info["NewX_AVM-DE_FrequencyBand"],
+            }
         if action == "GetTotalAssociations":
             return {"NewTotalAssociations": str(len(STATIONS[index]))}
         if action == "GetGenericAssociatedDeviceInfo":

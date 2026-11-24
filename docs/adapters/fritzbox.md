@@ -275,6 +275,13 @@ radio, and the guest network last.
 - **Hidden**: `GetBeaconAdvertisement` `NewBeaconAdvertisementEnabled` `0`; without the
   action (fault 401) the SSID counts as broadcast.
 - PMF and 802.11r/k/v are not read *(not documented for TR-064)*.
+- Radio capabilities and state (#172): `standard` from `NewStandard`; `GetChannelInfo`
+  `NewPossibleChannels` (`supported_channels`, `dfs_capable` on 5 GHz) and
+  `NewX_AVM-DE_AutoChannelEnabled` (`channel_auto`); `client_count` the sum of
+  `GetTotalAssociations` of the WLANs on the radio (the guest WLAN counts on the radio of its
+  band). A refused action (any fault) leaves the field unreported. Not available over TR-064:
+  supported standards and widths, utilisation, noise, DFS state *(the action list of the
+  SCPD files in `tests/fixtures/tr064/`)*.
 
 ### `Hosts:1` and `WLANConfiguration:<n> GetGenericAssociatedDeviceInfo` (clients)
 
