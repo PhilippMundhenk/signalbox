@@ -1321,7 +1321,8 @@ class OpenWrtSim:
     malformed: set[str] = field(default_factory=set)
     #: objects answered with valid JSON of the wrong shape
     odd: set[str] = field(default_factory=set)
-    #: seconds to wait before answering (``slow`` objects only, or every request if empty)
+    #: seconds to wait before answering (``slow`` objects or ``object.method`` only, or every
+    #: request if empty)
     delay: float = 0.0
     slow: set[str] = field(default_factory=set)
     #: luci-app-lldpd installed (ubus object ``luci.lldpd``)
@@ -1753,7 +1754,7 @@ class OpenWrtSim:
             args = params[3] if len(params) > 3 else {}
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
             return self._error(None, -32700, "Parse error")
-        if self.delay and (not self.slow or obj in self.slow):
+        if self.delay and (not self.slow or obj in self.slow or f"{obj}.{method}" in self.slow):
             await asyncio.sleep(self.delay)
         self.tick()
         if "*" in self.malformed or obj in self.malformed:

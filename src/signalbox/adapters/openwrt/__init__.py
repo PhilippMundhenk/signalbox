@@ -182,6 +182,18 @@ class OpenWrtConfig(AdapterConfig):
 # --- small helpers ------------------------------------------------------------------------
 
 
+def _scan_gap(timeout: float) -> Gap:
+    return Gap(
+        message=f"neighbour scan: not finished within the read's {timeout:g} s",
+        fix="Raise observe.timeout_seconds, or turn off scan_neighbours if the radios are slow "
+        "to scan.",
+        optional=True,
+        message_id="openwrt.scanSlow",
+        fix_id="openwrt.scanSlow.fix",
+        params={"seconds": f"{timeout:g}"},
+    )
+
+
 def _touches_wireless(ops: list[write.UciOp]) -> bool:
     return any(op.config == "wireless" for op in ops)
 
@@ -1378,6 +1390,7 @@ class OpenWrtAdapter(Adapter):
         return supported_from_packages(packages) if isinstance(packages, dict) else None
 
     async def read_wireless(self) -> Observation:
+        started = time.monotonic()
         d = self.context.device_id
         uci = await self._uci("wireless")
         up = await self._radios_up()
@@ -1416,7 +1429,7 @@ class OpenWrtAdapter(Adapter):
         }
         gaps: list[Gap] = []
         bssids: dict[str, str] = {}
-        heard: list[WifiScanResult] = []
+        to_scan: list[tuple[Radio, str]] = []
         for name, found in list(radios.items()):
             running = [
                 str(i["ifname"])
@@ -1424,8 +1437,9 @@ class OpenWrtAdapter(Adapter):
                 if isinstance(i, dict) and i.get("ifname")
             ]
             if found.enabled and running:
-                fields = await self._radio_state(found, running, gaps, bssids, heard)
+                fields = await self._radio_state(found, running, gaps, bssids, to_scan)
                 radios[name] = found.model_copy(update=fields)
+        heard = await self._scan(to_scan, gaps, started) if to_scan else []
         wlans: list[Wlan] = []
         for name, s in _sections(uci, "wifi-iface"):
             radio = radios.get(str(s.get("device")))
@@ -1476,19 +1490,75 @@ class OpenWrtAdapter(Adapter):
             radios=list(radios.values()), wlans=wlans, wifi_scan=heard, incomplete=gaps[:1]
         )
 
+    async def _scan(
+        self, radios: list[tuple[Radio, str]], gaps: list[Gap], started: float
+    ) -> list[WifiScanResult]:
+        """``iwinfo scan`` of the radios (#169, only with ``scan_neighbours``), all at once and
+        within what is left of the read's time limit: a scan takes several seconds per band. A
+        refused scan (an ACL from before #169) or one that does not finish in time is an
+        optional gap; the rest of the read stays."""
+        budget = self.context.timeout - (time.monotonic() - started) - 1.0
+        if budget < 1.0:
+            gaps.append(_scan_gap(self.context.timeout))
+            return []
+
+        async def one(radio: Radio, ifname: str) -> list[WifiScanResult]:
+            answer = await self.ubus.call("iwinfo", "scan", {"device": ifname})
+            now = datetime.now(UTC)
+            return [
+                WifiScanResult(
+                    id=scan_id(radio.id, row["bssid"]),
+                    device_id=radio.device_id,
+                    radio_id=radio.id,
+                    last_seen=now,
+                    kind=ScanSource.SCAN,
+                    **row,
+                )
+                for row in radio_state.scan(answer if isinstance(answer, dict) else None)
+                # a dual-band phy scans the other band too
+                if row["band"] in (None, radio.band)
+            ]
+
+        try:
+            found = await asyncio.wait_for(
+                asyncio.gather(*(one(r, i) for r, i in radios), return_exceptions=True), budget
+            )
+        except TimeoutError:
+            gaps.append(_scan_gap(self.context.timeout))
+            return []
+        out: list[WifiScanResult] = []
+        for result in found:
+            if isinstance(result, AccessDenied):
+                gaps.append(
+                    Gap(
+                        message=f"radio state: {result}",
+                        fix=result.fix,
+                        remedy=result.remedy,
+                        optional=True,
+                        message_id="openwrt.radioState",
+                        fix_id=result.fix_id,
+                        params={**result.params, "cause": str(result)},
+                    )
+                )
+            elif isinstance(result, list):
+                out += result
+            elif not isinstance(result, InvalidArgument | NoData | CallFailed | NotFound):
+                raise result
+        return out
+
     async def _radio_state(
         self,
         radio: Radio,
         ifnames: list[str],
         gaps: list[Gap],
         bssids: dict[str, str],
-        heard: list[WifiScanResult],
+        to_scan: list[tuple[Radio, str]],
     ) -> dict[str, Any]:
         """Capabilities and current state of a running radio (#172) from ``iwinfo`` and
         ``hostapd``; what the device does not answer stays None. A refused iwinfo call (an ACL from
         before #172) or a missing rpcd-mod-iwinfo is an optional gap, reported once. Fills the
-        BSSID per interface (``bssids``) and, with ``scan_neighbours`` on, what the radio heard
-        (``heard``, #169)."""
+        BSSID per interface (``bssids``) and, with ``scan_neighbours`` on, adds the radio to
+        ``to_scan`` (#169)."""
 
         async def ask(obj: str, method: str, args: dict[str, Any]) -> dict[str, Any] | None:
             try:
@@ -1541,20 +1611,7 @@ class OpenWrtAdapter(Adapter):
             if (bssid := radio_state.bssid_of(other)) is not None:
                 bssids[ifname] = bssid
         if self.config.scan_neighbours:
-            now = datetime.now(UTC)
-            for row in radio_state.scan(await ask("iwinfo", "scan", dev)):
-                if row["band"] not in (None, radio.band):
-                    continue  # a dual-band phy scans the other band too
-                heard.append(
-                    WifiScanResult(
-                        id=scan_id(radio.id, row["bssid"]),
-                        device_id=radio.device_id,
-                        radio_id=radio.id,
-                        last_seen=now,
-                        kind=ScanSource.SCAN,
-                        **row,
-                    )
-                )
+            to_scan.append((radio, ifnames[0]))
         mhz = info.get("frequency") if info else None
         survey = radio_state.utilisation(
             await ask("iwinfo", "survey", dev), mhz if isinstance(mhz, int) else None

@@ -406,6 +406,11 @@ the guesses above (#21).
   stations of foreign networks is read.
 - An ACL without `iwinfo scan` (from before #169) is the optional gap *radio state*; the rest
   of the radio is read.
+- The radios are scanned at once, after the rest of the wireless read, within what is left of
+  `observe.timeout_seconds` (minus a second). A scan takes a few seconds per band; one that
+  does not finish in time is given up with the optional gap *neighbour scan: not finished*.
+  rpcd answers one call at a time, so while a scan runs on the router other ubus calls (also
+  LuCI's) wait for it.
 
 The results stay on the server (device page only; not in `GET /api/network`, exporters or
 MQTT). Checked in CI against the QEMU image's mac80211_hwsim radios, which hear each other;

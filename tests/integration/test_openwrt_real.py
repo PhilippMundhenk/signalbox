@@ -798,9 +798,24 @@ async def test_bssids_and_the_optional_neighbour_scan(ow: Target, pin: str) -> N
         heard = await assert_contract(adapter)
     finally:
         await adapter.close()
+        # rpcd answers one call at a time: a scan still running on the device (after a
+        # too slow one was given up) holds up the next logins, so wait for it to finish
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            probe = OpenWrtAdapter(ctx)
+            try:
+                if (await probe.observe()).status is DeviceStatus.OK:
+                    break
+            finally:
+                await probe.close()
+            await asyncio.sleep(3)
     assert heard.status is DeviceStatus.OK, heard.errors
-    gaps = [e for e in heard.errors if e.message_id == "openwrt.radioState"]
-    assert not gaps, gaps
+    refused = [e for e in heard.errors if e.message_id == "openwrt.radioState"]
+    assert not refused, refused
+    # the hwsim radios of OpenWrt 24.10 can scan slower than the read's time limit: then
+    # the optional gap says so and nothing is reported
+    slow = [e for e in heard.errors if e.message_id == "openwrt.scanSlow"]
+    assert all(e.optional for e in slow) and not (slow and heard.wifi_scan)
     radios = {r.id: r for r in heard.radios}
     own = {w.bssid for w in heard.wlans}
     for r in heard.wifi_scan:

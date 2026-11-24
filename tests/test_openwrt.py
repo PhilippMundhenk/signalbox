@@ -1878,3 +1878,27 @@ async def test_openwrt_scan_refused_by_an_old_acl(
     (gap,) = obs.incomplete
     assert gap.optional and gap.message_id == "openwrt.radioState"
     assert obs.radios[0].standards is not None  # the rest of the radio is read
+
+
+@pytest.mark.parametrize(("slow", "delay"), [({"iwinfo.scan"}, 3.0), ({"iwinfo"}, 0.5)])
+async def test_openwrt_scan_slower_than_the_read(
+    sim: OpenWrtSim, https_url: str, cert: TlsFiles, slow: set[str], delay: float
+) -> None:
+    """#169: a scan that does not fit into the read's time limit (or no time left for it)
+    is given up with an optional gap; radios and WLANs are still reported."""
+    sim.slow, sim.delay = slow, delay
+    ctx = context(
+        https_url,
+        pinned_fingerprint=cert.fingerprint,
+        timeout=3.0,
+        config={"scan_neighbours": True},
+    )
+    a = OpenWrtAdapter(ctx)
+    try:
+        obs = await a.read_wireless()
+    finally:
+        await a.close()
+    assert not obs.wifi_scan and obs.wlans
+    (gap,) = obs.incomplete
+    assert gap.optional and gap.message_id == "openwrt.scanSlow"
+    assert gap.params == {"seconds": "3"} and "scan_neighbours" in (gap.fix or "")
