@@ -4,7 +4,8 @@
   ``routes6``): every table. The ``local`` table (the device's own addresses, broadcast) and
   routes the kernel adds for a connected network (``proto kernel``) are left out: connected
   networks come from the subnets (ADR 0024). A route in a table other than ``main`` carries
-  ``"table": "<name or number>"``; ``type`` is absent for ``unicast``.
+  ``"table": "<name or number>"``; ``type`` is absent for ``unicast`` and ``protocol`` for
+  ``boot`` (a route added by hand: static).
 - ``ip -j rule show`` and ``ip -j -6 rule show`` (sections ``rules4`` and ``rules6``): the
   policy rules. The ``local`` lookup (priority 0) and the empty ``default`` table are left out.
 
@@ -96,7 +97,10 @@ def read_routes(
                 gateway = None
             dev = row.get("dev") if isinstance(row.get("dev"), str) else None
             via = port_id(device_id, dev) if dev else None
-            origin = _ORIGIN.get(protocol, RouteOrigin.OTHER)
+            # ``ip -j`` leaves out the protocol "boot", what a plain ``ip route add`` sets
+            origin = _ORIGIN.get(
+                protocol, RouteOrigin.STATIC if not protocol else RouteOrigin.OTHER
+            )
             if dev in tunnel_ports:
                 origin = RouteOrigin.VPN
             flags = [str(f) for f in row.get("flags") or []]
