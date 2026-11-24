@@ -1108,6 +1108,40 @@ def iwinfo(method: str, radio: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _neighbour(
+    bssid: str, ssid: str, channel: int, signal: int, wpa: list[int], auth: list[str], width: int
+) -> dict[str, Any]:
+    band = "2g" if channel <= 14 else "5g"
+    row: dict[str, Any] = {
+        "ssid": ssid,
+        "bssid": bssid.upper(),
+        "mode": "Master",
+        "band": 2 if band == "2g" else 5,
+        "channel": channel,
+        "mhz": _mhz(band, channel),
+        "signal": signal,
+        "quality": max(0, signal + 110),
+        "quality_max": 70,
+        "ht_operation": {"primary_channel": channel, "channel_width": 2040 if width >= 40 else 20},
+        "encryption": {"enabled": bool(auth), "wpa": wpa, "authentication": auth},
+    }
+    if band == "5g":
+        row["vht_operation"] = {"channel_width": width if width >= 80 else 40}
+    return row
+
+
+#: What the simulated radios hear (#169): neighbours' networks with documentation MACs, the
+#: answer of ``iwinfo scan`` (filtered by the scanning radio's band).
+NEIGHBOURS: list[dict[str, Any]] = [
+    _neighbour("02:5e:00:00:01:01", "Neighbour-A", 6, -58, [2], ["psk"], 20),
+    _neighbour("02:5e:00:00:01:02", "Neighbour-B", 6, -71, [2, 3], ["psk", "sae"], 20),
+    _neighbour("02:5e:00:00:01:03", "", 11, -77, [2], ["psk"], 20),
+    _neighbour("02:5e:00:00:01:04", "Cafe-Free", 1, -84, [], [], 20),
+    _neighbour("02:5e:00:00:02:01", "Neighbour-A", 44, -67, [2], ["psk"], 80),
+    _neighbour("02:5e:00:00:02:02", "Neighbour-C", 149, -80, [3], ["sae"], 80),
+]
+
+
 def hostapd_status(ifname: str, radio: dict[str, Any]) -> dict[str, Any]:
     """``hostapd.<ifname> get_status`` (#172): channel, DFS and air time."""
     band = str(radio.get("band", "2g"))
@@ -1287,7 +1321,8 @@ class OpenWrtSim:
     malformed: set[str] = field(default_factory=set)
     #: objects answered with valid JSON of the wrong shape
     odd: set[str] = field(default_factory=set)
-    #: seconds to wait before answering (``slow`` objects only, or every request if empty)
+    #: seconds to wait before answering (``slow`` objects or ``object.method`` only, or every
+    #: request if empty)
     delay: float = 0.0
     slow: set[str] = field(default_factory=set)
     #: luci-app-lldpd installed (ubus object ``luci.lldpd``)
@@ -1301,6 +1336,8 @@ class OpenWrtSim:
     wg_handshake_ago: int = 42
     #: rpcd-mod-iwinfo installed (ubus object ``iwinfo``, #172)
     iwinfo: bool = True
+    #: access points ``iwinfo scan`` reports (#169), see :data:`NEIGHBOURS`
+    neighbours: list[dict[str, Any]] = field(default_factory=lambda: list(NEIGHBOURS))
     #: ``luci getFeatures`` answers (rpcd-mod-luci); off: the adapter reads the wpad package
     luci_features: bool = True
     #: installed hostapd package (``rpc-sys packagelist``); ``wpad-basic-mbedtls``: no SAE, OWE, EAP
@@ -1506,6 +1543,16 @@ class OpenWrtSim:
         self.history.append("apply")
         return [OK]
 
+    def _device_status(self) -> dict[str, Any]:
+        status = device_status(self.state["network"], self.state["wireless"])
+        if self.mac_base:  # a second simulated device needs MACs of its own
+            base, own = "02:00:00:00:", f"02:00:00:{self.mac_base:02x}:"
+            for entry in status.values():
+                mac = entry.get("macaddr")
+                if isinstance(mac, str) and mac.startswith(base):  # not reserved MACs
+                    entry["macaddr"] = own + mac[len(base) :]
+        return status
+
     def _radio_of(self, ifname: str) -> dict[str, Any] | None:
         """The UCI wifi-device section of a running interface (``phy0-ap0``) or phy."""
         wireless = self.state["wireless"]
@@ -1524,14 +1571,7 @@ class OpenWrtSim:
             name = str(zone.get("zonename") or "UTC")
             return [0, system_info(time.time() + self.clock_skew, name)]
         if obj == "network.device" and method == "status":
-            status = device_status(self.state["network"], self.state["wireless"])
-            if self.mac_base:  # a second simulated device needs MACs of its own
-                base, own = "02:00:00:00:", f"02:00:00:{self.mac_base:02x}:"
-                for entry in status.values():
-                    mac = entry.get("macaddr")
-                    if isinstance(mac, str) and mac.startswith(base):  # not reserved MACs
-                        entry["macaddr"] = own + mac[len(base) :]
-            return [0, status]
+            return [0, self._device_status()]
         if obj == "network.interface" and method == "dump":
             return [0, interface_dump(self.state["network"])]
         if obj == "network.wireless" and method == "status":
@@ -1553,7 +1593,15 @@ class OpenWrtSim:
             radio = self._radio_of(str(args.get("device", "")))
             if radio is None:
                 return [INVALID_ARGUMENT]
+            device = str(args.get("device", ""))
+            if method == "scan":
+                band = 2 if str(radio.get("band", "2g")) == "2g" else 5
+                return [0, {"results": [n for n in self.neighbours if n["band"] == band]}]
             answer = iwinfo(method, radio)
+            if method == "info" and answer is not None:
+                mac = self._device_status().get(device, {}).get("macaddr")
+                if mac:
+                    answer["bssid"] = str(mac).upper()
             return [3] if answer is None else [0, answer]
         if obj == "luci" and self.luci_features and method == "getFeatures":
             full = "-basic" not in self.wpad
@@ -1706,7 +1754,7 @@ class OpenWrtSim:
             args = params[3] if len(params) > 3 else {}
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
             return self._error(None, -32700, "Parse error")
-        if self.delay and (not self.slow or obj in self.slow):
+        if self.delay and (not self.slow or obj in self.slow or f"{obj}.{method}" in self.slow):
             await asyncio.sleep(self.delay)
         self.tick()
         if "*" in self.malformed or obj in self.malformed:

@@ -986,3 +986,30 @@ async def test_users_in_client_mode_are_a_known_limit_and_asked_once(
         assert "authorization-code mode; Signalbox uses client mode" in gap.message
         assert snap.status.value == "ok"
     assert sim.requests.count(users) == 1
+
+
+async def test_rogue_ap_list(snap: Snapshot) -> None:
+    """#169: the controller's rogue AP list (passive), under the EAP radio that heard it."""
+    from signalbox.model import Band, ScanSource, Security
+
+    by = {r.bssid: r for r in snap.wifi_scan}
+    a = by["02:5e:00:00:03:01"]
+    assert a.radio_id == f"{AP1}/radio/2g" and a.device_id == AP1 and a.band is Band.GHZ_2_4
+    assert (a.ssid, a.channel, a.signal_dbm, a.security) == ("Neighbour-A", 6, -63, Security.WPA2)
+    assert a.kind is ScanSource.ROGUE_DETECTION and a.last_seen is not None
+    hidden = by["02:5e:00:00:03:02"]
+    assert hidden.ssid is None and hidden.radio_id == f"{AP1}/radio/5g"
+    assert hidden.security is Security.WPA2_WPA3
+    cafe = by["02:5e:00:00:03:03"]  # no detecting EAP: the controller's
+    assert cafe.device_id == DEV and cafe.radio_id is None and cafe.security is Security.OPEN
+    assert cafe.band is Band.GHZ_2_4
+
+
+async def test_rogue_ap_list_missing(sim: OmadaSimulator, http_url: str) -> None:
+    sim.data.pop(next(k for k in sim.data if k.endswith("/insight/rogue-aps")))
+    a = adapter(http_url)
+    try:
+        got = await a.observe()
+    finally:
+        await a.close()
+    assert got.wifi_scan == [] and got.wlans

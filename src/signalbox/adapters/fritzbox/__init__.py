@@ -1221,7 +1221,8 @@ class FritzboxAdapter(Adapter):
                     segment_id=self._guest if w.guest else self._native,
                     purpose=SegmentPurpose.GUEST if w.guest else None,
                     purpose_source=PurposeSource.REPORTED if w.guest else None,
-                    vendor_extra=_extra(info, "NewBeaconType", "NewStandard", "NewBSSID")
+                    bssid=_mac(info.get("NewBSSID")),
+                    vendor_extra=_extra(info, "NewBeaconType", "NewStandard")
                     | ({"guest": True} if w.guest else {}),
                 )
             )

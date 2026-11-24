@@ -247,8 +247,9 @@ class Runner:
         findings = evaluate(net, self.active_rules(), self.config.rules, self.history(now))
         self.store.record_findings(findings, now)
         self.store.prune_resolved(now - timedelta(days=30))
-        # exporters and MQTT never get account names (#175): they are for the device page
-        shared = net.without_account_names()
+        # exporters and MQTT never get account names (#175): they are for the device page;
+        # nor the neighbours' networks (#169): other people's SSIDs and BSSIDs
+        shared = net.without_account_names().without_neighbour_networks()
         for listener in self.listeners:
             try:
                 listener(shared, findings)

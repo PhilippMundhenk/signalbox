@@ -28,6 +28,7 @@ port forwards, the remote syslog target and switching the SNMP agent off ([Writi
 | `username` | `signalbox` | rpcd login: read-only, or with write access (see below) |
 | `password` | | its password; stored encrypted, never sent back to the UI |
 | `allow_insecure_http` | `false` | accept an `http://` URL; the password then crosses the network in clear text |
+| `scan_neighbours` | `false` | active probe: let each running radio scan for neighbouring access points at every read (#169, below) |
 
 ## Certificate pinning
 
@@ -386,6 +387,35 @@ read: `antennas`, `mlo`. A device without radios makes no such call. Checked in 
 of the QEMU image (with rpcd-mod-iwinfo); survey and `get_status` values of real drivers are
 the guesses above (#21).
 
+### BSSIDs and neighbouring networks: `iwinfo info` and `iwinfo scan` (#169)
+
+- `Wlan.bssid`: `bssid` of `iwinfo info` of the WLAN's running interface (`phy0-ap0`,
+  `phy0-ap1`, ...), passive, at every read.
+- `iwinfo scan` (`{"device": "phy0-ap0"}`, the radio's first interface) only with the setting
+  **scan_neighbours** (off by default). It is an **active probe**: the radio leaves its
+  channel to listen on the others, and on some drivers its clients stall for a moment; on
+  others the scan fails while the radio serves clients (then nothing is reported). Each
+  answer row
+  (`{"results": [{"ssid": "Example", "bssid": "02:…", "mode": "Master", "channel": 6,
+  "mhz": 2437, "signal": -61, "ht_operation": {"channel_width": 2040}, "vht_operation":
+  {"channel_width": 80}, "encryption": {"enabled": true, "wpa": [2], "authentication":
+  ["psk"]}}]}`) of an access point (`mode` `Master`) becomes a `WifiScanResult`: band from
+  `mhz`, width from `vht_operation` (`8080`: 160) or `ht_operation` (`2040`: 40), security
+  from `encryption` (`sae`+`psk`: WPA2/WPA3, `802.1x` with `wpa [3]`: WPA3-Enterprise, `owe`:
+  Enhanced Open, not enabled: open). An empty SSID is a hidden network. Nothing about the
+  stations of foreign networks is read.
+- An ACL without `iwinfo scan` (from before #169) is the optional gap *radio state*; the rest
+  of the radio is read.
+- The radios are scanned at once, after the rest of the wireless read, within what is left of
+  `observe.timeout_seconds` (minus a second). A scan takes a few seconds per band; one that
+  does not finish in time is given up with the optional gap *neighbour scan: not finished*.
+  rpcd answers one call at a time, so while a scan runs on the router other ubus calls (also
+  LuCI's) wait for it.
+
+The results stay on the server (device page only; not in `GET /api/network`, exporters or
+MQTT). Checked in CI against the QEMU image's mac80211_hwsim radios, which hear each other;
+real drivers' scan behaviour while serving clients is a guess (#21).
+
 ### `uci get {"config": "dhcp"}` (dnsmasq)
 
 ```json
@@ -586,7 +616,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "network.wireless": ["status"],
         "uci": ["get"],
         "hostapd.*": ["get_clients", "get_status"],
-        "iwinfo": ["info", "freqlist", "txpowerlist", "survey"],
+        "iwinfo": ["info", "freqlist", "txpowerlist", "survey", "scan"],
         "luci-rpc": ["getDHCPLeases", "getWirelessDevices", "getNetworkDevices"],
         "luci": ["getFeatures"],
         "rpc-sys": ["packagelist"],
@@ -699,7 +729,7 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "network.wireless": ["status"],
         "uci": ["get"],
         "hostapd.*": ["get_clients", "get_status"],
-        "iwinfo": ["info", "freqlist", "txpowerlist", "survey"],
+        "iwinfo": ["info", "freqlist", "txpowerlist", "survey", "scan"],
         "luci-rpc": ["getDHCPLeases", "getWirelessDevices", "getNetworkDevices"],
         "luci": ["getFeatures"],
         "rpc-sys": ["packagelist"],

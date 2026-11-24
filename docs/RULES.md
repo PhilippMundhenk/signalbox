@@ -264,6 +264,11 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`wifi.segment-weakest-link`](rules/wifi_hygiene.md#wifisegment-weakest-link)
 - [`wifi.default-ssid`](rules/wifi_hygiene.md#wifidefault-ssid)
 
+## [Neighbouring Wi-Fi networks](rules/wifi_neighbours.md)
+
+- [`wifi.rogue-ssid`](rules/wifi_neighbours.md#wifirogue-ssid)
+- [`wifi.channel-crowded`](rules/wifi_neighbours.md#wifichannel-crowded)
+
 ## [Wi-Fi radio state](rules/wifi_radio.md)
 
 - [`wifi.channel-busy`](rules/wifi_radio.md#wifichannel-busy)

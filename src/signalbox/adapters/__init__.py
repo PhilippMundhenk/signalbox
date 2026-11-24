@@ -32,6 +32,7 @@ from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import BroadcastResult, Candidate, HostProbe, NetworkProbe
 from signalbox.model import (
     FDB_LIMIT,
+    SCAN_LIMIT,
     AccountPrivilege,
     Certificate,
     Client,
@@ -67,6 +68,7 @@ from signalbox.model import (
     TraceHop,
     Tunnel,
     Uplink,
+    WifiScanResult,
     Wlan,
 )
 
@@ -645,6 +647,12 @@ class Observation(BaseModel):
     #: Policy routing rules (#149), read with ``interfaces``; no API version needed. Report
     #: every rule, or none when the device cannot say.
     routing_rules: list[RoutingRule] = Field(default_factory=list)
+    #: Access points the radios heard (#169, ADR 0025), read with ``wireless``; no API
+    #: version needed. Only what the device reports passively (a controller's rogue AP list),
+    #: or a scan the user turned on in the device's settings (an active probe, off by
+    #: default). Never a station of a foreign network. ``observe()`` keeps at most
+    #: :data:`~signalbox.model.SCAN_LIMIT` per device, the strongest.
+    wifi_scan: list[WifiScanResult] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239), read with ``vpn`` (API 1.3). Never a private or
     #: pre-shared key, also not in ``vendor_extra``.
     tunnels: list[Tunnel] = Field(default_factory=list)
@@ -1070,6 +1078,7 @@ class Adapter(ABC):
                     optional=True,
                 )
             )
+        lists["wifi_scan"] = _cap_scan(lists["wifi_scan"])
         return Snapshot(
             device=device,
             observed_at=now,
@@ -1121,6 +1130,24 @@ def _cap_fdb(entries: list[FdbEntry]) -> tuple[list[FdbEntry], int]:
             group = group[:FDB_LIMIT]
         kept += group
     return kept, dropped
+
+
+def _cap_scan(results: list[WifiScanResult]) -> list[WifiScanResult]:
+    """At most :data:`SCAN_LIMIT` scan results per device (#169), the strongest first; one
+    per id (the strongest where a device reports a BSSID twice)."""
+    best: dict[str, WifiScanResult] = {}
+    for r in results:
+        old = best.get(r.id)
+        if old is None or (r.signal_dbm or -999) > (old.signal_dbm or -999):
+            best[r.id] = r
+    per: dict[str, list[WifiScanResult]] = {}
+    for r in best.values():
+        per.setdefault(r.device_id, []).append(r)
+    kept: list[WifiScanResult] = []
+    for group in per.values():
+        group.sort(key=lambda r: (-(r.signal_dbm if r.signal_dbm is not None else -999), r.id))
+        kept += group[:SCAN_LIMIT]
+    return kept
 
 
 def probes_hosts(cls: type[Adapter]) -> bool:

@@ -6,7 +6,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from itertools import combinations
 
-from signalbox.model import Band, Network, Radio, Wlan
+from signalbox.model import Band, Network, Radio, Security, Wlan
 from signalbox.purpose import device_internal
 from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
 from signalbox.rules._names import device_name, router_subnets, segment_name, site_of_device
@@ -52,10 +52,40 @@ def _ssid_groups(net: Network) -> dict[tuple[str, str], list[Wlan]]:
     "way on all of them. Phones and laptops remember one set of settings per name: when they "
     "move to an access point with a different security mode, password or VLAN, they fail to "
     "connect or end up on the wrong network. Different roaming or PMF settings make roaming "
-    "slow or unreliable. Passwords are only compared by a fingerprint and never shown.",
+    "slow or unreliable. Passwords are only compared by a fingerprint and never shown. Where "
+    "a scan heard your own access points (#169), the security each BSSID announces is "
+    "compared with its settings too.",
 )
 def ssid_consistent(net: Network) -> Iterator[Result]:
+    on_air: dict[str, Security] = {}
+    for r in sorted(net.wifi_scan, key=lambda r: r.id):
+        if r.security is not None and r.security is not Security.OTHER:
+            on_air.setdefault(r.bssid, r.security)
     for (site, ssid), wlans in sorted(_ssid_groups(net).items()):
+        for wlan in sorted(wlans, key=lambda w: w.id):
+            air = on_air.get(wlan.bssid or "")
+            if air is None or air is wlan.security or wlan.security is Security.OTHER:
+                continue
+            name = device_name(net, wlan.device_id)
+            yield found(
+                f"SSID {ssid!r} at site {site}: {name} announces {air.value} on the air "
+                f"although it is set to {wlan.security.value}",
+                [wlan.id],
+                fix=f"Check the security settings of {ssid!r} on {name}: the access point "
+                "does not send what it is set to (a settings change not applied yet, or a "
+                "firmware that falls back to another mode).",
+                severity=Severity.WARNING,
+                key=f"air-security/{wlan.id}",
+                mid="wireless.airSecurity",
+                fix_id="wireless.airSecurity.fix",
+                params={
+                    "ssid": repr(ssid),
+                    "site": site,
+                    "device": name,
+                    "air": air.value,
+                    "security": wlan.security.value,
+                },
+            )
         for attr, label, severity in _SSID_ATTRIBUTES:
             by_device: dict[str, set[str]] = defaultdict(set)
             for wlan in wlans:

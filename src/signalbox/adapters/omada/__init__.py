@@ -90,6 +90,7 @@ from signalbox.model import (
     PortRole,
     PurposeSource,
     Radio,
+    ScanSource,
     Security,
     Segment,
     SegmentPurpose,
@@ -99,6 +100,7 @@ from signalbox.model import (
     Subnet,
     Uplink,
     UplinkKind,
+    WifiScanResult,
     WifiStandard,
     Wlan,
     fdb_id,
@@ -107,6 +109,7 @@ from signalbox.model import (
     object_id,
     passphrase_digest,
     passphrase_fingerprint,
+    scan_id,
     segment_id,
 )
 
@@ -349,6 +352,36 @@ def _lag_type(row: dict[str, Any]) -> Any:
         return row["lagType"]
     setting = row.get("lagSetting")
     return setting.get("lagType") if isinstance(setting, dict) else None
+
+
+#: ``band`` of a rogue AP row *(guess)*: the radio ids of the client list.
+_ROGUE_BANDS = {0: Band.GHZ_2_4, 1: Band.GHZ_5, 2: Band.GHZ_5, 3: Band.GHZ_6}
+
+
+def _rogue_security(value: Any) -> Security | None:
+    """Security of a rogue AP as the controller writes it (``WPA2-PSK``, ``WPA2/WPA3-SAE``,
+    ``None``/``Open``) *(guess)*."""
+    text = _text(value).lower().replace(" ", "")
+    if not text:
+        return None
+    if text in ("none", "open"):
+        return Security.OPEN
+    if "owe" in text:
+        return Security.OWE
+    if "wep" in text:
+        return Security.WEP
+    enterprise = "enterprise" in text or "eap" in text or "802.1x" in text
+    if "wpa3" in text:
+        if enterprise:
+            return Security.WPA3_ENTERPRISE
+        return Security.WPA2_WPA3 if "wpa2" in text else Security.WPA3
+    if "wpa2" in text:
+        if enterprise:
+            return Security.WPA2_ENTERPRISE
+        return Security.WPA_WPA2 if "wpa/" in text or "wpa-wpa2" in text else Security.WPA2
+    if "wpa" in text:
+        return Security.WPA_ENTERPRISE if enterprise else Security.WPA
+    return Security.OTHER
 
 
 def _lag_id(value: Any) -> str | None:
@@ -1589,7 +1622,51 @@ class OmadaAdapter(_Adapter):
 
     async def read_wireless(self) -> Observation:
         w = await self._wireless()
-        return Observation(radios=w.radios, wlans=w.wlans)
+        return Observation(radios=w.radios, wlans=w.wlans, wifi_scan=await self._rogue_aps(w))
+
+    async def _rogue_aps(self, wireless: _Wireless) -> list[WifiScanResult]:
+        """The controller's rogue AP list (#169; ``GET …/insight/rogue-aps`` *(guess: path
+        and field names, from the controller's Insight page)*): foreign access points its EAPs
+        heard, read passively; empty while rogue AP detection is off. The controller leaves
+        out the access points it manages. Attached to the EAP that heard it (``apMac``) and its
+        radio of that band, else to the controller."""
+        rows = await self._optional_rows(f"{self._site_path}/insight/rogue-aps")
+        if not rows:
+            return []
+        eaps = {d.mac: d for d in await self._devices() if d.kind == "eap"}
+        radios = {(r.device_id, r.band): r.id for r in wireless.radios}
+        out = []
+        for row in rows:
+            bssid = _mac(row.get("bssid") or row.get("mac"))
+            if bssid is None:
+                continue
+            channel = _int(row.get("channel"))
+            code = _int(row.get("band"))
+            band = _ROGUE_BANDS.get(code) if code is not None else None
+            if band is None and channel:
+                band = Band.GHZ_2_4 if channel <= 14 else Band.GHZ_5
+            ap = eaps.get(_mac(row.get("apMac") or row.get("deviceMac")) or "")
+            device = self._prefix(ap) if ap else self.context.device_id
+            radio = radios.get((device, band)) if band else None
+            signal = _int(row.get("rssi", row.get("signal")))
+            last = _int(row.get("lastSeen"))
+            out.append(
+                WifiScanResult(
+                    id=scan_id(radio or device, bssid),
+                    device_id=device,
+                    radio_id=radio,
+                    bssid=bssid,
+                    ssid=_text(row.get("ssid")) or None,
+                    band=band,
+                    channel=channel or None,
+                    width_mhz=_width(row.get("channelWidth")),
+                    signal_dbm=signal if signal is not None and -120 <= signal < 0 else None,
+                    security=_rogue_security(row.get("security")),
+                    last_seen=datetime.fromtimestamp(last / 1000, UTC) if last else None,
+                    kind=ScanSource.ROGUE_DETECTION,
+                )
+            )
+        return out
 
     # --- clients ------------------------------------------------------------------------------
 

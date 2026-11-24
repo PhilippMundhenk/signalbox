@@ -556,6 +556,8 @@ function radiosCard(ix, deviceId) {
       opt(r.noise_dbm, (v) => t('device.radios.noise', { value: v })),
       opt(r.dfs_state, (v) => t(DFS_STATE[v])),
       opt(r.last_radar, (v) => t('device.radios.lastRadar', { time: fmtTime(v) })),
+      opt(r.neighbour_count, (n) => t('device.radios.neighbours', { count: n })),
+      opt(r.strongest_foreign_dbm, (v) => t('device.radios.strongest', { value: v })),
     ].filter(Boolean);
     const can = [
       r.standards && r.standards.length ? r.standards.map(std).join(', ') : null,
@@ -691,6 +693,62 @@ function portsCard(ix, tree) {
   );
 }
 
+// The access points the device's radios heard (#169), per radio and collapsed: a controller's
+// rogue AP list or a scan the user turned on. Other people's networks: shown here only.
+function neighboursCard(ix, rows) {
+  if (!rows.length) return null;
+  const radios = new Map(ix.net.radios.map((r) => [r.id, r]));
+  const groups = new Map();
+  for (const r of rows) {
+    const key = r.radio_id || r.device_id;
+    groups.set(key, [...(groups.get(key) || []), r]);
+  }
+  const label = (key) => {
+    const radio = radios.get(key);
+    if (radio) return `${radio.name} (${BAND[radio.band]})`;
+    const dev = ix.net.devices.find((d) => d.id === key);
+    return dev ? dev.name : key;
+  };
+  const name = (r) => {
+    const text = r.ssid === null ? h('span', { class: 'muted' }, t('device.neighbours.hidden')) : r.ssid;
+    const mark = r.own
+      ? h('span', { class: 'muted small' }, ` · ${t('device.neighbours.own')}`)
+      : r.own_ssid
+        ? h('span', { class: 'bad small', 'data-testid': 'neighbour-twin' }, ` · ${t('device.neighbours.twin')}`)
+        : null;
+    return h('span', {}, text, mark);
+  };
+  const channel = (r) =>
+    [r.channel ? t('device.port.channel', { channel: r.channel }) : null, opt(r.width_mhz, (w) => `${w} MHz`)].filter(Boolean).join(' · ');
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-neighbours' },
+    h('h2', {}, t('device.neighbours.title')),
+    h('p', { class: 'muted' }, t('device.neighbours.intro', { count: rows.length })),
+    [...groups.keys()]
+      .sort((a, b) => compare(label(a), label(b)))
+      .map((key) =>
+        h(
+          'details',
+          { class: 'fdb-port', 'data-testid': 'neighbour-radio', 'data-radio': key },
+          h('summary', {}, t('device.neighbours.radio', { radio: label(key), count: groups.get(key).length })),
+          table(
+            [
+              [t('device.neighbours.ssid'), name],
+              [t('device.neighbours.bssid'), (r) => h('span', { class: 'mono' }, r.bssid)],
+              [t('device.neighbours.channel'), channel],
+              [t('device.neighbours.signal'), (r) => opt(r.signal_dbm, (v) => `${v} dBm`)],
+              [t('device.neighbours.security'), (r) => r.security],
+              [t('device.neighbours.seen'), (r) => opt(r.last_seen, fmtTime)],
+            ],
+            groups.get(key),
+            { testid: 'neighbour-table', rowTestid: 'neighbour-row', compact: true },
+          ),
+        ),
+      ),
+  );
+}
+
 // The device's MAC address table (#160), per port and collapsed: a table can be long. A
 // controller's page shows the tables of the switches it manages too.
 function learnedCard(ix, entries) {
@@ -731,7 +789,12 @@ function learnedCard(ix, entries) {
 
 async function overview(main, ctx, device, adapters, sites) {
   const id = ctx.renderId;
-  const [ix, tree, fdb] = await Promise.all([loadNetwork(), get(`/devices/${enc(device.id)}/port-tree`), get('/fdb').catch(() => [])]);
+  const [ix, tree, fdb, heard] = await Promise.all([
+    loadNetwork(),
+    get(`/devices/${enc(device.id)}/port-tree`),
+    get('/fdb').catch(() => []),
+    get(`/wifi-scan?device=${enc(device.id)}`).catch(() => []),
+  ]);
   if (!ctx.alive(id)) return;
   const learned = fdb.filter((e) => e.device_id === device.id || e.device_id.startsWith(`${device.id}/`));
   const observed = ix.net.devices.find((d) => d.id === device.id);
@@ -836,6 +899,7 @@ async function overview(main, ctx, device, adapters, sites) {
     portsCard(ix, tree),
     observed ? stpCard(ix, observed) : null,
     radiosCard(ix, device.id),
+    neighboursCard(ix, heard),
     learnedCard(ix, learned),
     tunnelsCard(ix, device.id),
     firewallCard(ix, device.id),
