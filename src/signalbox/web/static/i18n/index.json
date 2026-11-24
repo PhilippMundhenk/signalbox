@@ -3,5 +3,8 @@
   { "code": "de", "name": "Deutsch", "dir": "ltr" },
   { "code": "es", "name": "Español", "dir": "ltr" },
   { "code": "fr", "name": "Français", "dir": "ltr" },
-  { "code": "pt", "name": "Português", "dir": "ltr" }
+  { "code": "pt", "name": "Português", "dir": "ltr" },
+  { "code": "ru", "name": "Русский", "dir": "ltr" },
+  { "code": "tr", "name": "Türkçe", "dir": "ltr" },
+  { "code": "ja", "name": "日本語", "dir": "ltr" }
 ]

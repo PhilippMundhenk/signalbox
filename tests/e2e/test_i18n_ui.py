@@ -108,7 +108,9 @@ KEY_SHOWN = re.compile(
 )
 
 
-@pytest.mark.parametrize("code", ["es", "fr", "pt"])
+@pytest.mark.parametrize(
+    "code", [e["code"] for e in _catalogue_languages() if e["code"] not in ("en", "de")]
+)
 def test_overview_and_device_page_render_in_each_new_language(
     page: Any, server: Any, code: str
 ) -> None:
