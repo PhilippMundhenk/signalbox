@@ -787,7 +787,7 @@ def _rule_item(
 ) -> dict[str, Any]:
     if v.chain is FirewallChain.OUTPUT:  # pragma: no cover - the planner never makes one
         raise AdapterError(
-            f"{label}: rules for the firewall's own traffic are not written",
+            f"{label}: rules for the device's own traffic are not written",
             message_id="write.ownTraffic",
             params={"subject": label},
         )

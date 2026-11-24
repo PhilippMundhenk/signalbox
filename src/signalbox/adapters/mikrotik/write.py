@@ -403,8 +403,8 @@ class MikrotikWrites:
             if c.device_id != self.context.device_id:
                 raise AdapterError(
                     f"{c.id}: not a change of {self.context.device_id}",
-                    message_id="write.notThisDevice",
-                    params={"subject": c.id},
+                    message_id="mikrotik.notThisDevice",
+                    params={"subject": c.id, "device": self.context.device_id},
                 )
             layout = await self._layout_of(cfg)
             if c.kind is ChangeKind.ROUTER:
@@ -1358,7 +1358,7 @@ class MikrotikWrites:
         if untagged in tagged:
             raise AdapterError(
                 f"{c.key}: VLAN {untagged} cannot be untagged and tagged",
-                message_id="write.vlanTaggedUntagged",
+                message_id="mikrotik.vlanTaggedUntagged",
                 params={"subject": c.key, "vlan": untagged},
             )
         covered: set[int] = set()

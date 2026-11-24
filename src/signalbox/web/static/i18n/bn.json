@@ -2720,5 +2720,9 @@
  "msg.plan.mikrotik.wifiCreate": "SSID {ssid}-এর জন্য Wi-Fi interface {name} তৈরি করুন",
  "msg.plan.mikrotik.wifiVlan": "{name} (SSID {ssid}): VLAN {vlan}",
  "msg.plan.mikrotik.wifiSet": "Wi-Fi interface {name} (SSID {ssid})",
- "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): {prop} মুছুন"
+ "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): {prop} মুছুন",
+ "msg.mikrotik.notThisDevice": "{subject}: এটি {device}-এর পরিবর্তন নয়",
+ "msg.opnsense.notBackup": "এটি OPNsense ব্যাকআপ নয় (ফরম্যাট {format})",
+ "msg.opnsense.errorMessage": "{request}: {detail}",
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} একই সঙ্গে untagged ও tagged হতে পারে না"
 }

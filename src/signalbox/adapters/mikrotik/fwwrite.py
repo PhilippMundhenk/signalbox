@@ -419,7 +419,7 @@ def firewall_rule(cfg: _Config, c: Change, revert: Revert) -> None:
     menu = m.FW_FILTER if v.family == 4 else m.FW_FILTER6
     if v.chain not in (FirewallChain.INPUT, FirewallChain.FORWARD):  # pragma: no cover
         raise AdapterError(
-            f"{label}: rules for the router's own traffic are not written",
+            f"{label}: rules for the device's own traffic are not written",
             message_id="write.ownTraffic",
             params={"subject": label},
         )

@@ -2045,12 +2045,8 @@ class OpnsenseAdapter(_Adapter):
         if answer.get("errorMessage"):
             raise AdapterError(
                 f"{call.path}: {_text(answer.get('errorMessage'))}",
-                message_id="write.refused",
-                params={
-                    "request": call.path,
-                    "vendor": "OPNsense",
-                    "detail": _text(answer.get("errorMessage")),
-                },
+                message_id="opnsense.errorMessage",
+                params={"request": call.path, "detail": _text(answer.get("errorMessage"))},
             )
         validations = answer.get("validations")
         if answer.get("result") == "failed" or validations:
@@ -2133,8 +2129,8 @@ class OpnsenseAdapter(_Adapter):
         if backup.format != "opnsense-config-xml":
             raise AdapterError(
                 f"not an OPNsense backup (format {backup.format})",
-                message_id="write.restoreFormat",
-                params={"format": backup.format, "vendor": "OPNsense"},
+                message_id="opnsense.notBackup",
+                params={"format": backup.format},
             )
         when = _revision_time(backup.content, "the backup")
         same_time = [i for i in await self._history() if _text(i.get("time")) == when]

@@ -2720,5 +2720,9 @@
  "msg.plan.mikrotik.wifiCreate": "إنشاء واجهة Wi-Fi {name} لـ SSID {ssid}",
  "msg.plan.mikrotik.wifiVlan": "{name} (SSID {ssid}): VLAN {vlan}",
  "msg.plan.mikrotik.wifiSet": "واجهة Wi-Fi {name} (SSID {ssid})",
- "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): إلغاء ضبط {prop}"
+ "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): إلغاء ضبط {prop}",
+ "msg.mikrotik.notThisDevice": "{subject}: ليس تغييرًا لـ {device}",
+ "msg.opnsense.notBackup": "ليست نسخة احتياطية لـ OPNsense (الصيغة {format})",
+ "msg.opnsense.errorMessage": "{request}: {detail}",
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: لا يمكن أن تكون VLAN {vlan} موسومة وغير موسومة معًا"
 }

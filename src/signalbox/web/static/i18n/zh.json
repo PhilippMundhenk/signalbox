@@ -2720,5 +2720,9 @@
  "msg.plan.mikrotik.wifiCreate": "为 SSID {ssid} 创建 Wi-Fi 接口 {name}",
  "msg.plan.mikrotik.wifiVlan": "{name} (SSID {ssid}):VLAN {vlan}",
  "msg.plan.mikrotik.wifiSet": "Wi-Fi 接口 {name} (SSID {ssid})",
- "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}):取消设置 {prop}"
+ "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}):取消设置 {prop}",
+ "msg.mikrotik.notThisDevice": "{subject}：不是 {device} 的变更",
+ "msg.opnsense.notBackup": "不是 OPNsense 备份（格式 {format}）",
+ "msg.opnsense.errorMessage": "{request}: {detail}",
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}:VLAN {vlan} 不能同时为未标记和已标记"
 }

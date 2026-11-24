@@ -2720,5 +2720,9 @@
  "msg.plan.mikrotik.wifiCreate": "создать интерфейс Wi-Fi {name} для SSID {ssid}",
  "msg.plan.mikrotik.wifiVlan": "{name} (SSID {ssid}): VLAN {vlan}",
  "msg.plan.mikrotik.wifiSet": "интерфейс Wi-Fi {name} (SSID {ssid})",
- "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): сбросить {prop}"
+ "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): сбросить {prop}",
+ "msg.mikrotik.notThisDevice": "{subject}: это не изменение для {device}",
+ "msg.opnsense.notBackup": "это не резервная копия OPNsense (формат {format})",
+ "msg.opnsense.errorMessage": "{request}: {detail}",
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} не может быть одновременно без тега и с тегом"
 }

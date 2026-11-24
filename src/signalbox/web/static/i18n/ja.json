@@ -2720,5 +2720,9 @@
  "msg.plan.mikrotik.wifiCreate": "SSID {ssid} 用の Wi-Fi インターフェース {name} を作成",
  "msg.plan.mikrotik.wifiVlan": "{name} (SSID {ssid}): VLAN {vlan}",
  "msg.plan.mikrotik.wifiSet": "Wi-Fi インターフェース {name} (SSID {ssid})",
- "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): {prop} を解除"
+ "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): {prop} を解除",
+ "msg.mikrotik.notThisDevice": "{subject}: {device} の変更ではありません",
+ "msg.opnsense.notBackup": "OPNsense のバックアップではありません（形式 {format}）",
+ "msg.opnsense.errorMessage": "{request}: {detail}",
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} をタグなしとタグ付きの両方にはできません"
 }

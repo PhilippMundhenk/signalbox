@@ -2720,5 +2720,9 @@
  "msg.plan.mikrotik.wifiCreate": "crear la interfaz Wi-Fi {name} para el SSID {ssid}",
  "msg.plan.mikrotik.wifiVlan": "{name} (SSID {ssid}): VLAN {vlan}",
  "msg.plan.mikrotik.wifiSet": "interfaz Wi-Fi {name} (SSID {ssid})",
- "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): quitar {prop}"
+ "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): quitar {prop}",
+ "msg.mikrotik.notThisDevice": "{subject}: no es un cambio de {device}",
+ "msg.opnsense.notBackup": "no es una copia de OPNsense (formato {format})",
+ "msg.opnsense.errorMessage": "{request}: {detail}",
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: la VLAN {vlan} no puede ser a la vez sin etiquetar y etiquetada"
 }

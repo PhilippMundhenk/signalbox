@@ -2720,5 +2720,9 @@
  "msg.plan.mikrotik.wifiCreate": "SSID {ssid} için {name} Wi-Fi arayüzünü oluştur",
  "msg.plan.mikrotik.wifiVlan": "{name} (SSID {ssid}): VLAN {vlan}",
  "msg.plan.mikrotik.wifiSet": "Wi-Fi arayüzü {name} (SSID {ssid})",
- "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): {prop} değerini kaldır"
+ "msg.plan.mikrotik.wifiUnset": "{name} (SSID {ssid}): {prop} değerini kaldır",
+ "msg.mikrotik.notThisDevice": "{subject}: {device} için bir değişiklik değil",
+ "msg.opnsense.notBackup": "OPNsense yedeği değil (biçim {format})",
+ "msg.opnsense.errorMessage": "{request}: {detail}",
+ "msg.mikrotik.vlanTaggedUntagged": "{subject}: VLAN {vlan} hem etiketsiz hem etiketli olamaz"
 }
