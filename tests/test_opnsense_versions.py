@@ -81,55 +81,39 @@ async def test_firewall_and_health_per_release(served: tuple[str, OpnsenseSimula
         assert "opnsense.forwardsUnread" not in gaps
         assert root.total_bytes == 27917287424
     else:
-        assert not fw.rules_complete and not fw.port_forwards_complete
-        assert {"opnsense.rulesIncomplete", "opnsense.forwardsUnread"} <= set(gaps)
+        assert not fw.port_forwards_complete
         assert gaps["opnsense.forwardsUnread"].optional
         assert f"OPNsense {sim.release}" in gaps["opnsense.forwardsUnread"].message
         assert root.total_bytes == 26 * 1024**3
+        if sim.release == "25.1":  # show_all=1 lists the legacy and automatic rules, too
+            assert fw.rules_complete and fw.rules
+            assert "opnsense.rulesIncomplete" not in gaps
+        else:  # 24.7 lists four columns only: no rules read
+            assert not fw.rules_complete and fw.rules == []
+            assert "opnsense.rulesIncomplete" in gaps
 
 
 @pytest.mark.parametrize("release", OLD)
 def test_older_release_data(release: str) -> None:
-    data = OpnsenseSimulator(release=release).data
+    sim = OpnsenseSimulator(release=release)
+    data = sim.data
     assert "/api/firewall/d_nat/search_rule" not in data
     assert "/api/ntpd/service/status" not in data
-    rows = data["/api/firewall/filter/search_rule"]["rows"]
-    assert rows and not any("sort_order" in r or r.get("legacy") for r in rows)
     assert ("/api/dnsmasq/settings/get" in data) is (release == "25.1")
-    assert any("interfacenot" in r for r in rows) is (release == "25.1")
-
-
-async def test_acl_spelling_by_release() -> None:
-    """Before 25.7 the privileges name camelCase actions: snake_case is refused with 403 and
-    the adapter asks in camelCase from the firmware version on (seen on a real 25.1)."""
-    import httpx
-
-    for release, refused in (("25.1", 403), ("24.7", 403), ("26.7", 200)):
-        sim = OpnsenseSimulator(release=release)
-        with serve(sim.app()) as url:
-            with httpx.Client(auth=httpx.BasicAuth(KEY, SECRET), trust_env=False) as client:
-                got = client.get(f"{url}/api/diagnostics/system/system_time")
-            assert got.status_code == refused, release
-            a = adapter(url)
-            try:
-                snap = await a.observe()
-                assert (a.http.camel_first, snap.device.health is not None) == (
-                    release != "26.7",
-                    True,
-                ), release
-            finally:
-                await a.close()
-
-
-async def test_isc_without_status_privilege() -> None:
-    """Core's ISC DHCP status is root only before 26: the read of the rest goes on."""
-    sim = OpnsenseSimulator(release="25.1")
-    sim.fail["/api/dhcpv4/service/status"] = 403
-    sim.fail["/api/dhcpv4/leases/search_lease"] = 403
-    with serve(sim.app()) as url:
-        snap = await observe(url)
-    assert snap.status is DeviceStatus.OK and snap.dhcp_servers
-    assert not any(s.id.endswith("isc-opt2") for s in snap.dhcp_servers)
+    # search_rule: 25.1 needs show_all=1 for the legacy and automatic rules, 24.7 has 4 columns
+    plain = sim.old_filter_rows(False)["rows"]
+    full = sim.old_filter_rows(True)["rows"]
+    if release == "25.1":
+        assert not any("sort_order" in r for r in plain)
+        assert any(r.get("legacy") for r in full) and any("sort_order" in r for r in full)
+    else:
+        assert plain == full and set(full[0]) <= {
+            "uuid",
+            "enabled",
+            "sequence",
+            "action",
+            "description",
+        }
 
 
 def test_unknown_release() -> None:

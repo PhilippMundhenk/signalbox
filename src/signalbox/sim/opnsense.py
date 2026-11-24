@@ -1028,8 +1028,8 @@ def older_release(data: dict[str, Any], release: str) -> None:
     24.7.12, 25.1.12 and 25.7.11 (docs/adapters/opnsense.md, "Versions"):
 
     - all older than 26.7: no destination NAT API (26.1), no ntpd API (25.7), the disk table of
-      ``df -h`` without byte counts, no legacy or automatic rules in ``search_rule`` (no
-      ``sort_order``), no interface assignment API;
+      ``df -h`` without byte counts, no interface assignment API, ``search_rule`` as
+      :meth:`OpnsenseSimulator.old_filter_rows` answers it;
     - 25.1 and 24.7 refuse a snake_case action with 403 (camelCase ACL patterns);
     - 24.7: also no dnsmasq (25.1), no user manager (25.1), no ``interfacenot`` on rules.
     """
@@ -1045,17 +1045,8 @@ def older_release(data: dict[str, Any], release: str) -> None:
     for row in data["/api/diagnostics/system/system_disk"]["devices"]:
         for key in ("total", "total_bytes", "used_bytes", "available_bytes"):
             row.pop(key, None)
-    rules = data["/api/firewall/filter/search_rule"]
-    rules["rows"] = [
-        {k: v for k, v in r.items() if k != "sort_order"}
-        for r in rules["rows"]
-        if not r.get("legacy") and not r.get("is_automatic")
-    ]
-    rules.update(total=len(rules["rows"]), rowCount=len(rules["rows"]))
     if release == "24.7":
         data.pop("/api/dnsmasq/settings/get", None)
-        for row in rules["rows"]:
-            row.pop("interfacenot", None)
 
 
 # --- writing ---------------------------------------------------------------------------------
@@ -1876,6 +1867,27 @@ class OpnsenseSimulator(_Writes):
         shown = rows if count < 0 else rows[(page - 1) * count : page * count]
         return {**grid, "rows": shown, "total": len(rows), "rowCount": len(shown), "current": page}
 
+    def old_filter_rows(self, show_all: bool) -> dict[str, Any]:
+        """``filter/search_rule`` of 25.1 (all fields, but without ``show_all`` only the floating
+        rules, and no legacy or automatic ones) and 24.7 (four columns of the MVC rules)."""
+        rows = copy.deepcopy(self.data[FILTER]["rows"])
+        if self.release == "24.7":
+            keep = ("uuid", "enabled", "sequence", "action", "description")
+            rows = [
+                {k: r[k] for k in keep if k in r}
+                for r in rows
+                if not r.get("legacy") and not r.get("is_automatic")
+            ]
+        elif not show_all:
+            rows = [
+                {k: v for k, v in r.items() if k != "sort_order"}
+                for r in rows
+                if not r.get("legacy")
+                and not r.get("is_automatic")
+                and ("," in str(r.get("interface")) or not r.get("interface"))
+            ]
+        return {"total": len(rows), "rowCount": len(rows), "current": 1, "rows": rows}
+
     def traceroute(self, caller: str, body: Any) -> Response:
         """``diagnostics/traceroute/set``: as configd's traceroute.py answers (unanswered hops
         are left out); 403 for a user without *Diagnostics: Traceroute*."""
@@ -2023,6 +2035,10 @@ class OpnsenseSimulator(_Writes):
                 overview = copy.deepcopy(self.data[path])
                 overview["rows"] = [*overview.get("rows", []), *copy.deepcopy(self.leftovers)]
                 return JSONResponse(overview)
+            if path == FILTER and self.release in ("25.1", "24.7"):
+                return JSONResponse(
+                    self.old_filter_rows(bool(request.query_params.get("show_all")))
+                )
             if path in (KEA, *grids):
                 return JSONResponse(self._kea_answer(path))
             if path in UNBOUND_GRIDS and isinstance(self.data[path], dict):

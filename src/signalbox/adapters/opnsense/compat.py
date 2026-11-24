@@ -12,6 +12,11 @@ models under ``src/opnsense/mvc/app``). What was found there, per release that h
   root's gets HTTP 403 for the other spelling, even though the router would run it (seen on a
   real 25.1: 403 on ``system_time`` and ``get_arp``). So the spelling is picked by version
   (:data:`SNAKE_ACL`), the other one is the fallback on a 404.
+* ``firewall/filter/search_rule`` (``FilterController``): 24.7 lists only the columns
+  ``enabled``, ``sequence``, ``action`` and ``description`` (the rest needs ``get_rule`` per
+  uuid: not read); 25.1 and newer list all fields, but until 26.7 only the floating rules
+  (no or several interfaces) unless ``show_all=1`` is sent, which adds the rules of the
+  interface pages, the legacy and the automatic ones with their ``sort_order`` (:data:`SHOW_ALL`).
 * ``auth/user`` (user manager): 25.1; ``dnsmasq/settings``: 25.1; ``ntpd/service``: 25.7.
 * ``firewall/d_nat`` (port forwards): 26.1; ``interfaces/assignment`` with addresses: 26.7.6.
 * Interface negation (``interfacenot`` of a filter rule): 25.1.
@@ -29,6 +34,10 @@ DNSMASQ_API = (25, 1, 0)
 NTPD_API = (25, 7, 0)
 DNAT_API = (26, 1, 0)
 INTERFACE_NOT = (25, 1, 0)
+#: Releases from 25.1 up to this one list the rules of ``search_rule`` only with ``show_all=1``.
+SHOW_ALL = (26, 7, 0)
+#: First release whose ``search_rule`` answers every field of the rules.
+FULL_RULE_ROWS = (25, 1, 0)
 #: First release whose ACL patterns are snake_case.
 SNAKE_ACL = (25, 7, 0)
 

@@ -850,10 +850,14 @@ class _ApiHttp(DeviceHttp):
         first, second = (camel, path) if self.camel_first else (path, camel)
         try:
             return await super().request(method, first, accept=accept, **kw)
-        except NotFound:
+        except NotFound as missing:
             if second == first:
                 raise
-            return await super().request(method, second, accept=accept, **kw)
+            try:
+                return await super().request(method, second, accept=accept, **kw)
+            except AuthFailed:
+                # the other spelling of an action that does not exist has no ACL pattern either
+                raise missing from None
 
 
 class OpnsenseAdapter(_Adapter):
@@ -2125,6 +2129,17 @@ class OpnsenseAdapter(_Adapter):
             ) from None
         return _trace.parse(answer, target, max_hops)
 
+    async def _filter_rows(self) -> list[dict[str, Any]]:
+        """``filter/search_rule``; from 25.1 until 26.7 only with ``show_all=1`` it lists the rules
+        of the interface pages, the legacy and the automatic ones, too (compat.SHOW_ALL)."""
+        if FILTER_RULES not in self._cache:
+            version = await self._release()
+            params: dict[str, Any] = dict(ALL_ROWS)
+            if version is not None and compat.FULL_RULE_ROWS <= version < compat.SHOW_ALL:
+                params["show_all"] = 1
+            self._cache[FILTER_RULES] = await self.http.get_json(FILTER_RULES, params=params)
+        return _rows(self._cache[FILTER_RULES], FILTER_RULES)
+
     async def read_firewall(self) -> Observation:
         """Packet filter and NAT (#135): ``filter/search_rule`` with aliases and interface
         groups, ``d_nat``, ``source_nat`` and ``one_to_one``. Each page needs its own privilege
@@ -2132,7 +2147,11 @@ class OpnsenseAdapter(_Adapter):
         the MVC NAT pages (404) leaves the port forwards unread."""
         layout = await self._layout()
         dev = self.context.device_id
-        rows = _rows(await self._get(FILTER_RULES, grid=True), FILTER_RULES)
+        rows = await self._filter_rows()
+        if rows and not any("interface" in r for r in rows):
+            # 24.7 lists only four columns (description, sequence, action, enabled): the rules
+            # are not read (the rules gap says so), the details need one get_rule per rule
+            rows = []
         aliases = _rows(await self._get(ALIASES, grid=True), ALIASES)
         groups = _rows(await self._get(IFACE_GROUPS, grid=True), IFACE_GROUPS)
 
@@ -2229,7 +2248,7 @@ class OpnsenseAdapter(_Adapter):
     async def _firewall_state(self, st: w.WriteState, changes: list[Change]) -> None:
         """What the firewall changes need besides the layout: the rows of the new rules page
         (and of the destination NAT page for port forwards) and the names of the zones."""
-        rows = _rows(await self._get(FILTER_RULES, grid=True), FILTER_RULES)
+        rows = await self._filter_rows()
         st.filter_rows = [r for r in rows if not r.get("is_automatic")]
         if any(c.kind is ChangeKind.PORT_FORWARD for c in changes):
             nat = await self._optional(DNAT_RULES, grid=True)
