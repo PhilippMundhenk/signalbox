@@ -2823,6 +2823,17 @@ class LinkEvidence(Model):
     source: EvidenceSource
 
 
+class MacSighting(Model):
+    """A managed device's MAC address seen on a port in an earlier round (#378): kept for
+    :data:`~signalbox.sightings.MAC_HOLD` so that links do not come and go as ARP and MAC
+    table entries age out between reads."""
+
+    port_id: str
+    mac: Mac
+    source: EvidenceSource
+    last_seen: datetime
+
+
 class Link(Model):
     id: str
     #: Port ids; tunnel ids for a ``vpn`` link.
@@ -3436,6 +3447,9 @@ class Network(Model):
     #: Routing tables and policy routing rules (#149; part of ``interfaces``).
     routes: list[Route] = Field(default_factory=list)
     routing_rules: list[RoutingRule] = Field(default_factory=list)
+    #: Sightings of managed devices' MACs of earlier rounds (#378), added by the runner for
+    #: the link inference only; not in ``GET /api/network``.
+    held_sightings: list[MacSighting] = Field(default_factory=list)
     #: Access points the radios heard (#169; ``wireless``), at most :data:`SCAN_LIMIT` per
     #: device. Other people's networks: see :class:`WifiScanResult`.
     wifi_scan: list[WifiScanResult] = Field(default_factory=list)

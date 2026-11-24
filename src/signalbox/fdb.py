@@ -85,7 +85,9 @@ class Index:
         return Counter({p: n for p, learned in table.items() if (n := len(learned & macs))})
 
 
-def index(net: Network) -> Index:
+def index(net: Network, held: bool = False) -> Index:
+    """The sightings of a network; ``held``: also those of earlier rounds the runner added
+    (``Network.held_sightings``, #378), for the link inference."""
     ports = {p.id: p for p in net.ports}
 
     def usable(port_id: str) -> Port | None:
@@ -119,14 +121,25 @@ def index(net: Network) -> Index:
     for mac, dev in owner.items():
         macs.setdefault(dev, set()).add(mac)
     with_table = {e.device_id for e in net.fdb}
+    earlier = net.held_sightings if held else []
+    with_table |= {
+        hp.device_id
+        for h in earlier
+        if h.source is EvidenceSource.FDB and (hp := ports.get(h.port_id)) is not None
+    }
     sightings: dict[Sighting, None] = {}
     for e in net.fdb:
         if e.kind is not FdbKind.SELF and usable(e.port_id):
             sightings[Sighting(e.device_id, e.port_id, e.mac)] = None
     for c in net.clients:
-        port = usable(c.seen_on or "")
+        # an ARP table names a VLAN interface (internal): the cable is on the jack below it
+        port = usable(_jack(net, c.seen_on or ""))
         if port is not None and port.device_id not in with_table:
             sightings[Sighting(port.device_id, port.id, c.mac)] = None
+    for h in earlier:
+        port = usable(_jack(net, h.port_id))
+        if port is not None and owner.get(h.mac) not in (None, port.device_id):
+            sightings[Sighting(port.device_id, port.id, h.mac)] = None
     ix = Index(list(sightings), owner, port_of_mac, macs, by_address=by_address)
     for s in ix.sightings:
         ix.learned.setdefault(s.port_id, set()).add(s.mac)
@@ -159,6 +172,8 @@ def placement(net: Network, ix: Index, client: Client) -> str | None:
         return client.seen_on
     access = {p for p in ports if p not in ix.uplinks}
     best = min(access or ports, key=lambda p: (ix.count(p), p))
+    if client.seen_on and best == _jack(net, client.seen_on):
+        return client.seen_on  # the VLAN interface it was seen on stays
     if client.seen_on and client.seen_on not in ports and not access:
         return client.seen_on  # a device without a table said more than an uplink would
     return best
@@ -228,10 +243,69 @@ def _jacks(net: Network, device_id: str) -> list[str]:
     ]
 
 
-def adjacencies(net: Network) -> list[Adjacent]:
-    """Ports that learn another managed device's address, with the nearest such device."""
+def managed_sightings(net: Network) -> list[tuple[str, str, EvidenceSource]]:
+    """(port, MAC, source) of every managed device's MAC seen on another device's port this
+    round, for the history (#378)."""
     ix = index(net)
+    return sorted(
+        {
+            (s.port_id, s.mac, _kind(ix, s.device_id))
+            for s in ix.sightings
+            if ix.owner.get(s.mac) not in (None, s.device_id)
+        }
+    )
+
+
+def _segments_of_ports(net: Network) -> dict[str, set[str]]:
+    """Jack -> the segments it and the VLAN interfaces on it carry, and those of the clients
+    seen there (what an ARP table says about a router's port)."""
+    out: dict[str, set[str]] = {}
+    for seg in net.segments:
+        for m in seg.members:
+            out.setdefault(_jack(net, m.port_id), set()).add(seg.id)
+    for c in net.clients:
+        if c.seen_on and c.segment_id:
+            out.setdefault(_jack(net, c.seen_on), set()).add(c.segment_id)
+    return out
+
+
+def _segments_of_devices(net: Network) -> dict[str, set[str]]:
+    out: dict[str, set[str]] = {}
+    for seg in net.segments:
+        for m in seg.members:
+            if (p := net.port(m.port_id)) is not None:
+                out.setdefault(p.device_id, set()).add(seg.id)
+    for d in net.devices:
+        if (native := net.native_segment(d.id)) is not None:
+            out.setdefault(d.id, set()).add(native)
+    return out
+
+
+def _may_sit_between(ix: Index, here: str, dev: str, switch: str) -> bool:
+    """Nothing says the switch is beside the path from ``here`` to ``dev``: its own table does
+    not learn the two on one port, and ``dev``'s table does not learn it on another port than
+    ``here``."""
+    a = ix.ports_learning(switch, ix.macs.get(here, set()))
+    b = ix.ports_learning(switch, ix.macs.get(dev, set()))
+    if a and b:
+        return not set(a) & set(b)
+    toward_here = ix.ports_learning(dev, ix.macs.get(here, set()))
+    toward_switch = ix.ports_learning(dev, ix.macs.get(switch, set()))
+    return not (toward_here and toward_switch and not set(toward_here) & set(toward_switch))
+
+
+def adjacencies(net: Network) -> list[Adjacent]:
+    """Ports that learn another managed device's address, with the nearest such device.
+
+    A router without a bridge table only says that a device is in the same layer-2 network
+    as one of its ports (ARP/NDP, #378): when a known switch of that network may sit between,
+    no cable is drawn from it to a device that is no switch, and one to a switch is inferred.
+    """
+    ix = index(net, held=True)
     roles = {d.id: d.role for d in net.devices}
+    switches = sorted(d for d, r in roles.items() if r is DeviceRole.SWITCH)
+    port_segments = _segments_of_ports(net)
+    device_segments = _segments_of_devices(net)
     learned: dict[str, set[str]] = {}
     for port_id, macs in ix.learned.items():
         learned.setdefault(_jack(net, port_id), set()).update(macs)
@@ -258,7 +332,19 @@ def adjacencies(net: Network) -> list[Adjacent]:
             )
         ]
         wireless = port.kind is PortKind.WIRELESS
+        arp_only = roles.get(here) is DeviceRole.GATEWAY and here not in ix.tables
+        here_segments = port_segments.get(port_id, set())
         for dev in nearest:
+            unsure = False
+            if arp_only:
+                unsure = any(
+                    sw not in (here, dev)
+                    and device_segments.get(sw, set()) & here_segments
+                    and _may_sit_between(ix, here, dev, sw)
+                    for sw in switches
+                )
+                if unsure and roles.get(dev) is not DeviceRole.SWITCH:
+                    continue  # same network, not a cable: a switch may be in between
             evidence = _evidence(ix, port_id, here, dev, seen[dev])
             remote, choices = _far_port(net, ix, here, dev, seen[dev])
             if remote is None:
@@ -267,10 +353,9 @@ def adjacencies(net: Network) -> list[Adjacent]:
                 continue
             if remote == port_id:
                 continue
-            confirmed = here in ix.tables or dev in ix.tables
             out.setdefault(
                 (port_id, remote),
-                Adjacent(port_id, remote, wireless, not confirmed, evidence),
+                Adjacent(port_id, remote, wireless, unsure, evidence),
             )
     for local, remote, evidence in _guess(net, open_ends, out):
         port = net.port(local)

@@ -855,7 +855,7 @@ async def test_own_mac_and_no_mac_table(nsdp: Start) -> None:
     assert snap.status is DeviceStatus.OK, snap.errors
     assert snap.device.mac == "02:00:00:00:10:01"
     (gap,) = [e for e in snap.errors if e.message_id == "plusswitch.noMacTable"]
-    assert gap.optional and gap.fix and "192.0.2" in gap.message
+    assert gap.optional and gap.fix and "MAC address table" in gap.message
     assert system_info({"mac": "02:00:00:00:10:02"}, "NETGEAR", "192.0.2.12").mac == (
         "02:00:00:00:10:02"
     )

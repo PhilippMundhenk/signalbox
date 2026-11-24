@@ -24,6 +24,15 @@ between, and linked the gateway's port to the one access point whose MAC it saw 
   when its own table learns the two on different ports (new), or as before when the far
   device's table puts both behind one port. With no table on either, a switch is taken to sit
   before a device that is none. ARP entries on a VLAN interface count for the jack below it.
+- **A router's ARP table is no cable**: it only says a device is in the same layer-2 network
+  as the router's port. When a known switch of that network may sit in between (its own table
+  does not put it beside the path, the far device's table does not learn it on another port),
+  no link is drawn from it to a device that is no switch, and a link to a switch is inferred.
+  ARP entries of a VLAN interface count for the jack below it (they were dropped before, so
+  only the devices in the untagged network were seen: the AP of the issue).
+- **Sightings are held**: the MAC of a managed device seen on a port is recorded in the
+  history (kind `mac-port`) and counts for the inference for 24 hours (`MAC_HOLD`) after it was
+  last seen, so links do not come and go as ARP and table entries age out between reads.
 - **Guessed ports, inferred links**: the far port of a device without a table and without the
   learned MAC on a jack is chosen among its free jacks by VLAN memberships, PVID and speed.
   Such a link, and one that no table of either device confirms, is `Link.inferred`: drawn
@@ -35,6 +44,7 @@ between, and linked the gateway's port to the one access point whose MAC it saw 
 - With the OpenWrt tables the chain of the issue is found; the plus switch's ports are a guess
   and say so. Without them (an older ACL) the gateway is linked to the switches only, dashed,
   and no access point is drawn cabled to the gateway.
+- A cable moved within the hold time can show its old and new place for up to a day.
 - Checks never build on a guessed port: a dashed link causes no VLAN, speed or LAG finding.
 - On DSA the software bridge only knows what reached the CPU (broadcasts, own traffic); enough
   for which port leads where, not for every client (a guess until a real device confirms it,

@@ -226,7 +226,9 @@ def test_two_routers_get_two_untagged_networks(uplinks: bool) -> None:
         "sw": MAIN,
     }
     assert net.native_segment("nope") is None
-    assert sorted(link.id for link in net.links) == [AP_LINK, WAN_LINK]
+    # the firewall's ARP table sees the access point behind the unread switch: the same
+    # network, not a cable (#378); the Fritz!Box sees the firewall with no switch between
+    assert sorted(link.id for link in net.links) == [WAN_LINK]
 
 
 def test_main_network_is_the_one_not_in_front_of_another_router() -> None:
@@ -367,12 +369,10 @@ def test_reported_case_has_no_errors(uplinks: bool) -> None:
     assert ids(out, errors=True) == []
     for rule in (one_gateway, one_server, native_mismatch, tagged_both_ends, trunk_scope):
         assert run(net, rule) == [], rule
-    # the access point's link cannot be checked: incomplete, not an error
+    # the access point is behind the unread switch, no cable is known: incomplete, no error
     paths = run(net, path_to_gateway)
-    assert [(f.incomplete, f.objects) for f in paths] == [(True, [AP_LINK, port_id("ap", "eth0")])]
-    assert paths[0].message == (
-        "ap was not fully read, so OPNsense port em1 ↔ ap port eth0 could not be checked."
-    )
+    assert [(f.incomplete, f.objects) for f in paths] == [(True, ["ap"])]
+    assert paths[0].message.startswith("ap is not connected to the gateway in the known topology")
 
 
 def test_double_nat_is_information_naming_both_routers() -> None:

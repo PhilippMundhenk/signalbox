@@ -6,11 +6,12 @@ devices around the switch that has none; no cable is claimed between the gateway
 from __future__ import annotations
 
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from factories import SITE, client, device, port, snapshot
-from signalbox.fdb import adjacencies, index
+from signalbox.fdb import adjacencies, index, managed_sightings
 from signalbox.merge import merge
 from signalbox.model import (
     DeviceRole,
@@ -19,6 +20,7 @@ from signalbox.model import (
     FdbKind,
     Link,
     LinkOrigin,
+    MacSighting,
     Membership,
     Network,
     PortKind,
@@ -31,6 +33,9 @@ from signalbox.model import (
     segment_id,
 )
 from signalbox.rules import Rule, Severity, evaluate
+from signalbox.secrets import load_vault
+from signalbox.sightings import MAC_HOLD
+from signalbox.store import Store
 from signalbox.topology import discovered_links, view
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -69,10 +74,11 @@ def segments(members: dict[str, list[tuple[str, Membership]]]) -> list[Segment]:
 U, T = Membership.UNTAGGED, Membership.TAGGED
 
 
-def chain(tables: bool = True, dist_mac: bool = True) -> Network:
+def chain(tables: bool = True, dist_mac: bool = True, arp: tuple[str, ...] = ()) -> Network:
     """The chain of the issue. ``tables``: the OpenWrt devices report their bridge tables
     (False: an older ACL, today's state); ``dist_mac``: the plus switch reports its MAC (False:
-    only the gateway's ARP entry for its management address names it)."""
+    only the gateway's ARP entry for its management address names it); ``arp``: MACs whose
+    ARP entries of the gateway have aged out."""
     gw = snapshot(
         device("gw", DeviceRole.GATEWAY),
         ports=[
@@ -94,6 +100,7 @@ def chain(tables: bool = True, dist_mac: bool = True) -> Network:
             client(AP2, "192.0.2.5", seen_on="gw/port/vlan10"),
         ],
     )
+    gw = gw.model_copy(update={"clients": [c for c in gw.clients if c.mac not in arp]})
     srv_jacks = [f"lan{n}" for n in range(1, 6)]
     srv = snapshot(
         device("srv", DeviceRole.SWITCH, management_address="192.0.2.2"),
@@ -286,3 +293,46 @@ def test_view_marks_inferred_links() -> None:
     assert trunk["inferred"] is True
     assert {"port_id": "srv/port/lan5", "source": "fdb"} in trunk["evidence"]
     assert any(e["inferred"] is False for e in edges)
+
+
+def test_only_ap1_in_the_arp_table_is_no_cable() -> None:
+    """The flicker of the real network: the gateway's ARP table holds only AP 1 at this read.
+    The known switches of that network may sit in between: no cable to the AP."""
+    net = chain(tables=False, arp=(SRV, DIST, AP2))
+    assert discovered_links(net) == []
+
+
+def held(net: Network, at: datetime) -> list[MacSighting]:
+    return [
+        MacSighting(port_id=p, mac=m, source=src, last_seen=at)
+        for p, m, src in managed_sightings(net)
+    ]
+
+
+def test_two_reads_with_different_arp_entries_give_one_topology(tmp_path: Path) -> None:
+    """#378: the second read misses ARP entries that aged out; with the sightings of the first
+    (kept for MAC_HOLD in the history) the inferred topology stays the same."""
+    first = chain(tables=False)
+    second = chain(tables=False, arp=(SRV, AP2))
+    now = datetime(2026, 11, 24, 12, 0, tzinfo=UTC)
+    store = Store(tmp_path / "db.sqlite", load_vault(tmp_path, env={}))
+    try:
+        store.record_history(first, now)
+        kept = store.held_sightings(now + timedelta(hours=1) - MAC_HOLD)
+        assert kept == held(first, now)
+        assert store.held_sightings(now + MAC_HOLD + timedelta(minutes=1) - MAC_HOLD) == []
+    finally:
+        store.close()
+    assert {(k.port_id, k.mac) for k in kept} >= {("gw/port/igb1", SRV), ("gw/port/igb1", AP2)}
+    again = second.model_copy(update={"held_sightings": kept})
+    assert pairs(discovered_links(again)) == pairs(discovered_links(first))
+    # the same with the tables: the switch's table entry aged out, the held one counts
+    full = chain()
+    aged = full.model_copy(
+        update={
+            "fdb": [e for e in full.fdb if not (e.device_id == "srv" and e.mac == DIST)],
+            "held_sightings": held(full, now),
+        }
+    )
+    assert pairs(discovered_links(aged)) == pairs(discovered_links(full))
+    assert "held_sightings" not in view(aged)

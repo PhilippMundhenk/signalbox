@@ -3214,6 +3214,37 @@
       "title": "LogTransport",
       "type": "string"
     },
+    "MacSighting": {
+      "additionalProperties": false,
+      "description": "A managed device's MAC address seen on a port in an earlier round (#378): kept for\n:data:`~signalbox.sightings.MAC_HOLD` so that links do not come and go as ARP and MAC\ntable entries age out between reads.",
+      "properties": {
+        "last_seen": {
+          "format": "date-time",
+          "title": "Last Seen",
+          "type": "string"
+        },
+        "mac": {
+          "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+          "title": "Mac",
+          "type": "string"
+        },
+        "port_id": {
+          "title": "Port Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/EvidenceSource"
+        }
+      },
+      "required": [
+        "port_id",
+        "mac",
+        "source",
+        "last_seen"
+      ],
+      "title": "MacSighting",
+      "type": "object"
+    },
     "ManagementService": {
       "additionalProperties": false,
       "description": "A management service a device offers (#173), ``object_id(device, \"service\", <key>)``.\n\nOne object per service the device has, enabled or not: an integration that reads services\nreports every one it knows, so an empty list means \"not read\", never \"none\". Read with the\n``interfaces`` capability (no API version needed).\n\nWhere it listens: ``listen`` (addresses), ``interfaces`` (ports) and ``segments``\n(networks) are restrictions the device itself applies; all empty means every address on\nevery interface. ``allowed_from`` is the service's own address filter (MikroTik\n``address``), not the firewall: Signalbox cannot see firewall rules yet (#135), so\n:meth:`Network.service_segments` and :meth:`Network.service_from_wan` answer from these\nfields only.",
@@ -3735,6 +3766,13 @@
             "$ref": "#/$defs/ForeignServer"
           },
           "title": "Foreign Servers",
+          "type": "array"
+        },
+        "held_sightings": {
+          "items": {
+            "$ref": "#/$defs/MacSighting"
+          },
+          "title": "Held Sightings",
           "type": "array"
         },
         "links": {
