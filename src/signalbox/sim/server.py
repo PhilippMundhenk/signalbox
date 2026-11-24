@@ -49,7 +49,7 @@ def self_signed_certificate(directory: Path, name: str = "simulator") -> TlsFile
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - datetime.timedelta(minutes=5))
-        .not_valid_after(now + datetime.timedelta(days=30))
+        .not_valid_after(now + datetime.timedelta(days=825))
         .add_extension(
             x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
             critical=False,

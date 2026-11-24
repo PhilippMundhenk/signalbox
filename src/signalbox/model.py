@@ -168,6 +168,48 @@ class DeviceRole(StrEnum):
     OTHER = "other"
 
 
+class KeyType(StrEnum):
+    RSA = "rsa"
+    EC = "ec"
+    ED25519 = "ed25519"
+    OTHER = "other"
+
+
+class CertificateInfo(Model):
+    """The TLS certificate a device presents on its management port (#174).
+
+    Read by core during the pinning handshake of :class:`~signalbox.adapters.https.DeviceHttp`,
+    so every HTTPS integration provides it. Dates are those in the certificate: Signalbox
+    pins the certificate and ignores them, browsers and apps do not.
+    """
+
+    fingerprint_sha256: str
+    subject: str
+    issuer: str
+    self_signed: bool
+    not_before: datetime
+    not_after: datetime
+    key_type: KeyType
+    #: Size of the public key (RSA modulus, EC curve); 0 for an unknown type.
+    key_bits: int
+    #: As the certificate names it, for example ``sha256WithRSAEncryption``.
+    signature_algorithm: str
+    #: DNS names and IP addresses of the subject alternative name extension.
+    san: list[str] = Field(default_factory=list)
+    #: The management address (or the host Signalbox connects to) is covered by the
+    #: certificate (SAN, or the common name when there is no SAN). ``None``: no address known.
+    matches_management_address: bool | None = None
+    #: This is the certificate Signalbox has pinned. ``False``: the device presented another
+    #: one (a new device, or a renewed certificate) and is waiting to be trusted.
+    trusted: bool = True
+    #: Since when the pinned certificate is trusted (from the inventory); ``None``: unknown.
+    pinned_since: datetime | None = None
+    #: The previously pinned certificate, set while the device presents a different one
+    #: (``cert.renewed`` explains the untrusted-certificate status with it).
+    previous_fingerprint_sha256: str | None = None
+    previous_not_after: datetime | None = None
+
+
 class Firmware(Model):
     current: str | None = None
     available: str | None = None
@@ -424,6 +466,9 @@ class Device(Observed):
     #: (``Observation.log_targets``). ``None``: not read; ``[]``: read, nothing is sent anywhere.
     #: Disabled targets are listed too.
     log_targets: list[LogTarget] | None = None
+    #: The certificate the device presents for HTTPS (#174), filled by core from the pinning
+    #: handshake. ``None``: no HTTPS read (or not read yet).
+    certificate: CertificateInfo | None = None
 
     def sends_to(self, kind: LogKind) -> list[LogTarget]:
         """The enabled targets of one kind (empty when not read)."""
@@ -2736,6 +2781,10 @@ class Network(Model):
     annotations: list[Annotation] = Field(default_factory=list)
     #: Acknowledged findings (#186); :func:`signalbox.rules.evaluate` applies them.
     acknowledgements: list[Acknowledgement] = Field(default_factory=list)
+    #: Days before a device certificate expires when ``security.certificate-expiry`` warns and
+    #: when it reports an error (``certificates`` in the configuration), set by the runner.
+    certificate_warn_days: int = 30
+    certificate_urgent_days: int = 7
     #: Path traces (#253): the latest per source and target, set by the runner while
     #: ``traces.enabled`` is on, hops matched to the devices of this network. Active
     #: observations, not snapshots: empty in the desired and predicted states.

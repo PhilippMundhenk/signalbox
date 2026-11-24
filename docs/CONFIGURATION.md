@@ -61,6 +61,13 @@ Generated from the code by `tools/gen_docs.py`.
 | --- | --- | --- | --- |
 | `history.days` | `SIGNALBOX_HISTORY_DAYS` | `30` | Days the observation history (first/last seen, status and link changes) is kept. Client sightings are a presence log: keep this short. |
 
+## `certificates`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `certificates.warn_days` | `SIGNALBOX_CERTIFICATES_WARN_DAYS` | `30` | Days before a device's HTTPS certificate expires when Signalbox warns. |
+| `certificates.urgent_days` | `SIGNALBOX_CERTIFICATES_URGENT_DAYS` | `7` | Days before it expires when the warning becomes an error (an expired certificate is always an error). |
+
 ## `discovery`
 
 | Setting | Environment variable | Default | Meaning |

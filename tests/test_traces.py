@@ -371,7 +371,7 @@ def test_store_migration_and_traces(tmp_path: Path) -> None:
     db.close()
     store = Store(path, load_vault(tmp_path, env={}))
     try:
-        assert store._db.execute("PRAGMA user_version").fetchone()[0] == len(SCHEMA) == 6
+        assert store._db.execute("PRAGMA user_version").fetchone()[0] == len(SCHEMA) == 7
         old = trace("fw", "1.1.1.1", ("1.1.1.1", 1.0)).model_copy(
             update={"started_at": T0 - timedelta(days=40)}
         )

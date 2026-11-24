@@ -86,9 +86,32 @@ class Runner:
                 snap, presented = await self.read_device(rec, cfg)
                 if presented != rec.pending_fingerprint:
                     self.store.set_pending_fingerprint(rec.id, presented)
+        snap = self._with_certificate_history(rec, snap)
         self.store.save_snapshot(snap)
         log.info("%s: %s", rec.id, snap.status.value)
         return snap
+
+    def _with_certificate_history(self, rec: DeviceRecord, snap: Snapshot) -> Snapshot:
+        """Complete ``Device.certificate`` from the inventory (#174): since when the certificate
+        is pinned, and, while the device presents another one than the pinned (a renewal),
+        the pinned one it replaced, kept from the previous snapshot."""
+        cert = snap.device.certificate
+        if cert is None:
+            return snap
+        update: dict[str, Any] = {}
+        if cert.trusted:
+            update["pinned_since"] = rec.pinned_since
+        elif rec.pinned_fingerprint:
+            old = self.store.snapshot(rec.id)
+            before = old.device.certificate if old else None
+            if before is not None and before.trusted:
+                update["previous_fingerprint_sha256"] = before.fingerprint_sha256
+                update["previous_not_after"] = before.not_after
+            elif before is not None and before.fingerprint_sha256 == cert.fingerprint_sha256:
+                update["previous_fingerprint_sha256"] = before.previous_fingerprint_sha256
+                update["previous_not_after"] = before.previous_not_after
+        device = snap.device.model_copy(update={"certificate": cert.model_copy(update=update)})
+        return snap.model_copy(update={"device": device})
 
     async def read_device(
         self, rec: DeviceRecord, cfg: AdapterConfig
@@ -139,7 +162,13 @@ class Runner:
         # answering DHCP servers and routers (#184): the devices' sightings always, the
         # probe's answers only while probes are on
         probed = self.store.foreign_servers() if self.config.probes.enabled else []
-        return attach_foreign(net, probed)
+        net = attach_foreign(net, probed)
+        return net.model_copy(
+            update={
+                "certificate_warn_days": self.config.certificates.warn_days,
+                "certificate_urgent_days": self.config.certificates.urgent_days,
+            }
+        )
 
     def _declared(self) -> DesiredState | None:
         if self.desired_source is None:

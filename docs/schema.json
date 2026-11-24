@@ -252,6 +252,124 @@
       "title": "Band",
       "type": "string"
     },
+    "CertificateInfo": {
+      "additionalProperties": false,
+      "description": "The TLS certificate a device presents on its management port (#174).\n\nRead by core during the pinning handshake of :class:`~signalbox.adapters.https.DeviceHttp`,\nso every HTTPS integration provides it. Dates are those in the certificate: Signalbox\npins the certificate and ignores them, browsers and apps do not.",
+      "properties": {
+        "fingerprint_sha256": {
+          "title": "Fingerprint Sha256",
+          "type": "string"
+        },
+        "issuer": {
+          "title": "Issuer",
+          "type": "string"
+        },
+        "key_bits": {
+          "title": "Key Bits",
+          "type": "integer"
+        },
+        "key_type": {
+          "$ref": "#/$defs/KeyType"
+        },
+        "matches_management_address": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Matches Management Address"
+        },
+        "not_after": {
+          "format": "date-time",
+          "title": "Not After",
+          "type": "string"
+        },
+        "not_before": {
+          "format": "date-time",
+          "title": "Not Before",
+          "type": "string"
+        },
+        "pinned_since": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pinned Since"
+        },
+        "previous_fingerprint_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Previous Fingerprint Sha256"
+        },
+        "previous_not_after": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Previous Not After"
+        },
+        "san": {
+          "items": {
+            "type": "string"
+          },
+          "title": "San",
+          "type": "array"
+        },
+        "self_signed": {
+          "title": "Self Signed",
+          "type": "boolean"
+        },
+        "signature_algorithm": {
+          "title": "Signature Algorithm",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "trusted": {
+          "default": true,
+          "title": "Trusted",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fingerprint_sha256",
+        "subject",
+        "issuer",
+        "self_signed",
+        "not_before",
+        "not_after",
+        "key_type",
+        "key_bits",
+        "signature_algorithm"
+      ],
+      "title": "CertificateInfo",
+      "type": "object"
+    },
     "Cipher": {
       "description": "Pairwise or group data cipher of a WLAN.",
       "enum": [
@@ -418,6 +536,17 @@
           },
           "title": "Capabilities",
           "type": "array"
+        },
+        "certificate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CertificateInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "firmware": {
           "anyOf": [
@@ -2399,6 +2528,16 @@
       "type": "object"
     },
     "JsonValue": {},
+    "KeyType": {
+      "enum": [
+        "rsa",
+        "ec",
+        "ed25519",
+        "other"
+      ],
+      "title": "KeyType",
+      "type": "string"
+    },
     "LeaseState": {
       "enum": [
         "active",
@@ -2970,6 +3109,16 @@
           },
           "title": "Annotations",
           "type": "array"
+        },
+        "certificate_urgent_days": {
+          "default": 7,
+          "title": "Certificate Urgent Days",
+          "type": "integer"
+        },
+        "certificate_warn_days": {
+          "default": 30,
+          "title": "Certificate Warn Days",
+          "type": "integer"
         },
         "clients": {
           "items": {

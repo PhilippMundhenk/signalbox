@@ -27,6 +27,7 @@ from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr
 
+from signalbox import certificates
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import BroadcastResult, Candidate, HostProbe, NetworkProbe
 from signalbox.model import (
@@ -814,6 +815,28 @@ class Adapter(ABC):
         return await asyncio.wait_for(fn(), timeout=self.context.timeout)
 
     async def observe(self) -> Snapshot:
+        """Read the device (``read_system`` and the capabilities) into a snapshot. The
+        certificate the HTTPS helper saw during its pinning handshake goes to
+        ``Device.certificate`` (#174), whichever integration did the reading."""
+        with certificates.collecting() as seen:
+            snap = await self._observe()
+        if not seen:
+            return snap
+        (host, _port), der = next(iter(seen.items()))
+        try:
+            info = certificates.describe(der, snap.device.management_address or host)
+        except ValueError:  # a certificate the parser cannot read: no card, no checks
+            return snap
+        from signalbox.adapters.https import normalise_fingerprint  # https imports this module
+
+        pinned = self.context.pinned_fingerprint
+        trusted = pinned is not None and info.fingerprint_sha256 == normalise_fingerprint(pinned)
+        info = info.model_copy(update={"trusted": trusted})
+        return snap.model_copy(
+            update={"device": snap.device.model_copy(update={"certificate": info})}
+        )
+
+    async def _observe(self) -> Snapshot:
         ctx = self.context
         now = datetime.now(UTC)
         source = Source(adapter=self.manifest.id, device_id=ctx.device_id)

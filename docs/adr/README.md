@@ -20,5 +20,6 @@
 | [0016](0016-mac-address-tables.md) | MAC address tables: raw entries per device, bounded, one core module derives client placement and links (#160) |
 | [0017](0017-firewall-desired-state-and-deployments.md) | Firewall desired state and deployments: tagged objects only, zone references, a lockout check with an explicit override (#295) |
 | [0018](0018-log-and-monitoring-targets.md) | Log and monitoring targets belong to their device; the SNMP agent stays a management service (#180) |
+| [0019](0019-device-tls-certificates.md) | The device certificate is read by core and belongs to the device (#174) |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.

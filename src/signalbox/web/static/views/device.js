@@ -1,6 +1,6 @@
 // One device: overview with connection test and certificate trust, settings, advanced (raw data).
 import { del, enc, get, post } from '../api.js';
-import { compare, fmtNumber, t } from '../i18n.js';
+import { compare, fmtDate, fmtNumber, t } from '../i18n.js';
 import { fdbText, loadNetwork } from '../net.js';
 import { PORT_ROLE, clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, place, portDetails, portSpeed, yesNo } from '../util.js';
 import { busy, card, confirmDialog, empty, kv, manageLink, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
@@ -312,6 +312,27 @@ function loggingCard(observed) {
   );
 }
 
+// The certificate the device presents for HTTPS (#174); null: no HTTPS read.
+function certificateCard(observed) {
+  const c = observed.certificate;
+  if (!c || typeof c !== 'object') return null;
+  const day = (iso) => fmtDate(new Date(iso), { dateStyle: 'medium' });
+  const expired = new Date(c.not_after).getTime() <= Date.now();
+  const key = c.key_type === 'other' ? c.key_type : `${c.key_type.toUpperCase()} ${c.key_bits}`;
+  const rows = [
+    [t('device.cert.validityLabel'), h('span', { class: expired ? 'bad' : '', 'data-testid': 'cert-validity' }, t('device.cert.validity', { from: day(c.not_before), to: day(c.not_after) }))],
+    [t('device.cert.issuer'), c.self_signed ? t('device.cert.selfSigned') : c.issuer],
+    [t('device.cert.key'), `${key} · ${c.signature_algorithm}`],
+  ];
+  const covers = c.matches_management_address === true ? t('device.cert.covers') : c.matches_management_address === false ? t('device.cert.coversNot') : null;
+  const names = [c.san.length ? c.san.join(', ') : null, covers].filter(Boolean).join(' · ');
+  if (names) rows.push([t('device.cert.names'), names]);
+  if (c.pinned_since) rows.push([t('device.cert.pinnedSince'), day(c.pinned_since)]);
+  rows.push([t('device.cert.fingerprint'), h('code', {}, c.fingerprint_sha256)]);
+  if (!c.trusted) rows.push([t('device.cert.untrusted'), '']);
+  return h('section', { class: 'card', 'data-testid': 'device-certificate' }, h('h2', {}, t('device.cert.title')), kv(rows));
+}
+
 const BAND = { 2.4: '2.4 GHz', 5: '5 GHz', 6: '6 GHz' };
 
 // One entry of the port tree (#252): the port (or radio), what it is, and what runs on it.
@@ -509,6 +530,7 @@ async function overview(main, ctx, device, adapters, sites) {
     firewallCard(ix, device.id),
     observed ? managementCard(ix, observed) : null,
     observed ? loggingCard(observed) : null,
+    observed ? certificateCard(observed) : null,
     observed ? healthCard(observed.health) : null,
     observed ? timeCard(observed.time) : null,
     trustBox,
