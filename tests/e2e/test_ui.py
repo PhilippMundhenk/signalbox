@@ -989,3 +989,31 @@ def test_unreachable_server_shows_a_banner_not_the_login(app: Any) -> None:
     app.unroute("**/api/**")
     expect(app.get_by_test_id("offline")).to_be_hidden()  # retried with backoff
     expect(app.get_by_test_id("login-submit")).to_have_count(0)
+
+
+def test_a_good_test_replaces_the_old_read_problem(app: Any) -> None:
+    """One read state on the device page (#300): a newer, good read replaces older problems."""
+    add_site(app)
+    add_lab(app, "Cellar", host="down.example")
+    observe(app)
+    go(app, "#/device/cellar")
+    state = app.get_by_test_id("device-read-state")
+    expect(state.get_by_test_id("device-errors")).to_be_visible()
+    expect(app.get_by_test_id("status")).to_have_attribute("data-status", "unreachable")
+    # the problem is fixed (the address was wrong); a connection test reads the device again
+    body = api(app, "GET", "/devices/cellar")
+    api(app, "PUT", "/devices/cellar", {**body, "config": {"host": "192.0.2.1", "password": ""}})
+    app.get_by_test_id("test").click()
+    result = app.get_by_test_id("test-result")
+    expect(result.get_by_test_id("status")).to_have_attribute("data-status", "ok")
+    expect(state.get_by_test_id("device-errors")).to_have_count(0)
+    expect(state.get_by_test_id("read-state-note")).to_contain_text("No problems in the read at")
+    expect(app.get_by_test_id("status").first).to_have_attribute("data-status", "ok")
+    expect(app.get_by_test_id("test-errors")).to_have_count(0)  # not listed twice
+    expect(app.get_by_test_id("last-read")).to_contain_text("just now")
+    # a failing test shows its problems once, in the read state, not under the test as well
+    api(app, "PUT", "/devices/cellar", {**body, "config": {"host": "down.example", "password": ""}})
+    app.get_by_test_id("test").click()
+    expect(state.get_by_test_id("device-errors")).to_be_visible()
+    expect(app.get_by_test_id("test-errors")).to_have_count(0)
+    expect(result.get_by_test_id("test-see-state")).to_be_visible()

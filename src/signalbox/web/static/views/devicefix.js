@@ -119,7 +119,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
       clear(out),
       h('p', { 'data-testid': 'fix-outcome', class: res.ok ? '' : 'error' }, res.ok ? t('fix.done') : t('fix.failedStep')),
       stepList(res.steps, 'fix-done-steps'),
-      res.reading ? testResult(res.reading) : null,
+      res.reading ? testResult(res.reading, { errors: false }) : null,
     );
     if (res.ok) {
       toast(t('fix.toastDone', { title: remedy.title, name: device.name }));

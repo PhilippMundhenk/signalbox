@@ -27,14 +27,16 @@ export function readErrors(errors, testid, extra = null) {
   );
 }
 
-export function testResult(res) {
+// errors: false on the device page, where the problems belong to the device's read state (#300)
+// and are shown there once, not again under the test.
+export function testResult(res, { errors = true } = {}) {
   const d = res.device || {};
   const found = [d.vendor, d.model, d.firmware && t('test.firmware', { version: d.firmware })].filter(Boolean).join(', ');
   return h(
     'div',
     { class: `test-result status-${res.status}`, 'data-testid': 'test-result' },
     h('p', {}, t('test.result'), statusBadge(res.status), found ? ` ${found}` : ''),
-    readErrors(res.errors, 'test-errors'),
+    errors ? readErrors(res.errors, 'test-errors') : res.errors.length ? h('p', { class: 'muted small', 'data-testid': 'test-see-state' }, t('test.seeState')) : null,
     res.status === 'ok' || res.status === 'partial'
       ? h('p', { 'data-testid': 'test-counts' }, t('test.found'), Object.entries(res.counts).map(([k, v], i) => `${i ? ', ' : ''}${v} ${COUNT_TEXT[k] ? t(COUNT_TEXT[k]) : k}`), '.')
       : null,

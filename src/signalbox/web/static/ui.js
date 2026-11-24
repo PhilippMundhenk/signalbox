@@ -11,6 +11,18 @@ export function toast(message, kind = 'ok') {
   return el;
 }
 
+// One notice for every page (#300): kind "info" (default), "warn" or "error"; an error is an
+// alert for screen readers, the others a polite status. Resolved notices are removed by the
+// code that owns them (place(clear(box), ...)), never left next to a newer result.
+export function notice(kind, testid, ...children) {
+  return h('div', { class: `notice ${kind}`, role: kind === 'error' ? 'alert' : 'status', 'data-testid': testid }, ...children);
+}
+
+// A running state: spinner and text (the text says what is going on).
+export function busy(testid, ...children) {
+  return h('div', { class: 'busy', role: 'status', 'aria-live': 'polite', 'data-testid': testid }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), h('div', { class: 'busy-text' }, ...children));
+}
+
 export function showError(err) {
   if (err instanceof ApiError && err.code === 'login_required') return;
   toast(err && err.message ? err.message : String(err), 'error');
