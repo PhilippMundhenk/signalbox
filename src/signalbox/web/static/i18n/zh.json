@@ -2203,8 +2203,6 @@
  "msg.wifiRadio.legacy.fix": "请将射频模式设置为 {newest}(旧客户端仍可正常工作)。",
  "rule.wifi.regulatory.title": "Wi-Fi 信道或功率在无线电所在国家不被允许",
  "rule.wifi.regulatory.explanation": "每个国家只允许部分信道和最大发射功率,由无线电的国家代码决定。在当地不被允许的信道(或宽信道的一部分)要么不会被使用(无线电无法启动),要么使设置了正确国家的客户端看不到该网络;并非每个国家都有 6 GHz;超过限制的功率违法,并会干扰雷达等设备。常见原因是随配置复制了错误的国家代码。设备自己报告的信道列表优先于 Signalbox 的小型法规表,该表仅供参考,不构成法律建议。不允许的信道为错误,功率超限为警告,缺少国家代码为信息。",
- "msg.wifiRegulatory.noCountry": "{radio} 没有国家代码,因此使用最严格的全球域,无法检查其信道和功率",
- "msg.wifiRegulatory.noCountry.fix": "请将此无线电的国家代码设置为其使用所在的国家。",
  "msg.wifiRegulatory.noBand": "{radio} 不能在国家 {country} 使用:该频段在当地不可用",
  "msg.wifiRegulatory.noBand.fix": "请关闭此无线电,或设置正确的国家代码。",
  "msg.wifiRegulatory.channel": "{radio} 在国家 {country} 使用信道 {channel},但该信道不被允许",

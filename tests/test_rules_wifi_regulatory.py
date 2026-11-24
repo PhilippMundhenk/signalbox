@@ -144,10 +144,8 @@ def test_no_power_finding_for_a_blocked_channel() -> None:
 # country and quiet cases -----------------------------------------------------------------------
 
 
-def test_missing_country_is_info() -> None:
-    (f,) = one(radio("ap1", country=None, channel=36))
-    assert f.severity is Severity.INFO and f.message_id == "wifiRegulatory.noCountry"
-    assert f.fix_id == "wifiRegulatory.noCountry.fix"
+def test_missing_country_is_left_to_wifi_country() -> None:
+    assert one(radio("ap1", country=None, channel=36)) == []
 
 
 def test_quiet_cases() -> None:

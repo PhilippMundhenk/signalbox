@@ -2203,8 +2203,6 @@
  "msg.wifiRadio.legacy.fix": "Atur mode radio ke {newest} (klien lama tetap berfungsi).",
  "rule.wifi.regulatory.title": "Kanal atau daya Wi-Fi tidak diizinkan di negara radio",
  "rule.wifi.regulatory.explanation": "Setiap negara hanya mengizinkan beberapa kanal dan daya pancar maksimum; kode negara radio memilihnya. Kanal (atau bagian kanal lebar) yang tidak diizinkan di sana tidak dipakai (radio tidak menyala) atau membuat jaringan tak terlihat oleh klien yang diatur ke negara yang benar; 6 GHz tidak tersedia di semua negara; daya di atas batas melanggar hukum dan mengganggu radar dan lainnya. Penyebab biasanya kode negara yang tersalin bersama konfigurasi. Daftar kanal yang dilaporkan perangkat sendiri lebih diutamakan daripada tabel regulasi kecil Signalbox, yang hanya panduan dan bukan nasihat hukum. Kesalahan untuk kanal yang tidak diizinkan, peringatan untuk daya di atas batas, informasi untuk kode negara yang hilang.",
- "msg.wifiRegulatory.noCountry": "{radio} tidak punya kode negara, jadi memakai domain dunia yang paling ketat dan kanal serta dayanya tidak dapat diperiksa",
- "msg.wifiRegulatory.noCountry.fix": "Atur kode negara radio ini ke negara tempat radio dipakai.",
  "msg.wifiRegulatory.noBand": "{radio} tidak dapat dipakai di negara {country}: pita itu tidak tersedia di sana",
  "msg.wifiRegulatory.noBand.fix": "Matikan radio ini atau atur kode negara yang benar.",
  "msg.wifiRegulatory.channel": "{radio} memakai kanal {channel} dengan negara {country}, yang tidak diizinkan di sana",
