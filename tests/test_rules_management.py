@@ -27,6 +27,7 @@ from signalbox.model import (
 from signalbox.rules import Finding, Rule, Severity, evaluate
 from signalbox.rules.management import (
     RULES,
+    cloud_enabled,
     insecure_services,
     plaintext_read,
     service_exposure,
@@ -63,6 +64,7 @@ def test_registered() -> None:
         "security.wan-management",
         "security.service-exposure",
         "security.plaintext-read",
+        "cloud.enabled",
     }
 
 
@@ -272,3 +274,40 @@ def test_service_exposure_uses_the_firewall() -> None:
     blind = _gw_firewall(policies=[], input_policy=None)
     (f,) = run(service_exposure, exposure_net(services=[service("gw", "https")], firewalls=[blind]))
     assert f.incomplete and "does not decide it exactly" in f.message
+
+
+# --- cloud.enabled (#327) -------------------------------------------------------------------
+
+
+def test_cloud_management_is_reported_as_information() -> None:
+    n = make(
+        devices=[device("gw"), device("ap", DeviceRole.AP)],
+        services=[
+            service("gw", "cloud", "mikrotik-cloud"),
+            service("gw", "cloud", "myfritz-cloud", enabled=False),
+            service("ap", "cloud", "omada-cloud"),
+            service("ap", "cloud", "other-cloud"),
+        ],
+    )
+    found = run(cloud_enabled, n)
+    assert [(f.severity, f.message_id, f.params["service"]) for f in found] == [
+        ("info", "cloud.omada", "Omada Cloud access"),
+        ("info", "cloud.enabled", "cloud management (other-cloud)"),
+        ("info", "cloud.mikrotik", "MikroTik Cloud"),
+    ]
+    assert "dynamic DNS" in found[2].message and found[2].objects == [
+        "gw",
+        "gw/service/mikrotik-cloud",
+    ]
+
+
+def test_cloud_management_is_no_exposure() -> None:
+    gw = device("gw")
+    n = make(
+        devices=[gw],
+        services=[service("gw", "cloud", "mikrotik-cloud")],
+        uplinks=[uplink("gw")],
+    )
+    assert n.service_from_wan(n.services[0]) is False and n.service_segments(n.services[0]) == []
+    assert run(wan_management, n) == [] and run(service_exposure, n) == []
+    assert run(insecure_services, n) == []

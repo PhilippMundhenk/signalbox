@@ -92,6 +92,13 @@ def spec() -> dict[str, Any]:
         and "/sites/{siteId}/lan-networks" in p
         and p.rsplit("/", 1)[-1] in ("lan-networks", "{networkId}", "{lanNetworkId}")
     )
+    # Omada Cloud access and the site's remote syslog (#327): the adapter's paths are guesses
+    wanted += tuple(
+        p
+        for p in sorted(paths)
+        if p.startswith("/openapi/v")
+        and any(w in p.lower() for w in ("cloud", "syslog", "logging", "/log", "remote-log"))
+    )
     for path in wanted:
         op = paths.get(path, {}).get("get", {})
         content = op.get("responses", {}).get("200", {}).get("content", {})

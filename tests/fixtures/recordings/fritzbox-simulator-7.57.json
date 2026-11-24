@@ -1221,6 +1221,31 @@
     "snmp": null
    },
    {
+    "id": "recorded/service/myfritz-cloud",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "kind": "cloud",
+    "name": "myfritz-cloud",
+    "enabled": true,
+    "port": null,
+    "transport": null,
+    "encrypted": true,
+    "listen": [],
+    "interfaces": [],
+    "segments": [],
+    "allowed_from": [],
+    "from_wan": null,
+    "password_login": null,
+    "root_login": null,
+    "root_password_login": null,
+    "redirects_to_https": null,
+    "snmp": null
+   },
+   {
     "id": "recorded/service/ftp",
     "source": {
      "adapter": "fritzbox",

@@ -1103,7 +1103,7 @@ async def test_services(snap: Snapshot) -> None:
         f"rt/service/{n}"
         for n in (
             *("api", "api-ssl", "ftp", "ssh", "telnet", "winbox", "www", "www-ssl"),
-            *("mac-telnet", "mac-winbox", "romon", "snmp", "upnp"),
+            *("mac-telnet", "mac-winbox", "romon", "snmp", "upnp", "mikrotik-cloud"),
         )
     )
     ssh = by["rt/service/ssh"]
@@ -1124,6 +1124,29 @@ async def test_services(snap: Snapshot) -> None:
     assert snmp.enabled and snmp.snmp is not None
     assert snmp.snmp.default_community and not snmp.snmp.write_access
     assert [v.value for v in snmp.snmp.versions] == ["2c"]
+
+
+async def test_cloud_service(http_url: str, sim: MikrotikSimulator) -> None:
+    """``/ip/cloud`` (#327): DDNS on, or ``auto`` that reached the cloud, or Back to Home."""
+
+    async def cloud() -> Any:
+        snap = await observe(adapter(http_url))
+        return {s.id: s for s in snap.services}.get("rt/service/mikrotik-cloud")
+
+    on = await cloud()  # the simulator: ddns-enabled auto, status updated
+    assert on is not None and on.kind.value == "cloud" and on.enabled
+    assert on.label() == "MikroTik Cloud"
+    base = {"ddns-enabled": "no", "status": "", "back-to-home-vpn": "disabled"}
+    for values, enabled in (
+        ({"ddns-enabled": "yes"}, True),
+        ({"ddns-enabled": "auto", "status": "updating..."}, False),
+        ({}, False),
+        ({"back-to-home-vpn": "enabled"}, True),
+    ):
+        sim.data["/rest/ip/cloud"] = base | values
+        assert (await cloud()).enabled is enabled, values
+    sim.no_policy.add("/rest/ip/cloud")
+    assert await cloud() is None  # refused: not read, the rest still is
 
 
 async def test_services_not_read_when_refused(http_url: str, sim: MikrotikSimulator) -> None:

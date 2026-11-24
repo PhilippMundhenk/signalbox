@@ -745,7 +745,9 @@ def test_time_and_uptime_helpers() -> None:
 async def test_services_of_every_managed_device(snap: Snapshot) -> None:
     ids = {d.id for d in snap.extra_devices}
     by = {s.id: s for s in snap.services}
-    assert {s.device_id for s in snap.services} == ids
+    cloud = by.pop(f"{snap.device.id}/service/omada-cloud")
+    assert (cloud.kind.value, cloud.enabled, cloud.label()) == ("cloud", True, "Omada Cloud access")
+    assert {s.device_id for s in by.values()} == ids
     assert len(by) == 2 * len(ids)
     for device in ids:
         ssh, snmp = by[f"{device}/service/ssh"], by[f"{device}/service/snmp"]
@@ -774,11 +776,55 @@ async def test_services_follow_the_site_settings(http_url: str, sim: OmadaSimula
     assert snmp.snmp.default_community is None  # v1/v2c is off: the community is not used
 
 
+async def test_cloud_access_follows_the_controller_setting(
+    http_url: str, sim: OmadaSimulator
+) -> None:
+    sim.data[f"/openapi/v1/{OMADAC_ID}/cloud-access"] = {"enable": False}
+    snap = await observe(adapter(http_url))
+    (cloud,) = [s for s in snap.services if s.kind.value == "cloud"]
+    assert not cloud.enabled
+    sim.data[f"/openapi/v1/{OMADAC_ID}/cloud-access"] = {"somethingElse": 1}
+    snap = await observe(adapter(http_url))
+    assert not [s for s in snap.services if s.kind.value == "cloud"]  # unknown shape: not read
+
+
+# --- log targets (#327) ------------------------------------------------------------------------
+
+
+async def test_remote_syslog_of_the_site(snap: Snapshot) -> None:
+    ids = {d.id for d in snap.extra_devices}
+    assert ids and {d.id for d in snap.extra_devices if d.log_targets} == ids
+    for d in snap.extra_devices:
+        (t,) = d.log_targets or []
+        assert (t.kind.value, t.address, t.port, t.transport.value, t.enabled, t.name) == (
+            "syslog",
+            "192.0.2.50",
+            514,
+            "udp",
+            True,
+            "site",
+        )
+    assert snap.device.log_targets is None  # the controller itself is not read
+
+
+async def test_remote_syslog_off_or_missing(http_url: str, sim: OmadaSimulator) -> None:
+    sim.data[f"{SITE}/setting/service/logging"] = {"enable": False, "serverIp": "", "serverPort": 0}
+    snap = await observe(adapter(http_url))
+    assert all(d.log_targets == [] for d in snap.extra_devices)  # read: sends nothing
+    sim.data[f"{SITE}/setting/service/logging"] = {"enable": False, "serverIp": "192.0.2.51"}
+    snap = await observe(adapter(http_url))
+    assert [t.enabled for t in snap.extra_devices[0].log_targets or []] == [False]
+    del sim.data[f"{SITE}/setting/service/logging"]
+    snap = await observe(adapter(http_url))
+    assert all(d.log_targets is None for d in snap.extra_devices) and not snap.errors
+
+
 async def test_services_not_read_when_the_controller_has_no_such_setting(
     http_url: str, sim: OmadaSimulator
 ) -> None:
     del sim.data[f"{SITE}/ssh"]
     del sim.data[f"{SITE}/setting/service/snmp"]
+    del sim.data[f"/openapi/v1/{OMADAC_ID}/cloud-access"]
     snap = await observe(adapter(http_url))
     assert snap.services == [] and not snap.errors
 

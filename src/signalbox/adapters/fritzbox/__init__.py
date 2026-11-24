@@ -818,6 +818,15 @@ class FritzboxAdapter(Adapter):
             out.append(
                 service("myfritz", ServiceKind.HTTPS, _int(my.get("NewPort")), on, from_wan=on)
             )
+            # the account registration behind it (#327): the box keeps a connection to AVM
+            out.append(
+                service(
+                    "myfritz-cloud",
+                    ServiceKind.CLOUD,
+                    None,
+                    on and _flag(my.get("NewDeviceRegistered")),
+                )
+            )
         if (storage := await self._try("X_AVM-DE_Storage1", "GetInfo")) is not None:
             out.append(
                 service(

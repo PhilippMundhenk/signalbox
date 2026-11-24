@@ -20,6 +20,17 @@ v1/v2c with the default community `public` or `private` is reported by
 - **Fix:** point the target to the address of the log collector, or remove it if there is none
   any more.
 
+## `log.plain-transport`
+
+- **Severity:** info
+- **Checks:** an enabled syslog target over UDP or TCP (#327) that is on the internet, in a
+  known network other than the device's own management network, or reached across a guest,
+  IoT or camera network. Quiet for the common case: a collector in the device's own network,
+  syslog over TLS, host names, loopback, addresses behind a VPN tunnel, private addresses in
+  no known network (`log.target-unknown`), targets with no reported transport, and devices
+  whose management network is not known.
+- **Fix:** send the syslog over TLS or keep the collector in the management network.
+
 ## `log.inconsistent`
 
 - **Severity:** info

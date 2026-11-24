@@ -464,6 +464,7 @@ without the right, only leaves that service out).
 | `upnp` | `X_AVM-DE_UPnP:1 GetInfo` | `NewEnable` |
 | `remote-access` | `X_AVM-DE_RemoteAccess:1 GetInfo` | `https`, `NewEnabled`, `NewPort`; `from_wan` = `NewEnabled` |
 | `myfritz` | `X_AVM-DE_MyFritz:1 GetInfo` | `https`, `NewEnabled`, `NewPort`; `from_wan` = `NewEnabled` *(guess: that MyFRITZ! reaches the box from the internet on that port)* |
+| `myfritz-cloud` | the same call: `NewEnabled` and `NewDeviceRegistered` | kind `cloud` (#327): the box is registered with AVM's MyFRITZ! account; on only when both are set. Feeds the info check `cloud.enabled`. *(guess: that `NewDeviceRegistered` is 1 exactly when an account is linked)* |
 | `ftp` | `X_AVM-DE_Storage:1 GetInfo` | `NewFTPEnable` on port 21, LAN only |
 | `ftp-internet` | the same: `NewFTPWANEnable`, `NewFTPWANPort`, `NewFTPWANSSLOnly` | FTP from the internet; encrypted when SSL only |
 

@@ -116,6 +116,52 @@ def insecure_services(net: Network) -> Iterator[Result]:
                 )
 
 
+# --- cloud.enabled (#327) ------------------------------------------------------------------
+
+#: What each vendor cloud means, as a message id (the text is in the catalogues).
+_CLOUD_MESSAGES = {
+    "myfritz-cloud": "cloud.myfritz",
+    "mikrotik-cloud": "cloud.mikrotik",
+    "omada-cloud": "cloud.omada",
+}
+_CLOUD_TEXTS = {
+    "myfritz-cloud": "AVM's MyFRITZ! relays access to its web interface and home network from "
+    "the internet and keeps a dynamic DNS name for it",
+    "mikrotik-cloud": "it reports its public address to MikroTik for a dynamic DNS name (and "
+    "relays Back to Home VPN connections)",
+    "omada-cloud": "the controller keeps a connection to TP-Link's cloud, so it can be managed "
+    "from outside with a TP-Link ID",
+}
+
+
+@rule(
+    "cloud.enabled",
+    "Vendor cloud management is on",
+    Severity.INFO,
+    "MyFRITZ! (Fritz!Box), MikroTik Cloud (`/ip/cloud`) and Omada Cloud access (controller "
+    "setting) connect the device to its vendor's servers: the vendor then knows the device and "
+    "its public address, and a vendor account can be a way to manage it from the internet. "
+    "Often wanted for remote access or a dynamic DNS name, often forgotten; the check only "
+    "says that it is on and what it means, and does not judge it. Reported once per device "
+    "and service.",
+)
+def cloud_enabled(net: Network) -> Iterator[Result]:
+    for dev, items in _by_device(net):
+        name = device_name(net, dev)
+        for s in items:
+            if s.kind is not ServiceKind.CLOUD or not s.enabled:
+                continue
+            service = s.label()
+            meaning = _CLOUD_TEXTS.get(s.name or "", "it is managed through the vendor's cloud")
+            yield found(
+                f"{name} has {service} turned on: {meaning}",
+                [dev, s.id],
+                key=s.id,
+                mid=_CLOUD_MESSAGES.get(s.name or "", "cloud.enabled"),
+                params={"name": name, "service": service},
+            )
+
+
 # --- security.wan-management (#123) --------------------------------------------------------
 
 
@@ -307,4 +353,10 @@ def plaintext_read(net: Network) -> Iterator[Result]:
         )
 
 
-RULES: list[Rule] = [insecure_services, wan_management, service_exposure, plaintext_read]
+RULES: list[Rule] = [
+    insecure_services,
+    wan_management,
+    service_exposure,
+    plaintext_read,
+    cloud_enabled,
+]
