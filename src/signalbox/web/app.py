@@ -65,6 +65,20 @@ def error(status: int, code: str, message: str, **extra: Any) -> JSONResponse:
     return JSONResponse({"error": code, "message": message, **extra}, status_code=status)
 
 
+def error_ids(exc: Any, redact: Callable[[str], str]) -> dict[str, Any]:
+    """Translation ids and values of an AdapterError for an error answer (#204); the English
+    ``message`` and ``fix`` stay the source and the fallback."""
+    out: dict[str, Any] = {}
+    if getattr(exc, "message_id", None):
+        out["message_id"] = exc.message_id
+    if getattr(exc, "fix_id", None):
+        out["fix_id"] = exc.fix_id
+    params = getattr(exc, "params", None)
+    if params and out:
+        out["params"] = {k: redact(v) if isinstance(v, str) else v for k, v in params.items()}
+    return out
+
+
 class LoginBody(BaseModel):
     password: str = Field(max_length=200)
 

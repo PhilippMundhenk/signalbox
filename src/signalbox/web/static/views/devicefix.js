@@ -5,6 +5,7 @@
 // is cleared right after it, on navigation and when left unused. Never runs by itself.
 import { enc, post } from '../api.js';
 import { t } from '../i18n.js';
+import { apiFix, apiMessage } from '../texts.js';
 import { clear, h, place } from '../util.js';
 import { clearNotice, confirmDialog, field, notice, run, setNotice, slot, toast } from '../ui.js';
 import { fingerprintText, stepList } from './devicesetup.js';
@@ -33,7 +34,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
 
   const missBox = slot(); // "enter the password": one place, replaced by the next result
   const showError = (err) => {
-    place(clear(out), notice('error', 'fix-error', h('p', {}, err.message), err.body && err.body.fix ? h('p', { class: 'fix' }, t('fix.whatToDo'), err.body.fix) : null));
+    place(clear(out), notice('error', 'fix-error', h('p', {}, apiMessage(err)), apiFix(err) ? h('p', { class: 'fix' }, t('fix.whatToDo'), apiFix(err)) : null));
     if (err.code === 'untrusted') trusted = null;
   };
 

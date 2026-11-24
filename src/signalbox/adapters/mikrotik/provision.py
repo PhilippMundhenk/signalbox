@@ -230,7 +230,7 @@ class MikrotikSetup:
                 compare=COMPARE,
             )
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         finally:
             await http.close()
         return SetupPlan(
@@ -249,7 +249,7 @@ class MikrotikSetup:
         except UntrustedCertificate:
             raise
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         finally:
             await http.close()
         if self.request.remove or not ok:
@@ -368,6 +368,9 @@ class MikrotikFix:
                 f"the router has no user {self.login!r}",
                 fix="Set the device up again (device settings: Set up automatically, or the "
                 "setup guide): Fix it only repairs the policies of an existing user's group.",
+                message_id="mikrotik.noUser",
+                fix_id="mikrotik.noUser.fix",
+                params={"login": repr(self.login)},
             )
         name = str(user.get("group") or "")
         group = next((g for g in groups if g.get("name") == name), None)
@@ -377,6 +380,9 @@ class MikrotikFix:
                 "group of its own (signalbox-read, signalbox-write)",
                 fix="Give the group the policies read, api and rest-api by hand, as the setup "
                 "guide shows.",
+                message_id="mikrotik.foreignGroup",
+                fix_id="mikrotik.foreignGroup.fix",
+                params={"login": self.login, "group": repr(name)},
             )
         wanted = {
             *FIX_READ,
@@ -437,7 +443,7 @@ class MikrotikFix:
                 compare=COMPARE,
             )
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         finally:
             await http.close()
         return SetupPlan(
@@ -545,6 +551,8 @@ class MikrotikFix:
                 "cannot tell which address Signalbox connects from (the router lists none or "
                 "several admin SSH sessions)",
                 fix="Add Signalbox's address to /ip service www-ssl address by hand.",
+                message_id="mikrotik.unknownSource",
+                fix_id="mikrotik.unknownSource.fix",
             )
         excluded = bool(address) and not any(
             ip_address(source) in ip_network(a, strict=False) for a in address if _net_ok(a)
@@ -623,7 +631,7 @@ class MikrotikFix:
                 compare=SSH_COMPARE,
             )
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         return SetupPlan(
             fingerprint=fingerprint,
             fingerprint_kind="ssh-host-key",

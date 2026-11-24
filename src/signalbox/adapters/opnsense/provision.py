@@ -446,7 +446,7 @@ class OpnsenseSetup:
         except UntrustedCertificate as exc:
             certificate = exc.fingerprint
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         else:  # pragma: no cover - without a pin the certificate is never trusted
             raise AdapterError("the certificate was accepted without being confirmed")
         finally:
@@ -502,7 +502,7 @@ class OpnsenseSetup:
                 compare=COMPARE,
             )
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         finally:
             await http.close()
         return SetupPlan(
@@ -532,7 +532,7 @@ class OpnsenseSetup:
         except (UntrustedCertificate, UntrustedHostKey):
             raise
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         finally:
             await http.close()
         if self.request.remove or not ok:
@@ -598,6 +598,8 @@ class OpnsenseFix(OpnsenseSetup):
                 "the firewall knows no user with the stored API key",
                 fix="Set the device up again (device settings: Set up automatically, or the "
                 "setup guide): Fix it only adds privileges to the user of the stored key.",
+                message_id="opnsense.noKeyUser",
+                fix_id="opnsense.noKeyUser.fix",
             )
         for row in _rows(await http.post_json(USERS, ALL)):
             if row.get("name") == owner:
@@ -647,7 +649,7 @@ class OpnsenseFix(OpnsenseSetup):
         except UntrustedCertificate:
             raise
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         finally:
             await http.close()
         return SetupResult(ok=ok, steps=steps)

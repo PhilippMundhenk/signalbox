@@ -4,7 +4,7 @@
 // the one request; it is cleared right after it, on navigation and when left unused.
 import { ApiError, get, post } from '../api.js';
 import { t } from '../i18n.js';
-import { stepTitle } from '../texts.js';
+import { apiFix, apiMessage, stepTitle } from '../texts.js';
 import { clear, groupHex, h, place } from '../util.js';
 import { busy, checkField, clearNotice, confirmDialog, field, notice, run, setNotice, slot, toast } from '../ui.js';
 import { adminStep, previewList, previewSteps } from './adminstep.js';
@@ -173,7 +173,7 @@ export function autoSetup(a, collect, onDone, own = null) {
         ),
       );
     } catch (err) {
-      fail(err.message, err.body && err.body.fix);
+      fail(apiMessage(err), apiFix(err));
     }
   }
 
@@ -285,10 +285,10 @@ export function autoSetup(a, collect, onDone, own = null) {
     }
     if (err.code === 'auth_failed') {
       // wrong admin login: back to the password step, preview and confirmed identity stay
-      return showFinal(errorNotice(err.message, err.body && err.body.fix));
+      return showFinal(errorNotice(apiMessage(err), apiFix(err)));
     }
     if (err.code === 'untrusted') { trusted = null; trustedSsh = null; }
-    fail(err.message, err.body && err.body.fix);
+    fail(apiMessage(err), apiFix(err));
   }
 
   planBtn.addEventListener('click', () => run(planBtn, async () => showPreview()));

@@ -809,6 +809,8 @@ class OpenWrtAdapter(Adapter):
                 fix="Signalbox reads standard OpenWrt. Check that the address points to an "
                 "OpenWrt router (not a firmware built on it with its own configuration) and "
                 "that /etc/config/network exists there.",
+                message_id="openwrt.noNetworkConfig",
+                fix_id="openwrt.noNetworkConfig.fix",
             ) from None
         if config == "network":  # WireGuard keys: dropped on arrival (#152)
             wireguard.scrub(data)
@@ -925,13 +927,31 @@ class OpenWrtAdapter(Adapter):
             services = await self._services(view, ports, {s.id for s in segments})
         except AccessDenied as exc:  # set up with an older ACL: the rest is read
             services = []
-            gaps.append(Gap(message=f"management services: {exc}", fix=exc.fix, remedy=exc.remedy))
+            gaps.append(
+                Gap(
+                    message=f"management services: {exc}",
+                    fix=exc.fix,
+                    remedy=exc.remedy,
+                    message_id="openwrt.servicesGap",
+                    fix_id=exc.fix_id,
+                    params={**exc.params, "cause": str(exc)},
+                )
+            )
         targets: list[LogTarget] | None = []
         try:
             targets = monitoring.system_targets(await self._uci("system"))
         except AccessDenied as exc:
             targets = None
-            gaps.append(Gap(message=f"log targets: {exc}", fix=exc.fix, remedy=exc.remedy))
+            gaps.append(
+                Gap(
+                    message=f"log targets: {exc}",
+                    fix=exc.fix,
+                    remedy=exc.remedy,
+                    message_id="openwrt.logTargets",
+                    fix_id=exc.fix_id,
+                    params={**exc.params, "cause": str(exc)},
+                )
+            )
         extra, extra_gaps = await self._monitoring()
         services += extra[0]
         if targets is not None:
@@ -980,6 +1000,9 @@ class OpenWrtAdapter(Adapter):
                     fix=fix.fix,
                     remedy=fix.remedy,
                     optional=True,
+                    message_id="openwrt.monitoringGap",
+                    fix_id=fix.fix_id,
+                    params={**fix.params, "denied": ", ".join(denied), "cause": str(fix)},
                 )
             )
         return (services, targets), gaps
@@ -998,6 +1021,8 @@ class OpenWrtAdapter(Adapter):
                 fix="Update Signalbox's permission file on the router (see the device form): "
                 "it now allows luci-rpc getNetworkDevices. Then run service rpcd restart.",
                 remedy="access",
+                message_id="openwrt.portStructure",
+                fix_id="openwrt.portStructure.fix",
             )
         return (data if isinstance(data, dict) else None), None
 
@@ -1155,6 +1180,8 @@ class OpenWrtAdapter(Adapter):
                     "Software) and use Signalbox's permission file, which allows luci-rpc "
                     "getWirelessDevices; then run service rpcd restart and test again.",
                     remedy="access",
+                    message_id="openwrt.wirelessOverHttp",
+                    fix_id="openwrt.wirelessOverHttp.fix",
                 ) from None
         return {k: v for k, v in status.items() if isinstance(v, dict)}
 
@@ -1690,6 +1717,9 @@ class OpenWrtAdapter(Adapter):
                 "confirmation)",
                 fix=exc.fix,
                 remedy=exc.remedy,
+                message_id="openwrt.applyDenied",
+                fix_id=exc.fix_id,
+                params={**exc.params, "cause": str(exc)},
             ) from None
 
     async def apply(
@@ -1802,7 +1832,14 @@ class OpenWrtAdapter(Adapter):
         except AccessDenied as exc:
             return Observation(
                 incomplete=[
-                    Gap(message=f"firewall: {exc}", fix=exc.fix, remedy=exc.remedy),
+                    Gap(
+                        message=f"firewall: {exc}",
+                        fix=exc.fix,
+                        remedy=exc.remedy,
+                        message_id="openwrt.firewallGap",
+                        fix_id=exc.fix_id,
+                        params={**exc.params, "cause": str(exc)},
+                    ),
                 ]
             )
         d = self.context.device_id
@@ -1850,6 +1887,7 @@ class OpenWrtAdapter(Adapter):
                 "Optional: without LLDP Signalbox cannot see which device is plugged into "
                 "which port; everything else works. To add it, install the packages lldpd and "
                 "luci-app-lldpd (LuCI: System, Software), run service rpcd restart and test again.",
+                "openwrt.lldpMissing",
             )
         except CallFailed:
             # luci.lldpd's script fails while lldpd is stopped (seen on OpenWrt 24.10/25.12)
@@ -1857,6 +1895,7 @@ class OpenWrtAdapter(Adapter):
                 "lldpd is installed but not running (luci.lldpd getStatus failed)",
                 "Optional: start it on the router with service lldpd enable && service lldpd "
                 "start (LuCI: System, Startup), then test again.",
+                "openwrt.lldpStopped",
             )
         data = status.get("neighbors")
         if not isinstance(data, dict):
@@ -1864,6 +1903,7 @@ class OpenWrtAdapter(Adapter):
                 "lldpd is installed but not running (luci.lldpd getStatus has no neighbours)",
                 "Optional: start it on the router with service lldpd enable && service lldpd "
                 "start (LuCI: System, Startup), then test again.",
+                "openwrt.lldpNoNeighbours",
             )
         neighbours: list[Neighbour] = []
         for lldp in data.get("lldp") or []:
@@ -1889,8 +1929,21 @@ class OpenWrtAdapter(Adapter):
         return Observation(neighbours=neighbours)
 
     @staticmethod
-    def _lldp_gap(message: str, fix: str) -> Observation:
-        return Observation(incomplete=[Gap(message=message, fix=fix, remedy="lldp", optional=True)])
+    def _lldp_gap(message: str, fix: str, message_id: str) -> Observation:
+        fix_id = (
+            "openwrt.lldpMissing.fix"
+            if message_id == "openwrt.lldpMissing"
+            else "openwrt.lldpStart.fix"
+        )
+        gap = Gap(
+            message=message,
+            fix=fix,
+            remedy="lldp",
+            optional=True,
+            message_id=message_id,
+            fix_id=fix_id,
+        )
+        return Observation(incomplete=[gap])
 
 
 def _first(values: Any) -> str | None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -47,27 +48,43 @@ def test_every_message_id_exists_in_german_with_the_same_parameters() -> None:
         assert set(MSG.findall(EN[key])) == set(MSG.findall(de[key])), key
 
 
-#: Rule modules whose findings are not converted yet: other helpers work on them (#204).
-UNCONVERTED = {"firewall_checks.py"}
+def _calls(path: Path, names: set[str]) -> list[tuple[ast.Call, dict[str, ast.expr]]]:
+    out = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+            if name in names:
+                out.append((node, {k.arg: k.value for k in node.keywords if k.arg}))
+    return out
 
 
 def test_every_finding_of_the_rule_modules_carries_a_message_id() -> None:
-    import ast
-
-    rules_dir = SRC / "rules"
     bad = []
-    for path in sorted(rules_dir.glob("*.py")):
-        if path.name in UNCONVERTED or path.name == "__init__.py":
+    for path in sorted((SRC / "rules").glob("*.py")):
+        if path.name == "__init__.py":
             continue
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id in ("found", "incomplete")
-                and "mid" not in {k.arg for k in node.keywords}
-            ):
+        for node, kw in _calls(path, {"found", "incomplete"}):
+            if "mid" not in kw:
                 bad.append(f"{path.name}:{node.lineno}")
     assert not bad, f"found()/incomplete() without mid=: {bad}"
+
+
+def test_every_gap_and_fix_of_the_adapters_carries_ids() -> None:
+    """``Gap(...)`` needs ``message_id=``, and a Gap or error with a literal ``fix=`` needs
+    ``fix_id=`` (#204). Not covered: a gap that only passes on a parser's own text
+    (``Gap(message=m)``) and a ``fix=`` that passes on another exception's (``fix=exc.fix``)."""
+    bad = []
+    for path in sorted((SRC / "adapters").rglob("*.py")):
+        for node, kw in _calls(path, {"Gap", "AdapterError", "AuthFailed", "Unreachable"}):
+            gap = isinstance(node.func, ast.Name) and node.func.id == "Gap"
+            own_text = isinstance(kw.get("message"), ast.Name)
+            passed_on = isinstance(kw.get("fix"), ast.Attribute | ast.Name)
+            if (gap and not own_text and "message_id" not in kw) or (
+                "fix" in kw and not passed_on and "fix_id" not in kw
+            ):
+                bad.append(f"{path.relative_to(SRC).as_posix()}:{node.lineno}")
+    assert not bad, f"Gap or fix without an id: {bad}"
 
 
 def test_found_and_incomplete_carry_ids_and_params() -> None:

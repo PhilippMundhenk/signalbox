@@ -187,6 +187,8 @@ class AdGuardHomeAdapter(Adapter):
                     "(upstream_dns_file), which the API does not show",
                     fix="Enter the upstream servers in AdGuard Home (Settings > DNS settings) "
                     "instead of in a file, so Signalbox can check them for loops.",
+                    message_id="adguard.upstreamFile",
+                    fix_id="adguard.upstreamFile.fix",
                 )
             )
         listen: list[IPAddress] = []
@@ -208,6 +210,11 @@ class AdGuardHomeAdapter(Adapter):
             gaps.append(
                 Gap(
                     message=f"the DNS rewrites were not read: {exc}",
+                    message_id="adguard.rewritesNotRead",
+                    fix_id="adguard.rewritesOld.fix"
+                    if isinstance(exc, NotFound)
+                    else "adguard.rewritesDenied.fix",
+                    params={"cause": str(exc)},
                     fix="Update AdGuard Home (the API has no rewrite list in this version)."
                     if isinstance(exc, NotFound)
                     else "Check that Signalbox's user may read /control/rewrite/list; without "

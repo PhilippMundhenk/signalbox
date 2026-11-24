@@ -84,7 +84,10 @@ def _is_reserved(net: Network, segment_id: str, address: IPAddress) -> bool:
 def port_forward_target(net: Network) -> Iterator[Result]:
     for fw, i, pf in _forwards(net):
         target = pf.target_address
-        head = f"{device_name(net, fw.device_id)} forwards {_label(pf, i)} to {target}"
+        dev = device_name(net, fw.device_id)
+        label = _label(pf, i)
+        head = f"{dev} forwards {label} to {target}"
+        base = {"device": dev, "label": label, "target": str(target)}
         objects = [fw.device_id, fw.id]
         seg = address_segment(net, target)
         owner = address_owner(net, target)
@@ -106,6 +109,13 @@ def port_forward_target(net: Network) -> Iterator[Result]:
                     fix="Forward to a different device or port, or remove the forward and use "
                     "a VPN for administration from outside.",
                     key=f"{i}/management",
+                    mid="fw.forwardMgmt",
+                    fix_id="fw.forwardMgmt.fix",
+                    params={
+                        **base,
+                        "owner": device_name(net, owner),
+                        "services": ", ".join(s.label() for s in exposed),
+                    },
                 )
         if seg is None:
             if target.is_private and net.subnets:
@@ -115,6 +125,9 @@ def port_forward_target(net: Network) -> Iterator[Result]:
                     fix="Check the target address: the device may have moved or the forward is "
                     "a leftover. Remove it if it is not needed.",
                     key=f"{i}/unknown-network",
+                    mid="fw.forwardUnknownNet",
+                    fix_id="fw.forwardUnknownNet.fix",
+                    params=base,
                 )
             continue
         purpose = _purpose(net, seg)
@@ -126,6 +139,9 @@ def port_forward_target(net: Network) -> Iterator[Result]:
                 fix="Make sure that is intended: devices in this network are exposed to the "
                 "internet. Prefer a VPN to reach them.",
                 key=f"{i}/untrusted",
+                mid="fw.forwardUntrusted",
+                fix_id="fw.forwardUntrusted.fix",
+                params={**base, "purpose": purpose.value, "segment": segment_name(net, seg)},
             )
         servers = [s for s in net.dhcp_servers_on(seg) if s.enabled]
         if (
@@ -140,6 +156,9 @@ def port_forward_target(net: Network) -> Iterator[Result]:
                 "fixed address outside the pool) so the forward cannot end up on another "
                 "device.",
                 key=f"{i}/dynamic",
+                mid="fw.forwardDynamic",
+                fix_id="fw.forwardDynamic.fix",
+                params={**base, "segment": segment_name(net, seg)},
             )
         elif (
             owner is None
@@ -154,6 +173,9 @@ def port_forward_target(net: Network) -> Iterator[Result]:
                 fix="Check whether the device is off or has a different address now; remove "
                 "the forward if the service is gone.",
                 key=f"{i}/no-client",
+                mid="fw.forwardNoClient",
+                fix_id="fw.forwardNoClient.fix",
+                params=base,
             )
 
 
@@ -180,6 +202,14 @@ def forward_into_guest(net: Network) -> Iterator[Result]:
             fix="Move the service to a server or main network and forward there; keep guests "
             "away from anything that is exposed to the internet.",
             key=str(i),
+            mid="fw.forwardGuest",
+            fix_id="fw.forwardGuest.fix",
+            params={
+                "device": device_name(net, fw.device_id),
+                "label": _label(pf, i),
+                "target": str(pf.target_address),
+                "segment": segment_name(net, seg),
+            },
         )
 
 
@@ -224,6 +254,16 @@ def duplicate_port_forward(net: Network) -> Iterator[Result]:
                     [fw.device_id, fw.id],
                     fix="Remove one of the forwards, or give them different external ports.",
                     key=f"{i}/{j}",
+                    mid="fw.duplicateForward",
+                    fix_id="fw.duplicateForward.fix",
+                    params={
+                        "device": device_name(net, fw.device_id),
+                        "ports": ports,
+                        "first": _label(a, i),
+                        "first_target": str(a.target_address),
+                        "second": _label(b, j),
+                        "second_target": str(b.target_address),
+                    },
                 )
 
 
@@ -255,6 +295,12 @@ def segment_without_zone(net: Network) -> Iterator[Result]:
                 fix="Add the network's interface to a firewall zone (or create one for it) so "
                 "that the rules and policies apply.",
                 key=seg,
+                mid="fw.noZone",
+                fix_id="fw.noZone.fix",
+                params={
+                    "device": device_name(net, fw.device_id),
+                    "segment": segment_name(net, seg),
+                },
             )
 
 
@@ -308,6 +354,15 @@ def untrusted_reaches_lan(net: Network) -> Iterator[Result]:
                 f"firewall of {router}; allow only what is needed (DNS, a printer, a media "
                 "server).",
                 key=f"{src.id}/{dst.id}",
+                mid="fw.untrustedReachesLan",
+                fix_id="fw.untrustedReachesLan.fix",
+                params={
+                    "source": segment_name(net, src.id),
+                    "purpose": src.purpose.value,
+                    "target": segment_name(net, dst.id),
+                    "router": router,
+                    "reason": v.reason,
+                },
             )
 
 

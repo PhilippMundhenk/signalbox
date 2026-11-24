@@ -1235,7 +1235,14 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             actions = await self._optional_rows(LOG_ACTION)
             rules = await self._optional_rows(LOG_RULES)
         except AdapterError as exc:
-            return None, [Gap(message=f"log targets: {exc}", optional=True)]
+            return None, [
+                Gap(
+                    message=f"log targets: {exc}",
+                    optional=True,
+                    message_id="mikrotik.logTargets",
+                    params={"cause": str(exc)},
+                )
+            ]
         topics: dict[str, list[str]] = {}
         for r in rules:
             if _flag(r.get("disabled")) or _flag(r.get("invalid")):
@@ -2174,6 +2181,9 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     fix="Give the group of Signalbox's user the policy test (System > Users > "
                     "Groups), or use Fix it on the device page while path traces are on.",
                     remedy="policies",
+                    message_id="mikrotik.traceDenied",
+                    fix_id="mikrotik.traceDenied.fix",
+                    params={"path": _trace.TRACEROUTE, "cause": str(exc)},
                 ) from None
             raise exc
         try:

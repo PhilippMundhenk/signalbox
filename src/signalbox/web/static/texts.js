@@ -16,3 +16,7 @@ export const stepTitle = (s) => tServer(s.title_id ? `msg.${s.title_id}` : '', s
 
 export const errorMessage = findingMessage;
 export const errorFix = findingFix;
+
+// An ApiError of a setup or Fix it request: body {message, message_id, params, fix, fix_id}.
+export const apiMessage = (err) => findingMessage({ message: err.message, message_id: err.body && err.body.message_id, params: err.body && err.body.params });
+export const apiFix = (err) => (err.body && err.body.fix ? findingFix({ fix: err.body.fix, fix_id: err.body.fix_id, params: err.body.params }) : null);

@@ -183,6 +183,9 @@ class LinuxSetup:
                     f"{self.request.admin_user} may not use sudo: {detail}",
                     fix="Give root's password, or a user that may use sudo (Raspberry Pi OS: "
                     "the user created at installation).",
+                    message_id="linux.noSudo",
+                    fix_id="linux.noSudo.fix",
+                    params={"user": self.request.admin_user, "detail": detail},
                 )
             raise AdapterError(f"the device did not answer like Linux: {detail}")
         sudo_text = "\n".join(parts.get("sudoers", [])).strip()
@@ -220,6 +223,9 @@ class LinuxSetup:
                 f"the distribution ({ident}) is not known: Signalbox cannot install {what}. "
                 "Untick it and install it yourself",
                 fix="See docs/adapters/linux.md, Supported distributions.",
+                message_id="linux.unknownDistro",
+                fix_id="linux.unknownDistro.fix",
+                params={"ident": ident, "what": what},
             )
         script = f"# signalbox-setup: install-{tool}\nset -e\n{command}\n"
         manager = state.distro.manager or ""
@@ -380,7 +386,7 @@ class LinuxSetup:
                 compare=COMPARE,
             )
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         return SetupPlan(
             fingerprint=fingerprint,
             fingerprint_kind="ssh-host-key",
@@ -398,7 +404,7 @@ class LinuxSetup:
         except UntrustedHostKey:
             raise
         except AdapterError as exc:
-            raise type(exc)(self.redact(str(exc)), fix=exc.fix) from None
+            raise exc.redacted(self.redact) from None
         if self.request.remove or not ok:
             return SetupResult(ok=ok, steps=steps)
         return SetupResult(

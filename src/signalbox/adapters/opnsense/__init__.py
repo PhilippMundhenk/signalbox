@@ -413,6 +413,9 @@ def _privilege_gap(what: str, exc: AdapterError, privilege: str) -> Gap:
         fix=f"Give the API user the privilege {privilege}, or use Fix it on the device page.",
         remedy="privileges",
         optional=True,
+        message_id="opnsense.privilegeGap",
+        fix_id="opnsense.privilegeGap.fix",
+        params={"what": what, "cause": str(exc), "privilege": privilege},
     )
 
 
@@ -1727,6 +1730,9 @@ class OpnsenseAdapter(_Adapter):
                 f"({_trace.PRIVILEGE}), or use Fix it on the device page while path traces "
                 "are on.",
                 remedy="privileges",
+                message_id="opnsense.traceDenied",
+                fix_id="opnsense.traceDenied.fix",
+                params={"path": _trace.TRACEROUTE, "privilege": _trace.PRIVILEGE},
             ) from None
         return _trace.parse(answer, target, max_hops)
 

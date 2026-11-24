@@ -158,6 +158,9 @@ class PiholeAdapter(Adapter):
                 fix="Create an app password (Settings > Web interface / API > Configure app "
                 "password) and enter it in the settings; the normal login password does not "
                 "work when two-factor authentication is on.",
+                message_id="pihole.password401",
+                fix_id="pihole.password401.fix",
+                params={"path": AUTH},
             )
         if response.status_code == 429:
             raise AdapterError(
@@ -165,6 +168,9 @@ class PiholeAdapter(Adapter):
                 fix="Pi-hole limits failed logins and the number of API sessions "
                 "(webserver.api.max_sessions); wait a few minutes. Signalbox ends its session "
                 "after every read.",
+                message_id="pihole.rateLimited",
+                fix_id="pihole.rateLimited.fix",
+                params={"path": AUTH},
             )
         try:
             session = _sub(_obj(response.json(), AUTH), "session")
@@ -177,6 +183,7 @@ class PiholeAdapter(Adapter):
                 f"{AUTH}: {message}",
                 fix="Use an app password (Settings > Web interface / API > Configure app "
                 "password); a password with two-factor authentication cannot be used.",
+                fix_id="pihole.loginRefused.fix",
             )
         sid = session.get("sid")
         self._sid = sid if isinstance(sid, str) and sid else None
@@ -192,11 +199,16 @@ class PiholeAdapter(Adapter):
             raise AdapterError(
                 "this is Pi-hole v5: Signalbox needs the v6 REST API (/api/)",
                 fix=UPDATE_FIX,
+                message_id="pihole.v5",
+                fix_id="pihole.update.fix",
             ) from cause
         raise AdapterError(
             f"{AUTH}: not found; this does not look like Pi-hole v6",
             fix="Check that the address is the Pi-hole web interface and that it runs v6. "
             + UPDATE_FIX,
+            message_id="pihole.notPihole",
+            fix_id="pihole.notPihole.fix",
+            params={"path": AUTH},
         ) from cause
 
     async def close(self) -> None:
@@ -228,7 +240,11 @@ class PiholeAdapter(Adapter):
             raise AdapterError(f"unexpected answer from {VERSION}: no version")
         if current.lstrip("v").startswith(("3", "4", "5")):
             raise AdapterError(
-                f"Pi-hole {current} is not supported: Signalbox needs v6", fix=UPDATE_FIX
+                f"Pi-hole {current} is not supported: Signalbox needs v6",
+                fix=UPDATE_FIX,
+                message_id="pihole.unsupported",
+                fix_id="pihole.update.fix",
+                params={"version": current},
             )
         remote = _sub(_sub(data, "ftl"), "remote")
         latest = dnsmap.text(remote.get("version"))
@@ -341,6 +357,9 @@ class PiholeAdapter(Adapter):
                 Gap(
                     message=f"the DHCP lease table was not read: {exc}",
                     fix="Check that Pi-hole answers /api/dhcp/leases (Pi-hole v6.0 or newer).",
+                    message_id="pihole.leasesNotRead",
+                    fix_id="pihole.leasesNotRead.fix",
+                    params={"cause": str(exc)},
                 )
             )
         domain = dnsmap.text(_sub(_sub(await self._config(), "dns"), "domain").get("name"))

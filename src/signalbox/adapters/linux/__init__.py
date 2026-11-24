@@ -317,7 +317,7 @@ class LinuxAdapter(Adapter):
             try:
                 key = load_private_key(cfg.private_key.get_secret_value())
             except ValueError as exc:
-                raise AdapterError(str(exc), fix=AUTH_FIX) from None
+                raise AdapterError(str(exc), fix=AUTH_FIX, fix_id="linux.auth.fix") from None
         ssh = PinnedSsh(
             cfg.host,
             cfg.port,
@@ -328,6 +328,7 @@ class LinuxAdapter(Adapter):
             client_key=key,
             login=f"the login {cfg.username}",
             auth_fix=AUTH_FIX,
+            auth_fix_id="linux.auth.fix",
         )
         try:
             await ssh.__aenter__()
@@ -348,6 +349,9 @@ class LinuxAdapter(Adapter):
                 f"the device did not answer the read commands completely: {tail}",
                 fix="Signalbox reads Debian-based systems with a POSIX sh, iproute2 and "
                 "coreutils. Check that the user's login shell is /bin/sh or bash.",
+                message_id="linux.incompleteAnswer",
+                fix_id="linux.incompleteAnswer.fix",
+                params={"tail": tail},
             )
         return answer
 
@@ -417,6 +421,9 @@ class LinuxAdapter(Adapter):
                     message="interfaces: ip -j printed no JSON (iproute2 is too old, or busybox "
                     "ip is used), so no port, segment or subnet was read",
                     fix=f"Install iproute2 ({self.distro.hint('iproute2')}).",
+                    message_id="linux.noIpJson",
+                    fix_id="linux.noIpJson.fix",
+                    params={"hint": self.distro.hint("iproute2")},
                 )
             )
         return Observation(
@@ -445,6 +452,9 @@ class LinuxAdapter(Adapter):
                     fix="Give the user read access to these files, or accept that the remote "
                     "syslog targets are not read.",
                     optional=True,
+                    message_id="linux.logUnreadable",
+                    fix_id="linux.logUnreadable.fix",
+                    params={"files": ", ".join(unreadable), "user": self.config.username},
                 )
             )
             return {}
@@ -491,6 +501,9 @@ class LinuxAdapter(Adapter):
                     fix="Add the sudoers rule of the setup guide "
                     f"({setup.sudoers_path(self.config.username)}), or run Set up "
                     "automatically again.",
+                    message_id="linux.wgDenied",
+                    fix_id="linux.sudoers.fix",
+                    params={"path": setup.sudoers_path(self.config.username)},
                 )
             )
         tunnels: list[Tunnel] = []
@@ -564,34 +577,53 @@ class LinuxAdapter(Adapter):
                         fix="Install nftables (the iptables-nft backend shows its rules "
                         f"there; {self.distro.hint('nftables')}), or use Fix it.",
                         remedy="nftables",
+                        message_id="linux.onlyIptables",
+                        fix_id="linux.onlyIptables.fix",
+                        params={"kind": kind, "hint": self.distro.hint("nftables")},
                     )
                 ],
             )
         if a.has("nft-denied"):
             return Observation(
                 incomplete=[
-                    Gap(message="firewall: nft list ruleset is not allowed for this user", fix=fix)
+                    Gap(
+                        message="firewall: nft list ruleset is not allowed for this user",
+                        fix=fix,
+                        message_id="linux.nftDenied",
+                        fix_id="linux.sudoers.fix",
+                        params={"path": setup.sudoers_path(self.config.username)},
+                    )
                 ]
             )
         try:
             parsed = nftables.parse(a.text("nft"))
         except ValueError as exc:
-            return Observation(incomplete=[Gap(message=f"firewall: {exc}")])
+            return Observation(
+                incomplete=[
+                    Gap(
+                        message=f"firewall: {exc}",
+                        message_id="linux.firewallError",
+                        params={"cause": str(exc)},
+                    )
+                ]
+            )
         gaps = [Gap(message=m) for m in parsed.gaps]
         complete = parsed.complete
         if "legacy" in iptables:
             complete = False
+            switch = (
+                "pacman -S iptables-nft"
+                if self.distro.manager == "pacman"
+                else "update-alternatives --set iptables /usr/sbin/iptables-nft"
+            )
             gaps.append(
                 Gap(
                     message="firewall: iptables-legacy is in use; its rules are not visible to "
                     "nft and are not read",
-                    fix="Switch to the nf_tables backend ("
-                    + (
-                        "pacman -S iptables-nft"
-                        if self.distro.manager == "pacman"
-                        else "update-alternatives --set iptables /usr/sbin/iptables-nft"
-                    )
-                    + ").",
+                    fix=f"Switch to the nf_tables backend ({switch}).",
+                    message_id="linux.iptablesLegacy",
+                    fix_id="linux.iptablesLegacy.fix",
+                    params={"command": switch},
                 )
             )
         zones = [self._zone(lay, name) for name in sorted(parsed.zone_names)]
@@ -680,6 +712,9 @@ class LinuxAdapter(Adapter):
                         message=f"{what}: {path} is not readable for {self.config.username}",
                         fix=f"Give the user read access to {path} (for example by adding it to "
                         "the group that owns the file), or accept that it is not read.",
+                        message_id="linux.unreadable",
+                        fix_id="linux.unreadable.fix",
+                        params={"what": what, "path": path, "user": self.config.username},
                     )
                 )
 
@@ -705,7 +740,13 @@ class LinuxAdapter(Adapter):
         if kea_text is not None:
             kea = dhcp.parse_kea(kea_text)
             if kea.error:
-                gaps.append(Gap(message=f"Kea: {kea.error}"))
+                gaps.append(
+                    Gap(
+                        message=f"Kea: {kea.error}",
+                        message_id="linux.keaError",
+                        params={"cause": kea.error},
+                    )
+                )
             rows = a.files("kea-leases").get("/var/lib/kea/kea-leases4.csv")
             by_id = dhcp.kea_leases(rows) if rows is not None else None
             for scope in kea.scopes:
@@ -754,7 +795,9 @@ class LinuxAdapter(Adapter):
                 gaps.append(
                     Gap(
                         message=f"{scope.server}: the DHCP range {scope.key} is on no network "
-                        "of the device"
+                        "of the device",
+                        message_id="linux.rangeNoNetwork",
+                        params={"server": scope.server, "range": scope.key},
                     )
                 )
                 continue
