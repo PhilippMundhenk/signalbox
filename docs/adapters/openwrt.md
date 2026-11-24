@@ -334,7 +334,9 @@ For every running radio, with its first interface from `network.wireless status`
 
 An ACL from before #172 (no `iwinfo`, no `hostapd get_status`) or a missing rpcd-mod-iwinfo
 is an optional gap (*radio state*): everything else is read, the fields stay unreported. Not
-read: `antennas`, `mlo`. A device without radios (the CI VMs) makes no such call.
+read: `antennas`, `mlo`. A device without radios makes no such call. Checked in CI against the mac80211_hwsim radios
+of the QEMU image (with rpcd-mod-iwinfo); survey and `get_status` values of real drivers are
+the guesses above (#21).
 
 ### `uci get {"config": "dhcp"}` (dnsmasq)
 
@@ -519,7 +521,7 @@ Every "access denied" error says to install this ACL; root may call whatever an 
 file allows (`list read '*'`), so with the file in place root works too.
 
 Packages: `rpcd`, `uhttpd`, `uhttpd-mod-ubus` (all part of a LuCI install); `rpcd-mod-file` for
-the lease file, `rpcd-mod-luci` for `luci-rpc`, `luci-base` for `luci getFeatures` (the security modes the radios support) and `luci-app-lldpd` for LLDP are optional; on
+the lease file, `rpcd-mod-luci` for `luci-rpc`, `luci-base` for `luci getFeatures` (the security modes the radios support), `rpcd-mod-iwinfo` for the radios' capabilities and utilisation (#172; part of a LuCI install) and `luci-app-lldpd` for LLDP are optional; on
 OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
 
 `/usr/share/rpcd/acl.d/signalbox.json`:

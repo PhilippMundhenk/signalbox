@@ -685,26 +685,26 @@ async def test_rpcd_logins_and_the_root_probe(ow: Target, pin: str) -> None:
     assert "$1$" not in text and "$p$" not in text
 
 
-async def test_radio_state_acl_on_a_device_without_radios(ow: Target, pin: str) -> None:
-    """#172: the QEMU image has no radios, so the wireless read makes no ``iwinfo`` or
-    ``hostapd`` call and reports no radio-state gap. The read-only ACL of the guide allows
-    ``iwinfo info``: the call is not refused (an unknown device is an error of iwinfo, or the
-    object is missing where rpcd-mod-iwinfo is not installed)."""
-    from signalbox.adapters import AdapterError
+async def test_radio_capabilities_and_state(ow: Target, pin: str) -> None:
+    """#172: the mac80211_hwsim radios read through ``iwinfo`` (rpcd-mod-iwinfo) and
+    ``hostapd get_status`` with the read-only ACL of the guide: no radio-state gap, the
+    standard from ``htmode HT20``, the capabilities hwsim reports."""
+    from signalbox.model import WifiStandard
 
     adapter = OpenWrtAdapter(context(ow, pin))
     try:
-        snap = await adapter.observe()
-        try:
-            await adapter.ubus.call("iwinfo", "info", {"device": "signalbox-none"})
-        except AccessDenied:
-            raise
-        except AdapterError:
-            pass  # not refused: iwinfo's own answer to an unknown device, or no such object
+        snap = await assert_contract(adapter)
     finally:
         await adapter.close()
     assert snap.status is DeviceStatus.OK, snap.errors
-    assert not [
-        e for e in snap.errors if e.message_id in ("openwrt.radioState", "openwrt.noIwinfo")
-    ]
-    assert all(r.standards is None and r.channel_utilisation_pct is None for r in snap.radios)
+    gaps = [e for e in snap.errors if e.message_id in ("openwrt.radioState", "openwrt.noIwinfo")]
+    assert not gaps, gaps
+    radios = {r.name: r for r in snap.radios}
+    r0, r1 = radios["radio0"], radios["radio1"]
+    assert r0.standard is WifiStandard.N and r0.channel_auto is False, r0
+    for r in (r0, r1):
+        assert r.standards and WifiStandard.N in r.standards, r
+        assert r.supported_channels and r.channel in r.supported_channels, r
+        assert r.supported_widths_mhz and 20 in r.supported_widths_mhz, r
+        assert r.max_tx_power_dbm is not None and r.client_count is not None, r
+    assert 1 in (r0.supported_channels or []) and 36 in (r1.supported_channels or [])
