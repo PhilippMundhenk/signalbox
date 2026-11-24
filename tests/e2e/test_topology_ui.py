@@ -47,6 +47,7 @@ def test_legend_is_visible_and_collapsible(app: Any) -> None:
         "Ends disagree",
         "VPN tunnel",
         "Inferred from the MAC table",
+        "Inferred from addresses",  # a router behind another one (#375)
     ):
         expect(legend).to_contain_text(text)
     for text in ("Partly read", "Unmanaged remote site", "Internal port"):
