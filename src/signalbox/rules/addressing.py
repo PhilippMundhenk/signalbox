@@ -920,7 +920,7 @@ def _management_ip(net: Network, text: str) -> IPAddress | None:
         r.address
         for d in net.dns_services
         for r in d.host_records
-        if r.name.lower().rstrip(".") == host.rstrip(".")
+        if not r.from_dhcp and r.name.lower().rstrip(".") == host.rstrip(".")
     }
     return found_.pop() if len(found_) == 1 else None
 
@@ -1140,7 +1140,7 @@ def dhcp_domain(net: Network) -> Iterator[Result]:
     for dns in net.dns_services:
         if not dns.enabled:
             continue
-        for rec in dns.host_records:
+        for rec in (r for r in dns.host_records if not r.from_dhcp):
             name = rec.name.strip().strip(".").lower()
             segs = _segments_of(net, rec.address)
             if "." not in name or len(segs) != 1:

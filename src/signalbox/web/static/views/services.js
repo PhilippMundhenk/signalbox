@@ -57,6 +57,66 @@ function dhcpCard(ix, d) {
   );
 }
 
+const SOURCES = {
+  'host-override': 'services.sourceOverride',
+  alias: 'services.sourceAlias',
+  'dhcp-static': 'services.sourceDhcpStatic',
+  'dhcp-lease': 'services.sourceDhcpLease',
+};
+
+function sourceLabel(source) {
+  return source ? (SOURCES[source] ? t(SOURCES[source]) : source) : '';
+}
+
+// Host records: a table; a long list (split DNS, #386) is collapsed, with a filter and at most
+// RECORD_LIMIT rows shown at once, so hundreds of records do not flood the page.
+const RECORD_FOLD = 20;
+const RECORD_LIMIT = 100;
+
+function recordTable(records) {
+  return table(
+    [
+      [t('services.name'), (r) => r.name],
+      [t('services.address'), (r) => r.address],
+      [t('services.source'), (r) => sourceLabel(r.source)],
+    ],
+    records,
+    { rowTestid: 'host-record', compact: true },
+  );
+}
+
+function hostRecords(all) {
+  const sorted = [...all].sort(by((r) => r.name));
+  if (sorted.length <= RECORD_FOLD) return recordTable(sorted);
+  const holder = h('div', { 'data-testid': 'host-record-list' });
+  const note = h('p', { class: 'muted small', 'data-testid': 'host-record-shown' });
+  const draw = (query) => {
+    const q = query.trim().toLowerCase();
+    const hits = q
+      ? sorted.filter((r) => `${r.name} ${r.address} ${sourceLabel(r.source)}`.toLowerCase().includes(q))
+      : sorted;
+    const shown = hits.slice(0, RECORD_LIMIT);
+    note.textContent = t('services.recordsShown', { shown: shown.length, total: hits.length });
+    holder.replaceChildren(recordTable(shown));
+  };
+  const filter = h('input', {
+    type: 'search',
+    placeholder: t('services.filterRecords'),
+    'aria-label': t('services.filterRecords'),
+    'data-testid': 'host-record-filter',
+    oninput: () => draw(filter.value),
+  });
+  draw('');
+  return h(
+    'details',
+    { 'data-testid': 'host-record-fold' },
+    h('summary', {}, t('services.hostRecordCount', { count: sorted.length })),
+    filter,
+    note,
+    holder,
+  );
+}
+
 export async function renderServices(main, ctx) {
   const id = ctx.renderId;
   const ix = await loadNetwork();
@@ -112,15 +172,14 @@ export async function renderServices(main, ctx) {
           d.config_read === false
             ? h('p', { class: 'muted' }, t('services.configNotRead'))
             : d.host_records.length
-            ? table(
-                [
-                  [t('services.name'), (r) => r.name],
-                  [t('services.address'), (r) => r.address],
-                ],
-                [...d.host_records].sort(by((r) => r.name)),
-                { rowTestid: 'host-record', compact: true },
-              )
-            : h('p', { class: 'muted' }, t('services.noHostRecords')),
+              ? hostRecords(d.host_records)
+              : null,
+          d.config_read !== false && d.host_records_read === false
+            ? h('p', { class: 'muted', 'data-testid': 'host-records-not-read' }, t('services.hostRecordsNotRead'))
+            : null,
+          d.config_read !== false && d.host_records_read !== false && !d.host_records.length
+            ? h('p', { class: 'muted' }, t('services.noHostRecords'))
+            : null,
         ),
       );
       main.lastChild.setAttribute('data-testid', 'dns-service');

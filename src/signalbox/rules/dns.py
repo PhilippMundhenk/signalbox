@@ -34,7 +34,8 @@ def _records(net: Network) -> Iterator[tuple[str, DnsService, HostRecord]]:
         site = site_of_device(net, dns.device_id)
         if site is not None:
             for rec in dns.host_records:
-                yield site, dns, rec
+                if not rec.from_dhcp:
+                    yield site, dns, rec
 
 
 def _addresses(values: set[IPAddress]) -> str:
