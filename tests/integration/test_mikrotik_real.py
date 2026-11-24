@@ -482,6 +482,21 @@ async def test_spanning_tree_of_chr(rt: dict[str, str]) -> None:
         assert stp is not None and stp.bpdu_guard is False, (name, stp)
     assert ports["ether1"].stp is None
 
+async def test_routes_of_chr(rt: dict[str, str]) -> None:
+    """The lab's static route and blackhole route
+    from ``/ip/route`` (#149); connected networks are derived, not read."""
+    a = adapter(rt)
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    by = {str(r.destination): r for r in snap.routes}
+    lab = by["198.18.20.0/24"]
+    assert str(lab.gateway) == "192.0.2.254" and lab.origin.value == "static", lab
+    assert by["198.18.66.0/24"].kind.value == "blackhole", by["198.18.66.0/24"]
+    assert "192.0.2.0/24" not in by, sorted(by)
+    assert not any("routes" in e.message for e in snap.errors), snap.errors
+
 
 async def test_refused_password_is_auth_failed(rt: dict[str, str]) -> None:
     a = adapter(rt, password="not-the-password")

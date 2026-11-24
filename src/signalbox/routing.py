@@ -1,4 +1,4 @@
-"""Routing: which way a device sends traffic to an address (#149, ADR 0022).
+"""Routing: which way a device sends traffic to an address (#149, ADR 0024).
 
 :func:`next_hop` answers "where does *device* send a packet for *address*?" from the device's
 own networks (:class:`~signalbox.model.Subnet`, tunnel addresses) and the routes and policy
@@ -107,7 +107,7 @@ def _contains(net: IPNetwork, address: IPAddress) -> bool:
 
 def connected_networks(net: Network, device_id: str) -> list[tuple[IPNetwork, str]]:
     """Networks the device is attached to, with the segment, uplink or tunnel id: derived from
-    its subnets, the addresses of its internet connections and of its tunnels (ADR 0022).
+    its subnets, the addresses of its internet connections and of its tunnels (ADR 0024).
     Link-local networks are left out."""
     out = [(s.interface.network, s.segment_id) for s in net.subnets if s.device_id == device_id]
     out += [
@@ -152,8 +152,8 @@ def _tables(net: Network, device_id: str, address: IPAddress) -> tuple[list[str]
             return tables, uncertain, True
         if rule.table not in tables:
             tables.append(rule.table)
-    if "main" not in tables and not any(r.table == "main" for r in rules):
-        tables.append("main")
+    if "main" not in tables:
+        tables.append("main")  # the system's own rule, which a device does not list
     return tables[:_MAX_TABLES], uncertain, False
 
 

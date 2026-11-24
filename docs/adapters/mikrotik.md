@@ -1033,3 +1033,19 @@ tried. The rules are in [account_checks](../rules/account_checks.md).
   `/rest/user-manager` (RADIUS), best effort.
 - *Guess until a CHR run confirms it (#21)*: the date format of `invalid-after`, `key-size` of
   elliptic-curve keys, the issuer text, which of the optional menus the CHR has.
+
+## Routes and routing rules (#149)
+
+- `GET /rest/ip/route` and `/rest/ipv6/route`: `dst-address`, `gateway` (an address, or an
+  interface name for a route without next hop; `%interface` is dropped), `distance` (the
+  metric), `routing-table`, `disabled`, `active`, the flags `blackhole`, `unreachable`,
+  `prohibit` and the origin flags `dhcp`, `vpn`, `bgp`, `ospf`, `rip`, `static`. Connected routes
+  (`connect`) are left out: derived from the subnets.
+- `GET /rest/routing/rule`: `src-address`, `dst-address`, `interface` (as a segment),
+  `action` (`lookup` and `lookup-only-in-table` with `table`; `drop` is a blackhole;
+  `unreachable`), `disabled`. RouterOS has no priority number: the position in the list is the
+  priority.
+
+The read policy covers them; a refused route menu is an optional gap and no routes are
+reported. *CI* (CHR): a static route and a blackhole route written by the VM setup. *Guess:*
+flag names of older RouterOS 7 releases (#21).

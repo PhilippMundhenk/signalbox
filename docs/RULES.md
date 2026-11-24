@@ -174,6 +174,15 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`port.autoneg-mismatch`](rules/ports.md#portautoneg-mismatch)
 - [`port.description-mismatch`](rules/ports.md#portdescription-mismatch)
 
+## [Routing](rules/routing_checks.md)
+
+- [`route.default-missing`](rules/routing_checks.md#routedefault-missing)
+- [`route.multiple-default`](rules/routing_checks.md#routemultiple-default)
+- [`route.unreachable-gateway`](rules/routing_checks.md#routeunreachable-gateway)
+- [`route.no-return`](rules/routing_checks.md#routeno-return)
+- [`route.asymmetric`](rules/routing_checks.md#routeasymmetric)
+- [`route.vpn-return`](rules/routing_checks.md#routevpn-return)
+
 ## [Certificates stored on devices](rules/stored_certificates.md)
 
 - [`cert.vpn-expiring`](rules/stored_certificates.md#certvpn-expiring)

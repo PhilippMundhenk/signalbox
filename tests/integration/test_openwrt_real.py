@@ -359,6 +359,18 @@ async def test_log_targets_and_snmpd(ow: Target, pin: str) -> None:
     assert '"public"' not in snap.model_dump_json()  # not public_ipv4
 
 
+async def test_routes_and_rules(ow: Target, pin: str) -> None:
+    """The lab's static route (and its rule) as netifd reports them (#149): configured, and
+    installed once the interface is up. Connected networks are not routes here."""
+    snap = await observe(context(ow, pin))
+    assert snap.status is DeviceStatus.OK, snap.errors
+    lab = [r for r in snap.routes if str(r.destination) == "198.18.20.0/24"]
+    assert lab and all(str(r.gateway) == "192.0.2.254" and r.table == "main" for r in lab), lab
+    assert not any(str(r.destination) == "192.0.2.0/24" for r in snap.routes)
+    [rule] = [r for r in snap.routing_rules if r.table == "100"]
+    assert (str(rule.src), rule.priority) == ("198.51.100.0/24", 1000), rule
+
+
 async def test_firewall_of_the_default_config(ow: Target, pin: str) -> None:
     """The image's default ``/etc/config/firewall`` (zones lan and wan, one forwarding, the
     ``Allow-*`` rules) as the read-only login sees it (#135; needs ``firewall`` in the ACL's

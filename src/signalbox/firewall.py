@@ -17,7 +17,7 @@ What is modelled (see docs/DESIGN.md, "Firewall"):
 - a source in several subnets (IPv4 and IPv6, several prefixes) can reach the target when one
   of them can.
 
-Routing (#149, ADR 0022): where several routers sit in both networks, the one whose routing
+Routing (#149, ADR 0024): where several routers sit in both networks, the one whose routing
 table keeps the address on its own networks is the path (a blackhole, unreachable or prohibit
 route is a ``denied``); with no such router, a chain of two (a router whose table sends the
 address to a gateway that is another router attached to the target network) is followed.
@@ -483,7 +483,7 @@ def _routed_chain(
         exit1 = _present(net, dev.id, transit)
         entry2 = _present(net, second, transit)
         exit2 = _present(net, second, target)
-        if exit1 and entry2 and exit2 and entry2 != exit2 and entry != exit1:
+        if exit1 and entry2 and exit2 and entry2 != exit2:
             return [(dev.id, entry, exit1), (second, entry2, exit2)]
     return None
 

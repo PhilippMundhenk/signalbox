@@ -1390,7 +1390,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             gaps = [
                 *gaps,
                 Gap(
-                    message="routes: the routing table could not be read",
+                    message="routes: the routing table (/ip/route) could not be read",
                     fix="Optional: give the Signalbox user a group with the read policy.",
                     optional=True,
                     message_id="routing.readGap",

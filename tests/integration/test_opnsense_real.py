@@ -173,6 +173,26 @@ async def test_read_contract(fw: dict[str, str]) -> None:
     assert snap.device.transport_encrypted is True
 
 
+async def test_routes(fw: dict[str, str]) -> None:
+    """Routes (#149): the WAN default route from the interface overview when the lab's WAN has
+    a gateway, and whatever static routes the API user may read (the grids need the privileges
+    ``page-system-staticroutes`` and ``page-system-gateways``, *guess* until this runs); a
+    refused grid is an optional gap, never a failed read."""
+    a = adapter(fw)
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    assert snap.status.value == "ok", snap.errors
+    [wan] = [u for u in snap.uplinks if u.name]
+    if wan.upstream_gateway is not None and wan.up:
+        defaults = [r for r in snap.routes if r.default]
+        assert [r.gateway for r in defaults] == [wan.upstream_gateway], snap.routes
+    for e in snap.errors:
+        if "routes" in e.message or "gateways" in e.message:
+            assert e.optional, e
+
+
 async def test_mapping_of_the_preseeded_firewall(fw: dict[str, str]) -> None:
     net = await network(fw)
     ports = {p.name: p for p in net.ports}

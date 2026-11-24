@@ -3,7 +3,7 @@
 - ``ip -j route show table all`` and ``ip -j -6 route show table all`` (sections ``routes4`` and
   ``routes6``): every table. The ``local`` table (the device's own addresses, broadcast) and
   routes the kernel adds for a connected network (``proto kernel``) are left out: connected
-  networks come from the subnets (ADR 0022). A route in a table other than ``main`` carries
+  networks come from the subnets (ADR 0024). A route in a table other than ``main`` carries
   ``"table": "<name or number>"``; ``type`` is absent for ``unicast``.
 - ``ip -j rule show`` and ``ip -j -6 rule show`` (sections ``rules4`` and ``rules6``): the
   policy rules. The ``local`` lookup (priority 0) and the empty ``default`` table are left out.

@@ -8,7 +8,7 @@
   (``src``, ``dest``, ``in``, ``lookup``, ``priority``, ``action``, ``disabled``). A configured
   route that is not in the dump is reported with ``active`` False.
 
-Connected networks are not reported: they come from the subnets (ADR 0022). Both reads use data
+Connected networks are not reported: they come from the subnets (ADR 0024). Both reads use data
 ``read_interfaces`` has already (the ``network`` config and the running interfaces): no extra
 ACL entry. The option names of ``rule`` are the netifd ones; *guess* until confirmed on a
 device for ``action`` values other than ``blackhole``, ``unreachable`` and ``prohibit`` (#21).

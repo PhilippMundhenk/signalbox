@@ -1,5 +1,5 @@
 """Routing rules: a gateway without a default route, two equal default routes, a static route
-whose next hop is not reachable, a route with no way back (#149, ADR 0022).
+whose next hop is not reachable, a route with no way back (#149, ADR 0024).
 
 They read :class:`~signalbox.model.Route` and :class:`~signalbox.model.RoutingRule` and answer
 with :func:`signalbox.routing.next_hop`. They stay quiet for a device whose routes were not read
@@ -42,9 +42,9 @@ def _defaults(net: Network, device_id: str, version: int) -> list[Route]:
     "route.default-missing",
     "A router has no default route",
     Severity.WARNING,
-    "A router that connects a network to the internet sends everything it has no better route "
-    "for to its default route. Without one, no device behind it can reach the internet, even "
-    "though the internet connection itself is up.",
+    "A router that connects a network to the internet sends everything it has no better "
+    "route for to its default route. Without one, no device behind it can reach the "
+    "internet, even though the internet connection itself is up.",
 )
 def default_missing(net: Network) -> Iterator[Result]:
     for dev in sorted(net.devices, key=lambda d: d.id):
@@ -73,9 +73,9 @@ def default_missing(net: Network) -> Iterator[Result]:
     "route.multiple-default",
     "A router has two default routes with the same metric",
     Severity.INFO,
-    "Two default routes with the same metric leave it to the system which internet connection "
-    "carries a connection: traffic may jump between them, which breaks logins and streams that "
-    "check the address. Give the connection that should win the lower metric.",
+    "With equal metrics it is not defined which default route carries a connection, so "
+    "traffic may jump between internet connections and break logins and streams. Give the "
+    "connection that should win the lower metric.",
 )
 def multiple_default(net: Network) -> Iterator[Result]:
     for dev in sorted(net.devices, key=lambda d: d.id):
@@ -112,9 +112,8 @@ def _on_link(net: Network, device_id: str, address: IPAddress) -> bool:
     "route.unreachable-gateway",
     "A static route's next hop is outside every network of the router",
     Severity.WARNING,
-    "A static route sends traffic to a next hop that the router must reach directly. If the "
-    "next hop is in none of the router's own networks, the route cannot be used: the router "
-    "does not know how to get to it.",
+    "A static route sends traffic to a next hop that the router must reach directly. If "
+    "the next hop is in none of the router's own networks, the route cannot be used.",
 )
 def unreachable_gateway(net: Network) -> Iterator[Result]:
     for dev in sorted(net.devices, key=lambda d: d.id):
@@ -165,7 +164,7 @@ def _return_cases(net: Network) -> Iterator[tuple[Route, str, str, IPNetwork, Ho
     """Static routes through another router of the network, with how that router answers for
     the networks behind the first one: (route, from, via, source network, kind, next device)."""
     for dev in sorted(net.devices, key=lambda d: d.id):
-        own = connected_networks(net, dev.id)
+        own = [(x.interface.network, x.segment_id) for x in net.subnets if x.device_id == dev.id]
         for r in sorted(net.routes_of(dev.id), key=lambda r: r.id):
             if r.origin is not RouteOrigin.STATIC or not _usable(r) or r.gateway is None:
                 continue
@@ -192,10 +191,9 @@ def _return_cases(net: Network) -> Iterator[tuple[Route, str, str, IPNetwork, Ho
     "route.no-return",
     "A router sends traffic to another router that has no way back",
     Severity.WARNING,
-    "A static route sends the traffic for a network to a second router. The answers must come "
-    "back: if that router has no route to the networks behind the first one (or only a default "
-    "route towards the internet), requests arrive and the answers are lost, so the connection "
-    "never works.",
+    "A static route sends a network to a second router. If that router has no route to "
+    "the networks behind the first one, requests arrive and the answers are lost, so the "
+    "connection never works.",
 )
 def no_return(net: Network) -> Iterator[Result]:
     seen: set[tuple[str, str, str]] = set()
@@ -212,7 +210,7 @@ def no_return(net: Network) -> Iterator[Result]:
             f"{a} sends {r.destination} to {b}, but {b} has no route back to {network}: "
             "answers do not arrive",
             [origin, via, r.id],
-            fix=f"Add a route on {b} for {network} through {a}, or set {a} as its default gateway.",
+            fix=f"Add a route on {b} for {network} through {a}, or make {a} its default gateway.",
             key=f"{via}/{network}",
             mid="route.noReturn",
             fix_id="route.noReturn.fix",
@@ -224,9 +222,9 @@ def no_return(net: Network) -> Iterator[Result]:
     "route.asymmetric",
     "The way back between two routers differs from the way there",
     Severity.INFO,
-    "A static route sends traffic for a network to a second router, which answers through a "
-    "third router instead of the first. Such an asymmetric path works only while no firewall "
-    "on the way tracks connections; most do, and drop the answers.",
+    "A static route sends a network to a second router, which answers through a third "
+    "router instead of the first. Such an asymmetric path works only while no firewall on "
+    "the way tracks connections; most do, and drop the answers.",
 )
 def asymmetric(net: Network) -> Iterator[Result]:
     seen: set[tuple[str, str, str]] = set()
@@ -269,8 +267,8 @@ def _site_networks(net: Network, device_id: str) -> list[IPNetwork]:
     "The other end of a VPN tunnel has no route back",
     Severity.WARNING,
     "A site-to-site tunnel needs routes in both directions. If the other end's peer entry "
-    "for this site accepts none of this site's networks (it lists only the tunnel address), "
-    "requests from this site arrive and the answers are dropped.",
+    "for this site accepts none of this site's networks, requests arrive and the answers "
+    "are dropped.",
 )
 def vpn_return(net: Network) -> Iterator[Result]:
     for t in sorted(net.tunnels, key=lambda t: t.id):

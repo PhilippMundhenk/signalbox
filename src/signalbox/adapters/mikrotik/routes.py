@@ -1,7 +1,7 @@
 """MikroTik routes and routing rules (#149).
 
 - ``/rest/ip/route`` and ``/rest/ipv6/route``: the whole table the router keeps. Connected
-  routes (``connect``) are left out (derived from the subnets, ADR 0022). Fields as in RouterOS
+  routes (``connect``) are left out (derived from the subnets, ADR 0024). Fields as in RouterOS
   7: ``dst-address``, ``gateway`` (an address, or an interface name for a route without next
   hop), ``distance``, ``routing-table``, ``disabled``, ``active``, ``blackhole``,
   ``unreachable``, ``prohibit``, and the origin flags ``static``, ``dhcp``, ``bgp``, ``ospf``,

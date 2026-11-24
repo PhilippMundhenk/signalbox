@@ -2595,7 +2595,7 @@ class RouteOrigin(StrEnum):
     """Where a route of a device comes from (#149)."""
 
     #: The network of an interface. Derived from :class:`Subnet`; adapters report it only when
-    #: the device reports its whole table anyway (ADR 0022).
+    #: the device reports its whole table anyway (ADR 0024).
     CONNECTED = "connected"
     STATIC = "static"
     DHCP = "dhcp"
@@ -2634,7 +2634,7 @@ def route_id(
 
 
 class Route(Observed):
-    """One route of a device's routing table (#149, ADR 0022).
+    """One route of a device's routing table (#149, ADR 0024).
 
     Read with ``interfaces``. Connected routes are not reported by most adapters: they are
     derived from :class:`Subnet` (see :func:`signalbox.routing.next_hop`). A route of an IPv4

@@ -418,6 +418,107 @@ function storedCertificatesCard(ix, deviceId) {
   return h('section', { class: 'card', 'data-testid': 'device-certificates' }, h('h2', {}, t('device.certs.title')), kv(rows));
 }
 
+// The network of an interface address ("192.0.2.1/24" -> "192.0.2.0/24"); IPv6 shortened.
+function networkOf(iface) {
+  const [addr, lenText] = iface.split('/');
+  const len = Number(lenText);
+  if (!addr.includes(':')) {
+    const v = addr.split('.').reduce((acc, part) => (acc << 8n) | BigInt(part), 0n);
+    const mask = len === 0 ? 0n : ((1n << 32n) - 1n) ^ ((1n << BigInt(32 - len)) - 1n);
+    const n = v & mask;
+    return `${[24n, 16n, 8n, 0n].map((sh) => String((n >> sh) & 255n)).join('.')}/${len}`;
+  }
+  const [head, tail = ''] = addr.split('::');
+  const left = head ? head.split(':') : [];
+  const right = addr.includes('::') && tail ? tail.split(':') : [];
+  const groups = addr.includes('::') ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right] : left;
+  const v = groups.reduce((acc, g) => (acc << 16n) | BigInt(`0x${g || '0'}`), 0n);
+  const mask = len === 0 ? 0n : ((1n << 128n) - 1n) ^ ((1n << BigInt(128 - len)) - 1n);
+  const n = v & mask;
+  const out = Array.from({ length: 8 }, (_, i) => ((n >> BigInt(112 - 16 * i)) & 0xffffn).toString(16));
+  let best = [0, 0];
+  for (let i = 0; i < 8; i += 1) {
+    let j = i;
+    while (j < 8 && out[j] === '0') j += 1;
+    if (j - i > best[1] - best[0]) best = [i, j];
+  }
+  const text = best[1] - best[0] > 1 ? `${out.slice(0, best[0]).join(':')}::${out.slice(best[1]).join(':')}` : out.join(':');
+  return `${text}/${len}`;
+}
+
+const ROUTE_ORIGIN = {
+  connected: 'device.routes.origin.connected',
+  static: 'device.routes.origin.static',
+  dhcp: 'device.routes.origin.dhcp',
+  ra: 'device.routes.origin.ra',
+  vpn: 'device.routes.origin.vpn',
+  dynamic: 'device.routes.origin.dynamic',
+  other: 'device.routes.origin.other',
+};
+const ROUTE_KIND = {
+  blackhole: 'device.routes.kind.blackhole',
+  unreachable: 'device.routes.kind.unreachable',
+  prohibit: 'device.routes.kind.prohibit',
+};
+
+// Routing table and policy rules (#149): the networks the device is attached to (derived from
+// its subnets), then the routes it reports; null when nothing is known.
+function routesCard(ix, deviceId) {
+  const routes = (ix.net.routes || []).filter((r) => r.device_id === deviceId);
+  const rules = (ix.net.routing_rules || []).filter((r) => r.device_id === deviceId);
+  if (!routes.length && !rules.length) return null;
+  const connected = ix.net.subnets
+    .filter((x) => x.device_id === deviceId && !x.interface.startsWith('fe80:'))
+    .map((x) => ({ destination: x.interface, origin: 'connected', connected: true, segment: x.segment_id }));
+  const rows = [...connected, ...routes.map((r) => ({ ...r, route: true }))];
+  const destination = (r) => {
+    if (r.connected) return ltr(networkOf(r.destination));
+    const net = r.destination === '0.0.0.0/0' || r.destination === '::/0' ? t('device.routes.default') : r.destination;
+    return ltr(`${net}${r.table && r.table !== 'main' ? ` · ${t('device.routes.table', { table: r.table })}` : ''}`);
+  };
+  const via = (r) => {
+    if (r.connected) return ix.segmentName(r.segment);
+    if (r.kind && r.kind !== 'unicast') return t(ROUTE_KIND[r.kind]);
+    return r.gateway ? ltr(r.gateway) : null;
+  };
+  const state = (r) => (r.connected ? null : !r.enabled ? t('device.off') : r.active === false ? t('device.routes.notInstalled') : null);
+  const ruleAction = (r) => (r.action === 'lookup' ? t('device.routes.table', { table: r.table }) : t(ROUTE_KIND[r.action]));
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-routes' },
+    h('h2', {}, t('device.routes.title')),
+    table(
+      [
+        [t('device.routes.destination'), destination],
+        [t('device.routes.via'), via],
+        [t('device.routes.interface'), (r) => (r.interface ? r.interface.split('/port/').pop() : null)],
+        [t('device.routes.metric'), (r) => (given(r.metric) ? String(r.metric) : null)],
+        [t('device.routes.origin'), (r) => t(ROUTE_ORIGIN[r.origin] || ROUTE_ORIGIN.other)],
+        [t('device.routes.state'), state],
+      ],
+      rows,
+      { rowTestid: 'route', compact: true },
+    ),
+    rules.length
+      ? [
+          h('h3', {}, t('device.routes.rules')),
+          table(
+            [
+              [t('device.routes.rulePriority'), (r) => (given(r.priority) ? String(r.priority) : null)],
+              [t('device.routes.ruleFrom'), (r) => (r.src ? ltr(r.src) : t('device.routes.any'))],
+              [t('device.routes.ruleTo'), (r) => (r.dst ? ltr(r.dst) : t('device.routes.any'))],
+              [t('device.routes.ruleIn'), (r) => (r.segment_id ? ix.segmentName(r.segment_id) : t('device.routes.any'))],
+              [t('device.routes.ruleAction'), ruleAction],
+              [t('device.routes.state'), (r) => (r.enabled ? null : t('device.off'))],
+            ],
+            [...rules].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0)),
+            { rowTestid: 'routing-rule', compact: true },
+          ),
+        ]
+      : null,
+  );
+}
+
 const BAND = { 2.4: '2.4 GHz', 5: '5 GHz', 6: '6 GHz' };
 
 const DFS_STATE = { available: 'device.radios.dfs.available', cac: 'device.radios.dfs.cac', 'radar-detected': 'device.radios.dfs.radar' };
@@ -738,6 +839,7 @@ async function overview(main, ctx, device, adapters, sites) {
     learnedCard(ix, learned),
     tunnelsCard(ix, device.id),
     firewallCard(ix, device.id),
+    routesCard(ix, device.id),
     observed ? managementCard(ix, observed) : null,
     observed ? loggingCard(observed) : null,
     observed ? certificateCard(observed) : null,

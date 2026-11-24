@@ -499,3 +499,13 @@ confirms them, #21); they are parsed with the SOAP parser, which refuses documen
 declarations. A FRITZ!OS without these actions reports nothing; a user without the right
 (UPnP error 606 on the user list) gives an optional gap naming the right instead of an empty
 list (#349).
+
+## Routes (#149)
+
+TR-064 `Layer3Forwarding:1` (the SCPD is in `tests/fixtures/tr064/`): `GetForwardNumberOfEntries`
+and `GetGenericForwardingEntry` give the static IPv4 routes (`NewDestIPAddress`,
+`NewDestSubnetMask`, `NewGatewayIPAddress`, `NewEnable`, `NewForwardingMetric`; a `Host` entry is
+a /32). An entry with a source address is a policy route and left out. The default route is
+derived from the internet connection (its gateway) while `GetDefaultConnectionService` names a
+connection. Not readable: IPv6 routes, the kernel table, policy routing. A FRITZ!OS without the
+service reports no routes.
