@@ -111,6 +111,7 @@ def spec() -> dict[str, Any]:
 
 
 def firewall_spec(
+    brief: bool = False,
     words: tuple[str, ...] = (
         "acl",
         "port-forward",
@@ -151,7 +152,10 @@ def firewall_spec(
         op = paths[path].get("get", {})
         content = op.get("responses", {}).get("200", {}).get("content", {})
         body = [fields(c.get("schema")) for c in content.values()]
-        entry["get"] = body[0].get("result") if body and isinstance(body[0], dict) else body
+        if brief:
+            entry = {"methods": entry["methods"]}
+        else:
+            entry["get"] = body[0].get("result") if body and isinstance(body[0], dict) else body
         out[path] = {"method": "SPEC", "path": path, "status": 200, "body": entry}
     h = bearer()
     for path in list(out):
@@ -165,6 +169,9 @@ def firewall_spec(
         except OSError as exc:
             status, answer = 0, repr(exc)
         out[f"answer {path}"] = {"method": "GET", "path": real, "status": status, "body": answer}
+    if brief:  # the answers first: they are what #354 needs
+        answers = {k: v for k, v in out.items() if k.startswith("answer ")}
+        return {**answers, **{k: v for k, v in out.items() if k not in answers}}
     return out
 
 
@@ -240,7 +247,7 @@ def main(d: Path, group: str, part: int) -> None:
             if group == "spec"
             else firewall_spec()
             if group == "firewall"
-            else firewall_spec(("user", "admin", "role", "account", "member"))  # #354
+            else firewall_spec(True, ("user", "admin", "role", "account", "member"))  # #354
         )
         cached.write_text(json.dumps(full, indent=1))
     else:
