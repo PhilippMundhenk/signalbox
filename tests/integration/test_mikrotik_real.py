@@ -938,3 +938,23 @@ async def test_adopted_row_keeps_its_other_properties_then_restore(
             timeout=TIMEOUT,
             trust_env=False,
         )
+
+
+async def test_accounts_of_chr(rt: dict[str, str]) -> None:
+    """Users and group policies (#175): the default admin is an administrator, the read user
+    of the guide reads; RouterOS shows no password, so nothing of one is in the snapshot."""
+    from signalbox.model import AccountPrivilege
+
+    a = adapter(rt)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    by = {x.name: x for x in snap.device.accounts or []}
+    assert by["admin"].privilege is AccountPrivilege.ADMIN, by
+    own = by[rt["USER"]]
+    assert own.is_signalbox and own.privilege is AccountPrivilege.READ, own
+    assert snap.device.signalbox_account_privilege is AccountPrivilege.READ
+    assert snap.device.default_credentials is False
+    assert rt["PASSWORD"] not in snap.model_dump_json()

@@ -281,6 +281,19 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(logs).to_contain_text("203.0.113.50:6514 · TLS · info, warning")
     expect(logs).to_contain_text("203.0.113.51:2055 · off")
 
+    # accounts and the factory password (#175)
+    accounts = app.get_by_test_id("device-accounts")
+    expect(accounts).to_contain_text("Accounts")
+    expect(accounts.get_by_test_id("account-factory")).to_have_text("Still the factory password")
+    expect(accounts.get_by_test_id("account-factory")).to_have_class("bad-text")
+    expect(accounts.get_by_test_id("account-signalbox")).to_contain_text(
+        "administrator (read-only is enough: read only)"
+    )
+    expect(accounts.get_by_test_id("account")).to_have_count(2)
+    expect(accounts.get_by_test_id("account").first).to_contain_text("used by Signalbox")
+    expect(accounts.get_by_test_id("account").first).to_contain_text("last login")
+    expect(accounts.get_by_test_id("account").last).to_contain_text("read only · no password")
+
     go(app, "#/device/router/advanced")
     expect(app.get_by_test_id("raw-services")).to_contain_text("services (6)")
     expect(app.get_by_test_id("raw-uplinks")).to_contain_text("uplinks (1)")

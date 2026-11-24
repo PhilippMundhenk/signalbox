@@ -509,7 +509,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "luci.wireguard": ["getWgInstances"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -615,7 +615,7 @@ only allows the `uci` methods of a transaction on the four configs it changes:
         "luci.wireguard": ["getWgInstances"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -753,3 +753,20 @@ Not read. No rpcd method exposes the bridge forwarding database (`network.device
 `/sys/class/net/<bridge>/brforward` is a binary file without VLANs whose port numbers need
 `brif/*/port_no` reads and a wider ACL. The read ACL stays as it is; Wi-Fi clients still come
 from `hostapd.* get_clients`.
+
+## Accounts (#175)
+
+`uci get {"config": "rpcd"}`: each `config login` section becomes an account with `username`,
+the privilege of its ACLs (`write '*'` is admin, other `write` groups write, `read` groups only
+read) and `password_set`: `$p$<user>` refers to the system password in `/etc/shadow`, which is
+not readable (unknown); any other value is a hash (set); no `password` option: none
+(*guess* that rpcd then accepts any password, #21). The `password` options are dropped the
+moment the answer arrives; no hash is kept, logged or exported. The read ACL lists `rpcd` for
+this (an older ACL gives an optional gap; *Fix it* updates it).
+
+`default_credentials` is true when the configured login is `root` with an empty password,
+compared in memory. The advanced setting **probe_empty_root_password** (off by default) is an
+active probe: at every read Signalbox also tries one `session.login` as `root` with an empty
+password and destroys the session at once. A success means root still has no password (the
+OpenWrt factory state; *guess* that rpcd accepts it, #21). Nothing is changed. The rules are in
+[account_checks](../rules/account_checks.md).

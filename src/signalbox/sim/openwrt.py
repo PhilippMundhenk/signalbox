@@ -49,7 +49,7 @@ FIXED_MAC = "00:00:5e:00:53:{:02x}"
 #: UCI configs the simulator knows (and can write; firewall since #295)
 CONFIGS = ("network", "wireless", "dhcp", "firewall")
 #: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173)
-READ_ONLY = ("system", "dropbear", "uhttpd", "snmpd", "luci_statistics", "softflowd")
+READ_ONLY = ("system", "dropbear", "uhttpd", "snmpd", "luci_statistics", "softflowd", "rpcd")
 #: Of those, the configs of optional packages (#180): only there when installed
 PACKAGES = ("snmpd", "luci_statistics", "softflowd")
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
@@ -801,6 +801,29 @@ def softflowd_config() -> dict[str, Any]:
     )
 
 
+def rpcd_config(username: str) -> dict[str, Any]:
+    """``/etc/config/rpcd`` as OpenWrt ships it (root with the system password, all ACLs)
+    plus Signalbox's login with the read-only ACL of the setup guide. The hash is a
+    placeholder, not one of a real password."""
+    return _uci(
+        ("rpcd", "cfg01", {"socket": "/var/run/ubus/ubus.sock", "timeout": "30"}),
+        (
+            "login",
+            "cfg02",
+            {"username": "root", "password": "$p$root", "read": ["*"], "write": ["*"]},
+        ),
+        (
+            "login",
+            "cfg03",
+            {
+                "username": username,
+                "password": "$1$placehld$notarealhash000000000",
+                "read": ["signalbox"],
+            },
+        ),
+    )
+
+
 def system_config(router: bool) -> dict[str, Any]:
     """``/etc/config/system`` as OpenWrt writes it for Europe/Berlin (LuCI's zone table)."""
     ntp: dict[str, Any] = {"enabled": "1", "enable_server": "0", "server": ["192.0.2.1"]}
@@ -1052,6 +1075,9 @@ class OpenWrtSim:
     login_hashes: dict[str, str] = field(default_factory=dict)
     logins: int = 0
     requests: int = 0
+    #: root's system password (``""``: none, the factory state); logins tried as root (#175)
+    root_password: str = "example-root-password"
+    root_attempts: int = 0
     #: committed UCI configs (built on first use, so ``router`` can be set after ``reset``)
     configs: dict[str, Sections] | None = None
     #: session -> config -> staged operations (``uci changes``)
@@ -1086,6 +1112,7 @@ class OpenWrtSim:
                 "snmpd": _sections(snmpd_config()),
                 "luci_statistics": _sections(statistics_config()),
                 "softflowd": _sections(softflowd_config()),
+                "rpcd": _sections(rpcd_config(self.username)),
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
             }
         return self.configs
@@ -1119,6 +1146,9 @@ class OpenWrtSim:
     def _known(self, username: Any, password: Any) -> bool:
         if username == self.username and password == self.password:
             return True
+        if username == "root":
+            self.root_attempts += 1
+            return bool(password == self.root_password)
         stored = self.login_hashes.get(str(username), "")
         if not stored.startswith("$1$") or not isinstance(password, str):
             return False
@@ -1366,6 +1396,10 @@ class OpenWrtSim:
             return self._error(rid, -32002, "Access denied")
         if obj in self.denied or f"{obj}.{method}" in self.denied:
             return self._error(rid, -32002, "Access denied")
+        if obj == "session" and method == "destroy":
+            self.sessions.pop(sid, None)
+            self.staged.pop(sid, None)
+            return self._result(rid, [0])
         result = self._data(sid, obj, method, args)
         if result is None:
             return self._error(rid, -32000, "Object not found")

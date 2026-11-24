@@ -52,6 +52,13 @@ can confirm it (`https://<box>:49443/wanpppconnSCPD.xml`).
 The firewall reader (#135) uses `GetGenericPortMappingEntry` of these two descriptions: no new
 file was needed.
 
+### The account description (#175)
+
+`lanconfigsecuritySCPD.xml` (LANConfigSecurity:1: `GetInfo` with
+`NewX_AVM-DE_IsDefaultPasswordActive`, `X_AVM-DE_GetCurrentUser`, `X_AVM-DE_GetUserList`) is
+from the same gofritz dump and commit as the first files (MIT, same directories), byte for
+byte; it is identical in the 7.57 and the 8.02 dump. Fetched 2026-11-24.
+
 AVM also publishes the same descriptions as PDFs per service ("TR-064 First Steps" and the
 `...SCPD.pdf` files on avm.de / fritz.support). When they can be reached, compare these files
 with them; a difference is a bug in the simulator or the adapter.
@@ -88,6 +95,7 @@ c1af0e6a18c67690e130baa5f981ecf117dd60d7a212f00b2553a28594ed6507  8.02/ethifconf
 41bca5adc39ed85d460de6c72fbfd502691f5dcd8646d8c52780269fb41f20a0  7.57/x_remoteSCPD.xml and 8.02/x_remoteSCPD.xml
 49cac9619e97207e300e23e875fa6f3d4f20cb81199148215a3069f4f08dcd2b  7.57/x_storageSCPD.xml and 8.02/x_storageSCPD.xml
 c0ffefe56417077e48fe428bb4658ee00c5510964eaf674bfdf4deb9d9818ab5  7.57/x_upnpSCPD.xml and 8.02/x_upnpSCPD.xml
+8e2ec74932d4154a8670ffcfa2cf4152ed02fff8a062e6a9a971987e57fb19ff  7.57/lanconfigsecuritySCPD.xml and 8.02/lanconfigsecuritySCPD.xml
 0e6cb75dcffc0fcdd6d5a3a9dbdbe125a7abce3fa08413c2c5e8856379311517  udondan/fritz 8.25/wanipconnSCPD.xml
 c1ece74a5f4cb89c66ad15f608abe1817841a718f29e95115e657ffbc34a0046  udondan/fritz 8.25/wanpppconnSCPD.xml
 ```

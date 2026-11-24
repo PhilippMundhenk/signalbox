@@ -38,6 +38,7 @@ READ_ACL: dict[str, Any] = {
                 "snmpd",
                 "luci_statistics",
                 "softflowd",
+                "rpcd",
             ],
             "file": {
                 "/tmp/dhcp.leases": ["read"],

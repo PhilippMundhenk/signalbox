@@ -806,3 +806,66 @@ async def test_services_missing_on_an_older_box(adapter: FritzboxAdapter, sim: F
     names = {s.name for s in snap.services}
     assert not snap.errors and {"remote-access", "ftp", "ftp-internet"}.isdisjoint(names)
     assert {"http", "myfritz", "upnp"} <= names
+
+
+# --- accounts (#175) -------------------------------------------------------------------------
+
+
+async def test_users_rights_and_default_password(
+    sim: FritzboxSim, adapter: FritzboxAdapter
+) -> None:
+    from signalbox.model import AccountPrivilege
+
+    snap = await assert_contract(adapter)
+    dev = snap.device
+    assert [(a.name, a.privilege, a.is_signalbox) for a in dev.accounts or []] == [
+        ("fritz0000", None, False),
+        ("signalbox", AccountPrivilege.ADMIN, True),
+    ]
+    assert dev.default_credentials is False
+    assert dev.signalbox_account_privilege is AccountPrivilege.ADMIN
+    assert dev.signalbox_account_needed is AccountPrivilege.ADMIN  # no smaller login exists
+    sim.default_password = True
+    sim.users = ["fritz0000"]
+    sim.user_rights = {"BoxAdmin": "read"}
+    snap = await adapter.observe()
+    dev = snap.device
+    assert dev.default_credentials is True
+    assert dev.signalbox_account_privilege is AccountPrivilege.READ
+    assert [a.name for a in dev.accounts or []] == ["fritz0000", "signalbox"]
+
+
+async def test_a_box_without_the_user_actions_reports_nothing(
+    sim: FritzboxSim, adapter: FritzboxAdapter
+) -> None:
+    sim.faults = {"LANConfigSecurity#X_AVM-DE_GetUserList": 401}
+    sim.denied = {"X_AVM-DE_GetCurrentUser"}
+    snap = await adapter.observe()
+    dev = snap.device
+    assert dev.accounts is None and dev.signalbox_account_privilege is None
+    assert dev.default_credentials is False
+    sim.faults = {"LANConfigSecurity#GetInfo": 401}
+    snap = await adapter.observe()
+    assert snap.device.default_credentials is None
+
+
+def test_user_list_and_rights_parsing() -> None:
+    from signalbox.adapters.fritzbox.accounts import box_rights, user_names
+    from signalbox.model import AccountPrivilege
+
+    assert user_names("") == [] and user_names("<List><Username>") == []
+    assert user_names(
+        '<List><Username last_user="1">a</Username><Username>a</Username><Username> </Username>'
+        "<Username>b</Username></List>"
+    ) == ["a", "b"]
+    evil = (
+        '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY e "e">]><List><Username>&e;</Username></List>'
+    )
+    assert user_names(evil) == []
+    assert box_rights("") is None and box_rights("<rights>") is None
+    assert box_rights("<rights><path>NAS</path><access>readwrite</access></rights>") is (
+        AccountPrivilege.OTHER
+    )
+    assert box_rights("<rights><path>BoxAdmin</path><access>ReadWrite</access></rights>") is (
+        AccountPrivilege.ADMIN
+    )

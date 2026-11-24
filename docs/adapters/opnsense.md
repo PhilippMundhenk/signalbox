@@ -873,3 +873,16 @@ adds (see tests/integration/test_opnsense_real.py).
 
 Not read: the API has no call for the bridge address cache (`ifconfig bridge0 addr`). The ARP
 table's interface stays the clients' `seen_on`, which core counts for devices without a table.
+
+## Accounts (#175)
+
+The user manager (`POST /api/auth/user/search`, `/api/auth/user/search_api_key`,
+`GET /api/auth/user/get/<uuid>`) has no read-only privilege: whoever may read it may change
+every account. The API user of the setup guide therefore cannot read it, and no accounts are
+reported (no gap either). A key that can read it is an administrator's: Signalbox then lists the
+users (privilege admin for the `admins` group or `page-all`, write for other privileges, other
+for none; `authorizedkeys` only as "has a key") and reports its own privilege as admin, so
+`account.signalbox-privileged` suggests the least-privilege user of the guide (`write`: OPNsense
+privileges are per page, not read-only). Which fields the search rows carry (`disabled`,
+`is_admin`) is a *guess* (#21). API keys cannot be factory defaults: `default_credentials` stays
+unknown.

@@ -1066,3 +1066,45 @@ async def test_log_targets_shapes_and_refusals(sim: OpnsenseSimulator, http_url:
         assert [t.kind.value for t in snap.device.log_targets or []] == ["netflow"]
     finally:
         await a.close()
+
+
+# --- accounts (#175) -------------------------------------------------------------------------
+
+
+async def test_accounts_only_with_a_key_that_can_read_the_user_manager(
+    sim: OpnsenseSimulator, http_url: str
+) -> None:
+    from signalbox.model import AccountPrivilege
+
+    sim.accounts.users.append(
+        {
+            "uuid": "11111111-0000-4000-8000-000000000000",
+            "name": "signalbox",
+            "scope": "user",
+            "descr": "",
+            "priv": ["page-status-interfaces"],
+            "groups": [],
+        }
+    )
+    sim.accounts.users.append(
+        {"uuid": "", "name": "nouuid", "scope": "user", "descr": "", "priv": [], "groups": []}
+    )
+    sim.accounts.keys.append({"id": "k1", "key": KEY, "secret": "x", "username": "root"})
+    a = adapter(http_url)
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    by = {x.name: x for x in snap.device.accounts or []}
+    assert by["root"].privilege is AccountPrivilege.ADMIN and by["root"].is_signalbox
+    assert by["signalbox"].privilege is AccountPrivilege.WRITE
+    assert by["nouuid"].privilege is AccountPrivilege.OTHER
+    dev = snap.device
+    assert dev.signalbox_account_privilege is AccountPrivilege.ADMIN
+    assert dev.signalbox_account_needed is AccountPrivilege.WRITE
+    assert dev.default_credentials is None
+    sim.fail = {"/api/auth/user/search": 403}
+    a = adapter(http_url)
+    snap = await observe(a)
+    assert snap.device.accounts is None and snap.device.signalbox_account_privilege is None
+    assert not [e for e in snap.errors if "user" in e.message]  # no gap: by design

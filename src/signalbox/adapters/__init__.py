@@ -32,8 +32,10 @@ from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import BroadcastResult, Candidate, HostProbe, NetworkProbe
 from signalbox.model import (
     FDB_LIMIT,
+    AccountPrivilege,
     Client,
     Device,
+    DeviceAccount,
     DeviceHealth,
     DeviceRole,
     DeviceStatus,
@@ -503,6 +505,9 @@ class Manifest(BaseModel):
     #: The integration can run a traceroute on the device (#253): implements
     #: :meth:`Adapter.trace`. No adapter API version needed (an optional hook).
     traces: TraceSupport | None = None
+    #: The least privilege the integration's documented login needs to read (#175):
+    #: ``account.signalbox-privileged`` reports a login with more. ``None``: not said.
+    least_privilege: AccountPrivilege | None = None
 
 
 @dataclass(frozen=True)
@@ -599,6 +604,15 @@ class Observation(BaseModel):
     #: ``interfaces``; no API version needed. A device that was read and sends nothing gets
     #: ``[]``; leave a device out when its targets could not be read (add a gap then).
     log_targets: dict[str, list[LogTarget]] = Field(default_factory=dict)
+    #: Local accounts per device id (#175, ADR 0020), read with ``interfaces``; no API version
+    #: needed. Leave a device out when its accounts could not be read (add a gap then). Never
+    #: a password, key or hash, also not in ``vendor_extra``.
+    accounts: dict[str, list[DeviceAccount]] = Field(default_factory=dict)
+    #: Per device id: the login Signalbox uses is a factory default (#126), compared in
+    #: memory with :func:`signalbox.factory_defaults.is_factory_default`; only the boolean.
+    default_credentials: dict[str, bool] = Field(default_factory=dict)
+    #: Per device id: what the login Signalbox uses may do (#175).
+    signalbox_privilege: dict[str, AccountPrivilege] = Field(default_factory=dict)
     #: What this read could not get although the rest was read: the device counts as partly
     #: read for this capability, so checks needing the missing part report incomplete.
     incomplete: list[Gap] = Field(default_factory=list)
@@ -857,6 +871,9 @@ class Adapter(ABC):
         health: dict[str, DeviceHealth] = {}
         times: dict[str, DeviceTime] = {}
         logs: dict[str, list[LogTarget]] = {}
+        accounts: dict[str, list[DeviceAccount]] = {}
+        defaults: dict[str, bool] = {}
+        privileges: dict[str, AccountPrivilege] = {}
         try:
             info = await self._call(self.read_system)
         except UntrustedCertificate as exc:
@@ -902,6 +919,11 @@ class Adapter(ABC):
                     times[key] = _complete_time(tvalue, start, end)
                 for key, targets in result.log_targets.items():
                     logs.setdefault(key, []).extend(targets)
+                for key, users in result.accounts.items():
+                    accounts.setdefault(key, []).extend(users)
+                for key, flag in result.default_credentials.items():
+                    defaults[key] = defaults.get(key, False) or flag
+                privileges.update(result.signalbox_privilege)
             if any(not e.optional for e in errors):
                 status = DeviceStatus.PARTIAL
 
@@ -919,8 +941,22 @@ class Adapter(ABC):
             health=health.get(ctx.device_id),
             time=times.get(ctx.device_id),
             log_targets=logs.get(ctx.device_id),
+            accounts=accounts.get(ctx.device_id),
+            default_credentials=defaults.get(ctx.device_id),
+            signalbox_account_privilege=privileges.get(ctx.device_id),
+            signalbox_account_needed=self.manifest.least_privilege,
         )
-        skip = {"devices", "device_status", "health", "time", "log_targets", "incomplete"}
+        skip = {
+            "devices",
+            "device_status",
+            "health",
+            "time",
+            "log_targets",
+            "accounts",
+            "default_credentials",
+            "signalbox_privilege",
+            "incomplete",
+        }
         lists: dict[str, list[Any]] = {n: [] for n in Observation.model_fields if n not in skip}
         extra: dict[str, Device] = {}
         extra_status: dict[str, DeviceStatus] = {}
@@ -940,6 +976,11 @@ class Adapter(ABC):
                             "health": health.get(d.id, d.health),
                             "time": times.get(d.id, d.time),
                             "log_targets": logs.get(d.id, d.log_targets),
+                            "accounts": accounts.get(d.id, d.accounts),
+                            "default_credentials": defaults.get(d.id, d.default_credentials),
+                            "signalbox_account_privilege": privileges.get(
+                                d.id, d.signalbox_account_privilege
+                            ),
                         }
                     ),
                 )

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import ipaddress
 import json
 import os
@@ -41,6 +42,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit
+from xml.sax.saxutils import escape
 
 import httpx
 from fastapi import FastAPI, Request
@@ -75,7 +77,7 @@ VOLATILE = {
 #: the device: replaced by ``redacted-secret-<n>``, consistently (not the rules for one:
 #: ``NewMinCharsPassword`` is a number)
 SECRET_FIELDS = re.compile(
-    r"(?<!chars)password|passphrase|passwd|secret|token|session|cookie"
+    r"(?<!chars)password(?!active)|passphrase|passwd|secret|token|session|cookie"
     r"|^(new)?(x_avm-de_)?(presharedkey|wepkey\d*|key|psk|apikey|api_key|privatekey"
     r"|private_key|privkey|private-key|preshared_key|preshared-key|serialnumber|serial|sid|client_id|clientid|omadac_id|omadacid)$",
     re.IGNORECASE,
@@ -84,7 +86,7 @@ SECRET_FIELDS = re.compile(
 NAME_FIELDS = re.compile(
     r"^(new)?(x_avm-de_)?(ssid|hostname|host_name|host-name|friendlyname|friendly_name"
     r"|devicename|device_name|comment|description|domain|domainname|location|contact"
-    r"|username|user)$",
+    r"|username|user|currentusername)$",
     re.IGNORECASE,
 )
 #: field names whose values are dropped (free text with anything in it)
@@ -388,6 +390,9 @@ class Neutraliser:
             match.group(3) or "",
             match.group(4),
         )
+        if "&lt;" in value:  # an XML document in a string (FRITZ!Box user list, #175)
+            inner = _XML_LEAF.sub(self._xml_leaf, html.unescape(value))
+            return f"<{tag}{attrs}>{escape(inner)}</{tag}>"
         return f"<{tag}{attrs}>{self.field(local, value)}</{tag}>"
 
     def _json(self, data: Any, key: str = "") -> Any:

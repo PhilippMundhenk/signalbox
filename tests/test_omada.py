@@ -828,3 +828,50 @@ async def test_ap_uplink_port_names(http_url: str, sim: OmadaSimulator) -> None:
     sim.data[f"{SITE}/aps/{EAP2}"] = {**sim.data[f"{SITE}/aps/{EAP1}"], "uplinkDevicePort": "99"}
     snap = await observe(adapter(http_url))
     assert sorted(n.remote_port or "" for n in snap.neighbours) == ["99", "no digits"]
+
+
+# --- accounts (#175) -------------------------------------------------------------------------
+
+
+async def test_controller_users_and_the_site_device_account(
+    sim: OmadaSimulator, http_url: str
+) -> None:
+    from signalbox.adapters.omada import omada_role
+    from signalbox.model import AccountPrivilege
+    from signalbox.sim.omada import OMADAC_ID, SITE
+
+    a = adapter(http_url)
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    assert [(x.name, x.privilege) for x in snap.device.accounts or []] == [
+        ("owner", AccountPrivilege.ADMIN),
+        ("helpdesk", AccountPrivilege.READ),
+    ]
+    assert snap.extra_devices
+    for d in snap.extra_devices:
+        (acc,) = d.accounts or []
+        assert (acc.name, acc.privilege, acc.password_set) == (
+            "admin",
+            AccountPrivilege.ADMIN,
+            True,
+        )
+        assert d.default_credentials is False
+    assert "example-device-secret" not in snap.model_dump_json()
+    sim.data[f"{SITE}/device-account"] = {"username": "admin", "password": "admin"}
+    sim.data[f"/openapi/v1/{OMADAC_ID}/users"] = [{"userName": "x", "disable": True}]
+    snap = await observe(adapter(http_url))
+    assert all(d.default_credentials is True for d in snap.extra_devices)
+    (only,) = snap.device.accounts or []
+    assert (only.name, only.privilege, only.enabled) == ("x", None, False)
+    sim.data[f"{SITE}/device-account"] = {"username": "admin", "password": "******"}
+    del sim.data[f"/openapi/v1/{OMADAC_ID}/users"]
+    snap = await observe(adapter(http_url))
+    assert all(d.default_credentials is None for d in snap.extra_devices)
+    assert snap.device.accounts is None
+    del sim.data[f"{SITE}/device-account"]
+    snap = await observe(adapter(http_url))
+    assert all(d.accounts is None for d in snap.extra_devices)
+    assert omada_role({"roleName": "Operator"}) is AccountPrivilege.OTHER
+    assert omada_role({"role": "read-only"}) is AccountPrivilege.READ

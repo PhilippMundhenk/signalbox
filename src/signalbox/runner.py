@@ -17,6 +17,8 @@ from signalbox.desired import DesiredError, DesiredState, apply_declared, drift_
 from signalbox.foreign import attach as attach_foreign
 from signalbox.merge import merge
 from signalbox.model import (
+    PRIVILEGE_RANK,
+    AccountPrivilege,
     Device,
     DeviceStatus,
     Link,
@@ -87,9 +89,24 @@ class Runner:
                 if presented != rec.pending_fingerprint:
                     self.store.set_pending_fingerprint(rec.id, presented)
         snap = self._with_certificate_history(rec, snap)
+        snap = self._with_write_login(rec, snap)
         self.store.save_snapshot(snap)
         log.info("%s: %s", rec.id, snap.status.value)
         return snap
+
+    @staticmethod
+    def _with_write_login(rec: DeviceRecord, snap: Snapshot) -> Snapshot:
+        """A device that may receive changes needs a login that may write (#175): a read-only
+        one is not enough then, so ``account.signalbox-privileged`` compares with ``write``."""
+        need = snap.device.signalbox_account_needed
+        if (
+            not rec.allow_writes
+            or need is None
+            or PRIVILEGE_RANK[need] >= PRIVILEGE_RANK[AccountPrivilege.WRITE]
+        ):
+            return snap
+        device = snap.device.model_copy(update={"signalbox_account_needed": AccountPrivilege.WRITE})
+        return snap.model_copy(update={"device": device})
 
     def _with_certificate_history(self, rec: DeviceRecord, snap: Snapshot) -> Snapshot:
         """Complete ``Device.certificate`` from the inventory (#174): since when the certificate
@@ -230,9 +247,11 @@ class Runner:
         findings = evaluate(net, self.active_rules(), self.config.rules, self.history(now))
         self.store.record_findings(findings, now)
         self.store.prune_resolved(now - timedelta(days=30))
+        # exporters and MQTT never get account names (#175): they are for the device page
+        shared = net.without_account_names()
         for listener in self.listeners:
             try:
-                listener(net, findings)
+                listener(shared, findings)
             except Exception:
                 log.exception("listener failed")
         return net, findings

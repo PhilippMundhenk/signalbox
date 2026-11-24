@@ -11,6 +11,14 @@ Each group is documented next to the others in [rules/](rules/), one file per ru
 (`docs/rules/<module>.md` for `src/signalbox/rules/<module>.py`), so that new rules do not
 touch a shared file. This index is generated (`python tools/gen_docs.py`).
 
+## [Device accounts and factory passwords](rules/account_checks.md)
+
+- [`security.default-password`](rules/account_checks.md#securitydefault-password)
+- [`account.signalbox-privileged`](rules/account_checks.md#accountsignalbox-privileged)
+- [`account.admin-default-name`](rules/account_checks.md#accountadmin-default-name)
+- [`account.no-password`](rules/account_checks.md#accountno-password)
+- [`account.stale`](rules/account_checks.md#accountstale)
+
 ## [Addressing and DHCP checks](rules/addressing.md)
 
 - [`addr.client-subnet`](rules/addressing.md#addrclient-subnet)

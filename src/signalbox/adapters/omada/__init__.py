@@ -53,12 +53,15 @@ from signalbox.adapters.omada import discovery as _discovery
 from signalbox.adapters.omada import firewall, vitals
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
+from signalbox.factory_defaults import is_factory_default
 from signalbox.model import (
     SERVICE_PORTS,
+    AccountPrivilege,
     Band,
     Cipher,
     Client,
     Device,
+    DeviceAccount,
     DeviceHealth,
     DeviceRole,
     DhcpPool,
@@ -257,6 +260,26 @@ def _flag(value: Any, default: bool = False) -> bool:
     if value is None:
         return default
     return value in (True, 1, "1", "true")
+
+
+def omada_role(row: dict[str, Any]) -> AccountPrivilege | None:
+    """The privilege of a controller user by its role name (*guess*, #21): the master
+    administrator and administrators are admin, viewers read, other roles other."""
+    role = _text(row.get("roleName") or row.get("role")).lower()
+    if not role:
+        return None
+    if "admin" in role:
+        return AccountPrivilege.ADMIN
+    if "viewer" in role or "read" in role:
+        return AccountPrivilege.READ
+    return AccountPrivilege.OTHER
+
+
+def _on(row: dict[str, Any]) -> bool:
+    """A controller user is enabled unless it says otherwise (``disable``, ``enable``)."""
+    if "disable" in row:
+        return not _flag(row.get("disable"))
+    return _flag(row.get("enable"), default=True)
 
 
 def _addr(value: Any) -> IPAddress | None:
@@ -898,6 +921,7 @@ class OmadaAdapter(_Adapter):
             devices=managed,
             uplinks=uplinks,
             services=await self._services([m.id for m in managed]),
+            **await self._accounts([m.id for m in managed]),
         )
 
     # --- access points and their uplinks (#336) -------------------------------------------------
@@ -994,6 +1018,43 @@ class OmadaAdapter(_Adapter):
 
     async def read_neighbours(self) -> Observation:
         return Observation(neighbours=list((await self._ap_view())[1]))
+
+    async def _accounts(self, managed: list[str]) -> dict[str, Any]:
+        """Accounts (#175): the controller's administrators (``/users``, *guess*) on the
+        controller, and the site's device account (*guess*), the login every adopted device
+        gets for SSH and its own web page, on each managed device. Its password is compared
+        with the Omada factory default in memory and dropped; only the boolean is kept. An
+        endpoint the controller does not offer (or the client may not read) gives nothing."""
+        dev = self.context.device_id
+        out: dict[str, Any] = {"accounts": {}, "default_credentials": {}}
+        users = await self._optional_rows(f"/openapi/v1/{self._omadac_id}/users")
+        if users:
+            out["accounts"][dev] = [
+                DeviceAccount(name=name, privilege=omada_role(row), enabled=_on(row))
+                for row in users
+                if (name := _text(row.get("name") or row.get("userName")))
+            ]
+        account = await self._object(f"{self._site_path}/device-account")
+        username = _text((account or {}).get("username"))
+        password = (account or {}).get("password")
+        if not managed or not username:
+            return out
+        default = (
+            is_factory_default("omada-device", password, username)
+            if isinstance(password, str) and password and set(password) != {"*"}
+            else None
+        )
+        for device in managed:
+            out["accounts"][device] = [
+                DeviceAccount(
+                    name=username,
+                    privilege=AccountPrivilege.ADMIN,
+                    password_set=bool(password) if isinstance(password, str) else None,
+                )
+            ]
+            if default is not None:
+                out["default_credentials"][device] = default
+        return out
 
     # --- firewall -----------------------------------------------------------------------------
 

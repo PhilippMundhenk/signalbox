@@ -493,6 +493,13 @@ def sample_data() -> dict[str, Any]:
                 "dMZ": True,
             },
         ],
+        # accounts (#175): the controller's users and the site's device account. Paths and
+        # fields are a *guess* (#21); the password is a placeholder, not Omada's default
+        f"/openapi/v1/{OMADAC_ID}/users": [
+            {"id": "u1", "name": "owner", "roleName": "Master Administrator"},
+            {"id": "u2", "name": "helpdesk", "roleName": "Viewer"},
+        ],
+        f"{SITE}/device-account": {"username": "admin", "password": "example-device-secret"},
         f"{SITE}/lan-profiles": [
             {
                 "id": "prof-all",

@@ -46,6 +46,7 @@ from signalbox.adapters import (
     VendorCall,
 )
 from signalbox.adapters.fritzbox import discovery
+from signalbox.adapters.fritzbox.accounts import box_rights, user_names
 from signalbox.adapters.fritzbox.soap import UPNP_PORT, SoapFault, Tr064, security_port
 from signalbox.adapters.fritzbox.write import (
     BACKUP_FORMAT,
@@ -63,10 +64,12 @@ from signalbox.changes import Change, ChangeKind, WlanValue
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     SERVICE_PORTS,
+    AccountPrivilege,
     AddressSource,
     Band,
     Cipher,
     Client,
+    DeviceAccount,
     DeviceHealth,
     DeviceRole,
     DeviceTime,
@@ -488,6 +491,7 @@ class FritzboxAdapter(Adapter):
         setup_steps=FRITZBOX_STEPS,
         setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/fritzbox.md#setting-up-the-fritzbox",
         id="fritzbox",
+        least_privilege=AccountPrivilege.ADMIN,
         name="AVM Fritz!Box",
         version="0.2.0",
         api_version="1.4",
@@ -727,7 +731,41 @@ class FritzboxAdapter(Adapter):
             subnets=subnets,
             uplinks=await self._uplinks(),
             services=await self._services(),
+            **await self._accounts(),
         )
+
+    async def _accounts(self) -> dict[str, Any]:
+        """Users and the factory-password state (#126, #175) from ``LANConfigSecurity``:
+        ``GetInfo`` says whether the box still has its default (printed) password,
+        ``X_AVM-DE_GetCurrentUser`` the rights of Signalbox's user, ``X_AVM-DE_GetUserList`` the
+        other user names (without their rights). A FRITZ!OS without them reports nothing."""
+        d = self.context.device_id
+        out: dict[str, Any] = {}
+        info = await self._try("LANConfigSecurity1", "GetInfo")
+        if info is not None and "NewX_AVM-DE_IsDefaultPasswordActive" in info:
+            out["default_credentials"] = {d: _flag(info["NewX_AVM-DE_IsDefaultPasswordActive"])}
+        current = await self._try("LANConfigSecurity1", "X_AVM-DE_GetCurrentUser")
+        own = (current or {}).get("NewX_AVM-DE_CurrentUsername", "").strip()
+        rights = box_rights((current or {}).get("NewX_AVM-DE_CurrentUserRights", ""))
+        if current is not None and rights is not None:
+            out["signalbox_privilege"] = {d: rights}
+        listed = await self._try("LANConfigSecurity1", "X_AVM-DE_GetUserList")
+        if listed is None:
+            return out
+        names = user_names(listed.get("NewX_AVM-DE_UserList", ""))
+        if own and own not in names:
+            names.append(own)
+        out["accounts"] = {
+            d: [
+                DeviceAccount(
+                    name=n,
+                    privilege=rights if n == own else None,
+                    is_signalbox=n == own,
+                )
+                for n in names
+            ]
+        }
+        return out
 
     async def _try(self, service: str, action: str) -> dict[str, str] | None:
         """An optional read: None when this FRITZ!OS lacks it or the user may not call it."""

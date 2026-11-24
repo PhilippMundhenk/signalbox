@@ -22,6 +22,7 @@ segment of the site: it appears as a port only.
 from __future__ import annotations
 
 import contextlib
+import hmac
 import json
 import logging
 import re
@@ -31,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv6Network, ip_address, ip_interface, ip_network
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 
@@ -73,8 +74,10 @@ from signalbox.model import (
     LOG_PORTS,
     SERVICE_PORTS,
     WIREGUARD_KEY,
+    AccountPrivilege,
     AddressSource,
     Client,
+    DeviceAccount,
     DeviceRole,
     DhcpBoot,
     DhcpLease,
@@ -158,6 +161,12 @@ NETSNMP = "/api/netsnmp/general/get"
 #: Remote syslog destinations and NetFlow export (#180).
 SYSLOG_DESTINATIONS = "/api/syslog/settings/search_destinations"
 NETFLOW = "/api/diagnostics/netflow/getconfig"
+#: The user manager (#175): no read-only privilege exists for it.
+USERS = "/api/auth/user/search"
+USER_KEYS = "/api/auth/user/search_api_key"
+USER_GET = "/api/auth/user/get"
+#: Users read in detail per observation (one request each).
+MAX_ACCOUNTS = 50
 #: Privileges of those two pages (core ACL), for the fix text of a refused read.
 SYSLOG_PRIVILEGE = "System: Settings: Logging (page-diagnostics-logs-settings-targets)"
 NETFLOW_PRIVILEGE = "Diagnostics: Netflow configuration (page-diagnostics-netflow)"
@@ -746,6 +755,7 @@ class OpnsenseAdapter(_Adapter):
         setup_steps=OPNSENSE_STEPS,
         setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/opnsense.md#setup",
         id="opnsense",
+        least_privilege=AccountPrivilege.WRITE,
         name="OPNsense",
         version="0.2.0",
         api_version="1.4",
@@ -1069,8 +1079,60 @@ class OpnsenseAdapter(_Adapter):
             uplinks=uplinks,
             services=await self._services(),
             log_targets={} if targets is None else {dev: targets},
+            **await self._accounts(dev),
             incomplete=gaps,
         )
+
+    async def _accounts(self, dev: str) -> dict[str, Any]:
+        """Local users (#175) through the user manager API, with the user of Signalbox's key
+        marked. The user manager has no read-only privilege (whoever may read it may change
+        every account), so Signalbox's documented user cannot read it: then nothing is read
+        and no gap is reported. A key that can read it is an administrator's."""
+        try:
+            rows = _rows(await self.http.post_json(USERS, ALL_ROWS), USERS)
+            keys = _rows(await self.http.post_json(USER_KEYS, ALL_ROWS), USER_KEYS)
+        except AdapterError:
+            return {}
+        cfg = self.context.config
+        assert isinstance(cfg, OpnsenseConfig)
+        mine = cfg.api_key.get_secret_value()
+        own = next(
+            (
+                _text(k.get("username"))
+                for k in keys
+                if hmac.compare_digest(_text(k.get("key")).encode(), mine.encode())
+            ),
+            None,
+        )
+        out: list[DeviceAccount] = []
+        for row in rows[:MAX_ACCOUNTS]:
+            name = _text(row.get("name"))
+            uuid = _text(row.get("uuid"))
+            if not name:
+                continue
+            user: dict[str, Any] = {}
+            if uuid:
+                with contextlib.suppress(AdapterError):
+                    answer = await self.http.get_json(f"{USER_GET}/{quote(uuid)}")
+                    user = _sub(answer, "user") if isinstance(answer, dict) else {}
+            groups = _selected(user.get("group_memberships"))
+            privs = _selected(user.get("priv"))
+            if "admins" in groups or "page-all" in privs or _flag(row.get("is_admin")):
+                privilege = AccountPrivilege.ADMIN
+            else:
+                privilege = AccountPrivilege.WRITE if privs or groups else AccountPrivilege.OTHER
+            keys_text = user.get("authorizedkeys")
+            out.append(
+                DeviceAccount(
+                    name=name,
+                    privilege=privilege,
+                    enabled=not _flag(row.get("disabled", user.get("disabled"))),
+                    key_auth=bool(_text(keys_text)) if isinstance(keys_text, str) else None,
+                    is_signalbox=name == own,
+                )
+            )
+        # the key could read the user manager: it may change every account
+        return {"accounts": {dev: out}, "signalbox_privilege": {dev: AccountPrivilege.ADMIN}}
 
     async def _log_targets(self) -> tuple[list[LogTarget] | None, list[Gap]]:
         """Remote syslog destinations and the NetFlow export (#180). A page the API user may

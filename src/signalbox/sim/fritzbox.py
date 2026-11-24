@@ -32,11 +32,13 @@ import copy
 import hashlib
 import re
 import secrets
+import string
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
 from functools import cache
 from ipaddress import IPv4Address, IPv4Network
+from typing import ClassVar
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -403,6 +405,13 @@ class FritzboxSim:
     #: IANA zone of the box's clock (``Time GetInfo``) and how far it is ahead, in seconds
     timezone: str = "Europe/Berlin"
     clock_skew: float = 0.0
+    #: ``LANConfigSecurity`` (#175): the box still has its printed default password, the
+    #: rights of the calling user (``BoxAdmin`` is "FRITZ!Box settings") and the user names
+    default_password: bool = False
+    user_rights: dict[str, str] = field(
+        default_factory=lambda: {"BoxAdmin": "readwrite", "Phone": "none", "NAS": "none"}
+    )
+    users: list[str] = field(default_factory=lambda: ["fritz0000", "signalbox"])
 
     def reset(self) -> None:
         fresh = FritzboxSim()
@@ -499,6 +508,8 @@ class FritzboxSim:
             return dict(self.upnp)
         if name == "Time" and action == "GetInfo":
             return time_info(self.timezone, self.clock_skew)
+        if name == "LANConfigSecurity":
+            return self._security(action)
         if name == "LANHostConfigManagement":
             lan = self.lan
             getters: dict[str, Callable[[], dict[str, str]]] = {
@@ -537,6 +548,39 @@ class FritzboxSim:
             if action == "X_AVM-DE_GetHostListPath":
                 return {"NewX_AVM-DE_HostListPath": self.host_list_path or self.list_path}
         raise NotSimulated(f"{service} {action}")
+
+    # characters a password and a user name may have (built, not written out: a literal looks
+    # like a key to secret scanners)
+    ALLOWED_CHARS: ClassVar[str] = (
+        string.digits + string.ascii_uppercase + string.ascii_lowercase + string.punctuation + " "
+    )
+
+    def _security(self, action: str) -> dict[str, str]:
+        """``LANConfigSecurity`` (#175): password rules, the calling user and the user list.
+        The rights and list layouts follow AVM's documentation (*guess*, #21)."""
+        if action == "GetInfo":
+            return {
+                "NewMaxCharsPassword": "32",
+                "NewMinCharsPassword": "0",
+                "NewAllowedCharsPassword": self.ALLOWED_CHARS,
+                "NewAllowedCharsUsername": self.ALLOWED_CHARS,
+                "NewX_AVM-DE_IsDefaultPasswordActive": "1" if self.default_password else "0",
+            }
+        if action == "X_AVM-DE_GetCurrentUser":
+            rights = "".join(
+                f"<path>{p}</path><access>{a}</access>" for p, a in self.user_rights.items()
+            )
+            return {
+                "NewX_AVM-DE_CurrentUsername": self.username,
+                "NewX_AVM-DE_CurrentUserRights": f'<?xml version="1.0"?><rights>{rights}</rights>',
+            }
+        if action == "X_AVM-DE_GetUserList":
+            entries = "".join(
+                f'<Username last_user="{int(n == self.username)}">{escape(n)}</Username>'
+                for n in self.users
+            )
+            return {"NewX_AVM-DE_UserList": f"<List>{entries}</List>"}
+        raise NotSimulated(f"LANConfigSecurity {action}")
 
     def _wan(self, name: str, action: str, args: dict[str, str]) -> dict[str, str] | int:
         if name == "WANCommonInterfaceConfig":
