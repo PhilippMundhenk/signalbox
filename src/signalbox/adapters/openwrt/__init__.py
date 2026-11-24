@@ -772,6 +772,8 @@ class OpenWrtAdapter(Adapter):
         return await provision.OpenWrtFix(request).apply()
 
     _ubus: Ubus | None = None
+    #: radios that were up before a wireless apply (waited for again after the confirm)
+    _radios: frozenset[str] = frozenset()
     #: ``uci apply`` with rollback was called and not yet confirmed or rolled back
     _pending: bool = False
 
@@ -1712,7 +1714,9 @@ class OpenWrtAdapter(Adapter):
         except AdapterError:
             return set()
 
-    async def _wireless_settled(self, radios: set[str], seconds: float = 30) -> None:
+    async def _wireless_settled(
+        self, radios: frozenset[str] | set[str], seconds: float = 30
+    ) -> None:
         """Wait until netifd finished reloading the Wi-Fi after an apply (#339).
 
         ``uci apply`` returns before netifd has brought the radios back: they are down or
@@ -1774,6 +1778,7 @@ class OpenWrtAdapter(Adapter):
                 self._pending = False
                 raise
             await self._wireless_settled(radios)
+            self._radios = frozenset(radios)
             return ApplyResult(
                 confirm_deadline=datetime.now(UTC) + timedelta(seconds=rollback_seconds),
                 calls=[op.call() for op in ops],
@@ -1797,6 +1802,9 @@ class OpenWrtAdapter(Adapter):
                 "device rolls the change back at the deadline"
             ) from None
         self._pending = False
+        # confirming commits the change; netifd may reload the Wi-Fi once more (#339)
+        await self._wireless_settled(self._radios)
+        self._radios = frozenset()
 
     async def restore(self, backup: Backup) -> None:
         if backup.format != write.BACKUP_FORMAT:
