@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
-from signalbox.adapters import AdapterError
+from signalbox.adapters import logging_errors
 from signalbox.adapters.mikrotik.fwwrite import Revert, ros_quote
 from signalbox.changes import Change, LogTargetValue, SnmpPolicyValue
 from signalbox.model import LogTransport
@@ -123,11 +123,7 @@ def log_target(cfg: _Config, c: Change, revert: Revert) -> None:
         )
         return
     if new.transport not in (LogTransport.UDP, LogTransport.TCP):
-        raise AdapterError(
-            f"{label}: remote syslog over {new.transport.value} cannot be written (udp or tcp)",
-            message_id="log.transport",
-            params={"transport": new.transport.value},
-        )
+        raise logging_errors.transport(new.transport.value)
     if row is None:
         taken = {_text(r.get("name")) for r in cfg.rows(m.LOG_ACTION)}
         name, n = action_name(address), 2
@@ -181,11 +177,7 @@ def snmp_policy(c: Change, enabled_now: bool, revert: Revert) -> dict[str, str] 
     """The body of the ``PATCH /rest/snmp`` for a policy change; ``None``: nothing to do."""
     mode = c.new.mode if isinstance(c.new, SnmpPolicyValue) else "off"
     if mode == "v3-only":
-        raise AdapterError(
-            "Signalbox does not create SNMPv3 users (that needs secrets), so it cannot write "
-            "v3-only: set up SNMPv3 on the router, or declare snmp: off",
-            message_id="snmp.v3Only",
-        )
+        raise logging_errors.v3_only()
     want = mode != "off"
     if want == enabled_now:
         return None

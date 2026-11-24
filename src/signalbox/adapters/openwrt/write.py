@@ -21,7 +21,13 @@ from typing import Any
 
 from pydantic import JsonValue
 
-from signalbox.adapters import AdapterError, Described, VendorCall, message_fields
+from signalbox.adapters import (
+    AdapterError,
+    Described,
+    VendorCall,
+    logging_errors,
+    message_fields,
+)
 from signalbox.adapters import openwrt as h  # the read helpers (circular, used at run time)
 from signalbox.adapters.openwrt.firewall import FORWARD_TAG, POLICY_TAG, RULE_TAG
 from signalbox.adapters.openwrt.firewall import tag as fw_tag
@@ -855,66 +861,35 @@ def _log_target(cfg: Configs, c: Change, adopted: set[str], created: list[str]) 
     if isinstance(c.new, LogTargetValue):
         v = c.new
         if v.transport not in (LogTransport.UDP, LogTransport.TCP):
-            raise AdapterError(
-                f"{label}: remote syslog over {v.transport.value} cannot be written (udp or tcp)",
-                message_id="log.transport",
-                params={"transport": v.transport.value},
-            )
+            raise logging_errors.transport(v.transport.value)
         if created:
-            raise AdapterError(
-                "this router stores one remote syslog target; several are declared",
-                message_id="log.oneTarget",
-                params={"count": len(created) + 1},
-            )
+            raise logging_errors.one_target(len(created) + 1)
         if now and now != address and not owned and now not in adopted:
-            raise AdapterError(
-                f"the router already sends syslog to {now}, which Signalbox did not set up: "
-                "list the address under adopt in the desired state to replace it",
-                message_id="log.foreignTarget",
-                params={"address": now},
-            )
+            raise logging_errors.foreign_target(now)
         created.append(address)
-        cfg.set(
-            "system",
-            name,
-            {
-                "log_ip": v.address,
-                "log_port": str(v.port),
-                "log_proto": v.transport.value,
-                LOG_TAG: "1",
-            },
-            f"{label}: set",
-        )
+        # putting back the device's own target (the undo of an adoption) leaves it untagged
+        theirs = c.adopt == address and c.old is None
+        values = {"log_ip": v.address, "log_port": str(v.port), "log_proto": v.transport.value}
+        cfg.set("system", name, values if theirs else {**values, LOG_TAG: "1"}, f"{label}: set")
+        if theirs:
+            cfg.drop("system", name, [LOG_TAG], f"{label}: not Signalbox's")
         cfg.drop("system", name, ["log_remote"], f"{label}: send it")
         return
     # removal: only when the slot still holds this target (an update at another address came first)
     if now != address:
         return
     if not owned and c.adopt != address:
-        raise AdapterError(
-            f"the router's syslog target {address} is not Signalbox's: adopt it to remove it",
-            message_id="log.foreignTarget",
-            params={"address": address},
-        )
+        raise logging_errors.foreign_target(address)
     cfg.drop("system", name, ["log_ip", "log_port", "log_proto", LOG_TAG], f"{label}: remove")
 
 
 def _snmp_policy(cfg: Configs, c: Change) -> None:
     """Switch the net-snmp agent (package ``snmpd``) on or off through ``snmpd.general``."""
     if "snmpd" not in cfg.data:
-        raise AdapterError(
-            "the router has no snmpd configuration to change (package snmpd not installed, or "
-            "the login may not use it)",
-            message_id="snmp.noAgent",
-            params={"config": "snmpd"},
-        )
+        raise logging_errors.no_agent("snmpd")
     mode = c.new.mode if isinstance(c.new, SnmpPolicyValue) else "off"
     if mode == "v3-only":
-        raise AdapterError(
-            "Signalbox does not create SNMPv3 users (that needs secrets), so it cannot write "
-            "v3-only: set up SNMPv3 on the router, or declare snmp: off",
-            message_id="snmp.v3Only",
-        )
+        raise logging_errors.v3_only()
     value = "0" if mode == "off" else "1"
     found = cfg.sections("snmpd", "snmpd")
     if found:

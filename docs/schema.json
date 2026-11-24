@@ -2959,6 +2959,11 @@
         "kind": {
           "$ref": "#/$defs/LogKind"
         },
+        "managed": {
+          "default": false,
+          "title": "Managed",
+          "type": "boolean"
+        },
         "name": {
           "anyOf": [
             {

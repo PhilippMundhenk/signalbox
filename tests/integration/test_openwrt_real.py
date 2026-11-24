@@ -524,6 +524,59 @@ async def test_firewall_rule_and_forward_deploy_and_revert(
     assert back.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in back.devices]
 
 
+LOGGING = f"""
+sites:
+  {SITE}:
+    logging:
+      devices: [{DEV}]
+      syslog: [{{address: 192.0.2.77, port: 1515, transport: udp}}]
+      adopt: [192.0.2.5]
+"""
+SNMP_OFF = f"""
+sites:
+  {SITE}:
+    logging:
+      devices: [{DEV}]
+      snmp: off
+"""
+
+
+async def test_syslog_target_deploy_and_revert(
+    lab: Lab, ow: Target, pin: str, unchanged: dict[str, Any]
+) -> None:
+    """#327: the image's own logd target (TCP 192.0.2.5:1514) is adopted and replaced by a
+    target Signalbox owns (tagged ``signalbox_syslog``), read back as declared; the revert puts
+    the device's own target back exactly (UCI as before, no tag)."""
+    rec = await lab.deploy(LOGGING)
+    assert {c.kind for c in rec.plan.changes} == {ChangeKind.LOG_TARGET}
+    assert rec.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in rec.devices]
+    assert rec.devices[0].status is DeployStatus.CONFIRMED
+    system = next(s for s in (await uci(ow, pin))["system"].values() if s[".type"] == "system")
+    assert (system["log_ip"], system["log_port"], system["log_proto"]) == (
+        "192.0.2.77",
+        "1515",
+        "udp",
+    )
+    assert system["signalbox_syslog"] == "1"
+    snap = await observe(context(ow, pin))
+    [ours] = [t for t in snap.device.log_targets or [] if t.name == "logd"]
+    assert (ours.endpoint(), ours.transport.value, ours.managed) == ("192.0.2.77:1515", "udp", True)
+    assert (await lab.plan(LOGGING)).changes == []
+    back = await lab.revert(rec)
+    assert back.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in back.devices]
+
+
+async def test_snmp_agent_off_deploy_and_revert(lab: Lab, unchanged: dict[str, Any]) -> None:
+    """#327: ``snmp: off`` sets ``snmpd.general.enabled`` (the image has the package's config,
+    not the package), read back as off; the revert enables it again."""
+    rec = await lab.deploy(SNMP_OFF)
+    assert [c.kind for c in rec.plan.changes] == [ChangeKind.SNMP_POLICY]
+    assert rec.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in rec.devices]
+    assert (await lab.plan(SNMP_OFF)).changes == []
+    back = await lab.revert(rec)
+    assert back.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in back.devices]
+
+
 async def test_restore_of_the_backup(lab: Lab, ow: Target, pin: str, unchanged: Any) -> None:
     rec = await lab.deploy(RESERVATION)
     assert rec.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in rec.devices]

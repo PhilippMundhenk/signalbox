@@ -510,7 +510,6 @@ async def test_the_timer_undoes_a_target_that_is_not_confirmed(
 async def test_adopting_the_devices_own_target_removes_it_with_its_rules(
     ros: MikrotikSimulator, ros_svc: Services
 ) -> None:
-    before = logs(ros)
     await net_of(ros_svc)
     d = Deployer(ros_svc.runner)
     rec, done = await deploy(d, ros_svc, ROS_ADOPT)
