@@ -163,6 +163,7 @@ from signalbox.model import (
     WpsMethod,
     address_nat_class,
     fdb_id,
+    normalise_capabilities,
     normalise_mac,
     object_id,
     passphrase_digest,
@@ -2501,6 +2502,10 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 management_address=(
                     _text(row.get("address4")) or _text(row.get("address")) or None
                 ),
+                capabilities=normalise_capabilities(
+                    _text(row.get("system-caps-enabled")).split(",")
+                ),
+                description=_text(row.get("system-description")) or None,
                 vendor_extra=_extra(row, "platform", "board", "version", "discovered-by"),
             )
         return Observation(neighbours=list(neighbours.values()))

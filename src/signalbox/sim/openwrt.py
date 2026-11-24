@@ -1108,6 +1108,13 @@ def lldp_neighbours() -> dict[str, Any]:
                                 "id": [{"type": "mac", "value": _mac(0x30, 1)}],
                                 "name": [{"value": "switch"}],
                                 "mgmt-ip": [{"value": "192.0.2.3"}],
+                                "descr": [{"value": "MikroTik RouterOS 7.15.3 CRS326-24G-2S+"}],
+                                "capability": [
+                                    {"type": "Bridge", "enabled": True},
+                                    {"type": "Router", "enabled": True},
+                                    {"type": "Wlan", "enabled": False},
+                                    {"type": "Station", "enabled": False},
+                                ],
                             }
                         ],
                         "port": [{"id": [{"type": "ifname", "value": "port 8"}]}],

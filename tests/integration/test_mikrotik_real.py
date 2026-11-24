@@ -223,6 +223,20 @@ async def test_read_contract(rt: dict[str, str]) -> None:
     assert (snap.device.model or "").startswith("CHR"), snap.device.model
 
 
+async def test_neighbour_capabilities_on_chr(rt: dict[str, str]) -> None:
+    """``/ip/neighbor`` lists what MNDP/LLDP/CDP hear on the lab network (a CHR may hear none):
+    every capability is in the model's names, and an entry with a description keeps it (#113)."""
+    a = adapter(rt)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    for nb in snap.neighbours:
+        assert all(c == c.lower() and " " not in c for c in nb.capabilities), nb
+        assert nb.description is None or nb.description == nb.description.strip(), nb
+
+
 async def test_wireless_on_chr(rt: dict[str, str]) -> None:
     """RouterOS 7.25 CHR has the ``wifi`` menu without radios (an empty list, no finding);
     the legacy ``wireless`` package and the routerboard menu are missing (HTTP 400 "no such

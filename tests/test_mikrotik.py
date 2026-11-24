@@ -627,6 +627,9 @@ async def test_neighbours(snap: Snapshot) -> None:
     )
     assert nb.management_address == "192.0.2.2"
     assert nb.vendor_extra["discovered-by"] == "lldp,mndp"
+    # the enabled system capabilities, not the announced ones (#113)
+    assert nb.capabilities == ["bridge", "router"]
+    assert nb.description == "MikroTik RouterOS 7.15.3 CRS326-24G-2S+"
 
 
 # --- other layouts ---------------------------------------------------------------------------

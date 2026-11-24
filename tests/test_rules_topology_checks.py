@@ -40,6 +40,7 @@ from signalbox.rules.topology_checks import (
     management_separate,
     single_point,
     unknown_neighbour,
+    unknown_network_device,
 )
 from signalbox.rules.vlan import address_segment, slow, trunk_scope
 from signalbox.sim.openwrt import OpenWrtSim
@@ -101,6 +102,7 @@ def test_rules_are_registered_and_management_is_opt_in() -> None:
         "lag.consistent",
         "topology.hidden-device",
         "inventory.unknown-neighbour",
+        "inventory.unknown-network-device",
         "vlan.management-separate",
         "inventory.duplicate-device",
         "redundancy.single-point",
@@ -502,6 +504,76 @@ def test_unknown_neighbour_stays_quiet() -> None:
     assert run(nb_net(nb(management_address=None)), unknown_neighbour) == []
     assert run(nb_net(nb(management_address="127.0.0.1")), unknown_neighbour) == []
     assert run(nb_net(nb(local="99")), unknown_neighbour) == []
+
+
+def test_unknown_neighbour_leaves_classified_neighbours_to_the_other_rule() -> None:
+    assert run(nb_net(nb(capabilities=["bridge"])), unknown_neighbour) == []
+    assert run(nb_net(nb(capabilities=["telephone"])), unknown_neighbour) == []
+    assert run(nb_net(nb(description="MikroTik RouterOS 7.15")), unknown_neighbour) == []
+    assert len(run(nb_net(nb(description="Debian 12 on a server")), unknown_neighbour)) == 1
+
+
+# --- inventory.unknown-network-device (#113) -------------------------------------------------
+
+
+def test_unknown_network_device() -> None:
+    (f,) = run(
+        nb_net(nb(system_name="sw-attic", capabilities=["bridge", "router"])),
+        unknown_network_device,
+    )
+    assert f.severity == "warning" and f.objects == [port_id("sw", "9")]
+    assert f.message == (
+        "sw port 9 sees a network device announcing itself as sw-attic (198.51.100.2, bridge, "
+        "router) that is not in Signalbox."
+    )
+    assert "Add it under Devices" in (f.fix or "") and "Find devices" in (f.fix or "")
+    assert f.message_id == "topology.unknownNetworkDevice"
+    assert f.fix_id == "topology.unknownNetworkDevice.fixFind"
+    # an access point, seen on two ports, without a name
+    (two,) = run(
+        nb_net(
+            nb(capabilities=["wlan-access-point"]),
+            nb("10", "02-00-00-00-99-01", capabilities=["wlan-access-point"]),
+        ),
+        unknown_network_device,
+    )
+    assert two.message.startswith(
+        "sw port 10, sw port 9 see a network device announcing itself as 198.51.100.2 "
+        "(wlan-access-point) "
+    )
+    # no capabilities, but a description of network equipment; no address: no search hint
+    (desc,) = run(
+        nb_net(nb(management_address=None, description="OpenWrt 24.10 Linux 6.6")),
+        unknown_network_device,
+    )
+    assert desc.fix_id == "topology.unknownNetworkDevice.fix" and "Find devices" not in desc.fix
+    assert desc.message.startswith("sw port 9 sees a network device announcing itself as 02:")
+
+
+def test_unknown_network_device_stays_quiet() -> None:
+    gear = {"capabilities": ["bridge"]}
+    # known by MAC, name or address
+    assert run(nb_net(nb(chassis="02:00:00:00:0a:01", **gear)), unknown_network_device) == []
+    assert run(nb_net(nb(system_name="ap hall", **gear)), unknown_network_device) == []
+    assert run(nb_net(nb(management_address="198.51.100.5", **gear)), unknown_network_device) == []
+    assert run(nb_net(nb(local="99", **gear)), unknown_network_device) == []
+    # phones, stations, other, nothing announced
+    for caps in (["telephone"], ["station"], ["other"], ["telephone", "station"], []):
+        assert run(nb_net(nb(capabilities=caps)), unknown_network_device) == []
+    # a phone that mentions a vendor in its description
+    phone = nb(capabilities=["telephone"], description="Cisco IP Phone 8851 switch port")
+    assert run(nb_net(phone), unknown_network_device) == []
+    assert run(nb_net(nb(description="Debian 12 server")), unknown_network_device) == []
+    assert run(nb_net(nb(description="")), unknown_network_device) == []
+    # one the user knows and left out on purpose
+    known = nb_net(nb(capabilities=["bridge"]))
+    known.annotations.append(
+        annotation("client/02:00:00:00:99:01", expected={"known_neighbour": True})
+    )
+    assert run(known, unknown_network_device) == []
+    # a bridge that also is a phone is still network gear
+    both = nb(capabilities=["bridge", "telephone"])
+    assert len(run(nb_net(both), unknown_network_device)) == 1
 
 
 # --- vlan.management-separate (#117) ---------------------------------------------------------
