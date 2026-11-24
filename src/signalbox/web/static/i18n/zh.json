@@ -1200,6 +1200,7 @@
  "msg.setup.linux.deleteUser": "删除用户 {login} 及其主目录",
  "msg.setup.linux.hostKey": "信任设备的 SSH 主机密钥用于读取 (即为此设置确认的密钥)",
  "msg.setup.linux.install": "使用 {manager} 安装 {what} (您已勾选;可选)",
+ "msg.setup.linux.installFix": "使用 {manager} 安装 {what}（本次修复）",
  "msg.setup.linux.key": "让 {login} 使用 Signalbox 生成的新密钥登录 (仅发送公钥;authorized_keys 将被替换)",
  "msg.setup.linux.noSudoers": "没有 sudoers 规则:未安装 WireGuard (wg) 和 nftables (nft)",
  "msg.setup.linux.previewDeleteSudoers": "删除 sudoers 规则",

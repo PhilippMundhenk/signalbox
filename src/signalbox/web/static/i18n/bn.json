@@ -1200,6 +1200,7 @@
  "msg.setup.linux.deleteUser": "ব্যবহারকারী {login} ও তার হোম ডিরেক্টরি মুছুন",
  "msg.setup.linux.hostKey": "পড়ার জন্য ডিভাইসের SSH host key বিশ্বাস করুন (এই সেটআপের জন্য নিশ্চিত করা কীটি)",
  "msg.setup.linux.install": "{manager} দিয়ে {what} ইনস্টল করুন (আপনি এটি নির্বাচন করেছেন; ঐচ্ছিক)",
+ "msg.setup.linux.installFix": "{manager} দিয়ে {what} ইনস্টল করুন (এই সংশোধন)",
  "msg.setup.linux.key": "{login}-কে Signalbox-এর তৈরি নতুন key দিয়ে লগইন করতে দিন (শুধু public key পাঠানো হয়; authorized_keys প্রতিস্থাপিত হয়)",
  "msg.setup.linux.noSudoers": "কোনো sudoers নিয়ম নেই: WireGuard (wg) বা nftables (nft) কোনোটিই ইনস্টল করা নেই",
  "msg.setup.linux.previewDeleteSudoers": "sudoers নিয়ম মুছুন",

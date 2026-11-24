@@ -102,6 +102,9 @@ EXTRA_TOOLS = {
 
 
 class LinuxSetup:
+    #: True for a *Fix it* run, whose install steps are the fix itself, not ticked extras (#395).
+    part_of_fix = False
+
     def __init__(self, request: SetupRequest) -> None:
         self.request = request
         self.redact = Redactor()
@@ -240,14 +243,22 @@ class LinuxSetup:
             )
         script = f"# signalbox-setup: install-{tool}\nset -e\n{command}\n"
         manager = state.distro.manager or ""
+        if self.part_of_fix:
+            # #395: a Fix it installs as its purpose; nothing was ticked, never claim so
+            title, title_id = f"Install {what} with {manager} (this fix)", "setup.linux.installFix"
+        else:
+            title, title_id = (
+                f"Install {what} with {manager} (you ticked this; optional)",
+                "setup.linux.install",
+            )
         return Step(
             f"install-{tool}",
-            f"Install {what} with {manager} (you ticked this; optional)",
+            title,
             script if not found else "",
             needed=not found,
             action=self._action(ssh, script, timeout=max(300.0, self.request.timeout)),
             note="already installed" if found else "",
-            title_id="setup.linux.install",
+            title_id=title_id,
             params={"what": what, "manager": manager},
         )
 
@@ -459,6 +470,8 @@ REMEDIES = (
 
 class LinuxFix(LinuxSetup):
     """*Fix it* on a stored device: the steps of one remedy for the stored login."""
+
+    part_of_fix = True
 
     def __init__(self, request: RemedyRequest) -> None:
         if request.remedy not in {r.id for r in REMEDIES}:

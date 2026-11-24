@@ -1200,6 +1200,7 @@
  "msg.setup.linux.deleteUser": "Hapus pengguna {login} beserta direktori home-nya",
  "msg.setup.linux.hostKey": "Percayai SSH host key perangkat untuk pembacaan (yang dikonfirmasi untuk penyiapan ini)",
  "msg.setup.linux.install": "Pasang {what} dengan {manager} (Anda mencentangnya; opsional)",
+ "msg.setup.linux.installFix": "Pasang {what} dengan {manager} (perbaikan ini)",
  "msg.setup.linux.key": "Izinkan {login} login dengan kunci baru yang dibuat Signalbox (hanya kunci publik yang dikirim; authorized_keys diganti)",
  "msg.setup.linux.noSudoers": "Tanpa aturan sudoers: WireGuard (wg) maupun nftables (nft) tidak terpasang",
  "msg.setup.linux.previewDeleteSudoers": "Hapus aturan sudoers",
