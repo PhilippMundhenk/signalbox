@@ -2,8 +2,9 @@
 
 What the integration writes is tagged by its comment (``signalbox:<key>[ <name>]``, zone policies
 ``signalbox:policy/<from>/<to|device>``, see ``firewall.py``). Only rows with the tag are changed
-or removed; the device's own rows only when the change says ``adopt`` (the row is replaced by a
-tagged one at the same place); a tagged row that is no longer declared is removed.
+or removed; the device's own rows only when the change says ``adopt`` (the row is changed in
+place: it keeps its place and every property the writer does not model, e.g. ``log``); a tagged
+row that is no longer declared is removed.
 
 Mapping: a rule is a row of ``/ip/firewall/filter`` (``family: 4``) or ``/ipv6/firewall/filter``
 (``family: 6``), a port forward a ``dst-nat`` row of ``/ip/firewall/nat``, a zone policy a tagged
@@ -72,6 +73,9 @@ _FORWARD_PROPS = (
     "disabled",
     "comment",
 )
+#: Other ways to say what the declared zones and networks say (a plain interface, an address
+#: list): an adopted row's are replaced by the declaration, not kept next to it.
+_ALIASES = ("in-interface", "out-interface", "src-address-list", "dst-address-list")
 _CLI = {
     "/rest/ip/firewall/filter": "/ip firewall filter",
     "/rest/ipv6/firewall/filter": "/ipv6 firewall filter",
@@ -239,11 +243,13 @@ def _update(
     props: tuple[str, ...],
     revert: Revert,
     label: str,
+    what: str = "update",
 ) -> None:
-    """Set the properties of a tagged row to ``want``; what it has and ``want`` lacks is cleared."""
+    """Set the properties of a tagged row to ``want``; what it has and ``want`` lacks is cleared
+    (of the properties the writer models; every other property of the row stays)."""
     old = {k: _text(row.get(k)) for k in props}
     comment = want["comment"]
-    cfg.patch(menu, row, {k: v for k, v in want.items() if k in props}, f"{label}: update")
+    cfg.patch(menu, row, {k: v for k, v in want.items() if k in props}, f"{label}: {what}")
     undo_unset: list[str] = []
     undo_set: dict[str, str] = {}
     for k in props:
@@ -267,8 +273,10 @@ def _update(
 def _delete(
     cfg: _Config, menu: str, row: dict[str, Any], revert: Revert, label: str, what: str = "remove"
 ) -> dict[str, Any] | None:
-    """Delete a row; the revert adds it again (before the row that followed it, if that has a
-    comment to find it by). Returns the row that followed it."""
+    """Delete a row; the revert adds it again before the row that followed it, found by its
+    comment or, without one, by its row id (a deployment deletes only rows with a comment, so a
+    row without one is still there, with the same id, when the script runs). Returns the row
+    that followed it."""
     rows = cfg.rows(menu)
     after = next(
         (r for r in rows[rows.index(row) + 1 :] if not _flag(r.get("dynamic"))),
@@ -277,9 +285,38 @@ def _delete(
     line = f"{_CLI[menu]} add {_value(menu, row)}"
     if after is not None and _text(after.get("comment")):
         line += f" place-before={_find(_text(after['comment']))}"
+    elif after is not None and _text(after.get(".id")):
+        line += f" place-before={_text(after['.id'])}"
     cfg.delete(menu, row, f"{label}: {what}")
     revert.add(line)
     return after
+
+
+def _kept(
+    menu: str, row: dict[str, Any], body: dict[str, str], props: tuple[str, ...]
+) -> dict[str, str]:
+    """The properties of an adopted row that the declaration does not model: they stay."""
+    from signalbox.adapters.mikrotik.write import _writable
+
+    return {k: v for k, v in _writable(menu, row).items() if k not in props and k not in body}
+
+
+def _refuse_kept(kept: dict[str, str], body: dict[str, str], label: str) -> None:
+    """A kept property the declared fields cannot live with: refuse, naming all kept ones."""
+    clash = []
+    if "reject-with" in kept and body.get("action") != "reject":
+        clash.append("reject-with (only for reject)")
+    if "jump-target" in kept:
+        clash.append("jump-target (only for the action jump)")
+    if {"src-port", "dst-port"} & kept.keys() and body.get("protocol") not in ("tcp", "udp"):
+        clash.append("the port match (needs the protocol tcp or udp)")
+    if clash:
+        everything = ", ".join(f"{k}={v}" for k, v in kept.items())
+        raise AdapterError(
+            f"{label}: the router's row has properties the declaration does not model and "
+            f"that do not fit it: {'; '.join(clash)}. Adopting would keep: {everything}. "
+            "Change the declaration or the row on the router"
+        )
 
 
 def _write(
@@ -303,8 +340,14 @@ def _write(
         _update(cfg, menu, ours[1], body, props, revert, label)
         return
     if adopted is not None:
-        anchor = _delete(cfg, menu, adopted, revert, label, "adopt the device's own")
-        before = anchor
+        # in place: the row keeps its position and every property the writer does not model
+        props = (*props, *(a for a in _ALIASES if a not in props))
+        kept = _kept(menu, adopted, body, props)
+        _refuse_kept(kept, body, label)
+        shown = ", ".join(f"{k}={v}" for k, v in kept.items())
+        what = "adopt the device's own row in place" + (f" (keeps {shown})" if shown else "")
+        _update(cfg, menu, adopted, body, props, revert, label, what)
+        return
     _create(cfg, menu, body, before, revert, label)
 
 

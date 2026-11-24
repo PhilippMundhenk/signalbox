@@ -496,3 +496,45 @@ async def test_drift_findings(svc: Services) -> None:
     unread = net.model_copy(update={"firewalls": []})
     [g] = [f for f in evaluate(unread, drift_rules(parse(WANT))) if f.rule_id == "drift.firewall"]
     assert g.incomplete
+
+
+async def test_adopting_keeps_the_options_the_declaration_does_not_model(
+    sim: OpenWrtSim, svc: Services
+) -> None:
+    extras = {"log": "1", "limit": "10/minute", "extra": "--tcp-flags SYN SYN", "src_port": "1024"}
+    sim.state["firewall"]["iot_dns"].update(extras)
+    before = firewall(sim)
+    await net_of(svc)
+    d = Deployer(svc.runner)
+    rec, done = await deploy(d, svc, ADOPT)
+    assert done.status is ChangeStatus.APPLIED, [r.error for r in done.devices]
+    section = sim.state["firewall"]["sb_rule_iot_dns"]
+    assert {k: section[k] for k in extras} == extras
+    shown = " ".join(str(c.description) for c in rec.devices[0].calls)
+    assert "keeps" in shown and "log=1" in shown and "limit=10/minute" in shown
+    # the way back for a device's own section is the backup
+    stored = svc.store.change(done.id)
+    assert stored is not None and stored.devices[0].backup_id
+    back = await d.restore_backup(stored.devices[0].backup_id, "not wanted", "tester")
+    d.approve(back.id, "tester")
+    undone = await d.deploy(back.id)
+    assert undone.status is ChangeStatus.APPLIED, [r.error for r in undone.devices]
+    after = firewall(sim)
+    assert after == before and list(after) == list(before)
+
+
+async def test_adoption_that_cannot_keep_an_option_is_refused_with_the_list(
+    sim: OpenWrtSim, svc: Services
+) -> None:
+    sim.state["firewall"]["iot_dns"].update({"log": "1", "icmp_type": "echo-request"})
+    before = firewall(sim)
+    await net_of(svc)
+    d = Deployer(svc.runner)
+    p = plan(
+        parse(ADOPT.replace("port: 53", "protocol: udp\n            port: 53")),
+        svc.runner.network(),
+        RULES,
+    )
+    with pytest.raises(DeployError, match=r"icmp_type.*log=1"):
+        await d.prepare(p, "firewall", "tester")
+    assert firewall(sim) == before

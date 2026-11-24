@@ -527,6 +527,21 @@ FORWARD_OPTIONS = (
 )
 
 
+#: Options the writer sets from the declaration (an adopted section's others are carried over).
+RULE_MODELLED = tuple(o for o in RULE_OPTIONS if o != "src_port")
+FORWARD_MODELLED = (
+    "name",
+    "enabled",
+    "target",
+    "src",
+    "src_dport",
+    "dest",
+    "dest_ip",
+    "dest_port",
+    "proto",
+)
+
+
 def _ports_text(ports: list[PortRange]) -> str:
     return " ".join(str(r) for r in ports)
 
@@ -544,6 +559,38 @@ def _zone_section(cfg: Configs, name: str, label: str) -> str:
     raise AdapterError(f"{label}: the firewall has no zone {name!r}")
 
 
+def _show(value: Any) -> str:
+    return " ".join(str(v) for v in value) if isinstance(value, list) else str(value)
+
+
+def _kept(
+    section: dict[str, Any], values: dict[str, Any] | None, modelled: tuple[str, ...]
+) -> dict[str, Any]:
+    """The options of an adopted section that the declaration does not model (``log``, ``limit``,
+    ``extra`` ...): they are carried over to Signalbox's section."""
+    return {
+        k: v
+        for k, v in section.items()
+        if not k.startswith(".") and k not in modelled and k not in (values or {})
+    }
+
+
+def _refuse_kept(kept: dict[str, Any], values: dict[str, Any], label: str) -> None:
+    """A kept option the declared ones cannot live with: refuse and list every kept option."""
+    proto = values.get("proto")
+    protos = proto if isinstance(proto, list) else [proto]
+    clash = []
+    if "icmp_type" in kept and not any(str(p).startswith("icmp") for p in protos):
+        clash.append("icmp_type (needs the protocol icmp)")
+    if clash:
+        everything = ", ".join(f"{k}={_show(v)}" for k, v in kept.items())
+        raise AdapterError(
+            f"{label}: the device's section has options the declaration does not model and that "
+            f"do not fit it: {'; '.join(clash)}. Adopting would keep: {everything}. "
+            "Change the declaration or the section on the device"
+        )
+
+
 def _replace(
     cfg: Configs,
     kind: str,
@@ -552,10 +599,12 @@ def _replace(
     values: dict[str, Any] | None,
     managed: tuple[str, ...],
     label: str,
+    modelled: tuple[str, ...] = (),
 ) -> bool:
     """Signalbox's section ``section`` gets ``values`` (``None``: deleted); an adopted section
     of the device's own is deleted first. True when the section was created."""
     have = cfg.values("firewall")
+    adopted_note = ""
     if section not in have and adopt:
         own = [
             n
@@ -568,7 +617,15 @@ def _replace(
                 f"{label}: the device has {'no' if not own else 'several'} {kind} named {adopt!r} "
                 "to adopt"
             )
+        kept = _kept(have[own[0]], values, modelled)
+        if values is not None:
+            _refuse_kept(kept, values, label)
+        shown = ", ".join(f"{k}={_show(v)}" for k, v in kept.items())
         cfg.delete("firewall", own[0], f"{label}: adopt the device's {kind} {adopt!r}")
+        if values is not None:
+            # the section is created again with the options the declaration does not model
+            values = {**kept, **values}
+            adopted_note = f" (keeps {shown})" if shown else ""
     if values is None:
         if section in have:
             cfg.delete("firewall", section, f"{label}: remove")
@@ -582,7 +639,7 @@ def _replace(
             f"{label}: remove options",
         )
         return False
-    cfg.add("firewall", kind, section, values, f"{label}: new")
+    cfg.add("firewall", kind, section, values, f"{label}: new{adopted_note}")
     return True
 
 
@@ -664,6 +721,7 @@ def _rule_change(cfg: Configs, c: Change) -> str | None:
         _rule_values(v) if v else None,
         RULE_OPTIONS,
         f"firewall rule {key}",
+        RULE_MODELLED,
     )
     return section if created else None
 
@@ -705,7 +763,16 @@ def _forward_change(cfg: Configs, c: Change, dump: Mapping[str, Any]) -> None:
             )
         if not v.enabled:
             values["enabled"] = "0"
-    _replace(cfg, "redirect", FORWARD_TAG + key, c.adopt, values, FORWARD_OPTIONS, label)
+    _replace(
+        cfg,
+        "redirect",
+        FORWARD_TAG + key,
+        c.adopt,
+        values,
+        FORWARD_OPTIONS,
+        label,
+        FORWARD_MODELLED,
+    )
 
 
 def _order_rules(cfg: Configs, created: list[str]) -> None:

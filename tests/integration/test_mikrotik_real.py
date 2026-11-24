@@ -866,3 +866,75 @@ async def test_trace_refused_without_the_policy_test(rt: dict[str, str]) -> None
             await a.trace(ip_address("192.0.2.1"), 4, 1)
     finally:
         await a.close()
+
+
+ADOPT_WANT = """
+sites:
+  home:
+    firewalls:
+      - device: rt
+        rules:
+          - name: ci-own
+            adopt: ci-own-row
+            from: {zone: LAN}
+            to: {network: 192.0.2.78}
+            protocol: tcp
+            family: 4
+            port: 8081
+            action: accept
+"""
+
+
+async def test_adopted_row_keeps_its_other_properties_then_restore(
+    svc: Services, rt: dict[str, str]
+) -> None:
+    """#331: a row of the router's own with ``log`` and ``connection-state`` is adopted in
+    place (it keeps both and its position); the restore of the backup gives the identical
+    menus back."""
+    own = {
+        "chain": "forward",
+        "action": "accept",
+        "protocol": "tcp",
+        "dst-address": "192.0.2.78",
+        "dst-port": "8081",
+        "in-interface-list": "LAN",
+        "log": "yes",
+        "log-prefix": "ci",
+        "connection-state": "new",
+        "disabled": "false",  # RouterOS cannot unset it again, so the row starts with it
+        "comment": "ci-own-row",
+    }
+    path = "/rest/ip/firewall/filter"
+    made = httpx.put(
+        rt["URL"] + path,
+        json=own,
+        auth=(rt["WRITE_USER"], rt["WRITE_PASSWORD"]),
+        verify=False,
+        timeout=TIMEOUT,
+        trust_env=False,
+    )
+    made.raise_for_status()
+    row_id = made.json()[".id"]
+    try:
+        raw = menus(rt, *FIREWALL_MENUS)
+        _, cid = await deploy(svc, ADOPT_WANT, {ChangeKind.FIREWALL_RULE})
+        after = menus(rt, path)[path]
+        [mine] = [v for k, v in after.items() if k == "signalbox:ci_own ci-own"]
+        assert mine["log"] in ("yes", "true") and mine["log-prefix"] == "ci", mine
+        assert mine["connection-state"] == "new", mine
+        rec = svc.store.change(cid)
+        assert rec is not None and rec.devices[0].backup_id
+        d = Deployer(svc.runner)
+        restore = await d.restore_backup(rec.devices[0].backup_id, "integration test", "ci")
+        d.approve(restore.id, "ci")
+        done = await d.deploy(restore.id)
+        assert done.status is ChangeStatus.APPLIED, events(svc, restore.id)
+        assert_same_menus(raw, menus(rt, *FIREWALL_MENUS))
+    finally:
+        httpx.delete(
+            rt["URL"] + f"{path}/{row_id}",
+            auth=(rt["WRITE_USER"], rt["WRITE_PASSWORD"]),
+            verify=False,
+            timeout=TIMEOUT,
+            trust_env=False,
+        )

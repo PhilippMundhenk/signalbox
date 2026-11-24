@@ -556,7 +556,10 @@ class MikrotikWrites:
                 anchor = str(have.get(".id"))
                 cfg.patch(menu, have, want, f"restore: set {menu} {_label(old)} back")
                 for prop in list(_writable(menu, have)):
-                    if prop not in want:
+                    if prop not in want and prop == "disabled":
+                        # RouterOS cannot unset it (the snapshot of a row never had it: false)
+                        cfg.patch(menu, have, {prop: "false"}, f"restore: enable {_label(old)}")
+                    elif prop not in want:
                         cfg.unset(menu, have, prop, f"restore: unset {prop} of {_label(old)}")
         await self._send(cfg.ops, {})
         self._cache.clear()

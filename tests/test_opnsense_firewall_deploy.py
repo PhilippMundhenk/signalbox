@@ -503,7 +503,10 @@ async def test_a_verification_failure_restores_the_backup(
         return {**row, "interface": "opt1"}
 
     sim._dnat_row = wrong  # type: ignore[method-assign]
-    done = await d.deploy(rec.id)
+    try:
+        done = await d.deploy(rec.id)
+    finally:
+        del sim._dnat_row  # the simulator is shared between the tests of this module
     assert done.devices[0].status is DeviceStatus.ROLLED_BACK, events(svc, rec.id)
     assert any("verification failed" in e for e in events(svc, rec.id)) or any(
         e.startswith("verify-failed") for e in events(svc, rec.id)
@@ -630,3 +633,33 @@ def test_simulator_validates_like_the_firewall(sim: OpnsenseSimulator, url: str)
     assert post("/api/firewall/filter/set_rule/nope", {"rule": {}})["result"] == "failed"
     assert post("/api/firewall/d_nat/set_rule/nope", {"rule": {}})["result"] == "failed"
     assert post("/api/firewall/d_nat/del_rule/nope", {})["result"] == "not found"
+
+
+async def test_adopting_keeps_the_fields_the_declaration_does_not_set(
+    sim: OpnsenseSimulator, svc: Services
+) -> None:
+    extras = {"log": "1", "statetype": "sloppy state", "category": "iot"}
+    own = next(r for r in sim.data[FILTER]["rows"] if r["description"].startswith("IoT: DNS"))
+    own.update(extras)
+    nat = next(r for r in sim.data[DNAT]["rows"] if r.get("descr") == "NAS web interface")
+    nat.update({"log": "1", "category": "nas"})
+    before = rows(sim)
+    await net_of(svc)
+    d = Deployer(svc.runner)
+    rec, done = await deploy(d, svc, ADOPT)
+    assert done.status is ChangeStatus.APPLIED, [r.error for r in done.devices]
+    mine = "signalbox:iot_dns iot-dns"
+    row = next(r for r in sim.data[FILTER]["rows"] if r["description"] == mine)
+    assert {k: row[k] for k in extras} == extras
+    fwd = next(r for r in sim.data[DNAT]["rows"] if str(r.get("descr")).startswith("signalbox:"))
+    assert (fwd["log"], fwd["category"]) == ("1", "nas")
+    shown = " ".join(str(c.description) for c in rec.devices[0].calls)
+    assert "in place" in shown and "log=1" in shown and "statetype=sloppy state" in shown
+    # nothing was deleted: the calls are sets only
+    assert not [c for c in rec.devices[0].calls if "del_rule" in str(c.target)]
+    stored = svc.store.change(done.id)
+    assert stored is not None and stored.devices[0].backup_id
+    restore = await d.restore_backup(stored.devices[0].backup_id, "adoption not wanted", "tester")
+    d.approve(restore.id, "tester")
+    assert (await d.deploy(restore.id)).status is ChangeStatus.APPLIED
+    assert rows(sim) == before

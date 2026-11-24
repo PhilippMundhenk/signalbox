@@ -18,6 +18,7 @@ user writing, unknown menus). At most ten notices per call (the limit of one ste
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 from pathlib import Path
@@ -130,6 +131,10 @@ def main(d: Path, group: str) -> None:
         text = answer if isinstance(answer, str) else json.dumps(answer, separators=(",", ":"))
         notes.append(f"{user} {method} {path} {json.dumps(body)} -> {status}\n{text[:6000]}")
     (d / f"api-{group}.json").write_text(json.dumps(full, indent=1))
+    if os.environ.get("DUMP_NOTICES") == "0":
+        # the check run keeps 50 annotations: the answers are in api-<group>.json (artifact);
+        # the room is for the test results and failures
+        return
     size = -(-len(notes) // 10)
     for i in range(0, len(notes), size):
         text = "\n\n".join(notes[i : i + size]).replace("%", "%25").replace("\n", "%0A")
