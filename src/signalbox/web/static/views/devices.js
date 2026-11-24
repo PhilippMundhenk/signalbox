@@ -133,7 +133,7 @@ function firstSite(onCreated) {
 // device: null to add, else the stored device record (edit).
 export async function renderDeviceForm(main, ctx, device) {
   const id = ctx.renderId;
-  let [sites, adapters] = await Promise.all([get('/sites'), get('/adapters')]);
+  let [sites, adapters, others] = await Promise.all([get('/sites'), get('/adapters'), get('/devices')]);
   if (!ctx.alive(id)) return;
   const editing = Boolean(device);
   // a device found by Find devices: adapter, role, address and name are suggestions
@@ -155,6 +155,8 @@ export async function renderDeviceForm(main, ctx, device) {
   const site = h('select', { 'data-testid': 'device-site' });
   const enabled = h('input', { type: 'checkbox', checked: device ? device.enabled : true, 'data-testid': 'device-enabled' });
   const allowWrites = h('input', { type: 'checkbox', checked: device ? device.allow_writes : false, 'data-testid': 'device-allow-writes' });
+  // the device this one runs on, when its address does not show it (#387)
+  const hostedOn = select([['', t('devices.hostedOn.auto')], ...others.filter((d) => !device || d.id !== device.id).map((d) => [d.id, d.name])], device && device.hosted_on ? device.hosted_on : '', { 'data-testid': 'device-hosted-on' });
   const configBox = h('div', {});
   const errors = slot(); // the form's one place for problems: missing fields, a failed test or save
   const formError = (content) => setNotice(errors, 'error', 'form-errors', content);
@@ -227,7 +229,7 @@ export async function renderDeviceForm(main, ctx, device) {
       formError(h('ul', {}, problems.map((p) => h('li', {}, p))));
       return null;
     }
-    const body = { name: name.value.trim() || t('devices.defaultName'), site_id: site.value, role: role.value, adapter: adapter.value, enabled: enabled.checked, allow_writes: allowWrites.checked, config };
+    const body = { name: name.value.trim() || t('devices.defaultName'), site_id: site.value, role: role.value, adapter: adapter.value, enabled: enabled.checked, allow_writes: allowWrites.checked, hosted_on: hostedOn.value || null, config };
     if (cleared.length) body.clear_secrets = cleared;
     if (trusted) body.trust_fingerprint = trusted;
     if (forSetup && editing) body.device_id = device.id;
@@ -297,6 +299,7 @@ export async function renderDeviceForm(main, ctx, device) {
     siteBox,
     editing ? checkField(t('devices.field.read'), enabled, t('devices.field.readHelp')) : null,
     checkField(t('devices.field.allowChanges'), allowWrites, t('devices.field.allowChangesHelp')),
+    field(t('devices.field.hostedOn'), hostedOn, t('devices.field.hostedOnHelp')),
     configBox,
     autoBox,
     h('p', { class: 'muted small' }, t('devices.testHelp')),

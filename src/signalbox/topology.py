@@ -424,6 +424,23 @@ def view(net: Network) -> dict[str, Any]:
     from signalbox.rules.stp_checks import root_bridges  # the rules import this module
 
     stp_roots = {dev for dev, _ in root_bridges(net)}
+    ported = {p.device_id for p in net.ports}
+
+    def hosted_view(host: Device) -> list[dict[str, Any]]:
+        """The services drawn inside a device's box (#387): what runs on it and has no ports."""
+        return [
+            {
+                "id": h.id,
+                "name": h.name,
+                "role": h.role.value,
+                "kind": h.model or h.adapter,
+                "port": h.management_port,
+                "status": net.statuses.get(h.id, "ok"),
+            }
+            for h in net.hosted_here(host.id)
+            if h.id not in ported
+        ]
+
     nodes = [
         {
             "id": d.id,
@@ -431,6 +448,7 @@ def view(net: Network) -> dict[str, Any]:
             "role": d.role.value,
             "site_id": d.site_id,
             "status": net.statuses.get(d.id, "ok"),
+            "hosted": hosted_view(d),
             # the root bridge of a spanning tree (#155)
             "stp_root": d.id in stp_roots,
             "ports": [
@@ -461,6 +479,7 @@ def view(net: Network) -> dict[str, Any]:
             ],
         }
         for d in net.devices
+        if d.id in ported or d.hosted_on is None
     ]
     remotes = []
     for tunnel, peer in net.remote_sites():

@@ -223,6 +223,13 @@ svg.topo { display: block; font-family: var(--font); }
 .topo a.name-link { cursor: pointer; }
 .topo a.name-link:hover .name, .topo a.name-link:focus-visible .name { fill: var(--accent); text-decoration: underline; }
 .topo .role { fill: var(--muted); font-size: 11px; }
+.topo .hosted-row { fill: var(--surface); stroke: var(--border); stroke-width: 1; }
+.topo a.hosted { cursor: pointer; }
+.topo a.hosted:hover .hosted-row, .topo a.hosted:focus-visible .hosted-row { stroke: var(--accent); }
+.topo .hosted-name { fill: var(--text); font-size: 11px; }
+.topo a.hosted:hover .hosted-name, .topo a.hosted:focus-visible .hosted-name { fill: var(--accent); text-decoration: underline; }
+.topo .hosted-dot { fill: currentColor; }
+.topo .hosted-more { fill: var(--muted); font-size: 10px; }
 .topo .site-frame { fill: none; stroke: var(--border); stroke-width: 1.5; stroke-dasharray: 2 4; }
 .topo .site-name { fill: var(--muted); font-size: 12px; font-weight: 700; }
 .topo .strip-name { fill: var(--muted); font-size: 12px; font-weight: 700; }

@@ -78,8 +78,9 @@ def free_port() -> int:
 
 
 @contextmanager
-def serve(app: Any, *, tls: TlsFiles | None = None) -> Iterator[str]:
-    """Serve ``app`` in a background thread; yields its base URL and stops it afterwards."""
+def serve(app: Any, *, tls: TlsFiles | None = None, host: str = "127.0.0.1") -> Iterator[str]:
+    """Serve ``app`` in a background thread on ``host`` (any 127.x.y.z address on Linux); yields
+    its base URL and stops it afterwards."""
     # proto=IPPROTO_TCP, not the default 0: asyncio sets TCP_NODELAY on accepted connections only
     # when the socket says it is TCP. Without it, Nagle's algorithm holds back the second write of
     # every response (uvicorn sends head and body separately) until the client's delayed ACK,
@@ -87,7 +88,7 @@ def serve(app: Any, *, tls: TlsFiles | None = None) -> Iterator[str]:
     # by accepted connections on Linux, for event loops that do not set it themselves.
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    sock.bind(("127.0.0.1", 0))
+    sock.bind((host, 0))
     port = sock.getsockname()[1]
     config = uvicorn.Config(
         app,
@@ -105,7 +106,7 @@ def serve(app: Any, *, tls: TlsFiles | None = None) -> Iterator[str]:
             raise RuntimeError("simulator did not start")
         time.sleep(0.01)
     try:
-        yield f"{'https' if tls else 'http'}://127.0.0.1:{port}"
+        yield f"{'https' if tls else 'http'}://{host}:{port}"
     finally:
         server.should_exit = True
         thread.join(timeout=10)

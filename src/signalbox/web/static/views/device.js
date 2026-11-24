@@ -813,6 +813,9 @@ async function overview(main, ctx, device, adapters, sites) {
   const learned = fdb.filter((e) => e.device_id === device.id || e.device_id.startsWith(`${device.id}/`));
   const observed = ix.net.devices.find((d) => d.id === device.id);
   const adapter = adapters.find((a) => a.id === device.adapter);
+  // a service on another device (#387): where it runs, and what runs here
+  const host = observed && observed.hosted_on ? ix.net.devices.find((d) => d.id === observed.hosted_on) : null;
+  const guests = ix.net.devices.filter((d) => d.hosted_on === device.id).sort((a, b) => a.name.localeCompare(b.name));
   // a refused path trace (#253) is shown like a read problem, with its Fix it where there is one
   const traceErrors = (ix.net.traces || []).filter((tr) => tr.source === device.id && tr.error).map((tr) => ({ device_id: device.id, capability: t('device.traceTo', { target: tr.target }), message: tr.error, fix: tr.fix, remedy: tr.remedy, message_id: tr.message_id, fix_id: tr.fix_id, params: tr.params }));
   const errors = [...ix.net.errors.filter((e) => e.device_id === device.id), ...traceErrors];
@@ -901,6 +904,8 @@ async function overview(main, ctx, device, adapters, sites) {
         [t('device.overview.model'), observed ? observed.model : null],
         [t('device.overview.firmware'), fw ? [fw.current || '–', fw.available ? ` (${t('device.overview.updateAvailable', { version: fw.available })})` : '', fw.end_of_life ? ` – ${t('device.overview.endOfLife')}` : ''].join('') : null],
         [t('device.overview.managementAddress'), observed ? observed.management_address : null],
+        [t('device.overview.runsOn'), host ? h('a', { href: `#/device/${enc(host.id)}`, 'data-testid': 'runs-on' }, host.name) : undefined],
+        [t('device.overview.alsoRunsHere'), guests.length ? h('span', { 'data-testid': 'also-runs-here' }, guests.map((g, i) => [i ? ', ' : '', h('a', { href: `#/device/${enc(g.id)}`, 'data-testid': 'hosted-link' }, g.name)])) : undefined],
         [t('device.overview.lastRead'), lastReadBox],
         [t('device.overview.enabled'), yesNo(device.enabled)],
         [t('device.overview.changesAllowed'), yesNo(device.allow_writes)],

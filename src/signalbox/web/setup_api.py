@@ -405,6 +405,7 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             adapter=form.adapter,
             enabled=form.enabled,
             allow_writes=form.allow_writes,
+            hosted_on=form.hosted_on if form.hosted_on != device_id else None,
             pinned_fingerprint=result.certificate
             or form.trust_fingerprint
             or (old.pinned_fingerprint if old else None),

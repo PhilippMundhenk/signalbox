@@ -288,9 +288,14 @@ def demo_devices(services: Services, *, compact: bool = False) -> Iterator[dict[
             )
             _put(services, rec, values, keep_pin)
 
-        def https(dev: str, app: Any) -> tuple[str, TlsFiles]:
+        addresses: dict[str, str] = {}
+
+        def https(dev: str, app: Any, on: str | None = None) -> tuple[str, TlsFiles]:
+            """Serve ``app`` on an address of its own (``on``: the address of another device,
+            a service that runs on it, #387); every device would else share 127.0.0.1."""
             tls = _certificate(certs, dev)
-            return stack.enter_context(serve(app, tls=tls)), tls
+            host = addresses.setdefault(on or dev, f"127.0.1.{len(addresses) + 1}")
+            return stack.enter_context(serve(app, tls=tls, host=host)), tls
 
         def openwrt(dev: str, site: Site, name: str, role: DeviceRole, sim: Any) -> None:
             url, tls = https(dev, openwrt_sim.create_app(sim))
@@ -359,7 +364,8 @@ def demo_devices(services: Services, *, compact: bool = False) -> Iterator[dict[
         )
 
         adguard = dns_sim.AdGuardSim()
-        url, tls = https("adguard", adguard.app())
+        # AdGuard Home runs on the gateway: the same address, another port (#387)
+        url, tls = https("adguard", adguard.app(), on="gateway-a")
         values = {"url": url, "username": adguard.username, "password": adguard.password}
         add(
             "adguard",

@@ -13,7 +13,7 @@ joined. A site with one router is not touched.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from ipaddress import IPv4Network, IPv6Network, ip_address
 
 from signalbox.fdb import place_clients
@@ -384,12 +384,62 @@ def _merge_clients(snapshots: list[Snapshot]) -> list[Client]:
     return sorted(merged.values(), key=lambda c: c.mac)
 
 
+def _address_key(address: str | None) -> str | None:
+    text = (address or "").strip().strip("[]").lower()
+    if not text:
+        return None
+    try:
+        return str(ip_address(text))
+    except ValueError:
+        return text
+
+
+def hosting(
+    devices: list[Device], ported: set[str], declared: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Device id -> id of the device it runs on (#387).
+
+    A device without ports of its own whose management address is the address of exactly one
+    device that has ports (an AdGuard Home on the router, another port) runs on that device;
+    two services on the same port are one device. ``declared`` (from the device settings) wins
+    over this guess. A host is never hosted itself."""
+    own = [d for d in devices if d.managed_by is None]
+    known = {d.id for d in own}
+    by_address: dict[str, list[Device]] = {}
+    for d in own:
+        key = _address_key(d.management_address)
+        if key:
+            by_address.setdefault(key, []).append(d)
+    out: dict[str, str] = {}
+    for d in own:
+        want = (declared or {}).get(d.id)
+        if want:
+            if want != d.id and want in known:
+                out[d.id] = want
+            continue
+        key = _address_key(d.management_address)
+        if key is None or d.id in ported:
+            continue
+        hosts = [
+            h
+            for h in by_address[key]
+            if h.id != d.id
+            and h.id in ported
+            and not (h.management_port and h.management_port == d.management_port)
+        ]
+        if len(hosts) == 1:
+            out[d.id] = hosts[0].id
+    return {k: v for k, v in out.items() if v not in out}
+
+
 def merge(
     sites: Iterable[Site],
     snapshots: Iterable[Snapshot],
     links: Iterable[Link] = (),
+    hosted_on: Mapping[str, str] | None = None,
 ) -> Network:
-    """Merge snapshots (one per device) and the known links into a network."""
+    """Merge snapshots (one per device) and the known links into a network. ``hosted_on``:
+    devices declared to run on another device (device settings, #387)."""
     snaps = sorted(snapshots, key=lambda s: s.device.id)
     ids = [s.device.id for s in snaps]
     duplicates = sorted({i for i in ids if ids.count(i) > 1})
@@ -407,10 +457,17 @@ def merge(
     def every(attr: str) -> list[object]:
         return [item for s in snaps for item in getattr(s, attr)]
 
+    all_devices = [d for s in snaps for d in (s.device, *s.extra_devices)]
+    host_of = hosting(all_devices, {p.device_id for s in snaps for p in s.ports}, hosted_on)
+    all_devices = [
+        d.model_copy(update={"hosted_on": host_of[d.id]}) if d.id in host_of else d
+        for d in all_devices
+    ]
+
     net = Network.model_validate(
         {
             "sites": sorted(sites, key=lambda s: s.id),
-            "devices": [d for s in snaps for d in (s.device, *s.extra_devices)],
+            "devices": all_devices,
             "statuses": {
                 d.id: s.extra_status.get(d.id, s.status) if d is not s.device else s.status
                 for s in snaps

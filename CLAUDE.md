@@ -15,6 +15,6 @@
 - Tests run in parallel (`pytest -n auto`, ~1 min); keep tests independent (free ports, tmp paths).
 - UI under `src/signalbox/web/static/` has no build step. Strict CSP: no inline script or style,
   never put untrusted text into `innerHTML`.
-- Localhost HTTP from a shell in the sandbox needs `NO_PROXY=127.0.0.1,localhost`.
+- Localhost HTTP from a shell in the sandbox needs `NO_PROXY=127.0.0.0/8,localhost` (the demo serves devices on 127.0.1.x).
 - No private data anywhere: simulator data uses documentation prefixes (192.0.2.0/24,
   198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32) and locally administered MACs (02:...).

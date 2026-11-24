@@ -103,6 +103,8 @@ class DeviceBody(BaseModel):
     adapter: str
     enabled: bool = True
     allow_writes: bool = False
+    #: The device this one runs on, when its address does not show it (#387); empty: derived.
+    hosted_on: str | None = Field(None, pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
     config: dict[str, Any] = Field(default_factory=dict)
     #: Stored secret settings to remove (optional ones only; the form's "Remove" box).
     clear_secrets: list[str] = Field(default_factory=list)
@@ -497,6 +499,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
             adapter=body.adapter,
             enabled=body.enabled,
             allow_writes=body.allow_writes,
+            hosted_on=body.hosted_on if body.hosted_on != device_id else None,
             pinned_fingerprint=body.trust_fingerprint or (old.pinned_fingerprint if old else None),
             pending_fingerprint=None
             if body.trust_fingerprint

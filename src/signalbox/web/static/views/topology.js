@@ -24,6 +24,8 @@ const PORT = 18;
 const PORT_GAP = 5;
 const MAX_PORTS = 24;
 const BOX_H = 88;
+const HOSTED_ROW = 16; // services that run on a device are rows inside its box (#387)
+const HOSTED_MAX = 3;
 const STRIP = 6; // distance of the port squares from the box edge
 const state = { segment: '', site: '', internal: false, expanded: new Set() };
 
@@ -38,6 +40,18 @@ function visiblePorts(node, linked) {
   if (ports.length <= MAX_PORTS) return ports;
   return ports.filter((p) => linked.has(p.id)).slice(0, MAX_PORTS);
 }
+
+// The services drawn in a device's box: all of them up to HOSTED_MAX rows, else one row less
+// and a "+N more" line.
+function hostedShown(n) {
+  const all = n.hosted || [];
+  return all.length > HOSTED_MAX ? { rows: all.slice(0, HOSTED_MAX - 1), more: all.length - HOSTED_MAX + 1 } : { rows: all, more: 0 };
+}
+const hostedHeight = (n) => {
+  const { rows, more } = hostedShown(n);
+  return (rows.length + (more ? 1 : 0)) * HOSTED_ROW;
+};
+const hostedText = (r) => `${r.kind && r.kind !== r.name ? `${r.name} · ${r.kind}` : r.name}${r.port ? `:${r.port}` : ''}`;
 
 function edgeSegment(edge, seg) {
   return edge.segments.find((x) => x.segment_id === seg);
@@ -80,7 +94,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
   const present = new Set(nodes.map((n) => n.id));
   const cables = data.edges.filter((e) => e.kind !== 'vpn' && present.has(e.a.device_id) && present.has(e.b.device_id));
   const tunnels = data.edges.filter((e) => e.kind === 'vpn' && present.has(e.a.device_id) && present.has(e.b.device_id));
-  const sized = nodes.map((n) => ({ id: n.id, name: n.name, role: n.role, site: n.site_id || '', w: Math.max(150, ports.get(n.id).length * (PORT + PORT_GAP) + 16, n.name.length * 8 + 24), h: BOX_H }));
+  const sized = nodes.map((n) => ({ id: n.id, name: n.name, role: n.role, site: n.site_id || '', w: Math.max(150, ports.get(n.id).length * (PORT + PORT_GAP) + 16, n.name.length * 8 + 24, ...hostedShown(n).rows.map((r) => hostedText(r).length * 6 + 40)), h: BOX_H + hostedHeight(n) }));
   const lay = layoutTopology({
     nodes: sized,
     siteNames,
@@ -102,7 +116,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
     for (const p of ports.get(n.id)) {
       const up = faceUp.has(p.id);
       const i = up ? iu++ : id++;
-      spots.set(p.id, { x: box.x + 8 + i * (PORT + PORT_GAP), y: up ? box.y + STRIP : box.y + BOX_H - STRIP - PORT, up });
+      spots.set(p.id, { x: box.x + 8 + i * (PORT + PORT_GAP), y: up ? box.y + STRIP : box.y + box.h - STRIP - PORT, up });
     }
   }
   // end of a wire: at the port square, or at the box when the port is not shown
@@ -110,7 +124,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
     const spot = spots.get(end.port_id);
     if (spot) return { x: spot.x + PORT / 2, y: up ? spot.y : spot.y + PORT };
     const b = lay.nodes[end.device_id];
-    return { x: b.x + b.w / 2, y: up ? b.y : b.y + BOX_H };
+    return { x: b.x + b.w / 2, y: up ? b.y : b.y + b.h };
   };
   const svg = s('svg', { class: 'topo', role: 'img', 'aria-label': t('topology.graphLabel'), 'data-testid': 'topology-graph' });
   const vp = s('g', { class: 'viewport' });
@@ -148,7 +162,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
     if (rankOf(e.a.device_id) !== rankOf(e.b.device_id)) {
       const [hi, lo] = rankOf(e.a.device_id) < rankOf(e.b.device_id) ? [ba, bb] : [bb, ba];
       const key = [e.a.device_id, e.b.device_id].sort().join('|');
-      d = smooth([{ x: hi.x + hi.w / 2, y: hi.y + BOX_H }, ...(lay.routes[key] || []), { x: lo.x + lo.w / 2, y: lo.y }]);
+      d = smooth([{ x: hi.x + hi.w / 2, y: hi.y + hi.h }, ...(lay.routes[key] || []), { x: lo.x + lo.w / 2, y: lo.y }]);
     } else if (vpnArc.has(e.id)) {
       const v = vpnArc.get(e.id);
       const r = 8;
@@ -238,10 +252,10 @@ function drawGraph(data, nodes, onPort, siteNames) {
   }
   const els = new Map();
   for (const n of nodes) {
-    const { x, y, w } = lay.nodes[n.id];
+    const { x, y, w, h: boxH } = lay.nodes[n.id];
     const g = s('g', { class: `node role-${n.role} status-${n.status}${n.stp_root ? ' stp-root' : ''}`, 'data-testid': 'topo-node', 'data-id': n.id, 'data-stp-root': n.stp_root ? 'true' : null });
     els.set(n.id, g);
-    place(g, s('rect', { x: String(x), y: String(y), width: String(w), height: String(BOX_H), rx: '10', class: 'box' }));
+    place(g, s('rect', { x: String(x), y: String(y), width: String(w), height: String(boxH), rx: '10', class: 'box' }));
     const label = s('text', { x: String(x + 10), y: String(y + 40), class: 'name' }, n.name);
     if (n.role === 'remote') place(g, label);
     else place(g, s('a', { href: `#/device/${enc(n.id)}`, class: 'name-link', 'data-testid': 'topo-device-link', 'aria-label': t('topology.openDevice', { device: n.name }) }, label));
@@ -249,6 +263,21 @@ function drawGraph(data, nodes, onPort, siteNames) {
     const hidden = shownPorts(n).length - ports.get(n.id).length;
     const roleText = n.role === 'remote' ? t('topology.remoteSite', { networks: n.networks.join(', ') || t('topology.noNetworks') }) : `${roleName}${n.stp_root ? t('topology.stpRoot') : ''}${hidden > 0 ? t('topology.morePorts', { count: hidden }) : ''}`;
     place(g, s('text', { x: String(x + 10), y: String(y + 55), class: 'role' }, roleText));
+    // services that run on this device, each a link to its page (#387)
+    const hosted = hostedShown(n);
+    hosted.rows.forEach((r, i) => {
+      const ry = y + 62 + i * HOSTED_ROW;
+      const row = s('a', { href: `#/device/${enc(r.id)}`, class: 'hosted', 'data-testid': 'topo-hosted', 'data-id': r.id, 'data-status': r.status, 'aria-label': t('topology.hostedAria', { device: r.name, host: n.name }) });
+      place(
+        row,
+        s('title', {}, t('topology.hostedTitle', { device: r.name, kind: r.kind, host: n.name })),
+        s('rect', { x: String(x + 6), y: String(ry), width: String(w - 12), height: String(HOSTED_ROW - 2), rx: '4', class: 'hosted-row' }),
+        s('circle', { cx: String(x + 14), cy: String(ry + (HOSTED_ROW - 2) / 2), r: '3.5', class: `hosted-dot status-${r.status}` }),
+        s('text', { x: String(x + 22), y: String(ry + 11), class: 'hosted-name' }, hostedText(r)),
+      );
+      place(g, row);
+    });
+    if (hosted.more) place(g, s('text', { x: String(x + 10), y: String(y + 62 + hosted.rows.length * HOSTED_ROW + 10), class: 'hosted-more', 'data-testid': 'topo-hosted-more' }, t('topology.hostedMore', { count: hosted.more })));
     for (const p of ports.get(n.id)) {
       const spot = spots.get(p.id);
       const member = state.segment && (p.untagged.includes(state.segment) ? 'untagged' : p.tagged.includes(state.segment) ? 'tagged' : null);
@@ -453,6 +482,7 @@ function legendBlock() {
         item(box('status-unreachable'), t('topology.legend.box.unreachable')),
         item(box('role-remote'), t('topology.legend.box.remote')),
         item(box('stp-root'), t('topology.legend.box.stpRoot')),
+        item(swatch(s('g', {}, s('rect', { x: '3', y: '1', width: '34', height: '14', rx: '4', class: 'hosted-row' }), s('circle', { cx: '10', cy: '8', r: '3.5', class: 'hosted-dot status-ok' }))), t('topology.legend.box.hosted')),
         item(swatch(s('rect', { x: '3', y: '1', width: '34', height: '14', rx: '6', class: 'site-frame' })), t('topology.legend.box.site')),
         item(swatch(s('g', { class: 'badge' }, s('circle', { cx: '20', cy: '8', r: '7' }), s('text', { x: '20', y: '11', 'text-anchor': 'middle' }, '2'))), t('topology.legend.bundle')),
         item(swatch(s('g', { class: 'badge lag' }, s('circle', { cx: '20', cy: '8', r: '7' }), s('text', { x: '20', y: '11', 'text-anchor': 'middle' }, '2'))), t('topology.legend.lag')),

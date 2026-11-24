@@ -28,6 +28,6 @@ docker:
 smoke:
 	bash tools/smoke.sh
 screenshots:
-	NO_PROXY=127.0.0.1,localhost $(PY) tools/screenshots.py
+	NO_PROXY=127.0.0.0/8,localhost $(PY) tools/screenshots.py
 docs:
 	$(PY) tools/gen_docs.py && $(PY) tools/gen_api_doc.py
