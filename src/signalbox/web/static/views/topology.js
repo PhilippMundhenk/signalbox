@@ -207,13 +207,13 @@ function drawGraph(data, nodes, onPort, siteNames) {
     const g = s('g', { class: `node role-${n.role} status-${n.status}`, 'data-testid': 'topo-node', 'data-id': n.id });
     els.set(n.id, g);
     place(g, s('rect', { x: String(x), y: String(y), width: String(w), height: String(BOX_H), rx: '10', class: 'box' }));
-    const label = s('text', { x: String(x + 10), y: String(y + 44), class: 'name' }, n.name);
+    const label = s('text', { x: String(x + 10), y: String(y + 40), class: 'name' }, n.name);
     if (n.role === 'remote') place(g, label);
     else place(g, s('a', { href: `#/device/${enc(n.id)}`, class: 'name-link', 'data-testid': 'topo-device-link', 'aria-label': t('topology.openDevice', { device: n.name }) }, label));
     const roleName = ROLE[n.role] ? t(ROLE[n.role]) : n.role;
     const hidden = shownPorts(n).length - ports.get(n.id).length;
     const roleText = n.role === 'remote' ? t('topology.remoteSite', { networks: n.networks.join(', ') || t('topology.noNetworks') }) : `${roleName}${hidden > 0 ? t('topology.morePorts', { count: hidden }) : ''}`;
-    place(g, s('text', { x: String(x + 10), y: String(y + 60), class: 'role' }, roleText));
+    place(g, s('text', { x: String(x + 10), y: String(y + 55), class: 'role' }, roleText));
     for (const p of ports.get(n.id)) {
       const spot = spots.get(p.id);
       const member = state.segment && (p.untagged.includes(state.segment) ? 'untagged' : p.tagged.includes(state.segment) ? 'tagged' : null);
@@ -514,7 +514,7 @@ export async function renderTopology(main, ctx) {
     button(t('topology.zoomReset'), 'topo-zoom-reset', () => zoom && zoom.fit()),
     fullBtn,
   );
-  place(card_, tools, legendBlock(), graphBox, h('p', { class: 'phone-only muted small' }, t('topology.phoneNote')), panel);
+  place(card_, tools, graphBox, legendBlock(), h('p', { class: 'phone-only muted small' }, t('topology.phoneNote')), panel);
   const hasInternal = data.nodes.some((n) => n.ports.some((p) => p.external === false));
   const problems = data.nodes.filter((n) => n.status !== 'ok');
   place(main, 

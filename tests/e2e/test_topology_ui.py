@@ -42,7 +42,12 @@ def test_legend_is_visible_and_collapsible(app: Any) -> None:
     setup(app)
     legend = app.get_by_test_id("topo-legend")
     expect(legend).to_be_visible()
-    for text in ("Carries the selected VLAN", "Ends disagree", "VPN tunnel", "Inferred from the MAC table"):
+    for text in (
+        "Carries the selected VLAN",
+        "Ends disagree",
+        "VPN tunnel",
+        "Inferred from the MAC table",
+    ):
         expect(legend).to_contain_text(text)
     for text in ("Partly read", "Unmanaged remote site", "Internal port"):
         expect(legend).to_contain_text(text)
@@ -55,7 +60,9 @@ def test_legend_is_visible_and_collapsible(app: Any) -> None:
 
 def test_device_name_opens_the_device_page(app: Any) -> None:
     setup(app)
-    app.locator('[data-testid="topo-node"][data-id="router"] [data-testid="topo-device-link"]').click()
+    app.locator(
+        '[data-testid="topo-node"][data-id="router"] [data-testid="topo-device-link"]'
+    ).click()
     expect(app).to_have_url(re.compile(r"#/device/router$"))
     expect(app.locator("main h1").first).to_contain_text("Router")
 
@@ -87,7 +94,9 @@ def test_hover_highlights_links_and_neighbours(app: Any) -> None:
     app.locator('[data-testid="topo-node"][data-id="router"] .box').hover()
     expect(svg).to_have_class(re.compile("hovering"))
     expect(app.get_by_test_id("topo-edge")).to_have_class(re.compile("hot"))
-    expect(app.locator('[data-testid="topo-node"][data-id="core-switch"]')).to_have_class(re.compile("near"))
+    expect(app.locator('[data-testid="topo-node"][data-id="core-switch"]')).to_have_class(
+        re.compile("near")
+    )
     app.mouse.move(2, 2)
     expect(svg).not_to_have_class(re.compile("hovering"))
 

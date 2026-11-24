@@ -9,6 +9,7 @@ import json
 import shutil
 import subprocess
 import time
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -109,7 +110,7 @@ def test_devices_of_a_layer_do_not_overlap() -> None:
         by_row.setdefault(y, []).append([x, w])
     for row in by_row.values():
         row.sort()
-        for (x1, w1), (x2, _w2) in zip(row, row[1:], strict=False):
+        for (x1, w1), (x2, _w2) in pairwise(row):
             assert x1 + w1 <= x2
 
 
@@ -119,7 +120,9 @@ def test_big_network_is_fast() -> None:
     nodes += [dev(f"sw{i}", f"Switch {i:02d}", "switch") for i in range(8)]
     nodes += [dev(f"ap{i}", f"AP {i:02d}", "ap") for i in range(41)]
     edges = [cable("gw", f"sw{i}") for i in range(8)]
-    edges += [cable(f"sw{i}", f"sw{(i * 3 + 1) % 8}", n=i) for i in range(8) if (i * 3 + 1) % 8 != i]
+    edges += [
+        cable(f"sw{i}", f"sw{(i * 3 + 1) % 8}", n=i) for i in range(8) if (i * 3 + 1) % 8 != i
+    ]
     n = 0
     for i in range(41):
         for k in range(1 + i % 5):  # up to five cables or radios per AP
