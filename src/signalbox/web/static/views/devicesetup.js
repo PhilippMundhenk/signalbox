@@ -2,14 +2,14 @@
 // credential; the device's identity (SSH host key or certificate); only then the admin login,
 // right before Run; then the steps as they ran. The password is only in its input field and in
 // the one request; it is cleared right after it, on navigation and when left unused.
-import { post } from '../api.js';
+import { ApiError, get, post } from '../api.js';
 import { t } from '../i18n.js';
 import { stepTitle } from '../texts.js';
 import { clear, groupHex, h, place } from '../util.js';
 import { busy, checkField, clearNotice, confirmDialog, field, notice, run, setNotice, slot, toast } from '../ui.js';
 import { adminStep, previewList, previewSteps } from './adminstep.js';
 
-const STATE_KEY = { todo: 'setup.state.todo', unchanged: 'setup.state.unchanged', done: 'setup.state.done', failed: 'setup.state.failed', skipped: 'setup.state.skipped' };
+const STATE_KEY = { todo: 'setup.state.todo', unchanged: 'setup.state.unchanged', done: 'setup.state.done', failed: 'setup.state.failed', skipped: 'setup.state.skipped', running: 'setup.state.running', waiting: 'setup.state.waiting' };
 const stateText = (state) => (STATE_KEY[state] ? t(STATE_KEY[state]) : state);
 
 export function stepList(steps, testid) {
@@ -29,6 +29,32 @@ export function stepList(steps, testid) {
     ),
   );
 }
+
+// The steps of a run on screen (#316): every planned step, each as the job reports it; the one
+// running right now is marked, the ones not reached yet wait. Text nodes only.
+function progressList(planned, view) {
+  const seen = new Map((view.steps || []).map((s) => [s.id, s]));
+  const rows = planned.map((p) => seen.get(p.id) || p);
+  for (const s of view.steps || []) if (!planned.some((p) => p.id === s.id)) rows.push(s);
+  return h(
+    'ol',
+    { class: 'setup-steps', 'data-testid': 'setup-progress-steps' },
+    rows.map((s) => {
+      const state = s.id === view.current ? 'running' : seen.has(s.id) ? s.state : 'waiting';
+      return h(
+        'li',
+        { class: `setup-step state-${state}`, 'data-testid': 'setup-step', 'data-step': s.id, 'data-state': state, ...(state === 'running' ? { 'aria-current': 'step' } : {}) },
+        h('span', { class: `badge step-${state}` }, stateText(state)),
+        ' ',
+        h('strong', {}, stepTitle(s)),
+        s.message ? h('p', { class: s.state === 'failed' ? 'error' : 'muted small' }, s.message) : null,
+      );
+    }),
+  );
+}
+
+const POLL_MS = 400;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function fingerprintText(plan) {
   return plan.fingerprint_kind === 'certificate' ? groupHex(plan.fingerprint) : plan.fingerprint;
@@ -197,18 +223,40 @@ export function autoSetup(a, collect, onDone, own = null) {
       body.ssh = { secret: sshSecret.value, trust: trustedSsh };
       if (sshPort.value) body.ssh.port = Number(sshPort.value);
     }
-    // a clear progress state: spinner, what is going on, and the steps this run takes
-    place(clear(out), busy('setup-progress', h('strong', {}, removing ? t('setup.removing') : t('setup.settingUp')), h('p', { class: 'muted small' }, t('setup.progress.wait')), previewed.length ? previewList(previewed, 'setup-progress-steps') : null));
+    // a clear progress state: spinner, what is going on, and the step that is running
+    const head = h('strong', {}, removing ? t('setup.removing') : t('setup.settingUp'));
+    const list = h('div', {});
+    const showProgress = (view) => place(clear(list), progressList(previewed, view));
+    place(clear(out), busy('setup-progress', head, h('p', { class: 'muted small' }, t('setup.progress.wait')), list));
+    showProgress({ steps: [], current: null });
     const current = step;
     let res;
     try {
-      res = await post('/devices/setup/apply', body);
+      // the password goes in this one request; the job only keeps the steps and the outcome
+      const { id } = await post('/devices/setup/jobs', body);
+      current.dispose();
+      step = null;
+      let view;
+      let misses = 0;
+      for (;;) {
+        await sleep(POLL_MS);
+        if (!out.isConnected) return; // left the page: the run goes on, nothing to show
+        try {
+          view = await get(`/devices/setup/jobs/${id}`);
+          misses = 0;
+        } catch (err) {
+          if (err.status === 404 || ++misses > 5) throw err;
+          continue;
+        }
+        showProgress(view);
+        if (view.state === 'finished') break;
+      }
+      if (view.status !== 200) throw new ApiError(view.status, view.result || {});
+      res = view.result;
     } catch (err) {
-      current.wipe();
+      if (step) current.wipe();
       return failed(err);
     }
-    current.dispose(); // the password is gone as soon as the request is answered
-    step = null;
     place(clear(out), notice(res.ok ? 'info' : 'error', 'setup-outcome', res.ok ? (removing ? t('setup.removed') : t('setup.done')) : t('setup.stopped')), stepList(res.steps, 'setup-done-steps'));
     if (res.ok && res.device) {
       toast(t('setup.deviceSetUp', { name: res.device.name }));

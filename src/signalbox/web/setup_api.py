@@ -8,8 +8,13 @@ any answer or error (every text from the integration passes a redactor that know
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import secrets
+import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import APIRouter
@@ -21,13 +26,14 @@ from signalbox.adapters import (
     AuthFailed,
     SetupRequest,
     SetupResult,
+    SetupStep,
     StepState,
     Unreachable,
     UntrustedCertificate,
     UntrustedHostKey,
     provisions,
 )
-from signalbox.adapters.provision import Redactor
+from signalbox.adapters.provision import Redactor, progress_sink
 from signalbox.secrets import SecretError
 from signalbox.service import Services
 from signalbox.store import DeviceRecord, StoreError, _secret_fields, slug
@@ -81,6 +87,39 @@ class SetupBody(BaseModel):
     #: real plan needs a step that is not among them, nothing runs and the plan is returned
     #: (409 ``plan_changed``) to be confirmed again (#279). Missing: no check (API clients).
     plan_ids: list[str] | None = Field(None, max_length=100)
+
+
+#: Finished jobs stay readable this long (seconds), at most ``_MAX_JOBS`` jobs are kept.
+_JOB_TTL = 600.0
+_MAX_JOBS = 20
+
+
+@dataclass
+class SetupJob:
+    """The progress of one setup run (#316). It never holds the admin login or the request:
+    only the redacted steps the integration reports and the answer the run ended with."""
+
+    id: str
+    #: ``running`` until the run ended, then ``finished``.
+    state: str = "running"
+    #: The steps in the order they ran (reports as run, redacted).
+    steps: list[dict[str, Any]] = field(default_factory=list)
+    #: Id of the step that is running right now.
+    current: str | None = None
+    #: How it ended: the HTTP status and body *apply* would have answered.
+    status: int | None = None
+    result: dict[str, Any] | None = None
+    ended: float = 0.0
+
+    def view(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "state": self.state,
+            "current": self.current,
+            "steps": self.steps,
+            "status": self.status,
+            "result": self.result,
+        }
 
 
 def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, Any]]) -> APIRouter:
@@ -194,16 +233,106 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
         """Run the automatic setup (or its removal) and save the device with the new login.
 
         Needs `trust`. The generated password or API key goes into the device's encrypted
-        settings and is never part of the answer.
+        settings and is never part of the answer. One request, answered when the run ended;
+        the web UI uses ``/devices/setup/jobs`` instead to show the step that is running.
         """
         ready = prepare(body)
         if isinstance(ready, JSONResponse):
             return ready
-        cls, form, request = ready
+        checked = require_login(body, ready[2])
+        if checked is not None:
+            return checked
+        return await run_apply(body, *ready)
+
+    def require_login(body: SetupBody, request: SetupRequest) -> JSONResponse | None:
         if body.admin.secret is None:
             return error(422, "invalid", "give the admin password for this step")
         if not request.trust:
             return error(422, "invalid", "confirm the device's fingerprint first")
+        return None
+
+    jobs: dict[str, SetupJob] = {}
+    running: set[asyncio.Task[None]] = set()
+
+    def forget() -> None:
+        now = time.monotonic()
+        for jid in [j for j, v in jobs.items() if v.ended and now - v.ended > _JOB_TTL]:
+            del jobs[jid]
+        while len(jobs) > _MAX_JOBS:
+            oldest = next((j for j, v in jobs.items() if v.ended), None)
+            if oldest is None:
+                break
+            del jobs[oldest]
+
+    @api.post("/devices/setup/jobs", status_code=202, response_model=None)
+    async def start(body: SetupBody) -> dict[str, Any] | JSONResponse:
+        """Start the setup in the background and return a job to poll (#316).
+
+        The same body and the same refusals as *apply*, answered at once for what can be
+        checked without the device; whatever goes wrong later is the job's ``result``
+        (``status`` and body as *apply* would have answered). The admin login lives in this run
+        only: the job holds no request, no secret and only redacted step reports.
+        """
+        ready = prepare(body)
+        if isinstance(ready, JSONResponse):
+            return ready
+        checked = require_login(body, ready[2])
+        if checked is not None:
+            return checked
+        forget()
+        if sum(1 for j in jobs.values() if not j.ended) >= _MAX_JOBS:
+            return error(429, "busy", "Too many setups are running; wait for one to finish.")
+        job = SetupJob(id=secrets.token_urlsafe(16))
+        jobs[job.id] = job
+
+        def report(step: SetupStep, starting: bool) -> None:
+            data = step.model_dump(mode="json")
+            if starting:
+                job.current = step.id
+                if not any(s["id"] == step.id for s in job.steps):
+                    job.steps.append(data)
+                return
+            job.steps = [data if s["id"] == step.id else s for s in job.steps]
+            if all(s["id"] != step.id for s in job.steps):
+                job.steps.append(data)
+            if job.current == step.id:
+                job.current = None
+
+        async def work() -> None:
+            progress_sink.set(report)
+            try:
+                answer = await run_apply(body, *ready)
+            except Exception as exc:  # the text may hold a secret: only the type is kept
+                log.warning("automatic setup job failed: %s", type(exc).__name__)
+                job.status, job.result = (
+                    500,
+                    {"error": "setup_failed", "message": "The setup failed unexpectedly."},
+                )
+            else:
+                if isinstance(answer, JSONResponse):
+                    job.status, job.result = answer.status_code, json.loads(bytes(answer.body))
+                else:
+                    job.status, job.result = 200, answer
+            job.current = None
+            job.state = "finished"
+            job.ended = time.monotonic()
+
+        task = asyncio.create_task(work())
+        running.add(task)
+        task.add_done_callback(running.discard)
+        return {"id": job.id}
+
+    @api.get("/devices/setup/jobs/{job_id}", response_model=None)
+    async def progress(job_id: str) -> dict[str, Any] | JSONResponse:
+        """The state of a setup job: the steps so far, the one running, and the outcome."""
+        job = jobs.get(job_id)
+        if job is None:
+            return error(404, "not_found", "No such setup run (it may be too old).")
+        return job.view()
+
+    async def run_apply(
+        body: SetupBody, cls: Any, form: DeviceTestBody, request: SetupRequest
+    ) -> dict[str, Any] | JSONResponse:
         device_id = form.device_id or slug(form.name, [d.id for d in store.devices()])
         secret_names = _secret_fields(cls.manifest.config)
         if not request.remove:

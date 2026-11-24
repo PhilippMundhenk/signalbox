@@ -187,7 +187,7 @@ def test_progress_shows_a_spinner_while_the_setup_runs(
     url, port, _device = router
     add_site(app)
     held: list[Any] = []
-    app.route("**/api/devices/setup/apply", lambda route: held.append(route))
+    app.route("**/api/devices/setup/jobs", lambda route: held.append(route))
     to_password_step(app, url, port)
     app.get_by_test_id("setup-admin-secret").fill(ROOT_PASSWORD)
     app.get_by_test_id("setup-apply").click()
@@ -226,3 +226,56 @@ def test_an_admin_login_in_the_settings_is_replaced_not_refused(
     app.get_by_test_id("setup-admin-secret").press("Enter")
     expect(app.get_by_test_id("toast").first).to_contain_text("Access point set up.")
     assert any(s["options"].get("username") == ["signalbox"] for s in device.rpcd.values())
+
+
+def test_progress_shows_the_current_step_change_and_a_failed_step(
+    app: Any, router: tuple[str, int, OpenWrtSsh]
+) -> None:
+    url, port, _device = router
+    add_site(app)
+    packages_done = {"id": "packages", "title": "Install the packages", "state": "done"}
+    # what the progress endpoint answers, one view per phase; the test moves on between phases
+    views = [
+        {"state": "running", "current": "packages", "steps": []},
+        {"state": "running", "current": "acl", "steps": [packages_done]},
+        {
+            "state": "running",
+            "current": None,
+            "steps": [
+                packages_done,
+                {"id": "acl", "title": "Allow reading", "state": "failed", "message": "no space"},
+            ],
+        },
+    ]
+    phase = [0]
+    release: list[bool] = []
+
+    def poll(route: Any) -> None:
+        if phase[0] < len(views):
+            route.fulfill(json=views[phase[0]])
+        elif release:
+            route.continue_()
+        else:
+            route.fulfill(json={"state": "running", "current": "login", "steps": []})
+
+    app.route("**/api/devices/setup/jobs/*", poll)
+    to_password_step(app, url, port)
+    app.get_by_test_id("setup-admin-secret").fill(ROOT_PASSWORD)
+    app.get_by_test_id("setup-apply").click()
+    steps = app.get_by_test_id("setup-progress-steps")
+    packages = steps.locator('[data-step="packages"]')
+    acl = steps.locator('[data-step="acl"]')
+    expect(packages).to_have_attribute("data-state", "running")
+    expect(acl).to_have_attribute("data-state", "waiting")
+    # the running step moves on; the one before it is done
+    phase[0] = 1
+    expect(acl).to_have_attribute("data-state", "running")
+    expect(packages).to_have_attribute("data-state", "done")
+    # a failed step shows its message
+    phase[0] = 2
+    expect(acl).to_have_attribute("data-state", "failed")
+    expect(acl).to_contain_text("no space")
+    phase[0] = 3
+    release.append(True)
+    expect(app.get_by_test_id("toast").first).to_contain_text("Access point set up.")
+    assert ROOT_PASSWORD not in app.content()

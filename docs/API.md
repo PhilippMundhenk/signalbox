@@ -71,5 +71,7 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | DELETE | `/api/probes` | Forget every stored probe answer (the devices' sightings stay). |
 | POST | `/api/devices/setup` | What the automatic setup would do with this admin login; nothing is changed. |
 | POST | `/api/devices/setup/apply` | Run the automatic setup (or its removal) and save the device with the new login. |
+| POST | `/api/devices/setup/jobs` | Start the setup in the background and return a job to poll (#316). |
+| GET | `/api/devices/setup/jobs/{job_id}` | The state of a setup job: the steps so far, the one running, and the outcome. |
 | POST | `/api/devices/{device_id}/fix` | What *Fix it* would do on this device with the admin login; nothing is changed. |
 | POST | `/api/devices/{device_id}/fix/apply` | Run the remedy, then read the device again (`reading`, as Test connection answers). |
