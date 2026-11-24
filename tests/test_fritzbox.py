@@ -709,6 +709,89 @@ async def test_box_without_users_logs_in_with_password_only(
     assert snap.status is DeviceStatus.OK, snap.errors
 
 
+# --- password-only mode: the box's hidden user (#373) ----------------------------------------
+
+
+@pytest.fixture
+def web_port(https_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The simulator's one https port stands in for the box's web port 443."""
+    import signalbox.adapters.fritzbox as fritzbox_mod
+
+    monkeypatch.setattr(fritzbox_mod, "WEB_PORT", int(https_url.rsplit(":", 1)[1]))
+
+
+def test_login_user_takes_the_last_user_or_the_only_one() -> None:
+    from signalbox.adapters.fritzbox.soap import login_user
+
+    page = b"<SessionInfo><Users>%s</Users></SessionInfo>"
+    assert login_user(page % b'<User>fritz0000</User><User last="1">fritz1111</User>') == (
+        "fritz1111"
+    )
+    assert login_user(page % b"<User>fritz0000</User>") == "fritz0000"
+    assert login_user(page % b"<User>fritz0000</User><User>fritz1111</User>") is None
+    assert login_user(page % b"") is None
+    with pytest.raises(AdapterError):
+        login_user(b'<!DOCTYPE x [<!ENTITY a "b">]><Users/>')
+
+
+async def test_password_only_box_is_read_with_the_looked_up_user(
+    sim: FritzboxSim, https_url: str, cert: TlsFiles, web_port: None
+) -> None:
+    sim.password_only = True
+    ctx = context(https_url, pinned_fingerprint=cert.fingerprint, config={"username": ""})
+    snap = await observe(ctx)
+    assert snap.status is DeviceStatus.OK, snap.errors
+
+
+async def test_password_only_box_over_plain_http(sim: FritzboxSim, http_url: str) -> None:
+    sim.password_only = True
+    ctx = context(http_url, config={"username": "", "allow_insecure_http": True})
+    snap = await observe(ctx)
+    assert snap.status is DeviceStatus.OK, snap.errors
+
+
+async def test_a_configured_user_name_is_not_looked_up(
+    sim: FritzboxSim, https_url: str, cert: TlsFiles, web_port: None
+) -> None:
+    sim.no_login_page = True  # would fail the lookup; none is made
+    snap = await observe(context(https_url, pinned_fingerprint=cert.fingerprint))
+    assert snap.status is DeviceStatus.OK, snap.errors
+
+
+async def test_empty_user_name_and_failed_lookup_names_the_gap(
+    sim: FritzboxSim, https_url: str, cert: TlsFiles, web_port: None
+) -> None:
+    sim.password_only = True
+    sim.no_login_page = True
+    ctx = context(https_url, pinned_fingerprint=cert.fingerprint, config={"username": ""})
+    a = FritzboxAdapter(ctx)
+    try:
+        with pytest.raises(AdapterError) as exc:
+            await a.read_system()
+    finally:
+        await a.close()
+    assert exc.value.message_id == "fritzbox.noUserName"
+    assert exc.value.fix_id == "fritzbox.noUserName.fix"
+    assert "login_sid.lua?version=2" in (exc.value.fix or "")
+    assert sim.password not in str(exc.value) + (exc.value.fix or "")
+
+
+async def test_wrong_user_name_gets_the_fritzbox_hints(
+    sim: FritzboxSim, https_url: str, cert: TlsFiles
+) -> None:
+    ctx = context(https_url, pinned_fingerprint=cert.fingerprint, config={"username": "Signalbox"})
+    a = FritzboxAdapter(ctx)
+    try:
+        with pytest.raises(AdapterError) as exc:
+            await a.read_system()
+    finally:
+        await a.close()
+    assert exc.value.message_id == "fritzbox.loginRefused"
+    assert exc.value.fix_id == "fritzbox.loginRefused.fix"
+    fix = exc.value.fix or ""
+    assert "FRITZ!Box Einstellungen" in fix and "case-sensitive" in fix and "blocks" in fix
+
+
 # --- health and time (#178, #179) ------------------------------------------------------------
 
 

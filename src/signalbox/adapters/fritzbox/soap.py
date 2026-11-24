@@ -23,6 +23,7 @@ expansion attacks.
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
 
@@ -191,14 +192,42 @@ async def security_port(host: str, timeout: float, port: int | None = None) -> i
         return None
 
 
+#: Longest user name taken from the login page (a box's names are ``fritz`` + 4 digits or what
+#: the owner typed); anything longer is not a user name.
+MAX_USER_NAME = 64
+
+
+def login_user(body: bytes) -> str | None:
+    """The user of ``/login_sid.lua?version=2`` (no login needed): ``<Users><User last="1">``.
+
+    A box in password-only mode (#373) has a generated hidden user (``fritz`` + 4 digits) and
+    TR-064 refuses an empty name. The user marked ``last="1"`` (the one who logged in last) is
+    taken, else the only one; None if the page lists several and none is marked.
+    """
+    root = parse_xml(body, "login_sid.lua")
+    users = [e for e in root.iter() if _local(e.tag) == "User"]
+    named = [(e.get("last") == "1", (e.text or "").strip()) for e in users]
+    named = [(last, name) for last, name in named if name and len(name) <= MAX_USER_NAME]
+    last_used = [name for last, name in named if last]
+    if last_used:
+        return last_used[0]
+    return named[0][1] if len(named) == 1 else None
+
+
 class Tr064:
-    def __init__(self, http: DeviceHttp) -> None:
+    def __init__(
+        self, http: DeviceHttp, prepare: Callable[[], Awaitable[None]] | None = None
+    ) -> None:
         self.http = http
+        #: Awaited before every request (the adapter looks up the user name there, #373).
+        self.prepare = prepare
 
     async def call(self, service: str, action: str, **args: str | int) -> dict[str, str]:
         """Call ``service action``; returns the output arguments by name (``NewSSID``...)."""
         service_type, path = SERVICES[service]
         what = f"{service} {action}"
+        if self.prepare:
+            await self.prepare()
         response = await self.http.request(
             "POST",
             path,
@@ -220,5 +249,7 @@ class Tr064:
                 message_id="fritzbox.soapPath",
                 params={"what": what, "path": repr(path)},
             )
+        if self.prepare:
+            await self.prepare()
         response = await self.http.request("GET", path, headers={"Accept": "text/xml"})
         return parse_xml(response.content, what)
