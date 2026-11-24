@@ -360,6 +360,14 @@ details.advanced summary { cursor: pointer; color: var(--muted); }
 .topo.wifimap .bubble.neighbour circle { stroke-dasharray: 5 4; }
 .topo.wifimap .bubble.co circle { stroke: var(--danger); stroke-width: 4; }
 .topo.wifimap .bubble .name { fill: var(--text); font-weight: 700; font-size: 12px; pointer-events: none; }
+.topo.wifimap .site-frame { fill: var(--surface-2); fill-opacity: .45; stroke: var(--border); stroke-width: 1.5; }
+.topo.wifimap .halo { stroke: var(--muted); stroke-opacity: .13; stroke-linecap: round; }
+.topo.wifimap .site-title { fill: var(--text); font-weight: 700; font-size: 15px; }
+.topo.wifimap .bubble.neighbour { opacity: .85; }
+.topo.wifimap .leader { stroke: var(--muted); stroke-width: 1.2; }
+.topo.wifimap .label-bg { fill: var(--surface); stroke: var(--border); stroke-width: 1; }
+.topo.wifimap .ap-label .name { fill: var(--text); font-weight: 700; font-size: 12px; }
+.topo.wifimap a.ap-label:hover .label-bg, .topo.wifimap a.ap-label:focus-visible .label-bg { stroke: var(--accent); stroke-width: 2; }
 .topo.wifimap .bubble .sub { fill: var(--text); font-size: 11px; pointer-events: none; }
 .topo.wifimap a.name-link { cursor: pointer; }
 .topo.wifimap a.name-link:hover circle, .topo.wifimap a.name-link:focus-visible circle { stroke-width: 4; }
