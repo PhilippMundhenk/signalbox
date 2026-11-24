@@ -35,6 +35,7 @@ from signalbox.model import (
     normalise_mac,
 )
 from signalbox.mqtt import MqttBridge
+from signalbox.neighbours import radio_neighbours, scan_rows
 from signalbox.prober import Prober
 from signalbox.rules import ENGINE_RULES, rule_enabled
 from signalbox.secrets import SecretError
@@ -136,9 +137,14 @@ def public_network(net: Network) -> dict[str, Any]:
     #239), firewalls the action per zone pair (``matrix``: one row per source zone, the
     device itself first, then each zone; ``null``: not known, #135), so that the UI does not
     repeat the derivation. The MAC address tables (``fdb``, #160) are left out: they can be
-    large and are read with ``GET /api/fdb``.
+    large and are read with ``GET /api/fdb``; so are the scan results (``wifi_scan``, #169):
+    neighbours' networks, read with ``GET /api/wifi-scan``. Each WLAN gets its BSSID's
+    ``neighbours`` count and each radio ``neighbour_count`` and ``strongest_foreign_dbm`` on
+    its channel (:func:`signalbox.neighbours.radio_neighbours`).
     """
-    data = net.model_dump(mode="json", exclude={"fdb"})
+    data = net.model_dump(mode="json", exclude={"fdb", "wifi_scan"})
+    for radio, raw in zip(net.radios, data["radios"], strict=True):
+        raw.update(radio_neighbours(net, radio))
     for port, raw in zip(net.ports, data["ports"], strict=True):
         raw["external"] = port.external
     for wlan in data["wlans"]:
@@ -626,6 +632,19 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
             raw["client"] = f"client/{e.mac}" if e.mac in clients else None
             out.append(raw)
         return out
+
+    @api.get("/wifi-scan")
+    def wifi_scan(device: str | None = None) -> list[dict[str, Any]]:
+        """Access points the radios heard (#169): of one device (``?device=``, also the
+        access points a controller manages), or all. Each with ``own``: the BSSID is one of
+        our WLANs, and ``own_ssid``: a foreign BSSID with one of our SSIDs. Other people's
+        networks: shown on the device page only, never exported."""
+        net = runner.network()
+        return [
+            r
+            for r in scan_rows(net)
+            if device is None or r["device_id"] == device or r["device_id"].startswith(f"{device}/")
+        ]
 
     @api.get("/findings")
     def findings(resolved: bool = False) -> list[dict[str, Any]]:

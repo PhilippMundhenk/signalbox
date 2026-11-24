@@ -23,6 +23,7 @@ from signalbox.factory_defaults import FACTORY_DEFAULTS
 from signalbox.model import (
     FDB_LIMIT,
     ROUTE_LIMIT,
+    SCAN_LIMIT,
     TYPED_OPTION_CODES,
     Band,
     Cipher,
@@ -57,10 +58,12 @@ from signalbox.model import (
     Tunnel,
     Uplink,
     UplinkKind,
+    WifiScanResult,
     Wlan,
     address_nat_class,
     firewall_id,
     parse_stp_bridge_id,
+    scan_id,
     set_passphrase_digest_key,
     source_fits,
 )
@@ -795,6 +798,9 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
 
     out += fdb_problems(snapshot.fdb, owners, port_ids, segment_ids)
     out += route_problems(snapshot, port_ids, segment_ids)
+    if snapshot.wifi_scan and Capability.WIRELESS.value not in snapshot.device.capabilities:
+        out.append(f"wifi_scan reported without declaring {Capability.WIRELESS.value}")
+    out += scan_problems(snapshot.wifi_scan, owners, {r.id: r for r in snapshot.radios})
 
     out += _capability_problems(snapshot, site)
 
@@ -857,6 +863,45 @@ def fdb_problems(
             out.append(f"fdb entry {e.id} references unknown segment {e.segment_id}")
     out += [
         f"{d} reports {n} fdb entries (over {FDB_LIMIT})" for d, n in count.items() if n > FDB_LIMIT
+    ]
+    return out
+
+
+def scan_problems(
+    results: list[WifiScanResult], owners: Iterable[str], radios: dict[str, Radio]
+) -> list[str]:
+    """Scan results (#169): of a reported device, heard by a radio of that device (or none),
+    id ``<radio or device>/scan/<bssid>``, a unicast BSSID, each once, the radio's band, at
+    most ``SCAN_LIMIT`` per device."""
+    out: list[str] = []
+    devices = set(owners)
+    seen: set[str] = set()
+    count: dict[str, int] = {}
+    for r in results:
+        if r.id in seen:
+            out.append(f"scan result {r.id} reported twice")
+        seen.add(r.id)
+        count[r.device_id] = count.get(r.device_id, 0) + 1
+        if r.device_id not in devices:
+            out.append(f"scan result {r.id} has device_id {r.device_id}")
+        if r.id != scan_id(r.radio_id or r.device_id, r.bssid):
+            out.append(
+                f"scan result id {r.id} is not {scan_id(r.radio_id or r.device_id, r.bssid)}"
+            )
+        if r.radio_id is not None:
+            radio = radios.get(r.radio_id)
+            if radio is None:
+                out.append(f"scan result {r.id} heard by unknown radio {r.radio_id}")
+            elif radio.device_id != r.device_id:
+                out.append(f"scan result {r.id} heard by a radio of another device")
+            elif r.band is not None and r.band is not radio.band:
+                out.append(f"scan result {r.id} on {r.band} GHz heard by a {radio.band} GHz radio")
+        if int(r.bssid[:2], 16) & 1:
+            out.append(f"scan result {r.id} has a multicast BSSID")
+    out += [
+        f"{d} reports {n} scan results (over {SCAN_LIMIT})"
+        for d, n in count.items()
+        if n > SCAN_LIMIT
     ]
     return out
 

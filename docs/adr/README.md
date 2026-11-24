@@ -26,5 +26,6 @@
 | [0022](0022-link-aggregation-details.md) | Link aggregation details live on the LAG port and its members; members stay `Port.lower` and `Port.lag` (#157) |
 | [0023](0023-spanning-tree.md) | Spanning tree per bridge on the device, per port on the port, bridge ids in one canonical form (#155) |
 | [0024](0024-routing-tables-and-policy-routing.md) | Routing tables: connected routes are derived from subnets, `next_hop` answers conservatively, policy routing only as far as it is known (#149) |
+| [0025](0025-neighbouring-wifi-networks.md) | Neighbouring Wi-Fi networks: BSSIDs, passive lists always, scans only on request, kept on the server (#169) |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.

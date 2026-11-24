@@ -432,6 +432,7 @@ def merge(
             "fdb": every("fdb"),
             "routes": every("routes"),
             "routing_rules": every("routing_rules"),
+            "wifi_scan": every("wifi_scan"),
             "tunnels": every("tunnels"),
             "firewalls": every("firewalls"),
             "server_sightings": every("server_sightings"),

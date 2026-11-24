@@ -3788,6 +3788,13 @@
           "title": "Uplinks",
           "type": "array"
         },
+        "wifi_scan": {
+          "items": {
+            "$ref": "#/$defs/WifiScanResult"
+          },
+          "title": "Wifi Scan",
+          "type": "array"
+        },
         "wlans": {
           "items": {
             "$ref": "#/$defs/Wlan"
@@ -5617,6 +5624,15 @@
       "title": "SaeSettings",
       "type": "object"
     },
+    "ScanSource": {
+      "description": "Where a :class:`WifiScanResult` comes from (#169, ADR 0025).",
+      "enum": [
+        "scan",
+        "rogue-detection"
+      ],
+      "title": "ScanSource",
+      "type": "string"
+    },
     "Security": {
       "enum": [
         "open",
@@ -6289,6 +6305,13 @@
             "$ref": "#/$defs/Uplink"
           },
           "title": "Uplinks",
+          "type": "array"
+        },
+        "wifi_scan": {
+          "items": {
+            "$ref": "#/$defs/WifiScanResult"
+          },
+          "title": "Wifi Scan",
           "type": "array"
         },
         "wlans": {
@@ -7509,6 +7532,164 @@
       "title": "UpsStatus",
       "type": "object"
     },
+    "WifiScanResult": {
+      "additionalProperties": false,
+      "description": "An access point a radio heard (#169, ADR 0025): a neighbour's network, or one of ours.\n\nData about other people's networks: kept on the server, out of ``GET /api/network``,\nexporters and MQTT (:meth:`Network.without_neighbour_networks`), shown in the device's\nwireless section only. No stations of foreign networks are ever stored.",
+      "properties": {
+        "band": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Band"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "bssid": {
+          "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+          "title": "Bssid",
+          "type": "string"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ScanSource",
+          "default": "scan"
+        },
+        "last_seen": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Seen"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "radio_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Radio Id"
+        },
+        "security": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Security"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "signal_dbm": {
+          "anyOf": [
+            {
+              "maximum": 0,
+              "minimum": -120,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signal Dbm"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ssid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ssid"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        },
+        "width_mhz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width Mhz"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "bssid"
+      ],
+      "title": "WifiScanResult",
+      "type": "object"
+    },
     "WifiStandard": {
       "description": "An IEEE 802.11 generation (#172); ``a`` is the 5 GHz counterpart of ``g``.",
       "enum": [
@@ -7537,6 +7718,19 @@
           ],
           "default": null,
           "title": "Beacon Protection"
+        },
+        "bssid": {
+          "anyOf": [
+            {
+              "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bssid"
         },
         "ciphers": {
           "anyOf": [

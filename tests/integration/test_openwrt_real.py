@@ -773,3 +773,37 @@ async def test_radio_capabilities_and_state(ow: Target, pin: str) -> None:
         assert r.supported_widths_mhz and 20 in r.supported_widths_mhz, r
         assert r.max_tx_power_dbm is not None and r.client_count is not None, r
     assert 1 in (r0.supported_channels or []) and 36 in (r1.supported_channels or [])
+
+
+async def test_bssids_and_the_optional_neighbour_scan(ow: Target, pin: str) -> None:
+    """#169: each running AP interface reports its BSSID (``iwinfo info``, the interface's
+    MAC); with ``scan_neighbours`` on, ``iwinfo scan`` is allowed by the guide's ACL and
+    whatever the mac80211_hwsim radios hear (they share one medium) passes the contract, own
+    BSSIDs are recognised and the read stays ok. Without the setting nothing is scanned."""
+    ctx = context(ow, pin)
+    plain = OpenWrtAdapter(ctx)
+    try:
+        snap = await assert_contract(plain)
+    finally:
+        await plain.close()
+    assert not snap.wifi_scan
+    aps = [w for w in snap.wlans if w.enabled]
+    assert aps and all(w.bssid is not None for w in aps), aps
+    macs = {p.id: p.mac for p in snap.ports}
+    assert all(w.bssid == macs[w.port_id] for w in aps if macs.get(w.port_id or "")), macs
+
+    scanning = replace(ctx, config=ctx.config.model_copy(update={"scan_neighbours": True}))
+    adapter = OpenWrtAdapter(scanning)
+    try:
+        heard = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    assert heard.status is DeviceStatus.OK, heard.errors
+    gaps = [e for e in heard.errors if e.message_id == "openwrt.radioState"]
+    assert not gaps, gaps
+    radios = {r.id: r for r in heard.radios}
+    own = {w.bssid for w in heard.wlans}
+    for r in heard.wifi_scan:
+        assert r.radio_id in radios and r.band is radios[r.radio_id].band, r
+        if r.bssid in own:
+            assert r.ssid == "Example-IT", r

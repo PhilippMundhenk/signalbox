@@ -2513,6 +2513,56 @@ class Wlan(Observed):
     #: The Wi-Fi interface (port) that carries this SSID (``phy0-ap0``; #252). None: not
     #: reported.
     port_id: str | None = None
+    #: The MAC address this SSID sends from on its radio (#169): the BSSID clients and
+    #: neighbouring access points see. None: not reported.
+    bssid: Mac | None = None
+
+
+class ScanSource(StrEnum):
+    """Where a :class:`WifiScanResult` comes from (#169, ADR 0025)."""
+
+    #: The radio scanned the channels: an active probe, only where the user turned it on.
+    SCAN = "scan"
+    #: A controller's or access point's own list of foreign access points (rogue AP
+    #: detection, a neighbour table), read passively.
+    ROGUE_DETECTION = "rogue-detection"
+
+
+#: Most scan results kept per device (#169); the strongest are kept.
+SCAN_LIMIT = 256
+
+
+def scan_id(owner_id: str, bssid: str) -> str:
+    """Id of a scan result: ``<radio id>/scan/<bssid>`` (``<device id>/scan/<bssid>`` when
+    the radio that heard it is not known)."""
+    return f"{owner_id}/scan/{bssid}"
+
+
+class WifiScanResult(Observed):
+    """An access point a radio heard (#169, ADR 0025): a neighbour's network, or one of ours.
+
+    Data about other people's networks: kept on the server, out of ``GET /api/network``,
+    exporters and MQTT (:meth:`Network.without_neighbour_networks`), shown in the device's
+    wireless section only. No stations of foreign networks are ever stored.
+    """
+
+    #: The device whose radio (or whose controller) reported it.
+    device_id: str
+    #: The radio that heard it; None: the device does not say which.
+    radio_id: str | None = None
+    bssid: Mac
+    #: None: a hidden network.
+    ssid: str | None = None
+    band: Band | None = None
+    #: Primary 20 MHz channel.
+    channel: int | None = None
+    width_mhz: int | None = None
+    signal_dbm: int | None = Field(default=None, ge=-120, le=0)
+    #: None: not reported (an open network is ``open``).
+    security: Security | None = None
+    #: When it was last heard (the read time for a scan).
+    last_seen: datetime | None = None
+    kind: ScanSource = ScanSource.SCAN
 
 
 class Client(Observed):
@@ -3251,6 +3301,9 @@ class Snapshot(Model):
     #: Routing tables and policy routing rules (#149; part of ``interfaces``).
     routes: list[Route] = Field(default_factory=list)
     routing_rules: list[RoutingRule] = Field(default_factory=list)
+    #: Access points the radios heard (#169; ``wireless``), at most :data:`SCAN_LIMIT` per
+    #: device. Other people's networks: see :class:`WifiScanResult`.
+    wifi_scan: list[WifiScanResult] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
     tunnels: list[Tunnel] = Field(default_factory=list)
     #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).
@@ -3352,6 +3405,9 @@ class Network(Model):
     #: Routing tables and policy routing rules (#149; part of ``interfaces``).
     routes: list[Route] = Field(default_factory=list)
     routing_rules: list[RoutingRule] = Field(default_factory=list)
+    #: Access points the radios heard (#169; ``wireless``), at most :data:`SCAN_LIMIT` per
+    #: device. Other people's networks: see :class:`WifiScanResult`.
+    wifi_scan: list[WifiScanResult] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
     tunnels: list[Tunnel] = Field(default_factory=list)
     #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).
@@ -3416,6 +3472,7 @@ class Network(Model):
             self.fdb,
             self.routes,
             self.routing_rules,
+            self.wifi_scan,
             self.tunnels,
             self.firewalls,
             self.server_sightings,
@@ -3423,6 +3480,18 @@ class Network(Model):
             self.links,
         ]
         return any(o.id == object_id for objs in groups for o in objs)
+
+    def own_bssids(self) -> set[str]:
+        """The BSSIDs of our own WLANs (#169)."""
+        return {w.bssid for w in self.wlans if w.bssid is not None}
+
+    def without_neighbour_networks(self) -> Network:
+        """This network without the scan results (#169): neighbours' SSIDs and BSSIDs are
+        other people's data (a BSSID can locate a site), so they stay out of exporters and
+        MQTT."""
+        if not self.wifi_scan:
+            return self
+        return self.model_copy(update={"wifi_scan": []})
 
     def without_account_names(self) -> Network:
         """This network without the device accounts (#175): account names are often personal

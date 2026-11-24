@@ -111,6 +111,7 @@ from signalbox.model import (
     Reservation,
     SaePwe,
     SaeSettings,
+    ScanSource,
     Security,
     Segment,
     ServiceKind,
@@ -119,6 +120,7 @@ from signalbox.model import (
     TemperatureSensor,
     Uplink,
     UplinkKind,
+    WifiScanResult,
     Wlan,
     Wps,
     WpsMethod,
@@ -128,6 +130,7 @@ from signalbox.model import (
     passphrase_digest,
     passphrase_fingerprint,
     port_id,
+    scan_id,
     segment_id,
 )
 
@@ -164,6 +167,15 @@ class OpenWrtConfig(AdapterConfig):
         "with an empty password, the OpenWrt factory state, and report it as a factory "
         "password (#126). The session is closed at once; nothing is changed. Without it, "
         "Signalbox only compares its own login with the factory default.",
+    )
+    scan_neighbours: bool = Field(
+        json_schema_extra={"advanced": True},
+        default=False,
+        description="Active probe (off by default): at every read, let each running radio scan "
+        "for neighbouring access points (iwinfo scan, #169) for the channel planner and the "
+        "evil-twin check. On some drivers a scan takes the radio off its channel for a moment, "
+        "so clients may stall briefly. Neighbours' names and BSSIDs stay on this server: not "
+        "in exports or MQTT.",
     )
 
 
@@ -1403,6 +1415,8 @@ class OpenWrtAdapter(Adapter):
             if isinstance(i, dict) and i.get("section") and i.get("ifname")
         }
         gaps: list[Gap] = []
+        bssids: dict[str, str] = {}
+        heard: list[WifiScanResult] = []
         for name, found in list(radios.items()):
             running = [
                 str(i["ifname"])
@@ -1410,7 +1424,7 @@ class OpenWrtAdapter(Adapter):
                 if isinstance(i, dict) and i.get("ifname")
             ]
             if found.enabled and running:
-                fields = await self._radio_state(found, running, gaps)
+                fields = await self._radio_state(found, running, gaps, bssids, heard)
                 radios[name] = found.model_copy(update=fields)
         wlans: list[Wlan] = []
         for name, s in _sections(uci, "wifi-iface"):
@@ -1454,17 +1468,27 @@ class OpenWrtAdapter(Adapter):
                     roaming_80211v=_flag(s.get("bss_transition", s.get("ieee80211v"))),
                     client_isolation=_flag(s.get("isolate")),
                     port_id=port_id(d, ifnames[name]) if name in ifnames else None,
+                    bssid=bssids.get(ifnames.get(name, "")),
                     vendor_extra=_extra(s, "encryption", "network"),
                 )
             )
-        return Observation(radios=list(radios.values()), wlans=wlans, incomplete=gaps[:1])
+        return Observation(
+            radios=list(radios.values()), wlans=wlans, wifi_scan=heard, incomplete=gaps[:1]
+        )
 
     async def _radio_state(
-        self, radio: Radio, ifnames: list[str], gaps: list[Gap]
+        self,
+        radio: Radio,
+        ifnames: list[str],
+        gaps: list[Gap],
+        bssids: dict[str, str],
+        heard: list[WifiScanResult],
     ) -> dict[str, Any]:
         """Capabilities and current state of a running radio (#172) from ``iwinfo`` and
         ``hostapd``; what the device does not answer stays None. A refused iwinfo call (an ACL from
-        before #172) or a missing rpcd-mod-iwinfo is an optional gap, reported once."""
+        before #172) or a missing rpcd-mod-iwinfo is an optional gap, reported once. Fills the
+        BSSID per interface (``bssids``) and, with ``scan_neighbours`` on, what the radio heard
+        (``heard``, #169)."""
 
         async def ask(obj: str, method: str, args: dict[str, Any]) -> dict[str, Any] | None:
             try:
@@ -1512,6 +1536,25 @@ class OpenWrtAdapter(Adapter):
             await ask("iwinfo", "freqlist", dev),
             await ask("iwinfo", "txpowerlist", dev),
         )
+        for i, ifname in enumerate(ifnames):
+            other = info if i == 0 else await ask("iwinfo", "info", {"device": ifname})
+            if (bssid := radio_state.bssid_of(other)) is not None:
+                bssids[ifname] = bssid
+        if self.config.scan_neighbours:
+            now = datetime.now(UTC)
+            for row in radio_state.scan(await ask("iwinfo", "scan", dev)):
+                if row["band"] not in (None, radio.band):
+                    continue  # a dual-band phy scans the other band too
+                heard.append(
+                    WifiScanResult(
+                        id=scan_id(radio.id, row["bssid"]),
+                        device_id=radio.device_id,
+                        radio_id=radio.id,
+                        last_seen=now,
+                        kind=ScanSource.SCAN,
+                        **row,
+                    )
+                )
         mhz = info.get("frequency") if info else None
         survey = radio_state.utilisation(
             await ask("iwinfo", "survey", dev), mhz if isinstance(mhz, int) else None

@@ -1576,8 +1576,7 @@
     },
     "vendor_extra": {
      "BeaconType": "11iandWPA3",
-     "Standard": "ax",
-     "BSSID": "00:00:5e:00:53:00"
+     "Standard": "ax"
     },
     "device_id": "recorded",
     "ssid": "name-3",
@@ -1606,7 +1605,8 @@
     "passphrase_digest": null,
     "key_rotation_seconds": null,
     "beacon_protection": null,
-    "port_id": null
+    "port_id": null,
+    "bssid": "00:00:5e:00:53:00"
    },
    {
     "id": "recorded/wlan/2",
@@ -1616,8 +1616,7 @@
     },
     "vendor_extra": {
      "BeaconType": "11iandWPA3",
-     "Standard": "ax",
-     "BSSID": "00:00:5e:00:53:01"
+     "Standard": "ax"
     },
     "device_id": "recorded",
     "ssid": "name-3",
@@ -1648,7 +1647,8 @@
     "passphrase_digest": null,
     "key_rotation_seconds": null,
     "beacon_protection": null,
-    "port_id": null
+    "port_id": null,
+    "bssid": "00:00:5e:00:53:01"
    },
    {
     "id": "recorded/wlan/3",
@@ -1659,7 +1659,6 @@
     "vendor_extra": {
      "BeaconType": "11i",
      "Standard": "ax",
-     "BSSID": "00:00:5e:00:53:02",
      "guest": true
     },
     "device_id": "recorded",
@@ -1689,7 +1688,8 @@
     "passphrase_digest": null,
     "key_rotation_seconds": null,
     "beacon_protection": null,
-    "port_id": null
+    "port_id": null,
+    "bssid": "00:00:5e:00:53:02"
    }
   ],
   "clients": [
@@ -1812,6 +1812,7 @@
    }
   ],
   "routing_rules": [],
+  "wifi_scan": [],
   "tunnels": [],
   "firewalls": [
    {

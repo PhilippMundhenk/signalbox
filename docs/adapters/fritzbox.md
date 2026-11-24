@@ -283,6 +283,10 @@ radio, and the guest network last.
   supported standards and widths, utilisation, noise, DFS state *(the action list of the
   SCPD files in `tests/fixtures/tr064/`)*.
 
+- **BSSID** (#169): `NewBSSID` is `Wlan.bssid`. Neighbouring networks: TR-064 has no action
+  for the box's list of neighbouring Wi-Fi networks (the web UI's *Funkkanal* page), so none
+  are read.
+
 ### `Hosts:1` and `WLANConfiguration:<n> GetGenericAssociatedDeviceInfo` (clients)
 
 - Stations: `GetTotalAssociations`, then `GetGenericAssociatedDeviceInfo` for every

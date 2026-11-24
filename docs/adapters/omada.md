@@ -270,6 +270,17 @@ band suffix (`2g`, `5g`, `5g2`, `6g`): `wp<band>.rdMode` (`802.11a/n/ac/ax`: the
 description)*. Missing fields stay unreported. Not read: supported standards, channels and
 widths, noise, DFS state.
 
+### `GET …/sites/{siteId}/insight/rogue-aps` (paged, optional) *(guess: path and fields)*
+
+Rogue AP detection (#169): the foreign access points the EAPs heard, read passively (the
+controller collects them while *Rogue AP Detection* is on in the site settings; otherwise the
+list is empty). The controller leaves out the EAPs it manages. Each row (`ssid`, `bssid`,
+`channel`, `band` 0/1/2/3 like the client radio ids, `channelWidth` code, `rssi` dBm,
+`security` text such as `WPA2-PSK` or `None`, `lastSeen` ms, `apMac` of the EAP that heard it)
+becomes a `WifiScanResult` of kind `rogue-detection` under that EAP's radio of the band (under
+the controller when `apMac` is missing). No stations of foreign networks are read. Own
+WLANs' BSSIDs are not read from Omada (not in the documented API).
+
 ### `GET …/sites/{siteId}/wireless-network/wlans` and `…/wlans/{wlanId}/ssids` (paged)
 
 ```json

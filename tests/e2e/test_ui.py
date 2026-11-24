@@ -317,7 +317,20 @@ def test_concept_views_show_the_network(app: Any) -> None:
         "20/40/80/160 MHz · up to 23 dBm · antennas 2x2 · radar (DFS) channels"
     )
     two = radios.locator('[data-id="router/radio/radio0"]')
-    expect(two).to_have_text("2.4 GHz · channel 6 · 20 MHz · 20 dBm")
+    expect(two).to_have_text(
+        "2.4 GHz · channel 6 · 20 MHz · 20 dBm · 2 neighbours on the channel · strongest -61 dBm"
+    )
+
+    # neighbouring networks (#169): per radio, collapsed, one using our Wi-Fi name
+    heard = app.get_by_test_id("device-neighbours")
+    expect(heard).to_contain_text("2 access points the radios heard")
+    heard.get_by_test_id("neighbour-radio").first.locator("summary").click()
+    rows = heard.get_by_test_id("neighbour-row")
+    expect(rows).to_have_count(2)
+    expect(rows.first).to_contain_text("Neighbour-A")
+    expect(rows.first).to_contain_text("02:5e:00:00:01:01")
+    expect(rows.first).to_contain_text("-61 dBm")
+    expect(heard.get_by_test_id("neighbour-twin")).to_have_count(1)
 
     # spanning tree (#155): the bridge is the root, lan1 an edge port
     stp = app.get_by_test_id("device-stp")

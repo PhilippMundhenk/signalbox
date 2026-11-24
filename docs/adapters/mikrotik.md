@@ -554,6 +554,14 @@ Profiles, all *optional*: `/rest/interface/wifi/security`
 *Guess*: the REST API returns the inline settings as dotted names (`configuration.ssid`), as the
 CLI shows them. The `steering.*` names (802.11k/v) are from RouterOS 7.13+.
 
+### BSSIDs and neighbouring networks (#169)
+
+`mac-address` of each `/interface/wifi` and `/interface/wireless` row (virtual APs included) is
+the WLAN's `bssid`. Neighbouring networks are not read: `/interface/wifi/scan` (and the old
+package's `/interface/wireless/scan`) is an active scan that takes the radio off its channel and
+disconnects its clients while it runs, and RouterOS has no passive neighbour list for the
+`wifi` package. The registration table holds only our own clients (#172: counts per radio).
+
 ### `/rest/interface/wireless`, `/rest/interface/wireless/security-profiles` (wireless, `wireless` package)
 
 ```json
