@@ -27,6 +27,7 @@ from signalbox.sim.dnsfilter import (
     AG_USER,
     MAC_LAPTOP,
     MAC_NAS,
+    MAC_PHONE,
     PH_PASSWORD,
     AdGuardSim,
     PiholeSim,
@@ -132,6 +133,8 @@ async def test_adguard_contract_and_mapping(ag: tuple[AdGuardSim, str]) -> None:
         (MAC_LAPTOP, "Laptop"),
         (MAC_NAS, "NAS"),
     ]
+    # AdGuard Home hands out itself: its own IPv4 address in the DHCP network (#314)
+    assert [str(x) for x in dhcp.dns_servers] == ["192.0.2.53"]
     assert {m for m, _ in sim.requests} == {"GET"}  # read only
 
 
@@ -153,6 +156,21 @@ async def test_adguard_dhcp_off_reads_no_server(ag: tuple[AdGuardSim, str]) -> N
     sim.data["/control/dhcp/status"]["enabled"] = False
     snap = await observe(adguard(url))
     assert snap.status is DeviceStatus.OK and not snap.dhcp_servers and not snap.segments
+
+
+async def test_adguard_dhcp_dns_servers(ag: tuple[AdGuardSim, str]) -> None:
+    sim, url = ag
+    status = sim.data["/control/status"]
+    status["dns_addresses"] = ["192.0.2.53", "198.51.100.5", "2001:db8::53"]
+    dhcp = (await observe(adguard(url))).dhcp_servers[0]
+    assert [str(x) for x in dhcp.dns_servers] == ["192.0.2.53"]  # the DHCP network only
+    sim.data["/control/dhcp/status"]["v4"]["subnet_mask"] = "bad"
+    dhcp = (await observe(adguard(url))).dhcp_servers[0]
+    assert [str(x) for x in dhcp.dns_servers] == ["192.0.2.53", "198.51.100.5"]
+    sim.data["/control/dhcp/status"]["v4"]["subnet_mask"] = "255.0.255.0"  # not a netmask
+    assert len((await observe(adguard(url))).dhcp_servers[0].dns_servers) == 2
+    sim.data["/control/dhcp/status"]["v4"].pop("subnet_mask")
+    assert (await observe(adguard(url))).dhcp_servers[0].dns_servers
 
 
 async def test_adguard_wrong_password(ag: tuple[AdGuardSim, str]) -> None:
@@ -225,6 +243,13 @@ async def test_pihole_contract_mapping_and_logout(ph: tuple[PiholeSim, str]) -> 
     assert leases["192.0.2.20"].reserved and leases["192.0.2.20"].expires is None
     assert leases["192.0.2.20"].hostname is None  # "*"
     assert leases["192.0.2.151"].expires is not None
+    assert [str(x) for x in dhcp.dns_servers] == ["127.0.0.1"]  # itself, as reached (#314)
+    by_mac = {c.mac: c for c in snap.clients}
+    assert set(by_mac) == {MAC_LAPTOP, MAC_PHONE}  # "ip-192.0.2.99" has no MAC
+    laptop = by_mac[MAC_LAPTOP]
+    assert laptop.hostname == "laptop" and laptop.last_seen is not None
+    assert [str(x) for x in laptop.addresses] == ["192.0.2.151", "2001:db8::151"]
+    assert by_mac[MAC_PHONE].hostname is None and by_mac[MAC_PHONE].last_seen is None
     assert sim.last_sid not in snap.model_dump_json()
     assert {m for m, _ in sim.requests} <= {"GET", "POST", "DELETE"}
 
@@ -299,6 +324,39 @@ async def test_pihole_lease_table_failure_is_a_gap(ph: tuple[PiholeSim, str]) ->
     assert snap.errors[0].capability == "dhcp" and snap.errors[0].fix
     assert snap.dhcp_servers[0].leases is None  # not read, not "no leases"
     assert sim.logouts == 1
+
+
+@pytest.mark.parametrize(
+    ("lines", "expected"),
+    [
+        (["dhcp-option=6,192.0.2.1,0.0.0.0"], ["192.0.2.1", "127.0.0.1"]),
+        (["dhcp-option=option:dns-server,192.0.2.1"], ["192.0.2.1"]),
+        (["dhcp-option=tag:kids,6,198.51.100.1", "dhcp-option=3,192.0.2.1"], ["127.0.0.1"]),
+        (["dhcp-option=6,not-an-address"], []),
+    ],
+)
+async def test_pihole_dhcp_dns_option(
+    ph: tuple[PiholeSim, str], lines: list[str], expected: list[str]
+) -> None:
+    sim, url = ph
+    sim.data["/api/config"]["config"]["misc"]["dnsmasq_lines"] = lines
+    snap = await observe(pihole(url))
+    assert [str(x) for x in snap.dhcp_servers[0].dns_servers] == expected
+
+
+async def test_pihole_clients_gap_and_odd_rows(ph: tuple[PiholeSim, str]) -> None:
+    sim, url = ph
+    sim.data["/api/network/devices"]["devices"] += [
+        "junk",
+        {"hwaddr": "02:00:5e:00:53:20", "ips": ["x", {"ip": "bad", "lastSeen": True}]},
+    ]
+    snap = await observe(pihole(url))
+    assert "02:00:5e:00:53:20" in {c.mac for c in snap.clients}
+    sim.data["/api/network/devices"] = {"devices": "none"}
+    assert not (await observe(pihole(url))).clients
+    sim.fail["/api/network/devices"] = 500
+    snap = await observe(pihole(url))
+    assert snap.status is DeviceStatus.PARTIAL and snap.errors[0].capability == "clients"
 
 
 async def test_pihole_old_version_is_refused(ph: tuple[PiholeSim, str]) -> None:

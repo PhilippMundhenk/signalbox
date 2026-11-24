@@ -75,11 +75,27 @@ Mapping to the model:
   dynamic leases as active (with the expiry), static ones as `reserved` entries. AdGuard Home
   does not say which VLAN it is in: the server is reported on the site's native segment and
   core moves it to the segment of the router it shares a network with. DHCPv6 ranges are only
-  kept as `vendor_extra.v6_range_start`. The DNS server AdGuard Home hands out is not shown
-  by the API *(guess: its own address)*, so `dns_servers` stays empty.
+  kept as `vendor_extra.v6_range_start`. **DNS servers handed out** (`dns_servers`, #314):
+  the DHCP config has no DNS option, so AdGuard Home hands out itself *(guess, needs a real
+  device)*: its own IPv4 addresses from `dns_addresses` (no loopback or link-local) that lie
+  in the DHCP network (`gateway_ip` with `subnet_mask`); without a readable network, all of
+  them.
 - **Clients**: configured clients that have a **MAC address** among their identifiers
-  (the model keys a client by MAC); clients that are only an IP address or a network, and
-  AdGuard Home's automatically found clients, are not listed.
+  (the model keys a client by MAC: `Client.mac` is required, and an address-only entry has
+  nothing to key it by without inventing a MAC, so Signalbox does not); clients that are only
+  an IP address or a network, and AdGuard Home's automatically found clients (`auto_clients`,
+  address only), are therefore not listed. Their addresses still show in the DHCP lease table
+  when AdGuard Home hands them out.
+
+## Discovery (#314)
+
+*Find devices* ([DISCOVERY.md](../DISCOVERY.md)) sends `GET /control/status` without
+credentials to `https` port 443, then `http` ports 3000 and 80. Recognised: a `200` JSON with
+`dns_port` and `version` (no login), or `401` with `WWW-Authenticate: Basic` and a realm that
+names AdGuard Home *(guess: the realm text and 401 versus 403 of a login-protected instance
+are not confirmed, #21; a 403 is not accepted)*. Passive, runs only when you press *Search
+now*, and not at all with `discovery.enabled: false`. Plain `http` candidates carry the note
+to tick *Allow plain http*; nothing is prefilled that weakens security.
 
 ## Gaps (reported as partly read, with a fix)
 

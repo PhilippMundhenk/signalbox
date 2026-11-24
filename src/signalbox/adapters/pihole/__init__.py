@@ -1,4 +1,4 @@
-"""Pi-hole v6: DNS service, upstream servers and DHCP server, read only (#304).
+"""Pi-hole v6: DNS service, upstream servers and DHCP server and clients, read only (#304, #314).
 
 Talks to the v6 REST API (``/api/...``). Signalbox logs in with ``POST /api/auth`` and an app
 password, which gives a session id; every request carries it in the ``sid`` header; the
@@ -31,18 +31,24 @@ from signalbox.adapters import (
     dnsmap,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.pihole import discovery as _discovery
+from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     DNS_PORT,
+    Client,
     DeviceRole,
     Firmware,
     HostRecord,
+    IPAddress,
     Reservation,
+    object_id,
 )
 
 AUTH = "/api/auth"
 VERSION = "/api/info/version"
 CONFIG = "/api/config"
 LEASES = "/api/dhcp/leases"
+DEVICES = "/api/network/devices"
 #: Pi-hole v5's API; only probed to say clearly that v5 is not supported.
 V5_API = "/admin/api.php"
 
@@ -99,6 +105,10 @@ def _sub(value: dict[str, Any], key: str) -> dict[str, Any]:
     return inner if isinstance(inner, dict) else {}
 
 
+def _epoch(value: Any) -> float:
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0.0
+
+
 class PiholeAdapter(Adapter):
     manifest = Manifest(
         id="pihole",
@@ -107,10 +117,10 @@ class PiholeAdapter(Adapter):
         api_version="1.4",
         vendor="Pi-hole",
         roles=frozenset({DeviceRole.OTHER}),
-        capabilities=frozenset({Capability.DNS, Capability.DHCP}),
+        capabilities=frozenset({Capability.DNS, Capability.DHCP, Capability.CLIENTS}),
         config=PiholeConfig,
         description="Reads a Pi-hole v6 DNS filter through its REST API: DNS service, upstream "
-        "servers, DHCP server and leases. Read only.",
+        "servers, DHCP server, leases and network clients. Read only.",
         setup_url=SETUP_URL,
         setup_steps=STEPS,
     )
@@ -348,6 +358,54 @@ class PiholeAdapter(Adapter):
             reservations=reservations,
             leases=leases,
             domain=domain,
+            dns_servers=await self._dhcp_dns_servers(),
             extra=extra,
         )
         return Observation(dhcp_servers=[server], segments=[segment], incomplete=gaps)
+
+    async def _dhcp_dns_servers(self) -> list[IPAddress]:
+        """What Pi-hole's DHCP hands out as DNS server: itself, unless ``misc.dnsmasq_lines``
+        has a ``dhcp-option=6,...`` line (guess: no field of its own in ``config.dhcp``, #21).
+        Itself is the address Signalbox reaches it at; a host name does not tell it."""
+        own = [a] if (a := dnsmap.address(self.http.host)) is not None else []
+        lines = _sub(_sub(_obj(await self._get(CONFIG), CONFIG), "config"), "misc").get(
+            "dnsmasq_lines"
+        )
+        told = dnsmap.dhcp_option_dns(lines if isinstance(lines, list) else [], own)
+        return own if told is None else told
+
+    # --- clients ------------------------------------------------------------------------------
+
+    async def read_clients(self) -> Observation:
+        """The network table (``/api/network/devices``): one row per MAC address with the
+        addresses and names Pi-hole saw it use. A row without a real MAC (Pi-hole names a
+        device it only knows by address ``ip-192.0.2.5``) is not listed: the model keys a
+        client by MAC."""
+        rows = _obj(await self._get(DEVICES), DEVICES).get("devices")
+        dev = self.context.device_id
+        out: dict[str, Client] = {}
+        for row in rows if isinstance(rows, list) else []:
+            m = dnsmap.mac(row.get("hwaddr")) if isinstance(row, dict) else None
+            if m is None:
+                continue
+            ips = [i for i in row.get("ips") or [] if isinstance(i, dict)]
+            ips.sort(key=lambda i: -_epoch(i.get("lastSeen")))
+            addresses = list(
+                dict.fromkeys(a for i in ips if (a := dnsmap.address(i.get("ip"))) is not None)
+            )
+            name = next((n for i in ips if (n := dnsmap.text(i.get("name")))), None)
+            seen = [dnsmap.epoch(i.get("lastSeen")) for i in ips]
+            seen.append(dnsmap.epoch(row.get("lastQuery")))
+            out[m] = Client(
+                id=object_id(dev, "client", m),
+                mac=m,
+                addresses=addresses,
+                hostname=name,
+                last_seen=max((t for t in seen if t is not None), default=None),
+            )
+        return Observation(clients=[out[m] for m in sorted(out)])
+
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        """``GET /api/info/login`` (or the ``/admin/`` page) without credentials."""
+        return await _discovery.discover(probe)

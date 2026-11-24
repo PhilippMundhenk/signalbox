@@ -2,7 +2,7 @@
 
 Reads a Pi-hole **v6** DNS filter through its REST API (`/api/...`): the DNS service and its
 port, the upstream servers, local DNS records, and the DHCP server with its leases and
-reservations if it is enabled. **Read only**: besides the login and logout, Signalbox sends GET
+reservations if it is enabled, and the network table as clients. **Read only**: besides the login and logout, Signalbox sends GET
 requests only. The DNS and DHCP checks then see Pi-hole's real settings instead of "an unread
 DNS service" ([#241](https://github.com/PhilippMundhenk/signalbox/issues/241)). AdGuard Home
 is the sibling integration ([adguardhome.md](adguardhome.md)); both map to the model the same
@@ -12,7 +12,7 @@ way.
 | --- | --- |
 | Adapter id | `pihole` |
 | Roles | `other` |
-| Capabilities | dns, dhcp |
+| Capabilities | dns, dhcp, clients |
 | Writes | none |
 | Simulator | `signalbox.sim.dnsfilter.PiholeSim` |
 
@@ -52,7 +52,8 @@ with a fix.
 | --- | --- |
 | `POST /api/auth`, `DELETE /api/auth` | login and logout |
 | `GET /api/info/version` | firmware (`version.ftl.local.version`, newer release from `.remote`); v6 check |
-| `GET /api/config` | `config.dns` (`upstreams`, `port`, `hosts`, `revServers`, `blocking.active`, `domain.name`, `interface`, `listeningMode`) and `config.dhcp` (`active`, `start`, `end`, `router`, `leaseTime`, `hosts`) |
+| `GET /api/config` | `config.dns` (`upstreams`, `port`, `hosts`, `revServers`, `blocking.active`, `domain.name`, `interface`, `listeningMode`) and `config.dhcp` (`active`, `start`, `end`, `router`, `leaseTime`, `hosts`) and `misc.dnsmasq_lines` |
+| `GET /api/network/devices` | clients (#314): `devices[]` with `hwaddr`, `ips[]` (`ip`, `name`, `lastSeen`), `lastQuery` |
 | `GET /api/dhcp/leases` | `leases[]`: `ip`, `hwaddr`, `name`, `expires` (epoch, 0: does not end), `clientid` |
 
 Mapping to the model:
@@ -68,14 +69,34 @@ Mapping to the model:
   (`24h`, `90m`, `7d`, seconds), router, domain, the reservations (`dhcp.hosts`, dnsmasq
   `dhcp-host` lines with a MAC and an IPv4 address) and the lease table (entries without a MAC
   and client id are dropped). Reported on the site's native segment (see AdGuard Home).
-  `dns_servers` stays empty *(guess: Pi-hole hands out itself)*.
-- **Not read**: query statistics, blocklists, clients (`/api/network/devices`), the group
-  settings.
+  **DNS servers handed out** (`dns_servers`, #314): Pi-hole itself, that is the address
+  Signalbox reaches it at (a host name tells no address: then empty), unless
+  `misc.dnsmasq_lines` has a `dhcp-option=6,...` or `dhcp-option=option:dns-server,...` line
+  (`0.0.0.0` stands for Pi-hole itself; lines scoped to a `tag:` are skipped) *(guess: v6 has
+  no field for it in `config.dhcp`, and dnsmasq's own default is the server itself; needs a
+  real device)*.
+- **Clients** (#314): the network table `/api/network/devices`, one client per MAC address
+  with the addresses and the first name Pi-hole knows, `last_seen` from the newest `lastSeen`
+  or `lastQuery`. A row without a real MAC (Pi-hole names address-only devices `ip-<address>`)
+  is not listed: the model keys a client by MAC. `/api/clients` is not read: it is the list
+  of group-management entries (MAC, IP, network or name), not a table of hosts.
+- **Not read**: query statistics, blocklists, the group settings.
+
+## Discovery (#314)
+
+*Find devices* ([DISCOVERY.md](../DISCOVERY.md)) sends `GET /api/info/login` (public in v6)
+to `https` port 443, then `http` port 80: JSON with a boolean `dns` is Pi-hole v6. Otherwise
+`GET /admin/` (v5 and v6): `Pi-hole` in the page makes a candidate whose note says Signalbox
+needs v6. The candidate's address is always `https` (with `https_port` if the plain answer
+names one). *(Guess: the exact fields of `/api/info/login`, and that it needs no session;
+needs a real device, #21.)* Passive, only when you press *Search now*, and not at all with
+`discovery.enabled: false`.
 
 ## Gaps
 
 - The lease table could not be read (`/api/dhcp/leases` failed): the DHCP server is reported
   without leases ("not read", not "no leases") and the device as partly read, with a fix.
+- The network table could not be read: the device is partly read, with a fix (no clients).
 - A v5 or non-Pi-hole device, an old v6 beta, a missing `dns.upstreams`: an error naming the
   request.
 

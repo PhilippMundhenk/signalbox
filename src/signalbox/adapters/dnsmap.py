@@ -228,6 +228,31 @@ def lease(
     )
 
 
+def dhcp_option_dns(lines: Iterable[object], own: Iterable[IPAddress]) -> list[IPAddress] | None:
+    """The DNS servers set by dnsmasq ``dhcp-option`` lines (Pi-hole's ``misc.dnsmasq_lines``):
+    ``dhcp-option=6,192.0.2.1,0.0.0.0`` or ``dhcp-option=option:dns-server,...``; ``0.0.0.0``
+    stands for the server itself (``own``). Lines for a tag or interface (``tag:x,6,...``,
+    ``set:``) are skipped. None when no line sets option 6."""
+    for raw in lines:
+        line = str(raw).split("#", 1)[0].strip()
+        key, _, value = line.partition("=")
+        if key.strip() != "dhcp-option":
+            continue
+        parts = [p.strip() for p in value.split(",")]
+        if parts and ":" in parts[0] and parts[0] not in ("option:dns-server",):
+            continue  # tag:/set:/vendor: scoped, or another named option
+        if len(parts) < 2 or parts[0] not in ("6", "option:dns-server"):
+            continue
+        out: list[IPAddress] = []
+        for item in parts[1:]:
+            a = address(item)
+            if a is None:
+                continue
+            out.extend(own if a.is_unspecified else [a])
+        return out
+    return None
+
+
 def dhcp_server(
     device_id: str,
     site_id: str,
@@ -240,6 +265,7 @@ def dhcp_server(
     reservations: list[Reservation],
     leases: list[DhcpLease] | None,
     domain: str | None = None,
+    dns_servers: Iterable[IPAddress] = (),
     extra: dict[str, Any] | None = None,
 ) -> tuple[DhcpServer, Segment]:
     """An enabled IPv4 DHCP server and the native segment it is on."""
@@ -254,6 +280,7 @@ def dhcp_server(
         pools=pools,
         lease_seconds=lease_time,
         router=address(router),
+        dns_servers=list(dict.fromkeys(dns_servers)),
         domain=domain or None,
         reservations=reservations,
         leases=leases,

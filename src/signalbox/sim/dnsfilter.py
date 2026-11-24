@@ -5,6 +5,9 @@ The shapes follow the public API descriptions (``docs/adapters/adguardhome.md``,
 addresses only: AdGuard Home at 192.0.2.53 forwards to the router 192.0.2.1 and to DNS over
 TLS at 203.0.113.53; Pi-hole at 192.0.2.54 forwards to AdGuard Home (192.0.2.53).
 
+Without credentials the simulators answer what the discovery probes read (#314): AdGuard
+Home's 401 with its realm, Pi-hole's ``/api/info/login`` and ``/admin/``.
+
 Switches: ``AdGuardSim.dhcp_enabled``, ``upstream_file``, ``fail`` (path -> HTTP status),
 ``PiholeSim.version`` (``"v6"`` or ``"v5"``: no ``/api``, ``/admin/api.php`` answers),
 ``dhcp_active``, ``max_sessions`` (more: HTTP 429), ``fail``, ``totp`` (a login that needs a
@@ -130,7 +133,9 @@ class AdGuardSim:
             self.requests.append((request.method, path))
             if not self.authorised(request.headers.get("authorization")):
                 return Response(
-                    "Unauthorized\n", status_code=401, headers={"WWW-Authenticate": "Basic"}
+                    "Unauthorized\n",
+                    status_code=401,
+                    headers={"WWW-Authenticate": 'Basic realm="AdGuard Home"'},
                 )
             if request.method != "GET":
                 return Response("method not allowed\n", status_code=405)
@@ -177,9 +182,49 @@ def _pihole_data() -> dict[str, Any]:
                     "ipv6": False,
                     "hosts": [f"{MAC_NAS},192.0.2.20,nas", "garbage"],
                 },
+                "misc": {"dnsmasq_lines": ["dhcp-authoritative"]},
             },
             "took": 0.002,
         },
+        "/api/network/devices": {
+            "devices": [
+                {
+                    "id": 1,
+                    "hwaddr": MAC_LAPTOP,
+                    "interface": "eth0",
+                    "firstSeen": 1893400000,
+                    "lastQuery": 1893490000,
+                    "numQueries": 12,
+                    "macVendor": "",
+                    "ips": [
+                        {"ip": "192.0.2.151", "lastSeen": 1893491000, "name": "laptop"},
+                        {"ip": "2001:db8::151", "lastSeen": 1893400100, "name": None},
+                    ],
+                },
+                {
+                    "id": 2,
+                    "hwaddr": MAC_PHONE.upper(),
+                    "interface": "eth0",
+                    "firstSeen": 1893400000,
+                    "lastQuery": None,
+                    "numQueries": 0,
+                    "macVendor": "",
+                    "ips": [{"ip": "192.0.2.152", "lastSeen": 0, "name": ""}],
+                },
+                {
+                    "id": 3,
+                    "hwaddr": "ip-192.0.2.99",
+                    "interface": "eth0",
+                    "firstSeen": 1,
+                    "lastQuery": 1,
+                    "numQueries": 1,
+                    "macVendor": "",
+                    "ips": [{"ip": "192.0.2.99", "lastSeen": 1, "name": "x"}],
+                },
+            ],
+            "took": 0.001,
+        },
+        "/api/info/login": {"dns": True, "https_port": 443, "dhcp": False, "took": 0.0},
         "/api/dhcp/leases": {
             "leases": [
                 {
@@ -231,11 +276,17 @@ class PiholeSim:
             path = "/" + path
             self.requests.append((request.method, path))
             if self.version in ("v5", "other"):
+                if self.version == "v5" and path == "/admin/":
+                    return Response("<title>Pi-hole admin</title>", media_type="text/html")
                 if self.version == "v5" and path == "/admin/api.php":
                     return JSONResponse({"domains_being_blocked": 1, "status": "enabled"})
                 return Response("not found\n", status_code=404)
+            if path == "/admin/" and request.method == "GET":
+                return Response("<title>Pi-hole</title>", media_type="text/html")
             if not path.startswith("/api/"):
                 return Response("not found\n", status_code=404)
+            if path == "/api/info/login" and request.method == "GET":  # public, no session
+                return JSONResponse(copy.deepcopy(self.data[path]))
             if path == "/api/auth" and request.method == "POST":
                 body = await request.json()
                 if len(self.sessions) >= self.max_sessions:
