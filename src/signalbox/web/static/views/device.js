@@ -2,7 +2,7 @@
 import { del, enc, get, post } from '../api.js';
 import { compare, fmtDate, fmtNumber, t } from '../i18n.js';
 import { fdbText, loadNetwork } from '../net.js';
-import { PORT_ROLE, clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, ltr, place, portDetails, portSpeed, yesNo } from '../util.js';
+import { LAG_MODE, PORT_ROLE, clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, ltr, place, portDetails, portSpeed, yesNo } from '../util.js';
 import { busy, card, confirmDialog, empty, kv, manageLink, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
 import { fixPanel, remedyOf } from './devicefix.js';
@@ -478,6 +478,25 @@ function radiosCard(ix, deviceId) {
   return h('section', { class: 'card', 'data-testid': 'device-radios' }, h('h2', {}, t('device.radios.title')), kv(rows));
 }
 
+// Link aggregation (#157): a LAG's mode, hash and LACP settings; a member's LAG and LACP state.
+function lagFacts(ix, p) {
+  const out = [];
+  if (p.lag_mode) out.push(LAG_MODE[p.lag_mode] || p.lag_mode);
+  if (p.hash_policy) out.push(t('device.lag.hash', { hash: p.hash_policy }));
+  if (p.lacp_rate) out.push(t(p.lacp_rate === 'fast' ? 'device.lag.rateFast' : 'device.lag.rateSlow'));
+  if (p.min_links) out.push(t('device.lag.minLinks', { n: p.min_links }));
+  const upper = [...ix.ports.values()].find((q) => q.role === 'lag' && q.device_id === p.device_id && (q.lower || []).includes(p.id));
+  if (upper || (p.lag && p.kind !== 'lag')) out.push(t('device.lag.member', { lag: upper ? upper.name : p.lag }));
+  const st = p.lag_member_state;
+  if (st) {
+    if (st.collecting_distributing === false) out.push(t('device.lag.notAggregating'));
+    else if (st.selected === false) out.push(t('device.lag.standby'));
+    else if (st.collecting_distributing === true || st.selected === true) out.push(t('device.lag.aggregating'));
+    if (st.partner_system_id) out.push(st.partner_port != null ? t('device.lag.partnerPort', { mac: st.partner_system_id, port: st.partner_port }) : t('device.lag.partner', { mac: st.partner_system_id }));
+  }
+  return out;
+}
+
 // One entry of the port tree (#252): the port (or radio), what it is, and what runs on it.
 function portNode(ix, node) {
   const name = (pid) => (ix.ports.get(pid) || {}).name || pid.split('/port/').pop();
@@ -496,6 +515,7 @@ function portNode(ix, node) {
       p.up === true ? t('device.state.up') : p.up === false ? t('device.state.down') : null,
       p.up !== false ? portSpeed(p) : null,
       ...portDetails(p),
+      ...lagFacts(ix, p),
       node.members.length ? t('device.port.over', { members: node.members.map(name).join(', ') }) : null,
     ];
   }

@@ -17,6 +17,7 @@ from signalbox.model import (
     Device,
     DeviceRole,
     FdbKind,
+    LagGroup,
     Membership,
     Network,
     Port,
@@ -97,14 +98,11 @@ def _memberships(net: Network) -> dict[str, dict[str, Membership]]:
     "has lost its redundancy and part of its bandwidth.",
 )
 def lag_consistent(net: Network) -> Iterator[Result]:
-    lags: dict[tuple[str, str], list[Port]] = {}
-    for p in net.ports:
-        if p.lag and p.kind is not PortKind.LAG and p.name != p.lag:
-            lags.setdefault((p.device_id, p.lag), []).append(p)
+    groups = net.lag_groups()
     members_of = _memberships(net)
     peers = _peers(net)
-    for (dev, lag), members in sorted(lags.items()):
-        members.sort(key=lambda p: p.id)
+    for (dev, lag), group in groups.items():
+        members = list(group.members)
         ids = [p.id for p in members]
         label = f"{device_name(net, dev)} {lag} [{_names([p.name for p in members])}]"
         up = [p for p in members if p.up is not False]
@@ -156,7 +154,35 @@ def lag_consistent(net: Network) -> Iterator[Result]:
                 fix_id="topology.lagSingle.fix",
                 params={"label": label},
             )
+        elif len(members) > 1 and None not in states and _carrying(group) == 1:
+            # #157: all members are up, but LACP aggregates only one of them
+            yield found(
+                f"{label}: only one member carries traffic.",
+                [dev, *ids],
+                fix="See the finding about the members that are not aggregated.",
+                severity=Severity.INFO,
+                key=f"{lag}\x00single",
+                mid="topology.lagSingleActive",
+                fix_id="topology.lagSingleActive.fix",
+                params={"label": label},
+            )
         yield from _lag_far_end(net, label, dev, lag, members, peers)
+
+
+def _carrying(group: LagGroup) -> int | None:
+    """Members that are up and carry traffic, where every member that is up says (#157);
+    ``None``: not reported."""
+    up = [p for p in group.members if p.up is True]
+    if group.mode is None or not group.mode.lacp:
+        return None
+    states = [p.lag_member_state for p in up]
+    if any(s is None or (s.selected is None and s.collecting_distributing is None) for s in states):
+        return None
+    return sum(
+        1
+        for s in states
+        if s is not None and s.selected is not False and s.collecting_distributing is not False
+    )
 
 
 def _lag_far_end(
@@ -190,7 +216,9 @@ def _lag_far_end(
             params={"device": device_name(net, devices[0]), "label": label},
         )
         return
-    far = {p.lag for p in ports if p is not None}
+    groups = net.lag_groups()
+    lag_of = {m.id: name for (_, name), g in groups.items() for m in g.members}
+    far = {lag_of.get(p.id) for p in ports if p is not None}
     if far == {None}:
         yield found(
             f"{label} is connected to {_names(_port_name(net, r) for r in remote)}, which are "

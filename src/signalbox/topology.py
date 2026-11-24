@@ -186,6 +186,18 @@ def view(net: Network) -> dict[str, Any]:
     }
 
     tunnels = {t.id: t for t in net.tunnels}
+    # LAG membership (#157): a cable of a LAG member is drawn as part of one bundled link
+    lags = {m.id: g for g in net.lag_groups().values() for m in g.members}
+
+    def lag_view(port_id: str) -> dict[str, Any] | None:
+        group = lags.get(port_id)
+        if group is None:
+            return None
+        return {
+            "name": group.name,
+            "port_id": group.port.id if group.port is not None else None,
+            "mode": group.mode.value if group.mode is not None else None,
+        }
 
     def end(port_id: str) -> dict[str, Any]:
         tunnel = tunnels.get(port_id)
@@ -201,6 +213,7 @@ def view(net: Network) -> dict[str, Any]:
                 "mtu": tunnel.mtu,
                 "up": tunnel.up,
                 "uplink": False,
+                "lag": None,
             }
         port = net.port(port_id)
         return {
@@ -213,6 +226,7 @@ def view(net: Network) -> dict[str, Any]:
             "mtu": port.mtu if port else None,
             "up": port.up if port else None,
             "uplink": net.uplink_at(port_id) is not None,
+            "lag": lag_view(port_id),
         }
 
     def carried(port_id: str) -> dict[str, str]:
@@ -281,6 +295,7 @@ def view(net: Network) -> dict[str, Any]:
                     "role": p.role.value if p.role else None,
                     "external": p.external,
                     "lower": p.lower,
+                    "lag": lags[p.id].name if p.id in lags else None,
                     "untagged": [s for s, m in modes.get(p.id, {}).items() if m == "untagged"],
                     "tagged": [s for s, m in modes.get(p.id, {}).items() if m == "tagged"],
                 }

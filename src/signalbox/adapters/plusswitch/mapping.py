@@ -33,6 +33,7 @@ from pydantic import JsonValue
 from signalbox.adapters import AdapterError, Observation, SystemInfo
 from signalbox.model import (
     Firmware,
+    LagMode,
     Membership,
     Port,
     PortKind,
@@ -238,7 +239,8 @@ def interfaces(
                 vendor_extra=port_extra,
             )
         )
-    # a port of role lag per enabled link aggregation group (#252): its members are the jacks
+    # a port of role lag per enabled link aggregation group (#252): its members are the jacks.
+    # NETGEAR Plus and TP-Link Easy Smart only have static LAGs (no LACP, #157).
     for name in sorted(set(lag_of.values())):
         out_ports.append(
             Port(
@@ -248,6 +250,7 @@ def interfaces(
                 kind=PortKind.LAG,
                 role=PortRole.LAG,
                 lower=[pid(n) for n in sorted(lag_of) if lag_of[n] == name],
+                lag_mode=LagMode.STATIC,
             )
         )
     return Observation(ports=out_ports, segments=segments)

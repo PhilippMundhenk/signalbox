@@ -6,11 +6,13 @@
 
 - **Severity:** error for members with different VLANs and for a LAG whose far end is not one
   LAG on one device; warning for members with different speed or duplex; info when only one
-  member of a LAG is up
+  member of a LAG is up, or (#157) all are up but LACP aggregates only one of them
 - **Checks:** the member ports of a link aggregation (LAG, bond) have the same speed, duplex and
   VLAN memberships (VLANs only where every member reports them; speed and duplex only for members
   that are not down). Where at least two members have known links, those links go to one device,
-  and the ports there are members of one LAG too.
+  and the ports there are members of one LAG too. Members are the ports that name the LAG
+  (`Port.lag`) and the ports a LAG port runs on (`Port.lower`). Modes and LACP states are
+  checked by the [link aggregation rules](lag_checks.md).
 - **Incomplete:** the far-end device does not report its ports.
 - **Fix:** configure a LAG on the other device as well (or remove all but one cable), connect
   all members to the same device, and configure VLANs on the LAG itself or the same on every

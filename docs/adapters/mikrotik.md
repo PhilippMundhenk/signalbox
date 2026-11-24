@@ -178,8 +178,19 @@ permissions` and the trace says which policy is missing.
   `<switch>-cpu` becomes a port of role `cpu` (not an interface in `/interface`) and the
   ethernet ports of the chip list it as lower port. *Confirmed on the CHR in CI*: jacks, the
   bridge over its ports, the VLAN interface on the bridge, a WireGuard tunnel; *not confirmed*
-  (CHR has no switch chip, no bonding, no radio): the switch CPU port, bonding members and
-  virtual APs (from the RouterOS documentation).
+  (CHR has no switch chip, no radio): the switch CPU port and virtual APs (from the RouterOS
+  documentation).
+
+- **Link aggregation** (#157, ADR 0022): a `bond` interface gets from its `/interface/bonding`
+  row `lag_mode` (`mode` `802.3ad` is LACP, passive where `lacp-mode` is `passive`; the other
+  modes keep their Linux names), `hash_policy` (`transmit-hash-policy` `layer-2`,
+  `layer-2-and-3`, `layer-3-and-4`), `lacp_rate` (`30secs` slow, `1sec` fast) and
+  `min_links`; its `slaves` get `lag`. Then `POST /rest/interface/bonding/monitor-slaves`
+  (`{"bond": "<name>", "once": ""}`) gives per member `active` (selected), the actor flags
+  (`collecting`, `distributing`) and the partner's `partner-sys-id`, `partner-port-number`
+  and `partner-key`; a refused or failing monitor leaves the member state unknown.
+  *Confirmed on the CHR in CI*: the bonding row and its members. *Guess* (#21): the
+  `monitor-slaves` field names, from the RouterOS manual (the CHR's bond has no LACP partner).
 
 - **Ports**: every `/interface` entry except loopback (VLAN interfaces are ports of role `vlan`
   and also become segments). Kind from `type`

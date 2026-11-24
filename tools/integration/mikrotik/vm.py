@@ -17,8 +17,9 @@ Network, in PCI order: ether1 is the management port and uplink (QEMU user netwo
 client 10.0.2.15, member of the interface list ``WAN``; the runner reaches www-ssl at
 https://127.0.0.1:8443 through a host port forward), ether2 and ether3 are ports of the bridge
 ``bridge`` (vlan-filtering): ether2 an access port of the native LAN, ether3 a trunk with VLAN
-20 "IoT" tagged. The serial console is logged to DIR/serial.log; every failure prints a GitHub
-``::error::`` with its last lines.
+20 "IoT" tagged; ether4 and ether5 are spare ports (the bonding test of #157 builds a bond
+over them and deletes it again). The serial console is logged to DIR/serial.log; every failure
+prints a GitHub ``::error::`` with its last lines.
 """
 
 from __future__ import annotations
@@ -63,6 +64,8 @@ MACS = {
     "ether1": "02:00:00:00:0f:11",
     "ether2": "02:00:00:00:01:02",
     "ether3": "02:00:00:00:01:03",
+    "ether4": "02:00:00:00:01:04",
+    "ether5": "02:00:00:00:01:05",
 }
 #: login options: no colours, no terminal detection, dumb terminal (no line redraws)
 CONSOLE_LOGIN = "admin+cte"
@@ -204,6 +207,11 @@ def qemu(d: Path, disk: Path) -> subprocess.Popen[bytes]:
         "-device", f"virtio-net-pci,netdev=ether2,mac={MACS['ether2']}",
         "-netdev", "user,id=ether3,net=10.99.0.0/24,restrict=on,ipv6=off",
         "-device", f"virtio-net-pci,netdev=ether3,mac={MACS['ether3']}",
+        # two spare ports for the bonding test (#157), not configured
+        "-netdev", "user,id=ether4,net=10.97.0.0/24,restrict=on,ipv6=off",
+        "-device", f"virtio-net-pci,netdev=ether4,mac={MACS['ether4']}",
+        "-netdev", "user,id=ether5,net=10.96.0.0/24,restrict=on,ipv6=off",
+        "-device", f"virtio-net-pci,netdev=ether5,mac={MACS['ether5']}",
         "-pidfile", str(d / "qemu.pid"),
     ]  # fmt: skip
     log("starting QEMU: " + " ".join(args))

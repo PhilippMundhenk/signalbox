@@ -75,6 +75,7 @@ from signalbox.model import (
     Firmware,
     IPAddress,
     IPInterface,
+    LagMode,
     LogKind,
     LogTarget,
     LogTransport,
@@ -316,6 +317,38 @@ def radio_state(detail: dict[str, Any], short: str) -> dict[str, Any]:
     if count is not None and count >= 0:
         out["client_count"] = count
     return out
+
+
+#: ``lagType`` of a switch port (#157): numbers and names as the controller's web API may use
+#: them. A guess from the Omada web UI (Static / LACP Active / LACP Passive), not checked
+#: against a controller with a LAG (#21).
+_LAG_TYPES: dict[Any, LagMode] = {
+    0: LagMode.STATIC,
+    1: LagMode.LACP_ACTIVE,
+    2: LagMode.LACP_PASSIVE,
+    "static": LagMode.STATIC,
+    "lacpactive": LagMode.LACP_ACTIVE,
+    "lacp_active": LagMode.LACP_ACTIVE,
+    "active": LagMode.LACP_ACTIVE,
+    "lacppassive": LagMode.LACP_PASSIVE,
+    "lacp_passive": LagMode.LACP_PASSIVE,
+    "passive": LagMode.LACP_PASSIVE,
+}
+
+
+def _lag_mode(value: Any) -> LagMode | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    key = value.lower() if isinstance(value, str) else value
+    return _LAG_TYPES.get(key, LagMode.OTHER)
+
+
+def _lag_type(row: dict[str, Any]) -> Any:
+    """``lagType`` of a port row, or of its ``lagSetting``."""
+    if "lagType" in row:
+        return row["lagType"]
+    setting = row.get("lagSetting")
+    return setting.get("lagType") if isinstance(setting, dict) else None
 
 
 def _lag_id(value: Any) -> str | None:
@@ -912,12 +945,14 @@ class OmadaAdapter(_Adapter):
         ports: list[Port] = []
         for sw in (d for d in await self._devices() if d.kind == "switch"):
             first = len(ports)
+            lag_types: dict[str, Any] = {}
             jumbo = jumbo_of(await self._switch(sw.raw_mac))
             for row in await self._ports(sw.raw_mac):
                 number = _int(row.get("port"))
                 if number is None:
                     continue
                 pid = f"{self._prefix(sw)}/port/{number}"
+                lag_types[pid] = _lag_type(row)
                 profile = profiles.get(_text(row.get("profileId")), {})
                 native = _text(
                     row["nativeNetworkId"]
@@ -955,7 +990,7 @@ class OmadaAdapter(_Adapter):
                     net = nets.get(_text(net_id))
                     if net is not None and pid not in members[net.segment]:
                         members[net.segment][pid] = Membership.TAGGED
-            ports.extend(self._lags(sw, ports[first:]))
+            ports.extend(self._lags(sw, ports[first:], lag_types))
         ports.extend((await self._ap_view())[0])
         segs = [
             s.model_copy(
@@ -1415,25 +1450,32 @@ class OmadaAdapter(_Adapter):
             self._cache[path] = _dict(await self._api(path), path, "result")
         return dict(self._cache[path])
 
-    def _lags(self, sw: _Managed, switch_ports: list[Port]) -> list[Port]:
+    def _lags(
+        self, sw: _Managed, switch_ports: list[Port], types: dict[str, Any] | None = None
+    ) -> list[Port]:
         """A port of role ``lag`` for every link aggregation group of the switch (#252): its
-        members are the ports that name the group in ``lagId``."""
+        members are the ports that name the group in ``lagId``. The mode (#157) is the
+        ``lagType`` its members agree on (port id -> raw value in ``types``)."""
         groups: dict[str, list[Port]] = {}
         for p in switch_ports:
             if p.lag and p.lag != "0":
                 groups.setdefault(p.lag, []).append(p)
-        return [
-            Port(
-                id=f"{self._prefix(sw)}/port/lag{lag}",
-                device_id=self._prefix(sw),
-                name=f"{sw.name} LAG{lag}",
-                kind=PortKind.LAG,
-                role=PortRole.LAG,
-                lower=[m.id for m in members],
-                vendor_extra=sw.extra(lag=lag),
+        out = []
+        for lag, members in sorted(groups.items()):
+            modes = {_lag_mode((types or {}).get(m.id)) for m in members}
+            out.append(
+                Port(
+                    id=f"{self._prefix(sw)}/port/lag{lag}",
+                    device_id=self._prefix(sw),
+                    name=f"{sw.name} LAG{lag}",
+                    kind=PortKind.LAG,
+                    role=PortRole.LAG,
+                    lower=[m.id for m in members],
+                    lag_mode=modes.pop() if len(modes) == 1 else None,
+                    vendor_extra=sw.extra(lag=lag),
+                )
             )
-            for lag, members in sorted(groups.items())
-        ]
+        return out
 
     async def _ports(self, raw_mac: str) -> list[dict[str, Any]]:
         """A switch's ports: ``portList`` of ``GET …/switches/{mac}`` (there is no port list

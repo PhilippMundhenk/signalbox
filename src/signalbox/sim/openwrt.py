@@ -59,6 +59,8 @@ FILES = (
     "/tmp/dhcp.leases",
     "/sys/class/thermal/thermal_zone*/temp",
     "/sys/class/thermal/thermal_zone*/type",
+    "/sys/class/net/*/bonding/*",
+    "/sys/class/net/*/bonding_slave/*",
 )
 
 Sections = dict[str, dict[str, Any]]
@@ -166,8 +168,65 @@ def wireguard_sections() -> tuple[tuple[str, str, dict[str, Any]], ...]:
     )
 
 
-def network_config(router: bool = False, wireguard: bool = False) -> dict[str, Any]:
+def network_config(
+    router: bool = False, wireguard: bool = False, bond: str | None = None
+) -> dict[str, Any]:
     upstream = {} if router else {"gateway": "192.0.2.1", "dns": "192.0.2.1"}
+    config = _base_network(upstream, router, wireguard)
+    if bond is None:
+        return config
+    # #157: lan2 and lan3 form bond0 (netifd ``device`` of type bonding), a port of br-lan
+    values = config["values"]
+    for s in values.values():
+        if s.get("name") == "br-lan":
+            s["ports"] = ["lan1", "bond0", "lan4"]
+        elif s.get(".type") == "bridge-vlan" and s.get("vlan") == "1":
+            s["ports"] = ["lan1:u*", "bond0:u*"]
+    values["cfg070f15"] = {
+        ".type": "device",
+        ".name": "cfg070f15",
+        ".index": len(values),
+        ".anonymous": True,
+        "name": "bond0",
+        "type": "bonding",
+        "ports": ["lan2", "lan3"],
+        "policy": bond,
+        "xmit_hash_policy": "layer2+3",
+        "lacp_rate": "fast",
+        "min_links": "1",
+    }
+    return config
+
+
+#: What the kernel reports in sysfs for bond0 of ``network_config(bond=...)`` (#157):
+#: lan2 aggregated with an LACP partner, lan3 waiting (its far end does not answer).
+BOND_SYSFS = {
+    "bond0/bonding/xmit_hash_policy": "layer2+3 2",
+    "bond0/bonding/lacp_rate": "fast 1",
+    "bond0/bonding/lacp_active": "on 1",
+    "bond0/bonding/min_links": "1",
+    "bond0/bonding/slaves": "lan2 lan3",
+    "bond0/bonding/ad_aggregator": "1",
+    "bond0/bonding/ad_partner_mac": "02:00:00:00:10:01",
+    "lan2/bonding_slave/state": "active",
+    "lan2/bonding_slave/ad_aggregator_id": "1",
+    "lan2/bonding_slave/ad_actor_oper_port_state": "61",
+    "lan3/bonding_slave/state": "backup",
+    "lan3/bonding_slave/ad_aggregator_id": "2",
+    "lan3/bonding_slave/ad_actor_oper_port_state": "69",
+}
+_KERNEL_MODES = {
+    "balance-rr": 0,
+    "active-backup": 1,
+    "balance-xor": 2,
+    "broadcast": 3,
+    "802.3ad": 4,
+    "balance-tlb": 5,
+    "balance-alb": 6,
+}
+
+
+def _base_network(upstream: dict[str, str], router: bool, wireguard: bool) -> dict[str, Any]:
     return _uci(
         (
             "interface",
@@ -352,6 +411,16 @@ def device_status(network: Sections, wireless: Sections) -> dict[str, Any]:
                 "mtu": 1500,
                 "bridge-members": [*_words(s.get("ports")), *wifi],
             }
+    for _, s in _of(network, "device"):
+        if s.get("type") == "bonding" and s.get("name"):
+            status[str(s["name"])] = {
+                "type": "bonding",
+                "up": True,
+                "carrier": True,
+                "macaddr": _mac(0, 1),
+                "mtu": 1500,
+                "speed": "2000F",
+            }
     for _, s in _of(network, "bridge-vlan"):
         vlan = {"type": "VLAN", "up": True, "carrier": True, "macaddr": _mac(0, 1)}
         status[f"{s.get('device')}.{s.get('vlan')}"] = vlan
@@ -390,6 +459,8 @@ def network_devices(network: Sections, wireless: Sections) -> dict[str, Any]:
             entry |= {"bridge": True, "ports": st.get("bridge-members", []), "devtype": "bridge"}
         elif st.get("type") == "VLAN":
             entry |= {"devtype": "vlan", "parent": name.rsplit(".", 1)[0]}
+        elif st.get("type") == "bonding":
+            entry |= {"devtype": "bond"}
         elif name.startswith("lan"):
             entry |= {"devtype": "dsa", "parent": CONDUIT}
         elif name.startswith("phy"):
@@ -1159,6 +1230,10 @@ class OpenWrtSim:
     wireless_ucode: bool = False
     #: DHCP on, no default route on lan: the device acts as the router of 192.0.2.0/24
     router: bool = False
+    #: lan2 and lan3 in a bond ``bond0`` with this policy (``802.3ad``, ``balance-xor``; #157)
+    bond: str | None = None
+    #: sysfs of the bond readable (the ACL of the docs); False: an older ACL
+    bond_sysfs: bool = True
     #: fourth byte of the port MACs (02:00:00:<base>:..), so several simulators differ
     mac_base: int = 0
     #: time source of sessions and the rollback timer (replace it to test the timer)
@@ -1200,7 +1275,7 @@ class OpenWrtSim:
     def state(self) -> dict[str, Sections]:
         if self.configs is None:
             self.configs = {
-                "network": _sections(network_config(self.router, self.wireguard)),
+                "network": _sections(network_config(self.router, self.wireguard, self.bond)),
                 "wireless": _sections(wireless_config()),
                 "dhcp": _sections(dhcp_config(self.router)),
                 "system": _sections(system_config(self.router)),
@@ -1438,6 +1513,8 @@ class OpenWrtSim:
             path = str(args.get("path"))
             if not any(fnmatchcase(path, allowed) for allowed in FILES):
                 return [DENIED]
+            if path.startswith("/sys/class/net/"):
+                return self.bond_file(path.removeprefix("/sys/class/net/"))
             if path.startswith("/sys/class/thermal/thermal_zone"):
                 n, _, leaf = path.removeprefix("/sys/class/thermal/thermal_zone").partition("/")
                 if not n.isdigit() or int(n) >= len(self.thermal_zones):
@@ -1452,6 +1529,16 @@ class OpenWrtSim:
         if obj == "luci.lldpd" and self.lldpd:
             return [0, lldp_status()] if method == "getStatus" else [3]
         return None
+
+    def bond_file(self, rel: str) -> list[Any]:
+        """``/sys/class/net/<rel>`` of the bond (#157)."""
+        if self.bond is None or not self.bond_sysfs:
+            return [NOT_FOUND] if self.bond is None else [DENIED]
+        if rel == "bond0/bonding/mode":
+            return [0, {"data": f"{self.bond} {_KERNEL_MODES.get(self.bond, 0)}\n"}]
+        if rel not in BOND_SYSFS:
+            return [NOT_FOUND]
+        return [0, {"data": BOND_SYSFS[rel] + "\n"}]
 
     def wg_instances(self) -> dict[str, Any]:
         """``luci.wireguard getWgInstances``: running state, public data only."""

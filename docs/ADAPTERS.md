@@ -409,9 +409,28 @@ or LAG role with another kind, and a VLAN interface on several ports.
 | Fritz!Box | nothing: TR-064 has one LAN interface and names no jack, bridge or WLAN interface (no role is better than a guessed one) | `fritzbox/__init__.py` |
 
 What CI confirmed (real software, #252): OpenWrt (QEMU: NICs, bridge, VLAN interfaces), MikroTik
-(CHR: jacks, bridge members, VLAN parent, WireGuard tunnel) and OPNsense (jacks, VLAN parent).
-Simulator only: DSA, the MikroTik switch CPU port, bonding and virtual APs, laggs and bridges of
+(CHR: jacks, bridge members, VLAN parent, WireGuard tunnel, a bond over two ports, #157) and
+OPNsense (jacks, VLAN parent).
+Simulator only: DSA, the MikroTik switch CPU port and virtual APs, laggs and bridges of
 OPNsense, Omada and ProSAFE/Easy Smart LAGs.
+
+### Link aggregation details (#157, ADR 0022)
+
+On the port of role `lag`: `lag_mode` (`static`, `lacp-active`, `lacp-passive`, or a Linux
+bonding mode), `hash_policy`, `min_links`, `lacp_rate`. On each member: `lag` (the LAG's name)
+and `lag_member_state` (`selected`, `collecting_distributing`, the LACP partner's
+`partner_system_id`, `partner_port`, `partner_key`). The members stay the LAG's `lower`; do not
+add a second list. Leave out (None) what the device does not say; the contract tests refuse LAG
+settings on a port that is no LAG and a member state on a port that is in no LAG.
+
+| Integration | Source | Where |
+| --- | --- | --- |
+| Linux | `/proc/net/bonding/<bond>` (mode, hash, LACP rate, min links; per member aggregator, actor state, partner) | `adapters/bonding.py`, `linux/__init__.py` |
+| OpenWrt | UCI `device` `type bonding` (or `proto bonding`); sysfs `bonding/*` and `bonding_slave/*` through `file read` where the ACL allows it | `openwrt/lag.py`, `adapters/bonding.py` |
+| MikroTik | `/interface/bonding` (`mode`, `transmit-hash-policy`, `lacp-rate`, `lacp-mode`, `min-links`); `monitor-slaves` for the member state | `mikrotik/__init__.py` |
+| Omada | `lagType` of the member ports *(guess)* | `omada/__init__.py` |
+| ProSAFE / Easy Smart | always `static` (no LACP) | `plusswitch/mapping.py` |
+| OPNsense, Fritz!Box | not read yet (OPNsense `lagg` protocol: follow-up) | |
 
 ## Wi-Fi security details
 

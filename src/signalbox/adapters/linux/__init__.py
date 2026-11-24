@@ -40,6 +40,7 @@ from signalbox.adapters import (
     TraceSupport,
     UntrustedCertificate,
     UntrustedHostKey,
+    bonding,
 )
 from signalbox.adapters.linux import (
     clock,
@@ -986,6 +987,8 @@ class _Layout:
                 vendor_extra=extra,
             )
 
+        lay._bonds(a)
+
         # uplinks: interfaces with a default route (a gateway only)
         uplink_devs: dict[str, list[parse.Route]] = {}
         if router:
@@ -1028,6 +1031,25 @@ class _Layout:
         if not lay.networks and wan:
             lay._networks(roles, vlans, set(), router, forwarding)
         return lay
+
+    def _bonds(self, a: Answer) -> None:
+        """LAG details (#157): ``lag`` on the members of every bond or team, and from
+        ``/proc/net/bonding/<bond>`` mode, hash, LACP rate and minimum links on the bond and
+        the LACP state of its members."""
+        files = {bonding.bond_name(p): t for p, t in a.files("bonding").items()}
+        for name, link in sorted(self.links.items()):
+            if link.kind not in ("bond", "team") or name not in self.ports:
+                continue
+            bond = bonding.parse_proc(name, files[name]) if name in files else None
+            if bond is not None:
+                self.ports[name] = self.ports[name].model_copy(update=bond.details())
+            members = {n for n, x in self.links.items() if x.master == name}
+            members |= set(bond.members) if bond is not None else set()
+            for member in sorted(members & set(self.ports)):
+                update: dict[str, Any] = {"lag": name}
+                if bond is not None:
+                    update["lag_member_state"] = bond.member_state(member)
+                self.ports[member] = self.ports[member].model_copy(update=update)
 
     def _networks(
         self,

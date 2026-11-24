@@ -134,6 +134,40 @@ export const PORT_ROLE = {
   },
 };
 
+// How a link aggregation works (#157, Port.lag_mode).
+export const LAG_MODE = {
+  get static() {
+    return t('util.lagMode.static');
+  },
+  get 'lacp-active'() {
+    return t('util.lagMode.lacpActive');
+  },
+  get 'lacp-passive'() {
+    return t('util.lagMode.lacpPassive');
+  },
+  get 'active-backup'() {
+    return t('util.lagMode.activeBackup');
+  },
+  get 'balance-rr'() {
+    return t('util.lagMode.balanceRr');
+  },
+  get 'balance-xor'() {
+    return t('util.lagMode.balanceXor');
+  },
+  get broadcast() {
+    return t('util.lagMode.broadcast');
+  },
+  get 'balance-tlb'() {
+    return t('util.lagMode.balanceTlb');
+  },
+  get 'balance-alb'() {
+    return t('util.lagMode.balanceAlb');
+  },
+  get other() {
+    return t('util.lagMode.other');
+  },
+};
+
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

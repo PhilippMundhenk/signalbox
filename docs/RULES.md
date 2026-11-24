@@ -129,6 +129,12 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`ipv6.prefix-64`](rules/ipv6.md#ipv6prefix-64)
 - [`ipv6.partial`](rules/ipv6.md#ipv6partial)
 
+## [Link aggregation](rules/lag_checks.md)
+
+- [`lag.mode-mismatch`](rules/lag_checks.md#lagmode-mismatch)
+- [`lag.member-not-selected`](rules/lag_checks.md#lagmember-not-selected)
+- [`lag.partner-mismatch`](rules/lag_checks.md#lagpartner-mismatch)
+
 ## [DHCP leases, options and relays](rules/leases.md)
 
 - [`dhcp.static-in-pool`](rules/leases.md#dhcpstatic-in-pool)

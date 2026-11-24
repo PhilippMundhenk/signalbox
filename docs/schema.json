@@ -2877,6 +2877,116 @@
       "title": "KeyType",
       "type": "string"
     },
+    "LacpRate": {
+      "description": "How often the far end is asked to send LACPDUs: every 30 s (slow) or every second.",
+      "enum": [
+        "slow",
+        "fast"
+      ],
+      "title": "LacpRate",
+      "type": "string"
+    },
+    "LagHashPolicy": {
+      "description": "Which header fields pick the member for a frame (transmit hash policy).",
+      "enum": [
+        "l2",
+        "l2+l3",
+        "l3+l4",
+        "other"
+      ],
+      "title": "LagHashPolicy",
+      "type": "string"
+    },
+    "LagMemberState": {
+      "additionalProperties": false,
+      "description": "What a member of a LAG says about itself and its LACP partner (#157). ``None``: not\nreported. Partner data is there only for LACP members whose far end answers.",
+      "properties": {
+        "collecting_distributing": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Collecting Distributing"
+        },
+        "partner_key": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Partner Key"
+        },
+        "partner_port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Partner Port"
+        },
+        "partner_system_id": {
+          "anyOf": [
+            {
+              "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Partner System Id"
+        },
+        "selected": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected"
+        }
+      },
+      "title": "LagMemberState",
+      "type": "object"
+    },
+    "LagMode": {
+      "description": "How a link aggregation (LAG, bond, lagg) spreads traffic and agrees with the far end\n(#157, ADR 0022). Only the LACP modes negotiate: the others are static on the cable.",
+      "enum": [
+        "static",
+        "lacp-active",
+        "lacp-passive",
+        "active-backup",
+        "balance-rr",
+        "balance-xor",
+        "broadcast",
+        "balance-tlb",
+        "balance-alb",
+        "other"
+      ],
+      "title": "LagMode",
+      "type": "string"
+    },
     "LeaseState": {
       "enum": [
         "active",
@@ -4012,6 +4122,17 @@
           "default": null,
           "title": "Full Duplex"
         },
+        "hash_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LagHashPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "id": {
           "title": "Id",
           "type": "string"
@@ -4058,6 +4179,17 @@
           "default": null,
           "title": "L2 Mtu"
         },
+        "lacp_rate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LacpRate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "lag": {
           "anyOf": [
             {
@@ -4069,6 +4201,28 @@
           ],
           "default": null,
           "title": "Lag"
+        },
+        "lag_member_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LagMemberState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "lag_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LagMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "lower": {
           "items": {
@@ -4113,6 +4267,20 @@
             }
           ],
           "default": null
+        },
+        "min_links": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Links"
         },
         "mtu": {
           "anyOf": [

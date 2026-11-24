@@ -1003,7 +1003,12 @@
     "flow_control": null,
     "eee": null,
     "role": null,
-    "lower": []
+    "lower": [],
+    "lag_mode": null,
+    "hash_policy": null,
+    "min_links": null,
+    "lacp_rate": null,
+    "lag_member_state": null
    }
   ],
   "segments": [

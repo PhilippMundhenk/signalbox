@@ -158,6 +158,58 @@ def test_parallel_cables_are_bundled_and_expand(app: Any) -> None:
     expect(app.get_by_test_id("topo-edge")).to_have_count(1)
 
 
+def test_a_lag_is_one_bundled_link(app: Any) -> None:
+    """#157: the cables of a LAG on both switches are one LAG bundle with both LAG names; the
+    device page names the LAG of each member and its LACP state."""
+    add_site(app)
+    a = api(
+        app,
+        "POST",
+        "/devices",
+        {
+            "name": "Core",
+            "site_id": "home",
+            "role": "switch",
+            "adapter": "labswitch",
+            "config": {"address": "192.0.2.2", "lag": True},
+        },
+    )
+    b = api(
+        app,
+        "POST",
+        "/devices",
+        {
+            "name": "Edge",
+            "site_id": "home",
+            "role": "switch",
+            "adapter": "labswitch",
+            "config": {"address": "192.0.2.3", "lag": True},
+        },
+    )
+    observe(app)
+    cable(app, f"{a['id']}/port/p3", f"{b['id']}/port/p3")
+    cable(app, f"{a['id']}/port/p4", f"{b['id']}/port/p4")
+    go(app, "#/topology")
+    edge = app.get_by_test_id("topo-edge")
+    expect(edge).to_have_count(1)
+    expect(edge).to_have_attribute("data-lag", "ae1")
+    expect(edge).to_have_class(re.compile(r"\blag\b"))
+    badge = app.get_by_test_id("topo-bundle")
+    expect(badge).to_have_attribute("data-lag", "true")
+    expect(badge).to_have_attribute(
+        "aria-label", re.compile(r"Link aggregation ae1 ↔ ae1 \(LACP \(active\)\)")
+    )
+    badge.click()
+    expect(app.get_by_test_id("topo-edge")).to_have_count(2)
+    go(app, f"#/device/{a['id']}")
+    member = app.locator('[data-testid="port-node"][data-id$="/port/p3"]')
+    expect(member).to_contain_text("member of ae1")
+    expect(member).to_contain_text("aggregating")
+    lag = app.locator('[data-testid="port-node"][data-id$="/port/ae1"]')
+    expect(lag).to_contain_text("LACP (active)")
+    expect(lag).to_contain_text("hash l3+l4")
+
+
 def test_port_click_and_both_themes(app: Any) -> None:
     setup(app)
     app.locator('[data-testid="topo-port"][data-id="router/port/lan1"]').click()

@@ -147,6 +147,12 @@ _ROLE_KINDS = {
 }
 
 
+def _in_lag(port: Port, ports: Sequence[Port]) -> bool:
+    return bool(port.lag) or any(
+        p.role is PortRole.LAG and port.id in p.lower for p in ports if p.id != port.id
+    )
+
+
 def structure_problems(ports: Sequence[Port], wlans: Sequence[Wlan] = ()) -> list[str]:
     """The internal port structure (#252, ADR 0008): ``lower`` names ports of the same device
     that were reported, no port runs on itself (also not through others), roles fit kinds,
@@ -167,6 +173,15 @@ def structure_problems(ports: Sequence[Port], wlans: Sequence[Wlan] = ()) -> lis
             out.append(f"port {p.id}: role {p.role} with kind {p.kind.value}")
         if p.role is PortRole.VLAN and len(p.lower) > 1:
             out.append(f"port {p.id}: a VLAN interface runs on one port, not {len(p.lower)}")
+        # link aggregation (#157): LAG settings on a LAG, a member state on a member
+        is_lag = p.kind is PortKind.LAG or p.role is PortRole.LAG
+        lag_fields = (p.lag_mode, p.hash_policy, p.min_links, p.lacp_rate)
+        if not is_lag and any(v is not None for v in lag_fields):
+            out.append(f"port {p.id}: LAG settings on a port that is not a LAG")
+        if p.lacp_rate is not None and p.lag_mode is not None and not p.lag_mode.lacp:
+            out.append(f"port {p.id}: LACP rate on a LAG without LACP")
+        if p.lag_member_state is not None and (is_lag or not _in_lag(p, ports)):
+            out.append(f"port {p.id}: LAG member state on a port that is not a LAG member")
     # cycles: follow lower from every port
     state: dict[str, int] = {}  # 1: on the path, 2: done
 

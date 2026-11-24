@@ -32,7 +32,7 @@ from signalbox.adapters.plusswitch import (
     ProsafeConfig,
 )
 from signalbox.adapters.plusswitch.mapping import interfaces, system_info
-from signalbox.model import DeviceRole, DeviceStatus, Membership, PortRole
+from signalbox.model import DeviceRole, DeviceStatus, LagMode, Membership, PortRole
 from signalbox.sim.server import free_port
 from signalbox.testing import assert_contract
 
@@ -159,6 +159,7 @@ def test_lag_and_odd_port_rows() -> None:
     assert ports["1"].role is PortRole.JACK and ports["3"].role is PortRole.JACK
     assert ports["lag1"].role is PortRole.LAG and ports["lag1"].lower == ["sw/port/1", "sw/port/2"]
     assert "lag2" not in ports and ports["lag1"].external is True
+    assert ports["lag1"].lag_mode is LagMode.STATIC  # #157: these switches have no LACP
     assert ports["3"].lag is None and ports["3"].up is None
     assert interfaces("sw", "home", rows, None, {"lags": None}).ports  # type: ignore[arg-type]
 
