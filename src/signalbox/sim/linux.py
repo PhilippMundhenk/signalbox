@@ -29,6 +29,7 @@ from typing import Any
 
 import asyncssh
 
+from signalbox.adapters.linux import distro
 from signalbox.adapters.linux.setup import sudoers, sudoers_path
 from signalbox.adapters.ssh import host_key_fingerprint
 
@@ -279,6 +280,75 @@ def default_sections() -> dict[str, str]:
     }
 
 
+def arch_sections() -> dict[str, str]:
+    """Arch Linux ARM on a Raspberry Pi 2 as a single-NIC host (#302): systemd-networkd, one
+    wired interface that carries the default route, a Wi-Fi dongle without carrier, IP
+    forwarding off, no WireGuard, no nft (legacy iptables), ``sshd`` as the unit name."""
+    links = [
+        default_links()[0],
+        _link(2, "eth0", "02:5b:00:00:00:21", parentbus="platform", parentdev="3f980000.usb"),
+        _link(3, "wlan0", "02:5b:00:00:00:22", up=False, parentbus="usb"),
+    ]
+    addresses = [
+        _addr("lo", ("inet", "127.0.0.1", 8, False)),
+        _addr(
+            "eth0",
+            ("inet", "192.0.2.20", 24, True),
+            ("inet6", "fe80::5b:ff:fe00:21", 64, False),
+        ),
+    ]
+    routes = [
+        {"dst": "default", "gateway": "192.0.2.1", "dev": "eth0", "protocol": "dhcp"},
+        {"dst": "192.0.2.0/24", "dev": "eth0", "protocol": "kernel", "scope": "link"},
+    ]
+    return default_sections() | {
+        "os": _files(
+            {
+                "/etc/os-release": 'NAME="Arch Linux ARM"\nPRETTY_NAME="Arch Linux ARM"\n'
+                "ID=archarm\nID_LIKE=arch\nBUILD_ID=rolling\n",
+            }
+        ),
+        "hostname": "alarm\n",
+        "kernel": "Linux 6.6.51-1-rpi armv7l\n",
+        "model": _files({"/proc/device-tree/model": "Raspberry Pi 2 Model B Rev 1.1\x00"}),
+        "link": json.dumps(links) + "\n",
+        "addr": json.dumps(addresses) + "\n",
+        "route": json.dumps(routes) + "\n",
+        "route6": "[]\n",
+        "sysnet": "eth0 1 0 100 full\nwlan0 1 1 - -\nlo 0 0 - -\n",
+        "fdb": "",
+        "forward": "0\n0\n",
+        "cpus": "4\n",
+        "units": "ssh not-found \nsshd active enabled\ndnsmasq inactive not-found\n"
+        "kea-dhcp4-server inactive not-found\nisc-dhcp-server inactive not-found\n"
+        "systemd-networkd active enabled\nAdGuardHome inactive not-found\n"
+        "pihole-FTL inactive not-found\nunbound inactive not-found\nchrony inactive not-found\n"
+        "chronyd inactive not-found\nsystemd-timesyncd active enabled\n",
+        "procs": "sshd\nsystemd\nsystemd-network\nsystemd-timesyn\n",
+        "listen": "tcp   LISTEN 0      128        0.0.0.0:22         0.0.0.0:*\n",
+        "dnsmasq": "",
+        "dnsmasq-leases": "",
+        "networkd": _files(
+            {
+                "/etc/systemd/network/20-wired.network": "[Match]\nName=eth0\n\n[Network]\n"
+                "DHCP=yes\n",
+            }
+        ),
+        "iptables": "iptables v1.8.10 (legacy)\n",
+    }
+
+
+def arch_sim(**changes: Any) -> LinuxSim:
+    """The Arch Linux ARM host as a device: no nft, no wg, no tracepath."""
+    return LinuxSim(
+        sections=arch_sections(),
+        nft_installed=False,
+        wg_installed=False,
+        trace_tool="none",
+        **changes,
+    )
+
+
 def default_wireguard() -> dict[str, str]:
     return {
         "public-key": f"wg0\t{GW_KEY}\n",
@@ -471,8 +541,14 @@ class LinuxSim:
     users: dict[str, User] = field(default_factory=default_users)
     sudoers_files: dict[str, str] = field(default_factory=dict)
     wg_installed: bool = True
+    #: ``ip -j`` works (iproute2); ``False``: busybox ``ip``, the JSON sections stay empty
+    ip_json: bool = True
     visudo: bool = True
     scripts: list[str] = field(default_factory=list)
+    #: Every install fails (no network, the package database is stale)
+    install_fails: bool = False
+    #: The package manager commands that ran (#302)
+    installed: list[str] = field(default_factory=list)
     commands: list[tuple[str, str]] = field(default_factory=list)
     #: Traceroutes (#253): ``tracepath``, ``traceroute`` or ``none`` installed; target -> hops
     #: (address or None, RTT in ms); a target not listed answers through one router
@@ -539,6 +615,15 @@ class LinuxSim:
                 out.append(f"@@{name}\n{text.rstrip(chr(10))}" if text else f"@@{name}")
                 continue
             text = source.get(name, "")
+            if not self.ip_json and name in (
+                "link",
+                "addr",
+                "route",
+                "route6",
+                "bridge-vlan",
+                "fdb",
+            ):
+                text = ""
             out.append(f"@@{name}\n{text.rstrip(chr(10))}" if text else f"@@{name}")
         return "\n".join(out) + "\n"
 
@@ -583,6 +668,28 @@ class LinuxSim:
             return 1, b"", "Permission denied"
         return self.setup(script)
 
+    def install(self, tool: str, script: str) -> tuple[int, bytes, str]:
+        """``apt-get``/``pacman``/``dnf``/``apk``: only the device's own manager exists."""
+        os_text = self.sections.get("os", "")
+        release = dict(re.findall(r"^(\w+)=\"?([^\"\n]*)\"?$", os_text, re.M))
+        found = distro.detect(release)
+        command = found.install(tool)
+        if self.install_fails:
+            return 1, b"", "error: failed retrieving file (404)"
+        if command is None or command not in script:
+            word = re.search(r"\b(apt-get|pacman|dnf|apk)\b", script)
+            return 127, b"", f"sh: {word.group(1) if word else 'install'}: not found"
+        self.installed.append(command)
+        if tool == "nftables":
+            self.nft_installed = True
+        elif tool == "wireguard":
+            self.wg_installed = True
+        elif tool == "tracepath":
+            self.trace_tool = "tracepath"
+        elif tool == "iproute2":
+            self.ip_json = True
+        return 0, b"", ""
+
     def setup(self, script: str) -> tuple[int, bytes, str]:
         step = script.split("\n", 1)[0].split(":", 1)[1].strip()
         values = dict(re.findall(r"^(\w+)='([^']*)'$", script, re.M))
@@ -607,8 +714,21 @@ class LinuxSim:
             out.append("@@nft")
             if self.nft_installed:
                 out.append("/usr/sbin/nft")
+            out.append("@@os")
+            out.append(self.sections.get("os", "").split("\n", 1)[-1].rstrip("\n"))
+            out.append("@@have")
+            if self.nft_installed:
+                out.append("nft")
+            if self.wg_installed:
+                out.append("wg")
+            if self.trace_tool == "tracepath":
+                out.append("tracepath")
+            if self.ip_json:
+                out += ["bridge", "ip-json"]
             out.append("@@end")
             return 0, ("\n".join(out) + "\n").encode(), ""
+        if step.startswith("install-"):
+            return self.install(step.removeprefix("install-"), script)
         if step == "user":
             if name in self.users:
                 return 9, b"", f"useradd: user '{name}' already exists"

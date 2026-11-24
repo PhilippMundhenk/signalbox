@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import asyncssh
 from pydantic import SecretStr
@@ -24,11 +24,15 @@ from pydantic import SecretStr
 from signalbox.adapters import (
     AdapterError,
     AuthFailed,
+    PreviewStep,
+    Remedy,
+    RemedyRequest,
     SetupPlan,
     SetupRequest,
     SetupResult,
     UntrustedHostKey,
 )
+from signalbox.adapters.linux import distro
 from signalbox.adapters.linux.setup import KEY_COMMENT, sudoers, sudoers_path
 from signalbox.adapters.provision import Redactor, Step, plan_steps, run_steps
 from signalbox.adapters.ssh import PinnedSsh, ShellResult, sha256_hex
@@ -56,6 +60,14 @@ class DeviceState:
     sudoers: str | None
     wg: bool
     nft: bool = False
+    #: ``/etc/os-release`` as parsed, and the tools found (``nft``, ``wg``, ``tracepath``,
+    #: ``bridge``, ``ip-json``: ``ip -j`` works) (#302)
+    os_release: dict[str, str] = field(default_factory=dict)
+    have: set[str] = field(default_factory=set)
+
+    @property
+    def distro(self) -> distro.Distro:
+        return distro.detect(self.os_release)
 
 
 def parse_sections(text: str) -> dict[str, list[str]]:
@@ -68,6 +80,25 @@ def parse_sections(text: str) -> dict[str, list[str]]:
         elif name:
             out[name].append(line)
     return out
+
+
+def _os_release(lines: list[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for line in lines:
+        key, sep, value = line.partition("=")
+        if sep and key.strip():
+            out[key.strip()] = value.strip().strip("\"'")
+    return out
+
+
+#: Optional extras of the setup (unticked): id -> what the inspection reports when it is
+#: already there (``ip-json``: ``ip -j`` works).
+EXTRA_TOOLS = {
+    "nftables": "nft",
+    "iproute2": "ip-json",
+    "wireguard": "wg",
+    "tracepath": "tracepath",
+}
 
 
 class LinuxSetup:
@@ -128,6 +159,7 @@ class LinuxSetup:
         await self.elevate(ssh)
         script = (
             "# signalbox-setup: inspect\n"
+            "PATH=/usr/sbin:/usr/bin:/sbin:/bin:$PATH\n"
             f"U={_q(self.login)}\n"
             'echo @@user; getent passwd "$U"\n'
             'echo @@groups; id -nG "$U" 2>/dev/null\n'
@@ -136,6 +168,10 @@ class LinuxSetup:
             f"echo @@sudoers; cat {sudoers_path(self.login)} 2>/dev/null\n"
             "echo @@wg; command -v wg\n"
             "echo @@nft; command -v nft\n"
+            "echo @@os; cat /etc/os-release 2>/dev/null\n"
+            "echo @@have\n"
+            "for t in nft wg tracepath bridge; do command -v $t >/dev/null 2>&1 && echo $t; done\n"
+            "ip -j link show >/dev/null 2>&1 && echo ip-json\n"
             "echo @@end\n"
         )
         res = await self.run(ssh, script)
@@ -157,17 +193,46 @@ class LinuxSetup:
             sudoers=sudo_text + "\n" if sudo_text else None,
             wg=bool([x for x in parts.get("wg", []) if x.strip()]),
             nft=bool([x for x in parts.get("nft", []) if x.strip()]),
+            os_release=_os_release(parts.get("os", [])),
+            have={x.strip() for x in parts.get("have", []) if x.strip()},
         )
 
-    def _action(self, ssh: PinnedSsh, script: str) -> Callable[[], Awaitable[str | None]]:
+    def _action(
+        self, ssh: PinnedSsh, script: str, timeout: float | None = None
+    ) -> Callable[[], Awaitable[str | None]]:
         async def act() -> str | None:
-            res = await self.run(ssh, script)
+            res = await ssh.run(script, timeout=timeout, command=self.command, prefix=self.prefix)
             if res.code != 0:
                 tail = (res.err or res.text).strip()[-400:]
                 raise AdapterError(f"failed (exit status {res.code}): {self.redact(tail)}")
             return None
 
         return act
+
+    def install_step(self, ssh: PinnedSsh, state: DeviceState, tool: str) -> Step:
+        """Install what the reader uses, with the device's own package manager (#302)."""
+        found = EXTRA_TOOLS[tool] in state.have and (tool != "iproute2" or "bridge" in state.have)
+        what = distro.TOOLS[tool][0]
+        command = state.distro.install(tool)
+        if command is None and not found:
+            ident = state.os_release.get("ID") or "unknown"
+            raise AdapterError(
+                f"the distribution ({ident}) is not known: Signalbox cannot install {what}. "
+                "Untick it and install it yourself",
+                fix="See docs/adapters/linux.md, Supported distributions.",
+            )
+        script = f"# signalbox-setup: install-{tool}\nset -e\n{command}\n"
+        manager = state.distro.manager or ""
+        return Step(
+            f"install-{tool}",
+            f"Install {what} with {manager} (you ticked this; optional)",
+            script if not found else "",
+            needed=not found,
+            action=self._action(ssh, script, timeout=max(300.0, self.request.timeout)),
+            note="already installed" if found else "",
+            title_id="setup.linux.install",
+            params={"what": what, "manager": manager},
+        )
 
     def steps(self, ssh: PinnedSsh, state: DeviceState, fingerprint: str) -> list[Step]:
         if self.request.remove:
@@ -225,7 +290,9 @@ class LinuxSetup:
                 params={"login": self.login},
             ),
         ]
-        if state.wg or state.nft:
+        ticked = [t for t in EXTRA_TOOLS if t in self.request.extras]
+        steps[2:2] = [self.install_step(ssh, state, t) for t in ticked]
+        if state.wg or state.nft or "wireguard" in ticked or "nftables" in ticked:
             steps.append(
                 Step(
                     "sudoers",
@@ -341,3 +408,78 @@ class LinuxSetup:
             secrets={"private_key": SecretStr(self.private)},
             certificate=sha256_hex(fingerprint),
         )
+
+
+#: The remedies of *Fix it* (#215): install what the reader needs, read-side only.
+REMEDIES = (
+    Remedy(
+        id="nftables",
+        read_side=True,
+        preview=[
+            PreviewStep(
+                id="install-nftables",
+                title="Install nftables with the device's package manager",
+                title_id="setup.linux.previewInstall",
+            ),
+            PreviewStep(
+                id="sudoers",
+                title="Allow the login the read-only wg show and nft list commands",
+                title_id="setup.linux.previewSudoers",
+            ),
+        ],
+        title="Install nftables",
+        description="Over SSH as root or a sudo user: installs the package nftables with the "
+        "device's package manager (apt, pacman, dnf or apk) and adds the read-only sudoers rule "
+        "for nft -j list ruleset, so that Signalbox can read the firewall. No firewall rule or "
+        "network setting is changed; the iptables rules in use stay as they are.",
+    ),
+)
+
+
+class LinuxFix(LinuxSetup):
+    """*Fix it* on a stored device: the steps of one remedy for the stored login."""
+
+    def __init__(self, request: RemedyRequest) -> None:
+        if request.remedy not in {r.id for r in REMEDIES}:
+            raise AdapterError(f"Linux has no remedy {request.remedy!r}")
+        super().__init__(
+            SetupRequest(
+                config=request.config,
+                admin_user=request.admin_user,
+                admin_secret=request.admin_secret,
+                port=request.port,
+                trust=request.trust,
+                timeout=request.timeout,
+                extras=["nftables"],
+            )
+        )
+
+    async def apply(self) -> SetupResult:
+        result = await super().apply()
+        # the stored login keeps its key: nothing is returned to store
+        return SetupResult(ok=result.ok, steps=result.steps)
+
+    def steps(self, ssh: PinnedSsh, state: DeviceState, fingerprint: str) -> list[Step]:
+        rule = sudoers(self.login)
+        install_rule = (
+            "# signalbox-setup: sudoers\nset -e\n"
+            "T=$(mktemp)\n"
+            "cat > \"$T\" <<'SIGNALBOX'\n" + rule.rstrip("\n") + "\nSIGNALBOX\n"
+            'chmod 440 "$T"\n'
+            'visudo -cf "$T" >/dev/null\n'
+            f'mv "$T" {_q(sudoers_path(self.login))}\n'
+        )
+        return [
+            self.install_step(ssh, state, "nftables"),
+            Step(
+                "sudoers",
+                f"Allow {self.login} the read-only commands (wg show, nft list ruleset) "
+                f"({sudoers_path(self.login)})",
+                install_rule,
+                needed=state.sudoers != rule,
+                action=self._action(ssh, install_rule),
+                note="" if state.sudoers != rule else "already as in the setup guide",
+                title_id="setup.linux.sudoers",
+                params={"login": self.login, "path": sudoers_path(self.login)},
+            ),
+        ]

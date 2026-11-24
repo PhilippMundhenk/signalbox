@@ -1,6 +1,6 @@
-# Linux gateway adapter (Debian, Raspberry Pi OS, Ubuntu)
+# Linux gateway adapter (Debian, Raspberry Pi OS, Ubuntu, Arch Linux ARM)
 
-Reads a Debian-based Linux box that does gateway work (a Raspberry Pi as the router of a second
+Reads a Linux box (see [Supported distributions](#supported-distributions)) that does gateway work (a Raspberry Pi as the router of a second
 site, a mini PC with dnsmasq) over SSH, read-only (#240). Signalbox logs in with a user of its
 own, sends one read script per observation on standard input of `sh -s` and maps the answer to
 the model. Nothing on the device is changed; nothing needs root except the WireGuard status and the nftables
@@ -14,7 +14,49 @@ ruleset, which a sudoers rule allows for exactly the read commands.
 | Writes | none |
 | Simulator | `signalbox.sim.linux` (an asyncssh server answering the read and setup scripts) |
 | Automatic setup | yes: root or a sudo user over SSH ([below](#automatic-setup)) |
-| Discovery | the SSH identification line of OpenSSH on Debian, Raspberry Pi OS or Ubuntu |
+| Discovery | the SSH identification line of OpenSSH on Debian, Raspberry Pi OS or Ubuntu (other distributions do not name themselves there: add the device by hand) |
+
+## Supported distributions
+
+The distribution is read from `/etc/os-release` (`ID`, then the words of `ID_LIKE`) by the reader
+(`vendor_extra.os_id`, `os_family`, `package_manager`) and by the automatic setup, never assumed.
+What the reader needs is `ip -j` and `bridge` (iproute2 with JSON, 4.13 or newer; busybox `ip`
+prints no JSON, and then nothing is read and a gap says so), `ss`, `/proc` and `/sys`, and
+optionally `nft`, `wg` and `tracepath`.
+
+| Distribution | Status | Package manager |
+| --- | --- | --- |
+| Debian, Raspberry Pi OS, Ubuntu | tested in CI (Linux container) and on real devices | `apt` |
+| Arch Linux ARM, Arch Linux | simulator (single-NIC Raspberry Pi 2, systemd-networkd, legacy iptables) and one real Raspberry Pi 2 (#302) | `pacman` |
+| Fedora and relatives | simulator only, not tried on a device (#21) | `dnf` |
+| Alpine | simulator only, not tried on a device (#21); busybox has no `useradd`: create the user by hand (`adduser -D -s /bin/sh signalbox`, then unlock it with `passwd -u signalbox`) | `apk` |
+
+The sudoers rule names `/usr/bin/wg` and `/usr/sbin/nft`; on Arch and Fedora `/usr/sbin` is a link
+to `/usr/bin`, so the same rule works. systemd-networkd, dhcpcd, NetworkManager and netctl
+configure the interfaces; Signalbox reads the result with `ip`, so it does not matter which one
+is used (only systemd-networkd `.network` files with `DHCPServer=yes` are read for DHCP). The SSH
+unit is `ssh` on Debian and `sshd` elsewhere; both are recognised. An interface without carrier
+(Wi-Fi dongle, unplugged jack) is a port that is down, and its addresses are still read.
+
+A host that does not forward IP packets (`net.ipv4.ip_forward=0`, the default on Arch) has no WAN
+side: the interface with its default route is also its network, so its segment and subnet
+(not a gateway subnet) are read. On a router (forwarding on) the uplink stays out of the
+subnets, unless nothing else has an address.
+
+Install what the reader can use, as root (the plan of the automatic setup shows the same
+commands, unticked, and *Fix it* does the first):
+
+| Tool | `apt` (Debian, Ubuntu, Raspberry Pi OS) | `pacman` (Arch Linux ARM) | `dnf` (Fedora) | `apk` (Alpine) |
+| --- | --- | --- | --- | --- |
+| `nft` (firewall) | `apt-get install nftables` | `pacman -S --needed nftables` | `dnf install nftables` | `apk add nftables` |
+| `ip -j`, `bridge` | `apt-get install iproute2` | `pacman -S --needed iproute2` | `dnf install iproute` | `apk add iproute2` |
+| `wg` (VPN) | `apt-get install wireguard-tools` | `pacman -S --needed wireguard-tools` | `dnf install wireguard-tools` | `apk add wireguard-tools` |
+| `tracepath` (traces) | `apt-get install iputils-tracepath` | `pacman -S --needed iputils` | `dnf install iputils` | `apk add iputils-tracepath` |
+
+Arch: run `pacman -Syu` first if `pacman -S` reports 404 (the package database is stale; a
+partial upgrade is not supported by Arch, so the setup does not run `-Sy`). With only legacy
+`iptables` (Arch Linux ARM images before the nf_tables switch) the firewall is *partly read*:
+install `nftables`, or `pacman -S iptables-nft` to move the rules to the nf_tables backend.
 
 ## Manual setup
 
@@ -85,7 +127,7 @@ One script (`signalbox.adapters.linux.collect.READ`) per observation, one more f
 | --- | --- |
 | System | `/etc/os-release` (`PRETTY_NAME` as firmware), `/proc/device-tree/model` (Raspberry Pi and other boards) or DMI `sys_vendor`/`product_name`; kernel (`uname -srm`) and IP forwarding in `vendor_extra` |
 | Ports | `ip -j -d link show` and `/sys/class/net/*` (`device`, `wireless`, `speed`, `duplex`): roles (ADR 0008) from `linkinfo.info_kind`: `bridge` (members: `master`), `vlan` (parent: `link`), `bond`/`team` (lag), `dsa` (jack on its `conduit`, the CPU port), `wireguard`/`tun`/`gre`/`ipip`/`sit`/`ppp` (tunnel), `veth`/`dummy`/`macvlan` (virtual); without a kind a Wi-Fi interface or, with a `device`, a jack. `mtu`, `admin_up` (`UP` flag), link (`operstate`) |
-| Segments, subnets | interfaces with global addresses (`ip -j addr show`), except the uplink and tunnels: a VLAN interface is its VLAN (tagged on its parent), anything else the untagged network (a bridge's members untagged); a VLAN-filtering bridge from `bridge -j vlan show`. Subnets are gateway subnets on a `gateway` with IP forwarding on |
+| Segments, subnets | interfaces with global addresses (`ip -j addr show`), except tunnels and, on a router, the uplink (a host that does not forward, or whose only address is on the uplink, keeps it, #302): a VLAN interface is its VLAN (tagged on its parent), anything else the untagged network (a bridge's members untagged); a VLAN-filtering bridge from `bridge -j vlan show`. Subnets are gateway subnets on a `gateway` with IP forwarding on |
 | Uplink | role `gateway` only: the interfaces of the default routes (`ip -j route`, IPv4 and IPv6), not WireGuard or other tunnels (a full tunnel is not an uplink); `dhcp` when the route's `protocol` is `dhcp` or the address is dynamic, `pppoe` for PPP, else `static`; addresses and the next hop |
 | SSH service | `sshd_config` with `Include` (first value wins, everything after the first `Match` ignored): `Port`, `ListenAddress`, `PasswordAuthentication` (default yes), `PermitRootLogin` (default `prohibit-password`: root with a key only); enabled: `ssh.service` active or the port listening (`ss -Hltun`) |
 | DHCP | dnsmasq (`/etc/dnsmasq.conf`, `/etc/dnsmasq.d/*.conf`: `dhcp-range` with `set:`/`tag:`, `dhcp-host`, `dhcp-option`, `domain`, `dhcp-authoritative`; lease file `/var/lib/misc/dnsmasq.leases`), Kea (`/etc/kea/kea-dhcp4.conf` with comments, `subnet4` and `shared-networks`, pools, `option-data`, reservations, HA peer; `/var/lib/kea/kea-leases4.csv`), ISC dhcpd (`/etc/dhcp/dhcpd.conf`, `/var/lib/dhcp/dhcpd.leases`), systemd-networkd (`.network` files with `DHCPServer=yes`; no lease table). A range is mapped to the segment of its interface or of the device address in its network. A file that exists but is not readable is reported as a gap with the fix |
@@ -114,6 +156,17 @@ first and sends nothing before. Then, over that pinned connection (a sudo user's
 3. with `wg` or `nft` installed, writes the sudoers rule above to `/etc/sudoers.d/<login>` after
    `visudo -c` accepted it;
 4. pins the confirmed host key for reading, so one fingerprint is confirmed, not two.
+
+Optional extras, unticked in the plan, each only when the tool is missing: *nftables*, *iproute2*
+(`ip -j` and `bridge`), *wireguard-tools* and *tracepath*. Ticked, each is one step that runs the
+package manager of the detected distribution (`apt-get`, `pacman`, `dnf` or `apk`, the command
+verbatim in the plan, table above) before the sudoers rule, which then also covers a freshly
+installed `nft` or `wg`. On a distribution Signalbox does not know the extras are refused (install
+the tools by hand). *Remove* does not uninstall packages.
+
+*Fix it* (read-side, no *Allow changes* needed) on the gap "only legacy iptables is installed":
+*Install nftables* does the same two steps (package and sudoers rule) for the stored login. No
+firewall rule or network setting is changed.
 
 A re-run repairs and sets a new key. *Remove* deletes `/etc/sudoers.d/<login>` and the user with
 its home directory. Root, `pi`, `admin` and other system accounts are never set up.

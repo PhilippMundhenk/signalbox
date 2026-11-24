@@ -1,4 +1,4 @@
-"""Generic Linux gateway (Debian, Raspberry Pi OS, Ubuntu) over SSH, read-only (#240).
+"""Generic Linux gateway (Debian, Raspberry Pi OS, Arch Linux ARM, ...) over SSH, read-only (#240).
 
 Signalbox logs in over SSH with a user of its own (a key, or a password) and a pinned host key,
 sends one read script per observation (:mod:`signalbox.adapters.linux.collect`) and maps the
@@ -30,6 +30,8 @@ from signalbox.adapters import (
     Manifest,
     Observation,
     PreviewStep,
+    RemedyRequest,
+    SetupExtra,
     SetupPlan,
     SetupRequest,
     SetupResult,
@@ -39,7 +41,17 @@ from signalbox.adapters import (
     UntrustedCertificate,
     UntrustedHostKey,
 )
-from signalbox.adapters.linux import clock, collect, dhcp, nftables, parse, setup, wireguard
+from signalbox.adapters.linux import (
+    clock,
+    collect,
+    dhcp,
+    distro,
+    nftables,
+    parse,
+    provision,
+    setup,
+    wireguard,
+)
 from signalbox.adapters.linux import trace as _trace
 from signalbox.adapters.linux.collect import Answer
 from signalbox.adapters.ssh import PinnedSsh, load_private_key
@@ -146,7 +158,7 @@ LINUX_STEPS = (
 class LinuxAdapter(Adapter):
     manifest = Manifest(
         id="linux",
-        name="Linux (Debian, Raspberry Pi OS)",
+        name="Linux (Debian, Raspberry Pi OS, Arch Linux ARM)",
         version="0.1.0",
         api_version="1.4",
         vendor="Linux",
@@ -164,7 +176,8 @@ class LinuxAdapter(Adapter):
         ),
         config=LinuxConfig,
         description=(
-            "Reads a Debian-based Linux gateway (Raspberry Pi OS, Ubuntu) over SSH with a user "
+            "Reads a Linux gateway (Debian, Raspberry Pi OS, Ubuntu, Arch Linux ARM; Fedora and "
+            "Alpine less tested) over SSH with a user "
             "of its own: ip, /proc, sshd, dnsmasq/Kea/ISC/networkd DHCP, chrony/timesyncd, "
             "WireGuard and nftables through a sudoers rule for wg show and nft -j list ruleset."
         ),
@@ -196,6 +209,30 @@ class LinuxAdapter(Adapter):
                     title_id="setup.linux.previewSudoers",
                 ),
                 PreviewStep(
+                    id="install-nftables",
+                    title="Install nftables with the device's package manager",
+                    extra="nftables",
+                    title_id="setup.linux.previewInstall",
+                ),
+                PreviewStep(
+                    id="install-iproute2",
+                    title="Install iproute2 (ip -j, bridge) with the device's package manager",
+                    extra="iproute2",
+                    title_id="setup.linux.previewInstallIproute2",
+                ),
+                PreviewStep(
+                    id="install-wireguard",
+                    title="Install wireguard-tools with the device's package manager",
+                    extra="wireguard",
+                    title_id="setup.linux.previewInstallWireguard",
+                ),
+                PreviewStep(
+                    id="install-tracepath",
+                    title="Install tracepath with the device's package manager",
+                    extra="tracepath",
+                    title_id="setup.linux.previewInstallTracepath",
+                ),
+                PreviewStep(
                     id="host-key",
                     title="Trust the SSH host key you confirmed, for reading",
                     title_id="setup.linux.previewHostKey",
@@ -213,7 +250,17 @@ class LinuxAdapter(Adapter):
                     title_id="setup.linux.previewDeleteUser",
                 ),
             ],
+            extras=[
+                SetupExtra(
+                    id=tool,
+                    label=f"Also install {what} (optional)",
+                    note="Installed with the device's package manager (apt, pacman, dnf or "
+                    "apk, shown in the plan). Only what is missing; nothing is removed again.",
+                )
+                for tool, (what, _) in distro.TOOLS.items()
+            ],
         ),
+        remedies=provision.REMEDIES,
         traces=TraceSupport(
             permission="none: tracepath (or traceroute) as the read user, no root",
             method="tracepath -n over SSH (iputils-tracepath)",
@@ -241,6 +288,15 @@ class LinuxAdapter(Adapter):
         from signalbox.adapters.linux.provision import LinuxSetup
 
         return await LinuxSetup(request).apply()
+
+    @classmethod
+    async def plan_remedy(cls, request: RemedyRequest) -> SetupPlan:
+        """*Fix it*: install nftables and add the read-only sudoers rule (#302)."""
+        return await provision.LinuxFix(request).plan()
+
+    @classmethod
+    async def apply_remedy(cls, request: RemedyRequest) -> SetupResult:
+        return await provision.LinuxFix(request).apply()
 
     @property
     def config(self) -> LinuxConfig:
@@ -321,6 +377,10 @@ class LinuxAdapter(Adapter):
             extra["kernel"] = a.text("kernel").strip()
         if release.get("ID"):
             extra["os_id"] = release["ID"]
+        found = distro.detect(release)
+        if found.manager:
+            extra["os_family"] = found.family
+            extra["package_manager"] = found.manager
         forwarding = parse.forwarding(a)
         if forwarding is not None:
             extra["ip_forwarding"] = forwarding
@@ -342,9 +402,23 @@ class LinuxAdapter(Adapter):
     def router(self) -> bool:
         return self.context.role is DeviceRole.GATEWAY
 
+    @property
+    def distro(self) -> distro.Distro:
+        return distro.detect(parse.os_release(self.answer))
+
     async def read_interfaces(self) -> Observation:
         lay = self._layout()
+        gaps: list[Gap] = []
+        if not lay.links and not isinstance(parse._json(self.answer.text("link")), list):
+            gaps.append(
+                Gap(
+                    message="interfaces: ip -j printed no JSON (iproute2 is too old, or busybox "
+                    "ip is used), so no port, segment or subnet was read",
+                    fix=f"Install iproute2 ({self.distro.hint('iproute2')}).",
+                )
+            )
         return Observation(
+            incomplete=gaps,
             ports=list(lay.ports.values()),
             segments=lay.segments(),
             subnets=lay.subnets,
@@ -464,7 +538,9 @@ class LinuxAdapter(Adapter):
                     Gap(
                         message=f"firewall: only {kind} iptables is installed, there is no nft "
                         "command to read its rules",
-                        fix="Install nftables (the iptables-nft backend shows its rules there).",
+                        fix="Install nftables (the iptables-nft backend shows its rules "
+                        f"there; {self.distro.hint('nftables')}), or use Fix it.",
+                        remedy="nftables",
                     )
                 ],
             )
@@ -486,8 +562,13 @@ class LinuxAdapter(Adapter):
                 Gap(
                     message="firewall: iptables-legacy is in use; its rules are not visible to "
                     "nft and are not read",
-                    fix="Switch to the nf_tables backend (update-alternatives --set iptables "
-                    "/usr/sbin/iptables-nft).",
+                    fix="Switch to the nf_tables backend ("
+                    + (
+                        "pacman -S iptables-nft"
+                        if self.distro.manager == "pacman"
+                        else "update-alternatives --set iptables /usr/sbin/iptables-nft"
+                    )
+                    + ").",
                 )
             )
         zones = [self._zone(lay, name) for name in sorted(parsed.zone_names)]
@@ -864,49 +945,65 @@ class _Layout:
                 )
             )
 
-        # networks: interfaces with addresses, except uplinks and tunnels
+        # networks: interfaces with addresses, except tunnels and, on a router, the uplinks
+        # (the WAN side). A host that does not forward (IP forwarding is off: a single-NIC
+        # Raspberry Pi, #302) has no WAN side: its uplink interface is its network, and so is
+        # the uplink of a router on which nothing else has an address.
         forwarding = parse.forwarding(a)
         vlans = parse.bridge_vlans(a)
-        for name, link in sorted(lay.links.items()):
+        wan = set(uplink_devs) if forwarding is not False else set()
+        lay._networks(roles, vlans, wan, router, forwarding)
+        if not lay.networks and wan:
+            lay._networks(roles, vlans, set(), router, forwarding)
+        return lay
+
+    def _networks(
+        self,
+        roles: dict[str, PortRole | None],
+        vlans: dict[str, list[tuple[int, bool, bool]]],
+        wan: set[str],
+        router: bool,
+        forwarding: bool | None,
+    ) -> None:
+        for name, link in sorted(self.links.items()):
             role = roles[name]
-            if name in uplink_devs or role is PortRole.TUNNEL:
+            if name in wan or role is PortRole.TUNNEL:
                 continue
             addresses = parse.global_addresses(link)
             filtering = link.kind == "bridge" and link.vlan_filtering
             if filtering:  # the bridge's own VLAN table: one segment per VLAN
-                for member in sorted(n for n, x in lay.links.items() if x.master == name):
+                for member in sorted(n for n, x in self.links.items() if x.master == name):
                     for vid, _pvid, untagged in vlans.get(member, []):
                         mode = Membership.UNTAGGED if untagged else Membership.TAGGED
-                        lay.add_member(lay.seg(vid), member, mode)
+                        self.add_member(self.seg(vid), member, mode)
             if not addresses and link.kind != "bridge":
                 continue
-            seg = lay.seg(link.vlan if role is PortRole.VLAN else None)
-            if role is PortRole.VLAN and link.parent in lay.links:
-                parent = lay.links[link.parent]
+            seg = self.seg(link.vlan if role is PortRole.VLAN else None)
+            if role is PortRole.VLAN and link.parent in self.links:
+                parent = self.links[link.parent]
                 if parent.kind == "bridge" and parent.vlan_filtering:
                     pass  # members come from the bridge's VLAN table
                 else:
-                    lay.add_member(seg, link.parent, Membership.TAGGED)
+                    self.add_member(seg, link.parent, Membership.TAGGED)
             elif link.kind == "bridge" and not filtering:
-                for member in sorted(n for n, x in lay.links.items() if x.master == name):
-                    lay.add_member(seg, member, Membership.UNTAGGED)
+                for member in sorted(n for n, x in self.links.items() if x.master == name):
+                    self.add_member(seg, member, Membership.UNTAGGED)
             elif link.kind != "bridge" and link.master is None:
-                lay.add_member(seg, name, Membership.UNTAGGED)
+                self.add_member(seg, name, Membership.UNTAGGED)
             if not addresses:
                 continue
-            lay.names.setdefault(seg, name)
-            lay.networks[name] = (seg, addresses)
+            self.names.setdefault(seg, name)
+            self.networks[name] = (seg, addresses)
             for n, addr in enumerate(addresses):
-                lay.subnets.append(
+                self.subnets.append(
                     Subnet(
-                        id=object_id(device, "subnet", f"{name}-{n}"),
+                        id=object_id(self.device, "subnet", f"{name}-{n}"),
                         segment_id=seg,
                         interface=addr,
-                        device_id=device,
+                        device_id=self.device,
                         gateway=router and forwarding is not False,
                     )
                 )
-        return lay
 
     def add_member(self, seg: str, name: str, mode: Membership) -> None:
         pid = port_id(self.device, name)

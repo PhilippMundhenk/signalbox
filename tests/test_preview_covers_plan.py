@@ -22,7 +22,7 @@ from signalbox.adapters.mikrotik import MikrotikAdapter
 from signalbox.adapters.openwrt import OpenWrtAdapter
 from signalbox.adapters.opnsense import OpnsenseAdapter
 from signalbox.sim.linux import ROOT_PASSWORD as LINUX_ROOT
-from signalbox.sim.linux import LinuxSim
+from signalbox.sim.linux import LinuxSim, arch_sim
 from signalbox.sim.linux import serve_ssh as linux_ssh
 from signalbox.sim.mikrotik import MikrotikSimulator
 from signalbox.sim.mikrotik_ssh import ADMIN_PASSWORD as MT_SSH_PASSWORD
@@ -87,10 +87,26 @@ async def test_linux() -> None:
             )
 
         covers(preview, await LinuxAdapter.plan_setup(req()))
+        every = ("nftables", "iproute2", "wireguard", "tracepath")
+        covers(preview, await LinuxAdapter.plan_setup(req(extras=list(every))), extras=every)
         assert (await LinuxAdapter.apply_setup(req())).ok
         covers(preview, await LinuxAdapter.plan_setup(req()))
         covers(preview, await LinuxAdapter.plan_setup(req(remove=True)), remove=True)
         assert (await LinuxAdapter.apply_setup(req(remove=True))).ok
+
+    # fix it: nftables, on a device that has only legacy iptables
+    async with linux_ssh(arch_sim()) as (port, fp):
+        request = RemedyRequest(
+            remedy="nftables",
+            config={"host": "127.0.0.1", "username": "signalbox"},
+            secrets={"private_key": SecretStr("stored")},
+            admin_user="root",
+            admin_secret=SecretStr(LINUX_ROOT),
+            port=port,
+            trust=fp,
+            timeout=10,
+        )
+        covers(remedy_preview(LinuxAdapter, "nftables"), await LinuxAdapter.plan_remedy(request))
         covers(preview, await LinuxAdapter.plan_setup(req(remove=True)), remove=True)
 
 
