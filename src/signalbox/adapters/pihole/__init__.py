@@ -31,6 +31,7 @@ from signalbox.adapters import (
     Observation,
     SystemInfo,
     Unreachable,
+    UntrustedCertificate,
     dnsmap,
     unexpected_answer,
 )
@@ -226,6 +227,8 @@ class PiholeAdapter(Adapter):
         needed), or not a Pi-hole at all. Returns only for v5 with a token."""
         try:
             data = await self._v5_get(V5_API, {"versions": ""})
+        except (Unreachable, UntrustedCertificate):
+            raise
         except AdapterError:
             data = None
         if isinstance(data, dict) and ("core_current" in data or "FTL_current" in data):
