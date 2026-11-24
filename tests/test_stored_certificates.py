@@ -123,7 +123,7 @@ async def test_mikrotik_reads_no_key_material(mt_url: str) -> None:
     assert snap.certificates
     assert "PRIVATE KEY" not in dump and "hunter2" not in dump and "MIIEvQ" not in dump
     assert all(c.vendor_extra == {} for c in snap.certificates)
-    assert not any("export" in p or "key" in p.rsplit("/", 1)[-1] for p in MT.requests)
+    assert {p for p in MT.requests if "certificate" in p or "export" in p} == {"/rest/certificate"}
 
 
 async def test_mikrotik_without_the_menu_or_with_odd_rows(mt_url: str) -> None:
