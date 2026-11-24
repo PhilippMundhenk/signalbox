@@ -30,11 +30,13 @@ from signalbox.adapters import (
     probes_broadcast,
     probes_hosts,
 )
+from signalbox.adapters.adguardhome import AdGuardHomeAdapter
 from signalbox.adapters.fritzbox import FritzboxAdapter
 from signalbox.adapters.mikrotik import MikrotikAdapter
 from signalbox.adapters.omada import OmadaAdapter
 from signalbox.adapters.openwrt import OpenWrtAdapter, OpenWrtConfig
 from signalbox.adapters.opnsense import OpnsenseAdapter, OpnsenseConfig
+from signalbox.adapters.pihole import PiholeAdapter
 from signalbox.discovery import BroadcastResult, Candidate, HostProbe, NetworkProbe, RateLimiter
 from signalbox.discovery import clean as clean_text
 from signalbox.discovery.engine import normal_host
@@ -52,6 +54,7 @@ from signalbox.model import (
 from signalbox.service import Services, build
 from signalbox.sim import fritzbox as fritz_sim
 from signalbox.sim import openwrt as openwrt_sim
+from signalbox.sim.dnsfilter import AdGuardSim, PiholeSim
 from signalbox.sim.mikrotik import MikrotikSimulator
 from signalbox.sim.omada import OmadaSimulator
 from signalbox.sim.opnsense import OpnsenseSimulator
@@ -82,6 +85,8 @@ def sims(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, int]]:
         "opnsense.https": (OpnsenseSimulator().app(), tls),
         "mikrotik.https": (MikrotikSimulator().app(), tls),
         "omada.https": (OmadaSimulator().app(), tls),
+        "adguardhome.http": (AdGuardSim().app(), None),
+        "pihole.https": (PiholeSim().app(), tls),
     }
     ports: dict[str, int] = {}
     with contextlib_exit() as stack:
@@ -107,6 +112,11 @@ ALL_PORTS = (
     "mikrotik.http",
     "omada.https",
     "omada.hardware",
+    "adguardhome.https",
+    "adguardhome.http",
+    "adguardhome.http80",
+    "pihole.https",
+    "pihole.http",
     "linux.ssh",
 )
 
@@ -132,6 +142,8 @@ ADAPTERS: dict[str, type[Adapter]] = {
     "opnsense.https": OpnsenseAdapter,
     "mikrotik.https": MikrotikAdapter,
     "omada.https": OmadaAdapter,
+    "adguardhome.http": AdGuardHomeAdapter,
+    "pihole.https": PiholeAdapter,
 }
 
 
@@ -276,6 +288,62 @@ async def test_opnsense_needs_its_name_and_the_login_form() -> None:
     name_only = answer(200, "<p>OPNsense</p>")
     assert await OpnsenseAdapter.discover(Canned({("https", 443, "/"): name_only})) is None
     assert await OpnsenseAdapter.discover(Canned({("https", 443, "/"): answer(302)})) is None
+
+
+async def test_adguardhome_probe_reads_the_unauthenticated_status(sims: dict[str, int]) -> None:
+    port = sims["adguardhome.http"]
+    c = await found(AdGuardHomeAdapter, {"adguardhome.http": port})
+    assert c is not None and c.role is DeviceRole.OTHER and c.vendor == "AdGuard"
+    assert c.config == {"url": f"http://127.0.0.1:{port}"}  # the 401 names the realm
+    assert c.firmware is None and "plain http" in (c.note or "")
+    assert c.evidence == f"AdGuard Home status on http port {port}"
+
+
+async def test_pihole_probe_reads_the_public_login_info(sims: dict[str, int]) -> None:
+    port = sims["pihole.https"]
+    c = await found(PiholeAdapter, {"pihole.https": port})
+    assert c is not None and c.role is DeviceRole.OTHER and c.vendor == "Pi-hole"
+    assert c.config == {"url": f"https://127.0.0.1:{port}"} and "v6" in (c.note or "")
+    assert c.evidence == f"Pi-hole API on https port {port}"
+
+
+async def test_adguardhome_variants() -> None:
+    status = answer(200, '{"dns_port": 53, "version": "v0.107.52", "running": true}')
+    c = await AdGuardHomeAdapter.discover(Canned({("https", 443, "/control/status"): status}))
+    assert c is not None and c.firmware == "0.107.52" and c.config == {"url": "https://192.0.2.1"}
+    assert "AdGuardHome.yaml" in (c.note or "")
+    c = await AdGuardHomeAdapter.discover(Canned({("http", 80, "/control/status"): status}))
+    assert c is not None and c.config == {"url": "http://192.0.2.1"}
+    bare = answer(401, "", www_authenticate="Basic")
+    other = answer(401, "", www_authenticate='Digest realm="AdGuard Home"')
+    novers = answer(200, '{"dns_port": 53}')
+    for no in (
+        bare,
+        other,
+        answer(403),
+        answer(200, "[]"),
+        answer(200, '{"dns_port": "x"}'),
+        novers,
+    ):
+        probe = Canned({("http", 3000, "/control/status"): no})
+        assert await AdGuardHomeAdapter.discover(probe) is None
+
+
+async def test_pihole_variants() -> None:
+    info = answer(200, '{"dns": true, "https_port": 8443, "dhcp": false}')
+    c = await PiholeAdapter.discover(Canned({("http", 80, "/api/info/login"): info}))
+    assert c is not None and c.config == {"url": "https://192.0.2.1:8443"}
+    zero = answer(200, '{"dns": true, "https_port": 0}')
+    c = await PiholeAdapter.discover(Canned({("http", 80, "/api/info/login"): zero}))
+    assert c is not None and c.config == {"url": "https://192.0.2.1"}
+    page = answer(200, "<title>Pi-hole - raspberrypi</title>")
+    c = await PiholeAdapter.discover(Canned({("http", 80, "/admin/"): page}))
+    assert c is not None and "Pi-hole v6" in (c.note or "") and "page" in (c.evidence or "")
+    for no in (answer(200, '{"dns": "yes"}'), answer(401), answer(200, "[]")):
+        assert await PiholeAdapter.discover(Canned({("https", 443, "/api/info/login"): no})) is None
+    assert (
+        await PiholeAdapter.discover(Canned({("https", 443, "/admin/"): answer(200, "x")})) is None
+    )
 
 
 async def test_omada_needs_a_controller_id() -> None:
@@ -439,7 +507,16 @@ def test_hooks_are_optional_and_detected() -> None:
     adapters = load_adapters()
     hosts = sorted(k for k, cls in adapters.items() if probes_hosts(cls))
     casts = sorted(k for k, cls in adapters.items() if probes_broadcast(cls))
-    assert hosts == ["fritzbox", "linux", "mikrotik", "omada", "openwrt", "opnsense"]
+    assert hosts == [
+        "adguardhome",
+        "fritzbox",
+        "linux",
+        "mikrotik",
+        "omada",
+        "openwrt",
+        "opnsense",
+        "pihole",
+    ]
     assert casts == ["easysmart", "prosafe"]
     assert not probes_hosts(Adapter) and not probes_broadcast(Adapter)
 
@@ -693,7 +770,15 @@ def test_api_finds_the_simulators_and_marks_added_ones(real: TestClient) -> None
     assert status["requests"] >= 5 and status["finished_at"]
     assert status["scope"] == ["127.0.0.1: 1 address(es) you entered"]
     by = {x["adapter"]: x for x in status["candidates"]}
-    assert set(by) == {"fritzbox", "mikrotik", "omada", "openwrt", "opnsense"}
+    assert set(by) == {
+        "adguardhome",
+        "fritzbox",
+        "mikrotik",
+        "omada",
+        "openwrt",
+        "opnsense",
+        "pihole",
+    }
     fritz = by["fritzbox"]
     assert fritz["name"] == "FRITZ!Box 7590" and fritz["adapter_name"] == "AVM Fritz!Box"
     assert fritz["why"] == "entered by you" and fritz["added"] is None and not fritz["ignored"]

@@ -1,4 +1,4 @@
-"""AdGuard Home: DNS service, upstream servers, DHCP server and clients, read only (#304).
+"""AdGuard Home: DNS service, upstream servers, DHCP server and clients, read only (#304, #314).
 
 Talks to the REST API (``/control/...``) with HTTP basic auth. Endpoints and the JSON shapes
 assumed for them are listed in ``docs/adapters/adguardhome.md``; they come from the public
@@ -12,6 +12,7 @@ ever written: only GET requests are sent.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from ipaddress import ip_network
 from typing import Any
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -30,7 +31,9 @@ from signalbox.adapters import (
     Unreachable,
     dnsmap,
 )
+from signalbox.adapters.adguardhome import discovery as _discovery
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     DNS_PORT,
     Client,
@@ -276,9 +279,31 @@ class AdGuardHomeAdapter(Adapter):
             lease_time=duration if isinstance(duration, int) and duration > 0 else None,
             reservations=reservations,
             leases=leases,
+            dns_servers=await self._dhcp_dns_servers(v4),
             extra=extra,
         )
         return Observation(dhcp_servers=[server], segments=[segment])
+
+    async def _dhcp_dns_servers(self, v4: dict[str, Any]) -> list[IPAddress]:
+        """AdGuard Home's DHCP server has no DNS option setting: clients get AdGuard Home
+        itself (guess, #21), that is its own IPv4 addresses (``dns_addresses`` of the status)
+        in the DHCP network; without a known network all of them."""
+        status = _dict(await self._get(STATUS), STATUS)
+        own: list[IPAddress] = [
+            a
+            for item in status.get("dns_addresses") or []
+            if (a := dnsmap.address(item)) is not None
+            and a.version == 4
+            and not (a.is_loopback or a.is_unspecified or a.is_link_local)
+        ]
+        gateway, mask = dnsmap.address(v4.get("gateway_ip")), dnsmap.address(v4.get("subnet_mask"))
+        if gateway is not None and mask is not None and gateway.version == 4 == mask.version:
+            try:
+                net = ip_network(f"{gateway}/{mask}", strict=False)
+            except ValueError:
+                return own
+            return [a for a in own if a in net]
+        return own
 
     # --- clients ------------------------------------------------------------------------------
 
@@ -298,3 +323,8 @@ class AdGuardHomeAdapter(Adapter):
                     id=object_id(dev, "client", m), mac=m, addresses=addresses, hostname=name
                 )
         return Observation(clients=[out[m] for m in sorted(out)])
+
+    @classmethod
+    async def discover(cls, probe: HostProbe) -> Candidate | None:
+        """``GET /control/status`` without credentials (a 401 or the status itself)."""
+        return await _discovery.discover(probe)
