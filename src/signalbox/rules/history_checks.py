@@ -14,7 +14,7 @@ from signalbox.model import DeviceStatus, Network, PortKind, client_target
 from signalbox.rules import Result, Rule, Severity, found, history_rule
 from signalbox.rules._names import device_name, segment_name, site_of_device
 from signalbox.rules.clients import is_randomised
-from signalbox.sightings import ANSWERED, History
+from signalbox.sightings import ANSWERED, History, client_segment
 
 #: A device that did not answer for this long is reported; after ``DOWN_ERROR`` as an error.
 DOWN_WARNING = timedelta(hours=1)
@@ -202,18 +202,23 @@ def network_changed(net: Network, history: History) -> Iterator[Result]:
         return
     since = history.now - MOVE_WINDOW
     for client in net.clients:
-        if client.segment_id is None or is_randomised(client.mac):
+        segment = client_segment(net, client)
+        if segment is None or is_randomised(client.mac):
             continue
         if net.expected(client_target(client.mac)).segment is not None:
             continue  # clients.unexpected-network knows where it belongs
         past = history.clients.get(client.mac)
         recent = [m for m in past.moves if m.at >= since] if past else []
-        if not recent or len(recent) >= ROAMING_MOVES or recent[-1].new != client.segment_id:
+        if not recent or len(recent) >= ROAMING_MOVES or recent[-1].new != segment:
             continue
         move = recent[-1]
         name = client.hostname or client.mac
+        port = net.port(client.seen_on) if client.seen_on else None
+        where = (
+            f" (now behind {device_name(net, port.device_id)} port {port.label()})" if port else ""
+        )
         yield found(
-            f"{name} ({client.mac}) moved from {segment_name(net, move.old)} to "
+            f"{name} ({client.mac}){where} moved from {segment_name(net, move.old)} to "
             f"{segment_name(net, move.new)} at {_when(move.at)}",
             [client.id, move.old, move.new],
             fix="If this was not intended, check the SSID it joined or the switch port it is "

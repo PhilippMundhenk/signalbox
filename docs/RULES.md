@@ -64,6 +64,12 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`clients.unexpected-network`](rules/expectations.md#clientsunexpected-network)
 - [`clients.category-network`](rules/expectations.md#clientscategory-network)
 
+## [MAC address tables](rules/fdb_checks.md)
+
+- [`mac.flapping`](rules/fdb_checks.md#macflapping)
+- [`mac.static-stale`](rules/fdb_checks.md#macstatic-stale)
+- [`mac.table-full`](rules/fdb_checks.md#mactable-full)
+
 ## [Firewall](rules/firewall_checks.md)
 
 - [`security.port-forward-target`](rules/firewall_checks.md#securityport-forward-target)

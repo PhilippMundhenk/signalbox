@@ -13,6 +13,7 @@ from ipaddress import IPv4Address, IPv6Address
 
 from signalbox.model import (
     STANDARD_MTU,
+    FdbKind,
     FrameTypes,
     Link,
     LinkKind,
@@ -137,13 +138,29 @@ def _port_segment(net: Network, p: Port, tagged: set[str]) -> str | None:
     return untagged[0] if len(untagged) == 1 else None
 
 
+def _learned_segment(net: Network, mac: str, port_id: str) -> str | None:
+    """The network the switch learned ``mac`` in on this port (MAC address table, #160)."""
+    segments = {
+        e.segment_id
+        for e in net.fdb_on(port_id)
+        if e.mac == mac and e.kind is not FdbKind.SELF and e.segment_id is not None
+    }
+    return next(iter(segments)) if len(segments) == 1 else None
+
+
+def _others_behind(net: Network, port_id: str, mac: str) -> bool:
+    return any(e.mac != mac and e.kind is not FdbKind.SELF for e in net.fdb_on(port_id))
+
+
 @rule(
     "vlan.client-port-mismatch",
     "Wired client is in another network than its switch port",
     Severity.WARNING,
     "A device on an access port belongs to the port's VLAN. If its address is in another "
     "network, the port's VLAN setting is wrong, the device tags its own frames (a hypervisor, "
-    "a misconfigured NAS) or a hidden switch with other VLAN settings sits in between.",
+    "a misconfigured NAS) or a hidden switch with other VLAN settings sits in between. Where "
+    "the switch reports a MAC address table, the VLAN it learned the device in counts as the "
+    "port's network, and a port that learns other addresses too (a hidden switch) is skipped.",
 )
 def client_port_mismatch(net: Network) -> Iterator[Result]:
     by_port: dict[str, list[int]] = {}
@@ -160,10 +177,13 @@ def client_port_mismatch(net: Network) -> Iterator[Result]:
         if p.external is False:
             continue  # a CPU port (#252) carries every VLAN of the switch
         site = _site(net, p.device_id)
-        port_seg = _port_segment(net, p, tagged)
+        c = net.clients[indexes[0]]
+        learned = _learned_segment(net, c.mac, port_id)
+        if _others_behind(net, port_id, c.mac):
+            continue  # the device's table shows other devices behind the port
+        port_seg = learned or _port_segment(net, p, tagged)
         if site is None or port_seg is None or port_seg not in with_subnet:
             continue
-        c = net.clients[indexes[0]]
         client_seg = _client_segment(net, list(c.addresses), site)
         if not client_seg or client_seg == port_seg:
             continue
