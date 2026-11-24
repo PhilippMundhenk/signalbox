@@ -30,6 +30,7 @@ DESKTOP = [
     ("findings", "#/"),
     ("devices", "#/devices"),
     ("topology", "#/topology"),
+    ("device", "#/device/core-switch"),
     ("wireless", "#/wireless"),
     ("segments", "#/segments"),
 ]
@@ -39,6 +40,8 @@ PHONE = [("phone-findings", "#/"), ("phone-devices", "#/devices")]
 def shoot(page: Page, base: str, name: str, route: str) -> None:
     page.goto(f"{base}/{route}")
     page.wait_for_load_state("networkidle")
+    if route.startswith("#/device/"):  # the page fills in after the data arrives
+        page.get_by_test_id("device-ports").wait_for()
     page.wait_for_timeout(400)
     page.screenshot(path=str(OUT / f"{name}.png"), full_page=False)
 
@@ -72,6 +75,8 @@ def main() -> None:
                     page.reload()
                     shoot(page, base, "findings-dark", "#/")
                     shoot(page, base, "topology-dark", "#/topology")
+                    shoot(page, base, "devices-dark", "#/devices")
+                    shoot(page, base, "device-dark", "#/device/core-switch")
                     page.evaluate("localStorage.removeItem('theme')")
                     phone = browser.new_page(**p.devices["Pixel 7"])
                     login(phone, base)

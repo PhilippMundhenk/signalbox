@@ -31,7 +31,7 @@ def demo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Network]:
     import asyncio
 
     svc: Services = build(tmp_path_factory.mktemp("c"), env={"SIGNALBOX_AUTH_PASSWORD": "x" * 12})
-    with demo_devices(svc):
+    with demo_devices(svc, compact=True):
         asyncio.run(svc.runner.observe_all())
         yield svc.runner.network()
     svc.close()

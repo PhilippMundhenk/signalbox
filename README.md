@@ -101,8 +101,8 @@ Adapters are plugins: other devices can be added as separate packages, see
    entered on the *Topology* page.
 
 Just looking? `docker run --rm -p 8080:8080 -e SIGNALBOX_AUTH_PASSWORD=demo-password-1
-ghcr.io/philippmundhenk/signalbox:latest demo` starts Signalbox with a simulated gateway and two
-access points; nothing on your network is touched.
+ghcr.io/philippmundhenk/signalbox:latest demo` starts Signalbox with two simulated sites
+(about a dozen devices); nothing on your network is touched.
 
 ## Screenshots
 

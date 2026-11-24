@@ -8,6 +8,7 @@ import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from signalbox.adapters import Adapter, AdapterConfig, AdapterContext
 from signalbox.annotate import apply as apply_annotations
@@ -47,6 +48,8 @@ class Runner:
     desired_source: Callable[[], DesiredState | None] | None = None
     #: Called after every evaluation (MQTT export, UI push).
     listeners: list[Callable[[Network, list[Finding]], None]] = field(default_factory=list)
+    #: Extra context values per device id (the demo points the switch adapters at simulators).
+    context_extra: dict[str, dict[str, Any]] = field(default_factory=dict)
     _wake: asyncio.Event = field(default_factory=asyncio.Event)
     _stop: asyncio.Event = field(default_factory=asyncio.Event)
     last_run: datetime | None = None
@@ -102,7 +105,12 @@ class Runner:
             role=rec.role,
             config=cfg,
             pinned_fingerprint=rec.pinned_fingerprint,
-            timeout=self.config.observe.timeout_seconds,
+            timeout=float(
+                self.context_extra.get(rec.id, {}).get(
+                    "timeout", self.config.observe.timeout_seconds
+                )
+            ),
+            extra=self.context_extra.get(rec.id, {}),
         )
         adapter = self.adapters[rec.adapter](ctx)
         try:
