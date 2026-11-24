@@ -45,6 +45,10 @@ GROUPS = {
         ("signalbox-read", "/api/diagnostics/interface/get_arp"),
         ("signalbox-read", "/api/diagnostics/interface/getNdp"),
         ("signalbox-read", "/api/diagnostics/interface/get_ndp"),
+        # the packet filter (#379, #390): before 26.7 only floating rules without show_all
+        ("signalbox-read", "/api/firewall/filter/searchRule" + GRID),
+        ("signalbox-read", "/api/firewall/filter/searchRule" + GRID + "&show_all=1"),
+        ("signalbox-read", "/api/firewall/filter/search_rule" + GRID + "&show_all=1"),
     ],
     "kea": [
         ("signalbox-read", "/api/kea/dhcpv4/search_subnet" + GRID),

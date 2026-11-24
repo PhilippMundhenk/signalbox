@@ -17,8 +17,8 @@ DHCP subnets and reservations, and firewall rules, port forwards and zone polici
 > **Verified against OPNsense 26.7.9 in CI.** The endpoints, privileges, answers and write
 > calls below are checked every night against the official OPNsense nano image (26.7, updated
 > to the newest 26.7.x) running in QEMU: tests/integration/test_opnsense_real.py, set up by
-> tools/integration/opnsense/ ([Integration tests](#integration-tests)). Versions before 26.7
-> are not tested. Parsing stays tolerant: a missing field is left empty, unknown fields are
+> tools/integration/opnsense/ ([Integration tests](#integration-tests)). 25.1 is read in CI as
+> well, 24.7 only by a simulator variant ([Versions](#versions-390)). Parsing stays tolerant: a missing field is left empty, unknown fields are
 > ignored, and an answer of the wrong shape becomes a readable "could not read" finding
 > (`unexpected answer from <endpoint>: ...`), never a crash.
 
@@ -60,7 +60,7 @@ configuration turns it off completely (the API refuses it, the form does not sho
 4. *Set up the device* runs it and saves the device with the new key, stored encrypted and
    never shown. Root's key is not stored or logged: **delete it on the firewall afterwards**.
 
-The calls are those of the web interface's user manager (OPNsense 24.7 and later):
+The calls are those of the web interface's user manager (OPNsense 25.1 and later; [Versions](#versions-390)):
 `POST /api/auth/user/search`, `GET /api/auth/user/get/<uuid>`, `POST /api/auth/user/add` or
 `set/<uuid>` with `{"user": {"name", "descr", "scrambled_password": "1", "priv": "<ids>",
 "group_memberships": ""}}`, `POST /api/auth/user/add_api_key/signalbox` (answers `key` and
@@ -810,6 +810,87 @@ identifier, `opt2`), `set_*` `{"result": "saved"}`, `del_*` `{"result": "deleted
 `reconfigure` `{"status": "ok"}`, `revert_backup/<id>` `{"status": "reverted"}`. A refused value
 is `{"result": "failed", "validations": {"<model>.<field>": "<message>"}}`, for example
 `reservation.ip_address: Address not in specified subnet`.
+
+## Versions (#390)
+
+Signalbox supports the current OPNsense and the two major releases before it (rule of #389):
+26.x, 25.x and 24.x. OPNsense 26.7 is the reference (every endpoint below is recorded from it);
+the older releases were compared with the public sources of `opnsense/core` at the tags 24.7.12,
+25.1.12, 25.7.11 and 26.1.11 (controllers, models, ACLs and the router), and are read with the
+fallbacks below. The firmware version is read once per observation from
+`core/firmware/status`; most behaviour does not depend on it (a missing endpoint is a 404 and
+becomes an optional gap), the version only picks what a 404 cannot say.
+
+| | 26.7 | 25.7 | 25.1 | 24.7 |
+| --- | --- | --- | --- | --- |
+| Reads (interfaces, VLANs, Kea, Unbound, ARP/NDP, WireGuard, certificates, routes, log targets) | CI | sources | CI | simulator, sources |
+| Firewall rules (`filter/search_rule`) | all rules | one request per interface with `show_all=1` | one request per interface with `show_all=1` | four columns only: not read, gap |
+| Port forwards (`firewall/d_nat`) | yes | optional gap | optional gap | optional gap |
+| Source NAT, one-to-one (`source_nat`, `one_to_one`) | yes | yes | yes | yes |
+| dnsmasq DNS (`dnsmasq/settings`) | yes | yes | yes | not there, ignored |
+| NTP state (`ntpd/service/status`) | yes | yes | not there, no NTP state | not there, no NTP state |
+| Disk table (`system_disk`) | `total_bytes`, `used_bytes` | `df -h` sizes | `df -h` sizes | `df -h` sizes |
+| Interface assignment API (router writes) | 26.7.6 and newer | no | no | no |
+| Interface negation in a rule (`interfacenot`, writes) | yes | yes | yes | no, refused with a message |
+| User manager API (automatic setup, Fix it, accounts) | yes | yes | yes | no, manual setup only |
+| WireGuard status privilege | *VPN: WireGuard: Status* | *Status* | *VPN: WireGuard* (full page) | *VPN: WireGuard* (full page) |
+| Automatic setup, writes (VLAN, Kea, firewall rules) | CI | simulator | simulator | simulator |
+
+What the sources showed, and what the adapter does about it:
+
+- **Action spelling.** The router of 24.7 and newer turns `search_item` and `searchItem` into
+  the same action (`Mvc/Router.php`), but the privileges (ACL patterns) name the action as the
+  release spells it: camelCase up to 25.1 (`api/diagnostics/system/systemTime`, `getArp*`),
+  snake_case from 25.7. A key that is not root's gets **403** for the other spelling (seen on a
+  real 25.1: `system_time`, `get_arp`). So every request uses the spelling of the firmware
+  version read first (`compat.SNAKE_ACL`, `_ApiHttp`) and, on a 404, the other one. Releases
+  before 24.7 are a guess (not checked).
+- **ISC DHCP (core).** `dhcpv4/service/status` has no privilege before 26 (root only) and the
+  leases need *Status: DHCP leases* (`page-status-dhcpleases`), which the read set of the guide
+  does not include: a 403 there leaves ISC unread instead of failing DHCP and clients (found by
+  the 25.1 CI run).
+- **Port forwards.** `firewall/d_nat` is new in 26.1; on 25.x and 24.x the forwards stay unread
+  (`port_forwards_complete` false) with the optional gap `opnsense.forwardsUnread`, naming the
+  release. Changing a forward is refused with a message.
+- **Rules (#379).** From 25.1 until 26.7 `search_rule` lists only the *floating* rules (no or
+  several interfaces) of the new model by default (read on a real 25.1: `rows: []` for the
+  rule of the LAN). `show_all=1` adds the legacy and the automatic rules (with `sort_order`),
+  and a rule of one interface appears only when `interface=<identifier>` names its interface
+  (`FilterController::searchRuleAction`). So the adapter asks once without and once per
+  interface and interface group with `show_all=1`, and unites the rows by uuid in `sort_order`
+  (a rule of the new model without one: after its `sequence`; *guess* until the 25.1 CI run
+  checks the rule "Signalbox CI: NAS"). 24.7 lists four columns (`enabled`, `sequence`,
+  `action`, `description`) and no `show_all`: the rules stay unread, the rules gap says so,
+  the zone matrix is "unknown" (`get_rule` per uuid is not used).
+- **Disk table.** `system_disk` answers `blocks`/`used`/`available` as `df -h` prints them
+  (`28G`, `1.8G`) before 26.7: parsed by 1024 (`vitals.size_bytes`), rounded, so the usage is
+  approximate there (*guess*: only 26.7's answer was recorded).
+- **Uptime.** `system_time` words are translated with the interface language (`3 Tage,
+  04:05:06`); the parser takes any word.
+- **Accounts and automatic setup** need the user manager API of 25.1. On 24.7 the setup and
+  *Fix it* stop with `opnsense.noUserApi` and the setup guide's manual steps; the accounts are
+  not listed (no gap).
+- **Privileges.** The read privileges of the guide exist on 24.7, 25.1 and 25.7 under the same
+  ids, except *VPN: WireGuard: Status* (`page-wireguard-diagnostics`, 25.7): before that
+  `api/wireguard/service/show` belongs to the full *VPN: WireGuard* page
+  (`page-wireguard-config`), which also lets a key read the private keys through the other
+  endpoints. Without it the WireGuard capability reports its privilege error; the other
+  reads are not affected. The CI user of the 25.1 job has `page-wireguard-config`.
+- **Not checked.** Plugins (os-net-snmp, os-dhcp) and Unbound's host overrides (#386, its own
+  change). 24.7 stores API keys as `<apikeys><item>` in `config.xml`, 25.1 and newer as
+  `key|hash`: the CI preseed (`preseed.py`) writes the second form, so a 24.7 image needs its
+  own preseed.
+
+CI: job `opnsense` of `.github/workflows/integration.yml` runs 26.7 with all tests and 25.1 with
+tests/integration/test_opnsense_versions_real.py (read only), both from the official nano
+images (`OPNSENSE_VERSION` in tools/integration/opnsense/vm.py). The 24.7 and 25.7 images are on
+the same mirrors (hashes in `vm.py` for 24.7); 24.7 is not run because of the preseed format
+above; 25.7 is not run to keep the job count down (25.1 is the release in use).
+
+The simulator takes `OpnsenseSimulator(release="25.1")` or `"24.7"` (`sim.opnsense.RELEASES`,
+`older_release`): the data of the release as listed above, `snake_case=False` for a release that
+only knows camelCase actions. tests/test_opnsense_versions.py runs the adapter contract against
+every variant and checks the fallbacks.
 
 ## Integration tests
 

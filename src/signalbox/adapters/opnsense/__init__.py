@@ -27,13 +27,14 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv6Network, ip_address, ip_interface, ip_network
 from typing import Any
 from urllib.parse import quote, urlsplit
 
+import httpx
 from pydantic import Field, SecretStr, field_validator, model_validator
 
 from signalbox.adapters import Adapter as _Adapter
@@ -64,9 +65,9 @@ from signalbox.adapters import (
     unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.opnsense import compat, provision, vitals
 from signalbox.adapters.opnsense import discovery as _discovery
 from signalbox.adapters.opnsense import firewall as fw
-from signalbox.adapters.opnsense import provision, vitals
 from signalbox.adapters.opnsense import routes as route_reader
 from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import write as w
@@ -456,6 +457,20 @@ def _privilege_gap(what: str, exc: AdapterError, privilege: str) -> Gap:
 RULES_DOC = "https://docs.opnsense.org/development/api/core/firewall.html"
 
 
+#: Interface groups of rules that are not in the groups grid (WireGuard, OpenVPN, IPsec).
+PSEUDO_GROUPS = ("wireguard", "openvpn", "ipsec")
+
+
+def _rule_order(row: dict[str, Any]) -> str:
+    """The evaluation order of a row of ``search_rule``: its ``sort_order``, for a rule of the
+    new model without one (25.1) the place the model gives it (``300000.`` + sequence)."""
+    given = _text(row.get("sort_order"))
+    if given:
+        return given
+    sequence = _int(row.get("sequence"))
+    return f"300000.{sequence if sequence is not None else 0:07d}"
+
+
 def _rules_gap() -> Gap:
     """The rule list is empty or has no ``sort_order`` (#379): this release's filter API lists
     only the rules of *Firewall: Automation: Filter*, not those of the classic *Firewall: Rules*
@@ -471,6 +486,22 @@ def _rules_gap() -> Gap:
         message_id="opnsense.rulesIncomplete",
         fix_id="opnsense.rulesIncomplete.fix",
         params={"doc": RULES_DOC},
+    )
+
+
+def _forwards_gap(version: compat.Version | None) -> Gap:
+    """The destination NAT page has no API (404): OPNsense before 26.1 keeps port forwards on
+    the classic page (#390). Optional: the forwards stay unread, the rest of the firewall is."""
+    where = f"OPNsense {compat.release(version)}" if version else "this OPNsense"
+    return Gap(
+        message=f"port forwards: not readable on {where}, its API has no destination NAT "
+        "(the page is classic; 26.1 and newer have it)",
+        fix="Optional: nothing to grant. Port forwards are shown once OPNsense is updated to "
+        "26.1 or newer.",
+        optional=True,
+        message_id="opnsense.forwardsUnread",
+        fix_id="opnsense.forwardsUnread.fix",
+        params={"where": where},
     )
 
 
@@ -818,6 +849,31 @@ OPNSENSE_STEPS = (
 )
 
 
+class _ApiHttp(DeviceHttp):
+    """Every request uses the action spelling of the release's ACL and, on a 404, the other one
+    once more (#390). 26.7 and 25.7 want ``snake_case`` (also while the release is not known),
+    up to 25.1 the privileges name the actions in camelCase and refuse the other spelling with
+    a 403 (:data:`compat.SNAKE_ACL`)."""
+
+    camel_first = False
+
+    async def request(
+        self, method: str, path: str, *, accept: Collection[int] = (), **kw: Any
+    ) -> httpx.Response:
+        camel = compat.camel_path(path)
+        first, second = (camel, path) if self.camel_first else (path, camel)
+        try:
+            return await super().request(method, first, accept=accept, **kw)
+        except NotFound as missing:
+            if second == first:
+                raise
+            try:
+                return await super().request(method, second, accept=accept, **kw)
+            except AuthFailed:
+                # the other spelling of an action that does not exist has no ACL pattern either
+                raise missing from None
+
+
 class OpnsenseAdapter(_Adapter):
     manifest = Manifest(
         setup_steps=OPNSENSE_STEPS,
@@ -941,7 +997,7 @@ class OpnsenseAdapter(_Adapter):
         cfg = context.config
         assert isinstance(cfg, OpnsenseConfig)
         self.config = cfg
-        self.http = DeviceHttp(
+        self.http = _ApiHttp(
             cfg.url,
             pinned_fingerprint=context.pinned_fingerprint,
             timeout=context.timeout,
@@ -951,6 +1007,8 @@ class OpnsenseAdapter(_Adapter):
         )
         self._cache: dict[str, Any] = {}
         self._layout_cache: _Layout | None = None
+        #: The release read from ``core/firmware/status`` (None: not read yet or unparsable).
+        self._version: compat.Version | None = None
 
     async def close(self) -> None:
         await self.http.close()
@@ -985,6 +1043,7 @@ class OpnsenseAdapter(_Adapter):
         latest = _text(product.get("product_latest"))
         # product_version carries the package revision (26.7.9_3), product_latest does not
         newer = latest and latest not in (current, current.split("_", 1)[0])
+        self._set_version(compat.parse_version(current))
         return SystemInfo(
             vendor="Deciso",
             model=_text(product.get("product_name")) or "OPNsense",
@@ -992,6 +1051,18 @@ class OpnsenseAdapter(_Adapter):
             management_address=self.http.host,
             transport_encrypted=self.http.secure,
         )
+
+    async def _release(self) -> compat.Version | None:
+        """The firmware version, read once per observation (None: not readable)."""
+        if self._version is None:
+            data = _dict(await self._get(FIRMWARE), FIRMWARE, "the answer")
+            product = _sub(data, "product") or data
+            self._set_version(compat.parse_version(_text(product.get("product_version"))))
+        return self._version
+
+    def _set_version(self, version: compat.Version | None) -> None:
+        self._version = version
+        self.http.camel_first = version is not None and version < compat.SNAKE_ACL
 
     # --- interfaces ---------------------------------------------------------------------------
 
@@ -1200,7 +1271,7 @@ class OpnsenseAdapter(_Adapter):
         every account), so Signalbox's documented user cannot read it unless it is given the
         privilege on purpose (#349): then the accounts stay unread (None, not an empty list)
         with an optional gap naming the privilege. An OPNsense without the API (404, before
-        24.7) has nothing to report. A key that can read it is an administrator's."""
+        25.1) has nothing to report. A key that can read it is an administrator's."""
         try:
             rows = _rows(await self.http.post_json(USERS, ALL_ROWS), USERS)
             keys = _rows(await self.http.post_json(USER_KEYS, ALL_ROWS), USER_KEYS)
@@ -1618,13 +1689,21 @@ class OpnsenseAdapter(_Adapter):
         return {k: v for k, v in section.items() if isinstance(v, dict)}, ""
 
     async def _isc(self, layout: _Layout) -> list[DhcpServer]:
-        status = await self._optional(ISC_STATUS)
+        try:
+            status = await self._optional(ISC_STATUS)
+        except AuthFailed:
+            # core's ISC DHCP has no privilege for its status before 26 (root only): the leases
+            # (Status: DHCP leases) are read without it
+            status = {"status": "running"}
         if status is None:
             return []
         state = _text(_dict(status, ISC_STATUS, "the answer").get("status"))
         if state == "disabled":
             return []
-        leases = _rows(await self._get(ISC_LEASES, grid=True), ISC_LEASES)
+        try:
+            leases = _rows(await self._get(ISC_LEASES, grid=True), ISC_LEASES)
+        except AuthFailed:  # no *Status: DHCP leases* either: ISC is not read (optional)
+            return []
         by_iface: dict[str, list[dict[str, Any]]] = {}
         for lease in leases:
             by_iface.setdefault(_text(lease.get("if")), []).append(lease)
@@ -1967,7 +2046,10 @@ class OpnsenseAdapter(_Adapter):
                     continue  # the firewall's own address
                 iface = layout.by_device(_text(row.get("intf")))
                 add(_mac(row.get("mac")), row.get("ip"), iface, row.get("hostname"))
-        isc = await self._optional(ISC_LEASES, grid=True)
+        try:
+            isc = await self._optional(ISC_LEASES, grid=True)
+        except AuthFailed:  # core's ISC leases need *Status: DHCP leases*, not in the read set
+            isc = None
         for row in _rows(isc, ISC_LEASES) if isc is not None else []:
             iface = layout.by_identifier(_text(row.get("if")))
             static = _text(row.get("type")) == "static"
@@ -2043,6 +2125,7 @@ class OpnsenseAdapter(_Adapter):
     async def trace(self, target: Any, max_hops: int, wait: float) -> TraceAnswer:
         """Traceroute through Diagnostics: Traceroute (#253); the firewall waits 2 s per hop
         and stops after 20 s, whatever ``wait`` says."""
+        await self._release()
         try:
             answer = await self.http.post_json(_trace.TRACEROUTE, _trace.request_body(target))
         except AuthFailed as exc:
@@ -2060,6 +2143,33 @@ class OpnsenseAdapter(_Adapter):
             ) from None
         return _trace.parse(answer, target, max_hops)
 
+    async def _filter_rows(self) -> list[dict[str, Any]]:
+        """``filter/search_rule``. From 25.1 until 26.7 it lists only the floating rules (no or
+        several interfaces) of the "new" model unless ``show_all=1`` adds the legacy and
+        automatic ones, and a rule of one interface only with ``interface=<identifier>`` (read
+        on a real 25.1, FilterController::searchRuleAction): one request per interface and
+        interface group, the rows united by uuid in ``sort_order`` (compat.SHOW_ALL)."""
+        if FILTER_RULES in self._cache:
+            return _rows(self._cache[FILTER_RULES], FILTER_RULES)
+        version = await self._release()
+        if version is None or not compat.FULL_RULE_ROWS <= version < compat.SHOW_ALL:
+            self._cache[FILTER_RULES] = await self.http.get_json(FILTER_RULES, params=ALL_ROWS)
+            return _rows(self._cache[FILTER_RULES], FILTER_RULES)
+        layout = await self._layout()
+        groups = _rows(await self._get(IFACE_GROUPS, grid=True), IFACE_GROUPS)
+        names = [i.identifier for i in layout.ifaces] + [_text(g.get("ifname")) for g in groups]
+        found: dict[str, dict[str, Any]] = {}
+        for name in [None, *dict.fromkeys(n for n in (*names, *PSEUDO_GROUPS) if n)]:
+            params: dict[str, Any] = {**ALL_ROWS, "show_all": 1}
+            if name:
+                params["interface"] = name
+            answer = await self.http.get_json(FILTER_RULES, params=params)
+            for row in _rows(answer, FILTER_RULES):
+                found.setdefault(_text(row.get("uuid")) or str(len(found)), row)
+        rows = sorted(found.values(), key=_rule_order)
+        self._cache[FILTER_RULES] = {"rows": rows}
+        return rows
+
     async def read_firewall(self) -> Observation:
         """Packet filter and NAT (#135): ``filter/search_rule`` with aliases and interface
         groups, ``d_nat``, ``source_nat`` and ``one_to_one``. Each page needs its own privilege
@@ -2067,7 +2177,11 @@ class OpnsenseAdapter(_Adapter):
         the MVC NAT pages (404) leaves the port forwards unread."""
         layout = await self._layout()
         dev = self.context.device_id
-        rows = _rows(await self._get(FILTER_RULES, grid=True), FILTER_RULES)
+        rows = await self._filter_rows()
+        if rows and not any("interface" in r for r in rows):
+            # 24.7 lists only four columns (description, sequence, action, enabled): the rules
+            # are not read (the rules gap says so), the details need one get_rule per rule
+            rows = []
         aliases = _rows(await self._get(ALIASES, grid=True), ALIASES)
         groups = _rows(await self._get(IFACE_GROUPS, grid=True), IFACE_GROUPS)
 
@@ -2112,6 +2226,8 @@ class OpnsenseAdapter(_Adapter):
         ctx = fw.Context(ifaces, groups, aliases)
         built = fw.build(dev, ctx, rows, forwards, snat, binat)
         gaps = [] if built.rules_complete else [_rules_gap()]
+        if forwards is None:
+            gaps.append(_forwards_gap(await self._release()))
         return Observation(firewalls=[built], incomplete=gaps)
 
     async def read_time(self) -> Observation:
@@ -2146,6 +2262,9 @@ class OpnsenseAdapter(_Adapter):
         root = await self._kea_config()
         isc = {s.segment_id for s in await self._isc(layout)}
         st = w.WriteState(site=self.context.site_id, layout=layout, vlans=vlans, kea=None, isc=isc)
+        version = await self._release()
+        st.interface_not = version is None or version >= compat.INTERFACE_NOT
+        st.release = compat.release(version) if version else ""
         if root is not None:
             general = _sub(root, "general")
             st.kea = root
@@ -2159,14 +2278,14 @@ class OpnsenseAdapter(_Adapter):
     async def _firewall_state(self, st: w.WriteState, changes: list[Change]) -> None:
         """What the firewall changes need besides the layout: the rows of the new rules page
         (and of the destination NAT page for port forwards) and the names of the zones."""
-        rows = _rows(await self._get(FILTER_RULES, grid=True), FILTER_RULES)
+        rows = await self._filter_rows()
         st.filter_rows = [r for r in rows if not r.get("is_automatic")]
         if any(c.kind is ChangeKind.PORT_FORWARD for c in changes):
             nat = await self._optional(DNAT_RULES, grid=True)
             if nat is None:
                 raise AdapterError(
                     f"{DNAT_RULES}: not available on this firewall (HTTP 404); OPNsense before "
-                    "26.7 has no API for port forwards",
+                    "26.1 has no API for port forwards",
                     message_id="opnsense.noForwardApi",
                     params={"path": DNAT_RULES},
                 )
@@ -2198,6 +2317,7 @@ class OpnsenseAdapter(_Adapter):
     async def plan_changes(
         self, changes: list[Change], secrets: Mapping[str, str]
     ) -> list[VendorCall]:
+        await self._release()  # the action spelling of the release's ACL
         await self._needs_assignments(changes)
         st = await self._write_state()
         if any(c.kind in FIREWALL_KINDS for c in changes):
@@ -2262,6 +2382,7 @@ class OpnsenseAdapter(_Adapter):
         timer for the packet filter either): no deadline is returned, and the deployment
         restores the backup when the verification fails.
         """
+        await self._release()
         await self._needs_assignments(changes)
         sent: list[w.Call] = []
         for change in changes:
@@ -2297,6 +2418,7 @@ class OpnsenseAdapter(_Adapter):
 
     async def backup(self) -> Backup:
         """The newest revision of the configuration history: the configuration in use."""
+        await self._release()
         history = await self._history()
         if not history:
             raise AdapterError(
@@ -2316,6 +2438,7 @@ class OpnsenseAdapter(_Adapter):
 
         Idempotent: reverting twice to the same revision leaves the same configuration.
         """
+        await self._release()
         if backup.format != "opnsense-config-xml":
             raise AdapterError(
                 f"not an OPNsense backup (format {backup.format})",

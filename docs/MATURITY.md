@@ -16,7 +16,7 @@ they are tested against the simulators.
 - MikroTik: RouterOS 7.25.1, official CHR image in QEMU, without Wi-Fi ([details](adapters/mikrotik.md#integration-tests))
 - TP-Link Omada: Software Controller 6.3.0.111, official Linux package in Docker, without managed devices ([details](adapters/omada.md#integration-tests))
 - OpenWrt: 24.10.8 and 25.12.6, official x86-64 images in QEMU ([details](adapters/openwrt.md#verified-against-the-real-openwrt))
-- OPNsense: 26.7.9, official nano image in QEMU ([details](adapters/opnsense.md#integration-tests))
+- OPNsense: 26.7.9 and 25.1, official nano images in QEMU (25.1 read only) ([details](adapters/opnsense.md#versions-390))
 
 Generated from the adapter manifests by `tools/gen_docs.py`.
 

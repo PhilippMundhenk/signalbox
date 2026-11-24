@@ -5,12 +5,17 @@ Runs on a GitHub Actions runner (KVM, qemu-system-x86, qemu-utils, mtools, dosfs
 openssl), never in the development sandbox. Standard library only.
 
     vm.py fetch   DIR    download the pinned image, verify its SHA-256, unpack it
-    vm.py prepare DIR    first boot: update to the newest 26.7.x, preseed config.xml, set up
-                         Kea, Unbound and a WireGuard instance through the API, power off
+    vm.py prepare DIR    first boot: update to the newest x.y.z of the release, preseed
+                         config.xml, set up Kea, Unbound and a WireGuard instance through
+                         the API, power off
                          (DIR/base.qcow2, keys.json, wireguard.json with the public keys)
     vm.py start   DIR    boot a throw-away overlay of base.qcow2, wait for the API, print the
                          IT_OPNSENSE_* variables for $GITHUB_ENV
     vm.py stop    DIR    power the VM off
+
+The release is 26.7 unless OPNSENSE_VERSION says 25.1 or 24.7 (#390): the older images are
+read only by tests/integration/test_opnsense_versions_real.py, and the setup differs where the
+older API lacks a page (no port forward API before 26.1).
 
 Network, in the order of the image's default assignment: vtnet0 is the LAN 192.0.2.1/24 (the
 runner reaches the web interface at https://127.0.0.1:8443 through a host port forward), vtnet1
@@ -41,18 +46,27 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-VERSION = "26.7"
+#: release -> (SHA-256 of the .bz2 as listed in the release's checksum file, oldest core version
+#: the tests accept after the update). The 26.7 hash was seen in CI on 2026-11-22, the older two
+#: in the checksum files on pkg.opnsense.org on 2026-11-24.
+RELEASES: dict[str, tuple[str, tuple[int, int, int]]] = {
+    "26.7": ("28d5e2f37e40d87468a924e3006ef10e2ddc6de485b85333d9e3958c84d0cb9d", (26, 7, 6)),
+    "25.1": ("a51e4499df6394042ad804daa8e376c291e8475860343a0a44d93d8c8cf4636e", (25, 1, 0)),
+    "24.7": ("a44711b6c088d6d12434afef9a3ccadc4ef1b56e44babd13e4b199589170c51a", (24, 7, 0)),
+}
+VERSION = os.environ.get("OPNSENSE_VERSION", "26.7")
+if VERSION not in RELEASES:
+    raise SystemExit(f"OPNSENSE_VERSION {VERSION!r}: one of {', '.join(RELEASES)}")
 IMAGE = f"OPNsense-{VERSION}-nano-amd64.img"
 CHECKSUMS = f"OPNsense-{VERSION}-checksums-amd64.sha256"
-#: SHA-256 of the .bz2, as listed in the release's checksum file (seen in CI on 2026-11-22).
-PINNED_SHA256 = "28d5e2f37e40d87468a924e3006ef10e2ddc6de485b85333d9e3958c84d0cb9d"
+PINNED_SHA256, MIN_CORE = RELEASES[VERSION]
 MIRRORS = [
     f"https://pkg.opnsense.org/releases/{VERSION}/",
     f"https://mirror.ams1.nl.leaseweb.net/opnsense/releases/{VERSION}/",
     f"https://mirror.dns-root.de/opnsense/releases/{VERSION}/",
 ]
-#: the core version must have the full interface assignment API (addresses since 26.7.6)
-MIN_CORE = (26, 7, 6)
+#: (26.7: the core version must have the full interface assignment API, addresses since 26.7.6)
+RELEASE = tuple(int(x) for x in VERSION.split("."))
 
 SERIAL_PORT = 4555
 HTTPS_PORT = 8443
@@ -323,6 +337,13 @@ def seed_disk(d: Path, keys: dict[str, dict[str, str]]) -> Path:
         "users": {u: {"key": k["key"], "hash": k["hash"]} for u, k in keys.items()},
         "privileges": json.loads((here / "privileges.json").read_text()),
     }
+    if RELEASE < (25, 7):
+        # no "VPN: WireGuard: Status" page before 25.7: api/wireguard/service/* belongs to the
+        # full "VPN: WireGuard" page (page-wireguard-config, with the private keys) (#390)
+        for privs in data["privileges"].values():
+            privs[:] = [
+                "page-wireguard-config" if p == "page-wireguard-diagnostics" else p for p in privs
+            ]
     (d / "seed.json").write_text(json.dumps(data, indent=1))
     for src, name in ((here / "preseed.py", "preseed.py"), (d / "seed.json", "seed.json")):
         subprocess.run(["mcopy", "-o", "-i", str(seed), str(src), f"::{name}"], check=True)
@@ -539,22 +560,23 @@ def firewall_setup(d: Path, root: dict[str, str]) -> None:
         },
         d,
     )
-    checked(
-        root,
-        "/api/firewall/d_nat/add_rule",
-        {
-            "rule": {
-                "interface": "wan",
-                "ipprotocol": "inet",
-                "protocol": "tcp",
-                "destination": {"network": "wanip", "port": "8443"},
-                "target": "ci_nas",
-                "local-port": "443",
-                "descr": "Signalbox CI: NAS web",
-            }
-        },
-        d,
-    )
+    if RELEASE >= (26, 1):  # before 26.1 the port forwards are a classic page without an API
+        checked(
+            root,
+            "/api/firewall/d_nat/add_rule",
+            {
+                "rule": {
+                    "interface": "wan",
+                    "ipprotocol": "inet",
+                    "protocol": "tcp",
+                    "destination": {"network": "wanip", "port": "8443"},
+                    "target": "ci_nas",
+                    "local-port": "443",
+                    "descr": "Signalbox CI: NAS web",
+                }
+            },
+            d,
+        )
     # these answer {"status": "OK\n\n"}: apply them and look at the answer ourselves
     for path in ("/api/firewall/alias/reconfigure", "/api/firewall/filter/apply"):
         answer = api(root, "POST", path, {})
@@ -639,7 +661,8 @@ def prepare(d: Path) -> None:
         log(con.sh("opnsense-version; uname -a; ifconfig -l; ls /dev/vtbd*", 60))
         con.sh("mkdir -p /mnt/seed && mount_msdosfs /dev/vtbd1 /mnt/seed", 60)
         log("updating to the newest packages of the release")
-        con.sh("pkg update -f", 600)
+        # an older release's repository may be gone or slow: the image's own packages then stay
+        con.sh("pkg update -f", 600, check=RELEASE >= (26, 7))
         out = con.sh("pkg upgrade -y 2>&1 | tail -n 40", 1500)
         log(out[-3000:])
         version = con.sh("opnsense-version", 60)
@@ -699,6 +722,7 @@ def start(d: Path) -> None:
         "IT_OPNSENSE_WRITE_PASSWORD": keys["signalbox-write"]["secret"],
         "IT_OPNSENSE_ROOT_KEY": keys["root"]["key"],
         "IT_OPNSENSE_ROOT_SECRET": keys["root"]["secret"],
+        "IT_OPNSENSE_VERSION": VERSION,
     }
     wg = json.loads((d / "wireguard.json").read_text())  # public keys only (#239)
     env["IT_OPNSENSE_WG_SERVER"], env["IT_OPNSENSE_WG_PEER"] = wg["server"], wg["peer"]

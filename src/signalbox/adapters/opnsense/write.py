@@ -138,6 +138,10 @@ class WriteState:
     #: Assigned interfaces and interface groups (the zones), and the interfaces among them.
     zones: set[str] = field(default_factory=set)
     interfaces: set[str] = field(default_factory=set)
+    #: Rules can negate an interface (``interfacenot``, OPNsense 25.1 and newer), and the
+    #: release line for the message when they cannot.
+    interface_not: bool = True
+    release: str = ""
 
     def iface(self, sid: str) -> _Iface | None:
         return next((i for i in self.layout.ifaces if i.segment == sid), None)
@@ -776,6 +780,13 @@ def _zones_of(value: str | None, st: WriteState, label: str) -> tuple[str, bool]
     if not value:
         return "", False
     negated = value.startswith("!")
+    if negated and not st.interface_not:
+        raise AdapterError(
+            f"{label}: this OPNsense ({st.release}) cannot negate an interface in a rule "
+            "(OPNsense 25.1 or newer can): name the zones instead of `!zone`",
+            message_id="opnsense.noInterfaceNot",
+            params={"label": label, "release": st.release},
+        )
     names = [z for z in value.lstrip("!").split(",") if z]
     for z in names:
         _zone_check(st, z, label)

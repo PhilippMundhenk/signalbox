@@ -25,6 +25,7 @@
   },
   "management_address": "192.0.2.10",
   "mac": "02:00:00:00:01:00",
+  "hosted_on": null,
   "adapter": "snmp",
   "capabilities": [
    "health",
