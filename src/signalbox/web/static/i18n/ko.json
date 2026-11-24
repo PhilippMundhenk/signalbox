@@ -2203,8 +2203,6 @@
  "msg.wifiRadio.legacy.fix": "무선 모드를 {newest}(으)로 설정하십시오(이전 클라이언트도 계속 작동합니다).",
  "rule.wifi.regulatory.title": "Wi-Fi 채널 또는 출력이 무선 장치의 국가에서 허용되지 않음",
  "rule.wifi.regulatory.explanation": "국가마다 허용되는 채널과 최대 송신 출력이 다르며, 무선 장치의 국가 코드가 이를 선택합니다. 해당 국가에서 허용되지 않는 채널(또는 넓은 채널의 일부)은 사용되지 않거나(무선 장치가 시작되지 않음) 올바른 국가로 설정된 클라이언트에게 네트워크가 보이지 않게 합니다. 6 GHz는 모든 국가에서 쓸 수 있는 것은 아니며, 한도를 넘는 출력은 불법이고 레이더 등에 간섭합니다. 보통 설정과 함께 복사된 국가 코드가 원인입니다. 장치가 직접 보고한 채널 목록은 Signalbox의 작은 규제 표보다 우선합니다. 이 표는 참고용이며 법률 자문이 아닙니다. 허용되지 않는 채널은 오류, 출력 초과는 경고, 국가 코드 없음은 정보입니다.",
- "msg.wifiRegulatory.noCountry": "{radio}에 국가 코드가 없어 가장 제한적인 월드 도메인을 사용하며 채널과 출력을 확인할 수 없습니다",
- "msg.wifiRegulatory.noCountry.fix": "이 무선 장치의 국가 코드를 사용하는 국가로 설정하세요.",
  "msg.wifiRegulatory.noBand": "{radio}은(는) 국가 {country}에서 사용할 수 없습니다: 해당 대역을 쓸 수 없습니다",
  "msg.wifiRegulatory.noBand.fix": "이 무선 장치를 끄거나 올바른 국가 코드를 설정하세요.",
  "msg.wifiRegulatory.channel": "{radio}은(는) 국가 {country}에서 채널 {channel}을(를) 사용하지만 허용되지 않습니다",

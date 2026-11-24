@@ -2203,8 +2203,6 @@
  "msg.wifiRadio.legacy.fix": "Telsizin modunu {newest} olarak ayarlayın (eski istemciler çalışmaya devam eder).",
  "rule.wifi.regulatory.title": "Wi-Fi kanalı veya gücü radyonun ülkesinde izinli değil",
  "rule.wifi.regulatory.explanation": "Her ülke yalnızca bazı kanallara ve en yüksek iletim gücüne izin verir; bunları radyonun ülke kodu belirler. Orada izinli olmayan bir kanal (veya geniş kanalın bir parçası) ya kullanılmaz (radyo başlamaz) ya da ağı doğru ülkeye ayarlı istemcilere görünmez yapar; 6 GHz her ülkede yoktur; sınırın üzerindeki güç yasa dışıdır ve radar ve diğerlerini bozar. Genellikle nedeni bir yapılandırmayla kopyalanan ülke kodudur. Cihazın kendi bildirdiği kanal listesi, Signalbox'ın küçük düzenleme tablosundan önceliklidir; tablo bir rehberdir, hukuki danışmanlık değildir. İzinsiz kanal için hata, sınırın üzerindeki güç için uyarı, eksik ülke kodu için bilgi.",
- "msg.wifiRegulatory.noCountry": "{radio} için ülke kodu yok, bu yüzden en kısıtlayıcı dünya alanı kullanılır ve kanalları ile gücü denetlenemez",
- "msg.wifiRegulatory.noCountry.fix": "Bu radyonun ülke kodunu kullanıldığı ülkeye ayarlayın.",
  "msg.wifiRegulatory.noBand": "{radio} {country} ülkesinde kullanılamaz: bant orada yok",
  "msg.wifiRegulatory.noBand.fix": "Bu radyoyu kapatın veya doğru ülke kodunu ayarlayın.",
  "msg.wifiRegulatory.channel": "{radio}, {country} ülkesiyle {channel} kanalını kullanıyor; bu kanal orada izinli değil",

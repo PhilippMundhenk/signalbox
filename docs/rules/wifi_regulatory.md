@@ -14,8 +14,7 @@ quiet result as a permission or a finding as a legal ruling.
 ## `wifi.regulatory`
 
 - **Severity:** error for a channel (or a part of a wide channel) that is not allowed, and for a
-  band that does not exist in the country (6 GHz); warning for a transmit power above the limit;
-  info for a missing country code
+  band that does not exist in the country (6 GHz); warning for a transmit power above the limit
 - **Checks:**
   - the channel, and every 20 MHz channel its width covers (on 2.4 GHz the secondary channel), is
     inside an allowed range of the radio's country; an example is channel 13 with country US, or
@@ -24,9 +23,8 @@ quiet result as a permission or a finding as a legal ruling.
   - the transmit power the radio reports is not above the table's limit for its channel (the
     lowest limit of the channels it covers); where the table knows no limit (Brazil on 6 GHz) the
     power is not checked
-  - a radio without a country code is reported for information: radios then fall back to the
-    most restrictive world domain, and Signalbox cannot check the channel. `wifi.country` reports
-    the same gap as a warning for radios at a site.
+  - a radio without a country code is not checked here: `wifi.country` already warns about it
+    (radios then fall back to the most restrictive world domain)
 - **Device data wins:** where a radio reports the channels it supports (#172), that list is used
   instead of the table for the channel check, as the firmware knows its regulatory database
   better than this table. The power limit always comes from the table.

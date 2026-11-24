@@ -2203,8 +2203,6 @@
  "msg.wifiRadio.legacy.fix": "Set the radio's mode to {newest} (older clients keep working).",
  "rule.wifi.regulatory.title": "Wi-Fi channel or power not allowed in the radio's country",
  "rule.wifi.regulatory.explanation": "Each country allows only some channels and a maximum transmit power; the radio's country code selects them. A channel (or a part of a wide channel) that is not allowed there is either not used (the radio does not start) or makes the network invisible to clients set to the right country; 6 GHz is not available in every country; power above the limit is illegal and disturbs radar and others. The usual cause is a country code copied with a configuration. A channel list the device reports itself wins over Signalbox's small regulatory table, which is a guide and not legal advice. An error for a channel that is not allowed, a warning for power above the limit, information for a missing country code.",
- "msg.wifiRegulatory.noCountry": "{radio} has no country code, so it uses the most restrictive world domain and its channels and power cannot be checked",
- "msg.wifiRegulatory.noCountry.fix": "Set the country code of this radio to the country it is used in.",
  "msg.wifiRegulatory.noBand": "{radio} cannot be used in country {country}: the band is not available there",
  "msg.wifiRegulatory.noBand.fix": "Turn this radio off, or set the correct country code.",
  "msg.wifiRegulatory.channel": "{radio} uses channel {channel} with country {country}, where it is not allowed",

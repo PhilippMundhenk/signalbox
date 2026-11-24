@@ -40,7 +40,8 @@ def _occupied_channels(radio: Radio) -> list[int]:
     "illegal and disturbs radar and others. The usual cause is a country code copied with a "
     "configuration. A channel list the device reports itself wins over Signalbox's small "
     "regulatory table, which is a guide and not legal advice. An error for a channel that is "
-    "not allowed, a warning for power above the limit, information for a missing country code.",
+    "not allowed, a warning for power above the limit; a missing country code is left to "
+    "`wifi.country`.",
 )
 def regulatory(net: Network) -> Iterator[Result]:
     for r in sorted(net.radios, key=lambda r: r.id):
@@ -48,18 +49,7 @@ def regulatory(net: Network) -> Iterator[Result]:
             continue
         label = _label(net, r)
         if not r.country:
-            yield found(
-                f"{label} has no country code, so it uses the most restrictive world domain "
-                "and its channels and power cannot be checked",
-                [r.id],
-                fix="Set the country code of this radio to the country it is used in.",
-                severity=Severity.INFO,
-                key="nocountry",
-                mid="wifiRegulatory.noCountry",
-                fix_id="wifiRegulatory.noCountry.fix",
-                params={"radio": label},
-            )
-            continue
+            continue  # reported by wifi.country (#96: no second finding)
         country = r.country.upper()
         domain = domain_of(country)
         if r.channel is None:
