@@ -72,6 +72,10 @@ The plan also offers *Also read the ISC DHCP settings* (off by default): the scr
 of [ISC DHCP settings](#isc-dhcp-settings-optional-242), over SSH as root with a second pinned
 host key.
 
+The plan also offers *Also let Signalbox list the accounts* (off by default, #349): it adds the
+privilege *System: Access: Users* (`page-system-usermanager`) to the user, see
+[Accounts](#accounts-175). Without it the device page says the accounts are not readable.
+
 Verified in CI on 26.7 (`tests/integration/test_opnsense_setup_real.py`): pinning and a refused
 root secret; the user created, the firewall read with its key (contract, every capability);
 a second run with nothing to change but the key; with writes the privileges updated and the
@@ -197,7 +201,8 @@ remedy, the fix adds exactly that privilege and the same key reads the firewall 
 
 1. *System > Access > Users*: add a user `signalbox`, no shell, a scrambled password, no group
    memberships.
-2. Give it only these privileges (*Effective Privileges*, edit):
+2. Give it only these privileges (*Effective Privileges*, edit; the user manager is not among
+   them on purpose, see [Accounts](#accounts-175)):
 
    | Privilege (as named in the web interface) | Needed for |
    | --- | --- |
@@ -879,10 +884,22 @@ table's interface stays the clients' `seen_on`, which core counts for devices wi
 
 The user manager (`POST /api/auth/user/search`, `/api/auth/user/search_api_key`,
 `GET /api/auth/user/get/<uuid>`) has no read-only privilege: whoever may read it may change
-every account. The API user of the setup guide therefore cannot read it, and no accounts are
-reported (no gap either). A key that can read it is an administrator's: Signalbox then lists the
-users (privilege admin for the `admins` group or `page-all`, write for other privileges, other
-for none; `authorizedkeys` only as "has a key") and reports its own privilege as admin, so
+every account. The API user of the setup guide therefore cannot read it, and Signalbox says so
+(#349): the accounts stay unread (`accounts` is unset, which is not the same as an empty list
+for "no accounts") and an *optional* gap on the device page, with the fix naming the privilege,
+*System: Access: Users* (`page-system-usermanager`, confirmed against the core ACL on 26.7 in
+CI, `tests/integration/test_opnsense_setup_real.py`). The device stays "ok". An OPNsense
+without the user manager API (404) reports nothing.
+
+It is **optional and your decision**: add that privilege to the user (*System > Access > Users*,
+*Effective Privileges*), or tick *Also let Signalbox list the accounts* in the plan of *Set up
+automatically* (off by default; running the setup again without it takes the privilege away
+again). Mind that the user, and anyone holding its API key, can then also change every account
+and privilege. *Fix it* never adds this privilege on its own.
+
+A key that can read it is an administrator's: Signalbox then lists the users (privilege admin
+for the `admins` group or `page-all`, write for other privileges, other for none;
+`authorizedkeys` only as "has a key") and reports its own privilege as admin, so
 `account.signalbox-privileged` suggests the least-privilege user of the guide (`write`: OPNsense
 privileges are per page, not read-only). Which fields the search rows carry (`disabled`,
 `is_admin`) is a *guess* (#21). API keys cannot be factory defaults: `default_credentials` stays

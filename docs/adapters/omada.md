@@ -546,4 +546,6 @@ administrators admin, viewers read) on the controller; `GET .../sites/{siteId}/d
 SSH and its own web page. It becomes an admin account of each managed device; its password is
 compared with the Omada factory default `admin`/`admin` in memory (`default_credentials` of
 each managed device) and dropped. A masked password (`***`) leaves `default_credentials`
-unknown. The privilege of the Open API client is not read.
+unknown. The privilege of the Open API client is not read. A controller that refuses the users
+list (an Omada error such as a missing permission) gives an optional gap `accounts` instead of
+an empty list (#349); a missing endpoint still gives nothing.

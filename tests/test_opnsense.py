@@ -1107,4 +1107,21 @@ async def test_accounts_only_with_a_key_that_can_read_the_user_manager(
     a = adapter(http_url)
     snap = await observe(a)
     assert snap.device.accounts is None and snap.device.signalbox_account_privilege is None
-    assert not [e for e in snap.errors if "user" in e.message]  # no gap: by design
+    # not readable (None) is not "no accounts" ([]): an optional gap names the privilege (#349)
+    (gap,) = [e for e in snap.errors if e.message.startswith("accounts")]
+    assert gap.optional and gap.message_id == "opnsense.accounts" and snap.status.value == "ok"
+    assert "page-system-usermanager" in (gap.fix or "") and "every account" in (gap.fix or "")
+    assert gap.remedy is None  # Fix it never hands out the user manager by itself
+    # an OPNsense without the user manager API has nothing to report
+    sim.fail = {"/api/auth/user/search": 404}
+    a = adapter(http_url)
+    snap = await observe(a)
+    assert snap.device.accounts is None and not [
+        e for e in snap.errors if e.message.startswith("accounts")
+    ]
+    # a key that may read it, with nobody listed: an empty list, no gap
+    sim.fail = {}
+    sim.accounts.users.clear()
+    a = adapter(http_url)
+    snap = await observe(a)
+    assert snap.device.accounts == [] and not snap.errors

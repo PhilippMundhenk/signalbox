@@ -51,6 +51,7 @@ from signalbox.adapters import (
     Observation,
     PreviewStep,
     RemedyRequest,
+    SetupExtra,
     SetupPlan,
     SetupRequest,
     SetupResult,
@@ -176,6 +177,8 @@ MAX_ACCOUNTS = 50
 #: Privileges of those two pages (core ACL), for the fix text of a refused read.
 SYSLOG_PRIVILEGE = "System: Settings: Logging (page-diagnostics-logs-settings-targets)"
 NETFLOW_PRIVILEGE = "Diagnostics: Netflow configuration (page-diagnostics-netflow)"
+#: The user manager (#349): no read-only variant, whoever may read it may change every account.
+ACCOUNTS_PRIVILEGE = "System: Access: Users (page-system-usermanager)"
 #: ``wg show all dump`` as records, private and pre-shared keys left out by OPNsense itself
 #: (privilege *VPN: WireGuard: Status*). No query string: the grid takes paging from POST only.
 WG_SHOW = "/api/wireguard/service/show"
@@ -431,6 +434,22 @@ def _privilege_gap(what: str, exc: AdapterError, privilege: str) -> Gap:
         message_id="opnsense.privilegeGap",
         fix_id="opnsense.privilegeGap.fix",
         params={"what": what, "cause": str(exc), "privilege": privilege},
+    )
+
+
+def _accounts_gap(exc: AdapterError) -> Gap:
+    """The user manager could not be read (#349): optional, naming the privilege and what it
+    allows (it has no read-only variant)."""
+    return Gap(
+        message=f"accounts: {exc}",
+        fix="Optional, only if Signalbox should list the accounts: give the API user the "
+        f"privilege {ACCOUNTS_PRIVILEGE} (or tick the accounts extra of the automatic "
+        "setup). OPNsense has no read-only variant: that user can then also change every "
+        "account.",
+        optional=True,
+        message_id="opnsense.accounts",
+        fix_id="opnsense.accounts.fix",
+        params={"cause": str(exc), "privilege": ACCOUNTS_PRIVILEGE},
     )
 
 
@@ -811,6 +830,17 @@ class OpnsenseAdapter(_Adapter):
                 "else. Needs SSH on the firewall (System > Settings > Administration, "
                 "root login). Off unless you tick it; Remove deletes both.",
             ),
+            extras=[
+                SetupExtra(
+                    id="accounts",
+                    label="Also let Signalbox list the accounts (optional)",
+                    note="Gives the user the privilege System: Access: Users "
+                    "(page-system-usermanager). OPNsense has no read-only variant: with it the "
+                    "user, and so anyone holding its API key, can also change every account "
+                    "and privilege. Off unless you tick it; without it the device page says "
+                    "that the accounts are not readable.",
+                )
+            ],
             preview=[
                 PreviewStep(id="user", title="Create the user signalbox (scrambled password)"),
                 PreviewStep(id="privileges", title="Give it the privileges of the setup guide"),
@@ -1054,6 +1084,7 @@ class OpnsenseAdapter(_Adapter):
 
     async def read_interfaces(self) -> Observation:
         targets, gaps = await self._log_targets()
+        accounts, account_gaps = await self._accounts(self.context.device_id)
         layout = await self._layout()
         dev = self.context.device_id
         subnets = [
@@ -1088,20 +1119,24 @@ class OpnsenseAdapter(_Adapter):
             services=await self._services(),
             certificates=certificates,
             log_targets={} if targets is None else {dev: targets},
-            **await self._accounts(dev),
-            incomplete=gaps,
+            **accounts,
+            incomplete=[*gaps, *account_gaps],
         )
 
-    async def _accounts(self, dev: str) -> dict[str, Any]:
+    async def _accounts(self, dev: str) -> tuple[dict[str, Any], list[Gap]]:
         """Local users (#175) through the user manager API, with the user of Signalbox's key
         marked. The user manager has no read-only privilege (whoever may read it may change
-        every account), so Signalbox's documented user cannot read it: then nothing is read
-        and no gap is reported. A key that can read it is an administrator's."""
+        every account), so Signalbox's documented user cannot read it unless it is given the
+        privilege on purpose (#349): then the accounts stay unread (None, not an empty list)
+        with an optional gap naming the privilege. An OPNsense without the API (404, before
+        24.7) has nothing to report. A key that can read it is an administrator's."""
         try:
             rows = _rows(await self.http.post_json(USERS, ALL_ROWS), USERS)
             keys = _rows(await self.http.post_json(USER_KEYS, ALL_ROWS), USER_KEYS)
-        except AdapterError:
-            return {}
+        except NotFound:
+            return {}, []
+        except AdapterError as exc:
+            return {}, [_accounts_gap(exc)]
         cfg = self.context.config
         assert isinstance(cfg, OpnsenseConfig)
         mine = cfg.api_key.get_secret_value()
@@ -1141,7 +1176,7 @@ class OpnsenseAdapter(_Adapter):
                 )
             )
         # the key could read the user manager: it may change every account
-        return {"accounts": {dev: out}, "signalbox_privilege": {dev: AccountPrivilege.ADMIN}}
+        return {"accounts": {dev: out}, "signalbox_privilege": {dev: AccountPrivilege.ADMIN}}, []
 
     async def _certificates(self) -> tuple[list[Certificate], list[Gap]]:
         """Certificates and authorities stored on the firewall (#330), public data only (see

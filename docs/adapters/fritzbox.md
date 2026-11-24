@@ -488,4 +488,6 @@ needs exactly that right, so admin is also the least this integration needs and
 (`<List><Username last_user="1">name</Username>...</List>`) gives the other user names, without
 rights. The layouts of both XML strings are taken from AVM's documentation (*guess* until a box
 confirms them, #21); they are parsed with the SOAP parser, which refuses document type
-declarations. A FRITZ!OS without these actions reports nothing.
+declarations. A FRITZ!OS without these actions reports nothing; a user without the right
+(UPnP error 606 on the user list) gives an optional gap naming the right instead of an empty
+list (#349).

@@ -206,6 +206,28 @@ async def test_the_key_of_the_new_user_cannot_manage_users(fw: Target, clean: No
         await http.close()
 
 
+async def test_accounts_extra_confirms_the_user_manager_privilege(fw: Target, clean: None) -> None:
+    """The optional extra (#349): the privilege page-system-usermanager (System: Access:
+    Users) is accepted by the firewall and is exactly what the read needs: the accounts are
+    listed, the user itself with the rights it has, and without the extra a gap names it."""
+    plain = await OpnsenseAdapter.apply_setup(request(fw, fw.pin))
+    check(plain, await root_answers(fw))
+    snap = await read_with(fw, plain)
+    assert snap.device.accounts is None, snap.device.accounts
+    assert [e.message_id for e in snap.errors] == ["opnsense.accounts"], snap.errors
+
+    result = await OpnsenseAdapter.apply_setup(request(fw, fw.pin, extras=["accounts"]))
+    check(result, await root_answers(fw))
+    snap = await read_with(fw, result)
+    assert snap.status is DeviceStatus.OK and not snap.errors, (
+        snap.errors,
+        await root_answers(fw),
+    )
+    names = {a.name for a in snap.device.accounts or []}
+    assert {"root", "signalbox"} <= names, names
+    assert any(a.is_signalbox for a in snap.device.accounts or [])
+
+
 async def test_fix_adds_a_missing_privilege(fw: Target, clean: None) -> None:
     """Fix it (#215): the user signalbox loses page-status-ntp, the read names the remedy, the
     fix adds the privilege back (nothing else changes) and the next read is complete."""

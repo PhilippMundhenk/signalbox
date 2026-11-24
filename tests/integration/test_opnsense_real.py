@@ -662,7 +662,8 @@ def test_vm_still_answers(fw: dict[str, str]) -> None:
 
 async def test_read_user_cannot_list_accounts(fw: dict[str, str]) -> None:
     """The user manager has no read-only privilege (#175): the guide's read user does not get
-    it, so no accounts and no gap are reported, and the read stays ok."""
+    it. Not readable is not "no accounts" (#349): accounts stay unset and an optional gap
+    names the privilege; the read stays ok."""
     a = adapter(fw)
     try:
         snap = await a.observe()
@@ -670,4 +671,5 @@ async def test_read_user_cannot_list_accounts(fw: dict[str, str]) -> None:
         await a.close()
     assert snap.status is ReadStatus.OK, snap.errors
     assert snap.device.accounts is None and snap.device.signalbox_account_privilege is None
-    assert not [e for e in snap.errors if e.message.startswith("accounts")]
+    (gap,) = [e for e in snap.errors if e.message.startswith("accounts")]
+    assert gap.optional and "page-system-usermanager" in (gap.fix or ""), gap
