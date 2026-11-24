@@ -2970,5 +2970,15 @@
  "wifimap.legend.bubbles": "Blasen",
  "wifimap.legend.own": "Ihr Funkmodul (durchgezogener Ring, öffnet das Gerät)",
  "wifimap.legend.neighbour": "Nachbar (gestrichelter Ring, anonym; größer bedeutet stärkeres Signal)",
- "wifimap.legend.overlap": "Gleichkanal-Überlappung (roter Ring)"
+ "wifimap.legend.overlap": "Gleichkanal-Überlappung (roter Ring)",
+ "topology.legend.line.inferred": "Abgeleitet: ein Port ist geschätzt oder keine MAC-Tabelle bestätigt das Kabel",
+ "topology.origin.inferred": "{origin}, abgeleitet",
+ "topology.evidence": "Gesehen von: {sources}",
+ "topology.evidence.fdb": "MAC-Tabelle",
+ "topology.evidence.arp": "ARP/NDP-Tabelle",
+ "topology.evidence.address": "Verwaltungsadresse in der ARP-Tabelle",
+ "device.inferredLinks": "Abgeleitete Kabel",
+ "msg.openwrt.fdbRead": "MAC-Adresstabelle (welches Gerät hinter welchem Port liegt): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: Das Protokoll des Switches hat keine MAC-Adresstabelle; Kabel über diesen Switch werden aus den Tabellen der Geräte um ihn herum abgeleitet",
+ "msg.plusswitch.noMacTable.fix": "Hier ist nichts zu beheben: NSDP und das Easy-Smart-Protokoll melden nicht, welche Adresse an welchem Port gelernt wurde. Kabel über diesen Switch werden gestrichelt (abgeleitet) aus den Tabellen der anderen Geräte gezeichnet; tragen Sie sie unter Topologie ein, um sie genau zu machen."
 }

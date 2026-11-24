@@ -356,6 +356,9 @@ def evaluate(
     ``now`` (default: the history's time, else the clock); expired ones become ``ack.expired``.
     """
     settings = settings or {}
+    if any(link.inferred for link in net.links):
+        # an inferred link (#378) has a guessed end: drawn, but no check builds on it
+        net = net.model_copy(update={"links": [x for x in net.links if not x.inferred]})
     past = history or History.empty()
     when = now or past.now or datetime.now(UTC)
 

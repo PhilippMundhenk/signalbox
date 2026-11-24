@@ -597,7 +597,7 @@ async def test_prosafe_old_firmware_refuses_vlan_or_lag(
     snap = await ProsafeAdapter(_context(ProsafeAdapter, port)).observe()
     assert snap.status is DeviceStatus.PARTIAL
     assert snap.ports and sim.switches[0].failed_logins == 0
-    [gap] = snap.errors
+    [gap] = [e for e in snap.errors if not e.optional]
     assert gap.capability == "interfaces" and "without a password" in gap.message and gap.fix
 
 
@@ -844,3 +844,18 @@ async def test_features_that_fail_leave_the_rest() -> None:
 
     await plus._PlusSwitch._read_features(a, reading, Odd())
     assert reading.loop_detection is None
+
+
+@needs_switchyard
+async def test_own_mac_and_no_mac_table(nsdp: Start) -> None:
+    """#378: the switch's MAC goes to ``Device.mac`` (no port carries it), so the MAC tables
+    of the other devices find it; the missing table is an optional gap."""
+    _sim, port = await nsdp(netgear())
+    snap = await ProsafeAdapter(_context(ProsafeAdapter, port)).observe()
+    assert snap.status is DeviceStatus.OK, snap.errors
+    assert snap.device.mac == "02:00:00:00:10:01"
+    (gap,) = [e for e in snap.errors if e.message_id == "plusswitch.noMacTable"]
+    assert gap.optional and gap.fix and "192.0.2" in gap.message
+    assert system_info({"mac": "02:00:00:00:10:02"}, "NETGEAR", "192.0.2.12").mac == (
+        "02:00:00:00:10:02"
+    )

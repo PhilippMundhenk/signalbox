@@ -52,7 +52,7 @@ for the raw table; #85, #112, #113 and new checks (MAC flapping, stale static en
   `switchMac`/`port` (the controller's view of each switch's table); Linux `bridge -j -s fdb
   show` as the read user (netlink, no root; entries with a `master`, age from `updated`),
   confirmed in CI with a static entry on the integration target.
-- **Not read**, documented per integration: OpenWrt (no rpcd method exposes the bridge FDB;
+- **Not read**, documented per integration: OpenWrt (read since #378, ADR 0026; no rpcd method exposes the bridge FDB;
   `/sys/class/net/<bridge>/brforward` is binary, has no VLAN and its port numbers need more
   sysfs reads and a wider ACL; the read ACL stays as it is), OPNsense (no API for
   `ifconfig bridge addr`), ProSAFE / Easy Smart (NSDP and the Easy Smart protocol have no MAC

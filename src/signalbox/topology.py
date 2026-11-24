@@ -87,7 +87,8 @@ def lldp_links(net: Network) -> Iterator[Link]:
 def mac_links(net: Network) -> Iterator[Link]:
     """A link where a port of one device learns another managed device's address in its
     forwarding database (#160, :mod:`signalbox.fdb`): also through switches that are not read,
-    the nearest device only. Devices without a table count their clients' ``seen_on``."""
+    the nearest device only. Devices without a table count their clients' ``seen_on``; a link
+    whose far port is a guess, or that no table confirms, is ``inferred`` (#378)."""
     for adj in adjacencies(net):
         yield Link(
             id=link_id(LinkOrigin.MAC, adj.local, adj.remote),
@@ -95,6 +96,8 @@ def mac_links(net: Network) -> Iterator[Link]:
             b=adj.remote,
             kind=LinkKind.WIRELESS if adj.wireless else LinkKind.CABLE,
             origin=LinkOrigin.MAC,
+            inferred=adj.inferred,
+            evidence=list(adj.evidence),
         )
 
 
@@ -124,8 +127,15 @@ def discovered_links(net: Network) -> list[Link]:
     used = {p for pair in out for p in pair}
     for link in mac_links(net):
         pair = frozenset((link.a, link.b))
-        if pair not in out and not pair & used:
+        if pair & used:
+            continue
+        seen = out.get(pair)
+        if seen is None:
             out[pair] = link
+        else:  # found from both ends: one link with the evidence of both (#378)
+            evidence = list(dict.fromkeys([*seen.evidence, *link.evidence]))
+            inferred = seen.inferred and link.inferred
+            out[pair] = seen.model_copy(update={"evidence": evidence, "inferred": inferred})
     for link in tunnel_links(net):
         out.setdefault(frozenset((link.a, link.b)), link)
     return sorted(out.values(), key=lambda link: link.id)
@@ -365,6 +375,8 @@ def view(net: Network) -> dict[str, Any]:
                 "a": end(link.a),
                 "b": end(link.b),
                 "segments": segments,
+                "inferred": link.inferred,
+                "evidence": [e.model_dump(mode="json") for e in link.evidence],
             }
         )
     for fl in front_links(net):

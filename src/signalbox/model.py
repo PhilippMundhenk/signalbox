@@ -669,6 +669,10 @@ class Device(Observed):
     model: str | None = None
     firmware: Firmware | None = None
     management_address: str | None = None
+    #: The device's own MAC address where no port carries it (#378): the management address of
+    #: a switch that reports no MAC per port (NETGEAR Plus, TP-Link Easy Smart). Lets the MAC
+    #: tables of other devices find it.
+    mac: Mac | None = None
     adapter: str
     capabilities: list[str] = Field(default_factory=list)
     #: Set for a device reported through a controller (the configured device that observed it).
@@ -2799,6 +2803,26 @@ class LinkKind(StrEnum):
     VPN = "vpn"
 
 
+class EvidenceSource(StrEnum):
+    """What kind of observation supports a link drawn from MAC tables (#378)."""
+
+    #: The device's own MAC address table learns the other end behind this port.
+    FDB = "fdb"
+    #: An ARP/NDP or client table names the port (a router without a bridge table).
+    ARP = "arp"
+    #: A device's management address in another device's ARP/NDP table names its MAC (a
+    #: switch whose protocol reports neither a table nor its MAC per port).
+    ADDRESS = "address"
+
+
+class LinkEvidence(Model):
+    """One observation behind a link of origin ``mac`` (#378): shown with inferred links."""
+
+    #: The port where the device saw it (for ``address``: where the ARP entry was seen).
+    port_id: str
+    source: EvidenceSource
+
+
 class Link(Model):
     id: str
     #: Port ids; tunnel ids for a ``vpn`` link.
@@ -2806,6 +2830,13 @@ class Link(Model):
     b: str
     kind: LinkKind = LinkKind.CABLE
     origin: LinkOrigin
+    #: Drawn from partial data (#378): an end port is a guess (no table of that device, so PVID,
+    #: VLANs and speed decide), or neither device's own table confirms the cable. Dashed in the
+    #: topology; the checks do not use it.
+    inferred: bool = False
+    #: The observations of the devices that support a ``mac`` link, the far end's table and
+    #: third devices that see both ends behind one port included (#378).
+    evidence: list[LinkEvidence] = Field(default_factory=list)
 
 
 #: A value that fills a placeholder of a translated text (#204).

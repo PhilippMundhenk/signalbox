@@ -2970,5 +2970,15 @@
  "wifimap.legend.bubbles": "বুদবুদ",
  "wifimap.legend.own": "আপনার রেডিও (নিরেট বৃত্ত, ডিভাইস খোলে)",
  "wifimap.legend.neighbour": "প্রতিবেশী (ড্যাশ করা বৃত্ত, বেনামি; বড় মানে শক্তিশালী সংকেত)",
- "wifimap.legend.overlap": "একই চ্যানেলে ওভারল্যাপ (লাল বৃত্ত)"
+ "wifimap.legend.overlap": "একই চ্যানেলে ওভারল্যাপ (লাল বৃত্ত)",
+ "topology.legend.line.inferred": "অনুমিত: একটি পোর্ট অনুমান করা বা কোনো MAC টেবিল কেবলটি নিশ্চিত করে না",
+ "topology.origin.inferred": "{origin}, অনুমিত",
+ "topology.evidence": "দেখেছে: {sources}",
+ "topology.evidence.fdb": "MAC টেবিল",
+ "topology.evidence.arp": "ARP/NDP টেবিল",
+ "topology.evidence.address": "ARP টেবিলে ব্যবস্থাপনা ঠিকানা",
+ "device.inferredLinks": "অনুমিত কেবল",
+ "msg.openwrt.fdbRead": "MAC ঠিকানা টেবিল (কোন ডিভাইস কোন পোর্টের পিছনে): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: সুইচের প্রোটোকলে কোনো MAC ঠিকানা টেবিল নেই; এই সুইচের মধ্য দিয়ে যাওয়া কেবলগুলি আশেপাশের ডিভাইসগুলির টেবিল থেকে অনুমান করা হয়",
+ "msg.plusswitch.noMacTable.fix": "ঠিক করার কিছু নেই: NSDP এবং Easy Smart প্রোটোকল জানায় না কোন ঠিকানা কোন পোর্টে শেখা হয়েছে। এই সুইচের মধ্য দিয়ে যাওয়া কেবলগুলি অন্য ডিভাইসগুলির টেবিল থেকে ড্যাশ (অনুমিত) রেখায় আঁকা হয়; সঠিক করতে টপোলজিতে সেগুলি লিখুন।"
 }

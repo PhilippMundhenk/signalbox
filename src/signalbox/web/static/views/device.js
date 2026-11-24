@@ -103,6 +103,20 @@ function internetCard(ix, deviceId) {
   return h('section', { class: 'card', 'data-testid': 'device-internet' }, h('h2', {}, t('device.internet.title')), kv(rows));
 }
 
+// Cables drawn from partial data (#378): each with the observations that support it.
+const EVIDENCE = { fdb: 'topology.evidence.fdb', arp: 'topology.evidence.arp', address: 'topology.evidence.address' };
+function inferredCard(ix, deviceId) {
+  const ours = (id) => (ix.ports.get(id) || {}).device_id === deviceId || id.startsWith(`${deviceId}/port/`);
+  const links = ix.net.links.filter((l) => l.inferred && (ours(l.a) || ours(l.b)));
+  if (!links.length) return null;
+  const rows = links.map((l) => {
+    const [mine, other] = ours(l.a) ? [l.a, l.b] : [l.b, l.a];
+    const seen = l.evidence.map((e) => `${ix.portName(e.port_id)} (${EVIDENCE[e.source] ? t(EVIDENCE[e.source]) : e.source})`);
+    return [ix.portName(mine), h('span', {}, `↔ ${ix.portName(other)}`, h('br'), h('span', { class: 'muted small', 'data-testid': 'inferred-evidence' }, t('topology.evidence', { sources: seen.join(', ') || '–' })))];
+  });
+  return h('section', { class: 'card', 'data-testid': 'device-inferred-links' }, h('h2', {}, t('device.inferredLinks')), kv(rows));
+}
+
 // WireGuard tunnels (#239): the interface, then one row per peer. Endpoints are the other
 // site's public address: shown on request, like uplink addresses.
 function handshakeText(p) {
@@ -896,6 +910,7 @@ async function overview(main, ctx, device, adapters, sites) {
     ),
     notesCard(ix, device.id, 'device', t('device.notes', { name: device.name }), () => ctx.refresh()),
     internetCard(ix, device.id),
+    inferredCard(ix, device.id),
     portsCard(ix, tree),
     observed ? stpCard(ix, observed) : null,
     radiosCard(ix, device.id),

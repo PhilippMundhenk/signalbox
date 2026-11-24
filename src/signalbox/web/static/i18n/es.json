@@ -2970,5 +2970,15 @@
  "wifimap.legend.bubbles": "Burbujas",
  "wifimap.legend.own": "Tu radio (anillo continuo, abre el dispositivo)",
  "wifimap.legend.neighbour": "Vecino (anillo discontinuo, anónimo; más grande significa señal más fuerte)",
- "wifimap.legend.overlap": "Solapamiento en el mismo canal (anillo rojo)"
+ "wifimap.legend.overlap": "Solapamiento en el mismo canal (anillo rojo)",
+ "topology.legend.line.inferred": "Deducido: un puerto es una suposición o ninguna tabla MAC confirma el cable",
+ "topology.origin.inferred": "{origin}, deducido",
+ "topology.evidence": "Visto por: {sources}",
+ "topology.evidence.fdb": "tabla MAC",
+ "topology.evidence.arp": "tabla ARP/NDP",
+ "topology.evidence.address": "dirección de gestión en la tabla ARP",
+ "device.inferredLinks": "Cables deducidos",
+ "msg.openwrt.fdbRead": "tabla de direcciones MAC (qué dispositivo está detrás de qué puerto): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: el protocolo del switch no tiene tabla de direcciones MAC; los cables a través de este switch se deducen de las tablas de los dispositivos a su alrededor",
+ "msg.plusswitch.noMacTable.fix": "Nada que corregir: NSDP y el protocolo Easy Smart no indican qué dirección se aprendió en qué puerto. Los cables a través de este switch se dibujan discontinuos (deducidos) a partir de las tablas de los demás dispositivos; introdúzcalos en Topología para que sean exactos."
 }

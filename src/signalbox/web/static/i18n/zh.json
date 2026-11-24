@@ -2970,5 +2970,15 @@
  "wifimap.legend.bubbles": "气泡",
  "wifimap.legend.own": "您的射频（实线圈，打开设备）",
  "wifimap.legend.neighbour": "邻居（虚线圈，匿名；越大表示信号越强）",
- "wifimap.legend.overlap": "同信道重叠（红圈）"
+ "wifimap.legend.overlap": "同信道重叠（红圈）",
+ "topology.legend.line.inferred": "推断：某个端口是猜测的，或没有 MAC 表确认该线缆",
+ "topology.origin.inferred": "{origin}，推断",
+ "topology.evidence": "来源：{sources}",
+ "topology.evidence.fdb": "MAC 表",
+ "topology.evidence.arp": "ARP/NDP 表",
+ "topology.evidence.address": "ARP 表中的管理地址",
+ "device.inferredLinks": "推断的线缆",
+ "msg.openwrt.fdbRead": "MAC 地址表（哪个设备位于哪个端口之后）：{cause}",
+ "msg.plusswitch.noMacTable": "{host}：该交换机的协议没有 MAC 地址表；经过此交换机的线缆由周围设备的表推断",
+ "msg.plusswitch.noMacTable.fix": "无需修复：NSDP 和 Easy Smart 协议不报告哪个地址在哪个端口上学习到。经过此交换机的线缆根据其他设备的表以虚线（推断）绘制；在“拓扑”下录入即可使其准确。"
 }

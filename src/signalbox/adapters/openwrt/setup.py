@@ -49,6 +49,7 @@ READ_ACL: dict[str, Any] = {
                 "/sys/class/net/*/bonding_slave/*": ["read"],
                 "/sys/class/net/*/bridge/*": ["read"],
                 "/sys/class/net/*/brport/*": ["read"],
+                "/sys/class/net/*/brforward": ["read"],
             },
         },
     }

@@ -2970,5 +2970,15 @@
  "wifimap.legend.bubbles": "Bulles",
  "wifimap.legend.own": "Votre radio (anneau plein, ouvre l'appareil)",
  "wifimap.legend.neighbour": "Voisin (anneau en pointillés, anonyme ; plus grand signifie signal plus fort)",
- "wifimap.legend.overlap": "Chevauchement sur le même canal (anneau rouge)"
+ "wifimap.legend.overlap": "Chevauchement sur le même canal (anneau rouge)",
+ "topology.legend.line.inferred": "Déduit : un port est supposé ou aucune table MAC ne confirme le câble",
+ "topology.origin.inferred": "{origin}, déduit",
+ "topology.evidence": "Vu par : {sources}",
+ "topology.evidence.fdb": "table MAC",
+ "topology.evidence.arp": "table ARP/NDP",
+ "topology.evidence.address": "adresse de gestion dans la table ARP",
+ "device.inferredLinks": "Câbles déduits",
+ "msg.openwrt.fdbRead": "table d'adresses MAC (quel appareil se trouve derrière quel port) : {cause}",
+ "msg.plusswitch.noMacTable": "{host} : le protocole du switch n'a pas de table d'adresses MAC ; les câbles passant par ce switch sont déduits des tables des appareils autour de lui",
+ "msg.plusswitch.noMacTable.fix": "Rien à corriger : NSDP et le protocole Easy Smart n'indiquent pas quelle adresse a été apprise sur quel port. Les câbles passant par ce switch sont tracés en tirets (déduits) à partir des tables des autres appareils ; saisissez-les sous Topologie pour les rendre exacts."
 }

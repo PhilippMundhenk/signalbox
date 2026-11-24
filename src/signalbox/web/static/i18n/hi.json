@@ -2970,5 +2970,15 @@
  "wifimap.legend.bubbles": "बुलबुले",
  "wifimap.legend.own": "आपका रेडियो (ठोस घेरा, डिवाइस खोलता है)",
  "wifimap.legend.neighbour": "पड़ोसी (बिंदीदार घेरा, गुमनाम; बड़ा यानी मज़बूत संकेत)",
- "wifimap.legend.overlap": "समान चैनल पर ओवरलैप (लाल घेरा)"
+ "wifimap.legend.overlap": "समान चैनल पर ओवरलैप (लाल घेरा)",
+ "topology.legend.line.inferred": "अनुमानित: कोई पोर्ट अनुमान है या कोई MAC तालिका केबल की पुष्टि नहीं करती",
+ "topology.origin.inferred": "{origin}, अनुमानित",
+ "topology.evidence": "देखा गया: {sources}",
+ "topology.evidence.fdb": "MAC तालिका",
+ "topology.evidence.arp": "ARP/NDP तालिका",
+ "topology.evidence.address": "ARP तालिका में प्रबंधन पता",
+ "device.inferredLinks": "अनुमानित केबल",
+ "msg.openwrt.fdbRead": "MAC पता तालिका (कौन-सा डिवाइस किस पोर्ट के पीछे है): {cause}",
+ "msg.plusswitch.noMacTable": "{host}: स्विच के प्रोटोकॉल में MAC पता तालिका नहीं है; इस स्विच से होकर जाने वाले केबल आसपास के डिवाइसों की तालिकाओं से अनुमानित किए जाते हैं",
+ "msg.plusswitch.noMacTable.fix": "ठीक करने को कुछ नहीं: NSDP और Easy Smart प्रोटोकॉल यह नहीं बताते कि कौन-सा पता किस पोर्ट पर सीखा गया। इस स्विच से होकर जाने वाले केबल अन्य डिवाइसों की तालिकाओं से डैश (अनुमानित) में बनाए जाते हैं; सटीक बनाने के लिए उन्हें टोपोलॉजी में दर्ज करें।"
 }

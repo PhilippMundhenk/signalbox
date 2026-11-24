@@ -802,6 +802,19 @@
           "default": null,
           "title": "Log Targets"
         },
+        "mac": {
+          "anyOf": [
+            {
+              "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mac"
+        },
         "managed_by": {
           "anyOf": [
             {
@@ -2034,6 +2047,16 @@
       "title": "DnsService",
       "type": "object"
     },
+    "EvidenceSource": {
+      "description": "What kind of observation supports a link drawn from MAC tables (#378).",
+      "enum": [
+        "fdb",
+        "arp",
+        "address"
+      ],
+      "title": "EvidenceSource",
+      "type": "string"
+    },
     "Expected": {
       "additionalProperties": false,
       "description": "Typed expectations about one object; each field applies to the kinds named.\n\nChecks read them to stay silent (or be more precise) where the user has said what is\nintended. None: nothing said.",
@@ -3024,9 +3047,21 @@
           "title": "B",
           "type": "string"
         },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/LinkEvidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "inferred": {
+          "default": false,
+          "title": "Inferred",
+          "type": "boolean"
         },
         "kind": {
           "$ref": "#/$defs/LinkKind",
@@ -3043,6 +3078,25 @@
         "origin"
       ],
       "title": "Link",
+      "type": "object"
+    },
+    "LinkEvidence": {
+      "additionalProperties": false,
+      "description": "One observation behind a link of origin ``mac`` (#378): shown with inferred links.",
+      "properties": {
+        "port_id": {
+          "title": "Port Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/EvidenceSource"
+        }
+      },
+      "required": [
+        "port_id",
+        "source"
+      ],
+      "title": "LinkEvidence",
       "type": "object"
     },
     "LinkKind": {

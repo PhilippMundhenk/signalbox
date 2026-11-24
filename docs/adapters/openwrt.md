@@ -633,7 +633,8 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "/sys/class/net/*/bonding/*": ["read"],
         "/sys/class/net/*/bonding_slave/*": ["read"],
         "/sys/class/net/*/bridge/*": ["read"],
-        "/sys/class/net/*/brport/*": ["read"]
+        "/sys/class/net/*/brport/*": ["read"],
+        "/sys/class/net/*/brforward": ["read"]
       }
     }
   }
@@ -746,7 +747,8 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "/sys/class/net/*/bonding/*": ["read"],
         "/sys/class/net/*/bonding_slave/*": ["read"],
         "/sys/class/net/*/bridge/*": ["read"],
-        "/sys/class/net/*/brport/*": ["read"]
+        "/sys/class/net/*/brport/*": ["read"],
+        "/sys/class/net/*/brforward": ["read"]
       }
     },
     "write": {
@@ -873,13 +875,26 @@ reports a gap with the usual fix (update the ACL file, `service rpcd restart`), 
   `wan` interface, so that zone is incomplete. *Guess*: redirect and `nat` sections on a real
   router (the simulator has them), fw3 releases.
 
-## MAC address table (#160)
+## MAC address table (#160, #378)
 
-Not read. No rpcd method exposes the bridge forwarding database (`network.device status`,
-`luci-rpc getHostHints` and `getNetworkDevices` have no per-port MACs);
-`/sys/class/net/<bridge>/brforward` is a binary file without VLANs whose port numbers need
-`brif/*/port_no` reads and a wider ACL. The read ACL stays as it is; Wi-Fi clients still come
-from `hostapd.* get_clients`.
+Read with `clients`: for every bridge of `network.device status` the kernel's table
+`/sys/class/net/<bridge>/brforward` through `file read` with `"base64": true` (16-byte records
+of `struct __fdb_entry`: MAC, port number, local flag, age in 1/100 s), and the port numbers
+of its members from `/sys/class/net/<member>/brport/port_no`. No extra package and no `exec`
+permission, only the ACL path `/sys/class/net/*/brforward`. Local entries are the device's own
+addresses (`self`), the rest `dynamic` with their age. The file has no VLAN: an address learned
+in several VLANs is one entry. An ACL of an older setup refuses the file: the clients are read,
+the table is an optional gap (`openwrt.fdbRead`, *Fix it*: the ACL update).
+
+Other ways were left out: no rpcd method returns the bridge forwarding database
+(`network.device status`, `luci-rpc getHostHints` and `getNetworkDevices` have no per-port
+MACs), and `bridge -j fdb` needs the `ip-bridge` package and an `exec` permission.
+
+*Verified in CI* (QEMU, 24.10 and 25.12): the read with the ACL of this page; the bridge's own
+addresses on its members. *Guess* (#21): on a DSA switch the file holds what the software bridge
+learned (broadcasts and frames to the CPU), not every address the switch chip keeps in
+hardware; enough to tell which port leads to which device in a home network. The age is read in
+either byte order (big-endian MIPS boards), unconfirmed on such a board.
 
 ## Accounts (#175)
 

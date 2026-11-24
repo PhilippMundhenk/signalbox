@@ -29,6 +29,7 @@ from signalbox.adapters.openwrt import (
     OpenWrtAdapter,
     OpenWrtConfig,
     band,
+    brforward,
     bridge_vlans,
     ciphers,
     group_cipher,
@@ -53,6 +54,7 @@ from signalbox.model import (
     DeviceRole,
     DeviceStatus,
     DfsState,
+    FdbKind,
     LeaseState,
     Membership,
     Network,
@@ -1902,3 +1904,62 @@ async def test_openwrt_scan_slower_than_the_read(
     (gap,) = obs.incomplete
     assert gap.optional and gap.message_id == "openwrt.scanSlow"
     assert gap.params == {"seconds": "3"} and "scan_neighbours" in (gap.fix or "")
+
+
+# bridge MAC table (#378) -------------------------------------------------------------------
+
+
+async def test_bridge_mac_table_through_sysfs(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    sim.learned = [("lan1", "02:00:00:00:77:01", 7)]
+    obs = await adapter.read_clients()
+    assert not [g for g in obs.incomplete if g.message_id == "openwrt.fdbRead"]
+    learned = [e for e in obs.fdb if e.kind is FdbKind.DYNAMIC]
+    assert [(e.port_id, e.mac, e.age_seconds) for e in learned] == [
+        ("ap1/port/lan1", "02:00:00:00:77:01", 7)
+    ]
+    own = [e for e in obs.fdb if e.kind is FdbKind.SELF]
+    assert own and all(e.age_seconds is None for e in own)
+    assert "ap1/port/lan1" in {e.port_id for e in own}
+    snap = await assert_contract(adapter)
+    assert snap.fdb
+
+
+async def test_old_acl_without_brforward_is_an_optional_gap(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    sim.brforward_acl = False
+    obs = await adapter.read_clients()
+    assert obs.clients and not obs.fdb
+    (gap,) = [g for g in obs.incomplete if g.message_id == "openwrt.fdbRead"]
+    assert gap.optional and gap.remedy == "access" and gap.fix_id
+
+
+async def test_brforward_without_base64_is_a_gap(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(brforward, "decode", lambda data: None)
+    obs = await adapter.read_clients()
+    (gap,) = [g for g in obs.incomplete if g.message_id == "openwrt.fdbRead"]
+    assert gap.optional and "unexpected answer" in gap.message
+
+
+def test_brforward_records() -> None:
+    rows = [
+        brforward.Row("02:00:00:00:77:01", 3, False, 12),
+        brforward.Row("02:00:00:00:77:01", 3, False, 2),  # the same address in another VLAN
+        brforward.Row("02:00:00:00:77:02", 300, True, 0),
+    ]
+    raw = brforward.decode(brforward.encode(rows))
+    assert raw is not None and len(raw) == 3 * brforward.RECORD
+    parsed = {(r.mac, r.port_no): r for r in brforward.parse(raw)}
+    assert parsed[("02:00:00:00:77:01", 3)].age_seconds == 2
+    assert parsed[("02:00:00:00:77:02", 300)].local
+    # a big-endian board: the age is read in either byte order
+    be = bytearray(raw[:16])
+    be[8:12] = (1200).to_bytes(4, "big")
+    (row,) = brforward.parse(bytes(be))
+    assert row.age_seconds == 12
+    assert brforward.decode("not base64!") is None
+    assert brforward.decode("AAAA") is None  # 3 bytes: no whole record
+    assert brforward.port_number("0x1f\n") == 31
+    assert brforward.port_number(None) is None and brforward.port_number("x") is None
