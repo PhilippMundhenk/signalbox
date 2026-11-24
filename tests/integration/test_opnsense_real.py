@@ -492,6 +492,65 @@ sites:
 """
 
 
+FIREWALL_WANT = """
+sites:
+  home:
+    firewalls:
+      - device: fw
+        rules:
+          - name: ci-web
+            from: {zone: lan}
+            to: {network: 192.0.2.77}
+            protocol: tcp
+            family: 4
+            port: 8080
+            action: accept
+        forwards:
+          - name: ci-fwd
+            protocol: tcp
+            port: 8444
+            to: {address: 192.0.2.77, port: 80}
+"""
+
+
+async def test_firewall_rule_and_port_forward_then_revert(
+    svc: Services, fw: dict[str, str]
+) -> None:
+    """One rule and one port forward (#295): written through the API of the new rules and
+    destination NAT pages, read back as what was declared, then reverted. 26.7 has no savepoint
+    and rollback timer for them: the deployment is confirmed at once and its safety net is the
+    backup."""
+
+    async def firewall() -> Any:
+        [snap] = (await network(fw)).firewalls
+        return snap
+
+    before = await firewall()
+    kinds = {ChangeKind.FIREWALL_RULE, ChangeKind.PORT_FORWARD}
+    d, cid = await deploy(svc, FIREWALL_WANT, kinds)
+    after = await firewall()
+    [rule] = [r for r in after.rules if r.signalbox_key == "ci_web"]
+    assert rule.name == "ci-web" and rule.action is FirewallAction.ACCEPT, rule
+    assert rule.source.zones == ["lan"] and rule.protocols == [FirewallProtocol.TCP], rule
+    assert [str(n) for n in rule.destination.networks] == ["192.0.2.77/32"], rule
+    assert rule.destination.ports == [PortRange(start=8080)] and rule.exact, rule
+    [pf] = [f for f in after.port_forwards if f.signalbox_key == "ci_fwd"]
+    assert pf.zones == ["wan"] and pf.external_ports == [PortRange(start=8444)], pf
+    assert str(pf.target_address) == "192.0.2.77" and pf.target_port == 80, pf
+    # the owner's own rule and forward are as they were
+    own = [r.name for r in after.rules if r.signalbox_key is None]
+    assert own == [r.name for r in before.rules], own
+    assert [f.name for f in after.port_forwards if f.signalbox_key is None] == [
+        f.name for f in before.port_forwards
+    ]
+    await revert(svc, d, cid)
+    final = await firewall()
+    assert not [r for r in final.rules if r.signalbox_key]
+    assert not [f for f in final.port_forwards if f.signalbox_key]
+    assert [r.name for r in final.rules] == [r.name for r in before.rules]
+    assert [f.name for f in final.port_forwards] == [f.name for f in before.port_forwards]
+
+
 @pytest.mark.parametrize(
     ("want", "kinds"),
     [(PORT_ONLY, {ChangeKind.PORT}), (ROUTER_ONLY, {ChangeKind.ROUTER})],

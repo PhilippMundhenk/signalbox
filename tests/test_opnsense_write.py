@@ -158,6 +158,9 @@ def test_manifest_declares_writes() -> None:
         ChangeKind.DHCP,
         ChangeKind.RESERVATION,
         ChangeKind.PORT,
+        ChangeKind.ZONE_POLICY,
+        ChangeKind.FIREWALL_RULE,
+        ChangeKind.PORT_FORWARD,
     }
 
 

@@ -17,6 +17,16 @@ the answer of a real firewall was not seen):
   sends (replies and forwarded traffic ride on the state of the ``in`` rule).
 - Zones are the assigned interfaces (identifier ``lan``, ``wan``, ``opt1``) and interface
   groups. Rows of legacy rules name interfaces by their description: mapped back.
+- What Signalbox created (#295) is tagged by its description: ``signalbox:<key>[ <name>]`` for a
+  rule or a port forward (the key is the declared name with ``-`` as ``_``, the name follows when it
+  differs) and
+  ``signalbox:policy/<from>/<to|device>`` for a zone policy, which is a rule of the new model
+  too. The readers report the first two as ``signalbox_key`` and the policies as
+  :class:`ZonePolicy`; only rows of the new model carry the tag (legacy and automatic ones
+  never do). A tagged rule to ``(self)`` is an ``input`` rule, to ``(self)`` negated a
+  ``forward`` rule, to one interface or group a ``forward`` rule with that destination zone, to
+  addresses a ``forward`` rule: what the
+  writer (write.py) produces and what a declared rule is compared with.
 """
 
 from __future__ import annotations
@@ -41,8 +51,13 @@ from signalbox.model import (
     NatRule,
     PortForward,
     PortRange,
+    ZonePolicy,
     firewall_id,
 )
+
+#: Prefix of the description of what Signalbox created, and of its zone policies after it.
+TAG = "signalbox:"
+POLICY_MARK = "policy/"
 
 _ACTIONS = {
     "pass": FirewallAction.ACCEPT,
@@ -71,6 +86,33 @@ _INEXACT = (
     "overload",
     "os",
 )
+
+
+def tagged(row: dict[str, Any]) -> str | None:
+    """What follows the tag in the description of a rule or forward Signalbox created, else
+    ``None`` (the device's own, or a row of the legacy pages or an automatic one)."""
+    if _flag(row.get("legacy")) or _flag(row.get("is_automatic")):
+        return None
+    text = _text(row.get("description") or row.get("descr"))
+    return text[len(TAG) :] if text.startswith(TAG) and len(text) > len(TAG) else None
+
+
+def key_of(name: str) -> str:
+    """The key of a declared name (desired.firewall_key: ``-`` becomes ``_``)."""
+    return name.replace("-", "_")
+
+
+def describe(key: str, name: str) -> str:
+    """The description of a rule or forward Signalbox creates: ``signalbox:<key>``, and the
+    name after a space when it is not the key (a name has ``-``, an adopted object's has
+    anything; the change is identified by the key)."""
+    return f"{TAG}{key}" + ("" if name == key else f" {name}")
+
+
+def split_mark(mark: str) -> tuple[str, str]:
+    """``(key, name)`` of what :func:`tagged` returns."""
+    key, _, name = mark.partition(" ")
+    return key, name or key
 
 
 def _text(value: Any) -> str:
@@ -331,6 +373,12 @@ def rule(ctx: Context, row: dict[str, Any]) -> tuple[FirewallRule, bool] | None:
     protocols, _ = _protocols(row.get("protocol"))
     inexact = any(_text(row.get(k)) not in ("", "0", "false") for k in _INEXACT)
     name = _text(row.get("description"))
+    mark = tagged(row)
+    owned = mark is not None and not mark.startswith(POLICY_MARK)
+    chain = FirewallChain.OUTPUT if direction == "out" else None
+    if mark is not None and owned:
+        name = split_mark(mark)[1]
+        destination, chain = _owned_destination(ctx, row, destination, chain)
     try:
         order = int(_text(row.get("sequence")))
     except ValueError:
@@ -342,16 +390,42 @@ def rule(ctx: Context, row: dict[str, Any]) -> tuple[FirewallRule, bool] | None:
             enabled=_flag(row.get("enabled", "1")),
             # an ``out`` rule filters the firewall's own traffic; ``in`` rules see traffic to
             # the firewall and through it (the destination address tells which)
-            chain=FirewallChain.OUTPUT if direction == "out" else None,
+            chain=chain,
             family=_family(row.get("ipprotocol")),
             protocols=protocols,
             source=source,
             destination=destination,
             action=action,
             exact=zones_ok and ok1 and ok2 and not inexact,
+            signalbox_key=split_mark(mark)[0] if mark is not None and owned else None,
         ),
         quick,
     )
+
+
+def _owned_destination(
+    ctx: Context, row: dict[str, Any], destination: FirewallMatch, chain: FirewallChain | None
+) -> tuple[FirewallMatch, FirewallChain | None]:
+    """The destination of a rule of Signalbox's as it was declared: the firewall itself is the
+    ``input`` chain (negated: ``forward``), one interface or group is a destination zone."""
+    token = _text(row.get("destination_net"))
+    negated = _flag(row.get("destination_not"))
+    if token == "(self)":
+        chain = FirewallChain.FORWARD if negated else FirewallChain.INPUT
+        return destination.model_copy(update={"networks": [], "networks_not": False}), chain
+    if token in ctx.ifaces or token in ctx.groups:
+        return (
+            destination.model_copy(
+                update={
+                    "zones": [token],
+                    "zones_not": negated,
+                    "networks": [],
+                    "networks_not": False,
+                }
+            ),
+            FirewallChain.FORWARD,
+        )
+    return destination, FirewallChain.FORWARD
 
 
 def ordered(ctx: Context, rows: list[dict[str, Any]]) -> list[FirewallRule]:
@@ -405,6 +479,9 @@ def port_forward(ctx: Context, row: dict[str, Any]) -> tuple[PortForward | None,
     protocols, _ = _protocols(row.get("protocol"))
     reflection = _text(row.get("natreflection")).lower()
     name = _text(row.get("descr")) or _text(row.get("description"))
+    mark = tagged(row)
+    if mark is not None:
+        name = split_mark(mark)[1]
     exact = (
         zones_ok
         and ext_ok
@@ -434,6 +511,7 @@ def port_forward(ctx: Context, row: dict[str, Any]) -> tuple[PortForward | None,
             if reflection == "disable"
             else None,
             exact=exact,
+            signalbox_key=split_mark(mark)[0] if mark is not None else None,
         ),
         True,
     )
@@ -518,6 +596,33 @@ def source_nat(ctx: Context, row: dict[str, Any]) -> NatRule | None:
     )
 
 
+def policies(rows: list[dict[str, Any]]) -> list[ZonePolicy]:
+    """The zone policies Signalbox wrote: tagged rules ``signalbox:policy/<from>/<to|device>``
+    of the new model (enabled ones; the action pass, block or reject)."""
+    out: list[ZonePolicy] = []
+    for row in rows:
+        mark = tagged(row)
+        action = _ACTIONS.get(_text(row.get("action")).lower())
+        if mark is None or not mark.startswith(POLICY_MARK) or action is None:
+            continue
+        if not _flag(row.get("enabled", "1")):
+            continue
+        parts = mark[len(POLICY_MARK) :].split("/")
+        if len(parts) != 2 or not all(parts):
+            continue
+        source, dest = parts
+        between = dest not in ("device", source)
+        out.append(
+            ZonePolicy(
+                source=source,
+                destination=None if dest == "device" else dest,
+                action=action,
+                signalbox_key=f"{source}/{dest}" if between else None,
+            )
+        )
+    return out
+
+
 def zones(ctx: Context) -> list[FirewallZone]:
     """One zone per assigned interface and per interface group."""
     out: list[FirewallZone] = []
@@ -590,6 +695,7 @@ def build(
         # pf's default deny: whatever no rule passes is blocked
         input_policy=FirewallAction.DROP,
         forward_policy=FirewallAction.DROP,
+        policies=policies(rules),
         rules=ordered(ctx, rules),
         rules_complete=complete,
         nat=nat,
@@ -598,4 +704,14 @@ def build(
     )
 
 
-__all__ = ["Context", "Iface", "build", "ordered", "rule"]
+__all__ = [
+    "TAG",
+    "Context",
+    "Iface",
+    "build",
+    "describe",
+    "ordered",
+    "rule",
+    "split_mark",
+    "tagged",
+]

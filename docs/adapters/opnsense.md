@@ -2,7 +2,8 @@
 
 Adapter id `opnsense`, role `gateway`. Reads an OPNsense firewall through its REST API (every
 read is a `GET`) and, when changes are allowed, writes router interfaces, VLANs on ports, Kea
-DHCP subnets and reservations ([Writing](#writing-changes)).
+DHCP subnets and reservations, and firewall rules, port forwards and zone policies
+([Writing](#writing-changes), [Firewall changes](#firewall-changes-295)).
 
 | Capability | What is read |
 | --- | --- |
@@ -329,6 +330,7 @@ With `deploy.enabled` and *Allow changes* on the device, Signalbox can change:
 | `dhcp` | Kea DHCPv4: creates, updates or deletes the subnet of the network's interface (pool, DNS servers, lease time; on a new subnet the router option is the interface address and option autocollect is off), and adds or removes the interface from the interfaces Kea listens on (turning a network on also turns the Kea service on) | `/api/kea/dhcpv4/add_subnet`, `set_subnet/<uuid>`, `del_subnet/<uuid>`, `/api/kea/dhcpv4/set`, then `/api/kea/service/reconfigure` |
 | `reservation` | adds, changes or deletes a Kea reservation in the network's subnet | `/api/kea/dhcpv4/add_reservation`, `set_reservation/<uuid>`, `del_reservation/<uuid>`, then `/api/kea/service/reconfigure` |
 | `port` | the **tagged** VLANs of a port are the VLAN devices with that port as parent: adds and deletes them. The **untagged** network of a port is its interface assignment, which is never changed (refused) | `/api/interfaces/vlan_settings/add_item`, `del_item/<uuid>`, `reconfigure` |
+| `firewall-rule`, `port-forward`, `zone-policy` | tagged rules of the new rules page and tagged port forwards, and the zone policies as tagged rules ([Firewall changes](#firewall-changes-295)) | `/api/firewall/filter/add_rule`, `set_rule/<uuid>`, `del_rule/<uuid>`, `apply`; `/api/firewall/d_nat/add_rule`, `set_rule/<uuid>`, `del_rule/<uuid>`, `apply` |
 
 Not writable: `wlan` (OPNsense is no access point). Unbound host overrides are not a change
 kind of Signalbox yet.
@@ -359,10 +361,61 @@ something an earlier change of the same deployment creates shows a placeholder, 
 `{new subnet 203.0.113.0/24}`; during the deployment each change is planned again on a fresh
 read, so the calls sent use the real identifiers. No secret is ever part of a payload.
 
+### Firewall changes (#295)
+
+Declared in `sites.<site>.firewalls` ([DESIRED.md](../DESIRED.md), [ADR 0017](../adr/0017-firewall-desired-state-and-deployments.md)).
+What Signalbox owns is tagged by the **description** of the row, and nothing else is touched:
+
+| Declared | Written as | Tag (description) |
+| --- | --- | --- |
+| rule | a rule of the new rules page (`quick`, direction `in`, sequence 1, 2, ... so that they come before the device's own, which the web interface numbers from 100) on the source zone's interface (no source zone: a floating rule); a rule to the device has the destination `(self)`, a routed one with no destination `(self)` negated, one with a destination zone that zone's network (`lan`), else the addresses | `signalbox:<key>` and ` <name>` when the name has a `-` (the key is the name with `_`) |
+| forward | a rule of the destination NAT page on the zone's interface, destination `<interface>ip` and the external port, target and local port, `pass` (an associated filter rule) | `signalbox:<key>[ <name>]` |
+| zone policy | pass, block or reject from the interface to the network of the destination zone, to `(self)` for the device, sequence 900000 and up (a fallback behind every other rule); `drop` is no rule, because pf blocks what no rule passes | `signalbox:policy/<from>/<to or device>` |
+
+- Rules, forwards and policies that carry the tag and are no longer declared are removed
+  (policies stay until declared away, like on OpenWrt). The device's own rules and forwards are
+  never touched, except `adopt: <name>`: the one row of the **new** pages with that description is
+  deleted and replaced by a tagged one in its place. Rows of the legacy pages and the automatic
+  ones cannot be deleted through the API, so adopting one is refused. `adopt: true` on a policy
+  changes nothing here (a policy never removes the device's own rules).
+  Undoing an adoption by *revert* is refused by the firewall (the old rule read back has the
+  addresses of `(self)` expanded); restore the backup of the deployment instead.
+- A rule with addresses needs `family: 4` or `family: 6` (OPNsense refuses addresses with
+  "IPv4+IPv6"; confirmed on 26.7.9 in CI).
+- Refused with the reason, before anything is sent: an unknown zone; a destination zone **and**
+  destination addresses in one rule; more than one port or range per rule; ICMP without family
+  4 or 6; protocols that no one rule matches (`tcp` and `icmp`); a forward on an interface group,
+  to an IPv6 address, or with a protocol other than tcp, udp or both; a release without the
+  destination NAT API (HTTP 404; forwards only).
+- **No rollback timer on 26.7.** Up to 26.1 the filter API had `savepoint`, `apply/<revision>`
+  and `cancel_rollback` (an automatic revert after 60 s). The controllers of 26.7.9 have none of
+  them (`apply` only reloads the rules), so Signalbox does not offer a timer it cannot have: the
+  changes are saved with the add, set and delete calls and applied with `filter/apply` (and
+  `d_nat/apply`); when the verification fails the backup is restored (see below), which also
+  reloads the rules. The lockout check of the plan is the protection against cutting Signalbox
+  off: a plan that may do it needs the explicit override, and one that slips through cannot be
+  undone from Signalbox (use the console).
+- Privileges: no new ones. The privileges the firewall is *read* with already cover the write
+  endpoints of the same pages (OPNsense privileges do not tell reading from writing): *Firewall:
+  Rules [new]* (`page-filter-api`, `/api/firewall/filter/*`) and *Firewall: NAT: Destination NAT*
+  (`page-firewall-nat-portforward-edit`, `/api/firewall/d_nat/*`), together with *Diagnostics:
+  Configuration History* for the backup, as in "A separate API user for writing". So the write
+  user of a deployment is the user that reads the firewall plus the privileges of that section;
+  the read-only user has the same pages, which is why Signalbox only ever sends `GET` with it.
+  Keep the key of a user that may write rules like an admin password: it can add a rule that
+  opens the firewall. Never put it in a log; Signalbox logs the calls without secrets.
+- *Guesses until a real device confirms them (#21)*: that `page-filter-api` also covers
+  `filter/apply` and `d_nat/apply`; that sequences below 100 sort before the device's own rules;
+  that a floating rule (no interface) with direction `in` is accepted; `ipv6-icmp` as the
+  protocol of an IPv6 ICMP rule; a port range written `8000-8100`. The integration test
+  (`test_firewall_rule_and_port_forward_then_revert`) writes one rule and one forward and
+  reads them back on 26.7.9 (nightly and on pull requests).
+
 ### No confirm timer: backup and restore
 
-The OPNsense API applies a change at once and has no confirm-or-revert timer, so `apply` never
-returns a deadline. Safety comes from the backup:
+The OPNsense API applies a change at once and has no confirm-or-revert timer (not for the
+firewall changes either, see above), so `apply` never returns a deadline. Safety comes from the
+backup:
 
 - **backup**: `GET /api/core/backup/backups/this` lists the configuration history; Signalbox
   downloads the newest revision (the configuration in use) with
@@ -372,7 +425,7 @@ returns a deadline. Safety comes from the backup:
 - **restore** (when applying or verifying fails, or when you restore a backup): finds the stored
   revision in the history again (same revision time and content), reverts to it with
   `POST /api/core/backup/revert_backup/<id>` and applies it with the `reconfigure` calls of VLANs,
-  interface assignments and Kea (a component that is not installed is skipped). Restoring twice
+  interface assignments and Kea and `filter/apply` (a component that is not installed is skipped). Restoring twice
   is harmless. If the revision was pruned from the history in the meantime, the restore fails
   with a message: upload the `config.xml` stored with the change in *System > Configuration >
   Backups* by hand (the upload is not part of the API).
@@ -397,6 +450,7 @@ in the device settings only while changes are allowed. It needs the read privile
 | Interfaces: VLAN | `/api/interfaces/vlan_settings/*` (create and delete VLAN devices) |
 | Interfaces: Assign network ports | `/api/interfaces/assignment/*` (router interfaces, 26.7.6 and newer) |
 | Services: DHCP: Kea(v4) | `/api/kea/dhcpv4/*`, `/api/kea/service/reconfigure` |
+| Firewall: Rules [new], Firewall: NAT: Destination NAT | `/api/firewall/filter/*`, `/api/firewall/d_nat/*` (firewall changes; already among the read privileges) |
 | Diagnostics: Configuration History | `/api/core/backup/*` (backup and restore) |
 
 These are the privileges of the integration tests' write user (verified on 26.7.9). As with reading, OPNsense privileges are per page: this user can change everything on
@@ -732,8 +786,8 @@ boots it in QEMU with KVM (tools/integration/opnsense/vm.py):
   the preseeded firewall, certificate pinning with the real web interface certificate, a wrong
   secret (auth failed), the read user refused on the configuration history, deployments through
   the Deployer (a new VLAN network with Kea subnet and reservation; changed router address,
-  DHCP pool, DNS and lease time, reservation and tagged VLANs on the trunk), each reverted to
-  the original, the restore of a backup through the configuration history, a validation
+  DHCP pool, DNS and lease time, reservation and tagged VLANs on the trunk; one rule and one port
+  forward, read back as declared), each reverted to the original, the restore of a backup through the configuration history, a validation
   error of the firewall, and health and time with the read user's privileges.
 
 The test VM is never run locally: without `IT_OPNSENSE_URL` the tests skip.
@@ -756,6 +810,11 @@ and `revert_backup` puts it back. The simulated firewall checks fields like OPNs
 (description characters, unique tags and device names, networks, pools inside the subnet, MACs,
 locked interfaces) and answers `{"result": "failed", "validations": {"<field>": "..."}}`;
 `invalid` forces such an answer for any write endpoint.
+The rules of the new filter page and the destination NAT page can be added, changed and deleted
+(`add_rule`, `set_rule/<uuid>`, `del_rule/<uuid>`; the legacy and automatic rows cannot), with
+the field checks of the models (action, interface, protocol, networks, ports, sequence), kept in
+the configuration history and reverted with it; `filter/apply` and `d_nat/apply` answer `OK` and
+are listed in `applied`. There is no savepoint, as on 26.7.
 Where the integration tests found the real OPNsense answering differently, the simulator was
 changed to answer the same way: snake_case paths (camelCase is accepted too, as by OPNsense's
 router), `[<interface>]` after assigned VLAN names, Kea subnets and reservations as grids,
