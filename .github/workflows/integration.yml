@@ -264,6 +264,9 @@ jobs:
     env:
       REQUIRE_INTEGRATION: "1"
       VM_DIR: ${{ github.workspace }}/.vm/mikrotik
+      # the check run keeps 50 annotations and the dumps filled them (#331): results and
+      # failures need the room
+      DUMP_NOTICES: "0"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
