@@ -440,6 +440,27 @@ bridge and its pvid ports in `untagged` and `current-untagged` and the comment
 carries the spanning tree state and counters (`rx-bpdu`, `forward-transitions`, `debug-info`,
 ...): read only, never written back by a restore.
 
+### Spanning tree: `/rest/interface/bridge/monitor`, `/rest/interface/bridge/port/monitor` (interfaces, #155)
+
+Per bridge `Device.stp_bridges`: `protocol-mode` (`none`, `stp`, `rstp` (RouterOS' default),
+`mstp`) and `priority` (hex, `0x8000`) from the bridge row; the own bridge id is the priority
+and `current-mac-address` (else `mac-address`). For a bridge with spanning tree the read-only
+`POST /rest/interface/bridge/monitor {"numbers": "<.id>", "once": ""}` gives `root-bridge`,
+`root-bridge-id` (`0x8000.64:D1:54:00:00:01`), `root-port` and `root-path-cost`.
+
+Per bridge port `Port.stp`: `bpdu-guard`, `restricted-role` (root guard), `edge` (`yes`,
+`no`, `auto`, `*-discover`) and `path-cost` from the port row; `role` (`root-port`,
+`designated-port`, `alternate-port`, `backup-port`, `disabled-port`), `forwarding`,
+`learning`, `edge-port` and `actual-path-cost` from the print when RouterOS puts the running
+state there, else from one `POST /rest/interface/bridge/port/monitor` with all port ids.
+Not forwarding and not learning is `discarding` (RSTP, MSTP) or `blocking` (STP).
+`loop-protect` of `/interface/ethernet` (`on`; `off` and `default` are off for Ethernet) is
+the port's loop protection; `loop-protect-status` `disable` (a loop was detected) is state
+`disabled`. A refused monitor keeps the settings and adds an optional gap
+(`mikrotik.stpMonitor`). *(guess: the monitor fields are those of the RouterOS manual; the CHR
+integration test checks the bridge, a real switch with hardware offload should confirm the
+port roles, #21)*
+
 ### `/rest/interface/vlan`, `/rest/interface/list/member` *(optional)* (interfaces)
 
 ```json

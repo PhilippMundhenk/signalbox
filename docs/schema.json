@@ -895,6 +895,21 @@
           ],
           "default": null
         },
+        "stp_bridges": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/StpBridge"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stp Bridges"
+        },
         "time": {
           "anyOf": [
             {
@@ -4385,6 +4400,17 @@
           "default": null,
           "title": "Speed Mbps"
         },
+        "stp": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StpPort"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "up": {
           "anyOf": [
             {
@@ -6086,6 +6112,252 @@
       ],
       "title": "StorageUsage",
       "type": "object"
+    },
+    "StpBridge": {
+      "additionalProperties": false,
+      "description": "Spanning tree (or loop detection) of one bridge of a device (#155, ADR 0023).\n\nA device has one per bridge (``Device.stp_bridges``): a MikroTik or Linux bridge, or the\nwhole switch of a managed switch (``port_id`` None). Runtime values (root, topology\nchanges) are what the device said at the last read. ``None``: not reported.",
+      "properties": {
+        "bridge_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bridge Id"
+        },
+        "last_topology_change": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Topology Change"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "port_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port Id"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Priority"
+        },
+        "protocol": {
+          "$ref": "#/$defs/StpProtocol"
+        },
+        "root_bridge_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Root Bridge Id"
+        },
+        "root_path_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Root Path Cost"
+        },
+        "root_port_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Root Port Id"
+        },
+        "topology_changes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Topology Changes"
+        }
+      },
+      "required": [
+        "name",
+        "protocol"
+      ],
+      "title": "StpBridge",
+      "type": "object"
+    },
+    "StpPort": {
+      "additionalProperties": false,
+      "description": "Spanning tree state and protection of one bridge port (#155, ADR 0023).\n``None``: not reported.",
+      "properties": {
+        "bpdu_guard": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bpdu Guard"
+        },
+        "edge": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Edge"
+        },
+        "loop_protect": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loop Protect"
+        },
+        "path_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path Cost"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StpPortRole"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "root_guard": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Root Guard"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StpPortState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "StpPort",
+      "type": "object"
+    },
+    "StpPortRole": {
+      "enum": [
+        "root",
+        "designated",
+        "alternate",
+        "backup",
+        "disabled"
+      ],
+      "title": "StpPortRole",
+      "type": "string"
+    },
+    "StpPortState": {
+      "enum": [
+        "forwarding",
+        "blocking",
+        "discarding",
+        "learning",
+        "listening",
+        "disabled"
+      ],
+      "title": "StpPortState",
+      "type": "string"
+    },
+    "StpProtocol": {
+      "description": "Loop protection of a bridge (#155, ADR 0023).",
+      "enum": [
+        "stp",
+        "rstp",
+        "mstp",
+        "loop-detect",
+        "none"
+      ],
+      "title": "StpProtocol",
+      "type": "string"
     },
     "Subnet": {
       "additionalProperties": false,

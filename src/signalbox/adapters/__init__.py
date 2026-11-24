@@ -60,6 +60,7 @@ from signalbox.model import (
     ServerSighting,
     Snapshot,
     Source,
+    StpBridge,
     Subnet,
     TraceHop,
     Tunnel,
@@ -647,6 +648,10 @@ class Observation(BaseModel):
     #: needed. Leave a device out when its accounts could not be read (add a gap then). Never
     #: a password, key or hash, also not in ``vendor_extra``.
     accounts: dict[str, list[DeviceAccount]] = Field(default_factory=dict)
+    #: Spanning tree per bridge, per device id (#155, ADR 0023), read with ``interfaces``; no
+    #: API version needed. A device that was read and has no bridge gets ``[]``; the port
+    #: state goes into ``Port.stp``.
+    stp_bridges: dict[str, list[StpBridge]] = Field(default_factory=dict)
     #: Per device id: the login Signalbox uses is a factory default (#126), compared in
     #: memory with :func:`signalbox.factory_defaults.is_factory_default`; only the boolean.
     default_credentials: dict[str, bool] = Field(default_factory=dict)
@@ -911,6 +916,7 @@ class Adapter(ABC):
         times: dict[str, DeviceTime] = {}
         logs: dict[str, list[LogTarget]] = {}
         accounts: dict[str, list[DeviceAccount]] = {}
+        stp: dict[str, list[StpBridge]] = {}
         defaults: dict[str, bool] = {}
         privileges: dict[str, AccountPrivilege] = {}
         try:
@@ -960,6 +966,8 @@ class Adapter(ABC):
                     logs.setdefault(key, []).extend(targets)
                 for key, users in result.accounts.items():
                     accounts.setdefault(key, []).extend(users)
+                for key, bridges in result.stp_bridges.items():
+                    stp.setdefault(key, []).extend(bridges)
                 for key, flag in result.default_credentials.items():
                     defaults[key] = defaults.get(key, False) or flag
                 privileges.update(result.signalbox_privilege)
@@ -981,6 +989,7 @@ class Adapter(ABC):
             time=times.get(ctx.device_id),
             log_targets=logs.get(ctx.device_id),
             accounts=accounts.get(ctx.device_id),
+            stp_bridges=stp.get(ctx.device_id),
             default_credentials=defaults.get(ctx.device_id),
             signalbox_account_privilege=privileges.get(ctx.device_id),
             signalbox_account_needed=self.manifest.least_privilege,
@@ -992,6 +1001,7 @@ class Adapter(ABC):
             "time",
             "log_targets",
             "accounts",
+            "stp_bridges",
             "default_credentials",
             "signalbox_privilege",
             "incomplete",
@@ -1016,6 +1026,7 @@ class Adapter(ABC):
                             "time": times.get(d.id, d.time),
                             "log_targets": logs.get(d.id, d.log_targets),
                             "accounts": accounts.get(d.id, d.accounts),
+                            "stp_bridges": stp.get(d.id, d.stp_bridges),
                             "default_credentials": defaults.get(d.id, d.default_credentials),
                             "signalbox_account_privilege": privileges.get(
                                 d.id, d.signalbox_account_privilege

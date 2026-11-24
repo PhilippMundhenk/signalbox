@@ -58,6 +58,7 @@ from signalbox.adapters.openwrt import (
 )
 from signalbox.adapters.openwrt import discovery as _discovery
 from signalbox.adapters.openwrt import radio as radio_state
+from signalbox.adapters.openwrt import stp as _stp
 from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import (
     AccessDenied,
@@ -111,6 +112,7 @@ from signalbox.model import (
     Security,
     Segment,
     ServiceKind,
+    StpBridge,
     Subnet,
     TemperatureSensor,
     Uplink,
@@ -933,6 +935,8 @@ class OpenWrtAdapter(Adapter):
                 ports[name] = Port(id=port_id(d, name), device_id=d, name=name)
             return ports[name].id
 
+        bridges, stp_gaps = await self._stp(view, status, ports)
+
         names = view.segment_names()
         members: dict[int, dict[str, Membership]] = {}
         for vlans in view.vlans.values():
@@ -970,7 +974,7 @@ class OpenWrtAdapter(Adapter):
             for n, addr in enumerate(view.addresses(name))
         ]
         uplinks = self._uplinks(view, ports) if router else []
-        gaps: list[Gap] = [gap] if gap else []
+        gaps: list[Gap] = ([gap] if gap else []) + stp_gaps
         try:
             services = await self._services(view, ports, {s.id for s in segments})
         except AccessDenied as exc:  # set up with an older ACL: the rest is read
@@ -1031,10 +1035,75 @@ class OpenWrtAdapter(Adapter):
             services=services,
             log_targets={} if targets is None else {d: targets},
             accounts={} if users is None else {d: users},
+            stp_bridges={d: bridges},
             default_credentials={d: await self._default_credentials()},
             signalbox_privilege={} if own is None else {d: own.privilege},
             incomplete=gaps,
         )
+
+    async def _stp_file(self, path: str) -> str | None:
+        """One sysfs value through ``file read``; None when the file does not exist."""
+        try:
+            answer = await self.ubus.call("file", "read", {"path": path})
+        except NotFound:
+            return None
+        data = answer.get("data") if isinstance(answer, dict) else None
+        return data.strip() if isinstance(data, str) else None
+
+    async def _stp(
+        self, view: NetworkView, status: dict[str, Any], ports: dict[str, Port]
+    ) -> tuple[list[StpBridge], list[Gap]]:
+        """Spanning tree of the bridges (#155): the setting from UCI and netifd, the running
+        state of a bridge with STP on from sysfs (``file read``). ``ports`` gets each member's
+        ``stp``. An ACL without the sysfs paths keeps the setting with an optional gap; a
+        member without ``brport`` values (a DSA port the kernel does not report) has none."""
+        ids = {n: p.id for n, p in ports.items()}
+        out: list[StpBridge] = []
+        gaps: list[Gap] = []
+        denied: AccessDenied | None = None
+        for setting in _stp.settings([s for _, s in _sections(view.uci, "device")], status):
+            files: dict[str, str] = {}
+            members: dict[str, dict[str, str]] = {}
+            if setting.on and denied is None:
+                try:
+                    base = f"/sys/class/net/{setting.name}/bridge"
+                    for leaf in _stp.BRIDGE_FILES:
+                        if (value := await self._stp_file(f"{base}/{leaf}")) is not None:
+                            files[leaf] = value
+                    for m in setting.members:
+                        values: dict[str, str] = {}
+                        for leaf in _stp.PORT_FILES:
+                            path = f"/sys/class/net/{m}/brport/{leaf}"
+                            if (value := await self._stp_file(path)) is not None:
+                                values[leaf] = value
+                        if values:
+                            members[m] = values
+                except AccessDenied as exc:
+                    denied = exc
+                    files, members = {}, {}
+            numbers = {
+                no: m
+                for m, v in members.items()
+                if (no := _stp._number(v.get("port_no"))) is not None
+            }
+            out.append(_stp.bridge(setting, files, ids, numbers))
+            root_no = _stp._number(files.get("root_port"))
+            for m, values in members.items():
+                if m in ports:
+                    ports[m] = ports[m].model_copy(update={"stp": _stp.port(values, root_no)})
+        if denied is not None:
+            gaps.append(
+                Gap(
+                    message=f"spanning tree state (root bridge, port states): {denied}",
+                    fix=denied.fix,
+                    remedy=denied.remedy,
+                    optional=True,
+                    message_id="openwrt.stpState",
+                    fix_id=denied.fix_id,
+                    params={**denied.params, "cause": str(denied)},
+                )
+            )
+        return out, gaps
 
     async def _default_credentials(self) -> bool:
         """The configured login is root without a password (compared here, in memory). With

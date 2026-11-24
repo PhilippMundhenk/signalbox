@@ -79,6 +79,11 @@ from signalbox.model import (
     SnmpVersion,
     StorageKind,
     StorageUsage,
+    StpBridge,
+    StpPort,
+    StpPortRole,
+    StpPortState,
+    StpProtocol,
     Subnet,
     TemperatureSensor,
     TraceHop,
@@ -96,6 +101,7 @@ from signalbox.model import (
     object_id,
     port_id,
     segment_id,
+    stp_bridge_id,
 )
 from signalbox.rules import Result, Severity, found, rule
 
@@ -199,6 +205,8 @@ class Lab(Adapter):
                 max_speed_mbps=2500,
                 role=PortRole.JACK,
                 lower=[port_id(d, "eth0")],
+                # spanning tree (#155)
+                stp=StpPort(role=StpPortRole.DESIGNATED, state=StpPortState.FORWARDING, edge=True),
             ),
             Port(
                 id=port_id(d, "lan2"),
@@ -335,6 +343,18 @@ class Lab(Adapter):
             uplinks=[uplink],
             services=services,
             log_targets={d: logs},
+            stp_bridges={
+                d: [
+                    StpBridge(
+                        name="br-lan",
+                        port_id=port_id(d, "br-lan"),
+                        protocol=StpProtocol.RSTP,
+                        priority=4096,
+                        bridge_id=stp_bridge_id(4096, "02:00:00:00:99:01"),
+                        root_bridge_id=stp_bridge_id(4096, "02:00:00:00:99:01"),
+                    )
+                ]
+            },
             # #175: the factory password, an admin login for Signalbox, two accounts
             accounts={
                 d: [

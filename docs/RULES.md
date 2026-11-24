@@ -179,6 +179,14 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`cert.vpn-expiring`](rules/stored_certificates.md#certvpn-expiring)
 - [`cert.ca-expiring`](rules/stored_certificates.md#certca-expiring)
 
+## [Spanning tree and loop protection](rules/stp_checks.md)
+
+- [`stp.several-roots`](rules/stp_checks.md#stpseveral-roots)
+- [`stp.root-not-core`](rules/stp_checks.md#stproot-not-core)
+- [`stp.disabled-with-redundancy`](rules/stp_checks.md#stpdisabled-with-redundancy)
+- [`stp.topology-changes`](rules/stp_checks.md#stptopology-changes)
+- [`stp.client-port-not-edge`](rules/stp_checks.md#stpclient-port-not-edge)
+
 ## [Time and NTP](rules/time_checks.md)
 
 - [`time.offset`](rules/time_checks.md#timeoffset)

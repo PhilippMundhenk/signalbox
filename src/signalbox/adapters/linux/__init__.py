@@ -433,9 +433,15 @@ class LinuxAdapter(Adapter):
                     params={"hint": self.distro.hint("iproute2")},
                 )
             )
+        bridges, port_stp = parse.stp(lay.links, {n: p.id for n, p in lay.ports.items()})
+        ports = [
+            p.model_copy(update={"stp": port_stp[n]}) if n in port_stp else p
+            for n, p in lay.ports.items()
+        ]
         return Observation(
             incomplete=gaps,
-            ports=list(lay.ports.values()),
+            ports=ports,
+            stp_bridges={self.context.device_id: bridges} if lay.links else {},
             segments=lay.segments(),
             subnets=lay.subnets,
             uplinks=lay.uplinks,

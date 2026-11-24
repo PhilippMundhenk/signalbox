@@ -544,6 +544,122 @@ class DeviceAccount(Model):
     allowed_from: list[IPNetwork] = Field(default_factory=list)
 
 
+class StpProtocol(StrEnum):
+    """Loop protection of a bridge (#155, ADR 0023)."""
+
+    STP = "stp"  # 802.1D
+    RSTP = "rstp"  # 802.1w (802.1D-2004)
+    MSTP = "mstp"  # 802.1s: one tree per instance; the common (CIST) tree is reported
+    #: No spanning tree, only the loop detection of simple ("plus") switches: a port that sees
+    #: its own frames come back is blocked.
+    LOOP_DETECT = "loop-detect"
+    #: Off: the bridge forwards everything and does not take part in a spanning tree.
+    NONE = "none"
+
+
+#: Protocols that build a spanning tree (and elect a root bridge).
+SPANNING_TREE = frozenset({StpProtocol.STP, StpProtocol.RSTP, StpProtocol.MSTP})
+
+
+class StpPortState(StrEnum):
+    FORWARDING = "forwarding"
+    #: 802.1D blocking; ``discarding`` is the RSTP name of the same thing.
+    BLOCKING = "blocking"
+    DISCARDING = "discarding"
+    LEARNING = "learning"
+    LISTENING = "listening"
+    DISABLED = "disabled"
+
+
+class StpPortRole(StrEnum):
+    ROOT = "root"
+    DESIGNATED = "designated"
+    ALTERNATE = "alternate"
+    BACKUP = "backup"
+    DISABLED = "disabled"
+
+
+def stp_bridge_id(priority: int, mac: str) -> str:
+    """The canonical bridge id: priority in four hex digits, a dot and the MAC
+    (``8000.02:00:00:00:00:01``), as :class:`StpBridge` stores it."""
+    return f"{priority & 0xFFFF:04x}.{normalise_mac(mac)}"
+
+
+def parse_stp_bridge_id(text: object) -> str | None:
+    """A bridge id in the forms devices report it (Linux sysfs ``8000.020000000001``, iproute2
+    ``8000.2:0:0:0:0:1``, RouterOS
+    ``0x8000.02:00:00:00:00:01``, decimal ``32768/02:00:00:00:00:01``) in the canonical form of
+    :func:`stp_bridge_id`; None for anything else."""
+    raw = str(text or "").strip().lower()
+    match = re.fullmatch(r"(?:0x)?([0-9a-f]{1,5})([./])([0-9a-f:.\-]{11,17})", raw)
+    if not match:
+        return None
+    prio, sep, mac = match.groups()
+    if ":" in mac:  # ether_ntoa, as iproute2 prints it: 2:5b:0:0:0:2
+        mac = ":".join(part.zfill(2) for part in mac.split(":"))
+    try:
+        value = int(prio, 10 if sep == "/" else 16)
+        return stp_bridge_id(value, mac) if value <= 0xFFFF else None
+    except ValueError:
+        return None
+
+
+class StpBridge(Model):
+    """Spanning tree (or loop detection) of one bridge of a device (#155, ADR 0023).
+
+    A device has one per bridge (``Device.stp_bridges``): a MikroTik or Linux bridge, or the
+    whole switch of a managed switch (``port_id`` None). Runtime values (root, topology
+    changes) are what the device said at the last read. ``None``: not reported.
+    """
+
+    #: Name of the bridge on the device (``br-lan``, ``bridge``); ``switch`` for the switch.
+    name: str
+    #: The bridge's own port (``Port.role`` bridge); None: the whole switch.
+    port_id: str | None = None
+    protocol: StpProtocol
+    #: Bridge priority (0-61440 in steps of 4096; the default 32768).
+    priority: Annotated[int, Field(ge=0, le=65535)] | None = None
+    #: ``8000.02:00:00:00:00:01`` (:func:`stp_bridge_id`): priority and the bridge MAC.
+    bridge_id: str | None = None
+    #: The bridge id of the root bridge this bridge sees (its own when it is the root).
+    root_bridge_id: str | None = None
+    #: The port towards the root bridge (None on the root bridge itself, or not reported).
+    root_port_id: str | None = None
+    root_path_cost: Annotated[int, Field(ge=0)] | None = None
+    #: Topology changes since the bridge started, and when the last one happened.
+    topology_changes: Annotated[int, Field(ge=0)] | None = None
+    last_topology_change: datetime | None = None
+
+    @property
+    def spanning_tree(self) -> bool:
+        return self.protocol in SPANNING_TREE
+
+    @property
+    def is_root(self) -> bool | None:
+        """This bridge is the root bridge of its tree; None: not known."""
+        if not self.spanning_tree or self.bridge_id is None or self.root_bridge_id is None:
+            return None
+        return self.bridge_id == self.root_bridge_id
+
+
+class StpPort(Model):
+    """Spanning tree state and protection of one bridge port (#155, ADR 0023).
+    ``None``: not reported."""
+
+    state: StpPortState | None = None
+    role: StpPortRole | None = None
+    #: Edge port (PortFast): no switch behind it, forwards at once.
+    edge: bool | None = None
+    path_cost: Annotated[int, Field(ge=0)] | None = None
+    #: The port is shut down when a BPDU arrives (for client ports).
+    bpdu_guard: bool | None = None
+    #: The port may never become the root port (MikroTik ``restricted-role``).
+    root_guard: bool | None = None
+    #: Loop protection or loop detection of the port (MikroTik ``loop-protect``, the loop
+    #: prevention of plus switches); a detected loop is ``state`` blocking or disabled.
+    loop_protect: bool | None = None
+
+
 class Device(Observed):
     site_id: str
     name: str
@@ -586,6 +702,9 @@ class Device(Observed):
     #: The least privilege the integration needs to read the device (its documented
     #: read-only login, ``Manifest.least_privilege``); ``None``: not said.
     signalbox_account_needed: AccountPrivilege | None = None
+    #: Spanning tree per bridge (#155, ADR 0023), read with ``interfaces``
+    #: (``Observation.stp_bridges``). ``None``: not read; ``[]``: read, no bridge.
+    stp_bridges: list[StpBridge] | None = None
 
     def sends_to(self, kind: LogKind) -> list[LogTarget]:
         """The enabled targets of one kind (empty when not read)."""
@@ -793,6 +912,8 @@ class Port(Observed):
     lacp_rate: LacpRate | None = None
     #: On a member: its state in the LAG (``Port.lag`` and the LAG's ``lower`` say which LAG).
     lag_member_state: LagMemberState | None = None
+    #: Spanning tree of the port in its bridge (#155, ADR 0023); None: not reported.
+    stp: StpPort | None = None
 
     @field_validator("advertised_speeds_mbps")
     @classmethod

@@ -112,6 +112,30 @@ unreadable; then health carries no temperatures, which is not an error. Needs `r
 and the two thermal paths in the ACL. *Guess*: the x86-64 VM in CI has no thermal zones, so only
 "missing" is confirmed on a real OpenWrt; the values follow the kernel's sysfs ABI.
 
+### Spanning tree: `device` sections, `bridge-attributes`, `file read` of sysfs (#155)
+
+`Device.stp_bridges`, one per UCI `device` of type `bridge`: `option stp '1'` (netifd's
+default is off) and `option priority` (default 32767, `0x7fff`), the running values of
+`network.device status` `bridge-attributes` (`stp`, `priority`; OpenWrt 22.03 and later) first.
+netifd runs the kernel's 802.1D STP, so the protocol is `stp` or `none`. With STP on, the
+running state comes from sysfs through `file read` (the read ACL allows
+`/sys/class/net/*/bridge/*` and `/sys/class/net/*/brport/*`):
+
+```json
+/sys/class/net/br-lan/bridge/bridge_id   {"data": "1000.020000000001\n"}
+/sys/class/net/br-lan/bridge/root_id     {"data": "1000.020000000001\n"}
+/sys/class/net/br-lan/bridge/root_port   {"data": "0\n"}      port number, 0 on the root
+/sys/class/net/lan1/brport/state         {"data": "3\n"}      0 disabled ... 3 forwarding, 4 blocking
+/sys/class/net/lan1/brport/port_no       {"data": "0x1\n"}
+```
+
+plus `root_path_cost`, `path_cost`, `bpdu_guard` and `root_block` (root guard). The kernel has
+no port roles and no edge ports: the root port follows from `root_port`, a blocking port is an
+alternate one, `edge` stays unknown. A member without `brport` files (not found) has no
+`Port.stp`; an ACL without the sysfs paths keeps the setting with an optional gap
+(`openwrt.stpState`, *Fix it*: the ACL update). *(guess: DSA user ports with hardware offload
+should have the kernel's `brport` files, unconfirmed on a real device, #21)*
+
 ### `uci get {"config": "system"}` (time)
 
 ```json
@@ -577,7 +601,9 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
         "/sys/class/thermal/thermal_zone*/type": ["read"],
         "/sys/class/net/*/bonding/*": ["read"],
-        "/sys/class/net/*/bonding_slave/*": ["read"]
+        "/sys/class/net/*/bonding_slave/*": ["read"],
+        "/sys/class/net/*/bridge/*": ["read"],
+        "/sys/class/net/*/brport/*": ["read"]
       }
     }
   }
@@ -688,7 +714,9 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
         "/sys/class/thermal/thermal_zone*/type": ["read"],
         "/sys/class/net/*/bonding/*": ["read"],
-        "/sys/class/net/*/bonding_slave/*": ["read"]
+        "/sys/class/net/*/bonding_slave/*": ["read"],
+        "/sys/class/net/*/bridge/*": ["read"],
+        "/sys/class/net/*/brport/*": ["read"]
       }
     },
     "write": {

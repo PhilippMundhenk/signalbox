@@ -113,6 +113,7 @@ def _ether(name: str, speed: str, **kw: Any) -> dict[str, Any]:
         "rx-flow-control": "off",
         "tx-flow-control": "off",
         "l2mtu": "1568",
+        "loop-protect": "default",
         **kw,
     }
 
@@ -359,7 +360,7 @@ def sample_data() -> dict[str, Any]:
                 "100M-baseT-half",
                 **{"auto-negotiation": "false", "advertise": "", "rx-flow-control": "on"},
             ),
-            _ether("ether4", "1G-baseT-full"),
+            _ether("ether4", "1G-baseT-full", **{"loop-protect": "on"}),
             _ether("ether5", "1G-baseT-full"),
         ),
         "/rest/interface/bridge": _ids(
@@ -370,6 +371,7 @@ def sample_data() -> dict[str, Any]:
                 "pvid": "1",
                 "frame-types": "admit-all",
                 "protocol-mode": "rstp",
+                "priority": "0x8000",
                 "mac-address": bridge_mac,
                 "disabled": "false",
             }
@@ -377,7 +379,11 @@ def sample_data() -> dict[str, Any]:
         "/rest/interface/bridge/port": _ids(
             _port("ether2"),
             _port("ether3", frame_types="admit-only-untagged-and-priority-tagged"),
-            _port("ether4", pvid="20", frame_types="admit-only-untagged-and-priority-tagged"),
+            {
+                **_port("ether4", pvid="20", frame_types="admit-only-untagged-and-priority-tagged"),
+                "edge": "yes",
+                "bpdu-guard": "true",
+            },
             {**_port("ether5"), "ingress-filtering": "false"},
             _port("wifi1"),
             _port("wifi2"),
@@ -1298,6 +1304,26 @@ class MikrotikSimulator:
     read_only_monitor: bool = False
     #: what ``/interface/bonding/monitor-slaves bond=<name> once`` reports per bond (#157)
     bond_members: dict[str, list[dict[str, str]]] = field(default_factory=dict)
+    #: what ``/interface/bridge/monitor`` reports (#155): the bridge is the root bridge
+    bridge_monitor: dict[str, str] = field(
+        default_factory=lambda: {
+            "state": "enabled",
+            "current-mac-address": _mac(1, 0).upper(),
+            "root-bridge": "true",
+            "root-bridge-id": f"0x8000.{_mac(1, 0).upper()}",
+            "root-path-cost": "0",
+            "port-count": "6",
+            "designated-port-count": "5",
+        }
+    )
+    #: ``/interface/bridge/port/monitor`` per interface; the rest are designated and forwarding
+    port_monitor: dict[str, dict[str, str]] = field(
+        default_factory=lambda: {
+            "ether3": {"role": "alternate-port", "forwarding": "false", "learning": "false"},
+            "ether4": {"edge-port": "true"},
+            "ether5": {"status": "inactive", "role": "disabled-port", "forwarding": "false"},
+        }
+    )
     next_id: int = 0x100
     #: Traceroutes (#253): target -> hops (address or None, RTT in ms); a target not listed
     #: answers through one router (192.0.2.254) and then itself.
@@ -1398,6 +1424,8 @@ class MikrotikSimulator:
                 if self.read_only_monitor:
                     return JSONResponse(NO_POLICY, status_code=500)
                 return JSONResponse(self.bond_members.get(str(body.get("bond", "")), []))
+            if request.method == "POST" and path in (BRIDGE_MONITOR, BRIDGE_PORT_MONITOR):
+                return self.stp_monitor(path, body)
             if request.method == "POST" and path == TRACEROUTE:
                 return self.traceroute(path, body)
             self.writes.append((request.method, path, body))
@@ -1442,6 +1470,42 @@ class MikrotikSimulator:
         if row.get("running") != "true":
             return JSONResponse([{"status": "disconnected"}])
         return JSONResponse([dict(self.pppoe_session)])
+
+    def stp_monitor(self, path: str, body: dict[str, Any]) -> Response:
+        """``/interface/bridge/monitor`` and ``/interface/bridge/port/monitor`` with ``once``
+        (#155): one row per entry of ``numbers`` (``.id`` or name)."""
+        if self.read_only_monitor:
+            return JSONResponse(NO_POLICY, status_code=500)
+        menu = "/rest/interface/bridge" if path == BRIDGE_MONITOR else "/rest/interface/bridge/port"
+        rows = self.answers().get(menu, [])
+        out: list[dict[str, str]] = []
+        for number in str(body.get("numbers", "")).split(","):
+            row = next(
+                (r for r in rows if number in (r.get(".id"), r.get("name"), r.get("interface"))),
+                None,
+            )
+            if row is None:
+                return _bad("no such item")
+            if path == BRIDGE_MONITOR:
+                out.append(dict(self.bridge_monitor))
+                continue
+            name = str(row.get("interface"))
+            out.append(
+                {
+                    "interface": name,
+                    "status": "in-bridge",
+                    "port-number": str(len(out) + 1),
+                    "role": "designated-port",
+                    "edge-port": "false",
+                    "point-to-point-port": "true",
+                    "sending-rstp": "true",
+                    "learning": "true",
+                    "forwarding": "true",
+                    "actual-path-cost": "20000",
+                    **self.port_monitor.get(name, {}),
+                }
+            )
+        return JSONResponse(out)
 
     # --- writes -------------------------------------------------------------------------------
 
@@ -1976,6 +2040,8 @@ def add_bond(sim: MikrotikSimulator, mode: str = "802.3ad") -> MikrotikSimulator
     return sim
 
 
+BRIDGE_MONITOR = "/rest/interface/bridge/monitor"
+BRIDGE_PORT_MONITOR = "/rest/interface/bridge/port/monitor"
 TRACEROUTE = "/rest/tool/traceroute"
 DHCP_CLIENT = "/rest/ip/dhcp-client"
 LIST_MEMBER = "/rest/interface/list/member"

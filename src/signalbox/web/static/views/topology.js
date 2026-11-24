@@ -10,6 +10,8 @@ import { attachZoom } from '../topozoom.js';
 import { t } from '../i18n.js';
 
 const ORIGIN = { lldp: 'topology.origin.lldp', mac: 'topology.origin.mac', manual: 'topology.origin.manual', tunnel: 'topology.origin.tunnel' };
+// Port states of spanning tree in which a port forwards nothing (#155).
+const BLOCKED = new Set(['blocking', 'discarding']);
 const ROLE = { gateway: 'topology.role.gateway', remote: 'topology.role.remote', switch: 'topology.role.switch', ap: 'topology.role.ap', other: 'topology.role.other' };
 const MODE = { tagged: 'topology.mode.tagged', untagged: 'topology.mode.untagged' };
 const KIND = { cable: 'topology.linkKind.cable', wireless: 'topology.linkKind.wireless', vpn: 'topology.linkKind.vpn' };
@@ -234,7 +236,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
   const els = new Map();
   for (const n of nodes) {
     const { x, y, w } = lay.nodes[n.id];
-    const g = s('g', { class: `node role-${n.role} status-${n.status}`, 'data-testid': 'topo-node', 'data-id': n.id });
+    const g = s('g', { class: `node role-${n.role} status-${n.status}${n.stp_root ? ' stp-root' : ''}`, 'data-testid': 'topo-node', 'data-id': n.id, 'data-stp-root': n.stp_root ? 'true' : null });
     els.set(n.id, g);
     place(g, s('rect', { x: String(x), y: String(y), width: String(w), height: String(BOX_H), rx: '10', class: 'box' }));
     const label = s('text', { x: String(x + 10), y: String(y + 40), class: 'name' }, n.name);
@@ -242,7 +244,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
     else place(g, s('a', { href: `#/device/${enc(n.id)}`, class: 'name-link', 'data-testid': 'topo-device-link', 'aria-label': t('topology.openDevice', { device: n.name }) }, label));
     const roleName = ROLE[n.role] ? t(ROLE[n.role]) : n.role;
     const hidden = shownPorts(n).length - ports.get(n.id).length;
-    const roleText = n.role === 'remote' ? t('topology.remoteSite', { networks: n.networks.join(', ') || t('topology.noNetworks') }) : `${roleName}${hidden > 0 ? t('topology.morePorts', { count: hidden }) : ''}`;
+    const roleText = n.role === 'remote' ? t('topology.remoteSite', { networks: n.networks.join(', ') || t('topology.noNetworks') }) : `${roleName}${n.stp_root ? t('topology.stpRoot') : ''}${hidden > 0 ? t('topology.morePorts', { count: hidden }) : ''}`;
     place(g, s('text', { x: String(x + 10), y: String(y + 55), class: 'role' }, roleText));
     for (const p of ports.get(n.id)) {
       const spot = spots.get(p.id);
@@ -250,7 +252,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
       const clients = (data.clients[p.id] || []).length;
       const cls = ['port', p.up === false ? 'down' : 'up', linked.has(p.id) ? 'linked' : '', member ? `m-${member}` : '', clients ? 'has-clients' : '', p.external === false ? 'internal' : ''];
       const rect = s('rect', { x: String(spot.x), y: String(spot.y), width: String(PORT), height: String(PORT), rx: '3', class: cls.join(' ').trim(), tabindex: '0', role: 'button', 'aria-label': `${t('topology.portAria', { device: n.name, port: p.name })}${p.description ? t('topology.paren', { description: p.description }) : ''}${clients ? t('topology.portClientsAria', { count: clients }) : ''}`, 'data-testid': 'topo-port', 'data-id': p.id });
-      place(rect, s('title', {}, `${p.name}${p.description ? t('topology.paren', { description: p.description }) : ''}${p.role && p.role !== 'jack' ? `, ${PORT_ROLE[p.role] || p.role}` : ''}${member ? t('topology.paren', { description: modeLabel(member) }) : ''}${clients ? t('topology.portClientsTitle', { count: clients }) : ''}`));
+      place(rect, s('title', {}, `${p.name}${p.description ? t('topology.paren', { description: p.description }) : ''}${p.role && p.role !== 'jack' ? `, ${PORT_ROLE[p.role] || p.role}` : ''}${member ? t('topology.paren', { description: modeLabel(member) }) : ''}${BLOCKED.has(p.stp_state) ? t('topology.stpBlocked') : ''}${clients ? t('topology.portClientsTitle', { count: clients }) : ''}`));
       rect.addEventListener('click', () => onPort(n, p));
       rect.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' || ev.key === ' ') {
@@ -445,6 +447,7 @@ function legendBlock() {
         item(box('status-partial'), t('topology.legend.box.partial')),
         item(box('status-unreachable'), t('topology.legend.box.unreachable')),
         item(box('role-remote'), t('topology.legend.box.remote')),
+        item(box('stp-root'), t('topology.legend.box.stpRoot')),
         item(swatch(s('rect', { x: '3', y: '1', width: '34', height: '14', rx: '6', class: 'site-frame' })), t('topology.legend.box.site')),
         item(swatch(s('g', { class: 'badge' }, s('circle', { cx: '20', cy: '8', r: '7' }), s('text', { x: '20', y: '11', 'text-anchor': 'middle' }, '2'))), t('topology.legend.bundle')),
         item(swatch(s('g', { class: 'badge lag' }, s('circle', { cx: '20', cy: '8', r: '7' }), s('text', { x: '20', y: '11', 'text-anchor': 'middle' }, '2'))), t('topology.legend.lag')),
