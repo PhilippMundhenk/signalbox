@@ -2,7 +2,7 @@
 
 Adapter id `mikrotik`, roles `gateway`, `switch` and `ap`. Reads a RouterOS 7 router, switch or
 access point through the REST API (`/rest`, served by the `www-ssl` service), and deploys
-changes of every kind (`router`, `dhcp`, `reservation`, `port`, `wlan`, and the firewall kinds `firewall-rule`, `port-forward`, `zone-policy`) through the change
+changes of every kind (`router`, `dhcp`, `reservation`, `port`, `wlan`, the firewall kinds `firewall-rule`, `port-forward`, `zone-policy`, and `log-target`, `snmp-policy`) through the change
 transactions of [#38](https://github.com/PhilippMundhenk/signalbox/issues/38) when the device's
 "allow changes" setting is on and the user may write: see [Writing](#writing). Reading only ever
 sends `GET` requests.
@@ -846,6 +846,28 @@ with the existing read-only group (`read`, `api`, `rest-api`): `/rest/ip/firewal
   and a `dst-nat`; `test_firewall_rules_and_nat` asserts them as the read-only user.
   *Guess*: the `/interface/list` row fields `include`/`exclude`, jumps and address ranges on
   a real router (the simulator has them), `ipsec-policy` rows with IPsec configured.
+
+## Log targets and SNMP (#327)
+
+The kinds `log-target` and `snmp-policy`
+([ADR 0021](../adr/0021-logging-and-snmp-desired-state.md)):
+
+- **Syslog target**: an action `signalbox-<address>` in `/system/logging/action`
+  (`target=remote`, `remote`, `remote-port`, `remote-protocol` `udp` or `tcp`) and four rules in
+  `/system/logging` (`topics` `info`, `warning`, `error`, `critical`; RouterOS needs all topics of
+  a rule on a message, so each is a rule of its own) that send to it. Only actions with that name
+  prefix are changed or removed, together with the rules that use them; the device's own action
+  (the one the user made) only when the change adopts its address (it and its rules are then
+  removed, and an undo creates it again as `signalbox-<address>`). Several targets are fine. TLS
+  is refused.
+- **SNMP**: `PATCH /rest/snmp {"enabled": "false"}`; the revert sets `enabled=yes`. `v3-only` is
+  refused (SNMPv3 users need secrets). Communities are neither read into the model nor touched.
+- **Revert**: both are protected by the scheduler entry `signalbox-revert` of the firewall
+  changes (armed first, removed by `confirm`); its script removes the created action and rules,
+  re-adds removed ones, resets changed properties and sets `/snmp` back. The backup holds the two
+  logging menus and the state of `/snmp`.
+- *Guess (#21)*: `remote-protocol=tcp` and the four-topic rules on a real router; that RouterOS
+  accepts `/snmp set enabled=yes` in the scheduler's script for the revert.
 
 ## Firewall changes (#295)
 

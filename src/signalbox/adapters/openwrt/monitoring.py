@@ -106,6 +106,7 @@ def system_targets(system: dict[str, Any]) -> list[LogTarget]:
                 transport=LogTransport.TCP if proto == "tcp" else LogTransport.UDP,
                 enabled=not _off(s.get("log_remote")),
                 name="logd",
+                managed=_text(s.get("signalbox_syslog")) == "1",
             )
         )
     return out

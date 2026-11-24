@@ -42,6 +42,15 @@ be approved with the explicit override *Allow losing management access* (`allow_
 `POST /api/changes/<id>/approve`). The change log keeps the override and the reasons. The
 device's confirm timer is still the last safeguard: a change that cuts the access undoes itself.
 
+## Logging and SNMP changes
+
+The kinds `log-target` (key `syslog/<address>`: address, port, transport, sent at all) and
+`snmp-policy` (key `snmp`: `on`, `v3-only` or `off`) change where a device logs to and whether
+its SNMP agent runs ([DESIRED.md](DESIRED.md#logging-and-snmp), ADR 0021). The plan shows old and
+new values; an SNMP community never appears in them. They are applied last, after the network and
+firewall kinds. OpenWrt uses the `uci apply` confirm timer, MikroTik its scheduler revert; both
+undo a change that is not confirmed, and a failed deployment restores the backup.
+
 ## Tracking
 
 The *Changes* page is the change log: who, when, why, the desired-state version (git commit),

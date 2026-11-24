@@ -49,6 +49,8 @@ FIXED_MAC = "00:00:5e:00:53:{:02x}"
 #: UCI configs the simulator knows (and can write; firewall since #295)
 CONFIGS = ("network", "wireless", "dhcp", "firewall")
 #: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173)
+#: Read-only until #327: ``system`` and ``snmpd`` are also written (log target, SNMP agent)
+WRITE_ALSO = ("system", "snmpd")
 READ_ONLY = ("system", "dropbear", "uhttpd", "snmpd", "luci_statistics", "softflowd", "rpcd")
 #: Of those, the configs of optional packages (#180): only there when installed
 PACKAGES = ("snmpd", "luci_statistics", "softflowd")
@@ -1037,7 +1039,7 @@ class OpenWrtSim:
     #: no ``network.wireless`` ubus object (a device without Wi-Fi)
     no_wireless_object: bool = False
     #: UCI configs the ACL lets the user change (``write`` → ``uci`` in the rpcd ACL)
-    writable: set[str] = field(default_factory=lambda: set(CONFIGS))
+    writable: set[str] = field(default_factory=lambda: {*CONFIGS, *WRITE_ALSO})
     #: objects answered with broken JSON (``*``: every request)
     malformed: set[str] = field(default_factory=set)
     #: objects answered with valid JSON of the wrong shape
@@ -1193,7 +1195,9 @@ class OpenWrtSim:
                 return [OK, {"values": s}] if s is not None else [NOT_FOUND]
             return [OK, _get(sections)]
         if method in ("set", "add", "delete", "order"):
-            if config not in CONFIGS:
+            if config not in CONFIGS + WRITE_ALSO or (
+                config in PACKAGES and config not in self.packages
+            ):
                 return [NOT_FOUND]
             if config not in self.writable or f"uci:{config}" in self.denied:
                 return [DENIED]

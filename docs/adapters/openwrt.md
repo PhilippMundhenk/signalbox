@@ -2,9 +2,9 @@
 
 Reads an OpenWrt device (21.02 or later; DSA bridge VLANs or plain bridges) over ubus JSON-RPC,
 the API that LuCI uses: `rpcd` behind `uhttpd` at `https://<device>/ubus`. With a read-only login
-nothing on the device is changed; with write access to UCI `network`, `wireless`, `dhcp` and `firewall`
+nothing on the device is changed; with write access to UCI `network`, `wireless`, `dhcp`, `firewall`, `system` and `snmpd`
 Signalbox can deploy port VLANs, SSIDs, DHCP pools, reservations, firewall zone policies, rules and
-port forwards ([Writing](#writing)).
+port forwards, the remote syslog target and switching the SNMP agent off ([Writing](#writing)).
 
 | | |
 | --- | --- |
@@ -539,11 +539,11 @@ Off unless `deploy.enabled` is on, *Allow changes* is set on the device and the 
 write ACL below (see [CHANGES.md](../CHANGES.md)). Every change goes through rpcd's `uci` object
 in the login's session, as LuCI does it:
 
-1. `uci get` of `network`, `wireless`, `dhcp`, `firewall` and `network.interface dump`; the changes are
+1. `uci get` of `network`, `wireless`, `dhcp`, `firewall`, `system` and (if installed) `snmpd`, and `network.interface dump`; the changes are
    translated one after another on that copy, so a later change sees an earlier one (the WLAN on
    VLAN 30 finds the VLAN the port change creates). The review shows exactly these calls
    (`plan_changes`); Wi-Fi keys appear as `***`.
-2. **Backup**: the `uci get` answers of the four configs as one JSON document (format
+2. **Backup**: the `uci get` answers of those configs as one JSON document (format
    `openwrt-uci-json`, stored encrypted with the change).
 3. **Stage**: `uci set` / `add` / `delete` into the session's staging area. Nothing is live yet;
    another session does not see it.
@@ -588,17 +588,19 @@ Failures:
 | `zone-policy` | Between a zone and the router (`to: device`): the zone's `input`; inside a zone: its `forward`. Between two zones: `accept` adds `config forwarding 'sb_pol_<src>_<dest>'` unless one exists; `reject` deletes Signalbox's forwardings of the pair, and the device's own one only when the policy says `adopt: true` (else refused); `drop` between two zones is refused (OpenWrt rejects what no forwarding allows). Zones themselves are never created or removed. |
 | `firewall-rule` | `config rule 'sb_rule_<key>'`: `name`, `src` (zone or `*`), `dest` (forward rules; zone or `*`), `src_ip`, `dest_ip`, `dest_port`, `proto` (`all` for every protocol), `family`, `target`, `enabled`. A new rule is moved before the device's own rules (`uci order`), after Signalbox's older ones. `adopt: <name>` replaces the device's own rule of that name with Signalbox's section, which carries over every option the declaration does not model (`log`, `limit`, `extra`, `src_port`, ...; the plan lists them); an option that does not fit (`icmp_type` without icmp) refuses the adoption with the list. |
 | `port-forward` | `config redirect 'sb_fwd_<key>'` with `target DNAT`: `name`, `src` (the internet zone), `src_dport`, `dest` (the zone of the interface whose subnet holds the target), `dest_ip`, `dest_port`, `proto`, `enabled`. `adopt: <name>` as for rules. |
+| `log-target` | `system.@system[0]`: `log_ip`, `log_port`, `log_proto` (`udp` or `tcp`) and the tag `signalbox_syslog '1'`; `log_remote` is removed so the target is used. logd has one slot: a second declared target is refused, and a target of the device's own (no tag) is replaced only when the change adopts it. Removal deletes the four options when the slot still holds that address. Syslog over TLS is refused. *Guess (#21): that `uci apply` makes logd pick up the new target on every release.* |
+| `snmp-policy` | `snmpd.general.enabled` `0` (off) or `1` (back on, as a revert); the section is created if the package has none. `v3-only` is refused (it needs SNMPv3 users and their secrets); a router without the `snmpd` config is refused. *Guess (#21): that the package's init script reloads on `uci apply` and honours `enabled`.* |
 | `router` | Not supported: a routed VLAN on OpenWrt also needs its own firewall zone, which Signalbox does not create. Create routed interfaces and their zones by hand (or in LuCI); DHCP, reservations and the zone's policies and rules can then be deployed. |
 
 ### Login with write access
 
 Same packages as for reading. `/usr/share/rpcd/acl.d/signalbox.json` with a `write` part that
-only allows the `uci` methods of a transaction on the four configs it changes:
+only allows the `uci` methods of a transaction on the six configs it changes (`system` for the syslog target, `snmpd` for the agent; a login set up with an older ACL still works for the other changes, the two kinds are refused):
 
 ```json
 {
   "signalbox": {
-    "description": "Signalbox: network inventory, changes to network, wireless, dhcp and firewall",
+    "description": "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, system and snmpd",
     "read": {
       "ubus": {
         "system": ["board", "info"],
@@ -626,7 +628,7 @@ only allows the `uci` methods of a transaction on the four configs it changes:
       "ubus": {
         "uci": ["set", "add", "delete", "order", "revert", "changes", "apply", "confirm", "rollback"]
       },
-      "uci": ["network", "wireless", "dhcp", "firewall"]
+      "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd"]
     }
   }
 }
