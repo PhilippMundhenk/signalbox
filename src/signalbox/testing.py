@@ -22,6 +22,8 @@ from signalbox.adapters import Adapter, Capability, check_manifest
 from signalbox.factory_defaults import FACTORY_DEFAULTS
 from signalbox.model import (
     FDB_LIMIT,
+    ROUTE_LIMIT,
+    SCAN_LIMIT,
     TYPED_OPTION_CODES,
     Band,
     Cipher,
@@ -56,10 +58,12 @@ from signalbox.model import (
     Tunnel,
     Uplink,
     UplinkKind,
+    WifiScanResult,
     Wlan,
     address_nat_class,
     firewall_id,
     parse_stp_bridge_id,
+    scan_id,
     set_passphrase_digest_key,
     source_fits,
 )
@@ -631,6 +635,8 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
         out.append(f"server_sightings reported without declaring {Capability.DHCP.value}")
     if snapshot.tunnels and Capability.VPN.value not in caps:
         out.append(f"tunnels reported without declaring {Capability.VPN.value}")
+    if (snapshot.routes or snapshot.routing_rules) and Capability.INTERFACES.value not in caps:
+        out.append(f"routes reported without declaring {Capability.INTERFACES.value}")
     if snapshot.firewalls and Capability.FIREWALL.value not in caps:
         out.append(f"firewalls reported without declaring {Capability.FIREWALL.value}")
     for d in devices:
@@ -694,6 +700,8 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         "tunnels",
         "firewalls",
         "server_sightings",
+        "routes",
+        "routing_rules",
     )
     for kind in (*owned, "radios", "wlans"):
         for obj in getattr(snapshot, kind):
@@ -789,11 +797,41 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
             out.append(f"neighbour {nb.id} on unknown port {nb.local_port_id}")
 
     out += fdb_problems(snapshot.fdb, owners, port_ids, segment_ids)
+    out += route_problems(snapshot, port_ids, segment_ids)
+    if snapshot.wifi_scan and Capability.WIRELESS.value not in snapshot.device.capabilities:
+        out.append(f"wifi_scan reported without declaring {Capability.WIRELESS.value}")
+    out += scan_problems(snapshot.wifi_scan, owners, {r.id: r for r in snapshot.radios})
 
     out += _capability_problems(snapshot, site)
 
     if Snapshot.model_validate_json(snapshot.model_dump_json()) != snapshot:
         out.append("snapshot does not survive a JSON round trip")
+    return out
+
+
+def route_problems(snapshot: Snapshot, port_ids: set[str], segment_ids: set[str]) -> list[str]:
+    """Routes and routing rules (#149): each once, an interface that is a reported port of the
+    same device, a rule's segment reported, and a table name that is not empty."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for r in snapshot.routes:
+        if r.id in seen:
+            out.append(f"route {r.id} reported twice")
+        seen.add(r.id)
+        if r.interface is not None and r.interface not in port_ids:
+            out.append(f"route {r.id} leaves through unknown port {r.interface}")
+        elif r.interface is not None and not r.interface.startswith(f"{r.device_id}/"):
+            out.append(f"route {r.id} leaves through port {r.interface} of another device")
+        if not r.table:
+            out.append(f"route {r.id} has no table")
+    if len(snapshot.routes) > ROUTE_LIMIT:
+        out.append(f"{len(snapshot.routes)} routes reported (over {ROUTE_LIMIT})")
+    for rule in snapshot.routing_rules:
+        if rule.id in seen:
+            out.append(f"routing rule {rule.id} reported twice")
+        seen.add(rule.id)
+        if rule.segment_id is not None and rule.segment_id not in segment_ids:
+            out.append(f"routing rule {rule.id} references unknown segment {rule.segment_id}")
     return out
 
 
@@ -825,6 +863,45 @@ def fdb_problems(
             out.append(f"fdb entry {e.id} references unknown segment {e.segment_id}")
     out += [
         f"{d} reports {n} fdb entries (over {FDB_LIMIT})" for d, n in count.items() if n > FDB_LIMIT
+    ]
+    return out
+
+
+def scan_problems(
+    results: list[WifiScanResult], owners: Iterable[str], radios: dict[str, Radio]
+) -> list[str]:
+    """Scan results (#169): of a reported device, heard by a radio of that device (or none),
+    id ``<radio or device>/scan/<bssid>``, a unicast BSSID, each once, the radio's band, at
+    most ``SCAN_LIMIT`` per device."""
+    out: list[str] = []
+    devices = set(owners)
+    seen: set[str] = set()
+    count: dict[str, int] = {}
+    for r in results:
+        if r.id in seen:
+            out.append(f"scan result {r.id} reported twice")
+        seen.add(r.id)
+        count[r.device_id] = count.get(r.device_id, 0) + 1
+        if r.device_id not in devices:
+            out.append(f"scan result {r.id} has device_id {r.device_id}")
+        if r.id != scan_id(r.radio_id or r.device_id, r.bssid):
+            out.append(
+                f"scan result id {r.id} is not {scan_id(r.radio_id or r.device_id, r.bssid)}"
+            )
+        if r.radio_id is not None:
+            radio = radios.get(r.radio_id)
+            if radio is None:
+                out.append(f"scan result {r.id} heard by unknown radio {r.radio_id}")
+            elif radio.device_id != r.device_id:
+                out.append(f"scan result {r.id} heard by a radio of another device")
+            elif r.band is not None and r.band is not radio.band:
+                out.append(f"scan result {r.id} on {r.band} GHz heard by a {radio.band} GHz radio")
+        if int(r.bssid[:2], 16) & 1:
+            out.append(f"scan result {r.id} has a multicast BSSID")
+    out += [
+        f"{d} reports {n} scan results (over {SCAN_LIMIT})"
+        for d, n in count.items()
+        if n > SCAN_LIMIT
     ]
     return out
 

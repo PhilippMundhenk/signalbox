@@ -23,6 +23,11 @@ wg set wg0 listen-port 51820 private-key /root/wg0.key \
 ip addr add 203.0.113.250/30 dev wg0
 ip link set wg0 up
 ip route add 198.51.100.128/25 dev wg0
+# routes and policy routing (#149): a lab behind a second router, a table with its own default
+# route and the rule that sends one network to it
+ip route add 198.18.20.0/24 via 192.0.2.5 dev br0
+ip route add default via 192.0.2.5 dev br0 table 100
+ip rule add from 192.0.2.128/26 lookup 100 priority 1000
 sysctl -qw net.ipv4.ip_forward=1 || true
 wg show wg0 public-key > /wg0.pub
 

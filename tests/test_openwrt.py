@@ -462,6 +462,20 @@ async def test_neighbours(adapter: OpenWrtAdapter) -> None:
         "port 8",
         "192.0.2.3",
     )
+    # only the enabled system capabilities (#113)
+    assert nb.capabilities == ["bridge", "router"]
+    assert nb.description == "MikroTik RouterOS 7.15.3 CRS326-24G-2S+"
+
+
+def test_lldp_capabilities_shapes() -> None:
+    from signalbox.adapters.openwrt import _capabilities
+
+    assert _capabilities({"type": "Wlan", "enabled": True}) == ["wlan-access-point"]
+    assert _capabilities([{"type": "Telephone", "enabled": True}, "x", {"enabled": True}]) == [
+        "telephone"
+    ]
+    assert _capabilities([{"type": "Bridge", "enabled": False}]) == []
+    assert _capabilities(None) == [] and _capabilities("bridge") == []
 
 
 async def test_session_expiry_logs_in_again(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
@@ -1807,3 +1821,84 @@ def test_settings_and_parsers() -> None:
     assert ostp.port({}, None).state is None
     assert ostp._flag(True) is True and ostp._flag("maybe") is None and ostp._flag("0") is False
     assert ostp._number(True) is None and ostp._number(5) == 5 and ostp._number("x") is None
+
+
+# BSSIDs and neighbouring networks (#169) ---------------------------------------------
+
+
+async def test_openwrt_reports_bssids_and_no_scan_by_default(
+    sim: OpenWrtSim, https_url: str, cert: TlsFiles
+) -> None:
+    sim.denied = {"iwinfo.scan"}  # a scan would be refused: it must not be tried
+    a = OpenWrtAdapter(context(https_url, pinned_fingerprint=cert.fingerprint))
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    assert snap.status is DeviceStatus.OK and not snap.wifi_scan
+    assert not [e for e in snap.errors if e.capability == "wireless"]
+    bssids = {w.port_id: w.bssid for w in snap.wlans}
+    ports = {p.id: p.mac for p in snap.ports}
+    assert bssids and all(b is not None and b == ports[p] for p, b in bssids.items())
+
+
+async def test_openwrt_scans_when_asked(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
+    ctx = context(https_url, pinned_fingerprint=cert.fingerprint, config={"scan_neighbours": True})
+    a = OpenWrtAdapter(ctx)
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    by = {r.bssid: r for r in snap.wifi_scan}
+    a1 = by["02:5e:00:00:01:01"]
+    assert a1.ssid == "Neighbour-A" and a1.band is Band.GHZ_2_4 and a1.channel == 6
+    assert a1.signal_dbm == -58 and a1.security is Security.WPA2 and a1.width_mhz == 20
+    assert a1.kind.value == "scan" and a1.last_seen is not None
+    assert a1.radio_id is not None and a1.id == f"{a1.radio_id}/scan/{a1.bssid}"
+    assert by["02:5e:00:00:01:02"].security is Security.WPA2_WPA3
+    assert by["02:5e:00:00:01:03"].ssid is None  # hidden
+    assert by["02:5e:00:00:01:04"].security is Security.OPEN
+    c = by["02:5e:00:00:02:02"]
+    assert c.band is Band.GHZ_5 and c.width_mhz == 80 and c.security is Security.WPA3
+    radios = {r.id: r for r in snap.radios}
+    assert all(radios[r.radio_id or ""].band is r.band for r in snap.wifi_scan)
+
+
+async def test_openwrt_scan_refused_by_an_old_acl(
+    sim: OpenWrtSim, https_url: str, cert: TlsFiles
+) -> None:
+    sim.denied = {"iwinfo.scan"}
+    ctx = context(https_url, pinned_fingerprint=cert.fingerprint, config={"scan_neighbours": True})
+    a = OpenWrtAdapter(ctx)
+    try:
+        obs = await a.read_wireless()
+    finally:
+        await a.close()
+    assert not obs.wifi_scan
+    (gap,) = obs.incomplete
+    assert gap.optional and gap.message_id == "openwrt.radioState"
+    assert obs.radios[0].standards is not None  # the rest of the radio is read
+
+
+@pytest.mark.parametrize(("slow", "delay"), [({"iwinfo.scan"}, 3.0), ({"iwinfo"}, 0.5)])
+async def test_openwrt_scan_slower_than_the_read(
+    sim: OpenWrtSim, https_url: str, cert: TlsFiles, slow: set[str], delay: float
+) -> None:
+    """#169: a scan that does not fit into the read's time limit (or no time left for it)
+    is given up with an optional gap; radios and WLANs are still reported."""
+    sim.slow, sim.delay = slow, delay
+    ctx = context(
+        https_url,
+        pinned_fingerprint=cert.fingerprint,
+        timeout=3.0,
+        config={"scan_neighbours": True},
+    )
+    a = OpenWrtAdapter(ctx)
+    try:
+        obs = await a.read_wireless()
+    finally:
+        await a.close()
+    assert not obs.wifi_scan and obs.wlans
+    (gap,) = obs.incomplete
+    assert gap.optional and gap.message_id == "openwrt.scanSlow"
+    assert gap.params == {"seconds": "3"} and "scan_neighbours" in (gap.fix or "")

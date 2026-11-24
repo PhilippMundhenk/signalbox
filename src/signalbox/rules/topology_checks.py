@@ -7,6 +7,7 @@ is missing or ambiguous.
 
 from __future__ import annotations
 
+import re
 from collections import deque
 from collections.abc import Iterable, Iterator
 from ipaddress import ip_address
@@ -19,6 +20,7 @@ from signalbox.model import (
     FdbKind,
     LagGroup,
     Membership,
+    Neighbour,
     Network,
     Port,
     PortKind,
@@ -345,6 +347,8 @@ def unknown_neighbour(net: Network) -> Iterator[Result]:
         addr = _address(nb.management_address)
         if addr is None or addr in addresses:
             continue
+        if nb.capabilities or _is_gear_description(nb.description):
+            continue  # inventory.unknown-network-device judges what it announces
         chassis = _mac(nb.chassis_id)
         if chassis in macs or (nb.system_name or "").lower() in names:
             continue
@@ -369,6 +373,90 @@ def unknown_neighbour(net: Network) -> Iterator[Result]:
             key=key,
             mid="topology.unknownNeighbour",
             fix_id="topology.unknownNeighbour.fix",
+            params={
+                "count": len(ports),
+                "ports": _names(_port_name(net, p) for p in ports),
+                "who": who,
+            },
+        )
+
+
+# --- inventory.unknown-network-device ------------------------------------------------------
+
+#: LLDP system capabilities of network gear; a telephone or station is an end device.
+NETWORK_CAPABILITIES = ("bridge", "router", "wlan-access-point")
+_GEAR = re.compile(
+    r"\b(switch|router|routeros|access[ -]point|gateway|firewall|openwrt|opnsense|pfsense|"
+    r"edgeswitch|edgerouter|unifi|omada|mikrotik|ubiquiti|tp-link|netgear|aruba|juniper|"
+    r"fortigate|catalyst|procurve|zyxel|d-link|draytek|fritz!?box)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_gear_description(description: str | None) -> bool:
+    return bool(description and _GEAR.search(description))
+
+
+def _network_kinds(nb: Neighbour) -> list[str] | None:
+    """What makes the neighbour network gear (its capabilities, or ``[]`` for a description that
+    names network equipment); None for an end device or when it says nothing."""
+    kinds = [c for c in nb.capabilities if c in NETWORK_CAPABILITIES]
+    if kinds:
+        return kinds
+    if "telephone" in nb.capabilities or "station" in nb.capabilities:
+        return None
+    return [] if _is_gear_description(nb.description) else None
+
+
+@rule(
+    "inventory.unknown-network-device",
+    "Switch, router or access point seen by LLDP is not in Signalbox",
+    Severity.WARNING,
+    "A neighbour announces itself by LLDP, MNDP or CDP as a bridge (switch), router or WLAN "
+    "access point, or describes itself as network equipment, but it is not one of the devices "
+    "Signalbox reads: its chassis MAC and management address match no device or port. Without "
+    "it VLAN paths through it stay incomplete and its SSIDs and firmware are not checked. "
+    "Phones and stations are not reported.",
+)
+def unknown_network_device(net: Network) -> Iterator[Result]:
+    macs = _device_macs(net)
+    names = {d.name.lower() for d in net.devices}
+    addresses = _device_addresses(net)
+    own = {p.id for p in net.ports}
+    seen: dict[str, list[tuple[str, str | None, str | None, list[str]]]] = {}
+    for nb in net.neighbours:
+        kinds = _network_kinds(nb)
+        if kinds is None or nb.local_port_id not in own:
+            continue
+        addr = _address(nb.management_address)
+        chassis = _mac(nb.chassis_id)
+        if addr in addresses or chassis in macs or (nb.system_name or "").lower() in names:
+            continue
+        if chassis is not None and net.expected(client_target(chassis)).known_neighbour:
+            continue  # the user knows it and left it out of Signalbox on purpose
+        seen.setdefault(chassis or nb.chassis_id, []).append(
+            (nb.local_port_id, addr, nb.system_name, kinds)
+        )
+    for key, entries in sorted(seen.items()):
+        entries.sort(key=lambda e: e[0])
+        ports = [e[0] for e in entries]
+        name = next((e[2] for e in entries if e[2]), None)
+        addr = next((e[1] for e in entries if e[1]), None)
+        kinds = next((e[3] for e in entries if e[3]), [])
+        detail = ", ".join(([addr] if name and addr else []) + kinds)
+        who = (name or addr or key) + (f" ({detail})" if detail else "")
+        yield found(
+            f"{_names(_port_name(net, p) for p in ports)} "
+            f"{'sees' if len(ports) == 1 else 'see'} a network device announcing itself as {who} "
+            "that is not in Signalbox.",
+            ports,
+            fix="Add it under Devices so that Signalbox reads it."
+            + (" Find devices on that page can look for it at its address." if addr else ""),
+            key=key,
+            mid="topology.unknownNetworkDevice",
+            fix_id="topology.unknownNetworkDevice.fixFind"
+            if addr
+            else "topology.unknownNetworkDevice.fix",
             params={
                 "count": len(ports),
                 "ports": _names(_port_name(net, p) for p in ports),
@@ -620,6 +708,7 @@ RULES = [
     lag_consistent,
     hidden_device,
     unknown_neighbour,
+    unknown_network_device,
     management_separate,
     duplicate_device,
     single_point,

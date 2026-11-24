@@ -149,6 +149,16 @@ set wireless.station.encryption='psk2'
 set wireless.station.key='example-it-passphrase'
 EOF
 
+# --- a static route to a lab network behind a second router, and a policy rule (#149) -------
+uci add network route >/dev/null
+uci set network.@route[-1].interface='lan'
+uci set network.@route[-1].target='198.18.20.0/24'
+uci set network.@route[-1].gateway='192.0.2.254'
+uci add network rule >/dev/null
+uci set network.@rule[-1].src='198.51.100.0/24'
+uci set network.@rule[-1].lookup='100'
+uci set network.@rule[-1].priority='1000'
+
 # --- uhttpd: HTTPS with the px5g certificate made at first start, ubus at /ubus -------------
 uci set uhttpd.main.ubus_prefix='/ubus'
 

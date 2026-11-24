@@ -652,6 +652,39 @@ def sample_data() -> dict[str, Any]:
             ),
             _ssid("ssid-guest", "Guest", 3, 0, vlan=30, guestNetEnable=True),
         ],
+        # rogue AP detection (#169) *(guess: path and fields)*: foreign access points the
+        # EAPs heard; the controller leaves out its own
+        f"{SITE}/insight/rogue-aps": [
+            {
+                "ssid": "Neighbour-A",
+                "bssid": "02-5E-00-00-03-01",
+                "channel": 6,
+                "band": 0,
+                "rssi": -63,
+                "security": "WPA2-PSK",
+                "lastSeen": 1767225600000,
+                "apMac": EAP1,
+            },
+            {
+                "ssid": "",
+                "bssid": "02-5E-00-00-03-02",
+                "channel": 44,
+                "band": 1,
+                "channelWidth": "5",
+                "rssi": -79,
+                "security": "WPA2/WPA3-SAE",
+                "lastSeen": 1767225600000,
+                "apMac": EAP1,
+            },
+            {
+                "ssid": "Cafe-Free",
+                "bssid": "02-5E-00-00-03-03",
+                "channel": 1,
+                "rssi": -86,
+                "security": "None",
+                "lastSeen": 1767225600000,
+            },
+        ],
         f"{SITE}/clients": [
             {
                 "mac": "02-00-00-00-00-21",

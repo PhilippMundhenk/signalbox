@@ -223,6 +223,20 @@ async def test_read_contract(rt: dict[str, str]) -> None:
     assert (snap.device.model or "").startswith("CHR"), snap.device.model
 
 
+async def test_neighbour_capabilities_on_chr(rt: dict[str, str]) -> None:
+    """``/ip/neighbor`` lists what MNDP/LLDP/CDP hear on the lab network (a CHR may hear none):
+    every capability is in the model's names, and an entry with a description keeps it (#113)."""
+    a = adapter(rt)
+    try:
+        snap = await a.observe()
+    finally:
+        await a.close()
+    assert snap.status is ReadStatus.OK, snap.errors
+    for nb in snap.neighbours:
+        assert all(c == c.lower() and " " not in c for c in nb.capabilities), nb
+        assert nb.description is None or nb.description == nb.description.strip(), nb
+
+
 async def test_wireless_on_chr(rt: dict[str, str]) -> None:
     """RouterOS 7.25 CHR has the ``wifi`` menu without radios (an empty list, no finding);
     the legacy ``wireless`` package and the routerboard menu are missing (HTTP 400 "no such
@@ -481,6 +495,30 @@ async def test_spanning_tree_of_chr(rt: dict[str, str]) -> None:
         stp = ports[name].stp
         assert stp is not None and stp.bpdu_guard is False, (name, stp)
     assert ports["ether1"].stp is None
+
+
+async def test_routes_of_chr(rt: dict[str, str]) -> None:
+    """The lab's static route and blackhole route
+    from ``/ip/route`` (#149); connected networks are derived, not read."""
+    a = adapter(rt)
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    by = {str(r.destination): r for r in snap.routes}
+    lab = by["198.18.20.0/24"]
+    assert str(lab.gateway) == "192.0.2.254" and lab.origin.value == "static", lab
+    raw = httpx.get(
+        rt["URL"] + "/rest/ip/route",
+        auth=(rt["USER"], rt["PASSWORD"]),
+        verify=False,
+        timeout=TIMEOUT,
+        trust_env=False,
+    ).json()
+    hole = [r for r in raw if r.get("dst-address") == "198.18.66.0/24"]
+    assert by["198.18.66.0/24"].kind.value == "blackhole", (by["198.18.66.0/24"], hole)
+    assert "192.0.2.0/24" not in by, sorted(by)
+    assert not any("routes" in e.message for e in snap.errors), snap.errors
 
 
 async def test_refused_password_is_auth_failed(rt: dict[str, str]) -> None:

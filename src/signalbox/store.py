@@ -563,6 +563,38 @@ class Store:
                 (snapshot.device.id, snapshot.observed_at.isoformat(), snapshot.model_dump_json()),
             )
 
+    def restamp_snapshot(self, record: DeviceRecord) -> bool:
+        """Make the stored snapshot of a device agree with its saved record at once (#368).
+
+        The runner stamps site, name and role into a snapshot when it reads; after a change in
+        the settings the stored one would show the old values until the next read. Re-stamps
+        them and moves the segment ids (``<site>/segment/...``) to the new site. Returns
+        whether a snapshot was stored.
+        """
+        snap = self.snapshot(record.id)
+        if snap is None:
+            return False
+        old = snap.device.site_id
+        prefix, new_prefix = f"{old}/segment/", f"{record.site_id}/segment/"
+
+        def walk(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {
+                    k: record.site_id if k == "site_id" and v == old else walk(v)
+                    for k, v in value.items()
+                }
+            if isinstance(value, list):
+                return [walk(v) for v in value]
+            if isinstance(value, str) and value.startswith(prefix):
+                return new_prefix + value[len(prefix) :]
+            return value
+
+        if old != record.site_id:
+            snap = Snapshot.model_validate(walk(json.loads(snap.model_dump_json())))
+        device = snap.device.model_copy(update={"name": record.name, "role": record.role})
+        self.save_snapshot(snap.model_copy(update={"device": device}))
+        return True
+
     def snapshot(self, device_id: str) -> Snapshot | None:
         row = self._db.execute(
             "SELECT data FROM snapshots WHERE device_id = ?", (device_id,)

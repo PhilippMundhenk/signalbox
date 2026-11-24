@@ -584,6 +584,37 @@ TLS on a target that is not syslog and an address with spaces.
 | Linux | `/etc/rsyslog.conf`, `/etc/rsyslog.d/*.conf` (`@`, `@@`, `action(type="omfwd")` with `StreamDriverMode="1"` as TLS) and syslog-ng (`destination` with `network`/`syslog`/`udp`/`tcp`, enabled when a `log` statement uses it). journald alone forwards nothing | no CI (the test containers have no syslog daemon). *Guess:* includes beyond those directories, templates |
 | Fritz!Box, Omada, ProSAFE / Easy Smart, Pi-hole, AdGuard Home | not read (`None`) | Fritz!Box has no syslog or SNMP; Omada's site remote logging is a later step |
 
+## Routes and routing rules (#149)
+
+`Observation.routes` and `Observation.routing_rules`, read with `interfaces` (no API version
+needed, [ADR 0024](adr/0024-routing-tables-and-policy-routing.md)). Report static, default, VPN
+and dynamic routes; **connected routes are derived from the subnets, do not report them**, even
+when the device lists them. An integration that cannot read a table reports nothing (and an
+optional `Gap` where a privilege is missing), never an invented empty table: a device without a
+reported route is "not read" for the checks. At most `ROUTE_LIMIT` (4096) routes per device.
+Use `known_interfaces(routes, port_ids)` to drop an interface that is not one of the reported
+ports.
+
+| Field | Meaning |
+| --- | --- |
+| `Route.table`, `destination`, `gateway`, `interface` | table (`main` or a name or number), network (`0.0.0.0/0`, `::/0` for a default), next hop, the port id of the way out |
+| `Route.metric`, `origin`, `kind` | distance; `static`, `dhcp`, `ra`, `vpn`, `dynamic`, `other`; `unicast`, `blackhole`, `unreachable`, `prohibit` |
+| `Route.enabled`, `active` | switched on in the configuration; installed (`None`: not known) |
+| `RoutingRule.priority`, `src`, `dst`, `segment_id`, `table`, `action` | policy rule: match on source, destination, incoming segment; send to a table or drop. A rule the model cannot express (a firewall mark, a negation) is left out |
+
+The contract checks report a route or rule listed twice, an interface that is not a reported
+port of the same device, a rule with an unknown segment, routes without the `interfaces`
+capability and more than `ROUTE_LIMIT` routes.
+
+| Integration | Read | Status |
+| --- | --- | --- |
+| OpenWrt | `network.interface dump` routes, `uci get network` `route`, `route6`, `rule`, `rule6` | **CI** |
+| OPNsense | `/api/routes/routes/searchroute`, `/api/routes/gateway/status`, the WAN gateway as default route; policy routing not read | **CI** (privilege names a *guess*) |
+| MikroTik | `/rest/ip/route`, `/rest/ipv6/route`, `/rest/routing/rule` | **CI** (CHR) |
+| Linux | `ip -j route show table all`, `ip -j rule show` (both families) | **CI** |
+| Fritz!Box | TR-064 `Layer3Forwarding:1` (static IPv4 routes, default connection); no IPv6, no policy routing | simulator and SCPD |
+| Omada, ProSAFE / Easy Smart, Pi-hole, AdGuard Home | not read | Omada's gateway static routes are a later step (*guess* for the endpoint) |
+
 ## DHCP leases, address sources, options and relays
 
 Read with the `dhcp` capability (no API version needed, #183): `DhcpServer.leases`, the

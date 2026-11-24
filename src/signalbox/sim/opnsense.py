@@ -899,6 +899,37 @@ def sample_data() -> dict[str, Any]:
                 },
             ],
         },
+        # Static routes and gateways (#149): a lab network 198.18.20.0/24 (benchmarking range)
+        # behind a second router on the LAN, and the WAN gateway. Fields as the adapter
+        # expects them: *guess* until the 26.7 image says otherwise.
+        "/api/routes/routes/searchroute": {
+            "total": 2,
+            "rowCount": 2,
+            "current": 1,
+            "rows": [
+                {
+                    "uuid": "7c1d0e22-0000-4000-8000-000000000149",
+                    "disabled": "0",
+                    "network": "198.18.20.0/24",
+                    "gateway": "LAB_GW",
+                    "descr": "Lab behind the second router",
+                },
+                {
+                    "uuid": "7c1d0e22-0000-4000-8000-000000000150",
+                    "disabled": "1",
+                    "network": "198.18.30.0/24",
+                    "gateway": "LAB_GW",
+                    "descr": "Old lab",
+                },
+            ],
+        },
+        "/api/routes/gateway/status": {
+            "items": [
+                {"name": "WAN_DHCP", "address": "100.64.20.1", "status": "none"},
+                {"name": "LAB_GW", "address": "192.0.2.254", "status": "online"},
+            ],
+            "status": "ok",
+        },
         # os-net-snmp (not part of the base system): general settings, v2c community "public"
         "/api/netsnmp/general/get": {
             "general": {

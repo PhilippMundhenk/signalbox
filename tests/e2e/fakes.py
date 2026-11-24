@@ -69,6 +69,9 @@ from signalbox.model import (
     PurposeSource,
     Radio,
     Reservation,
+    Route,
+    RouteOrigin,
+    RoutingRule,
     SaePwe,
     SaeSettings,
     Security,
@@ -91,6 +94,7 @@ from signalbox.model import (
     TunnelPeer,
     Uplink,
     UplinkKind,
+    WifiScanResult,
     WifiStandard,
     Wlan,
     Wps,
@@ -100,6 +104,9 @@ from signalbox.model import (
     firewall_id,
     object_id,
     port_id,
+    route_id,
+    routing_rule_id,
+    scan_id,
     segment_id,
     stp_bridge_id,
 )
@@ -336,12 +343,49 @@ class Lab(Adapter):
                       port=6514, name="collector", topics=["info", "warning"]),
             LogTarget(kind=LogKind.NETFLOW, address="203.0.113.51", port=2055, enabled=False),
         ]  # fmt: skip
+        routes = [  # #149: the default route of the PPPoE line, a lab route, one that is off
+            Route(
+                id=route_id(d, "main", ip_network("0.0.0.0/0"), ip_address("203.0.113.1")),
+                device_id=d,
+                destination=ip_network("0.0.0.0/0"),
+                gateway=ip_address("203.0.113.1"),
+                origin=RouteOrigin.DHCP,
+                metric=10,
+                active=True,
+            ),
+            Route(
+                id=route_id(d, "main", ip_network("198.18.20.0/24"), ip_address("192.0.2.254")),
+                device_id=d,
+                destination=ip_network("198.18.20.0/24"),
+                gateway=ip_address("192.0.2.254"),
+                origin=RouteOrigin.STATIC,
+            ),
+            Route(
+                id=route_id(d, "main", ip_network("198.18.30.0/24"), ip_address("192.0.2.254")),
+                device_id=d,
+                destination=ip_network("198.18.30.0/24"),
+                gateway=ip_address("192.0.2.254"),
+                origin=RouteOrigin.STATIC,
+                enabled=False,
+            ),
+        ]
+        rules = [
+            RoutingRule(
+                id=routing_rule_id(d, "guests"),
+                device_id=d,
+                priority=100,
+                src=ip_network("198.51.100.0/24"),
+                table="100",
+            )
+        ]
         return Observation(
             ports=ports,
             segments=segments,
             subnets=subnets,
             uplinks=[uplink],
             services=services,
+            routes=routes,
+            routing_rules=rules,
             log_targets={d: logs},
             stp_bridges={
                 d: [
@@ -457,7 +501,36 @@ class Lab(Adapter):
     async def read_wireless(self) -> Observation:
         d = self.context.device_id
         r24, r5 = object_id(d, "radio", "radio0"), object_id(d, "radio", "radio1")
+        now = datetime(2026, 11, 24, 12, 0, tzinfo=UTC)
         return Observation(
+            # neighbours the 2.4 GHz radio heard (#169), one with our SSID
+            wifi_scan=[
+                WifiScanResult(
+                    id=scan_id(r24, "02:5e:00:00:01:01"),
+                    device_id=d,
+                    radio_id=r24,
+                    bssid="02:5e:00:00:01:01",
+                    ssid="Neighbour-A",
+                    band=Band.GHZ_2_4,
+                    channel=6,
+                    width_mhz=20,
+                    signal_dbm=-61,
+                    security=Security.WPA2,
+                    last_seen=now,
+                ),
+                WifiScanResult(
+                    id=scan_id(r24, "02:5e:00:00:01:02"),
+                    device_id=d,
+                    radio_id=r24,
+                    bssid="02:5e:00:00:01:02",
+                    ssid="Home",
+                    band=Band.GHZ_2_4,
+                    channel=4,
+                    signal_dbm=-74,
+                    security=Security.OPEN,
+                    last_seen=now,
+                ),
+            ],
             radios=[
                 Radio(
                     id=r24,

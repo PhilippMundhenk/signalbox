@@ -272,6 +272,10 @@ def _split_snapshot(snap: Snapshot, native: dict[str, str]) -> Snapshot:
                 for f in snap.firewalls
             ],
             "clients": [client(c) for c in snap.clients],
+            "routing_rules": [
+                r.model_copy(update={"segment_id": of(r.device_id, r.segment_id)})
+                for r in snap.routing_rules
+            ],
             "fdb": [
                 e.model_copy(update={"segment_id": of(e.device_id, e.segment_id)}) for e in snap.fdb
             ],
@@ -426,6 +430,9 @@ def merge(
             "clients": _merge_clients(snaps),
             "neighbours": every("neighbours"),
             "fdb": every("fdb"),
+            "routes": every("routes"),
+            "routing_rules": every("routing_rules"),
+            "wifi_scan": every("wifi_scan"),
             "tunnels": every("tunnels"),
             "firewalls": every("firewalls"),
             "server_sightings": every("server_sightings"),

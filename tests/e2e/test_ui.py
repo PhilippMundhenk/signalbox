@@ -273,6 +273,18 @@ def test_concept_views_show_the_network(app: Any) -> None:
     expect(card).to_contain_text("default community")
     expect(card).to_contain_text("off")
 
+    # routes and policy rules (#149)
+    routes = app.get_by_test_id("device-routes")
+    expect(routes).to_contain_text("Routes")
+    expect(routes.get_by_test_id("route")).to_have_count(5)  # two connected, three reported
+    expect(routes).to_contain_text("192.0.2.0/24")
+    expect(routes).to_contain_text("default route")
+    expect(routes).to_contain_text("198.18.20.0/24")
+    expect(routes).to_contain_text("192.0.2.254")
+    expect(routes.get_by_test_id("route").filter(has_text="198.18.30.0/24")).to_contain_text("off")
+    expect(routes.get_by_test_id("routing-rule")).to_have_count(1)
+    expect(routes).to_contain_text("table 100")
+
     # log and monitoring targets (#180)
     logs = app.get_by_test_id("device-logging")
     expect(logs).to_contain_text("Logging and monitoring")
@@ -305,7 +317,20 @@ def test_concept_views_show_the_network(app: Any) -> None:
         "20/40/80/160 MHz · up to 23 dBm · antennas 2x2 · radar (DFS) channels"
     )
     two = radios.locator('[data-id="router/radio/radio0"]')
-    expect(two).to_have_text("2.4 GHz · channel 6 · 20 MHz · 20 dBm")
+    expect(two).to_have_text(
+        "2.4 GHz · channel 6 · 20 MHz · 20 dBm · 2 neighbours on the channel · strongest -61 dBm"
+    )
+
+    # neighbouring networks (#169): per radio, collapsed, one using our Wi-Fi name
+    heard = app.get_by_test_id("device-neighbours")
+    expect(heard).to_contain_text("2 access points the radios heard")
+    heard.get_by_test_id("neighbour-radio").first.locator("summary").click()
+    rows = heard.get_by_test_id("neighbour-row")
+    expect(rows).to_have_count(2)
+    expect(rows.first).to_contain_text("Neighbour-A")
+    expect(rows.first).to_contain_text("02:5e:00:00:01:01")
+    expect(rows.first).to_contain_text("-61 dBm")
+    expect(heard.get_by_test_id("neighbour-twin")).to_have_count(1)
 
     # spanning tree (#155): the bridge is the root, lan1 an edge port
     stp = app.get_by_test_id("device-stp")
@@ -1062,3 +1087,28 @@ def test_a_good_test_replaces_the_old_read_problem(app: Any) -> None:
     expect(state.get_by_test_id("device-errors")).to_be_visible()
     expect(app.get_by_test_id("test-errors")).to_have_count(0)
     expect(result.get_by_test_id("test-see-state")).to_be_visible()
+
+
+def test_moving_a_device_to_another_site_shows_it_there_at_once(app: Any) -> None:
+    """#368: change the site in the device's settings; topology and segments follow."""
+    add_site(app)
+    add_site(app, "Office")
+    add_lab(app, "Router")
+    observe(app)
+    go(app, "#/device/router")
+    app.get_by_test_id("tab-settings").click()
+    app.get_by_test_id("device-site").select_option("office")
+    app.get_by_test_id("device-save").click()
+    expect(app.get_by_test_id("device-title")).to_have_text("Router")
+    # the page reads the device as it opens
+    expect(app.get_by_test_id("test-result")).to_be_visible()
+    net = api(app, "GET", "/network")
+    assert {d["site_id"] for d in net["devices"]} == {"office"}
+    assert not any(s["id"].startswith("home/") for s in net["segments"])
+    go(app, "#/segments")
+    expect(app.get_by_test_id("site-segments")).to_have_count(1)
+    expect(app.locator('[data-testid="segment"]').first).to_have_attribute(
+        "data-id", re.compile("^office/segment/")
+    )
+    go(app, "#/topology")
+    expect(app.get_by_test_id("topo-node")).to_have_count(1)

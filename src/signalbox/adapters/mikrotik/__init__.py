@@ -64,11 +64,13 @@ from signalbox.adapters import (
     TraceAnswer,
     TraceSupport,
     bonding,
+    known_interfaces,
     unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
+from signalbox.adapters.mikrotik import routes as route_reader
 from signalbox.adapters.mikrotik import stp as _stp
 from signalbox.adapters.mikrotik import trace as _trace
 from signalbox.adapters.mikrotik.certificates import USERS as CERT_USERS
@@ -163,6 +165,7 @@ from signalbox.model import (
     WpsMethod,
     address_nat_class,
     fdb_id,
+    normalise_capabilities,
     normalise_mac,
     object_id,
     passphrase_digest,
@@ -1380,7 +1383,28 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             p.model_copy(update={"stp": port_stp[n]}) if n in port_stp else p
             for n, p in layout.ports.items()
         ]
+        route_rows = [
+            await self._readable(e) for e in (route_reader.IP_ROUTE, route_reader.IPV6_ROUTE)
+        ]
+        rule_rows = await self._readable(route_reader.ROUTING_RULE)
+        if None in route_rows:
+            gaps = [
+                *gaps,
+                Gap(
+                    message="routes: the routing table (/ip/route) could not be read",
+                    fix="Optional: give the Signalbox user a group with the read policy.",
+                    optional=True,
+                    message_id="routing.readGap",
+                    fix_id="routing.readGap.fix",
+                    params={"what": "/ip/route"},
+                ),
+            ]
+        routes = [r for rows in route_rows if rows for r in route_reader.read_routes(dev, rows)]
         return Observation(
+            routes=known_interfaces(routes, [p.id for p in layout.ports.values()])
+            if None not in route_rows
+            else [],
+            routing_rules=route_reader.read_rules(dev, rule_rows or [], layout.l3.get),
             ports=ports,
             segments=list(layout.segments.values()),
             subnets=subnets,
@@ -2220,6 +2244,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     ssid=ssid,
                     radio_id=radio.id,
                     port_id=layout.port(name),
+                    bssid=_mac(row.get("mac-address")),
                     enabled=radio.enabled and _active(row),
                     security=sec,
                     pmf=pmf,
@@ -2353,6 +2378,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     ssid=ssid,
                     radio_id=radio.id,
                     port_id=layout.port(name),
+                    bssid=_mac(row.get("mac-address")),
                     enabled=radio.enabled and _active(row),
                     security=sec,
                     pmf=_PMF.get(_text(profile.get("management-protection"))),
@@ -2501,6 +2527,10 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 management_address=(
                     _text(row.get("address4")) or _text(row.get("address")) or None
                 ),
+                capabilities=normalise_capabilities(
+                    _text(row.get("system-caps-enabled")).split(",")
+                ),
+                description=_text(row.get("system-description")) or None,
                 vendor_extra=_extra(row, "platform", "board", "version", "discovered-by"),
             )
         return Observation(neighbours=list(neighbours.values()))

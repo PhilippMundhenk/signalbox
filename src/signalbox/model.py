@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from datetime import UTC, datetime
@@ -2512,6 +2513,56 @@ class Wlan(Observed):
     #: The Wi-Fi interface (port) that carries this SSID (``phy0-ap0``; #252). None: not
     #: reported.
     port_id: str | None = None
+    #: The MAC address this SSID sends from on its radio (#169): the BSSID clients and
+    #: neighbouring access points see. None: not reported.
+    bssid: Mac | None = None
+
+
+class ScanSource(StrEnum):
+    """Where a :class:`WifiScanResult` comes from (#169, ADR 0025)."""
+
+    #: The radio scanned the channels: an active probe, only where the user turned it on.
+    SCAN = "scan"
+    #: A controller's or access point's own list of foreign access points (rogue AP
+    #: detection, a neighbour table), read passively.
+    ROGUE_DETECTION = "rogue-detection"
+
+
+#: Most scan results kept per device (#169); the strongest are kept.
+SCAN_LIMIT = 256
+
+
+def scan_id(owner_id: str, bssid: str) -> str:
+    """Id of a scan result: ``<radio id>/scan/<bssid>`` (``<device id>/scan/<bssid>`` when
+    the radio that heard it is not known)."""
+    return f"{owner_id}/scan/{bssid}"
+
+
+class WifiScanResult(Observed):
+    """An access point a radio heard (#169, ADR 0025): a neighbour's network, or one of ours.
+
+    Data about other people's networks: kept on the server, out of ``GET /api/network``,
+    exporters and MQTT (:meth:`Network.without_neighbour_networks`), shown in the device's
+    wireless section only. No stations of foreign networks are ever stored.
+    """
+
+    #: The device whose radio (or whose controller) reported it.
+    device_id: str
+    #: The radio that heard it; None: the device does not say which.
+    radio_id: str | None = None
+    bssid: Mac
+    #: None: a hidden network.
+    ssid: str | None = None
+    band: Band | None = None
+    #: Primary 20 MHz channel.
+    channel: int | None = None
+    width_mhz: int | None = None
+    signal_dbm: int | None = Field(default=None, ge=-120, le=0)
+    #: None: not reported (an open network is ``open``).
+    security: Security | None = None
+    #: When it was last heard (the read time for a scan).
+    last_seen: datetime | None = None
+    kind: ScanSource = ScanSource.SCAN
 
 
 class Client(Observed):
@@ -2527,6 +2578,31 @@ class Client(Observed):
     address_sources: dict[IPAddress, AddressSource] = Field(default_factory=dict)
 
 
+#: Names other protocols and tools use for an LLDP system capability, as they are in ``Neighbour``.
+_CAPABILITY_ALIASES = {
+    "wlan": "wlan-access-point",
+    "wlan-ap": "wlan-access-point",
+    "ap": "wlan-access-point",
+    "station-only": "station",
+    "docsis": "docsis-cable-device",
+    "tpmr": "two-port-mac-relay",
+    "cvlan": "c-vlan-component",
+    "svlan": "s-vlan-component",
+}
+
+
+def normalise_capabilities(values: Iterable[str]) -> list[str]:
+    """LLDP system capabilities (from lldpcli, RouterOS, ...) in the names ``Neighbour`` uses:
+    lower case, hyphenated, without duplicates, in the order given."""
+    out: list[str] = []
+    for value in values:
+        name = "-".join(str(value).strip().lower().replace("_", " ").split())
+        name = _CAPABILITY_ALIASES.get(name, name)
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
 class Neighbour(Observed):
     """A device seen on a port by LLDP (or a similar protocol)."""
 
@@ -2535,6 +2611,12 @@ class Neighbour(Observed):
     remote_port: str | None = None
     system_name: str | None = None
     management_address: str | None = None
+    #: What the neighbour announces itself as (LLDP system capabilities, enabled ones, #113):
+    #: ``bridge``, ``router``, ``wlan-access-point``, ``telephone``, ``station``, ``other`` and the
+    #: rarer ``repeater``, ``docsis-cable-device``, ... Empty when the device did not say.
+    capabilities: list[str] = Field(default_factory=list)
+    #: The neighbour's system description (LLDP), for example ``OpenWrt 24.10 Linux 6.6``.
+    description: str | None = None
     #: A wireless link (a mesh uplink between two access points, #336): the topology draws it
     #: as a ``wireless`` link between the two wireless ports.
     wireless: bool = False
@@ -2585,6 +2667,120 @@ class FdbEntry(Observed):
     kind: FdbKind = FdbKind.DYNAMIC
     #: Seconds since the entry was last refreshed; None: not reported.
     age_seconds: Annotated[int, Field(ge=0)] | None = None
+
+
+#: Most routes kept per device (#149): a router with a full BGP feed is cut, not stored.
+ROUTE_LIMIT = 4096
+
+
+class RouteOrigin(StrEnum):
+    """Where a route of a device comes from (#149)."""
+
+    #: The network of an interface. Derived from :class:`Subnet`; adapters report it only when
+    #: the device reports its whole table anyway (ADR 0024).
+    CONNECTED = "connected"
+    STATIC = "static"
+    DHCP = "dhcp"
+    #: Learned from an IPv6 router advertisement.
+    RA = "ra"
+    #: Installed by a VPN (WireGuard allowed IPs, an OpenVPN or IPsec policy).
+    VPN = "vpn"
+    #: A routing protocol (OSPF, BGP, RIP).
+    DYNAMIC = "dynamic"
+    OTHER = "other"
+
+
+class RouteKind(StrEnum):
+    UNICAST = "unicast"
+    #: Traffic is dropped silently.
+    BLACKHOLE = "blackhole"
+    #: Traffic is dropped with an ICMP "unreachable".
+    UNREACHABLE = "unreachable"
+    #: Traffic is dropped with an ICMP "administratively prohibited".
+    PROHIBIT = "prohibit"
+
+
+def route_id(
+    device_id: str,
+    table: str,
+    destination: IPNetwork,
+    gateway: IPAddress | None = None,
+    interface: str | None = None,
+    kind: RouteKind = RouteKind.UNICAST,
+) -> str:
+    """Id of a route: ``<device>/route/<hash of table, destination, gateway, interface, kind>``.
+
+    The metric is not part of it, so a changed metric stays the same route."""
+    text = "|".join([table, str(destination), str(gateway or ""), interface or "", kind.value])
+    return object_id(device_id, "route", hashlib.sha256(text.encode()).hexdigest()[:12])
+
+
+class Route(Observed):
+    """One route of a device's routing table (#149, ADR 0024).
+
+    Read with ``interfaces``. Connected routes are not reported by most adapters: they are
+    derived from :class:`Subnet` (see :func:`signalbox.routing.next_hop`). A route of an IPv4
+    default is ``0.0.0.0/0``, of IPv6 ``::/0``. Routes of VPN peers can reveal remote sites:
+    treat them like addresses.
+    """
+
+    device_id: str
+    #: ``main``, or the name or number of another table (policy routing).
+    table: str = "main"
+    destination: IPNetwork
+    #: The next hop; None for a connected route, a route out of an interface or a blackhole.
+    gateway: IPAddress | None = None
+    #: Port id where the interface maps to a port, else the device's name of the interface.
+    interface: str | None = None
+    metric: Annotated[int, Field(ge=0)] | None = None
+    origin: RouteOrigin = RouteOrigin.OTHER
+    kind: RouteKind = RouteKind.UNICAST
+    #: Switched on in the configuration. A disabled route is configured, not used.
+    enabled: bool = True
+    #: Installed in the table the kernel uses; None: not known. ``enabled`` with ``active``
+    #: False: configured but not installed (gateway down, interface down).
+    active: bool | None = None
+
+    @property
+    def default(self) -> bool:
+        return self.destination.prefixlen == 0
+
+    @model_validator(mode="after")
+    def _family(self) -> Route:
+        if self.gateway is not None and self.gateway.version != self.destination.version:
+            raise ValueError("gateway and destination must be of the same address family")
+        return self
+
+
+class RuleAction(StrEnum):
+    LOOKUP = "lookup"
+    BLACKHOLE = "blackhole"
+    PROHIBIT = "prohibit"
+    UNREACHABLE = "unreachable"
+
+
+def routing_rule_id(device_id: str, text: str) -> str:
+    return object_id(device_id, "rule", hashlib.sha256(text.encode()).hexdigest()[:12])
+
+
+class RoutingRule(Observed):
+    """One policy routing rule (#149): traffic matching it is routed by another table.
+
+    Rules are evaluated by ascending ``priority``; the first match whose table has a route
+    decides. A device without rules uses the ``main`` table only."""
+
+    device_id: str
+    priority: int | None = None
+    #: Match on the source address; None: any.
+    src: IPNetwork | None = None
+    #: Match on the destination address; None: any.
+    dst: IPNetwork | None = None
+    #: Match on the incoming interface, mapped to a segment; None: any.
+    segment_id: str | None = None
+    #: The table the rule sends traffic to (``main``, a number or a name).
+    table: str = "main"
+    action: RuleAction = RuleAction.LOOKUP
+    enabled: bool = True
 
 
 class LinkOrigin(StrEnum):
@@ -3102,6 +3298,12 @@ class Snapshot(Model):
     #: Forwarding database (MAC address table) entries (#160), at most
     #: :data:`FDB_LIMIT` per device.
     fdb: list[FdbEntry] = Field(default_factory=list)
+    #: Routing tables and policy routing rules (#149; part of ``interfaces``).
+    routes: list[Route] = Field(default_factory=list)
+    routing_rules: list[RoutingRule] = Field(default_factory=list)
+    #: Access points the radios heard (#169; ``wireless``), at most :data:`SCAN_LIMIT` per
+    #: device. Other people's networks: see :class:`WifiScanResult`.
+    wifi_scan: list[WifiScanResult] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
     tunnels: list[Tunnel] = Field(default_factory=list)
     #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).
@@ -3200,6 +3402,12 @@ class Network(Model):
     #: Forwarding database (MAC address table) entries (#160), at most
     #: :data:`FDB_LIMIT` per device.
     fdb: list[FdbEntry] = Field(default_factory=list)
+    #: Routing tables and policy routing rules (#149; part of ``interfaces``).
+    routes: list[Route] = Field(default_factory=list)
+    routing_rules: list[RoutingRule] = Field(default_factory=list)
+    #: Access points the radios heard (#169; ``wireless``), at most :data:`SCAN_LIMIT` per
+    #: device. Other people's networks: see :class:`WifiScanResult`.
+    wifi_scan: list[WifiScanResult] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
     tunnels: list[Tunnel] = Field(default_factory=list)
     #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).
@@ -3262,6 +3470,9 @@ class Network(Model):
             self.clients,
             self.neighbours,
             self.fdb,
+            self.routes,
+            self.routing_rules,
+            self.wifi_scan,
             self.tunnels,
             self.firewalls,
             self.server_sightings,
@@ -3269,6 +3480,18 @@ class Network(Model):
             self.links,
         ]
         return any(o.id == object_id for objs in groups for o in objs)
+
+    def own_bssids(self) -> set[str]:
+        """The BSSIDs of our own WLANs (#169)."""
+        return {w.bssid for w in self.wlans if w.bssid is not None}
+
+    def without_neighbour_networks(self) -> Network:
+        """This network without the scan results (#169): neighbours' SSIDs and BSSIDs are
+        other people's data (a BSSID can locate a site), so they stay out of exporters and
+        MQTT."""
+        if not self.wifi_scan:
+            return self
+        return self.model_copy(update={"wifi_scan": []})
 
     def without_account_names(self) -> Network:
         """This network without the device accounts (#175): account names are often personal
@@ -3425,6 +3648,15 @@ class Network(Model):
     def firewall_of(self, device_id: str) -> Firewall | None:
         """The device's firewall (#135); ``None``: not read (not "no firewall")."""
         return next((f for f in self.firewalls if f.device_id == device_id), None)
+
+    def routes_of(self, device_id: str) -> list[Route]:
+        return [r for r in self.routes if r.device_id == device_id]
+
+    def routing_rules_of(self, device_id: str) -> list[RoutingRule]:
+        return sorted(
+            (r for r in self.routing_rules if r.device_id == device_id),
+            key=lambda r: (r.priority is None, r.priority or 0, r.id),
+        )
 
     def uplinks_of(self, device_id: str) -> list[Uplink]:
         return [u for u in self.uplinks if u.device_id == device_id]

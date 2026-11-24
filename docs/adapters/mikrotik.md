@@ -554,6 +554,14 @@ Profiles, all *optional*: `/rest/interface/wifi/security`
 *Guess*: the REST API returns the inline settings as dotted names (`configuration.ssid`), as the
 CLI shows them. The `steering.*` names (802.11k/v) are from RouterOS 7.13+.
 
+### BSSIDs and neighbouring networks (#169)
+
+`mac-address` of each `/interface/wifi` and `/interface/wireless` row (virtual APs included) is
+the WLAN's `bssid`. Neighbouring networks are not read: `/interface/wifi/scan` (and the old
+package's `/interface/wireless/scan`) is an active scan that takes the radio off its channel and
+disconnects its clients while it runs, and RouterOS has no passive neighbour list for the
+`wifi` package. The registration table holds only our own clients (#172: counts per radio).
+
 ### `/rest/interface/wireless`, `/rest/interface/wireless/security-profiles` (wireless, `wireless` package)
 
 ```json
@@ -1033,3 +1041,19 @@ tried. The rules are in [account_checks](../rules/account_checks.md).
   `/rest/user-manager` (RADIUS), best effort.
 - *Guess until a CHR run confirms it (#21)*: the date format of `invalid-after`, `key-size` of
   elliptic-curve keys, the issuer text, which of the optional menus the CHR has.
+
+## Routes and routing rules (#149)
+
+- `GET /rest/ip/route` and `/rest/ipv6/route`: `dst-address`, `gateway` (an address, or an
+  interface name for a route without next hop; `%interface` is dropped), `distance` (the
+  metric), `routing-table`, `disabled`, `active`, the flags `blackhole`, `unreachable`,
+  `prohibit` and the origin flags `dhcp`, `vpn`, `bgp`, `ospf`, `rip`, `static`. Connected routes
+  (`connect`) are left out: derived from the subnets.
+- `GET /rest/routing/rule`: `src-address`, `dst-address`, `interface` (as a segment),
+  `action` (`lookup` and `lookup-only-in-table` with `table`; `drop` is a blackhole;
+  `unreachable`), `disabled`. RouterOS has no priority number: the position in the list is the
+  priority.
+
+The read policy covers them; a refused route menu is an optional gap and no routes are
+reported. *CI* (CHR): a static route and a blackhole route written by the VM setup. *Guess:*
+flag names of older RouterOS 7 releases (#21).

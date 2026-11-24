@@ -174,6 +174,15 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`port.autoneg-mismatch`](rules/ports.md#portautoneg-mismatch)
 - [`port.description-mismatch`](rules/ports.md#portdescription-mismatch)
 
+## [Routing](rules/routing_checks.md)
+
+- [`route.default-missing`](rules/routing_checks.md#routedefault-missing)
+- [`route.multiple-default`](rules/routing_checks.md#routemultiple-default)
+- [`route.unreachable-gateway`](rules/routing_checks.md#routeunreachable-gateway)
+- [`route.no-return`](rules/routing_checks.md#routeno-return)
+- [`route.asymmetric`](rules/routing_checks.md#routeasymmetric)
+- [`route.vpn-return`](rules/routing_checks.md#routevpn-return)
+
 ## [Certificates stored on devices](rules/stored_certificates.md)
 
 - [`cert.vpn-expiring`](rules/stored_certificates.md#certvpn-expiring)
@@ -206,6 +215,7 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`lag.consistent`](rules/topology_checks.md#lagconsistent)
 - [`topology.hidden-device`](rules/topology_checks.md#topologyhidden-device)
 - [`inventory.unknown-neighbour`](rules/topology_checks.md#inventoryunknown-neighbour)
+- [`inventory.unknown-network-device`](rules/topology_checks.md#inventoryunknown-network-device)
 - [`vlan.management-separate`](rules/topology_checks.md#vlanmanagement-separate)
 - [`inventory.duplicate-device`](rules/topology_checks.md#inventoryduplicate-device)
 - [`redundancy.single-point`](rules/topology_checks.md#redundancysingle-point)
@@ -254,11 +264,20 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`wifi.segment-weakest-link`](rules/wifi_hygiene.md#wifisegment-weakest-link)
 - [`wifi.default-ssid`](rules/wifi_hygiene.md#wifidefault-ssid)
 
+## [Neighbouring Wi-Fi networks](rules/wifi_neighbours.md)
+
+- [`wifi.rogue-ssid`](rules/wifi_neighbours.md#wifirogue-ssid)
+- [`wifi.channel-crowded`](rules/wifi_neighbours.md#wifichannel-crowded)
+
 ## [Wi-Fi radio state](rules/wifi_radio.md)
 
 - [`wifi.channel-busy`](rules/wifi_radio.md#wifichannel-busy)
 - [`wifi.radar-hit`](rules/wifi_radio.md#wifiradar-hit)
 - [`wifi.legacy-standard`](rules/wifi_radio.md#wifilegacy-standard)
+
+## [Wi-Fi regulatory limits](rules/wifi_regulatory.md)
+
+- [`wifi.regulatory`](rules/wifi_regulatory.md#wifiregulatory)
 
 ## [Wi-Fi security](rules/wifi_security.md)
 

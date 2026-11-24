@@ -4,13 +4,15 @@
 ``iwinfo txpowerlist`` and ``iwinfo survey`` (rpcd-mod-iwinfo), called with the radio's
 first running interface (``phy0-ap0``), and ``hostapd.<ifname> get_status`` (DFS state, air
 time). Each answer is optional: a field the device does not answer stays None.
+
+``iwinfo scan`` (#169) is an active probe: only where the user turned on ``scan_neighbours``.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from signalbox.model import Band, DfsState, WifiStandard
+from signalbox.model import Band, DfsState, Security, WifiStandard, normalise_mac
 
 #: ``htmode`` prefix -> the newest standard it enables (``NOHT``: by band).
 _HTMODE_STANDARD = {
@@ -136,4 +138,82 @@ def status(answer: dict[str, Any] | None, dfs_channel: bool) -> dict[str, Any]:
     load = _num(airtime.get("utilization")) if isinstance(airtime, dict) else None
     if load is not None:
         out["channel_utilisation_pct"] = round(min(100.0, 100 * load / 255), 1)
+    return out
+
+
+def bssid_of(info: dict[str, Any] | None) -> str | None:
+    """The interface's BSSID from ``iwinfo info`` (#169)."""
+    try:
+        return normalise_mac(str((info or {})["bssid"]))
+    except (KeyError, ValueError):
+        return None
+
+
+def scan_security(enc: Any) -> Security | None:
+    """Security of a scanned network from rpcd-mod-iwinfo's ``encryption`` object."""
+    if not isinstance(enc, dict):
+        return None
+    if enc.get("enabled") is False:
+        return Security.OPEN
+    if enc.get("enabled") is not True:
+        return None
+    auth = {str(a) for a in enc.get("authentication") or []}
+    versions = {v for v in enc.get("wpa") or [] if isinstance(v, int)}
+    if "owe" in auth:
+        return Security.OWE
+    if enc.get("wep") or (not versions and not auth):
+        return Security.WEP
+    if "802.1x" in auth:
+        if versions == {3}:
+            return Security.WPA3_ENTERPRISE
+        if 1 in versions:
+            return Security.WPA_ENTERPRISE
+        return Security.WPA2_ENTERPRISE
+    if "sae" in auth:
+        return Security.WPA2_WPA3 if "psk" in auth else Security.WPA3
+    if "psk" in auth:
+        if versions == {1}:
+            return Security.WPA
+        if 1 in versions:
+            return Security.WPA_WPA2
+        return Security.WPA2
+    return Security.OTHER
+
+
+def _scan_width(row: dict[str, Any]) -> int | None:
+    vht = row.get("vht_operation")
+    if isinstance(vht, dict) and (w := _num(vht.get("channel_width"))) is not None:
+        return 160 if w in (160, 8080) else int(w)
+    ht = row.get("ht_operation")
+    if isinstance(ht, dict) and (w := _num(ht.get("channel_width"))) is not None:
+        return 40 if w == 2040 else 20
+    return None
+
+
+def scan(answer: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Fields of :class:`~signalbox.model.WifiScanResult` from ``iwinfo scan``: access points
+    only (mode ``Master``); a hidden network has no SSID. Nothing about their stations."""
+    out = []
+    for row in _results(answer):
+        if str(row.get("mode", "Master")) != "Master":
+            continue
+        try:
+            bssid = normalise_mac(str(row.get("bssid")))
+        except ValueError:
+            continue
+        mhz = _num(row.get("mhz"))
+        channel = _num(row.get("channel"))
+        signal = _num(row.get("signal"))
+        ssid = row.get("ssid")
+        out.append(
+            {
+                "bssid": bssid,
+                "ssid": ssid if isinstance(ssid, str) and ssid else None,
+                "band": band_of_mhz(int(mhz)) if mhz else None,
+                "channel": int(channel) if channel else None,
+                "width_mhz": _scan_width(row),
+                "signal_dbm": int(signal) if signal is not None and -120 <= signal < 0 else None,
+                "security": scan_security(row.get("encryption")),
+            }
+        )
     return out

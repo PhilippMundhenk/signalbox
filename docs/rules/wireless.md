@@ -11,8 +11,12 @@
   settings on all of them. One finding per differing setting names the value per access point;
   passphrases are compared only by a fingerprint and the finding says just "passphrase differs"
   and which access points belong together. Settings a device did not report are not compared.
-  The same SSID at different sites is checked per site (networks are per site).
-- **Fix:** set the same value for that setting on every access point.
+  The same SSID at different sites is checked per site (networks are per site). Where a scan
+  or a rogue AP list heard one of your own BSSIDs (#169), the security it announces on the air
+  is compared with what its device reports (a warning per WLAN): a change not applied yet, or
+  firmware that falls back to another mode.
+- **Fix:** set the same value for that setting on every access point; for the security on the
+  air, check the access point's settings.
 
 ## `wifi.country`
 

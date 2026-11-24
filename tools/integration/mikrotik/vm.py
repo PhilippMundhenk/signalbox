@@ -544,6 +544,10 @@ def rest_setup(d: Path, keys: dict[str, str]) -> None:
     admin.add(
         "ip/dns/static", {"name": "nas.home.example", "type": "AAAA", "address": "2001:db8:1::10"}
     )
+    # a route to a lab network behind a second router (nothing answers there) and one that drops;
+    # both are read by Signalbox (#149)
+    admin.add("ip/route", {"dst-address": "198.18.20.0/24", "gateway": "192.0.2.254"})
+    admin.add("ip/route", {"dst-address": "198.18.66.0/24", "blackhole": "true"})
     # VLAN filtering last, as RouterOS recommends (the ports and VLANs are in place)
     admin("PATCH", f"/rest/interface/bridge/{bridge['.id']}", {"vlan-filtering": "yes"})
     admin.add("user/group", {"name": "signalbox-read", "policy": READ_POLICY})

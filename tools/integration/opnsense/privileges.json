@@ -20,7 +20,9 @@
     "page-diagnostics-logs-settings-targets",
     "page-diagnostics-netflow",
     "page-system-certmanager",
-    "page-system-camanager"
+    "page-system-camanager",
+    "page-system-staticroutes",
+    "page-system-gateways"
   ],
   "signalbox-write": [
     "page-system-firmware-manualupdate",
@@ -44,6 +46,8 @@
     "page-diagnostics-netflow",
     "page-system-certmanager",
     "page-system-camanager",
+    "page-system-staticroutes",
+    "page-system-gateways",
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory"
   ]
