@@ -64,6 +64,7 @@ from signalbox.adapters import (
     TraceAnswer,
     TraceSupport,
     bonding,
+    known_interfaces,
     unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
@@ -1399,7 +1400,9 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             ]
         routes = [r for rows in route_rows if rows for r in route_reader.read_routes(dev, rows)]
         return Observation(
-            routes=routes if None not in route_rows else [],
+            routes=known_interfaces(routes, [p.id for p in layout.ports.values()])
+            if None not in route_rows
+            else [],
             routing_rules=route_reader.read_rules(dev, rule_rows or [], layout.l3.get),
             ports=ports,
             segments=list(layout.segments.values()),

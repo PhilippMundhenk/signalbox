@@ -41,6 +41,7 @@ from signalbox.adapters import (
     UntrustedCertificate,
     UntrustedHostKey,
     bonding,
+    known_interfaces,
 )
 from signalbox.adapters.linux import (
     clock,
@@ -450,10 +451,13 @@ class LinuxAdapter(Adapter):
             uplinks=lay.uplinks,
             services=self._services(lay),
             fdb=self._fdb(lay),
-            routes=route_reader.read_routes(
-                self.context.device_id,
-                self.answer,
-                frozenset(n for n, p in lay.ports.items() if p.role is PortRole.TUNNEL),
+            routes=known_interfaces(
+                route_reader.read_routes(
+                    self.context.device_id,
+                    self.answer,
+                    frozenset(n for n, p in lay.ports.items() if p.role is PortRole.TUNNEL),
+                ),
+                [p.id for p in lay.ports.values()],
             ),
             routing_rules=route_reader.read_rules(
                 self.context.device_id,

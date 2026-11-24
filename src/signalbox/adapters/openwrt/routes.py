@@ -21,6 +21,7 @@ from ipaddress import ip_address, ip_network
 from typing import Any
 
 from signalbox.model import (
+    ROUTE_LIMIT,
     IPAddress,
     IPNetwork,
     Route,
@@ -32,9 +33,6 @@ from signalbox.model import (
     route_id,
     routing_rule_id,
 )
-
-#: Routes read per device (a router with a full BGP feed is not an OpenWrt box).
-ROUTE_LIMIT = 4096
 
 _PROTO_ORIGIN = {
     "dhcp": RouteOrigin.DHCP,

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -573,6 +573,18 @@ class SystemInfo(BaseModel):
     #: Vendor fields of the device itself (MAC, serial, protocol details); shown on the
     #: device's advanced tab only, never read by rules.
     vendor_extra: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+def known_interfaces(routes: list[Route], port_ids: Iterable[str]) -> list[Route]:
+    """*routes* with an interface that is not one of the reported ports left empty (a route may
+    leave through an interface the device does not list as a port); the id stays."""
+    known = set(port_ids)
+    return [
+        r.model_copy(update={"interface": None})
+        if r.interface is not None and r.interface not in known
+        else r
+        for r in routes
+    ]
 
 
 class Gap(BaseModel):

@@ -20,6 +20,7 @@ from ipaddress import ip_address, ip_network
 from typing import Any
 
 from signalbox.model import (
+    ROUTE_LIMIT,
     IPAddress,
     IPNetwork,
     Route,
@@ -35,8 +36,6 @@ from signalbox.model import (
 IP_ROUTE = "/rest/ip/route"
 IPV6_ROUTE = "/rest/ipv6/route"
 ROUTING_RULE = "/rest/routing/rule"
-
-ROUTE_LIMIT = 4096
 
 _ORIGINS = (
     ("dhcp", RouteOrigin.DHCP),

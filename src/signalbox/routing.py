@@ -106,16 +106,23 @@ def _contains(net: IPNetwork, address: IPAddress) -> bool:
 
 
 def connected_networks(net: Network, device_id: str) -> list[tuple[IPNetwork, str]]:
-    """Networks the device is attached to, with the segment or tunnel id: derived from its
-    subnets and tunnel addresses (ADR 0022)."""
+    """Networks the device is attached to, with the segment, uplink or tunnel id: derived from
+    its subnets, the addresses of its internet connections and of its tunnels (ADR 0022).
+    Link-local networks are left out."""
     out = [(s.interface.network, s.segment_id) for s in net.subnets if s.device_id == device_id]
+    out += [
+        (a.network, up.id)
+        for up in net.uplinks_of(device_id)
+        if up.up is not False
+        for a in up.addresses
+    ]
     out += [
         (a.network, t.id)
         for t in net.tunnels_of(device_id)
         if t.up is not False
         for a in t.addresses
     ]
-    return out
+    return [(n, i) for n, i in out if not n.is_link_local]
 
 
 def has_routes(net: Network, device_id: str) -> bool:

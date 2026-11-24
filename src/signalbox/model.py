@@ -2587,6 +2587,10 @@ class FdbEntry(Observed):
     age_seconds: Annotated[int, Field(ge=0)] | None = None
 
 
+#: Most routes kept per device (#149): a router with a full BGP feed is cut, not stored.
+ROUTE_LIMIT = 4096
+
+
 class RouteOrigin(StrEnum):
     """Where a route of a device comes from (#149)."""
 

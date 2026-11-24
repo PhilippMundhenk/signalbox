@@ -24,6 +24,7 @@ from typing import Any
 from signalbox.adapters.linux.collect import Answer
 from signalbox.adapters.linux.parse import _int, _json
 from signalbox.model import (
+    ROUTE_LIMIT,
     IPAddress,
     IPNetwork,
     Route,
@@ -35,8 +36,6 @@ from signalbox.model import (
     route_id,
     routing_rule_id,
 )
-
-ROUTE_LIMIT = 4096
 
 _SKIP_TABLES = ("local", "default", "255", "253")
 _KINDS = {

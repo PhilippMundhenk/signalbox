@@ -17,10 +17,15 @@ What is modelled (see docs/DESIGN.md, "Firewall"):
 - a source in several subnets (IPv4 and IPv6, several prefixes) can reach the target when one
   of them can.
 
-What is not: routing tables and policy routing, more than one router hop between two networks
-of the site, client isolation on access points, rate limits and connection states other than
-"new connection", the device's own service filters (``ManagementService.allowed_from`` is
-applied by :meth:`Network.service_segments`).
+Routing (#149, ADR 0022): where several routers sit in both networks, the one whose routing
+table keeps the address on its own networks is the path (a blackhole, unreachable or prohibit
+route is a ``denied``); with no such router, a chain of two (a router whose table sends the
+address to a gateway that is another router attached to the target network) is followed.
+
+What is not: policy routing rules that match on a source, more than two router hops between
+two networks of the site, client isolation on access points, rate limits and connection
+states other than "new connection", the device's own service filters
+(``ManagementService.allowed_from`` is applied by :meth:`Network.service_segments`).
 """
 
 from __future__ import annotations
@@ -47,6 +52,7 @@ from signalbox.model import (
     Verdict,
     internet_reachable_network,
 )
+from signalbox.routing import HopKind, next_hop
 from signalbox.routing import address_owner as address_owner
 from signalbox.routing import address_segment as address_segment
 from signalbox.routing import own_addresses as own_addresses
@@ -412,12 +418,74 @@ def reach(
         if entry is not None and exit_ is not None and entry != exit_:
             routers.append((dev.id, entry, exit_))
     if not routers:
-        return _v(Verdict.UNKNOWN, "no single known router between the two networks")
+        chain = _routed_chain(net, source, target, address)
+        if chain is None:
+            return _v(Verdict.UNKNOWN, "no single known router between the two networks")
+        path = in_series(
+            _through(net, r, source, entry, exit_, address, port, protocol, _depth)
+            for r, entry, exit_ in chain
+        )
+        return in_series([path, *own_check])
+    narrowed = _by_route(net, routers, address)
+    if isinstance(narrowed, FirewallVerdict):
+        return narrowed
     path = any_of(
         _through(net, r, source, entry, exit_, address, port, protocol, _depth)
-        for r, entry, exit_ in routers
+        for r, entry, exit_ in narrowed
     )
     return in_series([path, *own_check])
+
+
+def _by_route(
+    net: Network, routers: list[tuple[str, str, str]], address: IPAddress
+) -> list[tuple[str, str, str]] | FirewallVerdict:
+    """The routers that sit in both networks, narrowed by their routing tables (#149): a router
+    whose table sends the address elsewhere (a gateway, not its own network) is not the path;
+    when every one drops it (blackhole, prohibit), that is the answer."""
+    keep = []
+    dropped: str | None = None
+    for r, entry, exit_ in routers:
+        hop = next_hop(net, r, address)
+        if hop.kind is HopKind.DROPPED and not hop.uncertain:
+            dropped = r
+            continue
+        if hop.kind is HopKind.GATEWAY and not hop.uncertain and hop.route is not None:
+            continue  # it sends the address to another router
+        keep.append((r, entry, exit_))
+    if keep or dropped is None:
+        return keep or routers
+    return _v(
+        Verdict.DENIED,
+        f"{_name(net, dropped)} has a blackhole, unreachable or prohibit route for {address}",
+        dropped,
+    )
+
+
+def _routed_chain(
+    net: Network, source: str, target: str, address: IPAddress
+) -> list[tuple[str, str, str]] | None:
+    """Two routers in a row (#149): a router of the source network whose routing table sends
+    the address to a gateway, which is another known router attached to the target network.
+    ``(router, entry, exit)`` per hop; None when the tables do not show such a chain."""
+    for dev in sorted(net.devices, key=lambda d: d.id):
+        entry = _present(net, dev.id, source)
+        if entry is None:
+            continue
+        hop = next_hop(net, dev.id, address)
+        if hop.kind is not HopKind.GATEWAY or hop.uncertain or hop.gateway is None:
+            continue
+        second = hop.device_id
+        if second is None or second == dev.id:
+            continue
+        transit = address_segment(net, hop.gateway)
+        if transit is None:
+            continue
+        exit1 = _present(net, dev.id, transit)
+        entry2 = _present(net, second, transit)
+        exit2 = _present(net, second, target)
+        if exit1 and entry2 and exit2 and entry2 != exit2 and entry != exit1:
+            return [(dev.id, entry, exit1), (second, entry2, exit2)]
+    return None
 
 
 def service_reach(net: Network, service: ManagementService, source: str) -> FirewallVerdict:

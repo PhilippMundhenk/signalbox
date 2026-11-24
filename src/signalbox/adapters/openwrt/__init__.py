@@ -43,6 +43,7 @@ from signalbox.adapters import (
     SystemInfo,
     VendorCall,
     bonding,
+    known_interfaces,
 )
 from signalbox.adapters.bonding import Bond
 from signalbox.adapters.https import DeviceHttp, device_url
@@ -1035,7 +1036,10 @@ class OpenWrtAdapter(Adapter):
 
         return Observation(
             ports=list(ports.values()),
-            routes=routes.read_routes(d, view.uci, view.running, view.devices),
+            routes=known_interfaces(
+                routes.read_routes(d, view.uci, view.running, view.devices),
+                [p.id for p in ports.values()],
+            ),
             routing_rules=routes.read_rules(d, view.uci, segment_of),
             segments=segments,
             subnets=subnets,
