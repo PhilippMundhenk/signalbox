@@ -2997,5 +2997,13 @@
  "device.inferredLinks": "Cabos inferidos",
  "msg.openwrt.fdbRead": "tabela de endereços MAC (que dispositivo está atrás de que porta): {cause}",
  "msg.plusswitch.noMacTable": "{host}: o protocolo do switch não tem tabela de endereços MAC; os cabos através deste switch são inferidos a partir das tabelas dos dispositivos à sua volta",
- "msg.plusswitch.noMacTable.fix": "Nada a corrigir: o NSDP e o protocolo Easy Smart não indicam que endereço foi aprendido em que porta. Os cabos através deste switch são desenhados tracejados (inferidos) a partir das tabelas dos outros dispositivos; introduza-os em Topologia para os tornar exatos."
+ "msg.plusswitch.noMacTable.fix": "Nada a corrigir: o NSDP e o protocolo Easy Smart não indicam que endereço foi aprendido em que porta. Os cabos através deste switch são desenhados tracejados (inferidos) a partir das tabelas dos outros dispositivos; introduza-os em Topologia para os tornar exatos.",
+ "msg.snmp.install": "este adaptador precisa do pysnmp: instale signalbox-net[snmp] (a imagem do contêiner o inclui)",
+ "msg.snmp.noAnswer": "{host}: sem resposta SNMP",
+ "msg.snmp.noAnswer.fix": "Verifique o endereço e a porta, se o SNMP está ativado no switch e permite este host, e as credenciais: com uma community v2c ou um usuário v3 incorretos, o switch não responde de forma alguma.",
+ "msg.snmp.authFailed": "{host}: o switch recusou o login SNMP ({detail})",
+ "msg.snmp.authFailed.fix": "Verifique nas configurações do dispositivo o usuário SNMPv3, o algoritmo de autenticação (SHA ou SHA-256) e as duas senhas, e se o usuário tem uma view das MIBs. Com v2c, verifique a community string.",
+ "msg.snmp.error": "{host}: a solicitação SNMP falhou ({detail})",
+ "msg.snmp.gapMib": "{host}: o switch não oferece {mib} por SNMP; o que depende disso não é lido",
+ "msg.snmp.gapMib.fix": "Não há problema no Signalbox: o switch não tem esses dados, o recurso está desativado (ative LLDP ou spanning tree no switch) ou a view do usuário SNMP não os inclui (SNMPv3: adicione a MIB à view). As verificações que precisam deles indicam \"incompleto\" até que existam."
 }

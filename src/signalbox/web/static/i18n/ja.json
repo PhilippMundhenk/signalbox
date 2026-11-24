@@ -2997,5 +2997,13 @@
  "device.inferredLinks": "推定されたケーブル",
  "msg.openwrt.fdbRead": "MAC アドレステーブル (どのデバイスがどのポートの先にあるか): {cause}",
  "msg.plusswitch.noMacTable": "{host}: スイッチのプロトコルには MAC アドレステーブルがありません。このスイッチを通るケーブルは周囲のデバイスのテーブルから推定されます",
- "msg.plusswitch.noMacTable.fix": "修正するものはありません: NSDP と Easy Smart プロトコルは、どのアドレスがどのポートで学習されたかを報告しません。このスイッチを通るケーブルは他のデバイスのテーブルから破線 (推定) で描かれます。正確にするには「トポロジー」で入力してください。"
+ "msg.plusswitch.noMacTable.fix": "修正するものはありません: NSDP と Easy Smart プロトコルは、どのアドレスがどのポートで学習されたかを報告しません。このスイッチを通るケーブルは他のデバイスのテーブルから破線 (推定) で描かれます。正確にするには「トポロジー」で入力してください。",
+ "msg.snmp.install": "このアダプターには pysnmp が必要です: signalbox-net[snmp] をインストールしてください(コンテナイメージには含まれています)",
+ "msg.snmp.noAnswer": "{host}: SNMP の応答がありません",
+ "msg.snmp.noAnswer.fix": "アドレスとポート、スイッチで SNMP が有効でこのホストを許可していること、認証情報を確認してください。v2c のコミュニティや v3 のユーザー名が違うと、スイッチは一切応答しません。",
+ "msg.snmp.authFailed": "{host}: スイッチが SNMP ログインを拒否しました({detail})",
+ "msg.snmp.authFailed.fix": "デバイス設定で SNMPv3 のユーザー名、認証アルゴリズム(SHA または SHA-256)、2 つのパスワードを確認し、ユーザーが MIB のビューを持っていることを確認してください。v2c ではコミュニティ文字列を確認してください。",
+ "msg.snmp.error": "{host}: SNMP リクエストに失敗しました({detail})",
+ "msg.snmp.gapMib": "{host}: スイッチは SNMP で {mib} を提供していません。それに依存する項目は読み取られません",
+ "msg.snmp.gapMib.fix": "Signalbox に問題はありません。スイッチにそのデータがないか、機能がオフ(スイッチで LLDP またはスパニングツリーを有効にしてください)か、SNMP ユーザーのビューに含まれていません(SNMPv3: MIB をビューに追加してください)。それを必要とするチェックは、データが得られるまで「不完全」と報告します。"
 }

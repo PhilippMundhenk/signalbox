@@ -2997,5 +2997,13 @@
  "device.inferredLinks": "Inferred cables",
  "msg.openwrt.fdbRead": "MAC address table (which device is behind which port): {cause}",
  "msg.plusswitch.noMacTable": "{host}: the switch's protocol has no MAC address table; cables through this switch are inferred from the tables of the devices around it",
- "msg.plusswitch.noMacTable.fix": "Nothing to fix: NSDP and the Easy Smart protocol do not report which address was learned on which port. Cables through this switch are drawn dashed (inferred) from the tables of the other devices; enter them under Topology to make them exact."
+ "msg.plusswitch.noMacTable.fix": "Nothing to fix: NSDP and the Easy Smart protocol do not report which address was learned on which port. Cables through this switch are drawn dashed (inferred) from the tables of the other devices; enter them under Topology to make them exact.",
+ "msg.snmp.install": "this adapter needs pysnmp: install signalbox-net[snmp] (the container image includes it)",
+ "msg.snmp.noAnswer": "{host}: no SNMP answer",
+ "msg.snmp.noAnswer.fix": "Check the address and the port, that SNMP is enabled on the switch and allows this host, and the credentials: with a wrong v2c community or a wrong v3 user name the switch does not answer at all.",
+ "msg.snmp.authFailed": "{host}: the switch refused the SNMP login ({detail})",
+ "msg.snmp.authFailed.fix": "Check the SNMPv3 user name, the authentication algorithm (SHA or SHA-256) and both passwords in the device settings, and that the user has a view of the MIBs. With v2c check the community string.",
+ "msg.snmp.error": "{host}: SNMP request failed ({detail})",
+ "msg.snmp.gapMib": "{host}: the switch does not offer {mib} over SNMP; what depends on it is not read",
+ "msg.snmp.gapMib.fix": "Nothing is wrong with Signalbox: the switch has no such data, or the feature is off (enable LLDP or spanning tree on the switch), or the SNMP user's view does not include it (SNMPv3: add the MIB to the view). The checks that need it report \"incomplete\" until it is there."
 }

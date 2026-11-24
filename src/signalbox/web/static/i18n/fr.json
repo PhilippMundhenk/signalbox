@@ -2997,5 +2997,13 @@
  "device.inferredLinks": "Câbles déduits",
  "msg.openwrt.fdbRead": "table d'adresses MAC (quel appareil se trouve derrière quel port) : {cause}",
  "msg.plusswitch.noMacTable": "{host} : le protocole du switch n'a pas de table d'adresses MAC ; les câbles passant par ce switch sont déduits des tables des appareils autour de lui",
- "msg.plusswitch.noMacTable.fix": "Rien à corriger : NSDP et le protocole Easy Smart n'indiquent pas quelle adresse a été apprise sur quel port. Les câbles passant par ce switch sont tracés en tirets (déduits) à partir des tables des autres appareils ; saisissez-les sous Topologie pour les rendre exacts."
+ "msg.plusswitch.noMacTable.fix": "Rien à corriger : NSDP et le protocole Easy Smart n'indiquent pas quelle adresse a été apprise sur quel port. Les câbles passant par ce switch sont tracés en tirets (déduits) à partir des tables des autres appareils ; saisissez-les sous Topologie pour les rendre exacts.",
+ "msg.snmp.install": "cet adaptateur nécessite pysnmp : installez signalbox-net[snmp] (l'image du conteneur l'inclut)",
+ "msg.snmp.noAnswer": "{host} : aucune réponse SNMP",
+ "msg.snmp.noAnswer.fix": "Vérifiez l'adresse et le port, que SNMP est activé sur le switch et autorise cet hôte, ainsi que les identifiants : avec une communauté v2c ou un utilisateur v3 incorrects, le switch ne répond pas du tout.",
+ "msg.snmp.authFailed": "{host} : le switch a refusé la connexion SNMP ({detail})",
+ "msg.snmp.authFailed.fix": "Vérifiez dans les paramètres de l'appareil le nom d'utilisateur SNMPv3, l'algorithme d'authentification (SHA ou SHA-256) et les deux mots de passe, et que l'utilisateur a une vue des MIB. Avec v2c, vérifiez la chaîne de communauté.",
+ "msg.snmp.error": "{host} : la requête SNMP a échoué ({detail})",
+ "msg.snmp.gapMib": "{host} : le switch n'offre pas {mib} via SNMP ; ce qui en dépend n'est pas lu",
+ "msg.snmp.gapMib.fix": "Signalbox n'est pas en cause : le switch n'a pas ces données, la fonction est désactivée (activez LLDP ou le spanning tree sur le switch) ou la vue de l'utilisateur SNMP ne les inclut pas (SNMPv3 : ajoutez la MIB à la vue). Les vérifications qui en ont besoin indiquent « incomplet » tant qu'elles manquent."
 }

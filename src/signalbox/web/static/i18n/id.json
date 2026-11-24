@@ -2997,5 +2997,13 @@
  "device.inferredLinks": "Kabel yang disimpulkan",
  "msg.openwrt.fdbRead": "tabel alamat MAC (perangkat mana di belakang port mana): {cause}",
  "msg.plusswitch.noMacTable": "{host}: protokol switch tidak memiliki tabel alamat MAC; kabel melalui switch ini disimpulkan dari tabel perangkat di sekitarnya",
- "msg.plusswitch.noMacTable.fix": "Tidak ada yang perlu diperbaiki: NSDP dan protokol Easy Smart tidak melaporkan alamat mana yang dipelajari di port mana. Kabel melalui switch ini digambar putus-putus (disimpulkan) dari tabel perangkat lain; masukkan di Topologi agar tepat."
+ "msg.plusswitch.noMacTable.fix": "Tidak ada yang perlu diperbaiki: NSDP dan protokol Easy Smart tidak melaporkan alamat mana yang dipelajari di port mana. Kabel melalui switch ini digambar putus-putus (disimpulkan) dari tabel perangkat lain; masukkan di Topologi agar tepat.",
+ "msg.snmp.install": "adaptor ini memerlukan pysnmp: pasang signalbox-net[snmp] (image kontainer sudah menyertakannya)",
+ "msg.snmp.noAnswer": "{host}: tidak ada jawaban SNMP",
+ "msg.snmp.noAnswer.fix": "Periksa alamat dan port, apakah SNMP aktif di switch dan mengizinkan host ini, serta kredensialnya: dengan community v2c atau nama pengguna v3 yang salah, switch tidak menjawab sama sekali.",
+ "msg.snmp.authFailed": "{host}: switch menolak login SNMP ({detail})",
+ "msg.snmp.authFailed.fix": "Periksa di pengaturan perangkat nama pengguna SNMPv3, algoritme autentikasi (SHA atau SHA-256) dan kedua kata sandi, serta apakah pengguna memiliki view atas MIB. Pada v2c periksa string community.",
+ "msg.snmp.error": "{host}: permintaan SNMP gagal ({detail})",
+ "msg.snmp.gapMib": "{host}: switch tidak menyediakan {mib} lewat SNMP; yang bergantung padanya tidak dibaca",
+ "msg.snmp.gapMib.fix": "Tidak ada masalah pada Signalbox: switch tidak memiliki data itu, fiturnya mati (aktifkan LLDP atau spanning tree di switch), atau view pengguna SNMP tidak mencakupnya (SNMPv3: tambahkan MIB ke view). Pemeriksaan yang membutuhkannya melaporkan \"tidak lengkap\" sampai data tersedia."
 }
