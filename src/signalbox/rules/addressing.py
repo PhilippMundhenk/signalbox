@@ -109,13 +109,20 @@ def client_subnet(net: Network) -> Iterator[Result]:
             if len(segs) == 1:  # overlapping subnets are addr.subnet-overlap's business
                 homes[a] = segs.pop()
         if len(set(homes.values())) > 1:
-            detail = "; ".join(f"{a} in {segment_name(net, s)}" for a, s in homes.items())
+            detail = "; ".join(f"{a}: {segment_name(net, s)}" for a, s in homes.items())
             yield found(
                 f"{_client_name(c)} has addresses in {len(set(homes.values()))} networks: {detail}",
                 [c.id, *sorted(set(homes.values()))],
                 fix="One device should be in one network. Check the port or access point it is "
                 "connected to for a bridge or wrong VLAN between these networks.",
                 key="networks",
+                mid="addr.clientNetworks",
+                fix_id="addr.clientNetworks.fix",
+                params={
+                    "client": _client_name(c),
+                    "count": len(set(homes.values())),
+                    "detail": detail,
+                },
             )
             continue
         if c.segment_id is None:
@@ -139,12 +146,22 @@ def client_subnet(net: Network) -> Iterator[Result]:
                 fix="Check for a fixed address on the client, a second DHCP server, or a port "
                 "in the wrong VLAN.",
                 key=str(a),
+                mid="addr.clientOutside",
+                fix_id="addr.clientOutside.fix",
+                params={
+                    "client": _client_name(c),
+                    "address": str(a),
+                    "label": label,
+                    "nets": _join(nets),
+                },
             )
     for seg_id, ids in sorted(unknown.items()):
         yield incomplete(
             f"No subnet is known for {segment_name(net, seg_id)}, so the addresses of its "
             f"{_plural(len(ids), 'client')} cannot be checked",
             [seg_id],
+            mid="addr.noSubnet",
+            params={"segment": segment_name(net, seg_id), "count": len(ids)},
         )
 
 
@@ -175,6 +192,13 @@ def self_assigned(net: Network) -> Iterator[Result]:
             [seg_id, *(c.id for c in clients)],
             fix="Check that the DHCP server of the network is running, the pool is not full and "
             "the VLAN is carried to the port or access point.",
+            mid="addr.selfAssigned",
+            fix_id="addr.selfAssigned.fix",
+            params={
+                "count": n,
+                "segment": segment_name(net, seg_id),
+                "clients": _join(_client_name(c) for c in clients),
+            },
         )
 
 
@@ -213,6 +237,14 @@ def prefix_consistent(net: Network) -> Iterator[Result]:
                 f"{name} has {sub.interface} on {label}, outside the router's subnet ({ref})",
                 [sub.id, *sorted(g.id for g in gws)],
                 fix=f"Set the address and mask of {name} to the router's subnet.",
+                mid="addr.outsideRouter",
+                fix_id="addr.outsideRouter.fix",
+                params={
+                    "name": name,
+                    "address": str(sub.interface),
+                    "label": label,
+                    "ref": ref,
+                },
             )
         elif all(g.interface.network.prefixlen != sub.interface.network.prefixlen for g in inside):
             yield found(
@@ -221,6 +253,15 @@ def prefix_consistent(net: Network) -> Iterator[Result]:
                 fix=f"Set the mask of {name} to /{inside[0].interface.network.prefixlen} like the "
                 "router's.",
                 severity=Severity.WARNING,
+                mid="addr.maskDiffers",
+                fix_id="addr.maskDiffers.fix",
+                params={
+                    "name": name,
+                    "address": str(sub.interface),
+                    "label": label,
+                    "router": str(inside[0].interface),
+                    "prefix": inside[0].interface.network.prefixlen,
+                },
             )
     for (seg_id, version), devices in sorted(missing.items()):
         names = _join(sorted(device_name(net, d) for d in devices))
@@ -229,6 +270,8 @@ def prefix_consistent(net: Network) -> Iterator[Result]:
             f"address of {names} cannot be compared with it",
             [seg_id],
             key=str(version),
+            mid="addr.noRouter",
+            params={"version": version, "segment": segment_name(net, seg_id), "names": names},
         )
 
 
@@ -274,6 +317,14 @@ def gateway_position(net: Network) -> Iterator[Result]:
                     f"last usable address of {iface.network}",
                     [sub.id],
                     fix=fix,
+                    mid="addr.gatewayMiddle",
+                    fix_id="addr.gateway.fix",
+                    params={
+                        "label": label,
+                        "address": str(iface.ip),
+                        "network": str(iface.network),
+                        "target": str(target),
+                    },
                 )
             elif pos != usual and counts["first"] and counts["last"]:
                 yield found(
@@ -281,6 +332,9 @@ def gateway_position(net: Network) -> Iterator[Result]:
                     f"the other networks of this site use the {usual} one",
                     [sub.id],
                     fix=fix,
+                    mid="addr.gatewayLast" if pos == "last" else "addr.gatewayFirst",
+                    fix_id="addr.gateway.fix",
+                    params={"label": label, "address": str(iface.ip), "target": str(target)},
                 )
 
 
@@ -357,6 +411,8 @@ def pool_usage(net: Network) -> Iterator[Result]:
                 f"{_server_name(net, srv, 'The')} for {label} did not report its pool, so "
                 "its size cannot be checked",
                 [srv.id],
+                mid="addr.poolUnknown",
+                params={"device": device_name(net, srv.device_id), "label": label},
             )
             continue
         fix = "Enlarge the pool (and the subnet if needed) or shorten the lease time."
@@ -367,12 +423,18 @@ def pool_usage(net: Network) -> Iterator[Result]:
                 [srv.id],
                 fix=fix,
                 severity=Severity.ERROR,
+                mid="addr.poolFull",
+                fix_id="addr.pool.fix",
+                params={"label": label, "count": usage.available, "used": usage.used},
             )
         elif usage.high:
             yield found(
                 f"The pool of {label} has {size} and {usage.used} are in use",
                 [srv.id],
                 fix=fix,
+                mid="addr.poolHigh",
+                fix_id="addr.pool.fix",
+                params={"label": label, "count": usage.available, "used": usage.used},
             )
         elif usage.seen > usage.available:
             yield found(
@@ -381,6 +443,9 @@ def pool_usage(net: Network) -> Iterator[Result]:
                 [srv.id],
                 fix=fix,
                 key="seen",
+                mid="addr.poolSeen",
+                fix_id="addr.pool.fix",
+                params={"seen": usage.seen, "label": label, "count": usage.available},
             )
 
 
@@ -389,10 +454,10 @@ LEASE_MIN, LEASE_MAX, GUEST_LEASE_MAX = 5 * 60, 7 * 86400, 86400
 
 
 def _duration(seconds: int) -> str:
-    for unit, name in ((86400, "day"), (3600, "hour"), (60, "minute")):
+    for unit, short in ((86400, "d"), (3600, "h"), (60, "min")):
         if seconds >= unit and seconds % unit == 0:
-            return _plural(seconds // unit, name)
-    return _plural(seconds, "second")
+            return f"{seconds // unit} {short}"
+    return f"{seconds} s"
 
 
 def _is_guest(net: Network, segment_id: str) -> bool:
@@ -432,12 +497,30 @@ def lease_time(net: Network) -> Iterator[Result]:
         usage = _usage(net, srv)
         severity = Severity.WARNING if usage and usage.high else None
         lead = f"{_server_name(net, srv, 'The')} hands out leases of {_duration(seconds)}"
+        lease_values = {
+            "device": device_name(net, srv.device_id),
+            "duration": _duration(seconds),
+            "label": label,
+        }
         fix = "Use 12-24 hours (a few hours on guest networks)."
         if seconds < LEASE_MIN:
-            yield found(f"{lead} on {label}, which is very short", [srv.id], fix=fix)
+            yield found(
+                f"{lead} on {label}, which is very short",
+                [srv.id],
+                fix=fix,
+                mid="addr.leaseShort",
+                fix_id="addr.lease.fix",
+                params=lease_values,
+            )
         elif seconds > LEASE_MAX:
             yield found(
-                f"{lead} on {label}, which is very long", [srv.id], fix=fix, severity=severity
+                f"{lead} on {label}, which is very long",
+                [srv.id],
+                fix=fix,
+                severity=severity,
+                mid="addr.leaseLong",
+                fix_id="addr.lease.fix",
+                params=lease_values,
             )
         elif seconds > GUEST_LEASE_MAX and _is_guest(net, srv.segment_id):
             yield found(
@@ -445,22 +528,25 @@ def lease_time(net: Network) -> Iterator[Result]:
                 [srv.id],
                 fix="Use a few hours on guest networks.",
                 severity=severity,
+                mid="addr.leaseGuest",
+                fix_id="addr.leaseGuest.fix",
+                params=lease_values,
             )
 
 
 # --- dhcp.in-subnet (#58) ------------------------------------------------------------------------
 
 
-def _special(sub: Subnet, address: IPAddress) -> str | None:
-    """Why an address of the subnet cannot be handed out, if it cannot."""
+def _special(sub: Subnet, address: IPAddress) -> tuple[str, str, str] | None:
+    """(kind, network, English text) when the address is not a normal host address."""
     iface = sub.interface
     if address == iface.ip:
-        return f"the router address of {sub.interface.network}"
+        return "router", str(iface.network), f"the router address of {sub.interface.network}"
     if isinstance(iface, IPv4Interface) and iface.network.prefixlen <= 30:
         if address == iface.network.network_address:
-            return f"the network address of {iface.network}"
+            return "network", str(iface.network), f"the network address of {iface.network}"
         if address == iface.network.broadcast_address:
-            return f"the broadcast address of {iface.network}"
+            return "broadcast", str(iface.network), f"the broadcast address of {iface.network}"
     return None
 
 
@@ -493,6 +579,9 @@ def in_subnet(net: Network) -> Iterator[Result]:
                     [srv.id],
                     fix="Swap the start and end address of the pool.",
                     key=f"order {_pool_text(p)}",
+                    mid="addr.poolOrder",
+                    fix_id="addr.poolOrder.fix",
+                    params={"pool": _pool_text(p), "label": label},
                 )
         gws = [g for g in routers if g.segment_id == srv.segment_id]
         checked = [p.start for p in srv.pools] + [r.address for r in srv.reservations]
@@ -504,6 +593,12 @@ def in_subnet(net: Network) -> Iterator[Result]:
                 "reservations cannot be checked against the subnet",
                 [srv.id],
                 key=str(version),
+                mid="addr.relayed",
+                params={
+                    "version": version,
+                    "label": label,
+                    "device": device_name(net, srv.device_id),
+                },
             )
 
         for p in srv.pools:
@@ -517,17 +612,33 @@ def in_subnet(net: Network) -> Iterator[Result]:
                     [srv.id],
                     fix="Shrink the pool to the subnet.",
                     key=f"pool {_pool_text(p)}",
+                    mid="addr.poolBeyond",
+                    fix_id="addr.poolBeyond.fix",
+                    params={
+                        "pool": _pool_text(p),
+                        "label": label,
+                        "nets": _nets(gws, lo.version),
+                    },
                 )
                 continue
             for end in (lo, hi):
-                why = _special(home, end)
-                if why and end != home.interface.ip:  # router address: dhcp.pool-fixed-address
+                special = _special(home, end)
+                if special and end != home.interface.ip:  # router: dhcp.pool-fixed-address
+                    why = special[2]
                     yield found(
                         f"The pool {_pool_text(p)} of {label} includes {end}, {why}",
                         [srv.id],
                         fix="Start the pool after the network address and end it before the "
                         "broadcast address.",
                         key=f"pool {_pool_text(p)} {end}",
+                        mid=f"addr.poolIncludes.{special[0]}",
+                        fix_id="addr.poolIncludes.fix",
+                        params={
+                            "pool": _pool_text(p),
+                            "label": label,
+                            "address": str(end),
+                            "network": special[1],
+                        },
                     )
         for r in srv.reservations:
             if r.address.version not in {g.interface.version for g in gws}:
@@ -541,13 +652,30 @@ def in_subnet(net: Network) -> Iterator[Result]:
                     [srv.id],
                     fix="Reserve an address inside the subnet of the network.",
                     key=f"reservation {r.mac} {r.address}",
+                    mid="addr.reservationOutside",
+                    fix_id="addr.reservationOutside.fix",
+                    params={
+                        "address": str(r.address),
+                        "who": who,
+                        "label": label,
+                        "nets": _nets(gws, r.address.version),
+                    },
                 )
-            elif why := _special(home, r.address):
+            elif special := _special(home, r.address):
+                why = special[2]
                 yield found(
                     f"The reservation {r.address} for {who} on {label} is {why}",
                     [srv.id],
                     fix="Reserve a normal host address of the subnet for this device.",
                     key=f"reservation {r.mac} {r.address}",
+                    mid=f"addr.reservationIs.{special[0]}",
+                    fix_id="addr.reservationIs.fix",
+                    params={
+                        "address": str(r.address),
+                        "who": who,
+                        "label": label,
+                        "network": special[1],
+                    },
                 )
 
 
@@ -594,6 +722,9 @@ def one_gateway(net: Network) -> Iterator[Result]:
             [seg_id, *sorted(devices)],
             fix="Keep one router per network; put the others in access-point (bridge) mode or "
             "connect them through their own transit network.",
+            mid="addr.severalRouters",
+            fix_id="addr.severalRouters.fix",
+            params={"segment": segment_name(net, seg_id), "count": len(groups), "detail": detail},
         )
 
 
@@ -619,7 +750,7 @@ def _cable_between(net: Network, port: str | None, device_id: str) -> str:
         for here, there in ((link.a, link.b), (link.b, link.a)):
             other = net.port(there)
             if here == port and other is not None and other.device_id == device_id:
-                return f" (cable {_port_text(net, there)} to {_port_text(net, here)})"
+                return f" ({_port_text(net, there)} \u2194 {_port_text(net, here)})"
     return ""
 
 
@@ -649,7 +780,7 @@ def _forwards_on_inner_only(net: Network, u: Uplink, upstream: Subnet) -> Iterat
         return
     inner_name, outer_name = device_name(net, u.device_id), device_name(net, upstream.device_id)
     ports = ", ".join(
-        f"{'/'.join(p.value.upper() for p in pf.protocols) or 'all'} "
+        f"{'/'.join(p.value.upper() for p in pf.protocols) or '*'} "
         f"{', '.join(str(r) for r in pf.external_ports)}"
         for pf in dead
     )
@@ -662,6 +793,9 @@ def _forwards_on_inner_only(net: Network, u: Uplink, upstream: Subnet) -> Iterat
         f"{inner_name} the exposed host (DMZ) of {outer_name}, or put {outer_name} into "
         "bridge (modem) mode.",
         key=f"{u.id}/forwards",
+        mid="addr.forwardsLost",
+        fix_id="addr.forwardsLost.fix",
+        params={"inner": inner_name, "outer": outer_name, "ports": ports},
     )
 
 
@@ -694,6 +828,16 @@ def double_nat(net: Network) -> Iterator[Result]:
                 [u.device_id, upstream.device_id, u.id],
                 fix=_DOUBLE_NAT_FIX.format(inner=inner, outer=outer),
                 key=f"{u.id}/router",
+                mid="addr.doubleNat",
+                fix_id="addr.doubleNat.fix",
+                params={
+                    "inner": inner,
+                    "outer": outer,
+                    "address": v4,
+                    "segment": segment_name(net, upstream.segment_id),
+                    "interface": str(upstream.interface),
+                    "cable": _cable_between(net, u.port_id, upstream.device_id),
+                },
             )
             yield from _forwards_on_inner_only(net, u, upstream)
             continue
@@ -703,9 +847,12 @@ def double_nat(net: Network) -> Iterator[Result]:
                 f"{inner} has the private WAN address {v4}: another router that Signalbox does "
                 "not read is in front of it.",
                 [u.device_id, u.id],
-                fix=_DOUBLE_NAT_FIX.format(inner=inner, outer="that router")
+                fix=_DOUBLE_NAT_FIX.format(inner=inner, outer="the router in front")
                 + " Add that router to Signalbox to see both.",
                 key=f"{u.id}/private",
+                mid="addr.privateWan",
+                fix_id="addr.privateWan.fix",
+                params={"inner": inner, "address": v4},
             )
         elif nat is NatClass.CGNAT:
             yield found(
@@ -715,6 +862,9 @@ def double_nat(net: Network) -> Iterator[Result]:
                 fix="Nothing to do if everything works. For port forwards or a VPN server over "
                 "IPv4, ask the provider for a public IPv4 address, or use IPv6.",
                 key=f"{u.id}/cgnat",
+                mid="addr.cgnatWan",
+                fix_id="addr.cgnatWan.fix",
+                params={"inner": inner, "address": v4},
             )
     # without uplink data: a gateway port in no segment, cabled to another router's LAN port
     members = {m.port_id for s in net.segments for m in s.members}
@@ -741,6 +891,15 @@ def double_nat(net: Network) -> Iterator[Result]:
                 [here.device_id, there.device_id, link.id],
                 fix=_DOUBLE_NAT_FIX.format(inner=inner, outer=outer),
                 key=f"{link.id}/cable",
+                mid="addr.wanByCable",
+                fix_id="addr.doubleNat.fix",
+                params={
+                    "port": _port_text(net, wan),
+                    "inner": inner,
+                    "other": _port_text(net, other),
+                    "segment": segment_name(net, lan[other]),
+                    "outer": outer,
+                },
             )
 
 
@@ -800,6 +959,14 @@ def management_address(net: Network) -> Iterator[Result]:
                 [d.id, srv.id],
                 fix=f"Add a reservation for the MAC address of {d.name}, or give it a fixed "
                 "address outside the pool.",
+                mid="addr.mgmtInPool",
+                fix_id="addr.mgmtInPool.fix",
+                params={
+                    "name": d.name,
+                    "address": str(address),
+                    "pool": _pool_text(pool),
+                    "segment": segment_name(net, srv.segment_id),
+                },
             )
     for text, ids in sorted(users.items()):
         if len(ids) > 1:
@@ -810,6 +977,12 @@ def management_address(net: Network) -> Iterator[Result]:
                 fix="Give every device its own address and correct the address configured in "
                 "Signalbox.",
                 key=f"duplicate {text}",
+                mid="addr.mgmtDuplicate",
+                fix_id="addr.mgmtDuplicate.fix",
+                params={
+                    "names": _join(sorted(device_name(net, i) for i in ids)),
+                    "address": text,
+                },
             )
 
 
@@ -849,6 +1022,9 @@ def duplicate_reservation(net: Network) -> Iterator[Result]:
                 [seg_id, *sorted({s.id for s, _ in entries})],
                 fix="Keep one reservation for this device and remove the others.",
                 key=mac,
+                mid="addr.reservedTwice",
+                fix_id="addr.reservedTwice.fix",
+                params={"mac": mac, "count": len(entries), "label": label, "detail": detail},
             )
             continue
         for srv_id, n in sorted(Counter(s.id for s, _ in entries).items()):
@@ -861,6 +1037,15 @@ def duplicate_reservation(net: Network) -> Iterator[Result]:
                     fix="Remove the extra entries; they are harmless but confusing.",
                     severity=Severity.INFO,
                     key=f"{mac} twice",
+                    mid="addr.reservedRepeated",
+                    fix_id="addr.reservedRepeated.fix",
+                    params={
+                        "mac": mac,
+                        "count": n,
+                        "address": str(addresses[0]),
+                        "device": device_name(net, srv.device_id),
+                        "label": label,
+                    },
                 )
     for (seg_id, name), macs in sorted(by_name.items()):
         if len(macs) > 1:
@@ -870,6 +1055,14 @@ def duplicate_reservation(net: Network) -> Iterator[Result]:
                 [seg_id, *sorted(servers[(seg_id, name)])],
                 fix="Rename one of the reservations, or remove the one of a device that is gone.",
                 key=f"name {name}",
+                mid="addr.hostnameReserved",
+                fix_id="addr.hostnameReserved.fix",
+                params={
+                    "name": name,
+                    "count": len(macs),
+                    "segment": segment_name(net, seg_id),
+                    "macs": _join(sorted(macs)),
+                },
             )
 
 
@@ -908,6 +1101,9 @@ def dhcp_domain(net: Network) -> Iterator[Result]:
                     fix="Use home.arpa (RFC 8375) or a domain you own.",
                     severity=Severity.WARNING,
                     key="local",
+                    mid="addr.domainLocal",
+                    fix_id="addr.domainLocal.fix",
+                    params={"segment": segment_name(net, srv.segment_id), "domain": d},
                 )
         without = [s for s in servers if not _domain(s.domain)]
         if without:
@@ -919,6 +1115,14 @@ def dhcp_domain(net: Network) -> Iterator[Result]:
                 [s.id for s in without],
                 fix="Set the same local domain on every network.",
                 key="missing",
+                mid="addr.domainMissing",
+                fix_id="addr.domainMissing.fix",
+                params={
+                    "count": len(without),
+                    "segments": _join(segment_name(net, s.segment_id) for s in without),
+                    "site": site,
+                    "domains": domains,
+                },
             )
         if len({d for _, d in with_domain}) > 1:
             detail = "; ".join(f"{segment_name(net, s.segment_id)}: {d}" for s, d in with_domain)
@@ -928,6 +1132,9 @@ def dhcp_domain(net: Network) -> Iterator[Result]:
                 fix="Use one local domain (home.arpa recommended), or ignore this finding if "
                 "the domains differ on purpose.",
                 key="different",
+                mid="addr.domainDifferent",
+                fix_id="addr.domainDifferent.fix",
+                params={"site": site, "detail": detail},
             )
     domain_of = {s.segment_id: d for s in _enabled(net) if (d := _domain(s.domain))}
     for dns in net.dns_services:
@@ -948,6 +1155,15 @@ def dhcp_domain(net: Network) -> Iterator[Result]:
                     fix=f"Rename the record to {name.split('.')[0]}.{d}, or use the same domain "
                     "for DHCP and DNS.",
                     key=f"record {name} {rec.address}",
+                    mid="addr.recordDomain",
+                    fix_id="addr.recordDomain.fix",
+                    params={
+                        "name": name,
+                        "address": str(rec.address),
+                        "domain": d,
+                        "segment": segment_name(net, seg_id),
+                        "short": name.split(".")[0],
+                    },
                 )
 
 
@@ -989,6 +1205,14 @@ def reservation_hostname(net: Network) -> Iterator[Result]:
                 [srv.id, c.id],
                 fix="Rename the reservation, or check that it is for the right device.",
                 key=r.mac,
+                mid="addr.reservationName",
+                fix_id="addr.reservationName.fix",
+                params={
+                    "mac": r.mac,
+                    "segment": segment_name(net, srv.segment_id),
+                    "name": r.hostname,
+                    "host": c.hostname,
+                },
             )
 
 
@@ -1022,6 +1246,13 @@ def dns_cross_network(net: Network) -> Iterator[Result]:
                 fix="Make sure the firewall allows only DNS to that address, or hand out the "
                 f"router's address in {label}.",
                 key=str(a),
+                mid="addr.dnsCross",
+                fix_id="addr.dnsCross.fix",
+                params={
+                    "label": label,
+                    "address": str(a),
+                    "networks": _join(segment_name(net, s) for s in other),
+                },
             )
 
 

@@ -290,9 +290,9 @@ def test_lease_time_quiet_for_normal_and_unknown() -> None:
 def test_lease_time_reports_short_and_long() -> None:
     (f,) = run(lease_time, network(dhcp_servers=[server(lease_seconds=90)]))
     assert f.severity is Severity.INFO
-    assert "leases of 90 seconds on LAN (VLAN 10), which is very short" in f.message
+    assert "leases of 90 s on LAN (VLAN 10), which is very short" in f.message
     (f,) = run(lease_time, network(dhcp_servers=[server(lease_seconds=30 * 86400)]))
-    assert "leases of 30 days" in f.message and "very long" in f.message
+    assert "leases of 30 d" in f.message and "very long" in f.message
     (f,) = run(lease_time, network(dhcp_servers=[server(lease_seconds=120)]))
     assert "2 minutes" in f.message
 
