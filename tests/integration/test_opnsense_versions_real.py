@@ -116,7 +116,7 @@ async def test_firewall_lists_the_mvc_rule(fw: dict[str, str]) -> None:
     snap = await observe(fw)
     [firewall] = snap.firewalls
     names = [r.name or "" for r in firewall.rules]
-    assert "Signalbox CI: NAS" in names, names
+    assert "Signalbox CI: NAS" in names, (names, firewall.rules_complete, describe(snap))
     if RELEASE < compat.DNAT_API:
         assert not firewall.port_forwards_complete and firewall.port_forwards == []
 
