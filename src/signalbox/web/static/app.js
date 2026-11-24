@@ -101,7 +101,8 @@ export function routeInfo() {
   if (first === 'change' && second === 'new') return { name: 'change-new', nav: 'changes' };
   if (first === 'change' && second) return { name: 'change', nav: 'changes', id: second };
   if (first === 'changes') return { name: 'changes', nav: 'changes' };
-  const simple = ['segments', 'wireless', 'clients', 'settings', 'topology', 'desired'];
+  if (first === 'wireless') return { name: 'wireless', nav: 'wireless', tab: second === 'map' ? 'map' : 'networks' };
+  const simple = ['segments', 'clients', 'settings', 'topology', 'desired'];
   if (simple.includes(first)) return { name: first, nav: first };
   return { name: 'findings', nav: 'findings' };
 }
@@ -189,7 +190,7 @@ async function render() {
     else if (route.name === 'device') await renderDevice(main, ctx, route);
     else if (route.name === 'fixes') await renderFixes(main, ctx);
     else if (route.name === 'segments') await renderSegments(main, ctx);
-    else if (route.name === 'wireless') await renderWireless(main, ctx);
+    else if (route.name === 'wireless') await renderWireless(main, ctx, route);
     else if (route.name === 'services') await renderServices(main, ctx);
     else if (route.name === 'clients') await renderClients(main, ctx);
     else if (route.name === 'topology') await renderTopology(main, ctx);

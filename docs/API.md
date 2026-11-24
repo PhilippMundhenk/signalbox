@@ -32,6 +32,7 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | GET | `/api/network` | The merged network model without passphrase data; derived uplink and service values. |
 | GET | `/api/fdb` | MAC address table entries (#160): of one device (``?device=``, also the switches a |
 | GET | `/api/wifi-scan` | Access points the radios heard (#169): of one device (``?device=``, also the |
+| GET | `/api/wifi-map` | The Wi-Fi map (#366): our radios, the neighbouring access points they hear as |
 | GET | `/api/findings` | Current findings; `?resolved=true` includes resolved ones. |
 | GET | `/api/history` | Observation history: first/last seen and changes of devices, clients and ports. |
 | POST | `/api/observe` | Read all devices now. |

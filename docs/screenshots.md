@@ -11,4 +11,4 @@ Taken from `signalbox demo` (twelve simulated devices over two sites, about 17 w
 | ![Phone, findings](screenshots/phone-findings.png) Findings on a phone | ![Phone, devices](screenshots/phone-devices.png) Devices on a phone |
 | ![Phone, menu](screenshots/phone-menu.png) The menu drawer on a phone | ![Topology, dark](screenshots/topology-dark.png) Topology in dark mode, with the legend |
 | ![Device](screenshots/device.png) A device page (OpenWrt switch) | ![Device, dark](screenshots/device-dark.png) The same in dark mode |
-| ![Devices, dark](screenshots/devices-dark.png) Devices in dark mode | |
+| ![Devices, dark](screenshots/devices-dark.png) Devices in dark mode | ![Wi-Fi map](screenshots/wifi-map.png) Wi-Fi map: own radios and anonymous neighbours, placed by signal |

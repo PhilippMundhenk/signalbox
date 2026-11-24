@@ -53,6 +53,7 @@ from signalbox.web.manage_url import manage_url
 from signalbox.web.notifications_api import router as notifications_router
 from signalbox.web.probes_api import router as probes_router
 from signalbox.web.traces_api import router as traces_router
+from signalbox.wifimap import wifi_map
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -659,6 +660,13 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
             for r in scan_rows(net)
             if device is None or r["device_id"] == device or r["device_id"].startswith(f"{device}/")
         ]
+
+    @api.get("/wifi-map")
+    def wifi_map_data() -> dict[str, Any]:
+        """The Wi-Fi map (#366): our radios, the neighbouring access points they hear as
+        anonymous numbered nodes (band, channel, signal; never an SSID or a BSSID) and the
+        signal between them in dBm. Positions are not part of it: the browser infers them."""
+        return wifi_map(runner.network())
 
     @api.get("/findings")
     def findings(resolved: bool = False) -> list[dict[str, Any]]:
