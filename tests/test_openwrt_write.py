@@ -1060,3 +1060,33 @@ def test_simulator_lists_changes_like_rpcd() -> None:
     assert uci_delta("delete", {"section": "h"}) == [["remove", "h"]]
     assert uci_delta("delete", {"section": "h", "option": "ip"}) == [["remove", "h", "ip"]]
     assert uci_delta("order", {"sections": ["a", "b"]}) == [["order", "a", 0], ["order", "b", 1]]
+
+
+async def test_wlan_apply_waits_until_netifd_brought_the_radios_back(
+    adapter: OpenWrtAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#339: uci apply returns while netifd reloads the Wi-Fi; a read-back in that window sees
+    every SSID disabled. apply waits on the radios (pending, up), not on a time."""
+    down = {"radio0": {"up": False, "pending": True}, "radio1": {"up": True}}
+    back = {"radio0": {"up": True, "pending": False}, "radio1": {"up": True}}
+    answers = [back, down, down, back, back]  # before the apply, then while it settles
+    calls: list[int] = []
+
+    async def radios_up() -> dict[str, Any]:
+        calls.append(1)
+        return answers[min(len(calls) - 1, len(answers) - 1)]
+
+    monkeypatch.setattr(adapter, "_radios_up", radios_up)
+    try:
+        c = change(ChangeKind.WLAN, GUEST.ssid, None, GUEST)
+        await adapter.apply([c], SECRETS, 60)
+        assert len(calls) == 5  # one before; down, down, then up and not pending twice in a row
+        answers[:] = [down, back, back]  # the confirm commits; netifd reloads once more
+        calls.clear()
+        await adapter.confirm()
+        assert len(calls) == 3
+        await adapter._wireless_settled(set())  # nothing was up before: nothing to wait for
+        assert len(calls) == 3
+        await adapter._wireless_settled({"radio0"}, seconds=0)  # the deadline ends the wait
+    finally:
+        await adapter.close()
