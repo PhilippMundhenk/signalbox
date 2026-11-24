@@ -493,7 +493,15 @@ async def test_routes_of_chr(rt: dict[str, str]) -> None:
     by = {str(r.destination): r for r in snap.routes}
     lab = by["198.18.20.0/24"]
     assert str(lab.gateway) == "192.0.2.254" and lab.origin.value == "static", lab
-    assert by["198.18.66.0/24"].kind.value == "blackhole", by["198.18.66.0/24"]
+    raw = httpx.get(
+        rt["URL"] + "/rest/ip/route",
+        auth=(rt["USER"], rt["PASSWORD"]),
+        verify=False,
+        timeout=TIMEOUT,
+        trust_env=False,
+    ).json()
+    hole = [r for r in raw if r.get("dst-address") == "198.18.66.0/24"]
+    assert by["198.18.66.0/24"].kind.value == "blackhole", (by["198.18.66.0/24"], hole)
     assert "192.0.2.0/24" not in by, sorted(by)
     assert not any("routes" in e.message for e in snap.errors), snap.errors
 

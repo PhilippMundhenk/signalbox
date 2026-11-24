@@ -82,6 +82,23 @@ def _gateway(value: Any) -> tuple[IPAddress | None, str | None]:
         return None, text
 
 
+def _kind(row: dict[str, Any]) -> RouteKind:
+    """A dropping route: the flag of the same name (``blackhole=true``), RouterOS 6's ``type``,
+    or the word in place of the gateway (*guess* which one a CHR 7 REST row has, #21)."""
+    for word, kind in (
+        ("blackhole", RouteKind.BLACKHOLE),
+        ("unreachable", RouteKind.UNREACHABLE),
+        ("prohibit", RouteKind.PROHIBIT),
+    ):
+        if (
+            _flag(row.get(word))
+            or _text(row.get("type")) == word
+            or _text(row.get("gateway")) == word
+        ):
+            return kind
+    return RouteKind.UNICAST
+
+
 def read_routes(device_id: str, rows: list[dict[str, Any]]) -> list[Route]:
     out: dict[str, Route] = {}
     for row in rows:
@@ -91,14 +108,7 @@ def read_routes(device_id: str, rows: list[dict[str, Any]]) -> list[Route]:
         gateway, iface = _gateway(row.get("gateway") or row.get("immediate-gw"))
         if gateway is not None and gateway.version != dest.version:
             gateway = None
-        kind = RouteKind.UNICAST
-        for flag, value in (
-            ("blackhole", RouteKind.BLACKHOLE),
-            ("unreachable", RouteKind.UNREACHABLE),
-            ("prohibit", RouteKind.PROHIBIT),
-        ):
-            if _flag(row.get(flag)):
-                kind = value
+        kind = _kind(row)
         origin = next((o for key, o in _ORIGINS if _flag(row.get(key))), RouteOrigin.OTHER)
         table = _text(row.get("routing-table") or row.get("routing-mark")) or "main"
         via = port_id(device_id, iface) if iface else None

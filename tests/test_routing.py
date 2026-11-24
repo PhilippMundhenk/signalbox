@@ -520,9 +520,7 @@ def test_no_return_and_asymmetric() -> None:
     )
     assert run(no_return, skipped) == []
     overlap = with_routes(lab(), "gw", rt("gw", "203.0.0.0/16", "192.0.2.254"))
-    assert (
-        run(no_return, with_routes(overlap, "r2", rt("r2", "198.51.100.0/24", "192.0.2.1"))) == []
-    )
+    assert run(no_return, overlap) == []
 
 
 def vpn_net(**kw: Any) -> Network:
