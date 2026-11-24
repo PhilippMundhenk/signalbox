@@ -109,7 +109,7 @@ function layered(ids, rank, pairs) {
     link.push([prev, v, p.edges.length]);
     dummies.set(p.key, chain);
   }
-  return { layers: layers.map((l) => l || []), link, dummies };
+  return { layers: Array.from(layers, (l) => l || []), link, dummies };
 }
 
 function orderLayers(layers, link, name) {

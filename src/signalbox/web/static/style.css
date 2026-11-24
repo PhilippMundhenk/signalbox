@@ -182,13 +182,24 @@ details.group > summary h2 { display: inline; }
 .rule p { margin: 6px 0 0; }
 
 /* topology */
-.topo-wrap { overflow: auto; max-height: 75vh; }
-svg.topo { display: block; margin: 0 auto; font-family: var(--font); }
+.topo-wrap { position: relative; height: 62vh; min-height: 320px; overflow: hidden; touch-action: none; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.topo-card.full { position: fixed; inset: 0; z-index: 50; margin: 0; border-radius: 0; display: flex; flex-direction: column; overflow: auto; background: var(--surface); }
+.topo-card.full .topo-wrap { height: auto; flex: 1 1 auto; min-height: 200px; }
+.topo-card:fullscreen { display: flex; flex-direction: column; overflow: auto; background: var(--surface); }
+.topo-card:fullscreen .topo-wrap { height: auto; flex: 1 1 auto; }
+.topo-tools { display: flex; gap: 6px; justify-content: flex-end; margin-bottom: 8px; }
+svg.topo { display: block; font-family: var(--font); }
+.topo-wrap svg.topo { width: 100%; height: 100%; cursor: grab; }
+.topo-wrap svg.topo.panning { cursor: grabbing; }
 .topo .box { fill: var(--surface-2); stroke: var(--border); stroke-width: 1.5; }
 .topo .status-unreachable .box, .topo .status-auth-failed .box { stroke: var(--danger); stroke-dasharray: 5 3; }
-.topo .status-partial .box, .topo .status-untrusted-certificate .box { stroke: var(--warn); }
+.topo .status-partial .box, .topo .status-untrusted-certificate .box { stroke: var(--warn); stroke-width: 2.5; }
 .topo .name { fill: var(--text); font-weight: 700; font-size: 13px; }
+.topo a.name-link { cursor: pointer; }
+.topo a.name-link:hover .name, .topo a.name-link:focus-visible .name { fill: var(--accent); text-decoration: underline; }
 .topo .role { fill: var(--muted); font-size: 11px; }
+.topo .site-frame { fill: none; stroke: var(--border); stroke-width: 1.5; stroke-dasharray: 2 4; }
+.topo .site-name { fill: var(--muted); font-size: 12px; font-weight: 700; }
 .topo .port { fill: var(--surface); stroke: var(--muted); stroke-width: 1; cursor: pointer; }
 .topo .port.up { fill: color-mix(in srgb, var(--ok) 35%, var(--surface)); }
 .topo .port.down { opacity: .6; }
@@ -199,15 +210,31 @@ svg.topo { display: block; margin: 0 auto; font-family: var(--font); }
 .topo .port.internal { stroke-dasharray: 3 2; }
 .topo .port:focus-visible { outline: none; stroke: var(--accent); stroke-width: 3; }
 .topo .edge { fill: none; stroke: var(--muted); stroke-width: 2.5; }
+.topo .edge.mac { stroke-dasharray: 2 4; }
 .topo .edge.wireless { stroke-dasharray: 6 4; }
 .topo .edge.manual { stroke: var(--text); }
 .topo .edge.carry { stroke: var(--accent); stroke-width: 4.5; }
 .topo .edge.inconsistent { stroke: var(--danger); stroke-width: 4.5; }
 .topo .edge.dim { opacity: .25; }
 .topo .edge.vpn { stroke: var(--accent); stroke-dasharray: 3 5; stroke-width: 2.5; }
+.topo .edge.bundle { stroke-width: 5; }
 .topo .node.role-remote .box { stroke-dasharray: 5 4; fill: none; }
-.topo .bad-end { fill: none; stroke: var(--danger); stroke-width: 3; }
-.topo .marks { pointer-events: none; }
+.topo .bad-end { fill: none; stroke: var(--danger); stroke-width: 3; pointer-events: none; }
+.topo .badge { cursor: pointer; }
+.topo .badge circle { fill: var(--surface); stroke: var(--text); stroke-width: 1.5; }
+.topo .badge text { fill: var(--text); font-size: 12px; font-weight: 700; pointer-events: none; }
+.topo .badge:focus-visible circle { stroke: var(--accent); stroke-width: 3; }
+.topo.hovering .node, .topo.hovering .edge { opacity: .3; }
+.topo.hovering .node.hot, .topo.hovering .node.near, .topo.hovering .edge.hot { opacity: 1; }
+.topo.hovering .edge.hot { stroke: var(--accent); stroke-width: 4; }
+.topo-legend { margin-bottom: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+.topo-legend summary { cursor: pointer; font-weight: 700; }
+.topo-legend .legend-body { display: flex; flex-wrap: wrap; gap: 6px 28px; margin-top: 6px; }
+.topo-legend h4 { margin: 0 0 4px; font-size: .85rem; color: var(--muted); }
+.topo-legend ul { list-style: none; margin: 0; padding: 0; }
+.topo-legend li { display: flex; align-items: center; gap: 8px; font-size: .85rem; line-height: 1.7; }
+.topo-legend svg.key-svg { flex: none; }
+.topo-legend p { margin: 6px 0 0; }
 .legend .key { display: inline-block; width: 22px; height: 4px; vertical-align: middle; border-radius: 2px; margin-left: 6px; }
 .legend .key.carry { background: var(--accent); } .legend .key.inconsistent { background: var(--danger); } .legend .key.dim { background: var(--muted); opacity: .35; }
 .tag.origin-lldp { color: var(--ok); border-color: var(--ok); }
@@ -231,7 +258,7 @@ legend { font-weight: 600; padding: 0 4px; }
   table.stack td { display: flex; justify-content: flex-end; align-items: baseline; gap: 10px; border: 0; padding: 3px 0; text-align: right; overflow-wrap: anywhere; }
   table.stack td::before { content: attr(data-label); color: var(--muted); font-weight: 600; text-align: left; flex: none; margin-right: auto; }
   table.stack td:first-child { font-weight: 700; }
-  .topo-wrap, .topo-card .legend { display: none; }
+  .topo-wrap, .topo-tools, .topo-legend { display: none; }
   .phone-only { display: block; margin: 0; }
 }
 
