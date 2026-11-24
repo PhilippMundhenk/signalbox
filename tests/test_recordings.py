@@ -167,7 +167,7 @@ def test_record_device_tool_writes_a_replayable_file(
 
 
 def _http_simulators() -> list[tuple[str, Any, str, list[str], dict[str, str]]]:
-    from signalbox.sim import mikrotik, omada, openwrt, opnsense
+    from signalbox.sim import dnsfilter, mikrotik, omada, openwrt, opnsense
 
     return [
         (
@@ -201,10 +201,26 @@ def _http_simulators() -> list[tuple[str, Any, str, list[str], dict[str, str]]]:
             ["--set", f"omadac_id={omada.OMADAC_ID}", "--set", f"client_id={omada.CLIENT_ID}"],
             {"SIGNALBOX_RECORD_PASSWORD": omada.CLIENT_SECRET},
         ),
+        (
+            "adguardhome",
+            dnsfilter.AdGuardSim().app(),
+            "",
+            ["--username", dnsfilter.AG_USER],
+            {"SIGNALBOX_RECORD_PASSWORD": dnsfilter.AG_PASSWORD},
+        ),
+        (
+            "pihole",
+            dnsfilter.PiholeSim().app(),
+            "",
+            [],
+            {"SIGNALBOX_RECORD_PASSWORD": dnsfilter.PH_PASSWORD},
+        ),
     ]
 
 
-@pytest.mark.parametrize("index", range(4), ids=["openwrt", "opnsense", "mikrotik", "omada"])
+@pytest.mark.parametrize(
+    "index", range(6), ids=["openwrt", "opnsense", "mikrotik", "omada", "adguardhome", "pihole"]
+)
 def test_every_http_adapter_records_and_replays(
     index: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

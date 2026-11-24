@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from signalbox.model import ManagementService, ServiceKind
 
 #: Adapters whose ``url`` setting is the device's web address (scheme optional, default https).
-_URL_ADAPTERS = {"opnsense", "openwrt", "mikrotik", "omada"}
+_URL_ADAPTERS = {"opnsense", "openwrt", "mikrotik", "omada", "adguardhome", "pihole"}
 #: Adapters whose ``address`` setting is the switch's address; the web UI is plain http.
 _ADDRESS_ADAPTERS = {"prosafe", "easysmart"}
 _DEFAULT_PORT = {"https": 443, "http": 80}

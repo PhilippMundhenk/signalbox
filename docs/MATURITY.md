@@ -22,6 +22,7 @@ Generated from the adapter manifests by `tools/gen_docs.py`.
 
 | Adapter | interfaces | dhcp | dns | wireless | clients | neighbours | health | time | vpn | firewall | writes | Confirmed on |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| AdGuard Home (`adguardhome`) | - | simulator | simulator | - | simulator | - | - | - | - | - | - | nothing yet |
 | TP-Link Easy Smart (`easysmart`) | simulator | - | - | - | - | - | - | - | - | - | port | nothing yet |
 | AVM Fritz!Box (`fritzbox`) | simulator | simulator | - | simulator | simulator | - | simulator | simulator | - | simulator | dhcp, wlan | nothing yet |
 | Linux (Debian, Raspberry Pi OS, Arch Linux ARM) (`linux`) | simulator | simulator | simulator | - | - | - | simulator | simulator | simulator | simulator | - | nothing yet |
@@ -29,4 +30,5 @@ Generated from the adapter manifests by `tools/gen_docs.py`.
 | TP-Link Omada (`omada`) | simulator | simulator | - | simulator | simulator | - | simulator | simulator | - | simulator | router, dhcp, port, wlan | nothing yet |
 | OpenWrt (`openwrt`) | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | dhcp, reservation, port, wlan, zone-policy, firewall-rule, port-forward | nothing yet |
 | OPNsense (`opnsense`) | simulator | simulator | simulator | - | simulator | - | simulator | simulator | simulator | simulator | router, dhcp, reservation, port | nothing yet |
+| Pi-hole (`pihole`) | - | simulator | simulator | - | - | - | - | - | - | - | - | nothing yet |
 | NETGEAR ProSAFE Plus (`prosafe`) | simulator | - | - | - | - | - | - | - | - | - | port | nothing yet |
