@@ -1087,3 +1087,28 @@ def test_a_good_test_replaces_the_old_read_problem(app: Any) -> None:
     expect(state.get_by_test_id("device-errors")).to_be_visible()
     expect(app.get_by_test_id("test-errors")).to_have_count(0)
     expect(result.get_by_test_id("test-see-state")).to_be_visible()
+
+
+def test_moving_a_device_to_another_site_shows_it_there_at_once(app: Any) -> None:
+    """#368: change the site in the device's settings; topology and segments follow."""
+    add_site(app)
+    add_site(app, "Office")
+    add_lab(app, "Router")
+    observe(app)
+    go(app, "#/device/router")
+    app.get_by_test_id("tab-settings").click()
+    app.get_by_test_id("device-site").select_option("office")
+    app.get_by_test_id("device-save").click()
+    expect(app.get_by_test_id("device-title")).to_have_text("Router")
+    # the page reads the device as it opens
+    expect(app.get_by_test_id("test-result")).to_be_visible()
+    net = api(app, "GET", "/network")
+    assert {d["site_id"] for d in net["devices"]} == {"office"}
+    assert not any(s["id"].startswith("home/") for s in net["segments"])
+    go(app, "#/segments")
+    expect(app.get_by_test_id("site-segments")).to_have_count(1)
+    expect(app.locator('[data-testid="segment"]').first).to_have_attribute(
+        "data-id", re.compile("^office/segment/")
+    )
+    go(app, "#/topology")
+    expect(app.get_by_test_id("topo-node")).to_have_count(1)

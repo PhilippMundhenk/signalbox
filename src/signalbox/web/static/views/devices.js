@@ -272,7 +272,8 @@ export async function renderDeviceForm(main, ctx, device) {
       try {
         const saved = editing ? await put(`/devices/${enc(device.id)}`, body) : await post('/devices', body);
         toast(editing ? t('devices.saved') : t('devices.added', { name: saved.name }));
-        if (!editing) testOnOpen.add(saved.id);
+        // a new device, or a change the snapshot carries (#368): read it as the page opens
+        if (!editing || saved.site_id !== device.site_id || saved.name !== device.name || saved.role !== device.role) testOnOpen.add(saved.id);
         ctx.navigate(`#/device/${enc(saved.id)}`);
       } catch (err) {
         formError(err.message);
