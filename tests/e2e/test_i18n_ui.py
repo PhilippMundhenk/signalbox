@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -78,3 +81,54 @@ def test_unknown_language_falls_back_to_english(browser: Any, server: Any) -> No
         expect(page.get_by_test_id("nav-findings")).to_contain_text("Findings")
     finally:
         context.close()
+
+
+def _catalogue_languages() -> list[dict[str, str]]:
+    index = Path(__file__).parents[2] / "src/signalbox/web/static/i18n/index.json"
+    entries: list[dict[str, str]] = json.loads(index.read_text(encoding="utf-8"))
+    return entries
+
+
+def test_language_picker_lists_every_index_entry(page: Any, server: Any) -> None:
+    login(page, server)
+    page.goto(f"{server.url}/#/settings")
+    options = page.get_by_test_id("language").locator("option")
+    expected = [e["name"] for e in _catalogue_languages()]
+    expect(options).to_have_count(len(expected) + 1)  # plus "automatic"
+    assert options.all_inner_texts()[1:] == expected
+    assert [o.get_attribute("value") for o in options.all()][1:] == [
+        e["code"] for e in _catalogue_languages()
+    ]
+
+
+#: A catalogue key shown instead of a text: "nav.findings", "devices.col.name", ...
+KEY_SHOWN = re.compile(
+    r"\b(?:nav|devices|findings|settings|common|overview|segments|ack|clients|changes|msg|rule)"
+    r"\.[A-Za-z][A-Za-z0-9_.-]*"
+)
+
+
+@pytest.mark.parametrize("code", ["es", "fr", "pt"])
+def test_overview_and_device_page_render_in_each_new_language(
+    page: Any, server: Any, code: str
+) -> None:
+    """Smoke test (#204): no catalogue key shown for a missing text, no overflowing nav."""
+    page.add_init_script(f"localStorage.setItem('lang', '{code}')")
+    login(page, server)
+    expect(page.locator("html")).to_have_attribute("lang", code)
+    add_site(page)
+    device = add_lab(page, "Gateway")
+    observe(page)
+    for hash_ in ("#/", "#/devices", f"#/device/{device['id']}"):
+        page.goto(f"{server.url}/{hash_}")
+        page.reload()
+        page.locator("main h1").first.wait_for()
+        text = page.locator("body").inner_text()
+        # rule ids ("clients.random-share") are shown as they are; catalogue keys have no hyphen
+        shown = [k for k in KEY_SHOWN.findall(text) if "-" not in k]
+        assert not shown, (code, hash_, shown)
+        assert "Add a device" not in text
+        overflow = page.evaluate(
+            "() => document.documentElement.scrollWidth > document.documentElement.clientWidth"
+        )
+        assert not overflow, f"{code} {hash_}: page scrolls horizontally"
