@@ -13,6 +13,7 @@ from __future__ import annotations
 import secrets
 import string
 from collections.abc import Awaitable, Callable, Iterable
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from signalbox.adapters import AdapterError, SetupStep, StepState
@@ -74,12 +75,23 @@ def plan_steps(steps: Iterable[Step], redact: Redactor) -> list[SetupStep]:
     return [s.report(redact) for s in steps]
 
 
+#: Called by :func:`run_steps` when a step starts (``running=True``, the planned report) and when
+#: it is finished (the report as run). Set by the web app around one setup run (#316) to show the
+#: current step; it only ever sees redacted reports. Unset: nothing is reported.
+progress_sink: ContextVar[Callable[[SetupStep, bool], None] | None] = ContextVar(
+    "progress_sink", default=None
+)
+
+
 async def run_steps(steps: Iterable[Step], redact: Redactor) -> tuple[bool, list[SetupStep]]:
     """Run the needed steps in order; after a failure the rest are skipped."""
     out: list[SetupStep] = []
     failed = False
+    sink = progress_sink.get()
     for step in steps:
         report = step.report(redact)
+        if sink is not None and step.needed and not failed:
+            sink(report.model_copy(), True)
         if failed:
             report.state = StepState.SKIPPED if step.needed else StepState.UNCHANGED
         elif step.needed and step.action is not None:
@@ -95,6 +107,8 @@ async def run_steps(steps: Iterable[Step], redact: Redactor) -> tuple[bool, list
         elif step.needed:
             report.state = StepState.DONE
         out.append(report)
+        if sink is not None:
+            sink(report.model_copy(), False)
     return not failed, out
 
 
