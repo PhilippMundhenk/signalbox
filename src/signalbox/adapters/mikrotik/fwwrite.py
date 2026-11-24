@@ -390,7 +390,8 @@ def zone_policy(cfg: _Config, c: Change, revert: Revert) -> None:
         if menu not in menus and ours is None:
             continue
         body = None
-        if new is not None:
+        # the chains accept what no rule matches: an accepting policy is having no rule of ours
+        if new is not None and new.action is not FirewallAction.ACCEPT:
             body = _clean(
                 {
                     "chain": chain,

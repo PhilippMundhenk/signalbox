@@ -1494,7 +1494,7 @@ class MikrotikSimulator:
             return "invalid value for argument start-date"
         if not row.get("on-event"):
             return "missing value for on-event"
-        unknown = set(row.get("policy", "").split(",")) - POLICIES
+        unknown = set(filter(None, row.get("policy", "").split(","))) - POLICIES
         return (
             f"invalid value for argument policy ({','.join(sorted(unknown))})" if unknown else None
         )
