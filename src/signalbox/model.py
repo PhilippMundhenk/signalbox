@@ -2243,6 +2243,16 @@ class DhcpRelay(Observed):
 class HostRecord(Model):
     name: str
     address: IPAddress
+    #: Where the record comes from (#386): ``host-override``, ``alias`` (an alias of a host
+    #: override), ``dhcp-static`` (a static DHCP mapping the resolver registers) or ``dhcp-lease``
+    #: (a lease it registers). None: not known (every record of other adapters).
+    source: str | None = None
+
+    @property
+    def from_dhcp(self) -> bool:
+        """Registered from DHCP: follows the DHCP data, so checks that compare records with DHCP
+        (stale, in a pool, conflicting) leave it out."""
+        return self.source is not None and self.source.startswith("dhcp-")
 
 
 DNS_PORT = 53
@@ -2311,6 +2321,9 @@ class DnsService(Observed):
     port: Annotated[int, Field(ge=1, le=65535)] = DNS_PORT
     forwarders: list[DnsForwarder] = Field(default_factory=list)
     host_records: list[HostRecord] = Field(default_factory=list)
+    #: False: the host records could not be read (refused, not found), so an empty list means
+    #: "unknown", not "none configured" (#386); other settings were read.
+    host_records_read: bool = True
     #: False: the service is only known to exist (something answers on the port, its own API
     #: needs its own login, like AdGuard Home on OPNsense); its forwarders and host records
     #: were not read, so empty lists mean "unknown", not "none".

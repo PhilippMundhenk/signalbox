@@ -422,7 +422,7 @@ def api_setup(d: Path, root: dict[str, str]) -> None:
         d,
     )
     checked(root, "/api/kea/service/reconfigure", {}, d)
-    checked(
+    override = checked(
         root,
         "/api/unbound/settings/add_host_override",
         {
@@ -433,6 +433,31 @@ def api_setup(d: Path, root: dict[str, str]) -> None:
                 "rr": "A",
                 "server": "192.0.2.10",
                 "description": "",
+            }
+        },
+        d,
+    )
+    # an alias of that override, and "Register DHCP static mappings / leases" on (#386)
+    checked(
+        root,
+        "/api/unbound/settings/add_host_alias",
+        {
+            "alias": {
+                "enabled": "1",
+                "host": override["uuid"],
+                "hostname": "storage",
+                "domain": "home.example",
+                "description": "",
+            }
+        },
+        d,
+    )
+    checked(
+        root,
+        "/api/unbound/settings/set",
+        {
+            "unbound": {
+                "general": {"regdhcp": "1", "regdhcpstatic": "1", "regdhcpdomain": "lan.example"}
             }
         },
         d,

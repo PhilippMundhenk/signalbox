@@ -1969,6 +1969,11 @@
           "title": "Host Records",
           "type": "array"
         },
+        "host_records_read": {
+          "default": true,
+          "title": "Host Records Read",
+          "type": "boolean"
+        },
         "id": {
           "title": "Id",
           "type": "string"
@@ -2895,6 +2900,18 @@
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
         }
       },
       "required": [

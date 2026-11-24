@@ -520,7 +520,18 @@ these pages, so treat its key like an admin password.
   selected interfaces (all when none is selected), the port is `general.port`. Global forwarders
   (`dots` entries without a domain) become `forwarders` with their port (empty: 853 for DNS over
   TLS, 53 for a plain forward, Unbound's defaults); per-domain forwards go to
-  `vendor_extra.domain_forwards`. Enabled `A`/`AAAA` host overrides become host records.
+  `vendor_extra.domain_forwards` (also those of the domain override grid, when the release has one).
+  Host records (#386), each with its `source`: enabled `A`/`AAAA` host overrides (`host-override`),
+  their aliases (`alias`, with the addresses of the override they point to), and, when
+  "Register DHCP static mappings" / "Register DHCP leases" is on, the names of the DHCP
+  reservations (`dhcp-static`) and active leases (`dhcp-lease`) of the enabled servers, with the
+  registration domain (`regdhcpdomain`, else the server's domain). DHCP-derived records follow the
+  DHCP data, so the DNS checks that compare records with DHCP leave them out. The grids are read
+  completely (`rowCount=-1`, then page by page up to `total`). Both spellings are tried
+  (`search_host_override`, then `searchHostOverride`: 25.1 and older). A grid that cannot be read
+  (refused, missing) is an optional gap naming the privilege *Services: Unbound DNS*
+  (`page-services-unbound`) and the service shows "host records not read" (`host_records_read`
+  false), not "none configured".
   Dnsmasq (`/api/dnsmasq/settings/get`, OPNsense 25.1+) is `<device>/dns/dnsmasq` when enabled
   with a DNS port (`port` 0 is DHCP only, empty is 53): its selected interfaces, port and
   `hosts`; its upstreams are the system's DNS servers, which this API does not show. When
@@ -721,6 +732,22 @@ Dnsmasq model; not yet seen on a real device.
 {"rows": [{"uuid": "<uuid>", "enabled": "1", "hostname": "nas", "domain": "home.example",
   "rr": "A", "server": "192.0.2.10", "description": "", "isAlias": false}]}
 ```
+
+*Guesses* for 25.1 and older (#21, #386): the camelCase spelling `searchHostOverride`; the target
+in `server` (`address` or `ip` are accepted too); `rr` as a key (`A`) or a label (`A (IPv4 address)`).
+
+### `/api/unbound/settings/search_host_alias` (dns)
+
+```json
+{"rows": [{"uuid": "<uuid>", "enabled": "1", "host": "<uuid of the override>",
+  "hostname": "storage", "domain": "home.example", "description": ""}]}
+```
+
+*Guess* from the Unbound model: `host` is the uuid of the override (its name is tried, too). Not
+found (404): no aliases. Same for `search_domain_override` (`domain`, `server`, `port`).
+"Register DHCP leases" and "static mappings" are read from `general.regdhcp`,
+`general.regdhcpstatic` and `general.regdhcpdomain` (also a `dhcp` node with `enable`, `static`,
+`domain`): a *guess* for the names, not yet seen on 25.1 or 26.7.
 
 ### `/api/diagnostics/system/system_time`, `system_resources`, `system_disk`, `system_temperature`, `/api/diagnostics/cpu_usage/get_cpu_type` (health, time)
 
