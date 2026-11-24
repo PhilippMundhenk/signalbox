@@ -587,17 +587,3 @@ jobs:
         run: |
           echo "$RESULTS"
           if echo "$RESULTS" | grep -Eq 'failure|cancelled'; then exit 1; fi
-
-  integration-ok:
-    name: Integration (all needed targets passed)
-    if: always()
-    needs: [changes, opnsense, openwrt, mikrotik, omada]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Fail if a needed job failed or was cancelled (skipped is fine)
-        env:
-          RESULTS: ${{ toJSON(needs.*.result) }}
-        run: |
-          echo "$RESULTS"
-          if echo "$RESULTS" | grep -Eq 'failure|cancelled'; then exit 1; fi
