@@ -49,6 +49,9 @@ from signalbox.model import (
     FirewallProtocol,
     FirewallZone,
     Firmware,
+    GatewayGroup,
+    GatewayGroupMember,
+    GroupMode,
     HostRecord,
     LagHashPolicy,
     LagMemberState,
@@ -102,6 +105,7 @@ from signalbox.model import (
     TunnelPeer,
     Uplink,
     UplinkKind,
+    UplinkState,
     WifiScanResult,
     WifiStandard,
     Wlan,
@@ -1068,6 +1072,9 @@ class WanConfig(AdapterConfig):
     lan: str = Field(description="The router's LAN address with prefix, e.g. 192.0.2.1/24.")
     wan: str = Field(default="203.0.113.30/24", description="Its address on the uplink.")
     up: bool = Field(default=True, description="Whether the uplink is connected.")
+    wan2: str | None = Field(
+        default=None, description="A second uplink address: a failover group, wan active."
+    )
 
 
 class Wan(Adapter):
@@ -1091,25 +1098,90 @@ class Wan(Adapter):
     async def read_interfaces(self) -> Observation:
         assert isinstance(self.context.config, WanConfig)
         cfg = self.context.config
-        d = self.context.device_id
-        return Observation(
-            subnets=[
-                Subnet(
-                    id=object_id(d, "subnet", "lan"),
-                    segment_id=segment_id(self.context.site_id, None),
-                    interface=ip_interface(cfg.lan),
-                    device_id=d,
-                    gateway=True,
-                )
-            ],
-            uplinks=[
-                Uplink(
-                    id=object_id(d, "uplink", "wan"),
-                    device_id=d,
-                    name="wan",
-                    kind=UplinkKind.DHCP,
-                    up=cfg.up,
-                    addresses=[ip_interface(cfg.wan)],
-                )
-            ],
+        return wan_observation(
+            self.context.device_id, self.context.site_id, cfg.lan, cfg.wan, cfg.up, cfg.wan2
+        )
+
+
+def wan_observation(
+    d: str, site: str, lan: str, wan: str, up: bool, wan2: str | None
+) -> Observation:
+    """A LAN subnet, an uplink ``wan`` and, with ``wan2``, a backup uplink in a failover group."""
+    uplinks = [
+        Uplink(
+            id=object_id(d, "uplink", "wan"),
+            device_id=d,
+            name="wan",
+            kind=UplinkKind.DHCP,
+            up=up,
+            addresses=[ip_interface(wan)],
+        )
+    ]
+    groups = []
+    if wan2:
+        uplinks.append(
+            Uplink(
+                id=object_id(d, "uplink", "wan2"),
+                device_id=d,
+                name="wan2",
+                kind=UplinkKind.DHCP,
+                up=True,
+                addresses=[ip_interface(wan2)],
+            )
+        )
+        groups.append(
+            GatewayGroup(
+                id=object_id(d, "gateway-group", "wan"),
+                device_id=d,
+                name="wan",
+                mode=GroupMode.FAILOVER,
+                active="wan",
+                members=[
+                    GatewayGroupMember(name="wan", uplink_id=uplinks[0].id, tier=1),
+                    GatewayGroupMember(
+                        name="wan2", uplink_id=uplinks[1].id, tier=2, state=UplinkState.STANDBY
+                    ),
+                ],
+            )
+        )
+    return Observation(
+        subnets=[
+            Subnet(
+                id=object_id(d, "subnet", "lan"),
+                segment_id=segment_id(site, None),
+                interface=ip_interface(lan),
+                device_id=d,
+                gateway=True,
+            )
+        ],
+        uplinks=uplinks,
+        gateway_groups=groups,
+    )
+
+
+class WanGateConfig(GateConfig):
+    lan: str = Field(description="The gateway's LAN address with prefix.")
+    wan: str = Field(default="203.0.113.30/24", description="Its address on the uplink.")
+
+
+class WanGate(Gate):
+    """A gateway with the lab tunnel of :class:`Gate` and one uplink (#541): the remote site
+    behind the tunnel and the Internet cloud are both drawn."""
+
+    manifest = Manifest(
+        id="labwangate",
+        name="Lab VPN gateway with an uplink",
+        version="1",
+        api_version="1.4",
+        vendor="Example",
+        roles=frozenset({DeviceRole.GATEWAY}),
+        capabilities=frozenset({Capability.VPN, Capability.INTERFACES}),
+        config=WanGateConfig,
+    )
+
+    async def read_interfaces(self) -> Observation:
+        assert isinstance(self.context.config, WanGateConfig)
+        cfg = self.context.config
+        return wan_observation(
+            self.context.device_id, self.context.site_id, cfg.lan, cfg.wan, True, None
         )

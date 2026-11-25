@@ -11,7 +11,8 @@
 //           wires that cross layers, top to bottom of the pair's upper device), pairs,
 //           sites [{id, x, w}], width, height, crossings, ranks }
 
-export const TIER = { internet: -1, remote: 0, gateway: 1, switch: 2, ap: 3, other: 3 };
+// A remote site (#541) hangs below its tunnel's device, so no wire from the cloud runs through it.
+export const TIER = { internet: -1, gateway: 1, switch: 2, remote: 2, ap: 3, other: 3 };
 const GAP = 36; // between two devices of a layer
 const DUMMY_GAP = 14;
 const DUMMY_W = 6;
@@ -27,7 +28,11 @@ export function assignRanks(nodes, edges) {
   const ids = nodes.map((n) => n.id).sort(cmp);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const tier = (id) => TIER[byId.get(id).role] ?? 3;
-  const links = edges.filter((e) => e.kind !== 'vpn' && e.a !== e.b && byId.has(e.a) && byId.has(e.b));
+  const isRemote = (id) => byId.get(id)?.role === 'remote';
+  // tunnels count where one end is a remote site: it sits below the device that holds the tunnel
+  const links = edges
+    .filter((e) => (e.kind !== 'vpn' || isRemote(e.a) || isRemote(e.b)) && e.a !== e.b && byId.has(e.a) && byId.has(e.b))
+    .map((e) => (e.kind === 'vpn' ? { ...e, up: isRemote(e.a) ? 'a' : 'b' } : e));
   // distance from the gateways decides the direction between two devices of the same role
   const adj = new Map(ids.map((i) => [i, []]));
   for (const e of links) {

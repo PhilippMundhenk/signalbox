@@ -297,7 +297,13 @@ def test_the_host_of_a_service_is_set_in_the_device_settings(app: Any) -> None:
 
 
 def add_wan_router(
-    app: Any, name: str, site: str, lan: str, wan: str = "203.0.113.30/24", up: bool = True
+    app: Any,
+    name: str,
+    site: str,
+    lan: str,
+    wan: str = "203.0.113.30/24",
+    up: bool = True,
+    wan2: str | None = None,
 ) -> None:
     api(
         app,
@@ -308,7 +314,7 @@ def add_wan_router(
             "site_id": site,
             "role": "gateway",
             "adapter": "labwan",
-            "config": {"lan": lan, "wan": wan, "up": up},
+            "config": {"lan": lan, "wan": wan, "up": up, "wan2": wan2},
         },
     )
 
@@ -371,3 +377,70 @@ def test_a_down_uplink_is_drawn_down(app: Any) -> None:
             1
         )
         assert wan.evaluate("e => getComputedStyle(e).stroke") != "rgb(0, 0, 0)"
+
+
+def test_multi_wan_draws_the_active_line_solid_and_the_backup_dashed(app: Any) -> None:
+    add_site(app)
+    add_wan_router(app, "Router", "home", "192.0.2.1/24", wan2="198.51.100.9/24")
+    observe(app)
+    go(app, "#/topology")
+    expect(app.get_by_test_id("topo-wan")).to_have_count(2)
+    active = app.locator('[data-testid="topo-wan"][data-role="active"]')
+    backup = app.locator('[data-testid="topo-wan"][data-role="backup"]')
+    expect(active).to_have_count(1)
+    expect(backup).to_have_count(1)
+    expect(active).to_have_class(re.compile("wan-active"))
+    expect(backup).to_have_class(re.compile("wan-backup"))
+    expect(active).to_have_attribute("data-state", "online")
+    expect(backup).to_have_attribute("data-state", "standby")
+    expect(backup).to_have_attribute("data-down", "false")  # standby is not broken
+    # the backup is dashed and thinner than the active line
+    assert backup.evaluate("e => getComputedStyle(e).strokeDasharray") not in ("none", "")
+    assert active.evaluate("e => getComputedStyle(e).strokeDasharray") in ("none", "")
+    width = "e => parseFloat(getComputedStyle(e).strokeWidth)"
+    assert active.evaluate(width) > backup.evaluate(width)
+    expect(backup.locator("title")).to_contain_text("198.51.100.9")
+
+
+# Names of the Internet lines that pass through the box of a remote site (SVG units).
+LINES_IN_BOXES = """() => {
+  const hits = [];
+  const sel = '[data-testid=topo-node].role-remote .box';
+  const boxes = [...document.querySelectorAll(sel)].map((r) => r.getBBox());
+  for (const p of document.querySelectorAll('[data-testid=topo-wan]')) {
+    const len = p.getTotalLength();
+    for (let i = 0; i <= 200; i++) {
+      const pt = p.getPointAtLength((len * i) / 200);
+      const inside = (b) =>
+        pt.x >= b.x && pt.x <= b.x + b.width && pt.y >= b.y && pt.y <= b.y + b.height;
+      if (boxes.some(inside)) hits.push(p.dataset.id);
+    }
+  }
+  return hits;
+}"""
+
+
+def test_a_remote_site_is_not_between_the_cloud_and_the_gateways(app: Any) -> None:
+    """Remote sites sit below their tunnel's device (#541): no line from the Internet cloud
+    crosses their box, and nothing but the cloud is above the gateways."""
+    add_site(app)
+    away = add_site(app, "Away")
+    for name, end, site, lan, wan in (
+        ("Gate A", "a", "home", "192.0.2.1/24", "203.0.113.30/24"),
+        ("Gate B", "b", away["id"], "198.51.100.1/24", "203.0.113.77/24"),
+    ):
+        body = {"name": name, "site_id": site, "role": "gateway", "adapter": "labwangate"}
+        api(app, "POST", "/devices", {**body, "config": {"end": end, "lan": lan, "wan": wan}})
+    observe(app)
+    go(app, "#/topology")
+    expect(app.get_by_test_id("topo-wan")).to_have_count(2)
+    remote = app.locator('[data-testid="topo-node"].role-remote')
+    expect(remote).to_have_count(1)
+    cloud = box(app.locator('[data-testid="topo-node"][data-id="internet"]'))
+    gate = box(app.locator('[data-testid="topo-node"][data-id="gate-a"]'))
+    rbox = box(remote)
+    # cloud on top, the remote site below its gateway (not in the row between them)
+    assert cloud["y"] + cloud["height"] <= gate["y"]
+    assert rbox["y"] >= gate["y"] + gate["height"]
+    # and no cloud line runs through the box of the remote site
+    assert app.evaluate(LINES_IN_BOXES) == []
