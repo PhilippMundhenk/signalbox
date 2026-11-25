@@ -11,7 +11,7 @@
 //           wires that cross layers, top to bottom of the pair's upper device), pairs,
 //           sites [{id, x, w}], width, height, crossings, ranks }
 
-export const TIER = { remote: 0, gateway: 1, switch: 2, ap: 3, other: 3 };
+export const TIER = { internet: -1, remote: 0, gateway: 1, switch: 2, ap: 3, other: 3 };
 const GAP = 36; // between two devices of a layer
 const DUMMY_GAP = 14;
 const DUMMY_W = 6;
@@ -254,8 +254,10 @@ export function layoutTopology({ nodes, edges, siteNames = {} }) {
   const linked = new Set();
   for (const e of edges) if (e.a !== e.b && byId.has(e.a) && byId.has(e.b)) (linked.add(e.a), linked.add(e.b));
   const loose = new Set(nodes.filter((n) => isUncabled(n, linked)).map((n) => n.id));
-  const treeNodes = nodes.filter((n) => !loose.has(n.id));
-  const rank = assignRanks(treeNodes, edges);
+  // the Internet cloud (#534) belongs to no site: one for the whole picture, centred above all sites
+  const clouds = nodes.filter((n) => n.role === 'internet');
+  const treeNodes = nodes.filter((n) => !loose.has(n.id) && n.role !== 'internet');
+  const rank = assignRanks([...treeNodes, ...clouds], edges);
   // one pair per two devices, however many cables
   const pairMap = new Map();
   for (const e of [...edges].sort((x, y) => cmp(x.id, y.id))) {
@@ -266,7 +268,7 @@ export function layoutTopology({ nodes, edges, siteNames = {} }) {
     pairMap.get(key).edges.push(e);
   }
   const pairs = [...pairMap.values()].sort((x, y) => cmp(x.key, y.key));
-  const siteIds = [...new Set(nodes.map((n) => n.site || ''))].sort(cmp);
+  const siteIds = [...new Set(nodes.filter((n) => n.role !== 'internet').map((n) => n.site || ''))].sort(cmp);
   const out = { nodes: {}, routes: {}, pairs: pairs.map((p) => ({ key: p.key, a: p.a, b: p.b, edges: p.edges.map((e) => e.id) })), sites: [], vpns: [], width: 0, height: 0, crossings: 0, ranks: 0, frameY: 6, titleY: 24, uncabled: 0 };
   // tunnels between devices of one layer are drawn as arcs in lanes above the site frames
   const arcs = edges.filter((e) => e.kind === 'vpn' && byId.has(e.a) && byId.has(e.b) && !loose.has(e.a) && !loose.has(e.b) && rank.get(e.a) === rank.get(e.b));
@@ -345,6 +347,10 @@ export function layoutTopology({ nodes, edges, siteNames = {} }) {
   [...arcs]
     .sort((p, q) => Math.abs(out.nodes[q.a].x - out.nodes[q.b].x) - Math.abs(out.nodes[p.a].x - out.nodes[p.b].x) || cmp(p.id, q.id))
     .forEach((e, i) => out.vpns.push({ id: e.id, a: e.a, b: e.b, ax: startX(e.a), bx: startX(e.b), y: 10 + i * LANE, ay: out.nodes[e.a].y, by: out.nodes[e.b].y }));
+  clouds.forEach((n, i) => {
+    const w = x0 - SITE_GAP + 20;
+    out.nodes[n.id] = { x: Math.max(20, (w - n.w) / 2) + i * (n.w + GAP), y: top, w: n.w, h: n.h, rank: rank.get(n.id), site: '' };
+  });
   out.width = Math.max(320, x0 - SITE_GAP + 20);
   out.height = bottom + 40;
   out.ranks = maxRank + 1;

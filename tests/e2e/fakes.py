@@ -1062,3 +1062,54 @@ class Tracing(Adapter):
             TraceHop(ttl=3, address=target, rtt_ms=9.5),
         ]
         return TraceAnswer(hops=hops, reached=True)
+
+
+class WanConfig(AdapterConfig):
+    lan: str = Field(description="The router's LAN address with prefix, e.g. 192.0.2.1/24.")
+    wan: str = Field(default="203.0.113.30/24", description="Its address on the uplink.")
+    up: bool = Field(default=True, description="Whether the uplink is connected.")
+
+
+class Wan(Adapter):
+    """A router with one LAN and one uplink (#534): put ``wan`` in another router's LAN for a
+    router behind a router (double NAT), or set ``up`` to false for a line that is down."""
+
+    manifest = Manifest(
+        id="labwan",
+        name="Lab router with an uplink",
+        version="1",
+        api_version="1.3",
+        vendor="Example",
+        roles=frozenset({DeviceRole.GATEWAY}),
+        capabilities=frozenset({Capability.INTERFACES}),
+        config=WanConfig,
+    )
+
+    async def read_system(self) -> SystemInfo:
+        return SystemInfo(vendor="Example", model="WAN-1")
+
+    async def read_interfaces(self) -> Observation:
+        assert isinstance(self.context.config, WanConfig)
+        cfg = self.context.config
+        d = self.context.device_id
+        return Observation(
+            subnets=[
+                Subnet(
+                    id=object_id(d, "subnet", "lan"),
+                    segment_id=segment_id(self.context.site_id, None),
+                    interface=ip_interface(cfg.lan),
+                    device_id=d,
+                    gateway=True,
+                )
+            ],
+            uplinks=[
+                Uplink(
+                    id=object_id(d, "uplink", "wan"),
+                    device_id=d,
+                    name="wan",
+                    kind=UplinkKind.DHCP,
+                    up=cfg.up,
+                    addresses=[ip_interface(cfg.wan)],
+                )
+            ],
+        )

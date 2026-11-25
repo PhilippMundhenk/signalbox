@@ -292,3 +292,78 @@ def test_the_host_of_a_service_is_set_in_the_device_settings(app: Any) -> None:
     except AssertionError as exc:
         raise AssertionError(f"{exc}\n{topology_state(app)}") from exc
     expect(app.get_by_test_id("topo-uncabled")).to_have_count(0)
+
+
+def add_wan_router(
+    app: Any, name: str, site: str, lan: str, wan: str = "203.0.113.30/24", up: bool = True
+) -> None:
+    api(
+        app,
+        "POST",
+        "/devices",
+        {
+            "name": name,
+            "site_id": site,
+            "role": "gateway",
+            "adapter": "labwan",
+            "config": {"lan": lan, "wan": wan, "up": up},
+        },
+    )
+
+
+def test_one_gateway_has_one_edge_to_the_internet_cloud(app: Any) -> None:
+    add_site(app)
+    add_wan_router(app, "Router", "home", "192.0.2.1/24")
+    observe(app)
+    go(app, "#/topology")
+    cloud = app.locator('[data-testid="topo-node"][data-id="internet"]')
+    expect(cloud).to_have_count(1)
+    expect(cloud.get_by_test_id("topo-device-link")).to_have_count(0)  # not a device
+    wan = app.get_by_test_id("topo-wan")
+    expect(wan).to_have_count(1)
+    expect(wan).to_have_attribute("data-nat", "public")
+    expect(wan).to_have_attribute("data-state", "online")
+    expect(wan.locator("title")).to_contain_text("Internet connection wan")
+    expect(wan.locator("title")).to_contain_text("203.0.113.30")
+    # the cloud sits above the border router
+    assert box(cloud)["y"] < box(app.locator('[data-testid="topo-node"][data-id="router"]'))["y"]
+    expect(app.get_by_test_id("topo-legend")).to_contain_text("Internet connection of a router")
+    # the cloud is no device
+    assert "internet" not in {d["id"] for d in api(app, "GET", "/network")["devices"]}
+
+
+def test_a_router_behind_another_router_has_no_cloud_edge(app: Any) -> None:
+    add_site(app)
+    add_wan_router(app, "Outer", "home", "192.0.2.1/24")
+    add_wan_router(app, "Inner", "home", "198.51.100.1/24", wan="192.0.2.7/24")
+    observe(app)
+    go(app, "#/topology")
+    expect(app.get_by_test_id("topo-wan")).to_have_count(1)
+    expect(app.get_by_test_id("topo-wan")).to_have_attribute("data-a", "outer/uplink/wan")
+    expect(app.locator('[data-testid="topo-edge"][data-id^="address:"]')).to_have_count(1)
+
+
+def test_two_sites_share_one_cloud(app: Any) -> None:
+    add_site(app, "Home")
+    add_site(app, "Office")
+    add_wan_router(app, "Home router", "home", "192.0.2.1/24")
+    add_wan_router(app, "Office router", "office", "198.51.100.1/24", wan="203.0.113.77/24")
+    observe(app)
+    go(app, "#/topology")
+    expect(app.locator('[data-testid="topo-node"][data-id="internet"]')).to_have_count(1)
+    expect(app.get_by_test_id("topo-wan")).to_have_count(2)
+
+
+def test_a_down_uplink_is_drawn_down(app: Any) -> None:
+    add_site(app)
+    add_wan_router(app, "Router", "home", "192.0.2.1/24", up=False)
+    observe(app)
+    go(app, "#/topology")
+    wan = app.get_by_test_id("topo-wan")
+    expect(wan).to_have_attribute("data-down", "true")
+    expect(wan).to_have_class(re.compile("wan-down"))
+    expect(wan.locator("title")).to_contain_text("down")
+    for theme in ("light", "dark"):
+        app.evaluate(f"document.documentElement.setAttribute('data-theme', '{theme}')")
+        expect(app.locator(".topo .node.role-internet .box")).to_be_visible()
+        assert wan.evaluate("e => getComputedStyle(e).stroke") != "rgb(0, 0, 0)"

@@ -15,6 +15,25 @@ const BLOCKED = new Set(['blocking', 'discarding']);
 const ROLE = { gateway: 'topology.role.gateway', remote: 'topology.role.remote', switch: 'topology.role.switch', ap: 'topology.role.ap', other: 'topology.role.other' };
 const MODE = { tagged: 'topology.mode.tagged', untagged: 'topology.mode.untagged' };
 const KIND = { cable: 'topology.linkKind.cable', wireless: 'topology.linkKind.wireless', vpn: 'topology.linkKind.vpn' };
+// The Internet cloud (#534): one node for the whole topology, an edge per uplink of a border router.
+const INTERNET = 'internet';
+const UPLINK_KIND = { dhcp: 'device.uplink.dhcp', static: 'device.uplink.static', pppoe: 'device.uplink.pppoe', dslite: 'device.uplink.dslite', 'map-e': 'device.uplink.mapE', lte: 'device.uplink.lte', bridge: 'device.uplink.bridge' };
+const NAT_TEXT = { public: 'device.nat.public', cgnat: 'device.nat.cgnat', private: 'device.nat.private', none: 'device.nat.none' };
+const WAN_STATE = { online: 'device.multiwan.state.online', degraded: 'device.multiwan.state.degraded', down: 'device.multiwan.state.down', standby: 'device.multiwan.state.standby' };
+const CLOUD_W = 170;
+const CLOUD_H = 64;
+// tooltip of a wire to the cloud: state, kind, public address or CGNAT / private, role in a multi-WAN group
+function wanText(e, names) {
+  const w = e.wan;
+  const parts = [
+    t('topology.wan.title', { device: names.get(e.a.device_id) || e.a.device_id, name: w.name || e.a.port }),
+    UPLINK_KIND[w.kind] ? t(UPLINK_KIND[w.kind]) : null,
+    WAN_STATE[w.state] ? t(WAN_STATE[w.state]) : null,
+    w.nat === 'public' && w.address ? t('topology.wan.public', { address: w.address }) : NAT_TEXT[w.nat] ? t(NAT_TEXT[w.nat]) : null,
+    w.role === 'active' ? t('device.multiwan.active') : w.role === 'backup' ? t('topology.wan.backup') : null,
+  ];
+  return parts.filter(Boolean).join(' · ');
+}
 const originLabel = (o) => (ORIGIN[o] ? t(ORIGIN[o]) : o);
 // a link drawn from partial data (#378): its origin with "inferred"
 // quality of a wireless backhaul link (#171): band, signal and rates as far as reported
@@ -96,16 +115,18 @@ function cableState(e) {
 }
 
 function drawGraph(data, nodes, onPort, siteNames) {
-  const linked = new Set(data.edges.flatMap((e) => [e.a.port_id, e.b.port_id]));
+  const wanAll = (data.internet && data.internet.edges) || [];
+  const linked = new Set([...data.edges, ...wanAll].flatMap((e) => [e.a.port_id, e.b.port_id]));
   const ports = new Map(nodes.map((n) => [n.id, visiblePorts(n, linked)]));
   const present = new Set(nodes.map((n) => n.id));
   const cables = data.edges.filter((e) => e.kind !== 'vpn' && present.has(e.a.device_id) && present.has(e.b.device_id));
   const tunnels = data.edges.filter((e) => e.kind === 'vpn' && present.has(e.a.device_id) && present.has(e.b.device_id));
-  const sized = nodes.map((n) => ({ id: n.id, name: n.name, role: n.role, site: n.site_id || '', w: Math.max(150, ports.get(n.id).length * (PORT + PORT_GAP) + 16, n.name.length * 8 + 24, ...hostedShown(n).rows.map((r) => hostedText(r).length * 6 + 40)), h: BOX_H + hostedHeight(n) }));
+  const wans = wanAll.filter((e) => present.has(e.a.device_id) && present.has(INTERNET));
+  const sized = nodes.map((n) => ({ id: n.id, name: n.name, role: n.role, site: n.site_id || '', w: n.role === 'internet' ? CLOUD_W : Math.max(150, ports.get(n.id).length * (PORT + PORT_GAP) + 16, n.name.length * 8 + 24, ...hostedShown(n).rows.map((r) => hostedText(r).length * 6 + 40)), h: n.role === 'internet' ? CLOUD_H : BOX_H + hostedHeight(n) }));
   const lay = layoutTopology({
     nodes: sized,
     siteNames,
-    edges: [...cables, ...tunnels].map((e) => ({ id: e.id, a: e.a.device_id, b: e.b.device_id, kind: e.kind, up: e.a.uplink && !e.b.uplink ? 'a' : e.b.uplink && !e.a.uplink ? 'b' : null })),
+    edges: [...cables, ...tunnels, ...wans].map((e) => ({ id: e.id, a: e.a.device_id, b: e.b.device_id, kind: e.kind, up: e.kind === 'wan' ? 'a' : e.a.uplink && !e.b.uplink ? 'a' : e.b.uplink && !e.a.uplink ? 'b' : null })),
   });
   const rankOf = (id) => lay.nodes[id].rank;
   // a port faces up when its cable goes to a device in a higher layer
@@ -114,6 +135,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
     if (rankOf(e.b.device_id) < rankOf(e.a.device_id)) faceUp.add(e.a.port_id);
     if (rankOf(e.a.device_id) < rankOf(e.b.device_id)) faceUp.add(e.b.port_id);
   }
+  for (const e of wans) if (rankOf(INTERNET) < rankOf(e.a.device_id)) faceUp.add(e.a.port_id);
   // position of every shown port: the top strip holds the ports of cables going up
   const spots = new Map();
   for (const n of nodes) {
@@ -258,11 +280,46 @@ function drawGraph(data, nodes, onPort, siteNames) {
       }
     }
   }
+  // one wire per uplink from its port up to the cloud; the places on the cloud follow the order of the ports
+  const cloud = lay.nodes[INTERNET];
+  const wanTo = new Map(wans.map((e) => [e.id, endAt(e.a, true)]));
+  const wanSorted = [...wans].sort((p, q) => wanTo.get(p.id).x - wanTo.get(q.id).x || (p.id < q.id ? -1 : 1));
+  wanSorted.forEach((e, i) => {
+    const to = wanTo.get(e.id);
+    const from = { x: cloud.x + (cloud.w * (i + 1)) / (wanSorted.length + 1), y: cloud.y + cloud.h };
+    const w = e.wan;
+    const cls = ['edge', 'wan', w.down ? 'wan-down' : '', w.role === 'backup' ? 'wan-backup' : '', w.role === 'active' ? 'wan-active' : '', state.segment ? 'dim' : ''].filter(Boolean).join(' ');
+    const path = s('path', { d: smooth([from, to]), class: cls, 'data-testid': 'topo-wan', 'data-id': e.id, 'data-a': e.a.port_id, 'data-state': w.state || 'unknown', 'data-role': w.role, 'data-nat': w.nat || 'unknown', 'data-down': w.down ? 'true' : 'false' });
+    place(path, s('title', {}, wanText(e, new Map(nodes.map((n) => [n.id, n.name])))));
+    place(edgeLayer, path);
+    track(path, e.a.device_id, INTERNET);
+  });
   const els = new Map();
   for (const n of nodes) {
     const { x, y, w, h: boxH } = lay.nodes[n.id];
     const g = s('g', { class: `node role-${n.role} status-${n.status}${n.stp_root ? ' stp-root' : ''}`, 'data-testid': 'topo-node', 'data-id': n.id, 'data-stp-root': n.stp_root ? 'true' : null });
     els.set(n.id, g);
+    if (n.role === 'internet') {
+      // a cloud, not a device: no page, no ports
+      const cx = x + w / 2;
+      const cy = y + boxH / 2;
+      place(g, s('path', { d: `M${x + 36},${y + boxH - 8} a16,16 0 0 1 -2,-31 a22,22 0 0 1 41,-8 a18,18 0 0 1 32,6 a15,15 0 0 1 10,33 z`, class: 'box cloud' }), s('text', { x: String(cx), y: String(cy + 5), 'text-anchor': 'middle', class: 'name' }, n.name));
+      const mine = links.get(n.id);
+      g.addEventListener('mouseenter', () => {
+        svg.classList.add('hovering');
+        g.classList.add('hot');
+        for (const p of mine.edges) p.classList.add('hot');
+        for (const id of mine.near) els.get(id).classList.add('near');
+      });
+      g.addEventListener('mouseleave', () => {
+        svg.classList.remove('hovering');
+        g.classList.remove('hot');
+        for (const p of mine.edges) p.classList.remove('hot');
+        for (const id of mine.near) els.get(id).classList.remove('near');
+      });
+      place(nodeLayer, g);
+      continue;
+    }
     place(g, s('rect', { x: String(x), y: String(y), width: String(w), height: String(boxH), rx: '10', class: 'box' }));
     const label = s('text', { x: String(x + 10), y: String(y + 40), class: 'name' }, n.name);
     if (n.role === 'remote') place(g, label);
@@ -484,12 +541,14 @@ function legendBlock() {
         item(line('address'), t('topology.legend.line.address')),
         item(line('wireless'), t('topology.legend.line.wireless')),
         item(line('wireless weak'), t('topology.legend.line.weak')),
+        item(line('wan'), t('topology.legend.line.wan')),
       ]),
       group(t('topology.legend.boxes'), [
         item(box('status-ok'), t('topology.legend.box.ok')),
         item(box('status-partial'), t('topology.legend.box.partial')),
         item(box('status-unreachable'), t('topology.legend.box.unreachable')),
         item(box('role-remote'), t('topology.legend.box.remote')),
+        item(swatch(s('g', { class: 'node role-internet' }, s('path', { d: 'M9,14 a4,4 0 0 1 0,-7 a6,6 0 0 1 11,-2 a5,5 0 0 1 9,2 a4,4 0 0 1 3,7 z', class: 'box cloud' }))), t('topology.legend.box.internet')),
         item(box('stp-root'), t('topology.legend.box.stpRoot')),
         item(swatch(s('g', {}, s('rect', { x: '3', y: '1', width: '34', height: '14', rx: '4', class: 'hosted-row' }), s('circle', { cx: '10', cy: '8', r: '3.5', class: 'hosted-dot status-ok' }))), t('topology.legend.box.hosted')),
         item(swatch(s('rect', { x: '3', y: '1', width: '34', height: '14', rx: '6', class: 'site-frame' })), t('topology.legend.box.site')),
@@ -529,7 +588,10 @@ export async function renderTopology(main, ctx) {
   const draw = () => {
     const nodes = nodesOf();
     const ids = new Set(nodes.map((n) => n.id));
-    const view = { ...data, edges: data.edges.filter((e) => ids.has(e.a.device_id) || ids.has(e.b.device_id)) };
+    // the one cloud is drawn when an uplink of a shown device leads to it
+    const inet = data.internet ? { ...data.internet, edges: data.internet.edges.filter((e) => ids.has(e.a.device_id)) } : null;
+    if (inet && inet.edges.length) nodes.push({ id: INTERNET, name: t('topology.internet'), role: 'internet', site_id: '', status: 'ok', ports: [], hosted: [] });
+    const view = { ...data, internet: inet, edges: data.edges.filter((e) => ids.has(e.a.device_id) || ids.has(e.b.device_id)) };
     const svg = drawGraph(view, nodes, (node, port) => place(clear(panel), portPanel(data, data.segments, node, port)), nameOfSite);
     svg.addEventListener('redraw', draw);
     place(clear(graphBox), svg);

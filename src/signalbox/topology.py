@@ -12,17 +12,22 @@ from typing import Any
 from signalbox.fdb import adjacencies
 from signalbox.model import (
     Device,
+    GatewayGroupMember,
+    GroupMode,
     Link,
     LinkKind,
     LinkOrigin,
     Membership,
     MeshPeerRole,
+    NatClass,
     Network,
     Port,
     Subnet,
     Tunnel,
     TunnelPeer,
     Uplink,
+    UplinkState,
+    address_nat_class,
     normalise_mac,
 )
 from signalbox.rules import Result, RuleSettings, Severity, found, rule
@@ -262,6 +267,98 @@ def front_links(net: Network) -> list[FrontLink]:
             continue  # LLDP or MAC tables already connect them (directly or through switches)
         out.append(FrontLink(uplink, front, _front_port(net, uplink, outer)))
     return out
+
+
+#: Id of the one Internet cloud of the whole topology (#534): not a device.
+INTERNET_ID = "internet"
+#: ``origin`` and ``kind`` of the edges from a border router's uplink to the cloud.
+WAN_ORIGIN = "wan"
+
+
+def _uplink_state(uplink: Uplink, member: GatewayGroupMember | None) -> UplinkState | None:
+    """What the monitor of the router says (group member first, then the uplink's own health),
+    else ``down`` / ``online`` from the connection state; None: not known."""
+    if member is not None and member.state is not None:
+        return member.state
+    if uplink.health is not None:
+        return uplink.health.state
+    if uplink.up is None:
+        return None
+    return UplinkState.ONLINE if uplink.up else UplinkState.DOWN
+
+
+def _uplink_roles(net: Network) -> dict[str, tuple[str, str | None, GatewayGroupMember | None]]:
+    """Uplink id -> (``active`` or ``backup``, group name, member) in its gateway group (#150,
+    #455). Failover: the reported active member, else the first tier; balancing: every member
+    that is not on standby. An uplink in no group is not here (a single line)."""
+    out: dict[str, tuple[str, str | None, GatewayGroupMember | None]] = {}
+    for group in sorted(net.gateway_groups, key=lambda g: g.id):
+        first = min((m.tier for m in group.members), default=1)
+        for m in group.members:
+            if not m.uplink_id:
+                continue
+            if group.active is not None:
+                role = "active" if m.name == group.active else "backup"
+            elif group.mode is GroupMode.BALANCE:
+                role = "backup" if m.state is UplinkState.STANDBY else "active"
+            else:
+                role = "active" if m.tier == first else "backup"
+            if m.uplink_id not in out or role == "active":
+                out[m.uplink_id] = (role, group.name, m)
+    return out
+
+
+def internet_view(
+    net: Network, nodes: set[str], end: Callable[[str], dict[str, Any]]
+) -> dict[str, Any] | None:
+    """The Internet cloud and its edges (#534): one cloud for the whole topology, one edge per
+    uplink of a device in ``nodes`` that has no known router in front of it (``upstream_router``;
+    a double-NAT router is drawn to that router by ``front_links`` instead). None without edges.
+    The edge starts at the uplink's port and carries state, kind, NAT class and public address."""
+    roles = _uplink_roles(net)
+    edges = []
+    for up in sorted(net.uplinks, key=lambda u: u.id):
+        if up.device_id not in nodes or net.upstream_router(up) is not None:
+            continue
+        role, group, member = roles.get(up.id, ("single", None, None))
+        state = _uplink_state(up, member)
+        own = net.port(up.port_id) if up.port_id else None
+        if own is not None:
+            inner = end(own.id) | {"uplink": True}
+        else:  # no port for the uplink (Fritz!Box): the wire starts at the device box
+            inner = _unknown_end(up.id, up.device_id, up.name or "uplink", up=up.up, uplink=True)
+        nat = up.nat_class()
+        public = next((a.ip for a in up.ipv4() if address_nat_class(a.ip) is NatClass.PUBLIC), None)
+        if public is None and nat is NatClass.PUBLIC:
+            public = up.public_ipv4
+        edges.append(
+            {
+                "id": f"{WAN_ORIGIN}:{up.id}",
+                "kind": WAN_ORIGIN,
+                "origin": WAN_ORIGIN,
+                "a": inner,
+                "b": {
+                    "port_id": INTERNET_ID,
+                    "device_id": INTERNET_ID,
+                    "port": INTERNET_ID,
+                    "known": False,
+                    "cloud": True,
+                },
+                "segments": [],
+                "wan": {
+                    "uplink_id": up.id,
+                    "name": up.name,
+                    "kind": up.kind.value,
+                    "state": state.value if state else None,
+                    "down": state is UplinkState.DOWN,
+                    "role": role,
+                    "group": group,
+                    "nat": nat.value if nat else None,
+                    "address": str(public) if public else None,
+                },
+            }
+        )
+    return {"id": INTERNET_ID, "edges": edges} if edges else None
 
 
 def _unknown_end(
@@ -589,6 +686,8 @@ def view(net: Network, settings: Mapping[str, RuleSettings] | None = None) -> di
         "clients": clients,
         "segments": seg_names,
         "remotes": remotes,
+        # the one Internet cloud with an edge per uplink without a known router in front (#534)
+        "internet": internet_view(net, {str(n["id"]) for n in nodes}, end),
     }
 
 
