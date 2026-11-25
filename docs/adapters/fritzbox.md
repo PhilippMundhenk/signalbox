@@ -641,3 +641,14 @@ read as UTC because the box does not name its time zone. TR-064 has no time of t
 description of the mesh topology, not from a recording), the unit of `cur_data_rate_*` (kbit/s),
 `current_channel` on the interface, and the RCPI scale. A repeater that is also set up as a device
 of its own in Signalbox shows twice (its own device and the box's node).*
+
+## UPnP and its mappings (#176)
+
+Read with `interfaces`, gateways only. `X_AVM-DE_UPnP:1 GetInfo` (`NewEnable`) says whether UPnP
+is on (the management service `upnp`). The mappings are the entries of
+`WANIPConnection:1`/`WANPPPConnection:1 GetGenericPortMappingEntry` (the port sharing, also read
+for the firewall) that have a finite `NewLeaseDuration`: those were asked for through UPnP IGD.
+Permanent entries are the user's port sharing; a permanent UPnP mapping is missed, so the list is
+marked not complete. Secure mode and permission rules are not in TR-064. *(Guess, #21: that a
+lease marks a UPnP mapping; whether the box lists them at all; the public TR-064 documents
+do not say who created an entry.)* Covered: FRITZ!OS 7.29 and later as far as the actions exist.

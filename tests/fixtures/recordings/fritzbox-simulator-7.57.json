@@ -1133,6 +1133,15 @@
    "signalbox_account_needed": "admin",
    "stp_bridges": null,
    "multicast": null,
+   "upnp": {
+    "protocols": [
+     "upnp-igd"
+    ],
+    "secure_mode": null,
+    "allow_rules": [],
+    "mappings": [],
+    "mappings_complete": false
+   },
    "poe": null,
    "config_state": null,
    "local_backups": null,

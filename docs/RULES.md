@@ -317,6 +317,13 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`trace.not-via-tunnel`](rules/traces.md#tracenot-via-tunnel)
 - [`trace.extra-nat`](rules/traces.md#traceextra-nat)
 
+## [UPnP, NAT-PMP and PCP mappings](rules/upnp_checks.md)
+
+- [`upnp.mapping-untrusted`](rules/upnp_checks.md#upnpmapping-untrusted)
+- [`upnp.management-port`](rules/upnp_checks.md#upnpmanagement-port)
+- [`upnp.insecure-mode`](rules/upnp_checks.md#upnpinsecure-mode)
+- [`upnp.many-mappings`](rules/upnp_checks.md#upnpmany-mappings)
+
 ## [VLANs and links](rules/vlan.md)
 
 - [`vlan.path-to-gateway`](rules/vlan.md#vlanpath-to-gateway)
@@ -605,6 +612,12 @@ where each came from. The defaults are the values the rules used before they had
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
 | `max_seconds` | `60` | s | Clock offset allowed beyond the uncertainty of the read. |
+
+### `upnp.many-mappings`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `max_mappings` | `20` | count | Report a gateway that has more dynamic port mappings than this. |
 
 ### `vpn.handshake-stale`
 

@@ -77,6 +77,7 @@ from signalbox.adapters.mikrotik import poe as mikrotik_poe
 from signalbox.adapters.mikrotik import routes as route_reader
 from signalbox.adapters.mikrotik import stp as _stp
 from signalbox.adapters.mikrotik import trace as _trace
+from signalbox.adapters.mikrotik import upnp as _upnp
 from signalbox.adapters.mikrotik.certificates import USERS as CERT_USERS
 from signalbox.adapters.mikrotik.certificates import attach_users
 from signalbox.adapters.mikrotik.certificates import parse as parse_certificate
@@ -108,6 +109,7 @@ from signalbox.model import (
     DeviceMulticast,
     DeviceRole,
     DeviceTime,
+    DeviceUpnp,
     Dhcp6Mode,
     Dhcp6PrefixPool,
     Dhcp6Server,
@@ -1588,6 +1590,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         default = is_factory_default("mikrotik", cfg.password.get_secret_value(), cfg.username)
         bridges, port_stp, stp_gaps = await self._stp(layout)
         multicast, multicast_gaps = await self._multicast(layout)
+        upnp = await self._upnp(layout)
         port_poe, poe_gaps = await self._poe()
         ports = [
             p.model_copy(update={"stp": port_stp[n]} if n in port_stp else {}).model_copy(
@@ -1629,12 +1632,13 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             gateway_groups=wan_groups,
             ddns=await self._cloud_ddns(uplinks),
             portals=await self._portals(layout),
-            services=await self._services(layout),
+            services=[*await self._services(layout), *([upnp[0]] if upnp else [])],
             certificates=await self._certificates(),
             log_targets={} if targets is None else {dev: targets},
             accounts={} if accounts is None else {dev: accounts},
             stp_bridges={dev: bridges},
             multicast={dev: multicast},
+            upnp={dev: upnp[1]} if upnp else {},
             default_credentials={dev: default},
             signalbox_privilege={} if privilege is None else {dev: privilege},
             incomplete=gaps + account_gaps + stp_gaps + poe_gaps + multicast_gaps,
@@ -2015,23 +2019,26 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     enabled=_flag(romon.get("enabled")),
                 )
             )
-        upnp = await self._optional_object(UPNP)
-        if upnp:
-            out.append(
-                ManagementService(
-                    id=object_id(dev, "service", "upnp"),
-                    device_id=dev,
-                    kind=ServiceKind.UPNP,
-                    name="upnp",
-                    enabled=_flag(upnp.get("enabled")),
-                )
-            )
         snmp = await self._snmp()
         if snmp is not None:
             out.append(snmp)
         if (cloud := await self._cloud_service()) is not None:
             out.append(cloud)
         return out
+
+    async def _upnp(self, layout: _Layout) -> tuple[ManagementService, DeviceUpnp] | None:
+        """``/ip/upnp``, its interfaces and the dynamic NAT rules it created (#176, ADR 0029)."""
+        settings = await self._optional_object(UPNP)
+        if not settings:
+            return None
+        nat = await self._readable(FW_NAT)
+        return _upnp.state(
+            self.context.device_id,
+            settings,
+            await self._optional_rows(_upnp.UPNP_INTERFACES),
+            nat,
+            layout.l3,
+        )
 
     async def _cloud_service(self) -> ManagementService | None:
         """MikroTik Cloud (``/ip/cloud``, #327): on when DDNS is ``yes`` (RouterOS 7.x), when

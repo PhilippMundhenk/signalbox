@@ -53,6 +53,7 @@ from signalbox.adapters import (
     bonding,
     known_interfaces,
 )
+from signalbox.adapters import upnp as mapping_reader
 from signalbox.adapters.bonding import Bond
 from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.openwrt import (
@@ -75,6 +76,7 @@ from signalbox.adapters.openwrt import multicast as _multicast
 from signalbox.adapters.openwrt import poe as _poe
 from signalbox.adapters.openwrt import radio as radio_state
 from signalbox.adapters.openwrt import stp as _stp
+from signalbox.adapters.openwrt import upnp as _upnp
 from signalbox.adapters.openwrt.structure import structure
 from signalbox.adapters.openwrt.ubus import (
     AccessDenied,
@@ -104,6 +106,7 @@ from signalbox.model import (
     DeviceAccount,
     DeviceMulticast,
     DeviceRole,
+    DeviceUpnp,
     Dhcp6Mode,
     Dhcp6Server,
     DhcpBoot,
@@ -1219,6 +1222,10 @@ class OpenWrtAdapter(Adapter):
         if targets is not None:
             targets += extra[1]
         gaps += extra_gaps
+        upnp_state, upnp_gaps = await self._upnp(view)
+        if upnp_state is not None:
+            services.append(upnp_state[0])
+        gaps += upnp_gaps
         users: list[DeviceAccount] | None = None
         try:
             users = accounts.logins(await self._uci("rpcd"), self.config.username)
@@ -1260,6 +1267,7 @@ class OpenWrtAdapter(Adapter):
             accounts={} if users is None else {d: users},
             stp_bridges={d: bridges},
             multicast={d: multicast},
+            upnp={} if upnp_state is None else {d: upnp_state[1]},
             poe={d: supply} if supply else {},
             default_credentials={d: await self._default_credentials()},
             signalbox_privilege={} if own is None else {d: own.privilege},
@@ -1351,6 +1359,59 @@ class OpenWrtAdapter(Adapter):
                 )
             )
         return out, gaps
+
+    async def _upnp(
+        self, view: NetworkView
+    ) -> tuple[tuple[ManagementService, DeviceUpnp] | None, list[Gap]]:
+        """miniupnpd's settings (UCI ``upnpd``) and its lease file (#176, ADR 0029). The package
+        is optional (no config: nothing to report); an ACL of an older setup without the config
+        or the file is an optional gap and the rest is read."""
+
+        def segment_of(name: str) -> str | None:
+            vid = view.vlan_of_interface(name)
+            return None if vid is None else self._seg(vid)
+
+        denied: list[str] = []
+        fix: AccessDenied | None = None
+        try:
+            uci = await self._uci(_upnp.CONFIG)
+        except AccessDenied as exc:
+            return None, [self._upnp_gap(["upnpd"], exc)]
+        found = _upnp.state(
+            self.context.device_id,
+            _sections(uci, "upnpd"),
+            _sections(uci, "perm_rule"),
+            segment_of,
+        )
+        if found is None:
+            return None, []
+        service, state = found
+        try:
+            answer = await self.ubus.call("file", "read", {"path": _upnp.LEASES})
+            data = answer.get("data") if isinstance(answer, dict) else None
+            if isinstance(data, str):
+                state = state.model_copy(
+                    update={"mappings": mapping_reader.lease_file(data, datetime.now(UTC))}
+                )
+        except NotFound:
+            pass  # no lease file: nothing is mapped
+        except AccessDenied as exc:
+            denied.append(_upnp.LEASES)
+            fix = exc
+            state = state.model_copy(update={"mappings_complete": False})
+        return (service, state), ([self._upnp_gap(denied, fix)] if fix is not None else [])
+
+    @staticmethod
+    def _upnp_gap(denied: list[str], exc: AccessDenied) -> Gap:
+        return Gap(
+            message=f"UPnP settings and mappings ({', '.join(denied)}): {exc}",
+            fix=exc.fix,
+            remedy=exc.remedy,
+            optional=True,
+            message_id="openwrt.upnpGap",
+            fix_id=exc.fix_id,
+            params={**exc.params, "denied": ", ".join(denied), "cause": str(exc)},
+        )
 
     async def _stp_file(self, path: str) -> str | None:
         """One sysfs value through ``file read``; None when the file does not exist."""

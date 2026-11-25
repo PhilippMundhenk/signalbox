@@ -67,6 +67,7 @@ READ_ONLY = (
     "opennds",
     "nodogsplash",
     "igmpproxy",
+    "upnpd",
 )
 #: Of those, the configs of optional packages (#180): only there when installed
 PACKAGES = (
@@ -81,6 +82,7 @@ PACKAGES = (
     "opennds",
     "nodogsplash",
     "igmpproxy",
+    "upnpd",
 )
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
@@ -97,7 +99,11 @@ FILES = (
     "/sys/devices/*/net/*/brport/*",
     "/var/run/ddns/*",
     "/etc/avahi/avahi-daemon.conf",
+    "/var/run/miniupnpd.leases",
 )
+
+#: miniupnpd's lease file (#176)
+UPNP_LEASES = "/var/run/miniupnpd.leases"
 
 #: Avahi's configuration (#161); the file exists when the package ``avahi`` is installed
 AVAHI_CONF = "/etc/avahi/avahi-daemon.conf"
@@ -1090,6 +1096,58 @@ def opennds_config() -> dict[str, Any]:
     )
 
 
+def upnpd_config() -> dict[str, Any]:
+    """``/etc/config/upnpd`` (#176): miniupnpd on the main network, secure mode on, one rule."""
+    return _uci(
+        (
+            "upnpd",
+            "config",
+            {
+                "enabled": "1",
+                "enable_upnp": "1",
+                "enable_natpmp": "1",
+                "secure_mode": "1",
+                "internal_iface": "lan",
+                "upnp_lease_file": "/var/run/miniupnpd.leases",
+            },
+        ),
+        (
+            "perm_rule",
+            "cfg0a1b2c",
+            {
+                "action": "allow",
+                "ext_ports": "1024-65535",
+                "int_addr": "192.0.2.0/24",
+                "int_ports": "1024-65535",
+                "comment": "Allow high ports",
+            },
+        ),
+        (
+            "perm_rule",
+            "cfg0b1b2c",
+            {
+                "action": "deny",
+                "ext_ports": "0-65535",
+                "int_addr": "0.0.0.0/0",
+                "int_ports": "0-65535",
+            },
+        ),
+    )
+
+
+def upnp_leases(now: float) -> str:
+    """The lease file of miniupnpd (#176): a game console (UPnP, 2 h left), a NAT-PMP mapping
+    and a permanent one; documentation addresses only."""
+    soon = int(now) + 7200
+    return (
+        f"UDP:3074:192.0.2.60:3074:{soon}:Example console\n"
+        f"TCP:51413:192.0.2.61:51413:{soon}:Example torrent client: port 51413\n"
+        "TCP:2222:192.0.2.62:22:0:NAT-PMP 2222 tcp\n"
+        "broken line\n"
+        f"UDP:9999:192.0.2.63:9999:{int(now) - 60}:expired\n"
+    )
+
+
 def igmpproxy_config() -> dict[str, Any]:
     """``/etc/config/igmpproxy`` (#161): the uplink ``wan`` upstream, the main network down."""
     return _uci(
@@ -1733,6 +1791,7 @@ class OpenWrtSim:
                 "opennds": _sections(opennds_config()),
                 "nodogsplash": _sections(nodogsplash_config()),
                 "igmpproxy": _sections(igmpproxy_config()),
+                "upnpd": _sections(upnpd_config()),
                 "https-dns-proxy": {},
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
             }
@@ -2009,6 +2068,10 @@ class OpenWrtSim:
                     return self.bond_file(path.removeprefix("/sys/class/net/"))
                 value = self.sysfs_net(path)
                 return [NOT_FOUND] if value is None else [0, {"data": f"{value}\n"}]
+            if path == UPNP_LEASES:
+                if "upnpd" not in self.packages:
+                    return [NOT_FOUND]
+                return [0, {"data": upnp_leases(time.time())}]
             if path == AVAHI_CONF:
                 return [0, {"data": AVAHI_TEXT}] if "avahi" in self.packages else [NOT_FOUND]
             if path.startswith("/var/run/ddns/"):

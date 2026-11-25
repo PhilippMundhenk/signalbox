@@ -22,8 +22,8 @@ Settings a device did not report are not judged.
 - **Severity:** warning when UPnP is enabled for a guest, IoT or camera network; info when it
   is enabled elsewhere
 - **Checks:** a device reports an enabled UPnP management service (MikroTik `/ip/upnp`,
-  Fritz!Box `X_AVM-DE_UPnP`). The networks are the ones the service listens in as the device says,
-  otherwise those the gateway has addresses in. Not checked yet: the active port mappings
-  (#176) and the OPNsense and OpenWrt adapters.
+  Fritz!Box `X_AVM-DE_UPnP`, OpenWrt `upnpd`, OPNsense `os-upnp`). The networks are the ones the
+  service listens in as the device says, otherwise those the gateway has addresses in. The
+  mappings devices opened are checked by the `upnp.*` rules (upnp_checks.md).
 - **Fix:** turn UPnP off (at least for the guest or IoT network) and add the port forwards you
   need by hand.

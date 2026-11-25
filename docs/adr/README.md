@@ -30,5 +30,6 @@
 | [0026](0026-inferred-links-from-partial-mac-data.md) | Inferred links from partial MAC data: OpenWrt bridge tables, MACs from ARP entries, guessed ports drawn dashed and left out of the checks (#378) |
 | [0027](0027-rule-parameters-and-scopes.md) | Typed rule parameters next to each rule, read through `ctx.params`; per-scope settings by site, device, role, network, purpose or tag, most specific wins (#187) |
 | [0028](0028-multicast.md) | Multicast: snooping and querier per bridge, reflectors (mDNS, SSDP, IGMP proxy, UDP relay) per device; only settings are read (#161) |
+| [0029](0029-upnp-port-mappings.md) | UPnP, NAT-PMP and PCP: protocols, secure mode, permission rules and the dynamic mappings per gateway; `mappings_complete` where a device cannot list them (#176) |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.

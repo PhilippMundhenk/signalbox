@@ -782,6 +782,67 @@ class DeviceMulticast(Model):
     reflectors: list[ServiceReflector] = Field(default_factory=list)
 
 
+class UpnpProtocol(StrEnum):
+    """Port mapping protocols a gateway answers (#176)."""
+
+    IGD = "upnp-igd"
+    NAT_PMP = "nat-pmp"
+    PCP = "pcp"
+
+
+class MappingOrigin(StrEnum):
+    """How a dynamic port mapping was asked for (#176)."""
+
+    UPNP = "upnp"
+    NAT_PMP = "nat-pmp"
+    PCP = "pcp"
+
+
+class UpnpAclRule(Model):
+    """One permission rule of a UPnP daemon (miniupnpd ``allow``/``deny``): which clients may
+    map which external ports to which internal ports (#176)."""
+
+    allow: bool
+    external_first: Annotated[int, Field(ge=0, le=65535)] = 0
+    external_last: Annotated[int, Field(ge=0, le=65535)] = 65535
+    internal_network: IPNetwork
+    internal_first: Annotated[int, Field(ge=0, le=65535)] = 0
+    internal_last: Annotated[int, Field(ge=0, le=65535)] = 65535
+
+
+class DynamicPortMapping(Model):
+    """A port mapping a client opened on a gateway through UPnP IGD, NAT-PMP or PCP (#176, ADR
+    0029). Descriptions often carry names of apps or devices: they stay local, never in
+    exports for others. The device a mapping belongs to is found from ``internal_address``
+    through the clients of the network."""
+
+    protocol: Literal["tcp", "udp"]
+    external_port: Annotated[int, Field(ge=1, le=65535)]
+    internal_address: IPAddress
+    internal_port: Annotated[int, Field(ge=1, le=65535)]
+    description: str | None = None
+    #: Seconds left of the lease (``0``: it does not expire; ``None``: not reported).
+    lease_seconds: Annotated[int, Field(ge=0)] | None = None
+    created_by: MappingOrigin | None = None
+    enabled: bool = True
+    #: Remote host the mapping is limited to (``None``: any).
+    remote_host: IPAddress | None = None
+
+
+class DeviceUpnp(Model):
+    """UPnP IGD, NAT-PMP and PCP of one gateway beyond the on/off state, which is the
+    :class:`ManagementService` of kind ``upnp`` (#176, ADR 0029). ``None``: not reported."""
+
+    protocols: list[UpnpProtocol] = Field(default_factory=list)
+    #: Mappings only for the requesting host (miniupnpd ``secure_mode``).
+    secure_mode: bool | None = None
+    #: Permission rules in order (empty: none configured or not read).
+    allow_rules: list[UpnpAclRule] = Field(default_factory=list)
+    mappings: list[DynamicPortMapping] = Field(default_factory=list)
+    #: ``False``: the list of mappings could not be read (or only part of it).
+    mappings_complete: bool = True
+
+
 class Device(Observed):
     site_id: str
     name: str
@@ -867,6 +928,9 @@ class Device(Observed):
     #: Multicast snooping, querier and reflectors (#161, ADR 0028), read with ``interfaces``
     #: (``Observation.multicast``). ``None``: not read.
     multicast: DeviceMulticast | None = None
+    #: UPnP, NAT-PMP and PCP: protocols, secure mode and the dynamic mappings (#176, ADR 0029),
+    #: read with ``interfaces`` (``Observation.upnp``). ``None``: not read.
+    upnp: DeviceUpnp | None = None
     #: PoE budget of a switch (#159), read with ``interfaces`` (``Observation.poe``).
     #: ``None``: not reported.
     poe: PoeSupply | None = None

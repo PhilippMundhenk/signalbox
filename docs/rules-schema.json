@@ -1367,6 +1367,53 @@
         }
       }
     },
+    "upnp.many-mappings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/upnp.many-mappings"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/upnp.many-mappings"
+              }
+            }
+          }
+        }
+      }
+    },
     "vpn.handshake-stale": {
       "type": "object",
       "additionalProperties": false,
@@ -2435,6 +2482,22 @@
         }
       },
       "title": "time.offset",
+      "type": "object"
+    },
+    "upnp.many-mappings": {
+      "additionalProperties": false,
+      "properties": {
+        "max_mappings": {
+          "default": 20,
+          "description": "Report a gateway that has more dynamic port mappings than this.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Mappings",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "upnp.many-mappings",
       "type": "object"
     },
     "vpn.handshake-stale": {

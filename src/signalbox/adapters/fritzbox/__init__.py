@@ -93,11 +93,13 @@ from signalbox.model import (
     DeviceHealth,
     DeviceRole,
     DeviceTime,
+    DeviceUpnp,
     DhcpLease,
     DhcpPool,
     DhcpRelay,
     DhcpServer,
     DynamicDns,
+    DynamicPortMapping,
     Firewall,
     FirewallAction,
     FirewallChain,
@@ -109,6 +111,7 @@ from signalbox.model import (
     FirmwareChannel,
     LeaseState,
     ManagementService,
+    MappingOrigin,
     Membership,
     NtpClient,
     Port,
@@ -127,6 +130,7 @@ from signalbox.model import (
     Subnet,
     Uplink,
     UplinkKind,
+    UpnpProtocol,
     WifiStandard,
     WirelessAssociation,
     Wlan,
@@ -562,6 +566,43 @@ def port_forward(row: dict[str, str]) -> PortForward | None:
     )
 
 
+def upnp_mapping(row: dict[str, str]) -> DynamicPortMapping | None:
+    """The mapping an application opened (#176) out of one ``GetGenericPortMappingEntry``.
+
+    TR-064 does not say who created an entry. *Guess* (#21): an entry with a lease time
+    (``NewLeaseDuration`` above 0) was asked for through UPnP IGD, a permanent one is port
+    sharing the user set up (read as :class:`PortForward`); permanent UPnP mappings are missed.
+    """
+    lease = _int(row.get("NewLeaseDuration"))
+    if not lease or lease < 0 or not _flag(row.get("NewEnabled")):
+        return None
+    protocol = row.get("NewProtocol", "").strip().lower()
+    external, internal = _int(row.get("NewExternalPort")), _int(row.get("NewInternalPort"))
+    try:
+        target = ip_address(row.get("NewInternalClient", "").strip())
+    except ValueError:
+        return None
+    if protocol not in ("tcp", "udp") or not external or not internal:
+        return None
+    if not (0 < external < 65536 and 0 < internal < 65536):
+        return None
+    remote = row.get("NewRemoteHost", "").strip()
+    try:
+        host = ip_address(remote) if remote else None
+    except ValueError:
+        host = None
+    return DynamicPortMapping(
+        protocol="tcp" if protocol == "tcp" else "udp",
+        external_port=external,
+        internal_address=target,
+        internal_port=internal,
+        description=row.get("NewPortMappingDescription", "").strip() or None,
+        lease_seconds=lease,
+        created_by=MappingOrigin.UPNP,
+        remote_host=host,
+    )
+
+
 def _association(assoc: dict[str, str], w: WlanService, wlan_id: str) -> WirelessAssociation:
     """Wi-Fi details of one station (#170). ``NewX_AVM-DE_Speed`` is the link rate in Mbit/s
     (direction not stated: both rates get it), ``NewX_AVM-DE_ChannelWidth`` the width. The box
@@ -978,6 +1019,7 @@ class FritzboxAdapter(Adapter):
         uplinks = await self._uplinks(forwarding)
         wan = await self._wan_port()
         mesh = await self._mesh({port.mac} if port.mac else set())
+        services = await self._services()
         return Observation(
             ports=[port, *([wan] if wan else []), *mesh.ports],
             devices=mesh.devices,
@@ -988,9 +1030,35 @@ class FritzboxAdapter(Adapter):
             routes=await self._routes(uplinks, forwarding),
             uplinks=uplinks,
             ddns=await self._ddns(uplinks),
-            services=await self._services(),
+            services=services,
+            upnp=await self._upnp(services, uplinks),
             **await self._accounts(),
         )
+
+    async def _upnp(
+        self, services: list[ManagementService], uplinks: list[Uplink]
+    ) -> dict[str, DeviceUpnp]:
+        """UPnP state and the mappings with a lease (#176, ADR 0029). Only where the box says
+        UPnP is on; the mappings are the port sharing of the active connection, which is also
+        read by :meth:`read_firewall` (it reports its own gap). The protocols are UPnP IGD;
+        secure mode and permission rules are not in TR-064."""
+        d = self.context.device_id
+        upnp = next((s for s in services if s.kind is ServiceKind.UPNP), None)
+        if upnp is None or self.context.role is not DeviceRole.GATEWAY:
+            return {}
+        if not upnp.enabled or not uplinks:
+            return {d: DeviceUpnp(protocols=[UpnpProtocol.IGD] if upnp.enabled else [])}
+        service = str(uplinks[0].vendor_extra.get("service", "")).split(":")[0] + "1"
+        rows, _ = await self._port_mappings(service)
+        found = [m for row in rows if (m := upnp_mapping(row)) is not None]
+        return {
+            d: DeviceUpnp(
+                protocols=[UpnpProtocol.IGD],
+                mappings=found,
+                # permanent UPnP mappings look like port sharing and are not told apart
+                mappings_complete=False,
+            )
+        }
 
     async def _mesh(self, own_macs: set[str]) -> MeshRead:
         """FRITZ!Mesh (#171): ``X_AVM-DE_GetMeshListPath`` and the topology document it names.

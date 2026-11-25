@@ -867,6 +867,20 @@ def sample_data() -> dict[str, Any]:
             "enabled": "false",
             "show-dummy-rule": "true",
         },
+        "/rest/ip/upnp/interfaces": _ids(
+            {
+                "interface": "bridge",
+                "type": "internal",
+                "forced-ip": "0.0.0.0",
+                "disabled": "false",
+            },
+            {
+                "interface": "ether1",
+                "type": "external",
+                "forced-ip": "0.0.0.0",
+                "disabled": "false",
+            },
+        ),
         "/rest/snmp": {
             "contact": "",
             "enabled": "true",
