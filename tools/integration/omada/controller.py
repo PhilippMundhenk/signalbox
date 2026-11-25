@@ -264,7 +264,7 @@ def web_scripts(oid: str) -> str:
     out = [f"index page HTTP {status}, {len(page)} bytes, {len(srcs)} scripts"]
     found: set[str] = set()
     for src in srcs[:40]:
-        path = src if src.startswith("/") else f"/{oid}/{src}"
+        path = src if src.startswith("/") else f"/{src}"
         code, js = request("GET", path)
         if isinstance(js, str):
             out.append(f"{path}: {len(js)} bytes")
