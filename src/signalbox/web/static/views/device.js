@@ -481,6 +481,30 @@ function upnpCard(ix, observed) {
   );
 }
 
+// Everything reachable from the internet through this gateway (#513): static port forwards of the
+// firewall (#135) together with the ports devices opened themselves. Names and descriptions are
+// text nodes only.
+const MAPPING_SOURCE = { upnp: 'UPnP', 'nat-pmp': 'NAT-PMP', pcp: 'PCP' };
+
+function exposedCard(ix, observed) {
+  const fw = (ix.net.firewalls || []).find((f) => f.device_id === observed.id);
+  const rows = [];
+  const ranges = (p) => (p.external_ports.length ? p.external_ports.map((r) => (r.end && r.end !== r.start ? `${r.start}-${r.end}` : `${r.start}`)).join(', ') : t('device.fw.allPorts'));
+  for (const p of fw ? fw.port_forwards.filter((x) => x.enabled) : []) {
+    rows.push({ port: `${p.protocols.length ? p.protocols.join('/').toUpperCase() : t('device.fw.allProtocols')} ${ranges(p)}`, target: `${p.target_address}${p.target_port ? `:${p.target_port}` : ''}`, source: t('device.exposed.static'), kind: 'static' });
+  }
+  for (const m of observed.upnp ? observed.upnp.mappings.filter((x) => x.enabled) : []) {
+    rows.push({ port: `${m.protocol.toUpperCase()} ${m.external_port}`, target: `${m.internal_address}:${m.internal_port}`, source: MAPPING_SOURCE[m.created_by] || MAPPING_SOURCE.upnp, kind: m.created_by || 'upnp' });
+  }
+  if (!rows.length) return null;
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-exposed' },
+    h('h2', {}, t('device.exposed.title')),
+    kv(rows.map((r) => [ltr(r.port), h('span', { 'data-testid': 'exposed-row', 'data-source': r.kind }, h('span', { class: 'mirror', 'aria-hidden': 'true' }, '→'), ' ', ltr(r.target), ` (${r.source})`)])),
+  );
+}
+
 const LOG_KIND = {
   syslog: 'device.logs.syslog',
   netflow: 'device.logs.netflow',
@@ -1197,6 +1221,7 @@ async function overview(main, ctx, device, adapters, sites) {
     portsCard(ix, tree, deltas, series),
     observed ? stpCard(ix, observed) : null,
     observed ? upnpCard(ix, observed) : null,
+    observed ? exposedCard(ix, observed) : null,
     poeCard(ix, observed, device.id),
     radiosCard(ix, device.id),
     lldpCard(ix, device.id),

@@ -1414,6 +1414,53 @@
         }
       }
     },
+    "upnp.stale-mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/upnp.stale-mapping"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/upnp.stale-mapping"
+              }
+            }
+          }
+        }
+      }
+    },
     "vpn.handshake-stale": {
       "type": "object",
       "additionalProperties": false,
@@ -2498,6 +2545,22 @@
         }
       },
       "title": "upnp.many-mappings",
+      "type": "object"
+    },
+    "upnp.stale-mapping": {
+      "additionalProperties": false,
+      "properties": {
+        "stale_days": {
+          "default": 14,
+          "description": "Report a mapping whose device was not seen for more than this many days.",
+          "maximum": 365,
+          "minimum": 1,
+          "title": "Stale Days",
+          "type": "integer",
+          "unit": "d"
+        }
+      },
+      "title": "upnp.stale-mapping",
       "type": "object"
     },
     "vpn.handshake-stale": {
