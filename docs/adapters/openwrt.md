@@ -520,6 +520,17 @@ transfer); with a read ACL from before this method was added the read fails with
 denied" for the `vpn` capability only. ACL entry: `"luci.wireguard": ["getWgInstances"]`, the
 only addition.
 
+### Captive portals: `uci get` of `opennds` and `nodogsplash` *(optional)* (interfaces)
+
+Both packages are optional (#460): without them there is no config and nothing is reported, and
+an ACL from before #460 (without the two configs) reads as none. ACL entries: the UCI configs
+`opennds` and `nodogsplash`, nothing else. One portal per `opennds` / `nodogsplash` section:
+`enabled`, `gatewayinterface` (the device, mapped to its network), `sessiontimeout` (minutes;
+defaults 1440 and 1200; 0: no limit). Login: `fasremoteip` is external, a `binauth` script a
+password, a `preauth` script not known, else click-through (the built-in splash page).
+*(guess: option names and defaults from the READMEs, #21; openNDS 9 and 10, nodogsplash 4.)* The
+`faskey` and any voucher or user data are never read.
+
 ### Multi-WAN and dynamic DNS: `uci get` of `mwan3` and `ddns`, `mwan3 status` *(optional)* (interfaces)
 
 Both packages are optional; without them there is no config and nothing is reported (#150, #154).
@@ -655,7 +666,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -775,7 +786,7 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],

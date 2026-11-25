@@ -692,6 +692,18 @@ def sample_data() -> dict[str, Any]:
             ),
             _ssid("ssid-guest", "Guest", 3, 0, vlan=30, guestNetEnable=True),
         ],
+        # captive portals (#460) *(guess: path and fields)*: a click-through portal on the
+        # guest SSID
+        f"{SITE}/portals": [
+            {
+                "id": "portal-guest",
+                "name": "Guest portal",
+                "enable": True,
+                "authType": 0,
+                "timeout": 28800,
+                "ssidList": [{"ssidId": "ssid-guest", "name": "Guest"}],
+            }
+        ],
         # rogue AP detection (#169) *(guess: path and fields)*: foreign access points the
         # EAPs heard; the controller leaves out its own
         f"{SITE}/insight/rogue-aps": [

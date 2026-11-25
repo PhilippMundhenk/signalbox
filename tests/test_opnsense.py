@@ -1255,3 +1255,48 @@ async def test_ddns_refused_is_a_gap_not_no_ddns(http_url: str, sim: OpnsenseSim
     (gap,) = [e for e in snap.errors if e.message.startswith("dynamic DNS")]
     assert gap.optional and "page-services-dyndns" in (gap.fix or "")
     assert snap.status.value == "ok"
+
+
+async def test_captive_portal_zones(snap: Snapshot) -> None:
+    """The zone on the guest interface is click-through; session length from hardtimeout (#460)."""
+    (portal,) = snap.portals
+    assert portal.id == "fw/portal/0" and portal.name == "Guest portal"
+    assert portal.auth is not None and portal.auth.value == "click-through"
+    assert portal.session_minutes == 480 and portal.enabled
+    assert len(portal.segments) == 1 and portal.segments[0].endswith("/30")
+
+
+async def test_captive_portal_login_is_derived_from_the_authentication_servers() -> None:
+    from signalbox.adapters.opnsense import portal as reader
+
+    vouchers = reader.providers(["Guest vouchers", {"name": "Other"}])
+    assert vouchers == {"guest vouchers", "other"}
+    assert reader.providers({"rows": [{"name": "A"}]}) == {"a"} and reader.providers(None) == set()
+    assert reader.auth_of([], vouchers).value == "click-through"
+    assert reader.auth_of(["Local Database"], vouchers).value == "password"
+    assert reader.auth_of(["Local Database", "Office RADIUS"], vouchers).value == "radius"
+    assert reader.auth_of(["Local Database", "Guest vouchers"], vouchers).value == "voucher"
+    rows = [
+        {"uuid": "u1", "zoneid": "1", "enabled": "0", "interfaces": {"opt2": {"selected": 1}}},
+        {"uuid": "u2", "zoneid": "1", "hardtimeout": "0", "interfaces": "lan, nowhere"},
+    ]
+    a, b = reader.zones("fw", rows, {"opt2": "s/30", "lan": "s/main"}, vouchers)
+    assert (a.id, a.name, a.enabled, a.segments) == ("fw/portal/1", "zone 1", False, ["s/30"])
+    assert (b.id, b.session_minutes, b.segments) == ("fw/portal/1-1", None, ["s/main"])
+
+
+async def test_captive_portal_refused_is_an_optional_gap(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    sim.fail = {"/api/captiveportal/settings/search_zones": 403}
+    snap = await observe(adapter(http_url))
+    assert snap.portals == []
+    (gap,) = [e for e in snap.errors if e.message.startswith("captive portal")]
+    assert gap.optional and "page-services-captiveportal" in (gap.fix or "")
+    assert snap.status.value == "ok"
+
+
+async def test_no_captive_portal_api_reports_nothing(http_url: str, sim: OpnsenseSimulator) -> None:
+    del sim.data["/api/captiveportal/settings/search_zones"]
+    snap = await observe(adapter(http_url))
+    assert snap.portals == [] and not [e for e in snap.errors if "captive" in e.message]

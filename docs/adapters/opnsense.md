@@ -227,6 +227,7 @@ remedy, the fix adds exactly that privilege and the same key reads the firewall 
    | System: Certificate Manager, System: Authority Manager | `/api/trust/cert/search`, `/api/trust/ca/search` (stored certificates and authorities, #330; `page-system-certmanager`, `page-system-camanager`; never `get/<uuid>` or the exports, which answer private keys) |
    | System: Static Routes, System: Gateways | `/api/routes/routes/searchroute`, `/api/routes/gateway/status` (static routes and gateway status, #149; `page-system-staticroutes`, `page-system-gateways`, *guess* until a 26.7 image says otherwise) |
    | System: Gateway Groups | `/api/routing/group_settings/search` (gateway groups, #150; `page-system-gatewaygroups`, **26.7 and newer only**: an older firewall does not know the privilege, the automatic setup leaves it out there, and the groups stay unread; the 26.7 integration image refused the read with 403 until the privilege was granted) |
+   | Services: Captive Portal | `/api/captiveportal/settings/search_zones`, `/api/captiveportal/voucher/list_providers` (captive portal zones, #460; `page-services-captiveportal`, *guess*; granted by the setup only where the firewall offers it) |
    | Services: Dynamic DNS | `/api/dyndns/accounts/search_item` (dynamic DNS accounts of `os-ddclient`, #154; `page-services-dyndns`, *guess*) |
 
    ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
@@ -1107,6 +1108,19 @@ spelling on 24.7 and 25.x (compared with the sources, not recorded).
   reported, without a gap on every read. No privilege (403, *Services: Dynamic DNS*,
   `page-services-dyndns`, *guess*): an optional gap naming the privilege, never "no dynamic DNS";
   automatic setup and "Repair Signalbox's access" grant it where the firewall offers it (the privilege exists only with the plugin; without it the user manager refuses it, so it is left out) (#440). The plugin has no API for the last update or the address announced.
+
+### Captive portal (#460)
+
+`GET /api/captiveportal/settings/search_zones` (`searchZones` before 24.7, the router retries
+it) lists the zones; one `CaptivePortal` per zone: `zoneid`, `enabled`, `description`,
+`interfaces` (identifiers, mapped to the networks of the interfaces), `authservers`
+(empty: click-through; a name `GET /api/captiveportal/voucher/list_providers` lists: voucher;
+*Local Database*: password; any other server: RADIUS) and `hardtimeout` (minutes, the session
+length). Vouchers and server secrets are never read. Not available (404): nothing is reported.
+No privilege (403, *Services: Captive Portal*, `page-services-captiveportal`, *guess*): an
+optional gap naming the privilege; automatic setup and "Repair Signalbox's access" grant it only
+where the firewall offers it. *(guess: privilege name, row fields and the authentication
+derivation, #21; covered releases 24.7, 25.1, 25.7, 26.1, the zone model is older.)*
 
 ### Configuration state, backups and channel (#181)
 

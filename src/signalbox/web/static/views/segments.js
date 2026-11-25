@@ -18,7 +18,25 @@ function members(ix, seg) {
   return [...perDevice.entries()].sort(by(([d]) => ix.deviceName(d)));
 }
 
+// A captive portal (#460): its name, how guests log in and how long a session lasts.
+const PORTAL_AUTH = {
+  'click-through': 'portal.auth.click-through',
+  external: 'portal.auth.external',
+  password: 'portal.auth.password',
+  radius: 'portal.auth.radius',
+  voucher: 'portal.auth.voucher',
+};
+
+export function portalText(p) {
+  const parts = [p.name];
+  if (p.auth && PORTAL_AUTH[p.auth]) parts.push(t(PORTAL_AUTH[p.auth]));
+  if (p.session_minutes) parts.push(t('portal.session', { minutes: p.session_minutes }));
+  if (!p.enabled) parts.push(t('portal.disabled'));
+  return parts.join(', ');
+}
+
 function segmentCard(ix, seg) {
+  const portals = (ix.net.portals || []).filter((p) => p.segments.includes(seg.id));
   const subnets = ix.net.subnets.filter((x) => x.segment_id === seg.id);
   const rows = members(ix, seg);
   return h(
@@ -36,6 +54,14 @@ function segmentCard(ix, seg) {
               .map(([d, n]) => `${n} (${ix.deviceName(d)})`)
               .join(', '),
           }),
+        )
+      : null,
+    portals.length
+      ? h(
+          'div',
+          { class: 'portals' },
+          h('h4', {}, t('segments.portals')),
+          h('ul', { class: 'plain' }, portals.map((p) => h('li', { 'data-testid': 'portal' }, portalText(p), t('segments.subnetOn', { device: ix.deviceName(p.device_id) })))),
         )
       : null,
     rows.length

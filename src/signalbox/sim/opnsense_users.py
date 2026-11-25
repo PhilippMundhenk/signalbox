@@ -45,6 +45,7 @@ PRIVILEGES = (
     "page-system-gateways",
     "page-system-gatewaygroups",
     "page-services-dyndns",
+    "page-services-captiveportal",
     "page-system-usermanager",
 )
 GROUPS = ("admins",)

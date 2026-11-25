@@ -224,3 +224,11 @@ def test_uptime_in_another_language() -> None:
     assert vitals.uptime("1 jour, 00:00:01") == 86401
     assert vitals.uptime("04:05:06") == 14706
     assert vitals.uptime("soon") is None
+
+
+async def test_captive_portal_per_release(served: tuple[str, OpnsenseSimulator]) -> None:
+    """Zones are read under both spellings of the action (#460)."""
+    url, _ = served
+    snap = await observe(url)
+    (portal,) = snap.portals
+    assert portal.auth is not None and portal.auth.value == "click-through"

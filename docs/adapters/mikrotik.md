@@ -1109,6 +1109,19 @@ and nothing is reported.
 (option 23) and the bindings `/ipv6/dhcp-server/binding` are not read.)* The simulator answers all
 four menus. RouterOS 6 has no REST API (see #389).
 
+## Hotspot (#460)
+
+`/rest/ip/hotspot` (one captive portal per server: `name`, `interface`, `profile`, `disabled`),
+`/rest/ip/hotspot/profile` (`login-by`, `use-radius`) and `/rest/ip/hotspot/user/profile`
+(`session-timeout` of the profile `default`). The portal covers the segment of the hotspot's
+interface (a bridge or VLAN interface; a hotspot on a Wi-Fi interface is not tied to an SSID).
+Login: `use-radius=yes` is RADIUS; `trial` without `http-chap`, `http-pap` or `https` in
+`login-by` is click-through; one of those three is a password (hotspot users and vouchers cannot
+be told apart); `mac` or `cookie` alone: not known. *(guess: the derivation and the field names,
+#21.)* A missing menu (no hotspot, `hotspot` package not installed) or one refused to the user
+reports nothing. Hotspot users and their passwords (`/ip/hotspot/user`) are never read. RouterOS
+7 (REST) only, like the rest of the adapter. The simulator has one hotspot with a trial login.
+
 ## Multi-WAN and MikroTik Cloud (#150, #154)
 
 - **Gateway group**: two or more enabled `0.0.0.0/0` routes of the `main` table with a next hop

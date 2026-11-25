@@ -246,6 +246,10 @@ def _split_snapshot(snap: Snapshot, native: dict[str, str]) -> Snapshot:
                 s.model_copy(update={"segment_id": of(s.device_id, s.segment_id)})
                 for s in snap.dhcp_servers
             ],
+            "portals": [
+                p.model_copy(update={"segments": [of(p.device_id, s) or s for s in p.segments]})
+                for p in snap.portals
+            ],
             "dhcp_relays": [
                 r.model_copy(update={"segment_id": of(r.device_id, r.segment_id)})
                 for r in snap.dhcp_relays
@@ -613,6 +617,7 @@ def merge(
             "uplinks": every("uplinks"),
             "gateway_groups": every("gateway_groups"),
             "ddns": every("ddns"),
+            "portals": every("portals"),
             "services": every("services"),
             "certificates": every("certificates"),
             "dhcp_servers": every("dhcp_servers"),

@@ -318,6 +318,105 @@
       "title": "Blocklist",
       "type": "object"
     },
+    "CaptivePortal": {
+      "additionalProperties": false,
+      "description": "A captive portal (guest login page) of a device, ``object_id(device, \"portal\", <name>)``\n(#460). Read with ``interfaces``; read-only. Never a voucher, a shared password, a RADIUS\nsecret or an API key: there is no field for them, also not in ``vendor_extra``.\n\n``segments`` and ``wlans`` are what the portal covers, as far as the device says (a\nMikroTik hotspot sits on an interface, an Omada portal on SSIDs, an OPNsense zone on\ninterfaces); both empty: not known.",
+      "properties": {
+        "auth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortalAuth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "segments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "session_minutes": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Minutes"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        },
+        "wlans": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Wlans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "name"
+      ],
+      "title": "CaptivePortal",
+      "type": "object"
+    },
     "Certificate": {
       "additionalProperties": false,
       "description": "A certificate stored on a device (VPN, RADIUS, web proxy, CA; #330),\n``object_id(device, \"cert\", <name>)``.\n\nThe facts are those of :class:`CertificateFacts`, read from the device's list of\ncertificates. Adapters report only public data: the private key, its passphrase and the\ncertificate request never enter the model, not even in ``vendor_extra`` (the device\nonly says whether a key exists: ``has_private_key``). An empty ``Snapshot.certificates``\nmeans \"not read\", never \"none\".",
@@ -5479,6 +5578,13 @@
           "title": "Neighbours",
           "type": "array"
         },
+        "portals": {
+          "items": {
+            "$ref": "#/$defs/CaptivePortal"
+          },
+          "title": "Portals",
+          "type": "array"
+        },
         "ports": {
           "items": {
             "$ref": "#/$defs/Port"
@@ -6913,6 +7019,18 @@
         "virtual"
       ],
       "title": "PortRole",
+      "type": "string"
+    },
+    "PortalAuth": {
+      "description": "How a captive portal lets a guest in (#460), in the device's own terms.",
+      "enum": [
+        "click-through",
+        "voucher",
+        "password",
+        "radius",
+        "external"
+      ],
+      "title": "PortalAuth",
       "type": "string"
     },
     "PowerSupply": {
@@ -8647,6 +8765,13 @@
           "format": "date-time",
           "title": "Observed At",
           "type": "string"
+        },
+        "portals": {
+          "items": {
+            "$ref": "#/$defs/CaptivePortal"
+          },
+          "title": "Portals",
+          "type": "array"
         },
         "ports": {
           "items": {

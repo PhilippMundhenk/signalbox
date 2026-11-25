@@ -74,6 +74,7 @@ READ_PRIVILEGES: tuple[str, ...] = (
     "page-system-gateways",
     "page-system-gatewaygroups",
     "page-services-dyndns",
+    "page-services-captiveportal",
 )
 #: Privileges that exist only with an optional plugin (os-ddclient adds *Services: Dynamic DNS*):
 #: the setup grants them when the firewall offers them, and leaves them out otherwise, since
@@ -81,7 +82,11 @@ READ_PRIVILEGES: tuple[str, ...] = (
 PLUGIN_PRIVILEGES: frozenset[str] = frozenset({"page-services-dyndns"})
 #: Privileges that only newer releases have: *System: Gateway Groups* came with the gateway group
 #: API of 26.7 (#150). Left out where the firewall does not offer them, like plugin privileges.
-NEWER_PRIVILEGES: frozenset[str] = frozenset({"page-system-gatewaygroups"})
+#: *Services: Captive Portal* (#460) is in the core ACL of every release covered (26.7 image: seen),
+#: but is treated the same way, so that a firewall without it cannot fail the setup.
+NEWER_PRIVILEGES: frozenset[str] = frozenset(
+    {"page-system-gatewaygroups", "page-services-captiveportal"}
+)
 #: Added while path traces are on (#253, docs: "Path traces").
 TRACE_PRIVILEGES: tuple[str, ...] = ("page-diagnostics-traceroute",)
 #: Optional extra "accounts" (#349): lets Signalbox list the local users. The user manager has no

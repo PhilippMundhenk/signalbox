@@ -814,6 +814,7 @@
  "uplinks": [],
  "gateway_groups": [],
  "ddns": [],
+ "portals": [],
  "services": [
   {
    "id": "switch/service/snmp",

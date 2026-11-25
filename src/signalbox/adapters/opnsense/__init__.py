@@ -69,6 +69,7 @@ from signalbox.adapters.opnsense import compat, provision, vitals
 from signalbox.adapters.opnsense import ddns as ddns_reader
 from signalbox.adapters.opnsense import discovery as _discovery
 from signalbox.adapters.opnsense import firewall as fw
+from signalbox.adapters.opnsense import portal as portal_reader
 from signalbox.adapters.opnsense import routes as route_reader
 from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import write as w
@@ -86,6 +87,7 @@ from signalbox.model import (
     AccountPrivilege,
     AddressSource,
     Blocklist,
+    CaptivePortal,
     Certificate,
     Client,
     ConfigState,
@@ -1396,7 +1398,8 @@ class OpnsenseAdapter(_Adapter):
         uplinks = [route_reader.with_health(u, gateway_rows) for u in uplinks]
         group_list, group_gaps = await self._gateway_groups(uplinks, gateway_rows)
         ddns_list, ddns_gaps = await self._ddns(uplinks[0].id if uplinks else None)
-        gaps = [*gaps, *cert_gaps, *route_gaps, *group_gaps, *ddns_gaps]
+        portal_list, portal_gaps = await self._portals(layout)
+        gaps = [*gaps, *cert_gaps, *route_gaps, *group_gaps, *ddns_gaps, *portal_gaps]
         return Observation(
             routes=route_list,
             ports=layout.ports,
@@ -1405,6 +1408,7 @@ class OpnsenseAdapter(_Adapter):
             uplinks=uplinks,
             gateway_groups=group_list,
             ddns=ddns_list,
+            portals=portal_list,
             services=await self._services(),
             certificates=certificates,
             log_targets={} if targets is None else {dev: targets},
@@ -1436,6 +1440,23 @@ class OpnsenseAdapter(_Adapter):
             return [], []
         rows = _rows(data, ddns_reader.ACCOUNTS)
         return ddns_reader.clients(self.context.device_id, rows, wan), []
+
+    async def _portals(self, layout: _Layout) -> tuple[list[CaptivePortal], list[Gap]]:
+        """Captive portal zones (#460); no captive portal API (404): nothing to report; a
+        refused read (403) is an optional gap naming the privilege."""
+        try:
+            data = await self._optional(portal_reader.ZONES, grid=True)
+            if data is None:
+                return [], []
+            try:
+                vouchers = portal_reader.providers(await self._optional(portal_reader.PROVIDERS))
+            except AdapterError:
+                vouchers = set()
+        except AdapterError as exc:
+            return [], [_privilege_gap("captive portal", exc, portal_reader.PRIVILEGE)]
+        segment_of = {i.identifier: i.segment for i in layout.ifaces if i.segment is not None}
+        rows = _rows(data, portal_reader.ZONES)
+        return portal_reader.zones(self.context.device_id, rows, segment_of, vouchers), []
 
     async def _gateway_groups(
         self, uplinks: list[Uplink], status_rows: list[dict[str, Any]]
