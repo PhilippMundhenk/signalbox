@@ -1582,6 +1582,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 id=object_id(dev, "subnet", f"{name}-{a.ip}"),
                 segment_id=layout.l3[name],
                 interface=a,
+                interface_name=name,
                 device_id=dev,
                 gateway=gateway,
             )

@@ -1178,6 +1178,7 @@ class OpenWrtAdapter(Adapter):
                 id=object_id(d, "subnet", f"{name}-{n}"),
                 segment_id=self._seg(svid),
                 interface=addr,
+                interface_name=view.devices.get(name),
                 device_id=d,
                 gateway=router and not view.has_default_route(name),
             )

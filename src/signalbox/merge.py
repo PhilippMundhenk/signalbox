@@ -329,7 +329,19 @@ def _interface(snap: Snapshot, seg: Segment, own: list[PortMembership]) -> str |
     bridge, else the only VLAN interface of the device that is named after the VLAN
     (``vlan10``, ``eth0.10``, ``br0.10``) without being a member (bridge VLAN names). Several
     candidates at one level are ambiguous: no interface.
+
+    A name the adapter put on the device's own subnet of the segment (``Subnet.interface_name``,
+    #517) comes first; several different names are ambiguous and fall back to the heuristic.
     """
+    reported = sorted(
+        {
+            s.interface_name
+            for s in snap.subnets
+            if s.device_id == snap.device.id and s.segment_id == seg.id and s.interface_name
+        }
+    )
+    if len(reported) == 1:
+        return reported[0]
     ports = {p.id: p for p in snap.ports}
     members = [ports[m.port_id] for m in own if m.port_id in ports]
     for role in (PortRole.VLAN, PortRole.BRIDGE):

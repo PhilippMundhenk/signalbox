@@ -1387,6 +1387,7 @@ class OpnsenseAdapter(_Adapter):
                 id=object_id(dev, "subnet", f"{i.identifier}-{a.ip}"),
                 segment_id=i.segment,
                 interface=a,
+                interface_name=i.device,
                 device_id=dev,
                 gateway=True,
             )
