@@ -235,6 +235,8 @@ class EventKind(StrEnum):
     DEVICE = "device"  # a device cannot be reached or only partly read, or is back
     DRIFT = "drift"  # the network differs from the desired state
     DEPLOY = "deploy"  # the result of a deployment
+    CERTIFICATE = "certificate"  # a certificate is about to expire or has expired (new only)
+    ROGUE_SSID = "rogue_ssid"  # a foreign access point uses one of your Wi-Fi names (new only)
 
 
 def parse_clock(text: str) -> dtime:

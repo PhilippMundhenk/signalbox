@@ -171,6 +171,41 @@ class RoundState(BaseModel):
     changes: list[str] = Field(default_factory=list)
 
 
+#: Rules whose new findings are their own event kinds (#377): message id ``notify.<name>``.
+CERT_RULES = {"security.certificate-expiry", "cert.vpn-expiring", "cert.ca-expiring"}
+ROGUE_RULE = "wifi.rogue-ssid"
+
+
+def special_event(f: Finding) -> Event | None:
+    """The event of a new certificate or rogue-SSID finding. Only your own names and devices go
+    into it, never a foreign BSSID or SSID (#169); None for any other finding."""
+    p = f.params
+    if f.rule_id in CERT_RULES:
+        expired = (f.message_id or "").endswith(("xpired",))
+        name, device = str(p.get("name") or ""), str(p.get("device") or "")
+        what = f"{name} ({device})" if name and device else name or device or f.title
+        params: dict[str, str | int] = {"what": what, "date": str(p.get("date") or "")}
+        if not expired:
+            params["days"] = int(p.get("days") or 0)
+        return Event(
+            EventKind.CERTIFICATE,
+            f.severity,
+            "notify.certificate.expired" if expired else "notify.certificate.expiring",
+            params,
+            "#/",
+        )
+    if f.rule_id == ROGUE_RULE:
+        open_twin = (f.message_id or "").endswith("rogueOpen")
+        return Event(
+            EventKind.ROGUE_SSID,
+            f.severity,
+            "notify.rogue.open" if open_twin else "notify.rogue",
+            {"ssid": str(p.get("ssid") or ""), "device": str(p.get("device") or "")},
+            "#/",
+        )
+    return None
+
+
 #: Change states that are a deployment result.
 DEPLOY_DONE = {"applied": Severity.INFO, "rolled-back": Severity.WARNING, "failed": Severity.ERROR}
 
@@ -197,6 +232,10 @@ def diff_round(
     for fid, info in current.items():
         if fid in old.findings:
             continue
+        special = special_event(by_id[fid])
+        if special is not None:
+            events.append(special)
+            continue
         drift = info["rule"].startswith("drift.")
         events.append(
             Event(
@@ -212,6 +251,8 @@ def diff_round(
         )
     for fid, info in old.findings.items():
         if fid not in current:
+            if info["rule"] in CERT_RULES or info["rule"] == ROGUE_RULE:
+                continue  # only new ones are sent
             drift = info["rule"].startswith("drift.")
             events.append(
                 Event(

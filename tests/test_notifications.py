@@ -195,6 +195,63 @@ def test_new_and_resolved_findings_drift_devices_and_deploys() -> None:
     assert state.changes == ["c0", "c1"]
 
 
+def _special(
+    fid: str,
+    rule: str,
+    mid: str,
+    params: dict[str, str | int],
+    severity: Severity = Severity.WARNING,
+) -> Finding:
+    return finding(fid, severity, rule).model_copy(update={"message_id": mid, "params": params})
+
+
+def test_certificate_and_rogue_ssid_events_are_sent_once_and_leak_no_foreign_names() -> None:
+    old, _ = nt.diff_round(None, network(), [], [])
+    found = [
+        _special(
+            "c1",
+            "security.certificate-expiry",
+            "certificate.expiring",
+            {"device": "gw", "date": "2027-01-01", "days": 12},
+        ),
+        _special(
+            "c2",
+            "cert.ca-expiring",
+            "certificate.caExpired",
+            {"device": "gw", "name": "Home CA", "date": "2026-01-01"},
+            Severity.ERROR,
+        ),
+        _special(
+            "r1",
+            "wifi.rogue-ssid",
+            "wifiNeighbours.rogue",
+            {"ssid": "'Home'", "heard": "ap radio", "device": "ap", "channel": 6, "signal": -40},
+        ),
+        _special(
+            "r2", "wifi.rogue-ssid", "wifiNeighbours.rogueOpen", {"ssid": "'Home'", "device": "ap"}
+        ),
+    ]
+    state, events = nt.diff_round(old, network(), found, [])
+    assert [(e.kind, e.mid) for e in events] == [
+        (EventKind.CERTIFICATE, "notify.certificate.expiring"),
+        (EventKind.CERTIFICATE, "notify.certificate.expired"),
+        (EventKind.ROGUE_SSID, "notify.rogue"),
+        (EventKind.ROGUE_SSID, "notify.rogue.open"),
+    ]
+    assert events[0].params == {"what": "gw", "date": "2027-01-01", "days": 12}
+    assert events[1].params["what"] == "Home CA (gw)"
+    assert events[2].params == {"ssid": "'Home'", "device": "ap"}
+    tr = nt.Translator()
+    for code in ("en", "de"):
+        texts = [tr.text(code, e.mid, e.params) for e in events]
+        assert all("{" not in t and "notify." not in t for t in texts)
+    # the same findings in the next round, and their resolution, send nothing
+    state2, again = nt.diff_round(state, network(), found, [])
+    assert again == []
+    _, gone = nt.diff_round(state2, network(), [], [])
+    assert gone == []
+
+
 def test_recovery_resolution_of_drift_and_unchanged_rounds() -> None:
     first, _ = nt.diff_round(
         None, network(gw=DeviceStatus.UNREACHABLE), [finding("d", rule="drift.port")], []

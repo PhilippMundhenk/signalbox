@@ -14,6 +14,8 @@ gets **one message per round** (a digest) with the events it asked for:
 | `device` | A device cannot be reached, was only read in part, or is reachable again. |
 | `drift` | The network differs from the desired state, or matches it again. |
 | `deploy` | A change was applied, rolled back or failed. |
+| `certificate` | A certificate is about to expire or has expired (`security.certificate-expiry`, `cert.vpn-expiring`, `cert.ca-expiring`). Sent once, when the finding appears, not on every round. |
+| `rogue_ssid` | An access point that is not yours uses one of your Wi-Fi names (`wifi.rogue-ssid`). Sent once, when the finding appears. The message names only your own SSID and the device that heard it, never the foreign BSSID or SSID. |
 
 The first round after the first start is only a baseline, and so is the first round after the state
 was lost: nothing is sent for what already existed. The state is kept in the database, so a restart
@@ -49,7 +51,7 @@ notifications:
       url: https://ntfy.example.org
       topic: signalbox
       min_severity: warning
-      events: [finding, device, drift, deploy]
+      events: [finding, device, drift, deploy, certificate, rogue_ssid]
       quiet_start: "22:00"
       quiet_end: "07:00"
 ```
