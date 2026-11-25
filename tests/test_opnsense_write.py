@@ -94,7 +94,7 @@ def shape(net: Network) -> Any:
 
     def strip(value: Any) -> Any:
         if isinstance(value, dict):
-            live = ("observed_at", "health", "time", "counters")
+            live = ("observed_at", "health", "time", "counters", "config_state", "local_backups")
             return {k: strip(v) for k, v in value.items() if k not in live}
         if isinstance(value, list):
             return [strip(v) for v in value]

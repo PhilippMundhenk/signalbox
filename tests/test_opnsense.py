@@ -923,7 +923,7 @@ async def test_services_without_the_plugin_or_privilege(http_url: str, sim: Any)
 
 async def test_never_downloads_the_backup(http_url: str, sim: Any) -> None:
     await observe(adapter(http_url))
-    assert not [p for p in sim.requests if "backup" in p], sim.requests
+    assert not [p for p in sim.requests if "download" in p], sim.requests  # the list is read (#181)
 
 
 async def test_tls_web_interface(https_url: str, tls: TlsFiles) -> None:

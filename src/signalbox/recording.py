@@ -76,9 +76,9 @@ VOLATILE = {
 
 #: field (XML element, JSON key, query parameter) names whose values are secrets or identify
 #: the device: replaced by ``redacted-secret-<n>``, consistently (not the rules for one:
-#: ``NewMinCharsPassword`` is a number)
+#: ``NewMinCharsPassword`` is a number, ``NewPasswordRequired`` a flag)
 SECRET_FIELDS = re.compile(
-    r"(?<!chars)password(?!active)|passphrase|passwd|secret|token|session|cookie"
+    r"(?<!chars)password(?!active|required|userselectable)|passphrase|passwd|secret|token|session|cookie"
     r"|^(new)?(x_avm-de_)?(presharedkey|wepkey\d*|key|psk|apikey|api_key|privatekey"
     r"|private_key|privkey|private-key|preshared_key|preshared-key|serialnumber|serial|sid|client_id|clientid|omadac_id|omadacid)$",
     re.IGNORECASE,
