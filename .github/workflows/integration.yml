@@ -524,7 +524,17 @@ jobs:
         with: { python-version: "3.13", cache: pip }
       - run: pip install -e ".[dev,switches]"
       - name: Start the container, create the read user as documented
-        run: python3 tools/integration/linux/target.py start "$TARGET_DIR"
+        run: |
+          set -o pipefail
+          mkdir -p "$TARGET_DIR"
+          python3 tools/integration/linux/target.py start "$TARGET_DIR" 2>&1 | tee "$TARGET_DIR/start.log" || {
+            code=$?
+            body=$(tail -n 40 "$TARGET_DIR/start.log")
+            body=${body//'%'/'%25'}
+            body=${body//$'\n'/'%0A'}
+            echo "::error title=Linux (Debian ${DEBIAN}) container did not start::$body"
+            exit $code
+          }
       - name: Integration tests
         run: |
           set -o pipefail

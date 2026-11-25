@@ -60,7 +60,7 @@ def start(work: Path) -> None:
         "xt_nat",
     ):
         sh("sudo", "modprobe", module, check=False)
-    sh("docker", "build", "-q", "--build-arg", f"DEBIAN={DEBIAN}", "-t", IMAGE, str(HERE))
+    sh("docker", "build", "--build-arg", f"DEBIAN={DEBIAN}", "-t", IMAGE, str(HERE))
     sh("docker", "rm", "-f", NAME, check=False, capture_output=True)
     sh(
         "docker",
