@@ -1238,3 +1238,12 @@ async def test_config_history_and_channel(snap: Snapshot) -> None:
     assert d.config_state is not None and d.config_state.revision
     assert d.firmware is not None and d.firmware.channel is not None
     assert d.firmware.channel.value == "stable" and d.firmware.reboot_pending is False
+
+
+async def test_ddns_refused_is_a_gap_not_no_ddns(http_url: str, sim: OpnsenseSimulator) -> None:
+    sim.fail = {"/api/dyndns/accounts/search_item": 403}
+    snap = await observe(adapter(http_url))
+    assert snap.ddns == []
+    (gap,) = [e for e in snap.errors if e.message.startswith("dynamic DNS")]
+    assert gap.optional and "page-services-dyndns" in (gap.fix or "")
+    assert snap.status.value == "ok"

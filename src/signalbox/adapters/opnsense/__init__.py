@@ -1402,11 +1402,12 @@ class OpnsenseAdapter(_Adapter):
         ]
 
     async def _ddns(self, wan: str | None) -> tuple[list[DynamicDns], list[Gap]]:
-        """Dynamic DNS accounts of os-ddclient (#154); not installed: nothing to report."""
+        """Dynamic DNS accounts of os-ddclient (#154); not installed (404): nothing to report; a
+        refused read (403) is an optional gap naming the privilege."""
         try:
             data = await self._optional(ddns_reader.ACCOUNTS, grid=True)
-        except AdapterError:  # 403 without the privilege, as for a plugin that is not there
-            return [], []
+        except AdapterError as exc:  # 403: no privilege, which is not "no dynamic DNS" (#440)
+            return [], [_privilege_gap("dynamic DNS", exc, ddns_reader.PRIVILEGE)]
         if data is None:
             return [], []
         rows = _rows(data, ddns_reader.ACCOUNTS)

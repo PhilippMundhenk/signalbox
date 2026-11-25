@@ -45,3 +45,40 @@ address is not known.
 - **Severity:** warning
 - **Checks:** an enabled dynamic DNS client whose last update failed.
 - **Fix:** check the account, password or token and the provider's status.
+
+## `ddns.private-address`
+
+- **Severity:** warning
+- **Checks:** an enabled dynamic DNS client that announces a private, shared (carrier-grade
+  NAT), loopback or link-local address, or, where the gateway does not say what it announced,
+  whose internet connection has a shared address.
+- **Stays quiet** when neither address is known, when the client is off or the line is down.
+- **Fix:** announce the public address of the connection; behind carrier-grade NAT, ask the
+  provider for a public address or use a VPN that connects outwards.
+
+## `ddns.plain-http`
+
+- **Severity:** warning
+- **Checks:** an enabled dynamic DNS client that sends its updates over plain HTTP (FRITZ!Box
+  and OpenWrt say it: the scheme of the update address, or `use_https`).
+- **Stays quiet** when the gateway does not say (OPNsense, MikroTik), and for clients that are
+  off. The update address itself is never read beyond its scheme.
+- **Fix:** turn on HTTPS and change the password or token.
+
+## `ddns.vpn-endpoint`
+
+- **Severity:** warning
+- **Checks:** a VPN peer whose endpoint is the name of a dynamic DNS client that is turned off
+  or whose last update failed.
+- **Stays quiet** when no client of a known device carries that name (it may be kept by
+  another device that Signalbox does not read) and for peers that are off.
+- **Fix:** turn the client on and fix its updates.
+
+## `ddns.stale`
+
+- **Severity:** info
+- **Checks:** an enabled dynamic DNS client whose last update is older than the parameter
+  `days` (30 by default; set per site or device in the rule's scopes).
+- **Stays quiet** when the gateway does not say when it last updated (OPNsense, FRITZ!Box,
+  MikroTik) and without the observation clock.
+- **Fix:** start an update and check that the client still runs.

@@ -72,6 +72,7 @@ READ_PRIVILEGES: tuple[str, ...] = (
     "page-system-camanager",
     "page-system-staticroutes",
     "page-system-gateways",
+    "page-services-dyndns",
 )
 #: Added while path traces are on (#253, docs: "Path traces").
 TRACE_PRIVILEGES: tuple[str, ...] = ("page-diagnostics-traceroute",)

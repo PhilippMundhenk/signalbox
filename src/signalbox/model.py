@@ -1469,6 +1469,9 @@ class DynamicDns(Observed):
     last_result: DdnsResult = DdnsResult.UNKNOWN
     #: The address the provider was told (or answers for the name), where the device knows it.
     published_address: IPAddress | None = None
+    #: The updates go over HTTPS (True) or plain HTTP (False; the account is then readable on the
+    #: way); None: not known. Only the scheme of the update URL is read, never the URL (#440).
+    tls: bool | None = None
 
 
 # VPN tunnels (#239) -------------------------------------------------------------------------

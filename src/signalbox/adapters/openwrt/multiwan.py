@@ -15,8 +15,9 @@ reads as nothing to report.
   tiers and no state.
 - UCI ``ddns`` (ddns-scripts): ``service`` sections with ``enabled``, ``service_name`` (the
   provider), ``lookup_host`` (the name), ``interface``/``ip_network`` and ``use_ipv6``. Account
-  data (``username``, ``password``, ``update_url``) is never read. The last update comes from
-  ``/var/run/ddns/<section>.update`` (epoch seconds) and the announced address from
+  data (``username``, ``password``) is never read, and of ``update_url`` only the scheme (with
+  ``use_https``, it says whether the updates are encrypted; unset: not known). The last update
+  comes from ``/var/run/ddns/<section>.update`` (epoch seconds) and the announced address from
   ``/var/run/ddns/<section>.ip`` through ``file read``; *guess*, both optional.
 """
 
@@ -243,6 +244,12 @@ def ddns_clients(
         last = datetime.fromtimestamp(stamp, UTC) if stamp else None
         ipv6 = str(s.get("use_ipv6", "0")) == "1"
         iface = str(s.get("interface") or s.get("ip_network") or "")
+        url = str(s.get("update_url") or "").strip().lower()
+        tls = (
+            url.startswith("https://")
+            if url.startswith(("http://", "https://"))
+            else {"1": True, "0": False}.get(str(s.get("use_https", "")))
+        )
         out.append(
             DynamicDns(
                 id=object_id(device_id, "ddns", name),
@@ -255,6 +262,7 @@ def ddns_clients(
                 last_update=last,
                 last_result=DdnsResult.OK if last else DdnsResult.UNKNOWN,
                 published_address=_addr(files.get(f"{name}.ip", "")),
+                tls=tls,
             )
         )
     return out

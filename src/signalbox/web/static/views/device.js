@@ -181,6 +181,37 @@ function tunnelsCard(ix, deviceId) {
   );
 }
 
+// Dynamic DNS clients (#154, #440): the state first; the name identifies the household, so it
+// and the announced address are shown on request, like uplink addresses.
+function ddnsState(d) {
+  return [
+    d.enabled ? null : t('device.off'),
+    d.last_result === 'ok' ? t('device.ddns.ok') : d.last_result === 'error' ? t('device.ddns.error') : null,
+    d.last_update ? t('device.ddns.updated', { duration: fmtDuration(Math.max(0, (Date.now() - new Date(d.last_update).getTime()) / 1000)) }) : null,
+    d.tls === true ? t('device.ddns.encrypted') : d.tls === false ? t('device.ddns.plain') : null,
+  ].filter(Boolean);
+}
+
+function ddnsCard(ix, deviceId) {
+  const clients = (ix.net.ddns || []).filter((d) => d.device_id === deviceId);
+  if (!clients.length) return null;
+  const rows = clients.map((d) => [
+    d.provider,
+    h(
+      'div',
+      { 'data-testid': 'ddns' },
+      h('span', { 'data-testid': 'ddns-state' }, ddnsState(d).join(' · ') || t('device.state.unknown')),
+      h(
+        'details',
+        { class: 'addresses', 'data-testid': 'ddns-name' },
+        h('summary', {}, t('device.peer.show')),
+        h('ul', { class: 'mono' }, [h('li', {}, d.hostname), d.published_address ? h('li', {}, t('device.ddns.announces', { address: d.published_address })) : null].filter(Boolean)),
+      ),
+    ),
+  ]);
+  return h('section', { class: 'card', 'data-testid': 'device-ddns' }, h('h2', {}, t('device.ddns.title')), kv(rows));
+}
+
 // Firewall (#135): zones and what is in them, the default action per zone pair, port forwards.
 function zoneMembers(ix, z) {
   const tail = (id, key) => id.split(`/${key}/`).pop();
@@ -976,6 +1007,7 @@ async function overview(main, ctx, device, adapters, sites) {
     ),
     notesCard(ix, device.id, 'device', t('device.notes', { name: device.name }), () => ctx.refresh()),
     internetCard(ix, device.id),
+    ddnsCard(ix, device.id),
     inferredCard(ix, device.id),
     portsCard(ix, tree, deltas),
     observed ? stpCard(ix, observed) : null,

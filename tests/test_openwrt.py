@@ -2043,6 +2043,7 @@ async def test_mwan3_groups_and_ddns(sim: OpenWrtSim, https_url: str, cert: TlsF
     )
     assert dd.published_address == ip_address("203.0.113.45") and dd.uplink_id == up.id
     assert dd.last_result == "ok" and dd.last_update is not None
+    assert dd.tls is True  # use_https '1' (#440)
     assert "sim-secret-token" not in snap.model_dump_json()
 
 

@@ -226,6 +226,7 @@ remedy, the fix adds exactly that privilege and the same key reads the firewall 
    | Diagnostics: Netflow configuration | `/api/diagnostics/netflow/getconfig` (NetFlow export, #180; `page-diagnostics-netflow`) |
    | System: Certificate Manager, System: Authority Manager | `/api/trust/cert/search`, `/api/trust/ca/search` (stored certificates and authorities, #330; `page-system-certmanager`, `page-system-camanager`; never `get/<uuid>` or the exports, which answer private keys) |
    | System: Static Routes, System: Gateways | `/api/routes/routes/searchroute`, `/api/routes/gateway/status` (static routes and gateway status, #149; `page-system-staticroutes`, `page-system-gateways`, *guess* until a 26.7 image says otherwise) |
+   | Services: Dynamic DNS | `/api/dyndns/accounts/search_item` (dynamic DNS accounts of `os-ddclient`, #154; `page-services-dyndns`, *guess*) |
 
    ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
    and are skipped. With the plugin, add its DHCP server and lease pages.
@@ -1086,9 +1087,10 @@ spelling on 24.7 and 25.x (compared with the sources, not recorded).
   rules do not run for OPNsense yet.
 - `GET /api/dyndns/accounts/search_item` (plugin `os-ddclient`): one client per hostname of an
   enabled or disabled account (`service`, `protocol`, `hostnames`, `interface`, `enabled`). The
-  rows hold `username` and `password`; they are never read. Not installed (404) or no privilege
-  (403, *Services: Dynamic DNS*, `page-services-dyndns`, *guess*): nothing is reported, without
-  a gap on every read. The plugin has no API for the last update or the address announced.
+  rows hold `username` and `password`; they are never read. Not installed (404): nothing is
+  reported, without a gap on every read. No privilege (403, *Services: Dynamic DNS*,
+  `page-services-dyndns`, *guess*): an optional gap naming the privilege, never "no dynamic DNS";
+  automatic setup and "Repair Signalbox's access" grant it (#440). The plugin has no API for the last update or the address announced.
 
 ### Configuration state, backups and channel (#181)
 

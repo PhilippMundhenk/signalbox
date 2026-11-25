@@ -43,6 +43,7 @@ PRIVILEGES = (
     "page-system-camanager",
     "page-system-staticroutes",
     "page-system-gateways",
+    "page-services-dyndns",
     "page-system-usermanager",
 )
 GROUPS = ("admins",)
