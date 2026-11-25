@@ -192,6 +192,7 @@ All notable changes to this project are documented here. The format follows
 
 - Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
+- Translations of the `port.utilisation` and `port.idle-trunk` explanations (#484, PR #487): the new wording (percentile of hourly rates, sustained idle period) in all 15 languages.
 - MikroTik (#425, #437): a 404 or web page on `/rest` no longer reads as "RouterOS 6 is not supported" unless the version says 6.x; otherwise "no RouterOS REST API at this address (RouterOS 6, REST disabled, or wrong address/port)"; the adapter docs no longer mention RouterOS 6 PoE
 - Linux firewall gap texts name the real source (`iptables` or `nftables`) instead of always "nftables:" (all 15 languages), and the Linux CI job summary shows whether the iptables-legacy end-to-end test ran or was skipped, and why (#404)
 - OPNsense DNS card showed "No host records" on a box with host overrides (25.1): host overrides are read under both API spellings (`search_host_override`, `searchHostOverride`) and field shapes, paged completely; aliases, and the DHCP static mappings and leases Unbound registers, become host records with a `source`; a grid that cannot be read is an optional gap and the card says "not read" instead of "none configured"; long lists are collapsed with a filter; texts in all 15 languages; setting names and the 25.1 shapes unconfirmed on a real 25.1 box (#386, #21)
