@@ -15,7 +15,7 @@ they are tested against the simulators.
 - VyOS: rolling 2026.11.25 (1.5 development), official ISO in QEMU, read only; EdgeOS itself is simulator-only ([details](adapters/edgeos.md#integration-tests))
 - Linux gateway: Debian 11, 12 and 13 in containers (sshd, iproute2, dnsmasq, chrony, WireGuard), read only ([details](adapters/linux.md#integration-tests))
 - MikroTik: RouterOS 7.25.1, official CHR image in QEMU, without Wi-Fi ([details](adapters/mikrotik.md#integration-tests))
-- TP-Link Omada: Software Controller 6.3.0.111, official Linux package in Docker, without managed devices ([details](adapters/omada.md#integration-tests))
+- TP-Link Omada: Software Controller 6.3.0.111, 5.15.24.19 and 5.9, official Linux package in Docker, without managed devices ([details](adapters/omada.md#integration-tests))
 - OpenWrt: 23.05.6, 24.10.8 and 25.12.6, official x86-64 images in QEMU ([details](adapters/openwrt.md#verified-against-the-real-openwrt))
 - OPNsense: 26.7.9 and 25.1, official nano images in QEMU (25.1 read only) ([details](adapters/opnsense.md#versions-390))
 - UniFi: Network application 8.6.9, 9.5.21 and 10.6.109 in Docker with MongoDB, without adopted devices ([details](adapters/unifi.md#integration-tests))

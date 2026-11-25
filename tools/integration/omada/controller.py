@@ -4,14 +4,17 @@
 Runs on a GitHub Actions runner (Docker), never in the development sandbox. Standard library
 only.
 
-    controller.py start DIR    pull the pinned image, start the controller, wait for /api/info
+    controller.py start DIR VER  pull the pinned image of the version (6.3, 5.15 or 5.9), start
+                               the controller, wait for /api/info
     controller.py setup DIR    the first-start wizard, two Open API applications (viewer and
                                administrator) and the test site's networks, SSIDs and profile;
                                prints the IT_OMADA_* variables for $GITHUB_ENV
     controller.py stop  DIR    stop it (its log goes to DIR/controller.log)
 
 The image is mbentley/omada-controller, a maintained community image that installs TP-Link's
-official Linux package (the .deb) unchanged; it is pinned by version tag and digest.
+official Linux package (the .deb) unchanged; it is pinned by version tag and digest. Versions:
+6.3 (current), 5.15 (the newest 5.x) and 5.9 (the oldest 5.x the adapter supports, #416); the
+tag of 5.9 is the maintainer's floating "5.9" line, pinned by its digest (#501).
 
 The setup uses the calls of the controller's own web UI (read from its scripts): the
 administrator (``/api/v2/anon/register``), the wizard (``/api/v2/anon/cmd/wizardConfig``),
@@ -38,10 +41,15 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-VERSION = "6.3.0.111"
-#: digest of the multi-architecture image of the tag (seen in CI on 2026-11-22)
-DIGEST = "sha256:d5d688dc39c8c6d17926d2a090d2ce806e221e00a037e3a43ff8cbc2d61f269b"
-IMAGE = f"mbentley/omada-controller:{VERSION}@{DIGEST}"
+#: version line -> image (tag and digest of the multi-architecture image, seen 2026-11-25)
+IMAGES = {
+    "6.3": "mbentley/omada-controller:6.3.0.111"
+    "@sha256:d5d688dc39c8c6d17926d2a090d2ce806e221e00a037e3a43ff8cbc2d61f269b",
+    "5.15": "mbentley/omada-controller:5.15.24.19"
+    "@sha256:908a4e38ff273b0be77db5525237cf039f724c169f33d3be8b32f3acf34bbe2b",
+    "5.9": "mbentley/omada-controller:5.9"
+    "@sha256:06aa6851b743083fd35aa6672c5bfd849cf4c8b3f1c1a6d195b83eb302abe763",
+}
 NAME = "signalbox-omada"
 PORT = 8043
 URL = f"https://127.0.0.1:{PORT}"
@@ -144,8 +152,9 @@ def wait_info(timeout: float, configured: bool | None = None) -> dict[str, Any]:
     raise AssertionError
 
 
-def start(d: Path) -> None:
-    subprocess.run(["docker", "pull", "-q", IMAGE], check=True)
+def start(d: Path, version: str) -> None:
+    image = IMAGES[version]
+    subprocess.run(["docker", "pull", "-q", image], check=True)
     subprocess.run(["docker", "rm", "-f", NAME], capture_output=True, check=False)
     subprocess.run(
         [
@@ -162,7 +171,7 @@ def start(d: Path) -> None:
             f"MANAGE_HTTPS_PORT={PORT}",
             "-e",
             "TZ=Etc/UTC",
-            IMAGE,
+            image,
         ],
         check=True,
     )
@@ -170,7 +179,7 @@ def start(d: Path) -> None:
     info = wait_info(900)
     log(f"controller answers after {time.time() - t0:.0f} s: {json.dumps(info)}")
     (d / "info.json").write_text(json.dumps(info))
-    notice("Omada controller", f"{IMAGE}\n{json.dumps(info)}")
+    notice("Omada controller", f"{image}\n{json.dumps(info)}")
 
 
 # --- setup ---------------------------------------------------------------------------------
@@ -434,11 +443,17 @@ def stop(d: Path) -> None:
 
 
 def main(argv: list[str]) -> None:
-    if len(argv) != 3 or argv[1] not in ("start", "setup", "stop"):
+    if not (
+        (len(argv) == 4 and argv[1] == "start" and argv[3] in IMAGES)
+        or (len(argv) == 3 and argv[1] in ("setup", "stop"))
+    ):
         raise SystemExit(__doc__)
     d = Path(argv[2]).resolve()
     d.mkdir(parents=True, exist_ok=True)
-    {"start": start, "setup": setup, "stop": stop}[argv[1]](d)
+    if argv[1] == "start":
+        start(d, argv[3])
+    else:
+        {"setup": setup, "stop": stop}[argv[1]](d)
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ their DHCP, switch ports, SSIDs ([Changing the site](#changing-the-site)).
 | wireless | radios of every EAP; SSIDs of its WLAN group per band (security, VLAN, hidden, PMF) |
 | clients | wired and wireless clients with address, network and where they were seen (switch port or EAP WLAN) |
 
-> **Verified against Omada Controller 6.3.0.111 in CI.** What the controller holds itself
+> **Verified against Omada Controller 6.3.0.111, 5.15.24.19 and 5.9 in CI.** What the controller holds itself
 > (sites, LAN networks, DHCP, port profiles, WLAN groups and SSIDs, the token, roles and
 > refusals) is checked every night against TP-Link's Omada Software Controller, the official
 > Linux package in Docker, set up through its own first-start wizard:
@@ -541,11 +541,12 @@ to become a matrix (read only, selective as in #249).
 ## Integration tests
 
 `tools/integration/omada/controller.py` runs on the GitHub Actions runner only (job
-`Integration / Omada`), never locally; tests/integration/test_omada_real.py skips without
+`Integration / Omada`, one matrix entry per version line: 6.3, 5.15 and 5.9, #501), never locally; tests/integration/test_omada_real.py skips without
 `IT_OMADA_URL` (and fails in CI, `REQUIRE_INTEGRATION`).
 
-- **The controller**: `mbentley/omada-controller:6.3.0.111`, pinned by digest, a maintained
-  community image that installs TP-Link's official Linux package unchanged; it answers
+- **The controller**: `mbentley/omada-controller` in the versions 6.3.0.111 (current), 5.15.24.19
+  (newest 5.x) and `5.9` (oldest supported 5.x; the maintainer only publishes a floating tag for
+  it, so the digest is the pin), each pinned by digest, a maintained community image that installs TP-Link's official Linux package unchanged; it answers
   `/api/info` some 40 seconds after the start.
 - **Setup** through the calls of the controller's own web UI (read from its scripts): the
   administrator (`POST /{omadacId}/api/v2/anon/register`), the first-start wizard
