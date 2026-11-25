@@ -308,6 +308,8 @@ async def test_wireless(snap: Snapshot) -> None:
     # the SSID detail has the passphrase: only its fingerprint is kept
     assert home.passphrase_fingerprint == passphrase_fingerprint("Home", "example-home-passphrase")
     assert home.vendor_extra["wlan_group"] == "Default"
+    # the SSID's "Fast Roaming" switch (enable11r, #447)
+    assert home.roaming_80211r is True and wlans[f"{AP1}/wlan/ssid-iot-2g"].roaming_80211r is False
     iot = wlans[f"{AP2}/wlan/ssid-iot-2g"]  # EAP 2 names no WLAN group: the primary one
     assert iot.hidden and iot.segment_id == "home/segment/20" and iot.passphrase_fingerprint
     assert iot.passphrase_fingerprint == wlans[f"{AP1}/wlan/ssid-iot-2g"].passphrase_fingerprint

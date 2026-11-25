@@ -317,6 +317,7 @@ The SSID list leaves out the security settings; Signalbox reads every SSID's own
                 "gikRekeyPskEnable": false}}
 ```
 
+- `enable11r` of the SSID's own answer is `Wlan.roaming_80211r` (fast roaming, #447). The controller's API documents no mobility domain, FT over DS, DTIM period, minimum RSSI, band steering or airtime fairness for an SSID: those stay unreported (not guessed).
 - One WLAN per SSID and radio of every EAP that uses the WLAN group; `band` is a bit mask
   (1 = 2.4 GHz, 2 = 5 GHz, 4 = 6 GHz).
 - `security`: 0 none (OWE when `oweEnable` is true), 2 WPA-Enterprise (`entSetting.versionEnt`

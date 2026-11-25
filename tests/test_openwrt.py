@@ -52,6 +52,7 @@ from signalbox.adapters.openwrt.ubus import AccessDenied, NotFound, Ubus
 from signalbox.model import (
     AddressSource,
     Band,
+    BandSteering,
     Cipher,
     DeviceRole,
     DeviceStatus,
@@ -233,6 +234,22 @@ async def test_wireless(adapter: OpenWrtAdapter) -> None:
     # client isolation: option isolate (default off); a purpose is not reported by OpenWrt
     assert iot.client_isolation is True and main.client_isolation is False
     assert iot.purpose is None and main.purpose is None
+
+
+async def test_band_steering_of_usteer_and_dawn(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    """usteer and dawn are optional packages (#447): without them nothing is reported."""
+    obs = await adapter.read_wireless()
+    assert {w.band_steering for w in obs.wlans} == {None}
+    sim.packages = {"usteer"}
+    obs = await adapter.read_wireless()
+    assert {w.band_steering for w in obs.wlans} == {BandSteering.PREFER_5GHZ}
+    sim.packages = {"dawn"}
+    obs = await adapter.read_wireless()
+    assert {w.band_steering for w in obs.wlans} == {BandSteering.PREFER_5GHZ}
+    sim.packages = {"usteer"}
+    sim.denied = {"uci:usteer"}  # an ACL from before #447
+    obs = await adapter.read_wireless()
+    assert {w.band_steering for w in obs.wlans} == {None}
 
 
 async def test_wifi_security_details(adapter: OpenWrtAdapter) -> None:

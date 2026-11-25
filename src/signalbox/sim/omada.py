@@ -666,6 +666,7 @@ def sample_data() -> dict[str, Any]:
                 3,
                 3,
                 pmfMode=2,
+                enable11r=True,
                 pskSetting={
                     "securityKey": "example-home-passphrase",
                     "versionPsk": 2,

@@ -4,9 +4,10 @@
 
 Checks on the roaming settings of SSIDs across access points (#168) and on how well Wi-Fi
 clients are connected (#170). Settings or readings a device did not report are never judged.
-The thresholds are rule parameters (`max_dbm` of `wifi.min-rssi-too-high`, `min_dbm` of
-`wifi.client-weak-signal`; #441), so they can be set per site or access point. Client readings are one sample
-of one moment, not a trend; they are personal data (who is where) and stay on the server.
+The thresholds are rule parameters (`max_dbm` of `wifi.min-rssi-too-high`, `min_dbm` and
+`sustained_minutes` of `wifi.client-weak-signal`; #441, #447), so they can be set per site or
+access point. Client readings are personal data (who is where) and stay on the server; clients
+that are mesh peers or on backhaul SSIDs are skipped.
 
 ## `wifi.ft-mobility-domain-mismatch`
 
@@ -37,8 +38,11 @@ of one moment, not a trend; they are personal data (who is where) and stay on th
 
 - **Severity:** info
 - **Checks:** a wireless client whose reported signal is weaker than `min_dbm` (default -75 dBm)
-  on the access point it is associated with (scopes match that access point). One reading only:
-  sustained weakness needs the history.
+  on the access point it is associated with (scopes match that access point). With the
+  observation history it must have been weak on that access point for `sustained_minutes`
+  (default 30) without a stronger reading in between (the history keeps the signal in steps of
+  5 dB); a client the history does not know yet, or no history at all, is judged by the current
+  reading.
 - **Fix:** move the device or an access point closer together, or add an access point.
 
 ## `wifi.legacy-client`

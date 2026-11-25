@@ -4,7 +4,7 @@ import hashlib
 
 from signalbox.adapters.mikrotik import wifi_assoc as mikrotik
 from signalbox.adapters.openwrt import wifi_assoc as openwrt
-from signalbox.model import Band, FtKeyHolder, WifiStandard
+from signalbox.model import Band, BandSteering, FtKeyHolder, WifiStandard
 
 
 def test_openwrt_default_mobility_domain_is_md5_of_ssid_with_newline() -> None:
@@ -138,3 +138,24 @@ def test_mikrotik_association() -> None:
     assert (a.signal_dbm, a.tx_rate_mbps, a.rx_rate_mbps) == (-61, 286.7, 172.0)
     assert (a.width_mhz, a.spatial_streams, a.connected_seconds) == (20, 2, 3600)
     assert a.capabilities == ["pmf"]
+
+
+def test_openwrt_band_steering_of_usteer_and_dawn() -> None:
+    def usteer(**options: str) -> dict[str, object]:
+        return {"values": {"usteer": {".type": "usteer", **options}}}
+
+    def dawn(**options: str) -> dict[str, object]:
+        return {"values": {"global": {".type": "metric", **options}}}
+
+    none: dict[str, object] = {"values": {}}
+    assert openwrt.band_steering(none, none) is None
+    assert openwrt.band_steering({}, {}) is None
+    assert openwrt.band_steering(usteer(), none) is BandSteering.PREFER_5GHZ  # the default
+    assert openwrt.band_steering(usteer(band_steering_interval="0"), none) is BandSteering.OFF
+    off = usteer(band_steering_interval="0", load_balancing_threshold="5")
+    assert openwrt.band_steering(off, none) is BandSteering.BALANCE
+    assert openwrt.band_steering(none, dawn()) is BandSteering.PREFER_5GHZ
+    assert openwrt.band_steering(none, dawn(freq_5="0")) is BandSteering.OFF
+    assert openwrt.band_steering(none, {"values": {"x": {".type": "other"}}}) is None
+    both = openwrt.band_steering(usteer(band_steering_interval="0"), dawn())
+    assert both is BandSteering.OFF  # usteer wins

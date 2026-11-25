@@ -317,6 +317,15 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`wan.dns-mismatch`](rules/wan.md#wandns-mismatch)
 - [`wan.no-ipv6`](rules/wan.md#wanno-ipv6)
 
+## [Wi-Fi settings and clients over time](rules/wifi_clients.md)
+
+- [`wifi.ft-over-ds`](rules/wifi_clients.md#wifift-over-ds)
+- [`wifi.dtim-high`](rules/wifi_clients.md#wifidtim-high)
+- [`wifi.max-clients-low`](rules/wifi_clients.md#wifimax-clients-low)
+- [`wifi.client-2-4-only`](rules/wifi_clients.md#wificlient-2-4-only)
+- [`wifi.radio-overloaded`](rules/wifi_clients.md#wifiradio-overloaded)
+- [`wifi.client-sticky`](rules/wifi_clients.md#wificlient-sticky)
+
 ## [Wi-Fi hygiene](rules/wifi_hygiene.md)
 
 - [`wifi.6ghz-security`](rules/wifi_hygiene.md#wifi6ghz-security)
@@ -540,14 +549,36 @@ where each came from. The defaults are the values the rules used before they had
 | `dbm` | `-80` | dBm | Neighbours weaker than this are not counted. |
 | `count` | `3` | count | Neighbours from which it is reported. |
 
+### `wifi.client-sticky`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `min_dbm` | `-75` | dBm | A client below this signal is weak (#447). The history keeps the signal in steps of 5 dB. |
+| `sustained_minutes` | `30` | min | How long the client has been weak on the same access point (#447). |
+| `margin_db` | `10` | dBm | How much stronger the client's signal was on another access point of the SSID before (#447). |
+
 ### `wifi.client-weak-signal`
 
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
-| `min_dbm` | `-75` | dBm | A client below this signal is slow and drops packets (#170). |
+| `min_dbm` | `-75` | dBm | A client below this signal is slow and drops packets (#170). The history keeps the signal in steps of 5 dB. |
+| `sustained_minutes` | `30` | min | How long a client must have been weak on the same access point before it is reported (#447). Without any history the current reading counts. |
+
+### `wifi.dtim-high`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `max_period` | `3` | count | A DTIM period above this makes sleeping clients wait that many beacons for broadcast and multicast traffic (#447). |
 
 ### `wifi.min-rssi-too-high`
 
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
 | `max_dbm` | `-70` | dBm | A minimum signal above this kicks clients that are still usable (#168). The fix suggests 5 dBm below it. |
+
+### `wifi.radio-overloaded`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `max_clients` | `30` | count | A radio with more clients than this is crowded (#447). |
+| `idle_clients` | `10` | count | Another radio with the same SSID and fewer clients than this counts as free (#447). |
