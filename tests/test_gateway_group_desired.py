@@ -153,13 +153,25 @@ def test_tiers_are_ranks_and_monitors_sets() -> None:
 
 
 def test_a_plan_needs_adopt_but_drift_does_not() -> None:
-    state = parse(text("          - {name: wan, tier: 2}\n", adopt=False))
+    state = parse(SWAP.replace("adopt: true", "adopt: false"))
     with pytest.raises(PlanError, match="add adopt: true") as err:
         changes_for(state, network())
     assert err.value.message_id == "plan.groupAdopt"
-    [f] = [f for f in evaluate(network(), drift_rules(state)) if f.rule_id == "drift.gateway-group"]
-    assert f.problem and f.objects == [GID]
-    assert f.message == "Gateway group failover of gw: member wan: tier: should be 2, is 1"
+    found = [
+        f for f in evaluate(network(), drift_rules(state)) if f.rule_id == "drift.gateway-group"
+    ]
+    assert all(f.problem and f.objects == [GID] for f in found)
+    assert sorted(f.message for f in found) == [
+        "Gateway group failover of gw: member wan: tier: should be 2, is 1",
+        "Gateway group failover of gw: member wanb: tier: should be 1, is 2",
+    ]
+
+
+def test_tiers_without_gaps_move_the_others() -> None:
+    # wan joins wanb on tier 2; tier 1 is empty, so the tiers move up: wan and wanb 1, lte 2
+    [c] = changes_for(parse(text("          - {name: wan, tier: 2}\n")), network())
+    assert isinstance(c.new, GatewayGroupValue)
+    assert {m.name: m.tier for m in c.new.members} == {"wan": 1, "wanb": 1, "lte": 2}
     # a declaration that matches the device needs no adopt
     assert (
         changes_for(parse(text("          - {name: wan, tier: 1}\n", adopt=False)), network()) == []

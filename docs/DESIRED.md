@@ -198,7 +198,10 @@ sites:
   without it the plan is refused with that hint, and the drift is still shown. Groups that are
   not declared, and members that are not listed, are left as they are.
 - **Tiers** are an order: they are compared and written renumbered 1, 2, ... (tiers 1 and 5 are
-  the same as 1 and 2). Members on one tier share the load; several tiers are a failover.
+  the same as 1 and 2), together with the tiers of the members that are not listed. In a group
+  with tiers 1, 2 and 3, `tier: 2` for the first member puts it next to the second one, and as
+  tier 1 is then empty, all move up (1, 1, 2). Members on one tier share the load; several tiers
+  are a failover.
 - **Monitor** addresses are compared as a set. A monitor belongs to the line, so a line that is
   in several groups has one monitor for all of them; different declarations are refused.
 - *Import what the devices report* exports every group with all its members, without `adopt`.
