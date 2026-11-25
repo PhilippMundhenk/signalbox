@@ -50,6 +50,8 @@ IMAGES = {
     "@sha256:908a4e38ff273b0be77db5525237cf039f724c169f33d3be8b32f3acf34bbe2b",
     "5.12": "mbentley/omada-controller:5.12"
     "@sha256:23e41dcafda345ada930ea2c0a06159ab5737fe30b8c9e96f53e4fe4a1c64503",
+    "5.13": "mbentley/omada-controller:5.13.30.8"
+    "@sha256:bcabcfaf73e5b75b09fa2dcb1db9e7cf498960d851556b1c52742fb67729fcd9",
     "5.14": "mbentley/omada-controller:5.14.32.4"
     "@sha256:879ec82534c76284ba8fabd3ccda5d27eda25b6cb69812466ac8b695d642c5f7",
 }
@@ -413,6 +415,32 @@ def site_data(api: OpenApi) -> dict[str, Any]:
     return {"site_id": sid, "wlan_id": gid, "refused": refused}
 
 
+def probe(oid: str, web: dict[str, str], app: dict[str, str]) -> None:
+    """Diagnostics while a release (5.12, #515) refuses the application: other token spellings."""
+    q = f"client_id={app['client_id']}&client_secret={app['client_secret']}"
+    tries = [
+        ("json", "/openapi/authorize/token?grant_type=client_credentials", None),
+        ("query", f"/openapi/authorize/token?grant_type=client_credentials&omadacId={oid}&{q}", {}),
+        ("query-only-id", f"/openapi/authorize/token?grant_type=client_credentials&{q}", {}),
+    ]
+    out = {}
+    for name, path, body in tries:
+        if body is None:
+            body = {
+                "omadacId": oid,
+                "client_id": app["client_id"],
+                "client_secret": app["client_secret"],
+            }
+        status, answer = request("POST", path, body)
+        out[name] = (status, str(answer)[:150].replace(app["client_secret"], "***"))
+    base = f"/{oid}/api/v2/open-api/applications"
+    status, listed = request("GET", f"{base}?currentPage=1&currentPageSize=100", headers=web)
+    rows = listed.get("result", {}).get("data", []) if isinstance(listed, dict) else []
+    first = rows[0] if rows else {}
+    out["list-keys"] = (status, sorted(first))
+    notice("Omada probe", json.dumps(out)[:3500])
+
+
 def setup(d: Path) -> None:
     info = wait_info(60)
     oid = info["omadacId"]
@@ -426,6 +454,7 @@ def setup(d: Path) -> None:
     }
     for app in apps.values():
         print(f"::add-mask::{app['client_secret']}", flush=True)
+    probe(oid, web, apps["admin"])
     data = site_data(OpenApi(oid, apps["admin"]))
     if data["refused"]:
         notice("Omada setup: refused by the controller", json.dumps(data["refused"]))

@@ -457,7 +457,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ["6.3", "5.15", "5.14", "5.12"]
+        version: ["6.3", "5.15", "5.14", "5.13", "5.12"]
     env:
       REQUIRE_INTEGRATION: "1"
       CTRL_DIR: ${{ github.workspace }}/.ctrl/omada${{ matrix.version }}
