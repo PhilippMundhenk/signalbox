@@ -21,6 +21,8 @@ const EVENT = {
   device: 'notify.event.device',
   drift: 'notify.event.drift',
   deploy: 'notify.event.deploy',
+  certificate: 'notify.event.certificate',
+  rogue_ssid: 'notify.event.rogue_ssid',
 };
 const SEVERITY = [
   ['info', 'ui.severity.info'],
