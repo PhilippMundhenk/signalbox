@@ -43,7 +43,7 @@ from signalbox.adapters import (
     message_fields,
 )
 from signalbox.adapters.https import NotFound
-from signalbox.adapters.mikrotik import fwwrite, logwrite
+from signalbox.adapters.mikrotik import fwwrite, gwwrite, logwrite
 from signalbox.changes import (
     Change,
     ChangeKind,
@@ -65,10 +65,10 @@ if TYPE_CHECKING:  # pragma: no cover
 #: RouterOS 7.25.1 shows that for about a second after the address of a new VLAN interface).
 SETTLE_SECONDS = 15.0
 
-#: Kinds of change the integration applies (Wi-Fi on the RouterOS 7 ``wifi`` package; firewall
-#: kinds (#295, docs/adr/0017) with a revert timer, see ``fwwrite``); gateway groups (#463) not
-#: yet.
-WRITES = frozenset(ChangeKind) - {ChangeKind.GATEWAY_GROUP}
+#: Kinds of change the integration applies (all of them; Wi-Fi on the RouterOS 7 ``wifi``
+#: package; firewall kinds (#295, docs/adr/0017) with a revert timer, see ``fwwrite``; the
+#: default routes as the gateway group, #463, see ``gwwrite``).
+WRITES = frozenset(ChangeKind)
 
 #: ``/system/scheduler``: the revert timer of firewall changes.
 SCHEDULER = "/rest/system/scheduler"
@@ -375,6 +375,8 @@ class MikrotikWrites:
                 m.WIFI_CHANNEL,
                 m.WIFI_DATAPATH,
                 m.WIFI_STEERING,
+                gwwrite.IP_ROUTE,
+                gwwrite.NETWATCH,
             )
         ):
             try:
@@ -426,6 +428,8 @@ class MikrotikWrites:
                 logwrite.log_target(cfg, c, cfg.revert)
             elif c.kind is ChangeKind.SNMP_POLICY:
                 await self._snmp_policy(cfg, c)
+            elif c.kind is ChangeKind.GATEWAY_GROUP:
+                gwwrite.gateway_group(cfg, c, cfg.revert)
             else:
                 if not wifi:
                     raise AdapterError(
@@ -575,8 +579,19 @@ class MikrotikWrites:
         snmp: str | None = None
         with contextlib.suppress(AdapterError):  # no /snmp menu: nothing to restore
             snmp = _text(m._object(await m.get_menu(self.http, m.SNMP), m.SNMP).get("enabled"))
+        rows: dict[str, list[dict[str, Any]]] = {}
+        for menu in (gwwrite.IP_ROUTE, gwwrite.NETWATCH):
+            with contextlib.suppress(NotFound):  # no netwatch package: nothing to restore
+                rows[menu] = m._rows(await m.get_menu(self.http, menu), menu)
         content = json.dumps(
-            {"version": 1, "export": export, "menus": menus, "snmp_enabled": snmp}, sort_keys=True
+            {
+                "version": 1,
+                "export": export,
+                "menus": menus,
+                "snmp_enabled": snmp,
+                "gateway_rows": gwwrite.backup_rows(rows),
+            },
+            sort_keys=True,
         )
         return Backup(
             device_id=self.context.device_id,
@@ -674,6 +689,7 @@ class MikrotikWrites:
                                 item=_label(old),
                             ),
                         )
+        gwwrite.restore_rows(cfg, json.loads(backup.content).get("gateway_rows"))
         saved_snmp = json.loads(backup.content).get("snmp_enabled")
         if isinstance(saved_snmp, str) and saved_snmp:
             try:

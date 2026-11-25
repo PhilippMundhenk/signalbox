@@ -49,8 +49,9 @@ FIXED_MAC = "00:00:5e:00:53:{:02x}"
 #: UCI configs the simulator knows (and can write; firewall since #295)
 CONFIGS = ("network", "wireless", "dhcp", "firewall")
 #: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173)
-#: Read-only until #327: ``system`` and ``snmpd`` are also written (log target, SNMP agent)
-WRITE_ALSO = ("system", "snmpd")
+#: Read-only until #327: ``system`` and ``snmpd`` are also written (log target, SNMP agent);
+#: ``mwan3`` since #463 (gateway groups)
+WRITE_ALSO = ("system", "snmpd", "mwan3")
 READ_ONLY = (
     "system",
     "dropbear",

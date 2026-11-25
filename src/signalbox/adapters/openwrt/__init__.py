@@ -892,8 +892,9 @@ class OpenWrtAdapter(Adapter):
         config=OpenWrtConfig,
         description=(
             "Reads OpenWrt 21.02+ over ubus JSON-RPC (rpcd); writes bridge VLANs, SSIDs, "
-            "dnsmasq DHCP and firewall policies, rules and port forwards through UCI with "
-            "rpcd's confirm-or-revert apply."
+            "dnsmasq DHCP, firewall policies, rules and port forwards, the syslog target, "
+            "the SNMP agent and mwan3 gateway groups through UCI with rpcd's "
+            "confirm-or-revert apply."
         ),
         writes=frozenset(
             {
@@ -906,6 +907,7 @@ class OpenWrtAdapter(Adapter):
                 ChangeKind.PORT_FORWARD,
                 ChangeKind.LOG_TARGET,
                 ChangeKind.SNMP_POLICY,
+                ChangeKind.GATEWAY_GROUP,
             }
         ),
         admin_login=AdminLogin(
@@ -2819,18 +2821,18 @@ class OpenWrtAdapter(Adapter):
 
     async def _configs(self) -> dict[str, Any]:
         """``uci get`` of the written configs; ``firewall`` is left out where the login may
-        not read it (an ACL from before #135; ``system`` and ``snmpd``: before #327): changes
-        to it are refused then, the others
+        not read it (an ACL from before #135; ``system`` and ``snmpd``: before #327; ``mwan3``:
+        before #150): changes to it are refused then, the others
         work as before, and the backup does not hold it (a restore leaves it alone)."""
         out = {}
         for c in write.CONFIGS:
             try:
                 out[c] = await self.ubus.call("uci", "get", {"config": c})
             except AccessDenied:
-                if c not in ("firewall", "system", "snmpd"):
+                if c not in ("firewall", "system", "snmpd", "mwan3"):
                     raise
             except NotFound:
-                if c != "snmpd":  # the package is optional
+                if c not in ("snmpd", "mwan3"):  # the packages are optional
                     raise
         return out
 

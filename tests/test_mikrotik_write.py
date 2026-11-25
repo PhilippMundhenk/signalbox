@@ -170,8 +170,7 @@ async def roundtrip(url: str, changes: list[Change], secrets: dict[str, str] | N
 
 
 def test_manifest_declares_every_kind() -> None:
-    # gateway groups (#463) are written by a later change
-    assert MikrotikAdapter.manifest.writes == frozenset(ChangeKind) - {ChangeKind.GATEWAY_GROUP}
+    assert MikrotikAdapter.manifest.writes == frozenset(ChangeKind)
     assert issubclass(MikrotikAdapter, WritesConfig)
     assert ros_duration(0) == "0s" and ros_duration(90061) == "1d1h1m1s"
 

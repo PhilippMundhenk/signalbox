@@ -805,17 +805,18 @@ Failures:
 | `port-forward` | `config redirect 'sb_fwd_<key>'` with `target DNAT`: `name`, `src` (the internet zone), `src_dport`, `dest` (the zone of the interface whose subnet holds the target), `dest_ip`, `dest_port`, `proto`, `enabled`. `adopt: <name>` as for rules. |
 | `log-target` | `system.@system[0]`: `log_ip`, `log_port`, `log_proto` (`udp` or `tcp`) and the tag `signalbox_syslog '1'`; `log_remote` is removed so the target is used. logd has one slot: a second declared target is refused, and a target of the device's own (no tag) is replaced only when the change adopts it. Removal deletes the four options when the slot still holds that address. Syslog over TLS is refused. *Guess (#21): that `uci apply` makes logd pick up the new target on every release.* |
 | `snmp-policy` | `snmpd.general.enabled` `0` (off) or `1` (back on, as a revert); the section is created if the package has none. `v3-only` is refused (it needs SNMPv3 users and their secrets); a router without the `snmpd` config is refused. *Guess (#21): that the package's init script reloads on `uci apply` and honours `enabled`.* |
+| `gateway-group` | The mwan3 `policy` of the group's name (#463, [ADR 0032](../adr/0032-gateway-group-desired-state.md)): the members in its `use_member` list get the tier as `metric` (every member gets its tier number when the order of the tiers changes) and `weight`; the line's monitor is `track_ip` of the mwan3 `interface` of the same name (removed for an empty monitor; refused on a disabled interface). A member section that another policy also uses is not changed: a copy `sb_<policy>_<line>` (option `signalbox '1'`) with the new values replaces it in this policy's `use_member`. Policies, members and interfaces are never created or removed; a router without the `mwan3` config is refused. *Guess (#21): that `uci apply` makes mwan3 reload on every 2.x release.* |
 | `router` | Not supported: a routed VLAN on OpenWrt also needs its own firewall zone, which Signalbox does not create. Create routed interfaces and their zones by hand (or in LuCI); DHCP, reservations and the zone's policies and rules can then be deployed. |
 
 ### Login with write access
 
 Same packages as for reading. `/usr/share/rpcd/acl.d/signalbox.json` with a `write` part that
-only allows the `uci` methods of a transaction on the six configs it changes (`system` for the syslog target, `snmpd` for the agent; a login set up with an older ACL still works for the other changes, the two kinds are refused):
+only allows the `uci` methods of a transaction on the seven configs it changes (`system` for the syslog target, `snmpd` for the agent, `mwan3` for gateway groups; a login set up with an older ACL still works for the other changes, those kinds are refused):
 
 ```json
 {
   "signalbox": {
-    "description": "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, system and snmpd",
+    "description": "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, system, snmpd and mwan3",
     "read": {
       "ubus": {
         "system": ["board", "info"],
@@ -859,7 +860,7 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
       "ubus": {
         "uci": ["set", "add", "delete", "order", "revert", "changes", "apply", "confirm", "rollback"]
       },
-      "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd"]
+      "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3"]
     }
   }
 }

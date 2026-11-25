@@ -2050,7 +2050,9 @@ class MikrotikSimulator:
 
     @staticmethod
     def _found(rows: list[dict[str, Any]], expr: str) -> list[dict[str, Any]]:
-        """``[find where name="x"]``: the rows with that value."""
+        """``[find where name="x"]``: the rows with that value; ``*1F``: the row with that id."""
+        if re.fullmatch(r"\*[0-9A-F]+", expr):
+            return [r for r in rows if r.get(".id") == expr]
         m = re.fullmatch(r"\[find where ([\w-]+)=(.*)\]", expr)
         if m is None:
             raise ValueError(f"unsupported find expression: {expr}")
@@ -2131,6 +2133,12 @@ class MikrotikSimulator:
             return self._check_firewall(menu, row)
         if menu == SCHEDULER:
             return self._check_scheduler(row)
+        if menu == IP_ROUTE:
+            distance = row.get("distance", "1")
+            if not distance.isdigit() or not 1 <= int(distance) <= 255:
+                return "invalid value for argument distance"
+            if row.get("check-gateway", "ping") not in ("arp", "ping", "bfd", "bfd-multihop"):
+                return "invalid value for argument check-gateway"
         for key in REQUIRED.get(menu, ()):
             if not row.get(key):
                 return f"missing value for {key}"
@@ -2312,6 +2320,8 @@ LOG_ACTION = "/rest/system/logging/action"
 LOG_RULES = "/rest/system/logging"
 SNMP = "/rest/snmp"
 INTERFACE_LIST = "/rest/interface/list"
+IP_ROUTE = "/rest/ip/route"
+NETWATCH = "/rest/tool/netwatch"
 SCRIPT_VERBS = ("add", "remove", "set", "unset")
 SCRIPT_MENUS = {
     "/ip firewall filter": FW_FILTER,
@@ -2320,6 +2330,8 @@ SCRIPT_MENUS = {
     "/system scheduler": SCHEDULER,
     "/system logging action": LOG_ACTION,
     "/system logging": LOG_RULES,
+    "/ip route": IP_ROUTE,
+    "/tool netwatch": NETWATCH,
 }
 FILTER_ACTIONS = frozenset(
     {"accept", "drop", "reject", "jump", "return", "passthrough", "log", "tarpit"}
@@ -2431,6 +2443,34 @@ def add_bond(sim: MikrotikSimulator, mode: str = "802.3ad") -> MikrotikSimulator
     return sim
 
 
+def add_second_wan(sim: MikrotikSimulator) -> MikrotikSimulator:
+    """Two static default routes as a failover group (#150, #463): the cable line through
+    203.0.113.1 (distance 1, ``check-gateway=ping``, comment ``cable``) instead of the DHCP
+    one, and an LTE router at 198.51.100.1 (distance 5, comment ``lte``) watched by a netwatch
+    entry with the same comment that pings 203.0.113.53. Fields from the RouterOS manual, not a
+    real device (#21)."""
+    routes = [r for r in sim.data[IP_ROUTE] if r.get("dst-address") != "0.0.0.0/0"]
+    common = {"dst-address": "0.0.0.0/0", "routing-table": "main", "static": "true"}
+    common |= {"dynamic": "false", "disabled": "false"}
+    cable = {"gateway": "203.0.113.1", "distance": "1", "check-gateway": "ping"}
+    cable |= {"comment": "cable", "active": "true", **common}
+    lte = {"gateway": "198.51.100.1", "distance": "5", "comment": "lte", "active": "false"}
+    sim.data[IP_ROUTE] = [*routes, *({".id": sim._id(), **r} for r in (cable, lte | common))]
+    sim.data[NETWATCH] = [
+        {
+            ".id": sim._id(),
+            "host": "203.0.113.53",
+            "status": "up",
+            "interval": "10s",
+            "comment": "lte",
+            "disabled": "false",
+            "up-script": "/ip route enable [find comment=lte]",
+            "down-script": "/ip route disable [find comment=lte]",
+        }
+    ]
+    return sim
+
+
 BRIDGE_MONITOR = "/rest/interface/bridge/monitor"
 BRIDGE_PORT_MONITOR = "/rest/interface/bridge/port/monitor"
 POE_MONITOR = "/rest/interface/ethernet/poe/monitor"
@@ -2478,6 +2518,8 @@ WRITABLE = (
     SCHEDULER,
     LOG_ACTION,
     LOG_RULES,
+    IP_ROUTE,
+    NETWATCH,
 )
 REQUIRED = {
     VLAN: ("name", "vlan-id", "interface"),

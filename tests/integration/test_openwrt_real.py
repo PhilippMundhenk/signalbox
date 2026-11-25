@@ -64,7 +64,7 @@ NATIVE = f"{SITE}/segment/native"
 SSID = "Example-IT"
 PSK = "example-it-passphrase"
 SECRETS = {"it-guest": "integration guest passphrase"}
-CONFIGS = ("network", "wireless", "dhcp", "firewall", "system", "snmpd")
+CONFIGS = ("network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3")
 
 pytestmark = pytest.mark.integration
 
@@ -600,6 +600,48 @@ async def test_snmp_agent_off_deploy_and_revert(lab: Lab, unchanged: dict[str, A
     assert (await lab.plan(SNMP_OFF)).changes == []
     back = await lab.revert(rec)
     assert back.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in back.devices]
+
+
+GROUPS = f"""
+sites:
+  {SITE}:
+    gateway_groups:
+      - device: {DEV}
+        name: wan_wanb
+        adopt: true
+        members:
+          - {{name: wan, tier: 2, weight: 5}}
+          - {{name: wanb, tier: 1, monitor: [198.51.100.53, 203.0.113.53]}}
+"""
+
+
+async def test_gateway_group_deploy_and_restore(
+    lab: Lab, ow: Target, pin: str, unchanged: dict[str, Any]
+) -> None:
+    """#463: the image's mwan3 policy wan_wanb gets swapped tiers, a weight and a monitor. Its
+    member wan_m1_w3 is shared with the policy wan_only, so Signalbox adds a tagged copy for
+    wan_wanb and leaves wan_only alone; the groups read back as declared, and restoring the
+    backup puts the exact configuration back (the copy is removed)."""
+    rec = await lab.deploy(GROUPS)
+    assert [c.kind for c in rec.plan.changes] == [ChangeKind.GATEWAY_GROUP]
+    assert rec.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in rec.devices]
+    assert rec.devices[0].status is DeployStatus.CONFIRMED
+    mwan3 = (await uci(ow, pin))["mwan3"]
+    assert mwan3["wan_only"]["use_member"] == ["wan_m1_w3"], mwan3["wan_only"]
+    copy_name = mwan3["wan_wanb"]["use_member"][0]
+    assert copy_name.startswith("sb_"), mwan3["wan_wanb"]
+    assert (mwan3[copy_name]["metric"], mwan3[copy_name]["weight"]) == ("2", "5")
+    assert mwan3[copy_name]["signalbox"] == "1"
+    assert mwan3["wan_m1_w3"]["metric"] == "1" and mwan3["wanb_m2_w2"]["metric"] == "1"
+    assert sorted(mwan3["wanb"]["track_ip"]) == ["198.51.100.53", "203.0.113.53"]
+    snap = await observe(context(ow, pin))
+    [group] = [g for g in snap.gateway_groups if g.name == "wan_wanb"]
+    assert {m.name: m.tier for m in group.members} == {"wan": 2, "wanb": 1}
+    assert (await lab.plan(GROUPS)).changes == []
+    backup = rec.devices[0].backup_id
+    assert backup is not None
+    restore = await lab.run(await lab.deployer.restore_backup(backup, "integration", "it"))
+    assert restore.status is ChangeStatus.APPLIED, [(r.status, r.error) for r in restore.devices]
 
 
 async def test_restore_of_the_backup(lab: Lab, ow: Target, pin: str, unchanged: Any) -> None:

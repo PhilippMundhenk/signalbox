@@ -70,14 +70,9 @@ def _state(row: dict[str, Any]) -> UplinkState | None:
     return None
 
 
-def groups(
-    device_id: str,
-    routes: list[dict[str, Any]],
-    uplinks: list[Uplink],
-    netwatch: list[dict[str, Any]],
-) -> list[GatewayGroup]:
-    """The group of the default routes, or none when there is at most one."""
-    defaults = [
+def default_routes(routes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The enabled IPv4 default routes of the ``main`` table with a next hop: the members."""
+    return [
         r
         for r in routes
         if _text(r.get("dst-address")) == "0.0.0.0/0"
@@ -86,6 +81,16 @@ def groups(
         and not _flag(r.get("blackhole"))
         and _addr(r.get("gateway")) is not None
     ]
+
+
+def groups(
+    device_id: str,
+    routes: list[dict[str, Any]],
+    uplinks: list[Uplink],
+    netwatch: list[dict[str, Any]],
+) -> list[GatewayGroup]:
+    """The group of the default routes, or none when there is at most one."""
+    defaults = default_routes(routes)
     if len(defaults) < 2:
         return []
     distances = sorted({_int(r.get("distance")) or 1 for r in defaults})

@@ -115,6 +115,32 @@ uci set snmpd.@trap2sink[-1].host='192.0.2.5'
 uci set snmpd.@trap2sink[-1].community='public'
 uci commit snmpd
 
+# --- multi-WAN (#463): an mwan3 config as LuCI writes it (the package is not installed: only
+# the UCI shape and the ACL are tested); the member wan_m1_w3 is shared by two policies
+touch /etc/config/mwan3
+uci batch <<'EOF'
+set mwan3.wan=interface
+set mwan3.wan.enabled='1'
+add_list mwan3.wan.track_ip='192.0.2.53'
+set mwan3.wanb=interface
+set mwan3.wanb.enabled='1'
+add_list mwan3.wanb.track_ip='198.51.100.53'
+set mwan3.wan_m1_w3=member
+set mwan3.wan_m1_w3.interface='wan'
+set mwan3.wan_m1_w3.metric='1'
+set mwan3.wan_m1_w3.weight='3'
+set mwan3.wanb_m2_w2=member
+set mwan3.wanb_m2_w2.interface='wanb'
+set mwan3.wanb_m2_w2.metric='2'
+set mwan3.wanb_m2_w2.weight='2'
+set mwan3.wan_wanb=policy
+add_list mwan3.wan_wanb.use_member='wan_m1_w3'
+add_list mwan3.wan_wanb.use_member='wanb_m2_w2'
+set mwan3.wan_only=policy
+add_list mwan3.wan_only.use_member='wan_m1_w3'
+EOF
+uci commit mwan3
+
 # --- wireless (radios detected by "wifi config" from mac80211_hwsim, see /etc/modules.conf) --
 for r in 0 1 2; do uci -q delete wireless.default_radio$r; done
 for r in 0 1 2; do
