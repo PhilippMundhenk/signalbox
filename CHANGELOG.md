@@ -197,6 +197,7 @@ All notable changes to this project are documented here. The format follows
 
 - Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
+- Linux setup texts (#499, PR #500): the sudoers step title lists every command of the rule (built from the same list, all 15 catalogues, a test checks it), the no-rule step names wg, nft, iptables-save, ddclient and inadyn instead of only WireGuard and nftables; Omada has no reserved PoE power field and `PoeSupply.reserved_w` is documented as not available
 - Translations of the `port.utilisation` and `port.idle-trunk` explanations (#484, PR #487): the new wording (percentile of hourly rates, sustained idle period) in all 15 languages.
 - MikroTik (#425, #437): a 404 or web page on `/rest` no longer reads as "RouterOS 6 is not supported" unless the version says 6.x; otherwise "no RouterOS REST API at this address (RouterOS 6, REST disabled, or wrong address/port)"; the adapter docs no longer mention RouterOS 6 PoE
 - Linux firewall gap texts name the real source (`iptables` or `nftables`) instead of always "nftables:" (all 15 languages), and the Linux CI job summary shows whether the iptables-legacy end-to-end test ran or was skipped, and why (#404)
