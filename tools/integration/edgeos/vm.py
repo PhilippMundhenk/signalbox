@@ -293,7 +293,7 @@ def configure(con: Console, name: str, commands: list[str], required: bool) -> b
     t0 = time.time()
     # in the background and polled: a long command keeps the console silent
     con.run(f"(vbash {path} </dev/null >{path}.out 2>&1; touch {path}.done) &")
-    while "yes" not in con.run(f"test -e {path}.done && echo yes", 60).split():
+    while "yes" not in con.run(f'test -e {path}.done && echo ye""s', 60).split():
         if time.time() - t0 > 900:
             fail("VyOS setup", f"configuration step {name} did not finish", con.d)
         time.sleep(3)
