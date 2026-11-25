@@ -85,3 +85,27 @@ port" there was taken as evidence; and the ARP-only guard only looked at devices
 
 Networks with real per-port tables (switches with FDBs, MikroTik and OpenWrt bridges) keep their
 links; only data with ambiguous ports changes.
+
+## Addendum: one cable per jack, VLANs through a switch (#545)
+
+A router with one physical port and only an ARP table, cabled to an OpenWrt switch (DSA bridge
+table), got three links to that switch: the real access port, the trunk to a switch without a
+table, and the port of a WAN VLAN that runs from the router through the switch to the upstream
+router. The switch learns the router's MAC per VLAN, so the WAN VLAN's traffic puts it behind
+other ports too; nothing on the router's side says which port it is on.
+
+- **A tagged-only sighting is no cable**: a table entry on a port that learns the address only
+  in VLANs tagged on that port (by the segment's membership; the PVID counts as untagged), while
+  the same table learns the address untagged on another port, is dropped from the sightings. It
+  is a VLAN that runs through the switch, not where the address is plugged in. This also puts
+  the switch between the router and the upstream router (learned on different ports).
+- **One cable per jack and device**: a jack has at most one cable to a given other device. Of
+  several links from one jack to ports of the same device (in either direction), the one kept
+  is, in order: confirmed (not inferred); where the table learns the other device untagged in
+  the VLAN of that device's own address (`Device.management_address` in its subnets, else its
+  untagged network), then untagged in any VLAN, then without VLAN information, then tagged
+  only; then the ports that learn the fewest addresses (an access port over a trunk). The far
+  port chosen from a table uses the same order. Separate cables (LAG members) have separate
+  jacks at both ends and all stay.
+- Without VLAN information in the table the fewest learned addresses still pick the access
+  port; a device also learned behind the trunk can then keep a link of its own to the router.
