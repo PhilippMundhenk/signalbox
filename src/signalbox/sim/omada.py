@@ -170,9 +170,9 @@ def _network(net_id: str, name: str, vlan: int, **kw: Any) -> dict[str, Any]:
         "vlanType": 0,
         "vlan": vlan,
         "application": 0,
-        **kw,
         "igmpSnoopEnable": False,
         "mldSnoopEnable": False,
+        **kw,
         "dhcpL2RelayEnable": False,
         "dhcpGuard": {"enable": False},
         "dhcpv6Guard": {"enable": False},
@@ -324,6 +324,32 @@ def sample_data() -> dict[str, Any]:
             "communityString": "public",
             "snmpPort": 161,
         },
+        # multicast (#508): paths and field names from the controller's own description (CI);
+        # the contents of the lists are the simulator's own *(guess, #21)*
+        f"{SITE}/lan-multicasts": [
+            {
+                "id": "mc-1",
+                "name": "Snooping",
+                "networks": ["net-lan", "net-iot"],
+                "protocol": 0,
+                "unknownMulticastRule": 1,
+                "querierEnable": True,
+                "igmpQueriers": ["192.0.2.1"],
+            }
+        ],
+        f"{SITE}/setting/service/igmp": {"enable": True, "version": 2},
+        f"{SITE}/setting/service/mld": {"enable": False, "version": 2},
+        f"{SITE}/setting/service/mdns": [
+            {
+                "id": "mdns-1",
+                "name": "Cast",
+                "status": True,
+                "profileIds": ["buildIn-1"],
+                "type": 1,
+                "osg": {"serviceNetworks": ["net-iot"], "clientNetworks": ["net-lan"]},
+            }
+        ],
+        f"{SITE}/setting/service/mdns-exception": {"mdnsEffect": True},
         # GUESSED shapes (#327), not from a real controller: cloud access is a controller
         # setting, the remote syslog server a site setting next to SNMP
         f"/openapi/v1/{OMADAC_ID}/cloud-access": {"enable": True},
@@ -418,6 +444,8 @@ def sample_data() -> dict[str, Any]:
                     "192.0.2.100", "192.0.2.199", leasetime=120, gateway="192.0.2.1"
                 ),
                 domain="lan.example",
+                igmpSnoopEnable=True,
+                mldSnoopEnable=True,
             ),
             _network(
                 "net-iot",
@@ -432,6 +460,7 @@ def sample_data() -> dict[str, Any]:
                     priDns="198.51.100.1",
                     sndDns="192.0.2.53",
                 ),
+                igmpSnoopEnable=True,
             ),
             _network("net-guest", "Guest", 30),
         ],
@@ -850,10 +879,15 @@ RELEASES: dict[str, str] = {
 }
 #: path parts a release does not serve (404): 5.15 has no user list, 5.13 no ACLs and no
 #: port forwarding (guess)
+#: Multicast paths only controller 6 has (CI, #508): snooping configurations, MLD proxy, mDNS state.
+_MULTICAST_V6 = ("/lan-multicasts", "/setting/service/mld", "/setting/service/mdns-exception")
 _NOT_SERVED: dict[str, tuple[str, ...]] = {
-    "5.15": ("/users", "/all-users", "/roles/available"),
-    "5.13": ("/users", "/all-users", "/roles/available", "/acls/", "/nat/port-forwardings"),
-}
+    "5.15": ("/users", "/all-users", "/roles/available", *_MULTICAST_V6),
+    "5.13": (
+        "/users", "/all-users", "/roles/available", "/acls/", "/nat/port-forwardings",
+        *_MULTICAST_V6,
+    ),
+}  # fmt: skip
 
 
 @dataclass

@@ -33,6 +33,7 @@ from signalbox.model import (
     Client,
     DeviceAccount,
     DeviceHealth,
+    DeviceMulticast,
     DeviceRole,
     DeviceTime,
     DhcpLease,
@@ -59,6 +60,7 @@ from signalbox.model import (
     ManagementService,
     MedDeviceClass,
     Membership,
+    MulticastSettings,
     Neighbour,
     NeighbourProtocol,
     Network,
@@ -72,6 +74,7 @@ from signalbox.model import (
     PortRole,
     PurposeSource,
     Radio,
+    ReflectorKind,
     Reservation,
     Route,
     RouteOrigin,
@@ -82,6 +85,7 @@ from signalbox.model import (
     Segment,
     SegmentPurpose,
     ServiceKind,
+    ServiceReflector,
     SnmpSettings,
     SnmpVersion,
     StorageKind,
@@ -391,6 +395,12 @@ class Lab(Adapter):
             routes=routes,
             routing_rules=rules,
             log_targets={d: logs},
+            multicast={
+                d: DeviceMulticast(
+                    settings=[MulticastSettings(name="br-lan", igmp_snooping=True, querier=True)],
+                    reflectors=[ServiceReflector(kind=ReflectorKind.MDNS)],
+                )
+            },
             stp_bridges={
                 d: [
                     StpBridge(

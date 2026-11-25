@@ -506,6 +506,12 @@ jobs:
       - name: Record the gateway ACL and port forwarding API (2)
         continue-on-error: ${{ matrix.version != '6.3' }}
         run: python3 tools/integration/omada/dump.py "$CTRL_DIR" firewall 1
+      - name: Record the multicast API (IGMP snooping, mDNS, #508)
+        continue-on-error: ${{ matrix.version != '6.3' }}
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" multicast 0
+      - name: Record the multicast API (2)
+        continue-on-error: true
+        run: python3 tools/integration/omada/dump.py "$CTRL_DIR" multicast 1
       - name: Record the user, admin and role API (client mode, #354)
         continue-on-error: ${{ matrix.version != '6.3' }}
         run: python3 tools/integration/omada/dump.py "$CTRL_DIR" users 0

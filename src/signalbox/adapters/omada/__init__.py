@@ -53,6 +53,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.omada import discovery as _discovery
 from signalbox.adapters.omada import firewall, multiwan, vitals, wifi_extras
+from signalbox.adapters.omada import multicast as multicast_reader
 from signalbox.adapters.omada import portal as portal_reader
 from signalbox.adapters.portcounters import counters_of
 from signalbox.changes import Change, ChangeKind
@@ -1314,6 +1315,7 @@ class OmadaAdapter(_Adapter):
             gateway_groups=groups,
             portals=await self._portals(nets),
             services=await self._services([m.id for m in managed]),
+            multicast=await self._multicast(nets, gateway),
             **accounts,
             log_targets=await self._log_targets([m.id for m in managed]),
         )
@@ -1648,6 +1650,31 @@ class OmadaAdapter(_Adapter):
         return portal_reader.portals(
             self.context.device_id, rows, wlans, {i: n.segment for i, n in nets.items()}
         )
+
+    async def _multicast(self, nets: dict[str, _Net], gateway: _Managed | None) -> dict[str, Any]:
+        """IGMP/MLD snooping per network, the IGMP proxy and the mDNS rules (#508), reported on
+        the gateway (the controller when the site has none). The mDNS rules are the reflectors:
+        when they cannot be read nothing is reported, so that "no reflector" is never guessed."""
+        base = self._site_path
+        try:
+            mdns = await self._rows(f"{base}/setting/service/mdns")
+        except (NotFound, OmadaError):
+            return {}
+        # controller 6 only: the snooping configurations, whether the rules apply
+        configs = await self._optional_rows(f"{base}/lan-multicasts")
+        proxy = await self._object(f"{base}/setting/service/igmp")
+        exception = await self._object(f"{base}/setting/service/mdns-exception")
+        effective = exception.get("mdnsEffect") if exception else None
+        found = multicast_reader.multicast(
+            [(n.id, n.name, n.segment, n.raw) for n in nets.values()],
+            configs,
+            proxy,
+            mdns,
+            effective if isinstance(effective, bool) else None,
+        )
+        if not found.settings and not found.reflectors:
+            return {}
+        return {self._prefix(gateway) if gateway else self.context.device_id: found}
 
     async def _services(self, device_ids: list[str]) -> list[ManagementService]:
         """SSH and SNMP of the site (#173). The controller applies both to every device it

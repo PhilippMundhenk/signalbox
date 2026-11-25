@@ -175,6 +175,35 @@ def firewall_spec(
     return out
 
 
+MULTICAST_WORDS = ("igmp", "mld", "mdns", "multicast", "snoop", "bonjour", "querier")
+
+
+def multicast_spec() -> dict[str, Any]:
+    """Everything about IGMP/MLD snooping, mDNS and multicast in the controller's own Open API
+    description (#508): the paths (as ``firewall_spec``) and, in every schema, the properties
+    with such a name and the description of each."""
+    out = firewall_spec(False, MULTICAST_WORDS)
+    _, doc = controller.request("GET", "/v3/api-docs")
+    schemas = doc.get("components", {}).get("schemas", {}) if isinstance(doc, dict) else {}
+    found: dict[str, Any] = {}
+    for name, schema in schemas.items():
+        props = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        hits = {
+            k: f"{v.get('type')} {(v.get('description') or '')[:140]}".strip()
+            for k, v in props.items()
+            if isinstance(v, dict) and any(w in k.lower() for w in MULTICAST_WORDS)
+        }
+        if hits:
+            found[name] = hits
+    out["schema properties"] = {
+        "method": "SPEC",
+        "path": "components/schemas",
+        "status": 200,
+        "body": found,
+    }
+    return out
+
+
 def calls(group: str) -> list[tuple[str, str, str, Any, dict[str, str]]]:
     """(label, method, path, body, headers)"""
     if group == "read":
@@ -241,10 +270,12 @@ def main(d: Path, group: str, part: int) -> None:
     cached = d / f"api-{group}.json"
     if part and cached.exists():
         full = json.loads(cached.read_text())
-    elif group in ("spec", "firewall", "users"):
+    elif group in ("spec", "firewall", "users", "multicast"):
         full = (
             spec()
             if group == "spec"
+            else multicast_spec()
+            if group == "multicast"
             else firewall_spec()
             if group == "firewall"
             else firewall_spec(True, ("user", "admin", "role", "account", "member"))  # #354

@@ -649,6 +649,28 @@ To confirm or correct them, the Omada integration job writes every path of the c
 into the `spec` dump (group `spec`); compare it with the constants. The Open API of 6.3 may
 have no such call at all; then both reads stay silent and nothing is lost.
 
+## Multicast (#508, part of #161)
+
+Read with the interfaces, reported on the gateway (on the controller when the site has none)
+as `Device.multicast`; the check rules are in [multicast checks](../rules/multicast_checks.md).
+The paths and field names are in the controller's own Open API description (**CI**, 6.3, 5.15,
+5.14 and 5.13: `tools/integration/omada/dump.py multicast`); the test site has no snooping
+configuration and no mDNS rule, so what is inside the lists is a *guess* (#21).
+
+| Setting | Read from | Releases |
+| --- | --- | --- |
+| IGMP and MLD snooping of a network | `igmpSnoopEnable`, `mldSnoopEnable` of the LAN network | all (one setting per network, with its segment) |
+| querier on or off, unknown multicast forwarded or dropped, the querier's address | `GET …/lan-multicasts`: `networks`, `protocol` (0 IGMP, 1 MLD), `querierEnable`, `unknownMulticastRule` (0 forward, 1 discard; 2 router ports only is not mapped), `igmpQueriers` *(guess: addresses as strings or `ip`)* | controller 6 (404 on 5.13 to 5.15: left empty) |
+| IGMP proxy (IPTV) | `GET …/setting/service/igmp`: `enable`; the WAN port is an id, not an interface name, so the upstream stays unknown | 5.13 and later |
+| mDNS reflection | `GET …/setting/service/mdns`: one reflector per rule, `status` is its switch; `type` 1 (gateway) between `osg.serviceNetworks` and `osg.clientNetworks`, `type` 0 (access points) between the VLANs `ap.serviceVlan` and `ap.clientVlan`; `mdns-exception` `mdnsEffect` `false` marks the rules as not in effect | 5.13 and later; `mdns-exception` controller 6 |
+
+When the mDNS rules cannot be read nothing is reported, so that "no reflector" is never guessed
+(the rule `multicast.reflector-missing` relies on it). Not mapped: IGMP fast leave (it belongs to
+the port profile, `igmpFastLeaveEnable`), the MLD proxy (`setting/service/mld`), the multicast
+rate limit, the Bonjour service profiles (never read: only the settings are), Wi-Fi
+multicast-to-unicast (read with the SSIDs). Switch-level IGMP snooping per VLAN is the same
+network setting. Writes are not offered (the desired state of #508 stays open).
+
 ## MAC address table (#160)
 
 The controller's client list is its view of the switches' tables: every wired client with
