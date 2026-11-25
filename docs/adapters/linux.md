@@ -124,10 +124,13 @@ sudo chmod 440 /etc/sudoers.d/signalbox && sudo visudo -cf /etc/sudoers.d/signal
 2. Log in with a key (recommended). Paste the private key into *Private key* in the device form;
    a field without line breaks is fine, Signalbox puts them back. Or give the user a password
    (`sudo passwd signalbox`) and enter that; the SSH server must then allow password logins.
-3. Only with WireGuard or nftables: `wg` and `nft` need `CAP_NET_ADMIN`. The sudoers rule
+3. Only with WireGuard, nftables, iptables, ddclient or inadyn: `wg`, `nft` and `iptables-save` need `CAP_NET_ADMIN`. The sudoers rule
    allows exactly these commands: the `wg show all <field>` ones print public keys only (never
    `wg show all dump`, `private-key` or `preshared-keys`, which are not allowed and never
-   sent), and `nft -j list ruleset` only prints the packet filter rules (no secrets):
+   sent), `nft -j list ruleset` only prints the packet filter rules (no secrets),
+   `iptables-save` / `ip6tables-save` (empty argument list only) print the legacy iptables rules, and
+   `cat /etc/ddclient.conf` / `cat /etc/inadyn.conf` read the dynamic DNS configuration (credential
+   lines are dropped on the device):
 
    ```text
 # Signalbox: read the WireGuard status (public keys only), the nftables ruleset and the
@@ -257,7 +260,8 @@ first and sends nothing before. Then, over that pinned connection (a sudo user's
    `signalbox-read`) to the user's `authorized_keys`, replacing what was there; the private key
    is stored encrypted in Signalbox;
 3. with `wg`, `nft`, `iptables-save`, `ddclient` or `inadyn` installed, writes the sudoers rule above to `/etc/sudoers.d/<login>` after
-   `visudo -c` accepted it;
+   `visudo -c` accepted it; the step's title lists every command of the rule (built from the same
+   list, a test checks it), and without any of these tools the plan says that there is no rule;
 4. pins the confirmed host key for reading, so one fingerprint is confirmed, not two.
 
 Optional extras, unticked in the plan, each only when the tool is missing: *nftables*, *iproute2*

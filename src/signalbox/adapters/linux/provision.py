@@ -2,10 +2,10 @@
 
 The same result as the commands of the setup guide (:mod:`signalbox.adapters.linux.setup`): a
 system user without password, sudo or groups; an ed25519 key generated here, of which only the
-public half is sent (``authorized_keys``); with WireGuard or nftables installed, the sudoers
-rule for the ``wg show`` and ``nft -j list ruleset`` read commands, checked with ``visudo -c``
-before it is put in place. A sudo user's password goes to ``sudo -S`` on standard input,
-never on a command line; with ``NOPASSWD`` it is not sent at all. The host key confirmed for
+public half is sent (``authorized_keys``); with WireGuard, nftables, iptables, ddclient or
+inadyn installed, the sudoers rule for the read commands
+(:func:`~signalbox.adapters.linux.setup.sudo_commands`), checked with ``visudo -c`` before it is put in place. A sudo user's password goes to
+``sudo -S`` on standard input, never on a command line; with ``NOPASSWD`` it is not sent at all. The host key confirmed for
 the admin login is pinned for reading,
 so the user confirms one fingerprint.
 
@@ -33,7 +33,13 @@ from signalbox.adapters import (
     UntrustedHostKey,
 )
 from signalbox.adapters.linux import distro
-from signalbox.adapters.linux.setup import KEY_COMMENT, sudoers, sudoers_path
+from signalbox.adapters.linux.setup import (
+    KEY_COMMENT,
+    SUDO_TOOLS,
+    sudo_commands,
+    sudoers,
+    sudoers_path,
+)
 from signalbox.adapters.provision import Redactor, Step, plan_steps, run_steps
 from signalbox.adapters.ssh import PinnedSsh, ShellResult, sha256_hex
 
@@ -46,6 +52,10 @@ COMPARE = (
     "On the device: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub prints the fingerprint "
     "(or the _ecdsa_ / _rsa_ key)."
 )
+
+
+#: The commands of the sudoers rule as the step titles list them (#499).
+_COMMANDS = ", ".join(sudo_commands())
 
 
 def _q(value: str) -> str:
@@ -372,24 +382,29 @@ class LinuxSetup:
             steps.append(
                 Step(
                     "sudoers",
-                    f"Allow {self.login} the read-only commands (wg show, nft list ruleset) "
-                    f"({sudoers_path(self.login)})",
+                    f"Allow {self.login} exactly these commands without a password: "
+                    f"{_COMMANDS} ({sudoers_path(self.login)})",
                     install_rule,
                     needed=state.sudoers != rule,
                     action=self._action(ssh, install_rule),
                     note="" if state.sudoers != rule else "already as in the setup guide",
                     title_id="setup.linux.sudoers",
-                    params={"login": self.login, "path": sudoers_path(self.login)},
+                    params={
+                        "login": self.login,
+                        "commands": _COMMANDS,
+                        "path": sudoers_path(self.login),
+                    },
                 )
             )
         else:
             steps.append(
                 Step(
                     "sudoers",
-                    "No sudoers rule: neither WireGuard (wg) nor nftables (nft) is installed",
+                    f"No sudoers rule: none of {SUDO_TOOLS} is installed",
                     needed=False,
                     note="not needed",
                     title_id="setup.linux.noSudoers",
+                    params={"tools": SUDO_TOOLS},
                 )
             )
         steps.append(
@@ -501,15 +516,16 @@ REMEDIES = (
             ),
             PreviewStep(
                 id="sudoers",
-                title="Allow the login the read-only wg show and nft list commands",
+                title="Allow the login the read-only commands of the sudoers rule (see the plan)",
                 title_id="setup.linux.previewSudoers",
             ),
         ],
         title="Install nftables",
         description="Over SSH as root or a sudo user: installs the package nftables with the "
-        "device's package manager (apt, pacman, dnf or apk) and adds the read-only sudoers rule "
-        "for nft -j list ruleset, so that Signalbox can read the firewall. No firewall rule or "
-        "network setting is changed; the iptables rules in use stay as they are.",
+        "device's package manager (apt, pacman, dnf or apk) and adds the sudoers rule of the setup "
+        "guide (read-only commands only; the plan lists each), so that Signalbox can read the "
+        "firewall. No firewall rule or network setting is changed; the iptables rules in use stay "
+        "as they are.",
     ),
 )
 
@@ -557,13 +573,17 @@ class LinuxFix(LinuxSetup):
             self.install_step(ssh, state, "nftables"),
             Step(
                 "sudoers",
-                f"Allow {self.login} the read-only commands (wg show, nft list ruleset) "
-                f"({sudoers_path(self.login)})",
+                f"Allow {self.login} exactly these commands without a password: "
+                f"{_COMMANDS} ({sudoers_path(self.login)})",
                 install_rule,
                 needed=state.sudoers != rule,
                 action=self._action(ssh, install_rule),
                 note="" if state.sudoers != rule else "already as in the setup guide",
                 title_id="setup.linux.sudoers",
-                params={"login": self.login, "path": sudoers_path(self.login)},
+                params={
+                    "login": self.login,
+                    "commands": _COMMANDS,
+                    "path": sudoers_path(self.login),
+                },
             ),
         ]

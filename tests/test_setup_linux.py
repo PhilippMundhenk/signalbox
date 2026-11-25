@@ -21,7 +21,14 @@ from signalbox.adapters import (
 from signalbox.adapters.linux import LinuxAdapter, LinuxConfig
 from signalbox.adapters.linux.collect import FORBIDDEN
 from signalbox.adapters.linux.provision import parse_sections
-from signalbox.adapters.linux.setup import KEY_COMMENT, SUDOERS_PATH, commands, sudoers
+from signalbox.adapters.linux.setup import (
+    KEY_COMMENT,
+    SUDO_TOOLS,
+    SUDOERS_PATH,
+    commands,
+    sudo_commands,
+    sudoers,
+)
 from signalbox.model import DeviceRole, DeviceStatus
 from signalbox.sim.linux import (
     ADMIN_PASSWORD,
@@ -136,6 +143,26 @@ async def test_without_wireguard_nft_or_iptables_no_sudoers_rule() -> None:
     assert result.ok
     assert {s.id: s.state for s in result.steps}["sudoers"] is StepState.UNCHANGED
     assert box.sudoers_files == {}
+
+
+async def test_sudoers_step_title_lists_every_command_of_the_rule() -> None:
+    """The step text is built from the list that builds the rule, so it cannot drift (#499)."""
+    box = LinuxSim()
+    async with serve_ssh(box) as (port, fp):
+        plan = await LinuxAdapter.plan_setup(request(port, fp))
+    step = {s.id: s for s in plan.steps}["sudoers"]
+    rule = sudoers("signalbox")
+    assert sudo_commands() and all(c in rule and c in step.title for c in sudo_commands())
+    assert step.params["commands"] == ", ".join(sudo_commands())
+    assert "iptables-save" in step.title and "/etc/ddclient.conf" in step.title
+
+
+async def test_no_rule_step_names_the_tools_that_would_need_it() -> None:
+    box = LinuxSim(wg_installed=False, nft_installed=False, iptables_installed=False)
+    async with serve_ssh(box) as (port, fp):
+        plan = await LinuxAdapter.plan_setup(request(port, fp))
+    step = {s.id: s for s in plan.steps}["sudoers"]
+    assert SUDO_TOOLS in step.title and step.params["tools"] == SUDO_TOOLS
 
 
 async def test_only_iptables_gets_the_sudoers_rule_with_iptables_save() -> None:

@@ -485,6 +485,10 @@ controllers: `poePower`) as the budget and `poeRemain` (watts left); used power 
 All four names are a *guess* (#21); a controller that lacks them gives no PoE data. A switch port's
 `poe` that is a profile mode number (the `poe: 2` of the LAN profiles) is not read as on or off.
 
+The reserved (allocated, not drawn) PoE power of a switch (`PoeSupply.reserved_w`, #499) is not
+available: none of the switch fields above reports it, so it stays unset and no value is derived
+from the other two.
+
 ## Controller versions (#415, part of #389)
 
 Supported: the current major version (6.x) and the two before it (5.x, 4.x), as far as each
