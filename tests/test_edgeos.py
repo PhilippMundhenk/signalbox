@@ -411,16 +411,35 @@ async def test_vyos_13() -> None:
     assert snap.device.time.ntp_client.servers == ["ntp.example.org"]
 
 
-async def test_vyos_14_firewall_is_a_gap_naming_the_version() -> None:
-    """VyOS 1.4 renamed the firewall (#389): its rules are not read, a gap names the version;
-    everything else, NAT and DHCP with their 1.4 spellings included, is read."""
+async def test_vyos_14_firewall_new_syntax() -> None:
+    """VyOS 1.4 and newer (#495): base chains with interface matches, a jump to a named chain
+    unrolled under the zone of the jump rule, IPv6 chains; the NAT and DHCP spellings of 1.4
+    are read as well."""
     snap = await observed("vyos-1.4")
     assert snap.device.firmware is not None and snap.device.firmware.current == "VyOS 1.4.0"
-    gaps = [e for e in snap.errors if e.capability == "firewall"]
-    assert len(gaps) == 1 and "VyOS 1.4.0" in gaps[0].message and not gaps[0].optional
-    assert gaps[0].message_id == "edgeos.firewallVyos14"
+    assert [e for e in snap.errors if e.capability == "firewall"] == []
     (fw,) = snap.firewalls
-    assert fw.rules == [] and fw.rules_complete is False and fw.enabled is True
+    assert fw.rules_complete is True and fw.enabled is True
+    by_name = {(r.family, r.name): r for r in fw.rules}
+    # state-only rules (established/related) are no new-connection rules
+    assert (4, "ipv4 forward 10") not in by_name
+    web = by_name[(4, "Web server")]  # unrolled from the jump rule of eth0
+    assert web.chain is FirewallChain.FORWARD and web.action is FirewallAction.ACCEPT
+    assert web.source.zones == ["eth0"] and web.exact is True
+    assert [p.start for p in web.destination.ports] == [443]
+    wan_default = by_name[(4, "WAN_IN default")]
+    assert wan_default.action is FirewallAction.DROP and wan_default.source.zones == ["eth0"]
+    lan = by_name[(4, "LAN out")]
+    assert lan.source.zones == ["br0"] and lan.destination.zones == ["eth0"]
+    ssh = by_name[(4, "ipv4 input 10")]
+    assert ssh.chain is FirewallChain.INPUT and ssh.source.zones == ["br0"]
+    closing = by_name[(4, "ipv4 forward default")]
+    assert closing.action is FirewallAction.DROP and closing.source.zones == []
+    assert by_name[(4, "ipv4 input default")].chain is FirewallChain.INPUT
+    assert by_name[(6, "ipv6 forward default")].action is FirewallAction.DROP
+    # order: rules of the forward chain keep the order of the device (the jump in place)
+    names = [r.name for r in fw.rules if r.chain is FirewallChain.FORWARD and r.family == 4]
+    assert names == ["Web server", "WAN_IN default", "LAN out", "ipv4 forward default"]
     masq, *_ = fw.nat
     assert masq.masquerade and masq.zones == ["eth0"]  # outbound-interface name eth0
     (forward,) = fw.port_forwards
@@ -704,7 +723,6 @@ def test_rule_options_make_a_rule_inexact_or_unusable() -> None:
     assert found.zone_names == {"eth1", "eth1.5"}
     nat = firewall.nat(root)
     assert nat.complete is False and nat.forwards == [] and nat.nat == []
-    assert firewall.filter_rules(root, vyos_14=True).complete is False
 
 
 def test_pools_of_both_spellings() -> None:

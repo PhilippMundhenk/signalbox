@@ -26,15 +26,19 @@ from pydantic import Field
 from signalbox.adapters import (
     Adapter,
     AdapterError,
+    AdminLogin,
     Capability,
     Gap,
     Manifest,
     Observation,
+    SetupPlan,
+    SetupRequest,
+    SetupResult,
     SystemInfo,
     UntrustedHostKey,
     known_interfaces,
 )
-from signalbox.adapters.edgeos import collect, firewall, parse, tree
+from signalbox.adapters.edgeos import collect, firewall, parse, provision, tree
 from signalbox.adapters.edgeos.collect import Answer
 
 # the config class is shared with the Linux integration (host, port, user, key or password)
@@ -107,8 +111,11 @@ class EdgeosConfig(_SshConfig):
 
 EDGEOS_STEPS = (
     "On the router, in configuration mode, create a user signalbox with the level operator "
-    "and your public key (commands below).",
-    "Commit and save the configuration. The user can run show commands and nothing else.",
+    "and your public key (commands below). VyOS 1.4 and newer has no user levels and refuses "
+    "the line with level: leave it out; the user then has the full rights of an administrator "
+    "(key only, no password), see the setup guide for narrowing it down.",
+    "Commit and save the configuration. With the level operator the user can run show commands "
+    "and nothing else.",
     "Below: the address, user signalbox and the private key. Then Test connection and trust "
     "the SSH host key (compare it with ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub).",
 )
@@ -159,17 +166,38 @@ class EdgeosAdapter(Adapter):
         ),
         config=EdgeosConfig,
         description=(
-            "Reads an EdgeRouter (EdgeOS 2.0, 1.10, 1.9) or a VyOS router (1.3, 1.4) over SSH "
-            "with an operator-level user of its own: the configuration (show configuration "
-            "commands), ip, DHCP leases, LLDP neighbours, WireGuard, firewall rule-sets and NAT."
+            "Reads an EdgeRouter (EdgeOS 2.0, 1.10, 1.9) or a VyOS router (1.3, 1.4, 1.5) "
+            "over SSH with a user of its own (operator level where the version has levels): "
+            "the configuration (show configuration commands), ip, DHCP leases, LLDP "
+            "neighbours, WireGuard, firewall rule-sets and NAT."
         ),
         setup_steps=EDGEOS_STEPS,
         setup_commands=SETUP_COMMANDS,
         setup_url="https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/edgeos.md#setup",
+        admin_login=AdminLogin(
+            transport="SSH as an administrator of the router (EdgeOS: for example ubnt or your "
+            "own admin; VyOS: vyos), with a password",
+            user_default="vyos",
+            secret_label="Password",
+            port_default=22,
+            note="Optional: manual setup stays possible. Signalbox creates the user signalbox "
+            "with a key of its own and no password; with the level operator (read only) on "
+            "EdgeOS and VyOS up to 1.3. VyOS 1.4 and newer has no read-only level: the user "
+            "then has full rights, and the plan says so.",
+            preview=provision.PREVIEW,
+        ),
     )
 
     _ssh: PinnedSsh | None = None
     _answer: Answer | None = None
+
+    @classmethod
+    async def plan_setup(cls, request: SetupRequest) -> SetupPlan:
+        return await provision.EdgeosSetup(request).plan()
+
+    @classmethod
+    async def apply_setup(cls, request: SetupRequest) -> SetupResult:
+        return await provision.EdgeosSetup(request).apply()
 
     @property
     def config(self) -> EdgeosConfig:
@@ -746,27 +774,17 @@ class EdgeosAdapter(Adapter):
         rules = firewall.filter_rules(root, vyos_14)
         nat = firewall.nat(root)
         complete = rules.complete
-        if vyos_14:
+        other = firewall.unsupported_firewall(root)
+        if other:
+            complete = False
             gaps.append(
                 Gap(
-                    message=f"firewall: {v.text} names its rule-sets firewall ipv4 and firewall "
-                    "ipv6 (VyOS 1.4 and newer); only the NAT and port forwards are read",
-                    message_id="edgeos.firewallVyos14",
-                    params={"version": v.text or "VyOS 1.4"},
+                    message=f"firewall: {', '.join(other)} is not read, so the rules of the "
+                    "zone policy are missing",
+                    message_id="edgeos.firewallUnsupported",
+                    params={"what": ", ".join(other)},
                 )
             )
-        else:
-            other = firewall.unsupported_firewall(root)
-            if other:
-                complete = False
-                gaps.append(
-                    Gap(
-                        message=f"firewall: {', '.join(other)} is not read, so the rules of the "
-                        "zone policy are missing",
-                        message_id="edgeos.firewallUnsupported",
-                        params={"what": ", ".join(other)},
-                    )
-                )
         for message, mid, params in rules.gaps:
             gaps.append(Gap(message=message, message_id=mid, params=params))
         if not nat.complete:

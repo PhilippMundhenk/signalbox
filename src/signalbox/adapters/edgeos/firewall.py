@@ -11,8 +11,13 @@ last rule of that interface, so the order across interfaces stays right.
 Signalbox evaluates new connections only (the model is stateful): rules that only accept
 ``established``/``related`` or drop ``invalid`` connections are not new-connection rules and are
 left out; a rule with any condition the model has no field for (an address group, TCP flags,
-a rate limit, time of day) is ``exact = False``. VyOS 1.4 renamed the firewall
-(``firewall ipv4 ...``, zones): its rules are not read and a gap names the version (#389).
+a rate limit, time of day) is ``exact = False``. VyOS 1.4 and newer renamed the
+firewall: base chains ``firewall ipv4|ipv6 forward|input|output filter`` with numbered rules that
+name their interfaces (``inbound-interface name eth0``) and named chains
+(``firewall ipv4 name X``) that a rule enters with ``action jump``. They are read into the same
+model (:func:`_new_rules`): a base chain is the chain of that name, a jump to a named chain is
+unrolled in place under the zones of the jump rule, the default action of a named chain closes
+that part. Zone-based firewalls (``firewall zone``) are named in a gap (#389, #495).
 """
 
 from __future__ import annotations
@@ -156,6 +161,14 @@ def _end(node: Node | None, rule: Node, zone: str, side: str) -> tuple[FirewallM
     )
 
 
+def _states(rule: Node) -> set[str]:
+    """The connection states a rule matches: ``state new enable`` (EdgeOS, VyOS 1.3) or the
+    values of ``state new`` (VyOS 1.4 and newer)."""
+    return {
+        s for s, n in rule.items("state") if n.has("enable") or (not n.children and s != "disable")
+    }
+
+
 def _rule(
     name: str,
     number: str,
@@ -165,14 +178,38 @@ def _rule(
     zone: str,
     direction: str,
 ) -> FirewallRule | None:
+    return _build(
+        name,
+        number,
+        rule,
+        chain,
+        family,
+        None if direction == "out" else zone,
+        zone if direction == "out" else None,
+    )
+
+
+def _build(
+    name: str,
+    number: str,
+    rule: Node,
+    chain: FirewallChain,
+    family: Literal[4, 6],
+    src_zone: str | None,
+    dst_zone: str | None,
+    inexact: bool = False,
+    other: tuple[str, ...] = _OTHER_CONDITIONS,
+) -> FirewallRule | None:
     action = _ACTIONS.get(rule.first("action") or "")
     if action is None:  # inspect, modify, queue: not an allow or deny decision
         return None
-    states = {s for s, n in rule.items("state") if n.has("enable")}
+    states = _states(rule)
     if states and "new" not in states:  # established/related/invalid: not a new connection
         return None
-    exact = not any(rule.has(word) for word in _OTHER_CONDITIONS) and not (
-        states and states != {"new"}
+    exact = (
+        not inexact
+        and not any(rule.has(word) for word in other)
+        and not (states and states != {"new"})
     )
     proto_word = rule.first("protocol") or "all"
     protocols: list[FirewallProtocol] = []
@@ -183,12 +220,12 @@ def _rule(
             exact = False
     else:
         protocols = _PROTOCOLS[proto_word]
-    source, src_ok = _end(rule.get("source"), rule, zone, "source")
-    destination, dst_ok = _end(rule.get("destination"), rule, zone, "destination")
-    if direction == "out":
-        destination = destination.model_copy(update={"zones": [zone]})
-    else:
-        source = source.model_copy(update={"zones": [zone]})
+    source, src_ok = _end(rule.get("source"), rule, "", "source")
+    destination, dst_ok = _end(rule.get("destination"), rule, "", "destination")
+    if dst_zone:
+        destination = destination.model_copy(update={"zones": [dst_zone]})
+    if src_zone:
+        source = source.model_copy(update={"zones": [src_zone]})
     if (
         destination.ports
         and protocols
@@ -237,9 +274,8 @@ def _default(
 def filter_rules(root: Node, vyos_14: bool) -> Rules:
     """The rule-sets that are applied to an interface, in the order EdgeOS evaluates them."""
     out = Rules()
-    if vyos_14:
-        out.complete = False
-        return out
+    if vyos_14 or root.has("firewall", "ipv4") or root.has("firewall", "ipv6"):
+        return _new_rules(root)
     sets = {
         4: dict(root.items("firewall", "name")),
         6: dict(root.items("firewall", "ipv6-name")),
@@ -287,6 +323,192 @@ def filter_rules(root: Node, vyos_14: bool) -> Rules:
         if closing is not None:
             out.rules.append(closing)
     return out
+
+
+#: What a rule of VyOS 1.4 and newer may carry that the model has no field for.
+_NEW_OTHER = (
+    *_OTHER_CONDITIONS,
+    "connection-status",
+    "hop-limit",
+    "ttl",
+    "icmpv6",
+    "gre",
+    "vlan",
+    "conntrack-helper",
+    "geoip",
+    "synproxy",
+)
+#: Keys of a jump rule that are not a condition of the traffic.
+_NOT_CONDITIONS = {
+    "action",
+    "jump-target",
+    "description",
+    "disable",
+    "log",
+    "log-options",
+    "inbound-interface",
+    "outbound-interface",
+    "state",
+}
+_BASE_CHAINS = (
+    ("forward", FirewallChain.FORWARD),
+    ("input", FirewallChain.INPUT),
+    ("output", FirewallChain.OUTPUT),
+)
+_MAX_JUMPS = 4
+
+
+def _rule_interface(rule: Node, key: str) -> tuple[str | None, bool]:
+    """``inbound-interface name eth0`` (1.4 and newer; ``interface-name`` in early 1.4 builds) ->
+    (interface, understood). Groups, wildcards and negations name no single zone."""
+    node = rule.get(key)
+    if node is None:
+        return None, True
+    if node.has("group"):
+        return None, False
+    name = node.first("name") or node.first("interface-name")
+    if name is None:
+        words = [w for w in node.children if w not in ("name", "interface-name", "group")]
+        name = words[0] if words else None
+    if name is None or name.startswith("!") or "*" in name:
+        return None, False
+    return name, True
+
+
+def _new_rules(root: Node) -> Rules:
+    """``firewall ipv4|ipv6 forward|input|output filter`` of VyOS 1.4 and newer."""
+    out = Rules()
+    firewall = root.get("firewall")
+    if firewall is None:
+        return out
+    for family_word, family in (("ipv4", 4), ("ipv6", 6)):
+        fam = firewall.get(family_word)
+        if fam is None:
+            continue
+        fam_n: Literal[4, 6] = 4 if family == 4 else 6
+        for word, chain in _BASE_CHAINS:
+            base = fam.get(word, "filter")
+            if base is None:
+                continue
+            label = f"{family_word} {word}"
+            _walk(out, fam, base, label, chain, fam_n, None, None, False, (), 0)
+            closing = _ACTIONS.get(base.first("default-action") or "accept")
+            if closing is not None:
+                out.rules.append(
+                    FirewallRule(
+                        name=f"{label} default",
+                        chain=chain,
+                        family=fam_n,
+                        action=closing,
+                    )
+                )
+            out.applied = True
+    return out
+
+
+def _walk(
+    out: Rules,
+    fam: Node,
+    chain_node: Node,
+    label: str,
+    chain: FirewallChain,
+    family: Literal[4, 6],
+    src: str | None,
+    dst: str | None,
+    inexact: bool,
+    seen: tuple[str, ...],
+    depth: int,
+) -> None:
+    numbers = sorted(chain_node.keys("rule"), key=lambda x: int(x) if x.isdigit() else 0)
+    for number in numbers:
+        rule = chain_node.get("rule", number)
+        assert rule is not None
+        action = rule.first("action")
+        r_src, ok_in = _rule_interface(rule, "inbound-interface")
+        r_dst, ok_out = _rule_interface(rule, "outbound-interface")
+        src_zone, dst_zone = r_src or src, r_dst or dst
+        for zone in (src_zone, dst_zone):
+            if zone:
+                out.zone_names.add(zone)
+        unsure = inexact or not (ok_in and ok_out)
+        if action == "jump":
+            _jump(
+                out,
+                fam,
+                rule,
+                label,
+                number,
+                chain,
+                family,
+                src_zone,
+                dst_zone,
+                unsure,
+                seen,
+                depth,
+            )
+            continue
+        if action == "return":
+            out.complete = False
+            continue
+        built = _build(label, number, rule, chain, family, src_zone, dst_zone, unsure, _NEW_OTHER)
+        if built is not None:
+            out.rules.append(built)
+
+
+def _jump(
+    out: Rules,
+    fam: Node,
+    rule: Node,
+    label: str,
+    number: str,
+    chain: FirewallChain,
+    family: Literal[4, 6],
+    src: str | None,
+    dst: str | None,
+    inexact: bool,
+    seen: tuple[str, ...],
+    depth: int,
+) -> None:
+    """Unroll ``action jump`` / ``jump-target X`` in place: the rules of ``firewall ipv4 name X``
+    under the interfaces of the jump rule, closed by the chain's default action (drop when the
+    chain names none, as VyOS does). A condition of the jump rule the model has no field for
+    makes the rules inexact."""
+    if rule.has("disable"):
+        return
+    target = rule.first("jump-target")
+    node = fam.get("name", target) if target else None
+    if target is None or node is None or target in seen or depth >= _MAX_JUMPS:
+        out.complete = False
+        out.gaps.append(
+            (
+                f"firewall: {label} rule {number} jumps to the chain {target or '?'}, which is "
+                "not defined or too deeply nested",
+                "edgeos.ruleSetMissing",
+                {"interface": f"{label} rule {number}", "name": target or "?"},
+            )
+        )
+        return
+    conditions = any(k not in _NOT_CONDITIONS for k in rule.children)
+    states = _states(rule)
+    inexact = inexact or conditions or bool(states and states != {"new"})
+    if states and "new" not in states:  # the jump only sees established traffic
+        return
+    _walk(out, fam, node, target, chain, family, src, dst, inexact, (*seen, target), depth + 1)
+    closing = _ACTIONS.get(node.first("default-action") or "drop")
+    if closing is None:  # return, jump, queue: the rest of the calling chain decides
+        out.complete = False
+        return
+    out.rules.append(
+        FirewallRule(
+            name=f"{target} default",
+            chain=chain,
+            family=family,
+            source=FirewallMatch(zones=[src] if src else []),
+            destination=FirewallMatch(zones=[dst] if dst else []),
+            action=closing,
+            exact=not inexact,
+        )
+    )
 
 
 @dataclass
@@ -429,9 +651,6 @@ def unsupported_firewall(root: Node) -> list[str]:
         found.append("zone-policy")
     if root.has("firewall", "zone"):
         found.append("firewall zone")
-    for key in ("ipv4", "ipv6"):
-        if root.has("firewall", key):
-            found.append(f"firewall {key}")
     return found
 
 
