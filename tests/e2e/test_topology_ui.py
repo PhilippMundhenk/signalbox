@@ -280,7 +280,10 @@ def test_the_host_of_a_service_is_set_in_the_device_settings(app: Any) -> None:
     go(app, "#/device/resolver/settings")
     app.get_by_test_id("device-hosted-on").select_option("router")
     app.get_by_test_id("device-save").click()
-    # saved once the device page opens; leaving earlier cancels the request (#485)
+    # saved once the device page opens; leaving earlier cancels the request (#485). The settings
+    # page shows the same title, so wait for the redirect itself: navigating away before it
+    # lands lets the late redirect take the browser back off the topology (seen in CI)
+    expect(app).to_have_url(re.compile(r"#/device/resolver$"))
     expect(app.get_by_test_id("device-title")).to_have_text("Resolver")
     assert api(app, "GET", "/devices/resolver")["hosted_on"] == "router"
     go(app, "#/topology")
