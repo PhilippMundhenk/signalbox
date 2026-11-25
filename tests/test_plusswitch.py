@@ -39,6 +39,7 @@ from signalbox.model import (
     Membership,
     PortRole,
     StpProtocol,
+    UnknownMulticast,
 )
 from signalbox.sim.server import free_port
 from signalbox.testing import assert_contract
@@ -824,6 +825,58 @@ async def test_tplink_loop_prevention_off(easysmart: Start) -> None:
         [StpProtocol.NONE],
         [StpProtocol.LOOP_DETECT],
     )
+
+
+@needs_switchyard
+async def test_netgear_igmp_snooping(nsdp: Start) -> None:
+    switch = netgear()
+    switch.igmp = (True, 20)
+    switch.block_unknown = True
+    _, port = await nsdp(switch)
+    snap = await assert_contract(ProsafeAdapter(_context(ProsafeAdapter, port)))
+    assert snap.device.multicast is not None
+    (m,) = snap.device.multicast.settings
+    assert (m.name, m.igmp_snooping, m.segment_id) == ("switch", True, "home/segment/20")
+    assert m.unknown_multicast is UnknownMulticast.DROP and m.querier is None
+
+
+@needs_switchyard
+async def test_netgear_igmp_off(nsdp: Start) -> None:
+    _, port = await nsdp(netgear())
+    snap = await assert_contract(ProsafeAdapter(_context(ProsafeAdapter, port)))
+    assert snap.device.multicast is not None
+    (m,) = snap.device.multicast.settings
+    assert m.igmp_snooping is False and m.segment_id is None
+    assert m.unknown_multicast is UnknownMulticast.FLOOD
+
+
+@needs_switchyard
+async def test_netgear_without_igmp_answer(nsdp: Start) -> None:
+    from switchyard.nsdp import tags as T
+
+    _, port = await nsdp(netgear(unsupported={T.IGMP}))
+    snap = await assert_contract(ProsafeAdapter(_context(ProsafeAdapter, port)))
+    assert snap.device.multicast is None
+
+
+@needs_switchyard
+async def test_tplink_igmp_snooping(easysmart: Start) -> None:
+    switch = tplink()
+    switch.config["igmp"] = True
+    _, port = await easysmart(switch)
+    snap = await assert_contract(EasySmartAdapter(es_context(port)))
+    assert snap.device.multicast is not None
+    (m,) = snap.device.multicast.settings
+    assert m.igmp_snooping is True and m.segment_id is None and m.unknown_multicast is None
+
+
+def test_igmp_answers_that_are_not_understood() -> None:
+    a = ProsafeAdapter(_context(ProsafeAdapter, 9))
+    assert a._multicast(plus._Reading(info={})) == {}
+    assert a._multicast(plus._Reading(info={}, igmp={"enabled": "yes"})) == {}
+    on = plus._Reading(info={}, igmp={"enabled": True, "vlan": 99999, "block_unknown": 1})
+    (m,) = a._multicast(on)[a.context.device_id].settings
+    assert m.segment_id is None and m.unknown_multicast is None
 
 
 async def test_features_that_fail_leave_the_rest() -> None:

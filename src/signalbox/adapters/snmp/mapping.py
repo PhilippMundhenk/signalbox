@@ -19,6 +19,7 @@ Mapping rules (docs/adapters/snmp.md):
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any
@@ -31,6 +32,7 @@ from signalbox.adapters.snmp.client import Value, column
 from signalbox.model import (
     AccessControlMode,
     DeviceHealth,
+    DeviceMulticast,
     FdbEntry,
     FdbKind,
     Firmware,
@@ -40,6 +42,7 @@ from signalbox.model import (
     LagMode,
     MedDeviceClass,
     Membership,
+    MulticastSettings,
     Neighbour,
     NeighbourProtocol,
     PoePriority,
@@ -927,3 +930,43 @@ def poe(pmap: PortMap, data: Mib) -> tuple[PoeSupply | None, dict[str, PortPoe]]
         else None
     )
     return supply, ports
+
+
+_VLAN_INTERFACE = re.compile(r"^(?:vlan|vl|vlan-?interface)\s*(\d{1,4})$", re.IGNORECASE)
+
+
+def multicast(site_id: str, data: Mib) -> DeviceMulticast | None:
+    """IGMP of the interfaces from IGMP-STD-MIB (#508): the querier an interface sees and the
+    IGMP version it runs. An interface named like a VLAN (``Vlan10``) gets that VLAN's segment.
+    None when the switch has no such table. The MIB has no object for snooping, so that stays
+    unreported (``None``), as does whether this switch is the querier."""
+    status = data.col(mib.IGMP_INTERFACE, mib.IGMP_IF_STATUS)
+    version = data.col(mib.IGMP_INTERFACE, mib.IGMP_IF_VERSION)
+    querier = data.col(mib.IGMP_INTERFACE, mib.IGMP_IF_QUERIER)
+    names = data.col(mib.IF_X_TABLE, mib.IF_NAME)
+    out: list[MulticastSettings] = []
+    for index in _sorted_by_number(list({*status, *version, *querier})):
+        if status.get(index) not in (None, 1):  # not active
+            continue
+        name = as_text(names.get(index)) or f"if{index}"
+        match = _VLAN_INTERFACE.match(name)
+        vid = int(match.group(1)) if match else None
+        address = querier.get(index)
+        observed: IPv4Address | None = None
+        if isinstance(address, str):
+            try:
+                observed = IPv4Address(address)
+            except ValueError:
+                observed = None
+        if observed is not None and observed.is_unspecified:
+            observed = None
+        if observed is None and vid is None:  # nothing to say about this interface
+            continue
+        out.append(
+            MulticastSettings(
+                name=name,
+                segment_id=segment_id(site_id, vid) if vid and 1 <= vid <= 4094 else None,
+                observed_querier=observed,
+            )
+        )
+    return DeviceMulticast(settings=out) if out else None

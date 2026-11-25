@@ -196,3 +196,13 @@ log or error.
 
 - `dot1xAuthAuthControlledPortControl` (auto means 802.1X) and `...PortStatus` per ifIndex, when
   the switch exposes the MIB. Without it nothing is reported.
+
+## IGMP per interface (IGMP-STD-MIB, #508)
+
+Read with `interfaces`: `igmpInterfaceTable` (`1.3.6.1.2.1.85.1.1.1`, status, version and
+querier per ifIndex). Active interfaces that name a querier or are named like a VLAN interface
+(`Vlan10`) become multicast entries of the device: the name, the network of the VLAN and the
+querier address seen (`0.0.0.0` counts as none). There is no standard object for IGMP snooping,
+so snooping, the querier role and fast leave stay unreported; vendor MIBs are not read. A switch
+without the table reports no multicast. *(Guess, #21: which switches fill the table per VLAN
+interface and how they name those interfaces; the recording is made up.)*

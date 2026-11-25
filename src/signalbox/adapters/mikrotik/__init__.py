@@ -154,6 +154,7 @@ from signalbox.model import (
     MeshPeerRole,
     MeshRole,
     MeshUplink,
+    MulticastSettings,
     NatClass,
     Neighbour,
     NtpClient,
@@ -1752,6 +1753,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             name = _text(row.get("name"))
             members = [r for r in port_rows if _text(r.get("bridge")) == name and _active(r)]
             out.settings.append(_multicast.settings(row, members, layout.l3.get(name)))
+        out = out.model_copy(update={"settings": await self._multicast_views(out.settings, layout)})
         gaps: list[Gap] = []
         try:
             dns = _object(await self._get(DNS), DNS)
@@ -1773,6 +1775,28 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         elif (igmp := _multicast.igmp_proxy(proxy, layout.l3)) is not None:
             out.reflectors.append(igmp)
         return out, gaps
+
+    async def _multicast_views(
+        self, settings: list[MulticastSettings], layout: _Layout
+    ) -> list[MulticastSettings]:
+        """The querier a bridge sees (its monitor, where RouterOS names it) and one entry per
+        VLAN where it learned groups (``/interface/bridge/mdb``). Both are optional: a menu
+        or monitor that is missing or refused leaves the bridge's own entry as it is."""
+        mdb = await self._readable(_multicast.MDB) or []
+        out: list[MulticastSettings] = []
+        for s in settings:
+            if s.igmp_snooping:
+                try:
+                    answer = await self.http.post_json(
+                        _multicast.BRIDGE_MONITOR, {"numbers": s.name, "once": ""}
+                    )
+                except AdapterError:
+                    answer = []
+                rows = _stp.monitor_rows(answer)
+                s = _multicast.with_querier(s, rows[0] if rows else {})
+            out.append(s)
+            out.extend(_multicast.per_vlan(s, mdb, s.name in layout.filtering, self._seg))
+        return out
 
     async def _stp(self, layout: _Layout) -> tuple[list[StpBridge], dict[str, StpPort], list[Gap]]:
         """Spanning tree per bridge and bridge port (#155). The running state comes from the

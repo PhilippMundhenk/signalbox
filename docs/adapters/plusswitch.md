@@ -99,9 +99,10 @@ both Easy Smart protocol generations).
 | Ports `1`…`n` | link up/down, speed and duplex; LAG membership as `lagN`; PVID (802.1Q modes); from the port settings enabled (speed setting not `disabled`; Easy Smart also reports it with the status), auto-negotiation (speed setting `auto`, else a fixed speed), flow control (the setting; ProSAFE without port settings: the link's); `vendor_extra`: link text, VLAN mode, port groups |
 | Segments | VLANs, see below |
 | Loop protection (#155) | Switchyard's `read_features`: `loop_detection` (NETGEAR loop detection, TP-Link loop prevention) as one bridge `switch` of the whole switch with protocol `loop-detect` (on) or `none` (off); nothing when the switch does not answer. These switches have no spanning tree |
+| IGMP snooping (#508) | Switchyard's `read_features`: `igmp` as one bridge `switch`: snooping on or off, for NETGEAR the VLAN it snoops in (the network of it) and whether unknown multicast is blocked (`drop`, else `flood`); TP-Link Easy Smart has only on/off. The protocols report no querier, so the checks stay quiet about it |
 
 Not read: neighbours (these switches do not speak LLDP), clients (they do not expose a MAC
-address table), QoS, mirroring, IGMP, statistics.
+address table), QoS, mirroring, IGMP groups and querier, statistics.
 
 ### Port structure (#252)
 

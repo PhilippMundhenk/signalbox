@@ -9,9 +9,12 @@ lists the interfaces with ``upstream``. The mDNS repeater is ``mdns-repeat-iface
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from ipaddress import ip_address
 from typing import Any
 
 from signalbox.model import (
+    IPAddress,
     MulticastSettings,
     ReflectorKind,
     ServiceReflector,
@@ -19,6 +22,20 @@ from signalbox.model import (
 )
 
 IGMP_PROXY_INTERFACE = "/rest/routing/igmp-proxy/interface"
+#: The groups the bridge learned (``/interface/bridge/mdb``: ``bridge``, ``vid``, ``group``,
+#: ``ports``); only the VLAN ids are used, never the groups.
+MDB = "/rest/interface/bridge/mdb"
+BRIDGE_MONITOR = "/rest/interface/bridge/monitor"
+#: Fields of ``/interface/bridge/monitor`` that may name the querier the bridge sees. A GUESS
+#: for the spelling (#21): RouterOS documents the querier election but the monitor fields
+#: differ between versions; the first one holding an address counts.
+QUERIER_FIELDS = (
+    "multicast-querier-address",
+    "current-igmp-querier",
+    "igmp-querier",
+    "current-querier",
+    "querier",
+)
 
 
 def _text(value: Any) -> str:
@@ -105,3 +122,51 @@ def igmp_proxy(rows: list[dict[str, Any]], segment_of: dict[str, str]) -> Servic
         upstream_interface=upstream,
         upstream_segment_id=segment_of.get(upstream) if upstream else None,
     )
+
+
+def observed_querier(monitor: dict[str, Any]) -> IPAddress | None:
+    """The querier address a bridge monitor row names; None where it has none of the fields
+    (older RouterOS) or the value is no address."""
+    for key in QUERIER_FIELDS:
+        text = _text(monitor.get(key))
+        if text:
+            try:
+                return ip_address(text)
+            except ValueError:
+                continue
+    return None
+
+
+def with_querier(setting: MulticastSettings, monitor: dict[str, Any]) -> MulticastSettings:
+    address = observed_querier(monitor)
+    return setting if address is None else setting.model_copy(update={"observed_querier": address})
+
+
+def per_vlan(
+    setting: MulticastSettings,
+    mdb: list[dict[str, Any]],
+    filtering: bool,
+    segment_of_vid: Callable[[int], str],
+) -> list[MulticastSettings]:
+    """One entry per VLAN of a bridge with VLAN filtering where the bridge learned groups
+    (the snooping runs in these VLANs), besides the bridge's own entry; each repeats the
+    bridge's snooping and querier settings, which RouterOS has per bridge. Nothing for a
+    bridge without VLAN filtering or without groups."""
+    if not filtering or not setting.igmp_snooping:
+        return []
+    out: list[MulticastSettings] = []
+    seen = {setting.segment_id}
+    for row in mdb:
+        if _text(row.get("bridge")) != setting.name:
+            continue
+        try:
+            vid = int(_text(row.get("vid")))
+        except ValueError:
+            continue
+        if not 1 <= vid <= 4094:
+            continue
+        seg = segment_of_vid(vid)
+        if seg not in seen:
+            seen.add(seg)
+            out.append(setting.model_copy(update={"segment_id": seg}))
+    return out

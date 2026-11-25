@@ -28,7 +28,8 @@ bridge option plus the kernel's sysfs, a plugin of OPNsense, a flag of a UniFi n
 
 - The checks (`multicast.*`) join the settings of all devices by network, so a router that is
   the querier satisfies the switches behind it only when both report their network.
-- A bridge with VLAN filtering on MikroTik is reported once, with the network of its own
-  interface; its other VLANs are not listed.
-- Omada, NETGEAR and TP-Link switches, SNMP and the IGMP proxy page of OPNsense (no API) are not
-  read yet.
+- A bridge with VLAN filtering on MikroTik is reported with the network of its own interface and
+  one entry per VLAN where it learned groups (#508).
+- NETGEAR and TP-Link switches (snooping on or off, no querier) and SNMP (IGMP-STD-MIB: the
+  querier an interface sees) are read as far as the protocols go (#508). The IGMP proxy page of
+  OPNsense has no API and is not read.

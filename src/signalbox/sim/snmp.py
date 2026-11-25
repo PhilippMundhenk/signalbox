@@ -228,6 +228,14 @@ def typical_switch() -> str:
         w.integer(f"1.3.6.1.2.1.17.2.15.1.3.{n}", 1 if n in (5, 6) else 5)
         w.integer(f"1.3.6.1.2.1.17.2.15.1.5.{n}", 20_000 if n != 1 else 4)
         w.integer(f"1.3.6.1.2.1.17.2.19.1.3.{n}", 1 if n == 4 else 2)
+    # IGMP-STD-MIB: IGMP on the VLAN interface Vlan10 (querier 192.0.2.1, version 2) and on
+    # the loopback without a querier
+    w.integer("1.3.6.1.2.1.85.1.1.1.3.100", 1)
+    w.integer("1.3.6.1.2.1.85.1.1.1.4.100", 2)
+    w.add("1.3.6.1.2.1.85.1.1.1.5.100", "64", "192.0.2.1")
+    w.integer("1.3.6.1.2.1.85.1.1.1.3.101", 1)
+    w.integer("1.3.6.1.2.1.85.1.1.1.4.101", 3)
+    w.add("1.3.6.1.2.1.85.1.1.1.5.101", "64", "0.0.0.0")
     # LLDP-MIB: local ports and three neighbours (time mark 0)
     w.hexa("1.0.8802.1.1.2.1.3.2.0", _mac(0))
     for n in range(1, 9):

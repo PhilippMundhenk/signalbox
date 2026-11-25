@@ -1,7 +1,7 @@
 """The OIDs the adapter reads (numeric: no MIB files are needed).
 
 Every one is read-only data of a standard MIB: SNMPv2-MIB, ENTITY-MIB, IF-MIB, EtherLike-MIB,
-BRIDGE-MIB, RSTP-MIB, Q-BRIDGE-MIB, LLDP-MIB and IEEE8023-LAG-MIB.
+BRIDGE-MIB, RSTP-MIB, Q-BRIDGE-MIB, LLDP-MIB, IEEE8023-LAG-MIB and IGMP-STD-MIB.
 """
 
 from __future__ import annotations
@@ -68,6 +68,12 @@ PORT_VLAN = "1.3.6.1.2.1.17.7.1.4.5.1"  # index: bridge port
 PVID, ACCEPTABLE_FRAMES, INGRESS_FILTER = 1, 2, 3
 Q_FDB_PORT = "1.3.6.1.2.1.17.7.1.2.2.1.2"  # index: FDB id.MAC
 Q_FDB_STATUS = "1.3.6.1.2.1.17.7.1.2.2.1.3"
+
+# IGMP-STD-MIB (RFC 2933) igmpInterfaceEntry, index: ifIndex (#508). It is the table of IGMP
+# on an interface, snooping switches that implement it fill it per VLAN interface; there is no
+# standard object for "snooping on".
+IGMP_INTERFACE = "1.3.6.1.2.1.85.1.1.1"
+IGMP_IF_STATUS, IGMP_IF_VERSION, IGMP_IF_QUERIER = 3, 4, 5  # status 1 active; querier: address
 
 # LLDP-MIB (iso.0.8802.1.1.2)
 LLDP_LOC_CHASSIS = "1.0.8802.1.1.2.1.3.2.0"

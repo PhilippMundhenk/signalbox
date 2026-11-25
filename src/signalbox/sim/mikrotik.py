@@ -532,6 +532,11 @@ def sample_data() -> dict[str, Any]:
                 "disabled": "false",
             }
         ),
+        # groups the bridge learned (IPTV in the office network, a speaker group in the IoT one)
+        "/rest/interface/bridge/mdb": _ids(
+            {"bridge": "bridge", "vid": "1", "group": "239.255.0.1", "ports": "ether2"},
+            {"bridge": "bridge", "vid": "20", "group": "239.255.0.2", "ports": "ether4"},
+        ),
         "/rest/interface/bridge/port": _ids(
             _port("ether2"),
             _port("ether3", frame_types="admit-only-untagged-and-priority-tagged"),
@@ -1635,6 +1640,8 @@ class MikrotikSimulator:
             "root-bridge": "true",
             "root-bridge-id": f"0x8000.{_mac(1, 0).upper()}",
             "root-path-cost": "0",
+            # the querier the bridge sees (this router: the field name is a guess, #21)
+            "multicast-querier-address": "192.0.2.1",
             "port-count": "6",
             "designated-port-count": "5",
         }
