@@ -1207,4 +1207,12 @@ names.)* Covered: 24.7, 25.1, 25.7 and 26.1 as far as the plugin exists there.
 
 - The authentication servers of type RADIUS (`/api/auth/server/search`, *guess for a real
   firewall (#21): endpoint and field names*), without the secret (only whether one is set).
-  No such endpoint (404): nothing; 403: an optional gap. FreeRADIUS (plugin) is not read.
+  No such endpoint (404): nothing; 403: an optional gap.
+- FreeRADIUS (plugin `os-freeradius`, #519), read only: `/api/freeradius/general/get` (`enabled`),
+  `/api/freeradius/service/status` and the NAS clients `/api/freeradius/client/search_client`
+  (privilege *Services: FreeRADIUS*, `page-services-freeradius`, *guess* (#21): endpoints, fields
+  and privilege; the setup does not grant it, add it by hand where the plugin is installed). An
+  enabled, not stopped server is reported as the firewall's own RADIUS server (port 1812/1813,
+  Wi-Fi and 802.1X when NAS clients are enabled). The client secrets are only tested for presence;
+  users and passwords are not read. No plugin (404): nothing; 403: an optional gap naming the
+  privilege. 24.7 and 25.1 use camelCase actions, tried as well; covered 24.7 to 26.1.

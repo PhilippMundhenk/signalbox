@@ -1085,6 +1085,53 @@
         }
       }
     },
+    "port.dot1x-no-fallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/port.dot1x-no-fallback"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/port.dot1x-no-fallback"
+              }
+            }
+          }
+        }
+      }
+    },
     "port.drops": {
       "type": "object",
       "additionalProperties": false,
@@ -1267,6 +1314,53 @@
               },
               "params": {
                 "$ref": "#/$defs/port.utilisation"
+              }
+            }
+          }
+        }
+      }
+    },
+    "radius.single": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/radius.single"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/radius.single"
               }
             }
           }
@@ -2371,6 +2465,23 @@
       "title": "port.collisions",
       "type": "object"
     },
+    "port.dot1x-no-fallback": {
+      "additionalProperties": false,
+      "description": "``port.dot1x-no-fallback``.",
+      "properties": {
+        "min_clients": {
+          "default": 1,
+          "description": "Number of printers, IoT devices, cameras or media players seen on an 802.1X port from which it is reported.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Min Clients",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "port.dot1x-no-fallback",
+      "type": "object"
+    },
     "port.drops": {
       "additionalProperties": false,
       "properties": {
@@ -2535,6 +2646,23 @@
         }
       },
       "title": "port.utilisation",
+      "type": "object"
+    },
+    "radius.single": {
+      "additionalProperties": false,
+      "description": "``radius.single``.",
+      "properties": {
+        "min_servers": {
+          "default": 2,
+          "description": "Fewest RADIUS servers an enterprise network or an 802.1X switch should have; fewer are reported (1 turns the rule off).",
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Min Servers",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "radius.single",
       "type": "object"
     },
     "security.certificate-expiry": {

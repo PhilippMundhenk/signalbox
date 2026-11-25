@@ -69,6 +69,7 @@ from signalbox.adapters.opnsense import compat, provision, vitals
 from signalbox.adapters.opnsense import ddns as ddns_reader
 from signalbox.adapters.opnsense import discovery as _discovery
 from signalbox.adapters.opnsense import firewall as fw
+from signalbox.adapters.opnsense import freeradius as freeradius_reader
 from signalbox.adapters.opnsense import lldpd as lldpd_reader
 from signalbox.adapters.opnsense import multicast as multicast_reader
 from signalbox.adapters.opnsense import portal as portal_reader
@@ -1536,15 +1537,43 @@ class OpnsenseAdapter(_Adapter):
         return upnp_reader.state(self.context.device_id, data, status, segment_of), []
 
     async def _radius(self) -> tuple[list[RadiusServer] | None, list[Gap]]:
-        """The RADIUS servers of the user manager (#162); no such API (404): not reported, a
-        refused read (403) is an optional gap naming the privilege. Never the secrets."""
+        """The RADIUS servers of the user manager and the FreeRADIUS plugin (#162, #519); no such
+        API (404): not reported, a refused read (403) is an optional gap naming the privilege.
+        Never the secrets."""
+        out: list[RadiusServer] | None = None
+        gaps: list[Gap] = []
         try:
             data = await self._optional(radius_reader.SERVERS, grid=True)
         except AdapterError as exc:
-            return None, [_privilege_gap("RADIUS servers", exc, radius_reader.PRIVILEGE)]
-        if data is None:
-            return None, []
-        return radius_reader.servers(_rows(data, radius_reader.SERVERS)), []
+            gaps.append(_privilege_gap("RADIUS servers", exc, radius_reader.PRIVILEGE))
+        else:
+            if data is not None:
+                out = radius_reader.servers(_rows(data, radius_reader.SERVERS))
+        try:
+            local = await self._freeradius()
+        except AdapterError as exc:
+            gaps.append(_privilege_gap("FreeRADIUS", exc, freeradius_reader.PRIVILEGE))
+        else:
+            if local is not None:
+                out = [*(out or []), local]
+        return out, gaps
+
+    async def _freeradius(self) -> RadiusServer | None:
+        """``os-freeradius``: on and running, with its NAS clients. The plugin is optional (404:
+        None); the status and the client list are a bonus once the settings can be read."""
+        general = await self._optional(freeradius_reader.GENERAL)
+        if general is None or freeradius_reader.enabled(general) is not True:
+            return None
+        try:
+            status = await self._optional(freeradius_reader.STATUS)
+        except AdapterError:
+            status = None
+        try:
+            grid = await self._optional(freeradius_reader.CLIENTS, grid=True)
+            rows = None if grid is None else _rows(grid, freeradius_reader.CLIENTS)
+        except AdapterError:
+            rows = None
+        return freeradius_reader.server(general, status, rows, self.http.host)
 
     async def _portals(self, layout: _Layout) -> tuple[list[CaptivePortal], list[Gap]]:
         """Captive portal zones (#460); no captive portal API (404): nothing to report; a
