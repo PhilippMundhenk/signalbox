@@ -38,6 +38,7 @@ from signalbox.model import (
 from signalbox.mqtt import MqttBridge
 from signalbox.neighbours import radio_neighbours, scan_rows
 from signalbox.notifications import Notifier
+from signalbox.power import powered_by
 from signalbox.prober import Prober
 from signalbox.secrets import SecretError
 from signalbox.service import Services
@@ -139,7 +140,9 @@ def public_network(net: Network, history: History | None = None) -> dict[str, An
     source of each address (``sources``, from leases where the client does not say) and the
     end of their active leases (``lease_expires``, #183), the vendor of the MAC address
     (``vendor``, offline IEEE registry, #84), ports whether a cable can end there
-    (``external``, #252), tunnel peers the networks they route (``networks``), the read tunnel
+    (``external``, #252), who powers whom over PoE (devices ``powered_by``: the switch, its port and
+    the power delivered; ports ``powers``: the device behind a PoE port, #468), tunnel peers the
+    networks they route (``networks``), the read tunnel
     at their other end (``other_end``) and the handshake age at the reading (``handshake_age``,
     #239), firewalls the action per zone pair (``matrix``: one row per source zone, the
     device itself first, then each zone; ``null``: not known, #135), so that the UI does not
@@ -153,8 +156,18 @@ def public_network(net: Network, history: History | None = None) -> dict[str, An
     data = net.model_dump(mode="json", exclude={"fdb", "wifi_scan", "held_sightings"})
     for radio, raw in zip(net.radios, data["radios"], strict=True):
         raw.update(radio_neighbours(net, radio))
+    feeds = powered_by(net)
+    for dev, raw in zip(net.devices, data["devices"], strict=True):
+        feed = feeds.get(dev.id)
+        raw["powered_by"] = (
+            None
+            if feed is None
+            else {"device_id": feed.switch_id, "port_id": feed.port_id, "power_w": feed.power_w}
+        )
+    powers = {f.port_id: f.device_id for f in feeds.values()}
     for port, raw in zip(net.ports, data["ports"], strict=True):
         raw["external"] = port.external
+        raw["powers"] = powers.get(port.id)
     for wlan in data["wlans"]:
         wlan.pop("passphrase_fingerprint", None)
         wlan.pop("passphrase_digest", None)

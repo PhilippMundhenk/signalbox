@@ -225,6 +225,8 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`poe.fault`](rules/poe_checks.md#poefault)
 - [`poe.class-mismatch`](rules/poe_checks.md#poeclass-mismatch)
 - [`poe.unneeded`](rules/poe_checks.md#poeunneeded)
+- [`poe.budget-margin`](rules/poe_checks.md#poebudget-margin)
+- [`poe.passive-on-standard`](rules/poe_checks.md#poepassive-on-standard)
 
 ## [Port counters](rules/port_counters.md)
 
@@ -513,6 +515,12 @@ where each came from. The defaults are the values the rules used before they had
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
 | `warn_pct` | `80` | % | Share of the budget in use from which it is a warning (100 % is an error). |
+
+### `poe.budget-margin`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `reserved_pct` | `100` | % | Report a switch when the power it has reserved (allocated by class, whether drawn or not) reaches this share of its PoE budget. |
 
 ### `poe.request-unmet`
 

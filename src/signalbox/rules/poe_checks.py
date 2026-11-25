@@ -14,6 +14,7 @@ from signalbox.model import (
     Device,
     MessageValue,
     Network,
+    PoeMode,
     PoeStatus,
     Port,
     PortKind,
@@ -35,6 +36,17 @@ class PoeParams(RuleParams):
         ge=1,
         le=100,
         description="Share of the budget in use from which it is a warning (100 % is an error).",
+    )
+
+
+class PoeMarginParams(RuleParams):
+    reserved_pct: float = param(
+        100,
+        unit="%",
+        ge=1,
+        le=200,
+        description="Report a switch when the power it has reserved (allocated by class, "
+        "whether drawn or not) reaches this share of its PoE budget.",
     )
 
 
@@ -267,4 +279,83 @@ def poe_unneeded(net: Network) -> Iterator[Result]:
         )
 
 
-RULES: list[Rule] = [poe_budget, poe_fault, poe_class_mismatch, poe_unneeded]
+@rule(
+    "poe.budget-margin",
+    "PoE power reserved up to the switch's budget",
+    Severity.INFO,
+    "Many PoE switches reserve power per port by the class of the powered device, whether the "
+    "device draws it or not, and refuse to power a new device once the reservations use up the "
+    "budget, although the real draw is low. The check reports a switch whose reserved power "
+    "reaches the budget (parameter reserved_pct, default 100 %). It needs a switch that reports "
+    "the reserved power (Device.poe.reserved_w) and its budget; quiet otherwise.",
+    params=PoeMarginParams,
+)
+def poe_budget_margin(net: Network) -> Iterator[Result]:
+    for device in net.devices:
+        supply = device.poe
+        if supply is None or not supply.budget_w or supply.reserved_w is None:
+            continue
+        share = supply.reserved_w / supply.budget_w * 100
+        if share < ctx.params(PoeMarginParams, device).reserved_pct:
+            continue
+        params: dict[str, MessageValue] = {
+            "device": device.name,
+            "reserved": _watts(supply.reserved_w),
+            "budget": _watts(supply.budget_w),
+            "percent": round(share),
+        }
+        yield found(
+            f"{device.name} has reserved {params['reserved']} W of its {params['budget']} W PoE "
+            f"budget ({params['percent']} %): a new powered device may be refused.",
+            [device.id],
+            fix="Limit the power of ports whose devices need less than their class reserves, "
+            "switch to dynamic allocation if the switch has it, or add a PoE switch or injector.",
+            key=device.id,
+            mid="poe.budgetReserved",
+            fix_id="poe.budgetReserved.fix",
+            params=params,
+        )
+
+
+_PASSIVE = (PoeMode.PASSIVE_24V, PoeMode.PASSIVE_48V)
+
+
+@rule(
+    "poe.passive-on-standard",
+    "Passive PoE on a port whose device speaks standard PoE",
+    Severity.WARNING,
+    "A port is set to passive PoE (24 V or 48 V without negotiation) but the device behind it "
+    "announces standard PoE (an 802.3af/at/bt power class or power request in its LLDP power "
+    "TLV). A standard device does not run on a passive 24 V supply, and a fixed voltage without "
+    "detection is the setting that can damage equipment. Needs a switch that reports the mode "
+    "(UniFi: pasv24) and a neighbour that announces its power; quiet otherwise.",
+)
+def poe_passive_on_standard(net: Network) -> Iterator[Result]:
+    for nb in net.neighbours:
+        port = net.port(nb.local_port_id)
+        if nb.wireless or port is None or port.poe is None or port.poe.mode not in _PASSIVE:
+            continue
+        if nb.poe_class is None and not nb.poe_requested_w:
+            continue
+        name = _label(net, port)
+        mode = port.poe.mode.value if port.poe.mode else ""
+        yield found(
+            f"{name}: PoE is passive ({mode}) but the device behind it announces standard PoE.",
+            [port.id, nb.id],
+            fix="Set the port to automatic PoE (802.3af/at/bt) so the switch detects the "
+            "device and negotiates the power.",
+            key=port.id,
+            mid="poe.passiveOnStandard",
+            fix_id="poe.passiveOnStandard.fix",
+            params={"port": name, "mode": mode},
+        )
+
+
+RULES: list[Rule] = [
+    poe_budget,
+    poe_fault,
+    poe_class_mismatch,
+    poe_unneeded,
+    poe_budget_margin,
+    poe_passive_on_standard,
+]

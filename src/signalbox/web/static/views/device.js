@@ -824,11 +824,18 @@ function counterFact(d) {
   return t('device.port.deltas', { errors, drops, minutes });
 }
 
+// The managed device a PoE port powers (#468), as text for the port lists.
+function poweredText(ix, port) {
+  if (!port.powers) return null;
+  const dev = ix.net.devices.find((d) => d.id === port.powers);
+  return t('device.poe.powers', { device: dev ? dev.name : port.powers });
+}
+
 // PoE (#159): the budget of the switch with a bar, and the state and power of each port.
 const POE_STATUS = { delivering: 'device.poe.status.delivering', searching: 'device.poe.status.searching', disabled: 'device.poe.status.disabled', fault: 'device.poe.status.fault', overload: 'device.poe.status.overload' };
 const watts = (v) => fmtNumber(Math.round(v * 10) / 10);
 
-function poeFacts(poe) {
+function poeFacts(poe, powers) {
   return [
     poe.status ? (POE_STATUS[poe.status] ? t(POE_STATUS[poe.status]) : poe.status) : poe.enabled === true ? t('device.poe.on') : poe.enabled === false ? t('device.poe.off') : null,
     opt(poe.power_w, (v) => t('device.poe.power', { power: watts(v) })),
@@ -836,6 +843,7 @@ function poeFacts(poe) {
     opt(poe.power_class, (v) => t('device.poe.class', { class: v })),
     opt(poe.mode, (v) => t('device.poe.mode', { mode: v })),
     opt(poe.priority, (v) => t('device.poe.priority', { priority: v })),
+    powers || null,
   ].filter(Boolean);
 }
 
@@ -855,7 +863,7 @@ function poeCard(ix, observed, deviceId) {
     if (given(supply.reserved_w)) rows.push([t('device.poe.reservedLabel'), t('device.poe.reserved', { reserved: watts(supply.reserved_w) })]);
   }
   if (supply && supply.standard) rows.push([t('device.poe.standard'), supply.standard]);
-  for (const p of ports) rows.push([p.name, h('span', { 'data-testid': 'poe-port', 'data-id': p.id }, poeFacts(p.poe).join(' · '))]);
+  for (const p of ports) rows.push([p.name, h('span', { 'data-testid': 'poe-port', 'data-id': p.id }, poeFacts(p.poe, poweredText(ix, p)).join(' · '))]);
   return h('section', { class: 'card', 'data-testid': 'device-poe' }, h('h2', {}, t('device.poe.title')), kv(rows));
 }
 
@@ -879,6 +887,7 @@ function portNode(ix, node, deltas = {}, series = {}) {
       ...portDetails(p),
       ...lagFacts(ix, p),
       ...stpFacts(p.stp),
+      poweredText(ix, p),
       counterFact(deltas[node.id]),
       node.members.length ? t('device.port.over', { members: node.members.map(name).join(', ') }) : null,
     ];
@@ -1020,6 +1029,8 @@ async function overview(main, ctx, device, adapters, sites) {
   const adapter = adapters.find((a) => a.id === device.adapter);
   // a service on another device (#387): where it runs, and what runs here
   const host = observed && observed.hosted_on ? ix.net.devices.find((d) => d.id === observed.hosted_on) : null;
+  const feed = observed && observed.powered_by ? observed.powered_by : null;
+  const feeder = feed ? ix.net.devices.find((d) => d.id === feed.device_id) : null;
   const guests = ix.net.devices.filter((d) => d.hosted_on === device.id).sort((a, b) => a.name.localeCompare(b.name));
   // a refused path trace (#253) is shown like a read problem, with its Fix it where there is one
   const traceErrors = (ix.net.traces || []).filter((tr) => tr.source === device.id && tr.error).map((tr) => ({ device_id: device.id, capability: t('device.traceTo', { target: tr.target }), message: tr.error, fix: tr.fix, remedy: tr.remedy, message_id: tr.message_id, fix_id: tr.fix_id, params: tr.params }));
@@ -1124,6 +1135,12 @@ async function overview(main, ctx, device, adapters, sites) {
           [t('device.overview.os'), observed && [observed.os, observed.os_version].filter(Boolean).join(' ')],
         ].filter(([, v]) => v),
         [t('device.overview.runsOn'), host ? h('a', { href: `#/device/${enc(host.id)}`, 'data-testid': 'runs-on' }, host.name) : undefined],
+        [
+          t('device.overview.poweredBy'),
+          feed
+            ? h('span', { 'data-testid': 'powered-by' }, h('a', { href: `#/device/${enc(feed.device_id)}` }, feeder ? feeder.name : feed.device_id), ' ', t('device.overview.poweredByPort', { port: ix.portName(feed.port_id) }), feed.power_w ? ` · ${t('device.poe.power', { power: watts(feed.power_w) })}` : '')
+            : undefined,
+        ],
         [t('device.overview.alsoRunsHere'), guests.length ? h('span', { 'data-testid': 'also-runs-here' }, guests.map((g, i) => [i ? ', ' : '', h('a', { href: `#/device/${enc(g.id)}`, 'data-testid': 'hosted-link' }, g.name)])) : undefined],
         [t('device.overview.lastRead'), lastReadBox],
         [t('device.overview.enabled'), yesNo(device.enabled)],

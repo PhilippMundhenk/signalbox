@@ -29,8 +29,15 @@ from signalbox.model import (
     port_id,
 )
 from signalbox.power import PoweredBy, powered_by
-from signalbox.rules import Finding, Rule, Severity, evaluate
-from signalbox.rules.poe_checks import poe_budget, poe_class_mismatch, poe_fault, poe_unneeded
+from signalbox.rules import Finding, Rule, RuleSettings, Severity, evaluate
+from signalbox.rules.poe_checks import (
+    poe_budget,
+    poe_budget_margin,
+    poe_class_mismatch,
+    poe_fault,
+    poe_passive_on_standard,
+    poe_unneeded,
+)
 from signalbox.sim.mikrotik import PASSWORD, MikrotikSimulator
 from signalbox.sim.openwrt import OpenWrtSim, create_app
 from signalbox.sim.server import serve
@@ -408,3 +415,66 @@ def test_unneeded_poe_on_a_linked_port_without_a_powered_device() -> None:
 
 def test_unneeded_is_quiet_without_a_link_state() -> None:
     assert not _run(poe_unneeded, lab(None, p1=PortPoe(enabled=True, status=PoeStatus.SEARCHING)))
+
+
+# --- #468: powered_by in the API, budget-margin, passive-on-standard ------------------------
+
+
+def test_public_network_shows_who_powers_whom() -> None:
+    from signalbox.web.app import public_network
+
+    data = public_network(_powered_lab(status=PoeStatus.DELIVERING, power_w=6.5))
+    devices = {d["id"]: d for d in data["devices"]}
+    assert devices["ap"]["powered_by"] == {
+        "device_id": "sw",
+        "port_id": "sw/port/p1",
+        "power_w": 6.5,
+    }
+    assert devices["sw"]["powered_by"] is None
+    ports = {p["id"]: p for p in data["ports"]}
+    assert ports["sw/port/p1"]["powers"] == "ap" and ports["ap/port/eth0"]["powers"] is None
+    idle = public_network(_powered_lab(status=PoeStatus.SEARCHING))
+    assert all(d["powered_by"] is None for d in idle["devices"])
+    assert all(p["powers"] is None for p in idle["ports"])
+
+
+def test_budget_margin_reports_reservations_at_the_budget() -> None:
+    def margin(reserved: float | None, budget: float | None = 100) -> list[Finding]:
+        supply = PoeSupply(budget_w=budget, reserved_w=reserved)
+        return _run(poe_budget_margin, lab(supply, p1=PortPoe()))
+
+    (f,) = margin(100)
+    assert f.severity is Severity.INFO and f.message_id == "poe.budgetReserved"
+    assert f.params == {"device": "Switch", "reserved": "100", "budget": "100", "percent": 100}
+    assert margin(120)
+    assert not margin(99)  # below the budget
+    assert not margin(None)  # a switch that reports no reservation
+    assert not margin(50, budget=None)  # no budget
+    assert not _run(poe_budget_margin, lab(None, p1=PortPoe()))
+    relaxed = {"poe.budget-margin": RuleSettings(params={"reserved_pct": 80})}
+    net = lab(PoeSupply(budget_w=100, reserved_w=85), p1=PortPoe())
+    assert not _run(poe_budget_margin, net)
+    assert evaluate(net, [poe_budget_margin], relaxed)
+
+
+def test_passive_poe_on_a_port_whose_device_announces_standard_poe() -> None:
+    def check(mode: PoeMode | None, cls: int | None, requested: float | None = None) -> int:
+        net = lab(None, p1=PortPoe(mode=mode)).model_copy(
+            update={"neighbours": [_nb(cls).model_copy(update={"poe_requested_w": requested})]}
+        )
+        return len(_run(poe_passive_on_standard, net))
+
+    assert check(PoeMode.PASSIVE_24V, 3) == 1
+    assert check(PoeMode.PASSIVE_48V, None, 7.5) == 1
+    assert check(PoeMode.PASSIVE_24V, None) == 0  # the neighbour announces no power
+    assert check(PoeMode.AT, 3) == 0  # a standard mode
+    assert check(None, 3) == 0  # mode not reported
+    net = lab(None, p1=PortPoe(mode=PoeMode.PASSIVE_24V)).model_copy(
+        update={"neighbours": [_nb(3, wireless=True)]}
+    )
+    assert not _run(poe_passive_on_standard, net)
+    (f,) = _run(
+        poe_passive_on_standard,
+        lab(None, p1=PortPoe(mode=PoeMode.PASSIVE_24V)).model_copy(update={"neighbours": [_nb(3)]}),
+    )
+    assert f.severity is Severity.WARNING and f.params["mode"] == "passive-24v"
