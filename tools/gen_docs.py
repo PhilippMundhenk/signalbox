@@ -210,6 +210,8 @@ def rules_index() -> str:
             default = info.default
             if isinstance(default, float) and default.is_integer():
                 default = int(default)
+            if isinstance(default, bool):
+                default = str(default).lower()
             lines.append(f"| `{name}` | `{default}` | {unit} | {info.description} |\n")
         lines.append("\n")
     return "".join(lines).rstrip("\n") + "\n"

@@ -423,7 +423,7 @@ where each came from. The defaults are the values the rules used before they had
 
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
-| `strip_domain` | `1` | count | 1: compare only the part before the first dot (nas and nas.example.lan are the same name); 0: compare the full names. |
+| `strip_domain` | `true` | flag | On: compare only the part before the first dot (nas and nas.example.lan are the same name); off: compare the full names. 1 and 0 are accepted as well. |
 
 ### `device.reboot-by-counters`
 

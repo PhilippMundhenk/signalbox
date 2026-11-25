@@ -56,7 +56,7 @@ P = TypeVar("P", bound=RuleParams)
 
 
 def param(
-    default: float,
+    default: float | bool,
     *,
     unit: str,
     description: str,
@@ -64,7 +64,10 @@ def param(
     le: float | None = None,
 ) -> Any:
     """A rule parameter: its default, its unit (``%``, ``°C``, ``s``, ``min``, ``d``, ``dBm``,
-    ``count``) and what it means. ``ge``/``le`` bound what the configuration may set."""
+    ``count``; ``flag`` for a ``bool`` parameter) and what it means. ``ge``/``le`` bound what the
+    configuration may set (numbers only). A ``bool`` parameter is declared ``name: bool = param(
+    True, unit="flag", ...)``; pydantic also accepts ``1`` and ``0`` for it, so configurations
+    written before a flag became a boolean keep working."""
     return Field(default, description=description, json_schema_extra={"unit": unit}, ge=ge, le=le)
 
 

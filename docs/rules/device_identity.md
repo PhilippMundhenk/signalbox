@@ -15,8 +15,8 @@ separate rules (see their own pages); this page covers the hostname and boot loa
 
 - **Severity:** info
 - **Checks:** the name in Signalbox differs from the hostname the device reports. Case and a
-  domain suffix are ignored (`nas` equals `NAS.example.lan`); parameter `strip_domain` (0)
-  compares the full names. Devices that run on another device (`hosted_on`) and names that are
+  domain suffix are ignored (`nas` equals `NAS.example.lan`); parameter `strip_domain` (a
+  boolean, on by default; `1` and `0` are accepted as before) set to off compares the full names. Devices that run on another device (`hosted_on`) and names that are
   addresses are not compared.
 - **Fix:** rename the device in Signalbox or on the device so both agree, or ignore the finding.
 
@@ -25,7 +25,10 @@ separate rules (see their own pages); this page covers the hostname and boot loa
 - **Severity:** info
 - **Checks:** the boot loader version a device runs is older than the one its installed
   firmware carries. Read from RouterOS (RouterBOOT `current-firmware` against `upgrade-firmware`,
-  both present on RouterOS 6.4x and 7). Other adapters report no available boot loader version
-  yet, so they are not judged.
+  both present on RouterOS 6.4x and 7). Other vendors are not judged on purpose: OpenWrt and
+  other U-Boot systems have no boot loader update that ships with the firmware, and the
+  UniFi, Omada, FRITZ!Box and SNMP interfaces Signalbox reads document no available boot loader
+  version (some show the current one). The check stays silent for them and is extended only
+  where a vendor documents both versions (#465).
 - **Fix:** upgrade the boot loader in a maintenance window (RouterOS: `/system routerboard
   upgrade`, then restart).
