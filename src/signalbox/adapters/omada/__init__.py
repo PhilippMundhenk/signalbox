@@ -53,6 +53,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.omada import discovery as _discovery
 from signalbox.adapters.omada import firewall, vitals
+from signalbox.adapters.portcounters import counters_of
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.factory_defaults import is_factory_default
@@ -85,6 +86,7 @@ from signalbox.model import (
     Neighbour,
     Pmf,
     Port,
+    PortCounters,
     PortForward,
     PortKind,
     PortMembership,
@@ -188,6 +190,28 @@ PMF_MODES = {1: Pmf.REQUIRED, 2: Pmf.OPTIONAL, 3: Pmf.DISABLED}
 PURPOSES = {0: "vlan", 1: "interface", "vlan": "vlan", "interface": "interface"}
 #: Device ``type`` → prefix of the managed device's slug.
 TYPES = {"gateway": "gateway", "router": "gateway", "switch": "switch", "ap": "eap", "eap": "eap"}
+
+
+#: Port statistics of a switch's ``portList`` row (also under ``portStatus``): bytes and
+#: packets as ``rx``/``tx`` and ``rxPkt``/``txPkt``, the error and drop counters under the
+#: spellings of the controller generations. A guess for the exact names, not seen on a
+#: device (#21): the readers take the first present.
+_COUNTER_KEYS = {
+    "rx_bytes": ("rx", "rxBytes"),
+    "tx_bytes": ("tx", "txBytes"),
+    "rx_packets": ("rxPkt", "rxPackets"),
+    "tx_packets": ("txPkt", "txPackets"),
+    "rx_errors": ("rxErr", "rxErrors", "rxErrorPkt"),
+    "tx_errors": ("txErr", "txErrors", "txErrorPkt"),
+    "rx_crc_errors": ("rxCrcErr", "crcErrors", "fcsErrors"),
+    "rx_drops": ("rxDrop", "rxDropped"),
+    "tx_drops": ("txDrop", "txDropped"),
+}
+
+
+def _counters(row: dict[str, Any]) -> PortCounters | None:
+    status = row.get("portStatus")
+    return counters_of({**row, **(status if isinstance(status, dict) else {})}, _COUNTER_KEYS)
 
 
 class OmadaConfig(AdapterConfig):
@@ -1068,6 +1092,7 @@ class OmadaAdapter(_Adapter):
                         pvid=nets[native].vlan if native in nets else None,
                         max_speed_mbps=LINK_SPEEDS.get(_int(row.get("maxSpeed")) or 0),
                         jumbo=jumbo,
+                        counters=_counters(row),
                         vendor_extra=sw.extra(port=number),
                     )
                 )

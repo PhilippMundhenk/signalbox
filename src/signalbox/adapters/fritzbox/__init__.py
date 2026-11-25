@@ -75,6 +75,7 @@ from signalbox.adapters.fritzbox.write import (
     wlan_wanted,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.portcounters import counters_of
 from signalbox.changes import Change, ChangeKind, WlanValue
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.messages import Label
@@ -110,6 +111,7 @@ from signalbox.model import (
     PortKind,
     PortMembership,
     PortRange,
+    PortRole,
     PurposeSource,
     Radio,
     Route,
@@ -900,14 +902,48 @@ class FritzboxAdapter(Adapter):
             )
         forwarding = await self._forwarding()
         uplinks = await self._uplinks(forwarding)
+        wan = await self._wan_port()
         return Observation(
-            ports=[port],
+            ports=[port, *([wan] if wan else [])],
             segments=segments,
             subnets=subnets,
             routes=await self._routes(uplinks, forwarding),
             uplinks=uplinks,
             services=await self._services(),
             **await self._accounts(),
+        )
+
+    async def _wan_port(self) -> Port | None:
+        """The internet connection's traffic totals (#158) as the port ``wan``: TR-064 has only
+        ``WANCommonInterfaceConfig`` totals, no error counters and nothing per LAN port. FRITZ!OS
+        7 has the 64-bit bytes in ``GetAddonInfos`` (``X_AVM_DE_TotalBytes*64``); the 32-bit
+        ``GetTotalBytes*`` of every release wrap at 4 GB (the core counts one wrap)."""
+        if self.context.role is not DeviceRole.GATEWAY:
+            return None
+        addon = await self._try("WANCommonInterfaceConfig1", "GetAddonInfos") or {}
+        sent = await self._try("WANCommonInterfaceConfig1", "GetTotalBytesSent") or {}
+        received = await self._try("WANCommonInterfaceConfig1", "GetTotalBytesReceived") or {}
+        sent_p = await self._try("WANCommonInterfaceConfig1", "GetTotalPacketsSent") or {}
+        received_p = await self._try("WANCommonInterfaceConfig1", "GetTotalPacketsReceived") or {}
+        counters = counters_of(
+            {**addon, **sent, **received, **sent_p, **received_p},
+            {
+                "tx_bytes": ("NewX_AVM_DE_TotalBytesSent64", "NewTotalBytesSent"),
+                "rx_bytes": ("NewX_AVM_DE_TotalBytesReceived64", "NewTotalBytesReceived"),
+                "tx_packets": ("NewTotalPacketsSent",),
+                "rx_packets": ("NewTotalPacketsReceived",),
+            },
+        )
+        if counters is None:
+            return None
+        d = self.context.device_id
+        return Port(
+            id=port_id(d, "wan"),
+            device_id=d,
+            name="wan",
+            kind=PortKind.VIRTUAL,
+            role=PortRole.VIRTUAL,
+            counters=counters,
         )
 
     async def _forwarding(self) -> list[dict[str, str]] | None:

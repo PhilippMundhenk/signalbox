@@ -64,6 +64,18 @@ def _port(idx: int, name: str | None = None, **kw: Any) -> dict[str, Any]:
         "full_duplex": up,
         "media": "GE",
     }
+    if up:  # counters of ``stat/device`` port_table rows (fixed values)
+        row |= {
+            "rx_bytes": 61_440_221,
+            "tx_bytes": 244_113_870,
+            "rx_packets": 503_100,
+            "tx_packets": 611_007,
+            "rx_errors": 0,
+            "tx_errors": 0,
+            "rx_dropped": 5,
+            "tx_dropped": 0,
+            "link_down_count": 1,
+        }
     row.update(kw)
     return row
 

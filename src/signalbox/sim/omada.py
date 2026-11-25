@@ -128,6 +128,7 @@ NETWORK_REQUIRED = ("name", "purpose", "igmpSnoopEnable")
 
 
 def _port(n: int, profile: str, profile_name: str, **kw: Any) -> dict[str, Any]:
+    link = kw.pop("link", 1)
     return {
         "port": n,
         "name": f"Port{n}",
@@ -135,11 +136,26 @@ def _port(n: int, profile: str, profile_name: str, **kw: Any) -> dict[str, Any]:
         "profileName": profile_name,
         "profileOverrideEnable": False,
         "disable": False,
-        "linkStatus": kw.pop("link", 1),
+        "linkStatus": link,
         "linkSpeed": kw.pop("speed", 3),
         "duplex": kw.pop("duplex", 2),
         "poe": kw.pop("poe", False),
         "maxSpeed": kw.pop("max_speed", 3),
+        # statistics (names are a guess, see the adapter): zero on a port without a link
+        **(
+            {
+                "rx": 52_113_004,
+                "tx": 310_447_122,
+                "rxPkt": 410_220,
+                "txPkt": 502_113,
+                "rxErr": 0,
+                "txErr": 0,
+                "rxDrop": 3,
+                "txDrop": 0,
+            }
+            if link == 1
+            else {}
+        ),
         **kw,
     }
 

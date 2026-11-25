@@ -53,6 +53,7 @@ from signalbox.adapters import (
     unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.portcounters import counters_of
 from signalbox.model import (
     Band,
     Cipher,
@@ -130,6 +131,22 @@ WAN_KINDS = {
 GATEWAY_TYPES = ("ugw", "usg", "udm", "uxg", "ucg", "udr")
 AP_TYPES = ("uap", "ubb", "uwb")
 ROLES = {"gateway": DeviceRole.GATEWAY, "switch": DeviceRole.SWITCH, "uap": DeviceRole.AP}
+
+
+#: ``stat/device`` ``port_table`` rows (the controller's own names, the same in every
+#: application version since 5.x; ``rx_crc_errors`` only where the firmware reports it).
+_COUNTER_KEYS = {
+    "rx_bytes": "rx_bytes",
+    "tx_bytes": "tx_bytes",
+    "rx_packets": "rx_packets",
+    "tx_packets": "tx_packets",
+    "rx_errors": "rx_errors",
+    "tx_errors": "tx_errors",
+    "rx_crc_errors": ("rx_crc_errors", "crc_errors"),
+    "rx_drops": ("rx_dropped", "rx_drops"),
+    "tx_drops": ("tx_dropped", "tx_drops"),
+    "link_downs": "link_down_count",
+}
 
 
 class UnifiConfig(AdapterConfig):
@@ -1015,6 +1032,7 @@ class UnifiAdapter(_Adapter):
                     admin_up=enabled,
                     autoneg=_flag(row.get("autoneg"), None),
                     jumbo=_flag(row.get("jumbo"), None),
+                    counters=counters_of(row, _COUNTER_KEYS),
                     profile=None if wan else _text(profile.get("name")) or None,
                     pvid=native.vlan if native and native.vlan else (1 if native else None),
                     vendor_extra=d.extra(

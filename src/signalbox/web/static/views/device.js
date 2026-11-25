@@ -658,8 +658,19 @@ function stpCard(ix, observed) {
   return h('section', { class: 'card', 'data-testid': 'device-stp' }, h('h2', {}, t('device.stp.title')), kv(rows));
 }
 
+// What a port's counters did between the last two reads (#158): the error and drop deltas, never
+// the lifetime totals; nothing when the device reports no counters or has not been read twice.
+function counterFact(d) {
+  if (!d) return null;
+  if (d.reset) return t('device.port.countersReset');
+  const minutes = Math.max(1, Math.round(d.seconds / 60));
+  const errors = d.errors === null || d.errors === undefined ? '–' : d.errors;
+  const drops = d.drops === null || d.drops === undefined ? '–' : d.drops;
+  return t('device.port.deltas', { errors, drops, minutes });
+}
+
 // One entry of the port tree (#252): the port (or radio), what it is, and what runs on it.
-function portNode(ix, node) {
+function portNode(ix, node, deltas = {}) {
   const name = (pid) => (ix.ports.get(pid) || {}).name || pid.split('/port/').pop();
   const ssids = node.wlans.map((w) => ix.wlans.get(w)).filter(Boolean);
   let label;
@@ -678,6 +689,7 @@ function portNode(ix, node) {
       ...portDetails(p),
       ...lagFacts(ix, p),
       ...stpFacts(p.stp),
+      counterFact(deltas[node.id]),
       node.members.length ? t('device.port.over', { members: node.members.map(name).join(', ') }) : null,
     ];
   }
@@ -688,12 +700,12 @@ function portNode(ix, node) {
     ' ',
     h('span', { class: 'muted small' }, facts.filter(Boolean).join(' · ')),
     ssids.length ? h('span', { class: 'ssids', 'data-testid': 'port-ssids' }, ssids.map((w) => h('span', { class: 'tag' }, t('device.port.ssid', { ssid: w.ssid })))) : null,
-    node.children.length ? h('ul', {}, node.children.map((c) => portNode(ix, c))) : null,
+    node.children.length ? h('ul', {}, node.children.map((c) => portNode(ix, c, deltas))) : null,
   );
 }
 
 // The internal structure of the device's ports (#252); nothing when it has none.
-function portsCard(ix, tree) {
+function portsCard(ix, tree, deltas) {
   if (!tree.length) return null;
   const known = tree.some(function roled(n) {
     return (ix.ports.get(n.id) || {}).role || n.node === 'radio' || n.children.some(roled);
@@ -703,7 +715,7 @@ function portsCard(ix, tree) {
     { class: 'card', 'data-testid': 'device-ports' },
     h('h2', {}, t('device.port.title')),
     known ? null : h('p', { class: 'muted' }, t('device.port.unknownRoles')),
-    h('ul', { class: 'port-tree' }, tree.map((n) => portNode(ix, n))),
+    h('ul', { class: 'port-tree' }, tree.map((n) => portNode(ix, n, deltas))),
   );
 }
 
@@ -803,9 +815,10 @@ function learnedCard(ix, entries) {
 
 async function overview(main, ctx, device, adapters, sites) {
   const id = ctx.renderId;
-  const [ix, tree, fdb, heard] = await Promise.all([
+  const [ix, tree, deltas, fdb, heard] = await Promise.all([
     loadNetwork(),
     get(`/devices/${enc(device.id)}/port-tree`),
+    get(`/devices/${enc(device.id)}/port-counters`).catch(() => ({})),
     get('/fdb').catch(() => []),
     get(`/wifi-scan?device=${enc(device.id)}`).catch(() => []),
   ]);
@@ -929,7 +942,7 @@ async function overview(main, ctx, device, adapters, sites) {
     notesCard(ix, device.id, 'device', t('device.notes', { name: device.name }), () => ctx.refresh()),
     internetCard(ix, device.id),
     inferredCard(ix, device.id),
-    portsCard(ix, tree),
+    portsCard(ix, tree, deltas),
     observed ? stpCard(ix, observed) : null,
     radiosCard(ix, device.id),
     neighboursCard(ix, heard),
