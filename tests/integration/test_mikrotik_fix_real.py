@@ -102,14 +102,15 @@ async def read_as(t: Target, password: str) -> Any:
         await a.close()
 
 
-async def read_until(t: Target, password: str, reads: bool, seconds: int = 20) -> Any:
-    """``read_as`` until the group's policy is in effect (RouterOS applies it a moment after the
-    REST call returns, #520): the read works (``reads``) or is refused."""
-    for _ in range(seconds):
+async def read_until(t: Target, password: str, reads: bool, tries: int = 12) -> Any:
+    """``read_as`` until the group's policy is in effect: RouterOS keeps the rights of a login it
+    has just seen for a while (the setup's check of the new login primes it, #520), so ask
+    every 5 s rather than keeping the login busy. ``reads``: the read works, else it is refused."""
+    for _ in range(tries):
+        await asyncio.sleep(5)
         snap = await read_as(t, password)
         if (snap.status in (DeviceStatus.OK, DeviceStatus.PARTIAL)) is reads:
             break
-        await asyncio.sleep(1)
     return snap
 
 
