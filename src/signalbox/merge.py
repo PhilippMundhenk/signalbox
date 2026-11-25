@@ -314,12 +314,18 @@ def _merge_segments(snaps: list[Snapshot]) -> list[Segment]:
         own = f"{snap.device.id}/"
         for seg in snap.segments:
             old = merged.get(seg.id)
+            names = dict(old.names_by_device) if old else {}
+            if seg.name and seg.name.strip():
+                names.setdefault(snap.device.id, seg.name)
             merged[seg.id] = (
-                seg.model_copy(update={"source": None, "vendor_extra": {}})
+                seg.model_copy(
+                    update={"source": None, "vendor_extra": {}, "names_by_device": names}
+                )
                 if old is None
                 else old.model_copy(
                     update={
                         "name": old.name or seg.name,
+                        "names_by_device": names,
                         # the first device that reports a purpose (or isolation) wins
                         "purpose": old.purpose or seg.purpose,
                         "purpose_source": old.purpose_source if old.purpose else seg.purpose_source,

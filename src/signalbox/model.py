@@ -1025,6 +1025,9 @@ class Segment(Observed):
     site_id: str
     vlan: int | None = Field(default=None, ge=1, le=4094)
     name: str | None = None
+    #: The name each device reports for this VLAN (device id -> name, devices without a name are
+    #: left out). ``name`` is the first of them; the merge keeps all (#165, #111).
+    names_by_device: dict[str, str] = Field(default_factory=dict)
     members: list[PortMembership] = Field(default_factory=list)
     purpose: SegmentPurpose | None = None
     purpose_source: PurposeSource | None = None

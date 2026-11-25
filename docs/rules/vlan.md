@@ -95,3 +95,17 @@ VLAN on the uplink. Ports whose role the device does not report are compared as 
   ports' maximum, use a cable rated for that speed (Cat 5e or better for 2.5 Gbit/s, Cat 6a for
   10 Gbit/s). If a device only has 100 Mbit/s ports and does not report it, turn the rule off or
   accept the finding.
+
+## `vlan.name-consistent`
+
+- **Severity:** info
+- **Checks:** a VLAN (not the untagged network) that devices name differently, for example `IoT`
+  on the router and `Guest` on the switch. The merge keeps the name each device reports
+  (`Segment.names_by_device`, #165). One finding per VLAN, listing the names and devices and
+  suggesting the name most devices use (on a tie the first by device id). The segments page
+  shows the names per device.
+- **Quiet:** differences in case or white space, devices without a name, and names derived from
+  the id (`vlan20`, `VLAN 20`, `ether1.20`, `br-lan.20`). Only VLAN ids are compared; one name
+  used for two different ids is not checked.
+- **Fix:** check that the devices mean the same network (a wrong VLAN id on one device is the
+  usual cause), then use one name.
