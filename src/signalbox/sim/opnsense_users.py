@@ -46,6 +46,7 @@ PRIVILEGES = (
     "page-system-gatewaygroups",
     "page-services-dyndns",
     "page-services-lldpd",
+    "page-services-freeradius",
     "page-services-captiveportal",
     "page-system-usermanager",
 )
