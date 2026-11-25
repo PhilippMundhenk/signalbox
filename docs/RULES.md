@@ -176,6 +176,10 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`port.autoneg-mismatch`](rules/ports.md#portautoneg-mismatch)
 - [`port.description-mismatch`](rules/ports.md#portdescription-mismatch)
 
+## [IPv6 router advertisements and DHCPv6](rules/ra_consistency.md)
+
+- [`ipv6.ra-consistent`](rules/ra_consistency.md#ipv6ra-consistent)
+
 ## [Fast roaming and UPnP](rules/roaming_upnp.md)
 
 - [`wifi.roaming`](rules/roaming_upnp.md#wifiroaming)

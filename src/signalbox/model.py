@@ -1038,6 +1038,17 @@ class Segment(Observed):
     isolated: bool | None = None
 
 
+class PrefixSource(StrEnum):
+    """Where the prefix of an IPv6 subnet comes from (#151)."""
+
+    #: Configured by hand (a fixed global prefix).
+    STATIC = "static"
+    #: Taken from a prefix the provider delegated (DHCPv6-PD).
+    DELEGATED = "delegated"
+    #: A unique local prefix (fd00::/8), independent of the provider.
+    ULA = "ula"
+
+
 class Subnet(Observed):
     segment_id: str
     #: Address of the device on this subnet, with prefix length (e.g. 192.0.2.1/24).
@@ -1045,6 +1056,8 @@ class Subnet(Observed):
     device_id: str
     #: True when this device is the subnet's gateway (router).
     gateway: bool = False
+    #: Where an IPv6 subnet's prefix comes from (#151). None: not known (and every IPv4 subnet).
+    prefix_source: PrefixSource | None = None
 
 
 class UplinkKind(StrEnum):
@@ -2270,6 +2283,99 @@ class DhcpRelay(Observed):
     enabled: bool = True
 
 
+# IPv6 router advertisements and DHCPv6 (#151) ---------------------------------------------------
+
+
+class RaMode(StrEnum):
+    """What a router does with router advertisements on a network, in the device's own terms."""
+
+    #: No router advertisements are sent.
+    OFF = "off"
+    #: Clients build addresses themselves from the announced prefix (A flag), M and O clear.
+    SLAAC = "slaac"
+    #: Managed flag: clients ask a DHCPv6 server for their addresses.
+    STATEFUL = "stateful"
+    #: Other-config flag: SLAAC addresses, DNS and the like from a DHCPv6 server.
+    STATELESS = "stateless"
+
+
+class RaPrefix(Model):
+    """A prefix a router advertisement announces (prefix information option)."""
+
+    prefix: IPv6Network
+    #: A flag: clients make addresses from this prefix. None: not known.
+    autonomous: bool | None = None
+    #: L flag: the prefix is on-link. None: not known.
+    on_link: bool | None = None
+
+
+class RouterAdvert(Observed):
+    """The router advertisements a device sends on one network, ``object_id(device, "ra",
+    <segment key>)`` (#151). Read with the ``dhcp`` capability.
+
+    ``managed`` and ``other`` are the M and O flags as sent; where the device only has a mode
+    they follow from it (:func:`ra_flags`).
+    """
+
+    device_id: str
+    segment_id: str
+    mode: RaMode
+    #: M flag. None: not known.
+    managed: bool | None = None
+    #: O flag. None: not known.
+    other: bool | None = None
+    #: Announced prefixes. Empty: none configured or not read (the device derives them).
+    prefixes: list[RaPrefix] = Field(default_factory=list)
+    #: Recursive DNS servers announced (RDNSS option, RFC 8106).
+    rdnss: list[IPv6Address] = Field(default_factory=list)
+    #: DNS search list announced (DNSSL option).
+    dnssl: list[str] = Field(default_factory=list)
+    #: Router lifetime in seconds; 0: the router is no default router. None: not known.
+    router_lifetime: Annotated[int, Field(ge=0, le=65535)] | None = None
+
+    @property
+    def sending(self) -> bool:
+        return self.mode is not RaMode.OFF
+
+
+def ra_flags(mode: RaMode) -> tuple[bool, bool]:
+    """The (M, O) flags a mode stands for."""
+    return mode is RaMode.STATEFUL, mode in (RaMode.STATEFUL, RaMode.STATELESS)
+
+
+class Dhcp6Mode(StrEnum):
+    #: Hands out addresses (IA_NA) and may delegate prefixes.
+    STATEFUL = "stateful"
+    #: Hands out only options (DNS, search list), no addresses (information-request).
+    STATELESS = "stateless"
+
+
+class Dhcp6PrefixPool(Model):
+    """A pool of prefixes a DHCPv6 server delegates to downstream routers (prefix delegation)."""
+
+    prefix: IPv6Network
+    #: Length of the prefixes handed out (``/56``, ``/60``, ``/64``).
+    length: Annotated[int, Field(ge=1, le=128)]
+
+
+class Dhcp6Server(Observed):
+    """A DHCPv6 server on one network, ``object_id(device, "dhcp6", <name>)`` (#151); the
+    DHCPv4 counterpart is :class:`DhcpServer`. Read with the ``dhcp`` capability."""
+
+    device_id: str
+    segment_id: str
+    enabled: bool
+    mode: Dhcp6Mode = Dhcp6Mode.STATEFUL
+    #: Address ranges handed out (stateful); a prefix pool is in ``prefix_pools``.
+    pools: list[DhcpPool] = Field(default_factory=list)
+    prefix_pools: list[Dhcp6PrefixPool] = Field(default_factory=list)
+    lease_seconds: int | None = None
+    dns_servers: list[IPv6Address] = Field(default_factory=list)
+    search_domains: list[str] = Field(default_factory=list)
+    #: The lease table; None: not read, [] none.
+    leases: list[DhcpLease] | None = None
+
+
 class HostRecord(Model):
     name: str
     address: IPAddress
@@ -3408,6 +3514,9 @@ class Snapshot(Model):
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     #: DHCP relays (#183; part of ``dhcp``).
     dhcp_relays: list[DhcpRelay] = Field(default_factory=list)
+    #: DHCPv6 servers and router advertisement settings (#151; part of ``dhcp``).
+    dhcp6_servers: list[Dhcp6Server] = Field(default_factory=list)
+    router_adverts: list[RouterAdvert] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)
     wlans: list[Wlan] = Field(default_factory=list)
@@ -3512,6 +3621,9 @@ class Network(Model):
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     #: DHCP relays (#183; part of ``dhcp``).
     dhcp_relays: list[DhcpRelay] = Field(default_factory=list)
+    #: DHCPv6 servers and router advertisement settings (#151; part of ``dhcp``).
+    dhcp6_servers: list[Dhcp6Server] = Field(default_factory=list)
+    router_adverts: list[RouterAdvert] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)
     wlans: list[Wlan] = Field(default_factory=list)
@@ -3585,6 +3697,8 @@ class Network(Model):
             self.certificates,
             self.dhcp_servers,
             self.dhcp_relays,
+            self.dhcp6_servers,
+            self.router_adverts,
             self.dns_services,
             self.radios,
             self.wlans,
@@ -3687,6 +3801,10 @@ class Network(Model):
 
     def dhcp_servers_on(self, segment_id: str) -> list[DhcpServer]:
         return [s for s in self.dhcp_servers if s.segment_id == segment_id]
+
+    def dhcp6_on(self, segment_id: str) -> list[Dhcp6Server]:
+        """The enabled DHCPv6 servers of a network."""
+        return [s for s in self.dhcp6_servers if s.segment_id == segment_id and s.enabled]
 
     def dhcp_relays_on(self, segment_id: str) -> list[DhcpRelay]:
         """Enabled DHCP relays on a segment (#183): it needs no DHCP server of its own."""

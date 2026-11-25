@@ -698,13 +698,18 @@ def dhcp_config(router: bool) -> dict[str, Any]:
                 "leasetime": "12h",
                 **(
                     {
+                        "ra": "server",
+                        "dhcpv6": "server",
+                        "ra_slaac": "1",
+                        "ra_flags": ["managed-config", "other-config"],
+                        "dns": ["2001:db8::53"],
                         "dhcp_option": [
                             "6,192.0.2.1,192.0.2.53",
                             "42,192.0.2.1",
                             "119,home.example,lan.example",
                             "121,203.0.113.0/24,192.0.2.254",
                             "option:wpad,http://192.0.2.1/wpad.dat",
-                        ]
+                        ],
                     }
                     if router
                     else {"ignore": "1"}
@@ -1679,6 +1684,19 @@ class OpenWrtSim:
             mac, ip, name = LEASE
             text = f"4102444800 {mac} {ip} {name} 01:{mac}\n0 bogus x * *\nshort\n"
             return [0, {"data": text}]
+        if obj == "dhcp" and method == "ipv6leases":
+            duid = "00030001" + FIXED_MAC.format(3).replace(":", "")
+            lease = {
+                "duid": duid,
+                "iaid": 1,
+                "hostname": "laptop",
+                "assigned": 1,
+                "flags": ["bound"],
+                "ipv6-addr": [
+                    {"address": "2001:db8::1a2", "preferred-lifetime": 3000, "valid-lifetime": 3600}
+                ],
+            }
+            return [0, {"device": {"br-lan": {"leases": [lease]}}}]
         if obj == "luci.wireguard" and self.luci_wireguard:
             return [0, self.wg_instances()] if method == "getWgInstances" else [3]
         if obj == "luci.lldpd" and self.lldpd:

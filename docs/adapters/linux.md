@@ -263,3 +263,14 @@ a WireGuard interface is a `vpn` route; `type` `blackhole`, `unreachable` and `p
 dropping routes. A rule with a key Signalbox cannot evaluate (`fwmark`, `uidrange`, ...) is left
 out. *CI*: a static route, a table with its own default route and a rule in the container.
 *Guess:* the JSON key of a blackhole rule's action (#21).
+
+## IPv6 router advertisements and DHCPv6 (#151)
+
+Read from files, with `dhcp`: `/etc/radvd.conf` (`interface` blocks: `AdvSendAdvert`,
+`AdvManagedFlag`, `AdvOtherConfigFlag`, `AdvDefaultLifetime`, `prefix` with `AdvOnLink` and
+`AdvAutonomous`, `RDNSS`, `DNSSL`; reported while the `radvd` unit or process runs) and, in
+dnsmasq's configuration with `enable-ra`, the IPv6 `dhcp-range` lines (`constructor:<if>` or
+`interface:<if>` or the range's prefix finds the network; `ra-only` SLAAC, `ra-stateless`
+stateless, a range of addresses stateful) with `dhcp-option=option6:dns-server` and
+`option6:domain-search`. systemd-networkd's `IPv6SendRA`, Kea DHCPv6 and the kernel's own
+advertisements are not read. Debian 11, 12 and 13 use the same files.

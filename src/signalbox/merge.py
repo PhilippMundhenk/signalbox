@@ -27,9 +27,11 @@ from signalbox.model import (
     Membership,
     Network,
     PortMembership,
+    PrefixSource,
     Segment,
     Site,
     Snapshot,
+    Subnet,
     is_native_segment,
     native_segment_id,
     segment_id,
@@ -246,6 +248,14 @@ def _split_snapshot(snap: Snapshot, native: dict[str, str]) -> Snapshot:
                 r.model_copy(update={"segment_id": of(r.device_id, r.segment_id)})
                 for r in snap.dhcp_relays
             ],
+            "dhcp6_servers": [
+                s.model_copy(update={"segment_id": of(s.device_id, s.segment_id)})
+                for s in snap.dhcp6_servers
+            ],
+            "router_adverts": [
+                r.model_copy(update={"segment_id": of(r.device_id, r.segment_id)})
+                for r in snap.router_adverts
+            ],
             "server_sightings": [
                 x.model_copy(update={"segment_id": of(x.device_id, x.segment_id)})
                 for x in snap.server_sightings
@@ -438,6 +448,31 @@ def hosting(
     return {k: v for k, v in out.items() if v not in out}
 
 
+_ULA = IPv6Network("fc00::/7")
+
+
+def prefix_sources(snaps: Iterable[Snapshot]) -> list[Subnet]:
+    """The subnets of all snapshots with ``prefix_source`` filled in where a device did not say
+    (#151): an IPv6 subnet inside a delegated prefix of an uplink of the same site is
+    ``delegated``, one in fc00::/7 is ``ula``; every other stays unknown (not guessed)."""
+    snaps = list(snaps)
+    delegated: dict[str, list[IPv6Network]] = {}
+    for snap in snaps:
+        for up in snap.uplinks:
+            delegated.setdefault(snap.device.site_id, []).extend(up.delegated_prefixes)
+    out: list[Subnet] = []
+    for snap in snaps:
+        for sub in snap.subnets:
+            net = sub.interface.network
+            if sub.prefix_source is None and isinstance(net, IPv6Network):
+                if net.subnet_of(_ULA):
+                    sub = sub.model_copy(update={"prefix_source": PrefixSource.ULA})
+                elif any(net.subnet_of(p) for p in delegated.get(snap.device.site_id, [])):
+                    sub = sub.model_copy(update={"prefix_source": PrefixSource.DELEGATED})
+            out.append(sub)
+    return out
+
+
 def merge(
     sites: Iterable[Site],
     snapshots: Iterable[Snapshot],
@@ -481,12 +516,14 @@ def merge(
             },
             "ports": every("ports"),
             "segments": segments,
-            "subnets": every("subnets"),
+            "subnets": prefix_sources(snaps),
             "uplinks": every("uplinks"),
             "services": every("services"),
             "certificates": every("certificates"),
             "dhcp_servers": every("dhcp_servers"),
             "dhcp_relays": every("dhcp_relays"),
+            "dhcp6_servers": every("dhcp6_servers"),
+            "router_adverts": every("router_adverts"),
             "dns_services": every("dns_services"),
             "radios": every("radios"),
             "wlans": every("wlans"),

@@ -1059,3 +1059,18 @@ DNSBL (`dnsbl`, 22.1 and later; older releases have none: no block lists) lists 
 predefined lists by name and own lists by the host of their URL (never the path, which can carry
 a token). Number of entries: not in the settings. Guesses for #21: the `verify` and `dnsbl`
 spelling on 24.7 and 25.x (compared with the sources, not recorded).
+
+## IPv6 router advertisements and DHCPv6 (#151)
+
+- **Router advertisements and ISC DHCPv6** have no API (Services: Router Advertisements,
+  Services: DHCPv6). They are read through the optional helper script of
+  [ISC DHCP settings](#isc-dhcp-settings-optional-242), which now also prints, per interface of
+  `<dhcpdv6>`: `ramode` (`disabled`, `router`, `unmanaged`, `managed`, `assist`, `stateless_dhcp`),
+  `radnsserver`, `radomainsearchlist`, `ranodefault` (checked values only, nothing else of the
+  section). `ramode`: `router` and `unmanaged` are SLAAC, `managed` and `assist` set M and O
+  (`managed` without the A flag), `stateless_dhcp` sets O. `enable` plus `range`, `dnsserver`,
+  `domain` and `defaultleasetime` give the DHCPv6 server. Without the script nothing of this is read.
+- **Kea DHCPv6** *(guess: OPNsense 24.7 and later; `/api/kea/dhcpv6/get`, `search_subnet`,
+  `search_pd_pool` and their field names)* is read like Kea DHCPv4: subnet, pools, DNS servers,
+  prefix delegation pools. A 404 means no Kea DHCPv6 and is not an error.
+- **The delegated prefix on the WAN** is `Uplink.delegated_prefixes` (already read).

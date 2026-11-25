@@ -586,3 +586,12 @@ a /32). An entry with a source address is a policy route and left out. The defau
 derived from the internet connection (its gateway) while `GetDefaultConnectionService` names a
 connection. Not readable: IPv6 routes, the kernel table, policy routing. A FRITZ!OS without the
 service reports no routes.
+
+## IPv6 router advertisements and DHCPv6 (#151)
+
+Not read. TR-064 offers no action for the box's IPv6 LAN settings (the router advertisement mode and
+the DHCPv6 server of *Home Network > Network > Network Settings > IPv6 Settings*); only the
+delegated prefix and the external address are in the IGD services (see the uplink). Signalbox
+therefore reports no `RouterAdvert` or `Dhcp6Server` for a Fritz!Box and `ipv6.ra-consistent` is
+silent for its network unless another device reports one (*guess: FRITZ!OS 7.5x and 8 have no such
+action; not checked on a device*).

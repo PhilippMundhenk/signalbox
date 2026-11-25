@@ -43,6 +43,7 @@ UNITS = (
     "ssh",
     "sshd",
     "dnsmasq",
+    "radvd",
     "kea-dhcp4-server",
     "isc-dhcp-server",
     "systemd-networkd",
@@ -139,6 +140,7 @@ echo @@syslog; show /etc/rsyslog.conf /etc/rsyslog.d/*.conf \
   /etc/syslog-ng/syslog-ng.conf /etc/syslog-ng/conf.d/*.conf
 echo @@dnsmasq; show /etc/dnsmasq.conf /etc/dnsmasq.d/*.conf
 echo @@dnsmasq-leases; show /var/lib/misc/dnsmasq.leases
+echo @@radvd; show /etc/radvd.conf
 echo @@kea; show /etc/kea/kea-dhcp4.conf
 echo @@kea-leases; show /var/lib/kea/kea-leases4.csv
 echo @@isc; show /etc/dhcp/dhcpd.conf

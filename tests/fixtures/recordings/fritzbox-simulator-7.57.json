@@ -1127,7 +1127,8 @@
     "segment_id": "home/segment/native",
     "interface": "192.0.2.1/24",
     "device_id": "recorded",
-    "gateway": true
+    "gateway": true,
+    "prefix_source": null
    }
   ],
   "uplinks": [
@@ -1458,6 +1459,8 @@
    }
   ],
   "dhcp_relays": [],
+  "dhcp6_servers": [],
+  "router_adverts": [],
   "dns_services": [],
   "radios": [
    {

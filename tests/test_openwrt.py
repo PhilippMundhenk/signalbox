@@ -54,6 +54,7 @@ from signalbox.model import (
     DeviceRole,
     DeviceStatus,
     DfsState,
+    Dhcp6Mode,
     FdbKind,
     LeaseState,
     Membership,
@@ -63,6 +64,7 @@ from signalbox.model import (
     Pmf,
     PortKind,
     PortRole,
+    RaMode,
     SaePwe,
     Security,
     StpPortRole,
@@ -1973,3 +1975,38 @@ async def test_release_23_05_variant(sim: OpenWrtSim, adapter: OpenWrtAdapter) -
     snap = await assert_contract(adapter)
     assert snap.device.firmware is not None and snap.device.firmware.current == "23.05.6"
     assert (await adapter.read_wireless()).radios
+
+
+async def test_router_advertisements_and_dhcpv6(
+    sim: OpenWrtSim, https_url: str, cert: TlsFiles
+) -> None:
+    """odhcpd per ``dhcp`` section (#151): ``ra``, ``dhcpv6``, ``ra_flags``, ``dns`` and the
+    leases of ``ubus dhcp ipv6leases``, else of the luci-rpc table."""
+    sim.router = True
+    a = OpenWrtAdapter(
+        context(https_url, pinned_fingerprint=cert.fingerprint, role=DeviceRole.GATEWAY)
+    )
+    try:
+        obs = await a.read_dhcp()
+        sim.denied = {"dhcp"}
+        fallback = await a.read_dhcp()
+    finally:
+        await a.close()
+    [ra] = obs.router_adverts
+    assert (ra.id, ra.segment_id) == ("ap1/ra/lan", "home/segment/native")
+    assert ra.mode is RaMode.STATEFUL and ra.managed is True and ra.other is True
+    assert [str(x) for x in ra.rdnss] == ["2001:db8::53"] and ra.router_lifetime == 1800
+    [server] = obs.dhcp6_servers
+    assert server.id == "ap1/dhcp6/lan" and server.enabled and server.mode is Dhcp6Mode.STATEFUL
+    assert [str(x) for x in server.dns_servers] == ["2001:db8::53"]
+    assert server.leases is not None
+    [lease] = server.leases
+    assert str(lease.address) == "2001:db8::1a2" and lease.mac == "00:00:5e:00:53:03"
+    [lease] = fallback.dhcp6_servers[0].leases or []
+    assert lease.client_id == "000100012d1b2c3d02000000200a"
+
+
+async def test_no_router_advertisements_on_an_ap(adapter: OpenWrtAdapter) -> None:
+    obs = await adapter.read_dhcp()
+    assert all(r.mode is RaMode.OFF for r in obs.router_adverts)
+    assert obs.dhcp6_servers == []

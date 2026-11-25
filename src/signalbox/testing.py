@@ -631,6 +631,10 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             out.append(f"{kind} reported without declaring {Capability.INTERFACES.value}")
     if snapshot.dhcp_relays and Capability.DHCP.value not in caps:
         out.append(f"dhcp_relays reported without declaring {Capability.DHCP.value}")
+    if (snapshot.dhcp6_servers or snapshot.router_adverts) and Capability.DHCP.value not in caps:
+        out.append(
+            f"dhcp6_servers or router_adverts reported without declaring {Capability.DHCP.value}"
+        )
     if snapshot.server_sightings and Capability.DHCP.value not in caps:
         out.append(f"server_sightings reported without declaring {Capability.DHCP.value}")
     if snapshot.tunnels and Capability.VPN.value not in caps:
@@ -696,6 +700,8 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         "certificates",
         "dhcp_servers",
         "dhcp_relays",
+        "dhcp6_servers",
+        "router_adverts",
         "dns_services",
         "tunnels",
         "firewalls",
@@ -734,7 +740,13 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         untagged = [x for x in seg.members if x.mode is Membership.UNTAGGED]
         if len({x.port_id for x in untagged}) != len(untagged):
             out.append(f"segment {seg.id} lists a port twice")
-    for refs in (snapshot.subnets, snapshot.dhcp_servers, snapshot.dhcp_relays):
+    for refs in (
+        snapshot.subnets,
+        snapshot.dhcp_servers,
+        snapshot.dhcp_relays,
+        snapshot.dhcp6_servers,
+        snapshot.router_adverts,
+    ):
         for obj in refs:
             if obj.segment_id not in segment_ids:
                 out.append(f"{obj.id} references unknown segment {obj.segment_id}")

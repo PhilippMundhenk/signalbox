@@ -78,6 +78,8 @@ SAMPLE_CONFIG = f"""<?xml version="1.0"?>
       <enable>1</enable>
       <range><from>2001:db8::100</from><to>2001:db8::1ff</to></range>
       <dnsserver>2001:db8::53</dnsserver>
+      <ramode>assist</ramode>
+      <radnsserver>2001:db8::53</radnsserver>
       <staticmap><duid>00:01:00:01:aa:bb:cc:dd</duid><ipaddrv6>2001:db8::41</ipaddrv6>
         <hostname>printer</hostname></staticmap>
     </lan>

@@ -427,6 +427,7 @@ def running(answer: Answer) -> dict[str, tuple[bool, bool | None]]:
 PROCESS_NAMES = {
     "sshd": "ssh",
     "dnsmasq": "dnsmasq",
+    "radvd": "radvd",
     "kea-dhcp4": "kea-dhcp4-server",
     "dhcpd": "isc-dhcp-server",
     "systemd-network": "systemd-networkd",

@@ -1530,6 +1530,158 @@
       "title": "DfsState",
       "type": "string"
     },
+    "Dhcp6Mode": {
+      "enum": [
+        "stateful",
+        "stateless"
+      ],
+      "title": "Dhcp6Mode",
+      "type": "string"
+    },
+    "Dhcp6PrefixPool": {
+      "additionalProperties": false,
+      "description": "A pool of prefixes a DHCPv6 server delegates to downstream routers (prefix delegation).",
+      "properties": {
+        "length": {
+          "maximum": 128,
+          "minimum": 1,
+          "title": "Length",
+          "type": "integer"
+        },
+        "prefix": {
+          "format": "ipv6network",
+          "title": "Prefix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prefix",
+        "length"
+      ],
+      "title": "Dhcp6PrefixPool",
+      "type": "object"
+    },
+    "Dhcp6Server": {
+      "additionalProperties": false,
+      "description": "A DHCPv6 server on one network, ``object_id(device, \"dhcp6\", <name>)`` (#151); the\nDHCPv4 counterpart is :class:`DhcpServer`. Read with the ``dhcp`` capability.",
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "dns_servers": {
+          "items": {
+            "format": "ipv6",
+            "type": "string"
+          },
+          "title": "Dns Servers",
+          "type": "array"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lease Seconds"
+        },
+        "leases": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DhcpLease"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Leases"
+        },
+        "mode": {
+          "$ref": "#/$defs/Dhcp6Mode",
+          "default": "stateful"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "pools": {
+          "items": {
+            "$ref": "#/$defs/DhcpPool"
+          },
+          "title": "Pools",
+          "type": "array"
+        },
+        "prefix_pools": {
+          "items": {
+            "$ref": "#/$defs/Dhcp6PrefixPool"
+          },
+          "title": "Prefix Pools",
+          "type": "array"
+        },
+        "search_domains": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Search Domains",
+          "type": "array"
+        },
+        "segment_id": {
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "segment_id",
+        "enabled"
+      ],
+      "title": "Dhcp6Server",
+      "type": "object"
+    },
     "DhcpBoot": {
       "additionalProperties": false,
       "description": "Network boot (PXE): ``next-server`` / ``siaddr``, option 66 and 67.",
@@ -3970,6 +4122,13 @@
           "title": "Devices",
           "type": "array"
         },
+        "dhcp6_servers": {
+          "items": {
+            "$ref": "#/$defs/Dhcp6Server"
+          },
+          "title": "Dhcp6 Servers",
+          "type": "array"
+        },
         "dhcp_relays": {
           "items": {
             "$ref": "#/$defs/DhcpRelay"
@@ -4052,6 +4211,13 @@
             "$ref": "#/$defs/Radio"
           },
           "title": "Radios",
+          "type": "array"
+        },
+        "router_adverts": {
+          "items": {
+            "$ref": "#/$defs/RouterAdvert"
+          },
+          "title": "Router Adverts",
           "type": "array"
         },
         "routes": {
@@ -5110,6 +5276,16 @@
       "title": "PowerSupply",
       "type": "object"
     },
+    "PrefixSource": {
+      "description": "Where the prefix of an IPv6 subnet comes from (#151).",
+      "enum": [
+        "static",
+        "delegated",
+        "ula"
+      ],
+      "title": "PrefixSource",
+      "type": "string"
+    },
     "PurposeSource": {
       "description": "Where a purpose came from. Declared beats reported beats heuristic.",
       "enum": [
@@ -5119,6 +5295,57 @@
       ],
       "title": "PurposeSource",
       "type": "string"
+    },
+    "RaMode": {
+      "description": "What a router does with router advertisements on a network, in the device's own terms.",
+      "enum": [
+        "off",
+        "slaac",
+        "stateful",
+        "stateless"
+      ],
+      "title": "RaMode",
+      "type": "string"
+    },
+    "RaPrefix": {
+      "additionalProperties": false,
+      "description": "A prefix a router advertisement announces (prefix information option).",
+      "properties": {
+        "autonomous": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Autonomous"
+        },
+        "on_link": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "On Link"
+        },
+        "prefix": {
+          "format": "ipv6network",
+          "title": "Prefix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prefix"
+      ],
+      "title": "RaPrefix",
+      "type": "object"
     },
     "Radio": {
       "additionalProperties": false,
@@ -5779,6 +6006,126 @@
       ],
       "title": "RouteOrigin",
       "type": "string"
+    },
+    "RouterAdvert": {
+      "additionalProperties": false,
+      "description": "The router advertisements a device sends on one network, ``object_id(device, \"ra\",\n<segment key>)`` (#151). Read with the ``dhcp`` capability.\n\n``managed`` and ``other`` are the M and O flags as sent; where the device only has a mode\nthey follow from it (:func:`ra_flags`).",
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "dnssl": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dnssl",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "managed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Managed"
+        },
+        "mode": {
+          "$ref": "#/$defs/RaMode"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "other": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Other"
+        },
+        "prefixes": {
+          "items": {
+            "$ref": "#/$defs/RaPrefix"
+          },
+          "title": "Prefixes",
+          "type": "array"
+        },
+        "rdnss": {
+          "items": {
+            "format": "ipv6",
+            "type": "string"
+          },
+          "title": "Rdnss",
+          "type": "array"
+        },
+        "router_lifetime": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Router Lifetime"
+        },
+        "segment_id": {
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "segment_id",
+        "mode"
+      ],
+      "title": "RouterAdvert",
+      "type": "object"
     },
     "RoutingRule": {
       "additionalProperties": false,
@@ -6515,6 +6862,13 @@
         "device": {
           "$ref": "#/$defs/Device"
         },
+        "dhcp6_servers": {
+          "items": {
+            "$ref": "#/$defs/Dhcp6Server"
+          },
+          "title": "Dhcp6 Servers",
+          "type": "array"
+        },
         "dhcp_relays": {
           "items": {
             "$ref": "#/$defs/DhcpRelay"
@@ -6595,6 +6949,13 @@
             "$ref": "#/$defs/Radio"
           },
           "title": "Radios",
+          "type": "array"
+        },
+        "router_adverts": {
+          "items": {
+            "$ref": "#/$defs/RouterAdvert"
+          },
+          "title": "Router Adverts",
           "type": "array"
         },
         "routes": {
@@ -7114,6 +7475,17 @@
           ],
           "default": null,
           "title": "Observed At"
+        },
+        "prefix_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PrefixSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "segment_id": {
           "title": "Segment Id",

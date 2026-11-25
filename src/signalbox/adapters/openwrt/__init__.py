@@ -17,7 +17,15 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from ipaddress import IPv4Interface, IPv6Network, ip_address, ip_interface, ip_network
+from ipaddress import (
+    IPv4Interface,
+    IPv6Address,
+    IPv6Interface,
+    IPv6Network,
+    ip_address,
+    ip_interface,
+    ip_network,
+)
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -85,6 +93,8 @@ from signalbox.model import (
     Client,
     DeviceAccount,
     DeviceRole,
+    Dhcp6Mode,
+    Dhcp6Server,
     DhcpBoot,
     DhcpLease,
     DhcpOption,
@@ -111,7 +121,10 @@ from signalbox.model import (
     PortMembership,
     PortRole,
     Radio,
+    RaMode,
+    RaPrefix,
     Reservation,
+    RouterAdvert,
     SaePwe,
     SaeSettings,
     ScanSource,
@@ -209,6 +222,16 @@ def _list(value: Any) -> list[str]:
     if isinstance(value, str):
         return value.split()
     return []
+
+
+def _duid_mac(duid: str) -> str | None:
+    """The MAC address inside a DUID-LL (type 3) or DUID-LLT (type 1) of an Ethernet client."""
+    text = duid.lower().replace(":", "")
+    if text.startswith("00030001") and len(text) == 20:
+        return _mac(text[8:])
+    if text.startswith("00010001") and len(text) == 28:
+        return _mac(text[16:])
+    return None
 
 
 def _flag(value: Any, default: bool = False) -> bool:
@@ -1736,7 +1759,146 @@ class OpenWrtAdapter(Adapter):
                     vendor_extra=_extra(s, "dhcpv6", "ra", "ra_management"),
                 )
             )
-        return Observation(dhcp_servers=servers, dhcp_relays=self._relays(uci, view))
+        adverts, servers6 = await self._ipv6(uci, view, table)
+        return Observation(
+            dhcp_servers=servers,
+            dhcp_relays=self._relays(uci, view),
+            router_adverts=adverts,
+            dhcp6_servers=servers6,
+        )
+
+    async def _ipv6(
+        self, uci: dict[str, Any], view: NetworkView, table: list[DhcpLease] | None
+    ) -> tuple[list[RouterAdvert], list[Dhcp6Server]]:
+        """odhcpd's router advertisements and DHCPv6 server per ``dhcp`` section (#151).
+
+        ``ra`` and ``dhcpv6`` are ``server``, ``hybrid``, ``relay`` or ``disabled`` (unset:
+        disabled); only a server (or hybrid) is reported as running. The flags are ``ra_flags``
+        (``managed-config``, ``other-config``; OpenWrt 21.02 and later, so 23.05, 24.10 and
+        25.12); before, ``ra_management`` (``0``: O only, ``1``: M and O, ``2``: M only) *(guess:
+        mapping of the old values)*. Without either, only the O flag is set (odhcpd's default).
+        ``ra_slaac`` ``0`` clears the A flag of the prefixes. ``dns`` lists the IPv6 resolvers
+        announced in the RDNSS option and handed out by DHCPv6, ``domain`` the search list,
+        ``ra_lifetime`` the router lifetime (default 1800 s). A resolver odhcpd adds by itself
+        (its own address) is not read. Leases: ubus ``dhcp ipv6leases`` (odhcpd), else the
+        DHCPv6 leases of ``luci-rpc getDHCPLeases``.
+        """
+        d = self.context.device_id
+        adverts: list[RouterAdvert] = []
+        servers: list[Dhcp6Server] = []
+        leases: list[DhcpLease] | None = None
+        for name, s in _sections(uci, "dhcp"):
+            iface = str(s.get("interface", name))
+            vid = view.vlan_of_interface(iface)
+            if vid is None or iface == "wan":
+                continue
+            seg = self._seg(vid)
+            key = "lan" if vid == _NATIVE else str(vid)
+            v6 = [
+                a
+                for a in view.addresses(iface)
+                if isinstance(a, IPv6Interface) and not a.ip.is_link_local
+            ]
+            ra_on = str(s.get("ra", "disabled")) in ("server", "hybrid")
+            flags = _list(s.get("ra_flags"))
+            if flags:
+                managed, other = "managed-config" in flags, "other-config" in flags
+            elif (legacy := _int(s.get("ra_management"))) is not None:
+                managed, other = legacy in (1, 2), legacy in (0, 1)
+            else:
+                managed, other = False, True
+            dns = [a for a in _addresses(",".join(_list(s.get("dns")))) if a.version == 6]
+            domains = _list(s.get("domain"))
+            slaac = _flag(s.get("ra_slaac"), True)
+            mode = (
+                RaMode.OFF
+                if not ra_on
+                else RaMode.STATEFUL
+                if managed
+                else RaMode.STATELESS
+                if other
+                else RaMode.SLAAC
+            )
+            if not any(a.id.endswith(f"/ra/{key}") for a in adverts):
+                adverts.append(
+                    RouterAdvert(
+                        id=object_id(d, "ra", key),
+                        device_id=d,
+                        segment_id=seg,
+                        mode=mode,
+                        managed=managed if ra_on else None,
+                        other=other if ra_on else None,
+                        prefixes=[]
+                        if slaac
+                        else [RaPrefix(prefix=a.network, autonomous=False) for a in v6],
+                        rdnss=[a for a in dns if isinstance(a, IPv6Address)],
+                        dnssl=domains,
+                        router_lifetime=_int(s.get("ra_lifetime", 1800)) if ra_on else None,
+                        vendor_extra=_extra(s, "ra", "ra_flags", "ra_management", "ra_slaac"),
+                    )
+                )
+            if str(s.get("dhcpv6", "disabled")) not in ("server", "hybrid"):
+                continue
+            if leases is None:
+                leases = await self._ipv6_leases(table)
+            nets = [a.network for a in v6]
+            servers.append(
+                Dhcp6Server(
+                    id=object_id(d, "dhcp6", name),
+                    device_id=d,
+                    segment_id=seg,
+                    enabled=True,
+                    mode=Dhcp6Mode.STATEFUL if managed else Dhcp6Mode.STATELESS,
+                    lease_seconds=lease_seconds(s.get("leasetime", "12h")),
+                    dns_servers=[a for a in dns if isinstance(a, IPv6Address)],
+                    search_domains=domains,
+                    leases=[x for x in leases if any(x.address in n for n in nets)]
+                    if leases is not None
+                    else None,
+                    vendor_extra=_extra(s, "dhcpv6", "ra_flags", "ra_management"),
+                )
+            )
+        return adverts, servers
+
+    async def _ipv6_leases(self, table: list[DhcpLease] | None) -> list[DhcpLease] | None:
+        """DHCPv6 leases of every interface: ubus ``dhcp ipv6leases`` (``device`` -> device name
+        -> ``leases`` with ``duid``, ``hostname``, ``ipv6-addr`` ``address`` /
+        ``valid-lifetime``),
+        else every IPv6 lease of the luci-rpc table (the caller filters by prefix)."""
+        try:
+            data = await self.ubus.call("dhcp", "ipv6leases")
+        except (NotFound, AccessDenied, InvalidArgument, NoData, CallFailed):
+            if table is None:
+                return None
+            return [x for x in table if x.address.version == 6]
+        now = datetime.now(UTC)
+        out: list[DhcpLease] = []
+        devices = data.get("device")
+        for entry in (devices if isinstance(devices, dict) else {}).values():
+            rows = entry.get("leases") if isinstance(entry, dict) else None
+            for row in rows if isinstance(rows, list) else []:
+                if not isinstance(row, dict):
+                    continue
+                duid = str(row.get("duid") or "")
+                for a in row.get("ipv6-addr") or []:
+                    try:
+                        address = ip_address(str(a.get("address")))
+                    except (AttributeError, ValueError):
+                        continue
+                    left = a.get("valid-lifetime")
+                    out.append(
+                        DhcpLease(
+                            address=address,
+                            mac=_duid_mac(duid),
+                            client_id=duid or None,
+                            hostname=row.get("hostname") or None,
+                            state=LeaseState.ACTIVE,
+                            expires=now + timedelta(seconds=left)
+                            if isinstance(left, int) and not isinstance(left, bool) and left >= 0
+                            else None,
+                        )
+                    )
+        return out
 
     def _relays(self, uci: dict[str, Any], view: NetworkView) -> list[DhcpRelay]:
         """dnsmasq ``config relay`` sections (``interface``, ``server_addr``)."""

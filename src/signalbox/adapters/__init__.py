@@ -44,6 +44,7 @@ from signalbox.model import (
     DeviceRole,
     DeviceStatus,
     DeviceTime,
+    Dhcp6Server,
     DhcpRelay,
     DhcpServer,
     DnsService,
@@ -60,6 +61,7 @@ from signalbox.model import (
     Radio,
     ReadError,
     Route,
+    RouterAdvert,
     RoutingRule,
     Segment,
     ServerSighting,
@@ -653,6 +655,10 @@ class Observation(BaseModel):
     dhcp_servers: list[DhcpServer] = Field(default_factory=list)
     #: DHCP relays (#183), read with ``dhcp``; no API version needed.
     dhcp_relays: list[DhcpRelay] = Field(default_factory=list)
+    #: DHCPv6 servers and router advertisement settings (#151), read with ``dhcp``; no API
+    #: version needed.
+    dhcp6_servers: list[Dhcp6Server] = Field(default_factory=list)
+    router_adverts: list[RouterAdvert] = Field(default_factory=list)
     dns_services: list[DnsService] = Field(default_factory=list)
     radios: list[Radio] = Field(default_factory=list)
     wlans: list[Wlan] = Field(default_factory=list)

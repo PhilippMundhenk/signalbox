@@ -29,7 +29,7 @@ from signalbox.adapters.opnsense.provision import (
     authorized_line,
 )
 from signalbox.adapters.ssh import PinnedSsh, ShellResult
-from signalbox.model import DeviceRole, DhcpServer
+from signalbox.model import DeviceRole, Dhcp6Mode, DhcpServer, RaMode
 from signalbox.sim.opnsense import KEY, SECRET, OpnsenseSimulator
 from signalbox.sim.opnsense_ssh import (
     ROOT_PASSWORD,
@@ -486,3 +486,35 @@ async def test_forced_command_runs_whatever_is_asked(
 def test_authorized_line_forces_the_command() -> None:
     line = authorized_line("ssh-ed25519 AAAA")
     assert line == f'command="{SCRIPT_PATH}",restrict ssh-ed25519 AAAA signalbox-isc-dhcp'
+
+
+def test_script_prints_router_advertisement_settings_of_dhcpdv6_only() -> None:
+    lan = isc_script.extract(SAMPLE_CONFIG)["dhcpdv6"]["lan"]
+    assert lan["ramode"] == "assist" and lan["radnsserver"] == ["2001:db8::53"]
+    xml = """<opnsense><dhcpd><lan><ramode>managed</ramode></lan></dhcpd><dhcpdv6><lan>
+      <ramode>S3CRET</ramode><radnsserver>not-an-address</radnsserver><ranodefault/>
+      <radomainsearchlist>home.example bad!name</radomainsearchlist></lan></dhcpdv6></opnsense>"""
+    out = isc_script.extract(xml)
+    assert "ramode" not in out["dhcpd"]["lan"]
+    assert out["dhcpdv6"]["lan"]["ranodefault"] is True
+    assert out["dhcpdv6"]["lan"]["radomainsearchlist"] == ["home.example"]
+    assert "ramode" not in out["dhcpdv6"]["lan"] and "S3CRET" not in json.dumps(out)
+
+
+async def test_adapter_reads_router_advertisements_and_dhcpv6(
+    http_url: str, monkeypatch: pytest.MonkeyPatch, key_cfg: dict[str, Any]
+) -> None:
+    fake = FakeSsh(says(json.dumps(isc_script.extract(SAMPLE_CONFIG))))
+    a = adapter(http_url, **key_cfg)
+    monkeypatch.setattr(a, "_ssh", lambda: fake)
+    snap = await a.observe()
+    await a.close()
+    assert fake.commands == [ISC_SCRIPT]  # one run for the DHCPv4 and the IPv6 settings
+    [ra] = snap.router_adverts
+    assert ra.id == "fw/ra/lan" and ra.mode is RaMode.STATEFUL and ra.managed and ra.other
+    assert [str(x) for x in ra.rdnss] == ["2001:db8::53"]
+    [server] = [s for s in snap.dhcp6_servers if s.id == "fw/dhcp6/isc-lan"]
+    assert server.mode is Dhcp6Mode.STATEFUL and server.lease_seconds == 7200
+    assert [(str(p.start), str(p.end)) for p in server.pools] == [
+        ("2001:db8::100", "2001:db8::1ff")
+    ]

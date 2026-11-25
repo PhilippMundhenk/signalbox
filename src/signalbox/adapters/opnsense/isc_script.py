@@ -83,10 +83,36 @@ MAP_FIELDS: dict[str, dict[str, Any]] = {
     "dhcpdv6": {"duid": _duid, "ipaddrv6": _address, "hostname": _host},
 }
 SECTIONS = ("dhcpd", "dhcpdv6")
+#: The router advertisement modes of ``<dhcpdv6><if><ramode>`` (Services: Router Advertisements).
+RA_MODES = frozenset({"disabled", "router", "unmanaged", "managed", "assist", "stateless_dhcp"})
 
 
 def _text(node: ET.Element, tag: str) -> list[str]:
     return [(c.text or "").strip() for c in node.findall(tag)]
+
+
+def _router_advertisement(node: ET.Element) -> dict[str, Any]:
+    """The router advertisement settings of an interface of ``<dhcpdv6>`` (#151): the mode, the
+    DNS servers and search list announced, and whether it announces no default route. Printed
+    only when set."""
+    out: dict[str, Any] = {}
+    mode = (_text(node, "ramode") or [""])[0].strip()
+    if mode in RA_MODES:
+        out["ramode"] = mode
+    dns = [a for a in (_address(t) for t in _text(node, "radnsserver")) if a is not None]
+    if dns:
+        out["radnsserver"] = dns
+    search = [
+        h
+        for t in _text(node, "radomainsearchlist")
+        for h in (_host(w) for w in t.split()[:8])
+        if h is not None
+    ]
+    if search:
+        out["radomainsearchlist"] = search
+    if node.find("ranodefault") is not None:
+        out["ranodefault"] = True
+    return out
 
 
 def _interface(section: str, node: ET.Element) -> dict[str, Any]:
@@ -102,6 +128,8 @@ def _interface(section: str, node: ET.Element) -> dict[str, Any]:
                 out[tag] = values[0]
         else:
             out[tag] = values
+    if section == "dhcpdv6":
+        out |= _router_advertisement(node)
     maps = []
     for entry in node.findall("staticmap"):
         row = {}

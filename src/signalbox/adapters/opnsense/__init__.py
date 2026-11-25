@@ -30,7 +30,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from ipaddress import IPv6Network, ip_address, ip_interface, ip_network
+from ipaddress import IPv6Address, IPv6Interface, IPv6Network, ip_address, ip_interface, ip_network
 from typing import Any
 from urllib.parse import quote, urlsplit
 
@@ -88,6 +88,9 @@ from signalbox.model import (
     Client,
     DeviceAccount,
     DeviceRole,
+    Dhcp6Mode,
+    Dhcp6PrefixPool,
+    Dhcp6Server,
     DhcpBoot,
     DhcpLease,
     DhcpOption,
@@ -114,8 +117,11 @@ from signalbox.model import (
     PortMedia,
     PortMembership,
     PortRole,
+    RaMode,
+    RaPrefix,
     Reservation,
     Route,
+    RouterAdvert,
     Segment,
     ServiceKind,
     SnmpSettings,
@@ -1031,6 +1037,7 @@ class OpnsenseAdapter(_Adapter):
         )
         self._cache: dict[str, Any] = {}
         self._layout_cache: _Layout | None = None
+        self._isc_cache: tuple[dict[str, Any], str] | None = None
         #: The release read from ``core/firmware/status`` (None: not read yet or unparsable).
         self._version: compat.Version | None = None
 
@@ -1059,6 +1066,7 @@ class OpnsenseAdapter(_Adapter):
         await self.http.reset()
         self._cache.clear()
         self._layout_cache = None
+        self._isc_cache = None
         data = _dict(await self._get(FIRMWARE), FIRMWARE, "the answer")
         product = _sub(data, "product") or data
         current = _text(product.get("product_version"))
@@ -1538,7 +1546,158 @@ class OpnsenseAdapter(_Adapter):
         # configured: ISC alone; both: each on its own interfaces).
         served = {s.segment_id for s in servers if s.enabled}
         servers += [s for s in await self._isc(layout) if s.segment_id not in served]
-        return Observation(dhcp_servers=servers, dhcp_relays=await self._relays(layout))
+        adverts, servers6 = await self._ipv6(layout)
+        return Observation(
+            dhcp_servers=servers,
+            dhcp_relays=await self._relays(layout),
+            router_adverts=adverts,
+            dhcp6_servers=servers6,
+        )
+
+    async def _ipv6(self, layout: _Layout) -> tuple[list[RouterAdvert], list[Dhcp6Server]]:
+        """Router advertisements, ISC DHCPv6 and Kea DHCPv6 (#151).
+
+        Router advertisements (Services: Router Advertisements) and ISC DHCPv6 have no API: they
+        come from the optional helper script (``dhcpdv6``: ``ramode``, ``radnsserver``,
+        ``radomainsearchlist``, ``ranodefault``, ``enable``, ``range``, ``dnsserver``, ``domain``,
+        ``defaultleasetime``). ``ramode``: ``disabled``, ``router`` and ``unmanaged`` (SLAAC),
+        ``managed`` (M and O, no A), ``assist`` (M, O and A), ``stateless_dhcp`` (O, A). Kea
+        DHCPv6 (OPNsense 24.7 and later *(guess: ``/api/kea/dhcpv6/get``, ``search_subnet``,
+        ``search_pd_pool`` and their field names)*) is read like Kea DHCPv4. The delegated prefix
+        of the WAN is ``Uplink.delegated_prefixes``.
+        """
+        dev = self.context.device_id
+        adverts: list[RouterAdvert] = []
+        servers: list[Dhcp6Server] = []
+        script, _ = await self._isc_script()
+        section = script.get("dhcpdv6")
+        for identifier, conf in sorted((section if isinstance(section, dict) else {}).items()):
+            iface = layout.by_identifier(identifier)
+            if iface is None or iface.segment is None or not isinstance(conf, dict):
+                continue
+            key = _segment_key(iface.segment)
+            ramode = _text(conf.get("ramode"))
+            mode = {
+                "disabled": RaMode.OFF,
+                "router": RaMode.SLAAC,
+                "unmanaged": RaMode.SLAAC,
+                "managed": RaMode.STATEFUL,
+                "assist": RaMode.STATEFUL,
+                "stateless_dhcp": RaMode.STATELESS,
+            }.get(ramode)
+            dns = [a for a in _addrs(conf.get("radnsserver")) if isinstance(a, IPv6Address)]
+            own_dns = [a for a in _addrs(conf.get("dnsserver")) if isinstance(a, IPv6Address)]
+            if mode is not None:
+                on = mode is not RaMode.OFF
+                # "managed": clients get addresses from DHCPv6 only, the A flag is off
+                prefixes = (
+                    [
+                        RaPrefix(prefix=a.network, autonomous=False)
+                        for a in iface.addresses
+                        if isinstance(a, IPv6Interface) and not a.ip.is_link_local
+                    ]
+                    if ramode == "managed"
+                    else []
+                )
+                adverts.append(
+                    RouterAdvert(
+                        id=object_id(dev, "ra", key),
+                        device_id=dev,
+                        segment_id=iface.segment,
+                        mode=mode,
+                        managed=mode is RaMode.STATEFUL if on else None,
+                        other=mode in (RaMode.STATEFUL, RaMode.STATELESS) if on else None,
+                        prefixes=prefixes,
+                        rdnss=dns,
+                        dnssl=[
+                            x for x in conf.get("radomainsearchlist") or [] if isinstance(x, str)
+                        ],
+                        router_lifetime=0 if conf.get("ranodefault") else None,
+                    )
+                )
+            if _flag(conf.get("enable")):
+                rng = conf.get("range")
+                pools = []
+                if isinstance(rng, dict):
+                    start, end = _addr(rng.get("from")), _addr(rng.get("to"))
+                    if start is not None and end is not None:
+                        pools.append(DhcpPool(start=start, end=end))
+                lease = _int(conf.get("defaultleasetime"))
+                servers.append(
+                    Dhcp6Server(
+                        id=object_id(dev, "dhcp6", f"isc-{identifier}"),
+                        device_id=dev,
+                        segment_id=iface.segment,
+                        enabled=True,
+                        mode=Dhcp6Mode.STATEFUL if pools else Dhcp6Mode.STATELESS,
+                        pools=pools,
+                        lease_seconds=lease if lease else 7200,
+                        dns_servers=own_dns,
+                        search_domains=[_text(conf.get("domain"))] if conf.get("domain") else [],
+                        vendor_extra={"server": "isc", "settings": "signalbox-isc-dhcp"},
+                    )
+                )
+        servers += await self._kea6(layout)
+        return adverts, servers
+
+    async def _kea6(self, layout: _Layout) -> list[Dhcp6Server]:
+        """Kea DHCPv6 subnets (``/api/kea/dhcpv6``); none when the plugin is not there."""
+        data = await self._optional("/api/kea/dhcpv6/get")
+        if data is None:
+            return []
+        root = _sub(_dict(data, "/api/kea/dhcpv6/get", "the answer"), "dhcpv6")
+        general = _sub(root, "general")
+        listen = set(_selected(general.get("interfaces")))
+        enabled = _flag(general.get("enabled"))
+        subnet_url, pd_url = "/api/kea/dhcpv6/search_subnet", "/api/kea/dhcpv6/search_pd_pool"
+        rows = _rows(await self._optional(subnet_url, grid=True), subnet_url)
+        pd_rows = _rows(await self._optional(pd_url, grid=True), pd_url)
+        out: list[Dhcp6Server] = []
+        for row in rows:
+            try:
+                net = ip_network(_text(row.get("subnet")), strict=False)
+            except ValueError:
+                continue
+            if not isinstance(net, IPv6Network):
+                continue
+            iface = layout.containing(net[1] if net.num_addresses > 1 else net[0])
+            if iface is None or iface.segment is None:
+                continue
+            uuid = _text(row.get("uuid"))
+            pools = [
+                p
+                for t in re.split(r"[\n,]+", _text(row.get("pools")))
+                if t.strip() and (p := _pool(t.strip()))
+            ]
+            prefix_pools = []
+            for pd in pd_rows:
+                if _text(pd.get("subnet")) not in (uuid, _text(row.get("subnet"))):
+                    continue
+                length = _int(pd.get("delegated_len"))
+                text = f"{_text(pd.get('prefix'))}/{_int(pd.get('prefix_len')) or 0}"
+                with contextlib.suppress(ValueError):
+                    if length:
+                        prefix_pools.append(
+                            Dhcp6PrefixPool(prefix=IPv6Network(text, strict=False), length=length)
+                        )
+            options = _nest(row).get("option_data")
+            dns = _addrs(options.get("dns_servers")) if isinstance(options, dict) else []
+            lifetime = _int(row.get("valid_lifetime")) or _int(general.get("valid_lifetime"))
+            out.append(
+                Dhcp6Server(
+                    id=object_id(self.context.device_id, "dhcp6", f"kea-{iface.identifier}"),
+                    device_id=self.context.device_id,
+                    segment_id=iface.segment,
+                    enabled=enabled and iface.identifier in listen,
+                    mode=Dhcp6Mode.STATEFUL if pools else Dhcp6Mode.STATELESS,
+                    pools=[p for p in pools if p.start.version == 6],
+                    prefix_pools=prefix_pools,
+                    lease_seconds=lifetime,
+                    dns_servers=[a for a in dns if isinstance(a, IPv6Address)],
+                    vendor_extra={"server": "kea", "subnet": str(net)},
+                )
+            )
+        return out
 
     async def _kea_leases(self, servers: list[DhcpServer]) -> list[DhcpServer]:
         """Kea leases (all states) onto the server whose subnet holds the address."""
@@ -1701,7 +1860,23 @@ class OpnsenseAdapter(_Adapter):
             private_key=cfg.isc_ssh_key.get_secret_value(),
         )
 
+    async def _isc_script(self) -> tuple[dict[str, Any], str]:
+        """The whole output of the helper script, once per observation; ``({}, why not)``."""
+        if self._isc_cache is None:
+            self._isc_cache = await self._run_isc_script()
+        return self._isc_cache
+
     async def _isc_settings(self) -> tuple[dict[str, Any], str]:
+        data, problem = await self._isc_script()
+        section = data.get("dhcpd")
+        settings = (
+            {k: v for k, v in section.items() if isinstance(v, dict)}
+            if isinstance(section, dict)
+            else {}
+        )
+        return settings, problem
+
+    async def _run_isc_script(self) -> tuple[dict[str, Any], str]:
         """Per-interface ISC settings from the helper script (#242), or ``({}, why not)``.
 
         Only with an SSH key and its host key configured. The script's output is untrusted
@@ -1724,7 +1899,7 @@ class OpnsenseAdapter(_Adapter):
         except (AdapterError, ValueError) as exc:
             log.warning("%s: ISC settings not read: %s", self.context.device_id, exc)
             return {}, f"the ISC settings could not be read over SSH: {exc}"[:300]
-        return {k: v for k, v in section.items() if isinstance(v, dict)}, ""
+        return data, ""
 
     async def _isc(self, layout: _Layout) -> list[DhcpServer]:
         try:
