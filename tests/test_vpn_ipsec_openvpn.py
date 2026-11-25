@@ -374,8 +374,8 @@ def wrt_cert(tmp_path_factory: pytest.TempPathFactory) -> TlsFiles:
 
 
 @pytest.fixture(scope="module")
-def wrt_url() -> Iterator[str]:
-    with serve(create_app(WRT)) as url:
+def wrt_url(wrt_cert: TlsFiles) -> Iterator[str]:
+    with serve(create_app(WRT), tls=wrt_cert) as url:
         yield url
 
 
@@ -386,7 +386,9 @@ def wrt() -> OpenWrtSim:
 
 
 @pytest.fixture
-async def wrt_adapter(wrt: OpenWrtSim, wrt_url: str) -> AsyncIterator[OpenWrtAdapter]:
+async def wrt_adapter(
+    wrt: OpenWrtSim, wrt_url: str, wrt_cert: TlsFiles
+) -> AsyncIterator[OpenWrtAdapter]:
     a = OpenWrtAdapter(
         AdapterContext(
             site_id="home",
@@ -394,6 +396,7 @@ async def wrt_adapter(wrt: OpenWrtSim, wrt_url: str) -> AsyncIterator[OpenWrtAda
             device_name="Gateway",
             role=DeviceRole.GATEWAY,
             config=OpenWrtConfig(url=f"{wrt_url}/ubus", password=SecretStr(WRT.password)),
+            pinned_fingerprint=wrt_cert.fingerprint,
         )
     )
     yield a
@@ -475,6 +478,6 @@ def test_openwrt_server_without_tls_crypt_and_unknown_role() -> None:
             "x": {".type": "other"},
         }
     }
-    s, odd = openwrt_openvpn.tunnels(uci, "gw")
+    odd, s = openwrt_openvpn.tunnels(uci, "gw")
     assert (odd.name, odd.enabled, odd.up, odd.role) == ("openvpn-odd_name_", False, False, None)
     assert (s.tls_auth, s.listen_port, str(s.tunnel_network)) == (False, 1195, "10.8.0.0/24")
