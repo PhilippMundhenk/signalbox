@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
-from factories import SITE, client, device, iface, service
+from factories import SITE, T0, client, device, iface, service, uplink
 from signalbox.model import (
     Device,
     DeviceRole,
@@ -19,11 +20,15 @@ from signalbox.model import (
 )
 from signalbox.rules import Finding, Rule, evaluate
 from signalbox.rules.upnp_checks import (
+    cgnat_useless,
     insecure_mode,
     management_port,
     many_mappings,
+    mapping_to_unknown,
     mapping_untrusted,
+    stale_mapping,
 )
+from signalbox.sightings import ClientHistory, History
 
 LAN = segment_id(SITE.id, None)
 IOT = segment_id(SITE.id, 20)
@@ -147,3 +152,98 @@ def test_more_than_the_limit_is_reported() -> None:
 def test_the_limit_itself_and_unread_gateways_are_quiet() -> None:
     assert not run(many_mappings, net(many(20)))
     assert not run(many_mappings, net(device("gw", DeviceRole.GATEWAY)))
+
+
+# upnp.mapping-to-unknown ---------------------------------------------------------------------
+
+
+def test_a_mapping_to_an_address_nobody_has_is_reported() -> None:
+    known = client("02:00:00:00:00:31", "192.0.2.50")
+    n = net(gw(mapping("192.0.2.99"), mapping("192.0.2.50", 80)), clients=[known])
+    (f,) = run(mapping_to_unknown, n)
+    assert f.message_id == "upnp.mappingToUnknown"
+    assert f.params["address"] == "192.0.2.99"
+
+
+def test_unknown_stays_quiet_for_known_addresses_without_clients_and_off() -> None:
+    known = client("02:00:00:00:00:31", "192.0.2.50")
+    assert not run(mapping_to_unknown, net(gw(mapping("192.0.2.50")), clients=[known]))
+    # the gateway's own address in a network, and no client list at all
+    assert not run(mapping_to_unknown, net(gw(mapping("192.0.2.1")), clients=[known]))
+    assert not run(mapping_to_unknown, net(gw(mapping("192.0.2.99"))))
+    off = service("gw", ServiceKind.UPNP, enabled=False)
+    n = net(gw(mapping("192.0.2.99")), clients=[known], services=[off])
+    assert not run(mapping_to_unknown, n)
+
+
+def test_a_management_address_counts_as_known() -> None:
+    known = client("02:00:00:00:00:31", "192.0.2.50")
+    ap = device("ap", DeviceRole.ACCESS_POINT, management_address="192.0.2.77")
+    assert not run(mapping_to_unknown, net(gw(mapping("192.0.2.77")), ap, clients=[known]))
+    named = device("nas", DeviceRole.ACCESS_POINT, management_address="nas.example.test")
+    assert run(mapping_to_unknown, net(gw(mapping("192.0.2.99")), named, clients=[known]))
+
+
+# upnp.cgnat-useless --------------------------------------------------------------------------
+
+
+def wan(*addresses: str, **kw: Any) -> Network:
+    n = net(gw())
+    up = uplink("gw", addresses=[iface(a) for a in addresses], **kw)
+    return n.model_copy(update={"uplinks": [up]})
+
+
+def test_upnp_behind_cgnat_or_another_router_is_reported() -> None:
+    (f,) = run(cgnat_useless, wan("100.64.0.23/10"))
+    assert f.message_id == "upnp.cgnatUseless"
+    (f,) = run(cgnat_useless, wan("10.1.2.3/24"))
+    assert f.message_id == "upnp.behindRouterUseless"
+
+
+def test_cgnat_useless_stays_quiet_where_it_may_work() -> None:
+    assert not run(cgnat_useless, wan("198.51.100.23/24"))
+    assert not run(cgnat_useless, net(gw()))  # no uplink known
+    assert not run(cgnat_useless, wan("100.64.0.23/10", up=False))
+    both = net(gw()).model_copy(
+        update={
+            "uplinks": [
+                uplink("gw", "a", addresses=[iface("100.64.0.23/10")]),
+                uplink("gw", "b", addresses=[iface("198.51.100.23/24")]),
+            ]
+        }
+    )
+    assert not run(cgnat_useless, both)
+    off = service("gw", ServiceKind.UPNP, enabled=False)
+    assert not run(cgnat_useless, wan("100.64.0.23/10").model_copy(update={"services": [off]}))
+    plain = wan("100.64.0.23/10").model_copy(update={"devices": [device("gw", DeviceRole.GATEWAY)]})
+    assert not run(cgnat_useless, plain)  # UPnP not reported at all
+
+
+# upnp.stale-mapping --------------------------------------------------------------------------
+
+
+def stale(
+    seen_days: int | None, *, past_days: int | None = None, now: bool = True
+) -> list[Finding]:
+    when = T0 - timedelta(days=seen_days) if seen_days is not None else None
+    c = client("02:00:00:00:00:41", "192.0.2.60", hostname="console", last_seen=when)
+    n = net(gw(mapping("192.0.2.60")), clients=[c])
+    hist = History(now=T0 if now else None)
+    if past_days is not None:
+        past = T0 - timedelta(days=past_days)
+        hist.clients[c.mac] = ClientHistory(mac=c.mac, first_seen=past, last_seen=past)
+    return [f for f in evaluate(n, [stale_mapping], history=hist) if f.rule_id == stale_mapping.id]
+
+
+def test_a_mapping_of_a_long_gone_device_is_reported() -> None:
+    (f,) = stale(30)
+    assert f.message_id == "upnp.staleMapping"
+    assert f.params["days"] == 30
+
+
+def test_recent_unknown_and_timeless_cases_are_quiet() -> None:
+    assert not stale(3)
+    assert not stale(None)
+    assert not stale(30, now=False)
+    assert not stale(30, past_days=1)  # the history saw it yesterday
+    assert not run(stale_mapping, net(gw(mapping("192.0.2.60"))))  # called without history

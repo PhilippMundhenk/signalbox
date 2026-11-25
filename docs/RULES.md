@@ -328,6 +328,9 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`upnp.management-port`](rules/upnp_checks.md#upnpmanagement-port)
 - [`upnp.insecure-mode`](rules/upnp_checks.md#upnpinsecure-mode)
 - [`upnp.many-mappings`](rules/upnp_checks.md#upnpmany-mappings)
+- [`upnp.mapping-to-unknown`](rules/upnp_checks.md#upnpmapping-to-unknown)
+- [`upnp.cgnat-useless`](rules/upnp_checks.md#upnpcgnat-useless)
+- [`upnp.stale-mapping`](rules/upnp_checks.md#upnpstale-mapping)
 
 ## [VLANs and links](rules/vlan.md)
 
@@ -623,6 +626,12 @@ where each came from. The defaults are the values the rules used before they had
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
 | `max_mappings` | `20` | count | Report a gateway that has more dynamic port mappings than this. |
+
+### `upnp.stale-mapping`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `stale_days` | `14` | d | Report a mapping whose device was not seen for more than this many days. |
 
 ### `vpn.handshake-stale`
 

@@ -47,3 +47,30 @@ address among the clients. Descriptions of mappings are never part of a finding.
   also counts the mappings without an end (lease 0), which programs forgot to remove.
 - **Fix:** review the list on the device page, remove what you do not know, and turn UPnP off if
   no device needs it.
+
+## `upnp.mapping-to-unknown`
+
+- **Severity:** info
+- **Checks:** a mapping leads to an address that no client and no device (their networks,
+  internet connections, management addresses) has. Quiet where no clients are read. A device that
+  is switched off may be missing from the client list, so this is information only.
+- **Fix:** remove the mapping if you do not know the device it was for.
+
+## `upnp.cgnat-useless`
+
+- **Severity:** info
+- **Checks:** UPnP is on at a gateway whose connected internet connections all have a
+  carrier-grade NAT address (100.64.0.0/10) or a private one (another router in front), so
+  opened ports cannot be reached from the internet. Quiet when one connection has a public
+  address, or none is known.
+- **Fix:** turn UPnP off; use a public IPv4 address, IPv6 or a VPN.
+
+## `upnp.stale-mapping`
+
+- **Severity:** info
+- **Parameter:** `stale_days` (d, default 14): report a mapping whose device was not seen for
+  longer than this (ADR 0027 scopes apply).
+- **Checks:** the client behind a mapping was last seen (client list or history, whichever is
+  newer) more than `stale_days` ago. Gateways report the time left of a lease, not when it
+  ended, so an expired lease cannot be told apart. Quiet without history or for unknown devices.
+- **Fix:** remove the mapping, or turn UPnP off if no device needs it.
