@@ -106,7 +106,11 @@ async def test_openwrt_enterprise_ssid_secret_never_leaves_the_adapter(
         device_id="ap1",
         device_name="AP 1",
         role=DeviceRole.AP,
-        config=OpenWrtConfig(url=f"{openwrt_url}/ubus", password=SecretStr(OpenWrtSim().password)),
+        config=OpenWrtConfig(
+            url=f"{openwrt_url}/ubus",
+            password=SecretStr(OpenWrtSim().password),
+            allow_insecure_http=True,
+        ),
     )
     adapter = OpenWrtAdapter(ctx)
     try:
