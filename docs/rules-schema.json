@@ -897,6 +897,53 @@
         }
       }
     },
+    "poe.budget-margin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/poe.budget-margin"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/poe.budget-margin"
+              }
+            }
+          }
+        }
+      }
+    },
     "poe.request-unmet": {
       "type": "object",
       "additionalProperties": false,
@@ -2071,6 +2118,22 @@
         }
       },
       "title": "poe.budget",
+      "type": "object"
+    },
+    "poe.budget-margin": {
+      "additionalProperties": false,
+      "properties": {
+        "reserved_pct": {
+          "default": 100,
+          "description": "Report a switch when the power it has reserved (allocated by class, whether drawn or not) reaches this share of its PoE budget.",
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Reserved Pct",
+          "type": "number",
+          "unit": "%"
+        }
+      },
+      "title": "poe.budget-margin",
       "type": "object"
     },
     "poe.request-unmet": {

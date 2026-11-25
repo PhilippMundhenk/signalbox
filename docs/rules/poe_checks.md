@@ -45,9 +45,33 @@ data is not checked.
   own power supply. Ports without a link are covered by the idle note of `poe.budget`.
 - **Fix:** turn PoE off on these ports (passive PoE can damage equipment).
 
+## `poe.budget-margin`
+
+- **Severity:** info
+- **Checks:** the power a switch has reserved (`Device.poe.reserved_w`: allocated by class,
+  drawn or not) reaches `reserved_pct` (default 100 %) of its PoE budget. Switches that allocate
+  by class refuse a new powered device then, although the real draw is low. Quiet where the
+  switch reports no reservation or no budget (no reader reports the reservation yet, so the rule
+  is ready for readers that do; the draw against the budget is `poe.budget`).
+- **Fix:** limit the power of ports whose devices need less than their class reserves, use
+  dynamic allocation where the switch has it, or add a PoE switch or injector.
+
+## `poe.passive-on-standard`
+
+- **Severity:** warning
+- **Checks:** a port whose PoE mode is passive (`passive-24v`, `passive-48v`) and whose
+  neighbour announces standard PoE (an 802.3 class or a power request in the LLDP power TLV). A
+  standard device does not run on passive 24 V, and passive PoE without detection can damage
+  equipment. Only readers that report the mode give data: UniFi (`pasv24`). MikroTik `poe-out`
+  (`auto-on`, `forced-on`, `off`) does not say passive or standard, so it is not mapped.
+- **Fix:** set the port to automatic PoE (802.3af/at/bt).
+
 ## Which switch port powers which device
 
 `signalbox.power.powered_by(net)` joins the PoE state of the ports with the cable links between
 managed devices: the far end of a link whose port delivers power is powered by that port. Wireless,
-VPN and inferred links are ignored. A PoE device on a port with PoE switched off is reported by
+VPN and inferred links are ignored. The API shows the result as `powered_by` on the powered
+device (`device_id` of the switch, `port_id`, `power_w`) and `powers` on the switch port (the
+device id); the device page shows "Powered by <switch> port <n>" and the switch's port list the
+reverse. A PoE device on a port with PoE switched off is reported by
 `poe.request-unmet` (from the device's LLDP power request).
