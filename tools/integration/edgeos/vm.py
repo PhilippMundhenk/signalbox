@@ -236,7 +236,8 @@ class Console:
         by quotes, so only the printed one matches) and the exit code."""
         marker = secrets.token_hex(4)
         start = self.pos
-        self.send(f'{command}; echo __D""ONE{marker}:${{PIPESTATUS[0]}}\r')
+        self.send(command + "\r")  # (own line: the command may end in a here-document)
+        self.send(f'echo __D""ONE{marker}:${{PIPESTATUS[0]}}\r')
         found = self.expect([rf"^__DONE{marker}:(\d+)$"], timeout, command)
         assert found is not None
         with self.lock:
