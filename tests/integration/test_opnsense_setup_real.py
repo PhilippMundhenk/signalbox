@@ -218,9 +218,7 @@ async def test_accounts_extra_confirms_the_user_manager_privilege(fw: Target, cl
     check(plain, await root_answers(fw))
     snap = await read_with(fw, plain)
     assert snap.device.accounts is None, snap.device.accounts
-    # the IPsec and OpenVPN reads (#153) are optional and need privileges the setup does not give
-    gaps = [e.message_id for e in snap.errors if e.capability != "vpn"]
-    assert gaps == ["opnsense.accounts"], snap.errors
+    assert [e.message_id for e in snap.errors] == ["opnsense.accounts"], snap.errors
 
     result = await OpnsenseAdapter.apply_setup(request(fw, fw.pin, extras=["accounts"]))
     check(result, await root_answers(fw))

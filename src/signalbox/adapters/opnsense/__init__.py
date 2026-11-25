@@ -2663,43 +2663,50 @@ class OpnsenseAdapter(_Adapter):
             overview = []
         interfaces = {_text(r.get("device")): r for r in overview if _text(r.get("device"))}
         tunnels = wireguard_tunnels(rows, self.context.device_id, interfaces)
-        more, gaps = await self._ipsec_openvpn()
+        more, gaps = await self._ipsec_openvpn(interfaces)
         return Observation(tunnels=[*tunnels, *more], incomplete=gaps)
 
     async def _vpn_rows(
-        self, endpoint: str, what: str, privilege: str, gaps: list[Gap]
+        self, endpoint: str, what: str, privilege: str, gaps: list[Gap], report: bool = True
     ) -> list[dict[str, Any]] | None:
         """Rows of a VPN grid (#153); None: not there (404, not installed or an old release) or
-        refused (403: an optional gap naming the privilege)."""
+        refused (403: an optional gap naming the privilege, where *report* says the VPN is
+        in use: the setup's read user has no VPN privilege, which is no reason for a gap on
+        every firewall)."""
         try:
             data = await self._optional(endpoint, grid=True)
         except AdapterError as exc:
-            gaps.append(_privilege_gap(what, exc, privilege))
+            if report:
+                gaps.append(_privilege_gap(what, exc, privilege))
             return None
         return None if data is None else _rows(data, endpoint)
 
-    async def _ipsec_openvpn(self) -> tuple[list[Tunnel], list[Gap]]:
+    async def _ipsec_openvpn(
+        self, interfaces: dict[str, dict[str, Any]]
+    ) -> tuple[list[Tunnel], list[Gap]]:
         """IPsec connections with their child SAs and OpenVPN instances with their sessions
         (#153), see :mod:`vpn`. Pre-shared keys, static keys and certificates are not asked for."""
         d = self.context.device_id
         gaps: list[Gap] = []
         now = datetime.now(UTC)
         out: list[Tunnel] = []
+        # IPsec leaves no trace in the interface list (``enc0`` is always there): a refused
+        # read is not reported. OpenVPN instances that run show as ``ovpns1`` / ``ovpnc1``.
         connections = await self._vpn_rows(
-            vpn_reader.CONNECTIONS, "IPsec connections", vpn_reader.IPSEC_PRIVILEGE, gaps
+            vpn_reader.CONNECTIONS, "IPsec connections", vpn_reader.IPSEC_PRIVILEGE, gaps, False
         )
         if connections is not None:
             children = await self._vpn_rows(
-                vpn_reader.CHILDREN, "IPsec child SAs", vpn_reader.IPSEC_PRIVILEGE, gaps
+                vpn_reader.CHILDREN, "IPsec child SAs", vpn_reader.IPSEC_PRIVILEGE, gaps, False
             )
             locals_ = await self._vpn_rows(
-                vpn_reader.LOCALS, "IPsec authentication", vpn_reader.IPSEC_PRIVILEGE, gaps
+                vpn_reader.LOCALS, "IPsec authentication", vpn_reader.IPSEC_PRIVILEGE, gaps, False
             )
             phase1 = await self._vpn_rows(
-                vpn_reader.PHASE1, "IPsec status", vpn_reader.IPSEC_PRIVILEGE, gaps
+                vpn_reader.PHASE1, "IPsec status", vpn_reader.IPSEC_PRIVILEGE, gaps, False
             )
             phase2 = await self._vpn_rows(
-                vpn_reader.PHASE2, "IPsec status", vpn_reader.IPSEC_PRIVILEGE, gaps
+                vpn_reader.PHASE2, "IPsec status", vpn_reader.IPSEC_PRIVILEGE, gaps, False
             )
             out += vpn_reader.ipsec_tunnels(
                 d,
@@ -2710,12 +2717,21 @@ class OpnsenseAdapter(_Adapter):
                 phase2 if phase1 is not None else None,
                 now,
             )
+        running = any(d.startswith(("ovpns", "ovpnc")) for d in interfaces)
         instances = await self._vpn_rows(
-            vpn_reader.OVPN_INSTANCES, "OpenVPN instances", vpn_reader.OPENVPN_PRIVILEGE, gaps
+            vpn_reader.OVPN_INSTANCES,
+            "OpenVPN instances",
+            vpn_reader.OPENVPN_PRIVILEGE,
+            gaps,
+            running,
         )
         if instances is not None:
             sessions = await self._vpn_rows(
-                vpn_reader.OVPN_SESSIONS, "OpenVPN sessions", vpn_reader.OPENVPN_PRIVILEGE, gaps
+                vpn_reader.OVPN_SESSIONS,
+                "OpenVPN sessions",
+                vpn_reader.OPENVPN_PRIVILEGE,
+                gaps,
+                running,
             )
             out += vpn_reader.openvpn_tunnels(d, instances, sessions, now)
         return out, list({g.message: g for g in gaps}.values())

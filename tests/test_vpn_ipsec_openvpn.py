@@ -172,15 +172,29 @@ async def test_opnsense_without_the_vpn_api(opn_url: str, opn: OpnsenseSimulator
 
 
 async def test_opnsense_privilege_gap_is_optional(opn_url: str, opn: OpnsenseSimulator) -> None:
+    from signalbox.sim.opnsense import INTERFACES
+
+    opn.data[INTERFACES]["rows"].append({"device": "ovpns1", "status": "up", "ipv4": []})
     opn.fail["/api/ipsec/connections/search_connection"] = 403
     opn.fail["/api/openvpn/service/search_sessions"] = 403
     snap = await opn_observe(opn_url)
     gaps = [e for e in snap.errors if e.capability == "vpn"]
-    assert len(gaps) == 2 and all(g.optional for g in gaps)
+    assert [g.params["what"] for g in gaps] == ["OpenVPN sessions"] and gaps[0].optional
     kinds = {t.kind for t in snap.tunnels}
     assert TunnelKind.IPSEC not in kinds and TunnelKind.OPENVPN in kinds
     openvpn = by_name(snap)["to-provider"]
     assert openvpn.up is None  # sessions not readable: unknown, not down
+
+
+async def test_opnsense_refused_vpn_without_a_trace_is_no_gap(
+    opn_url: str, opn: OpnsenseSimulator
+) -> None:
+    """The user of the automatic setup has no VPN privilege: that is no gap on every firewall."""
+    opn.fail["/api/ipsec/connections/search_connection"] = 403
+    opn.fail["/api/openvpn/instances/search"] = 403
+    snap = await opn_observe(opn_url)
+    assert [t.kind for t in snap.tunnels] == [TunnelKind.WIREGUARD]
+    assert not [e for e in snap.errors if e.capability == "vpn"]
 
 
 async def test_opnsense_sessions_unreadable_leave_the_state_unknown(

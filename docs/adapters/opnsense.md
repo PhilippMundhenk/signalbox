@@ -279,7 +279,9 @@ both configuration grids.
 ## IPsec and OpenVPN (#153)
 
 Read with the same `vpn` capability, read only; each kind that is not installed (404) is
-skipped, a refused one (403) is an optional gap naming the privilege. Covered: 24.7, 25.1,
+skipped. A refused one (403) is an optional gap naming the privilege only for OpenVPN that
+runs (an `ovpns*`/`ovpnc*` interface exists); IPsec leaves no trace, and the user of the
+automatic setup has no VPN privilege, so a refusal there stays silent. Covered: 24.7, 25.1,
 25.7 and 26.1 (swanctl "Connections" and OpenVPN "Instances"; both spellings of the actions
 are tried). The legacy IPsec tunnels and the legacy OpenVPN pages of releases before 23.7 have
 no API and are not read. The column names are a *guess* from the public models (#21).
