@@ -4,7 +4,7 @@
 Runs on a GitHub Actions runner (Docker), never in the development sandbox. Standard library
 only.
 
-    controller.py start DIR VER  pull the pinned image of the version (6.3, 5.15, 5.14 or 5.12), start
+    controller.py start DIR VER  pull the pinned image (6.3, 5.15, 5.14 or 5.12), start
                                the controller, wait for /api/info
     controller.py setup DIR    the first-start wizard, two Open API applications (viewer and
                                administrator) and the test site's networks, SSIDs and profile;
