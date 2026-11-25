@@ -720,6 +720,68 @@ class StpPort(Model):
     loop_protect: bool | None = None
 
 
+class UnknownMulticast(StrEnum):
+    """What a bridge does with multicast frames nobody joined (#161)."""
+
+    FLOOD = "flood"
+    DROP = "drop"
+
+
+class MulticastSettings(Model):
+    """IGMP and MLD snooping and querier of one bridge of a device (#161, ADR 0028).
+
+    ``None``: not reported. ``segment_id`` is the network the bridge carries when the device
+    says (a bridge with VLAN filtering has one entry per VLAN where the device reports it).
+    """
+
+    #: Name of the bridge on the device.
+    name: str
+    segment_id: str | None = None
+    igmp_snooping: bool | None = None
+    mld_snooping: bool | None = None
+    #: This device sends the membership queries (it is the querier it is configured to be).
+    querier: bool | None = None
+    #: IGMP version (1-3) the querier uses.
+    querier_version: Annotated[int, Field(ge=1, le=3)] | None = None
+    #: The address of the querier the device sees on the segment (its own when it is one).
+    observed_querier: IPAddress | None = None
+    fast_leave: bool | None = None
+    unknown_multicast: UnknownMulticast | None = None
+
+
+class ReflectorKind(StrEnum):
+    MDNS = "mdns"
+    SSDP = "ssdp"
+    IGMP_PROXY = "igmp-proxy"
+    UDP_BROADCAST_RELAY = "udp-broadcast-relay"
+
+
+class ServiceReflector(Model):
+    """A service that carries multicast discovery or streams between networks (#161): an mDNS
+    repeater, an SSDP or UDP broadcast relay, an IGMP proxy. Only its settings are read, never
+    the names of the services it carries."""
+
+    kind: ReflectorKind
+    enabled: bool = True
+    #: The networks it reflects between (segment ids); empty when the device names interfaces
+    #: Signalbox cannot map to a network.
+    segments: list[str] = Field(default_factory=list)
+    #: The interfaces as the device names them (``br-lan``, ``vlan20``).
+    interfaces: list[str] = Field(default_factory=list)
+    #: IGMP proxy: the interface the streams come from (the device's name for it) and the
+    #: network of it where it is one of the site's.
+    upstream_interface: str | None = None
+    upstream_segment_id: str | None = None
+
+
+class DeviceMulticast(Model):
+    """Multicast of one device (#161): snooping per bridge and the reflectors. ``[]``: read,
+    none."""
+
+    settings: list[MulticastSettings] = Field(default_factory=list)
+    reflectors: list[ServiceReflector] = Field(default_factory=list)
+
+
 class Device(Observed):
     site_id: str
     name: str
@@ -802,6 +864,9 @@ class Device(Observed):
     #: Spanning tree per bridge (#155, ADR 0023), read with ``interfaces``
     #: (``Observation.stp_bridges``). ``None``: not read; ``[]``: read, no bridge.
     stp_bridges: list[StpBridge] | None = None
+    #: Multicast snooping, querier and reflectors (#161, ADR 0028), read with ``interfaces``
+    #: (``Observation.multicast``). ``None``: not read.
+    multicast: DeviceMulticast | None = None
     #: PoE budget of a switch (#159), read with ``interfaces`` (``Observation.poe``).
     #: ``None``: not reported.
     poe: PoeSupply | None = None

@@ -666,7 +666,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -679,7 +679,8 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "/sys/devices/*/net/*/brforward": ["read"],
         "/sys/devices/*/net/*/bridge/*": ["read"],
         "/sys/devices/*/net/*/brport/*": ["read"],
-        "/var/run/ddns/*": ["read"]
+        "/var/run/ddns/*": ["read"],
+        "/etc/avahi/avahi-daemon.conf": ["read"]
       }
     }
   }
@@ -786,7 +787,7 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -799,7 +800,8 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "/sys/devices/*/net/*/brforward": ["read"],
         "/sys/devices/*/net/*/bridge/*": ["read"],
         "/sys/devices/*/net/*/brport/*": ["read"],
-        "/var/run/ddns/*": ["read"]
+        "/var/run/ddns/*": ["read"],
+        "/etc/avahi/avahi-daemon.conf": ["read"]
       }
     },
     "write": {
@@ -1068,3 +1070,23 @@ point above.
 data model (BBF `Device.WiFi.DataElements`) is reached through the Ambiorix bus with object names
 that are not documented for OpenWrt releases. Nothing is read until a stable, documented ubus or
 UCI interface exists (#475).
+
+## Multicast: bridge snooping, `igmpproxy`, Avahi reflector *(optional parts)* (interfaces, #161)
+
+- **Snooping and querier** per bridge (and per VLAN of a filtering bridge): the kernel's running
+  values through `file read` of `/sys/class/net/<bridge>/bridge/multicast_snooping`,
+  `multicast_querier`, `multicast_igmp_version`, `multicast_mld_version` and, per member,
+  `/sys/class/net/<port>/brport/multicast_fast_leave` and `multicast_flood` (both inside the ACL
+  entries the spanning tree already needs). Where a file cannot be read, the UCI `device` section
+  of the bridge (`igmp_snooping`, `multicast_querier`, `igmp_version`) is used; netifd's defaults
+  are not assumed, so an option that is not set stays unknown.
+- **IGMP proxy**: `uci get igmpproxy`, one `phyint` section per interface with `network` and
+  `direction` (`upstream`, `downstream`, `disabled`); package `igmpproxy` (optional).
+- **mDNS reflector**: `[reflector] enable-reflector=yes` and `[server] allow-interfaces` of
+  `/etc/avahi/avahi-daemon.conf` through `file read`; package `avahi-dbus-daemon` or similar
+  (optional, no file: nothing to report). `umdns` answers for the router and does not reflect.
+- ACL additions: UCI config `igmpproxy` and the file `/etc/avahi/avahi-daemon.conf`; an older ACL
+  keeps the rest and reports an optional gap naming them.
+
+*(Guess, #21: the option names of the UCI sections and the Avahi paths are from the package
+documentation, not yet seen on a device.)* Covered: OpenWrt 23.05, 24.10 and 25.12.

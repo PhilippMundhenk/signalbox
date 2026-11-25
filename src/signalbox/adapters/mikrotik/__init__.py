@@ -72,6 +72,7 @@ from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import capsman, hotspot, multiwan, wifi_assoc
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
+from signalbox.adapters.mikrotik import multicast as _multicast
 from signalbox.adapters.mikrotik import poe as mikrotik_poe
 from signalbox.adapters.mikrotik import routes as route_reader
 from signalbox.adapters.mikrotik import stp as _stp
@@ -104,6 +105,7 @@ from signalbox.model import (
     Device,
     DeviceAccount,
     DeviceHealth,
+    DeviceMulticast,
     DeviceRole,
     DeviceTime,
     Dhcp6Mode,
@@ -1585,6 +1587,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         assert isinstance(cfg, MikrotikConfig)
         default = is_factory_default("mikrotik", cfg.password.get_secret_value(), cfg.username)
         bridges, port_stp, stp_gaps = await self._stp(layout)
+        multicast, multicast_gaps = await self._multicast(layout)
         port_poe, poe_gaps = await self._poe()
         ports = [
             p.model_copy(update={"stp": port_stp[n]} if n in port_stp else {}).model_copy(
@@ -1631,9 +1634,10 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             log_targets={} if targets is None else {dev: targets},
             accounts={} if accounts is None else {dev: accounts},
             stp_bridges={dev: bridges},
+            multicast={dev: multicast},
             default_credentials={dev: default},
             signalbox_privilege={} if privilege is None else {dev: privilege},
-            incomplete=gaps + account_gaps + stp_gaps + poe_gaps,
+            incomplete=gaps + account_gaps + stp_gaps + poe_gaps + multicast_gaps,
         )
 
     async def _portals(self, layout: _Layout) -> list[CaptivePortal]:
@@ -1694,6 +1698,39 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     params={"cause": str(refused)},
                 )
             )
+        return out, gaps
+
+    async def _multicast(self, layout: _Layout) -> tuple[DeviceMulticast, list[Gap]]:
+        """Snooping and querier per bridge, the mDNS repeater (RouterOS 7.16 and later) and the
+        IGMP proxy (#161). A menu the user may not read is an optional gap; the bridges are
+        read with the layout and never missing."""
+        rows = [r for r in await self._rows(BRIDGE) if _active(r)]
+        port_rows = await self._rows(BRIDGE_PORT)
+        out = DeviceMulticast()
+        for row in rows:
+            name = _text(row.get("name"))
+            members = [r for r in port_rows if _text(r.get("bridge")) == name and _active(r)]
+            out.settings.append(_multicast.settings(row, members, layout.l3.get(name)))
+        gaps: list[Gap] = []
+        try:
+            dns = _object(await self._get(DNS), DNS)
+            if (mdns := _multicast.mdns_repeater(dns, layout.l3)) is not None:
+                out.reflectors.append(mdns)
+        except AdapterError:
+            pass  # DNS has its own gap in its capability
+        proxy = await self._readable(_multicast.IGMP_PROXY_INTERFACE)
+        if proxy is None:
+            gaps.append(
+                Gap(
+                    message="IGMP proxy settings: not readable with this login",
+                    fix="Give Signalbox's group on the router the policies of the setup guide.",
+                    optional=True,
+                    message_id="mikrotik.igmpProxy",
+                    fix_id="mikrotik.igmpProxy.fix",
+                )
+            )
+        elif (igmp := _multicast.igmp_proxy(proxy, layout.l3)) is not None:
+            out.reflectors.append(igmp)
         return out, gaps
 
     async def _stp(self, layout: _Layout) -> tuple[list[StpBridge], dict[str, StpPort], list[Gap]]:

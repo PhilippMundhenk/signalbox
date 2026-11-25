@@ -43,6 +43,7 @@ from signalbox.model import (
     Device,
     DeviceAccount,
     DeviceHealth,
+    DeviceMulticast,
     DeviceRole,
     DeviceStatus,
     DeviceTime,
@@ -748,6 +749,9 @@ class Observation(BaseModel):
     #: per-port state goes into ``Port.poe``. Leave a device out when it has no PoE or does not
     #: say.
     poe: dict[str, PoeSupply] = Field(default_factory=dict)
+    #: Multicast snooping, querier and reflectors per device id (#161, ADR 0028), read with
+    #: ``interfaces``; no API version needed. Leave a device out when it could not be read.
+    multicast: dict[str, DeviceMulticast] = Field(default_factory=dict)
     #: Mesh membership per device id (#171): the observed device or one of ``devices``. Leave a
     #: device out when it is not known to be part of a mesh.
     mesh: dict[str, MeshMembership] = Field(default_factory=dict)
@@ -1035,6 +1039,7 @@ class Adapter(ABC):
         accounts: dict[str, list[DeviceAccount]] = {}
         stp: dict[str, list[StpBridge]] = {}
         poe: dict[str, PoeSupply] = {}
+        multicast: dict[str, DeviceMulticast] = {}
         defaults: dict[str, bool] = {}
         privileges: dict[str, AccountPrivilege] = {}
         meshes: dict[str, MeshMembership] = {}
@@ -1088,6 +1093,7 @@ class Adapter(ABC):
                 for key, bridges in result.stp_bridges.items():
                     stp.setdefault(key, []).extend(bridges)
                 poe.update(result.poe)
+                multicast.update(result.multicast)
                 for key, flag in result.default_credentials.items():
                     defaults[key] = defaults.get(key, False) or flag
                 privileges.update(result.signalbox_privilege)
@@ -1113,6 +1119,7 @@ class Adapter(ABC):
             accounts=accounts.get(ctx.device_id),
             stp_bridges=stp.get(ctx.device_id),
             poe=poe.get(ctx.device_id),
+            multicast=multicast.get(ctx.device_id),
             default_credentials=defaults.get(ctx.device_id),
             signalbox_account_privilege=privileges.get(ctx.device_id),
             signalbox_account_needed=self.manifest.least_privilege,
@@ -1128,6 +1135,7 @@ class Adapter(ABC):
             "accounts",
             "stp_bridges",
             "poe",
+            "multicast",
             "default_credentials",
             "signalbox_privilege",
             "incomplete",
@@ -1154,6 +1162,7 @@ class Adapter(ABC):
                             "accounts": accounts.get(d.id, d.accounts),
                             "stp_bridges": stp.get(d.id, d.stp_bridges),
                             "poe": poe.get(d.id, d.poe),
+                            "multicast": multicast.get(d.id, d.multicast),
                             "default_credentials": defaults.get(d.id, d.default_credentials),
                             "signalbox_account_privilege": privileges.get(
                                 d.id, d.signalbox_account_privilege

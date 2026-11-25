@@ -144,6 +144,8 @@ def _port(interface: str, pvid: str = "1", frame_types: str = "admit-all") -> di
         "pvid": pvid,
         "frame-types": frame_types,
         "ingress-filtering": "true",
+        "fast-leave": "false",
+        "unknown-multicast-flood": "true",
         "disabled": "false",
         "dynamic": "false",
         "inactive": "false",
@@ -418,6 +420,10 @@ def sample_data() -> dict[str, Any]:
                 "frame-types": "admit-all",
                 "protocol-mode": "rstp",
                 "priority": "0x8000",
+                "igmp-snooping": "true",
+                "multicast-querier": "true",
+                "igmp-version": "2",
+                "mld-version": "1",
                 "mac-address": bridge_mac,
                 "disabled": "false",
             }
@@ -1087,6 +1093,7 @@ def sample_data() -> dict[str, Any]:
             "allow-remote-requests": "true",
             "cache-size": "2048",
             "cache-max-ttl": "1w",
+            "mdns-repeat-ifaces": "bridge,iot",
         },
         "/rest/ip/dns/static": _ids(
             {

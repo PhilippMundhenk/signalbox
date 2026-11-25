@@ -1247,6 +1247,17 @@
           "default": null,
           "title": "Model"
         },
+        "multicast": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceMulticast"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "name": {
           "title": "Name",
           "type": "string"
@@ -1682,6 +1693,28 @@
         }
       },
       "title": "DeviceHealth",
+      "type": "object"
+    },
+    "DeviceMulticast": {
+      "additionalProperties": false,
+      "description": "Multicast of one device (#161): snooping per bridge and the reflectors. ``[]``: read,\nnone.",
+      "properties": {
+        "reflectors": {
+          "items": {
+            "$ref": "#/$defs/ServiceReflector"
+          },
+          "title": "Reflectors",
+          "type": "array"
+        },
+        "settings": {
+          "items": {
+            "$ref": "#/$defs/MulticastSettings"
+          },
+          "title": "Settings",
+          "type": "array"
+        }
+      },
+      "title": "DeviceMulticast",
       "type": "object"
     },
     "DeviceRole": {
@@ -5114,6 +5147,123 @@
       "title": "Monitor",
       "type": "object"
     },
+    "MulticastSettings": {
+      "additionalProperties": false,
+      "description": "IGMP and MLD snooping and querier of one bridge of a device (#161, ADR 0028).\n\n``None``: not reported. ``segment_id`` is the network the bridge carries when the device\nsays (a bridge with VLAN filtering has one entry per VLAN where the device reports it).",
+      "properties": {
+        "fast_leave": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fast Leave"
+        },
+        "igmp_snooping": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Igmp Snooping"
+        },
+        "mld_snooping": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mld Snooping"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "observed_querier": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed Querier"
+        },
+        "querier": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Querier"
+        },
+        "querier_version": {
+          "anyOf": [
+            {
+              "maximum": 3,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Querier Version"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Id"
+        },
+        "unknown_multicast": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnknownMulticast"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "MulticastSettings",
+      "type": "object"
+    },
     "NatRule": {
       "additionalProperties": false,
       "description": "Source NAT: traffic leaving through ``zones`` gets the device's address (masquerade) or\n``to_address``. OpenWrt zone ``masq`` is :attr:`FirewallZone.masquerade` instead.",
@@ -7652,6 +7802,16 @@
       "title": "RebootReason",
       "type": "string"
     },
+    "ReflectorKind": {
+      "enum": [
+        "mdns",
+        "ssdp",
+        "igmp-proxy",
+        "udp-broadcast-relay"
+      ],
+      "title": "ReflectorKind",
+      "type": "string"
+    },
     "Reservation": {
       "additionalProperties": false,
       "properties": {
@@ -8650,6 +8810,63 @@
       ],
       "title": "ServiceKind",
       "type": "string"
+    },
+    "ServiceReflector": {
+      "additionalProperties": false,
+      "description": "A service that carries multicast discovery or streams between networks (#161): an mDNS\nrepeater, an SSDP or UDP broadcast relay, an IGMP proxy. Only its settings are read, never\nthe names of the services it carries.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "interfaces": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Interfaces",
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ReflectorKind"
+        },
+        "segments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "upstream_interface": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Upstream Interface"
+        },
+        "upstream_segment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Upstream Segment Id"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ServiceReflector",
+      "type": "object"
     },
     "ServiceTransport": {
       "enum": [
@@ -9839,6 +10056,15 @@
       ],
       "title": "TunnelPeer",
       "type": "object"
+    },
+    "UnknownMulticast": {
+      "description": "What a bridge does with multicast frames nobody joined (#161).",
+      "enum": [
+        "flood",
+        "drop"
+      ],
+      "title": "UnknownMulticast",
+      "type": "string"
     },
     "Uplink": {
       "additionalProperties": false,

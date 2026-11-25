@@ -31,6 +31,7 @@ from signalbox.model import (
     Device,
     DeviceAccount,
     DeviceHealth,
+    DeviceMulticast,
     DeviceStatus,
     DeviceTime,
     DhcpRelay,
@@ -442,6 +443,22 @@ def stp_problems(device_id: str, bridges: list[StpBridge], ports: dict[str, Port
     return out
 
 
+def multicast_problems(device_id: str, multicast: DeviceMulticast, segments: set[str]) -> list[str]:
+    """Multicast (#161): networks named by a bridge or reflector exist, one reflector per kind."""
+    out: list[str] = []
+    for m in multicast.settings:
+        if m.segment_id is not None and m.segment_id not in segments:
+            out.append(f"{device_id}: multicast of {m.name} names unknown segment {m.segment_id}")
+    kinds = [r.kind for r in multicast.reflectors]
+    for kind in sorted({k for k in kinds if kinds.count(k) > 1}, key=str):
+        out.append(f"{device_id}: reflector {kind.value} listed twice")
+    for r in multicast.reflectors:
+        for sid in [*r.segments, *([r.upstream_segment_id] if r.upstream_segment_id else [])]:
+            if sid not in segments:
+                out.append(f"{device_id}: reflector {r.kind.value} names unknown segment {sid}")
+    return out
+
+
 def credential_problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
     """No configured secret and no password hash anywhere in the snapshot (#175): only the
     booleans derived from them may leave the integration."""
@@ -716,6 +733,10 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             if Capability.INTERFACES.value not in caps:
                 out.append(f"stp_bridges reported without declaring {Capability.INTERFACES.value}")
             out += stp_problems(d.id, d.stp_bridges, {p.id: p for p in snapshot.ports})
+        if d.multicast is not None:
+            if Capability.INTERFACES.value not in caps:
+                out.append(f"multicast reported without declaring {Capability.INTERFACES.value}")
+            out += multicast_problems(d.id, d.multicast, {s.id for s in snapshot.segments})
         if d.health is not None:
             out += health_problems(d.id, d.health)
         if d.time is not None:

@@ -71,6 +71,7 @@ from signalbox.adapters.openwrt import (
     wireguard,
 )
 from signalbox.adapters.openwrt import discovery as _discovery
+from signalbox.adapters.openwrt import multicast as _multicast
 from signalbox.adapters.openwrt import poe as _poe
 from signalbox.adapters.openwrt import radio as radio_state
 from signalbox.adapters.openwrt import stp as _stp
@@ -101,6 +102,7 @@ from signalbox.model import (
     Client,
     ConfigState,
     DeviceAccount,
+    DeviceMulticast,
     DeviceRole,
     Dhcp6Mode,
     Dhcp6Server,
@@ -1136,6 +1138,7 @@ class OpenWrtAdapter(Adapter):
             return ports[name].id
 
         bridges, stp_gaps = await self._stp(view, status, ports)
+        multicast, multicast_gaps = await self._multicast(view, status)
         supply = await self._poe(ports)
 
         names = view.segment_names()
@@ -1175,7 +1178,7 @@ class OpenWrtAdapter(Adapter):
             for n, addr in enumerate(view.addresses(name))
         ]
         uplinks = self._uplinks(view, ports) if router else []
-        gaps: list[Gap] = ([gap] if gap else []) + stp_gaps
+        gaps: list[Gap] = ([gap] if gap else []) + stp_gaps + multicast_gaps
         wan_groups: list[GatewayGroup] = []
         ddns_list: list[DynamicDns] = []
         portal_list = await self._portals(view)
@@ -1256,6 +1259,7 @@ class OpenWrtAdapter(Adapter):
             log_targets={} if targets is None else {d: targets},
             accounts={} if users is None else {d: users},
             stp_bridges={d: bridges},
+            multicast={d: multicast},
             poe={d: supply} if supply else {},
             default_credentials={d: await self._default_credentials()},
             signalbox_privilege={} if own is None else {d: own.privilege},
@@ -1274,6 +1278,79 @@ class OpenWrtAdapter(Adapter):
             if name in ports:
                 ports[name] = ports[name].model_copy(update={"poe": state})
         return supply
+
+    async def _multicast(
+        self, view: NetworkView, status: dict[str, Any]
+    ) -> tuple[DeviceMulticast, list[Gap]]:
+        """Snooping and querier per bridge (and VLAN), the IGMP proxy and the Avahi reflector
+        (#161). Kernel values come from sysfs where the ACL allows (UCI otherwise); the two
+        optional packages are read when installed, an ACL without them is an optional gap."""
+
+        def segment_of(name: str) -> str | None:
+            vid = view.vlan_of_device(name)
+            if vid is None:
+                vid = view.vlan_of_interface(name)
+            return None if vid is None else self._seg(vid)
+
+        out = DeviceMulticast()
+        denied: list[str] = []
+        fix: AccessDenied | None = None
+        for _, section in _sections(view.uci, "device"):
+            name = section.get("name")
+            if section.get("type") != "bridge" or not isinstance(name, str) or not name:
+                continue
+            files: dict[str, str] = {}
+            for leaf in _multicast.BRIDGE_FILES:
+                if (value := await self._sysfs(f"/sys/class/net/{name}/bridge/{leaf}")) is not None:
+                    files[leaf] = value
+            members: list[dict[str, str]] = []
+            st = status.get(name)
+            names = st.get("bridge-members") if isinstance(st, dict) else None
+            for m in names if isinstance(names, list) else []:
+                values: dict[str, str] = {}
+                for leaf in _multicast.PORT_FILES:
+                    path = f"/sys/class/net/{m}/brport/{leaf}"
+                    if isinstance(m, str) and (value := await self._sysfs(path)) is not None:
+                        values[leaf] = value
+                members.append(values)
+            vids: list[int | None] = [*sorted(view.vlans.get(name, {}))] or [None]
+            for vid in vids:
+                vlan = _NATIVE if vid is None and name in view.bridges else vid
+                segment = None if vlan is None else self._seg(vlan)
+                out.settings.append(_multicast.settings(name, section, files, members, segment))
+        try:
+            uci = await self._uci("igmpproxy")
+            proxy = _multicast.igmpproxy([s for _, s in _sections(uci, "phyint")], segment_of)
+            if proxy is not None:
+                out.reflectors.append(proxy)
+        except AccessDenied as exc:
+            denied.append("igmpproxy")
+            fix = exc
+        try:
+            answer = await self.ubus.call("file", "read", {"path": _multicast.AVAHI_CONF})
+            data = answer.get("data") if isinstance(answer, dict) else None
+            reflector = _multicast.avahi(data, segment_of) if isinstance(data, str) else None
+            if reflector is not None:
+                out.reflectors.append(reflector)
+        except NotFound:
+            pass  # Avahi is not installed
+        except AccessDenied as exc:
+            denied.append("avahi")
+            fix = exc
+        gaps: list[Gap] = []
+        if fix is not None:
+            gaps.append(
+                Gap(
+                    message=f"IGMP proxy and mDNS reflector ({', '.join(denied)}): {fix}",
+                    fix=fix.fix,
+                    remedy=fix.remedy,
+                    optional=True,
+                    message_id="openwrt.multicastGap",
+                    fix_id=fix.fix_id,
+                    params={**fix.params, "denied": ", ".join(denied), "cause": str(fix)},
+                )
+            )
+        return out, gaps
 
     async def _stp_file(self, path: str) -> str | None:
         """One sysfs value through ``file read``; None when the file does not exist."""

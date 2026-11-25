@@ -356,6 +356,8 @@ def sample_data(major: int) -> dict[str, Any]:
                 "dhcpd_dns_enabled": True,
                 "dhcpd_dns_1": "192.0.2.53",
                 "domain_name": "lan.example",
+                "igmp_snooping": True,
+                "mdns_enabled": True,
                 "enabled": True,
             },
             {
@@ -369,6 +371,8 @@ def sample_data(major: int) -> dict[str, Any]:
                 "dhcpd_start": "198.51.100.50",
                 "dhcpd_stop": "198.51.100.99",
                 "dhcpd_leasetime": 3600,
+                "igmp_snooping": True,
+                "mdns_enabled": True,
                 "enabled": True,
             },
             {

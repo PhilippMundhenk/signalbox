@@ -54,6 +54,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.portcounters import counters_of
+from signalbox.adapters.unifi import multicast as _multicast
 from signalbox.adapters.unifi import multiwan
 from signalbox.model import (
     Band,
@@ -1135,6 +1136,7 @@ class UnifiAdapter(_Adapter):
                     vendor_extra=gateway.extra(network=n.name) if gateway else {"network": n.name},
                 )
             )
+        site_multicast = _multicast.multicast([(n.name, n.segment, n.raw) for n in nets.values()])
         uplinks: list[Uplink] = []
         wan_groups: list[GatewayGroup] = []
         wan_ddns: list[DynamicDns] = []
@@ -1150,6 +1152,7 @@ class UnifiAdapter(_Adapter):
             uplinks=uplinks,
             gateway_groups=wan_groups,
             ddns=wan_ddns,
+            multicast={self._prefix(gateway): site_multicast} if gateway else {},
             incomplete=self._take_gaps(),
         )
 

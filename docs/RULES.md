@@ -192,6 +192,13 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`mesh.wired-possible`](rules/mesh_checks.md#meshwired-possible)
 - [`mesh.channel-locked`](rules/mesh_checks.md#meshchannel-locked)
 
+## [Multicast](rules/multicast_checks.md)
+
+- [`multicast.snooping-no-querier`](rules/multicast_checks.md#multicastsnooping-no-querier)
+- [`multicast.reflector-guest`](rules/multicast_checks.md#multicastreflector-guest)
+- [`multicast.reflector-missing`](rules/multicast_checks.md#multicastreflector-missing)
+- [`multicast.iptv-proxy`](rules/multicast_checks.md#multicastiptv-proxy)
+
 ## [Multi-WAN and dynamic DNS](rules/multiwan.md)
 
 - [`wan.group-member-down`](rules/multiwan.md#wangroup-member-down)

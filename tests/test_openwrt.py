@@ -68,15 +68,18 @@ from signalbox.model import (
     PortKind,
     PortRole,
     RaMode,
+    ReflectorKind,
     SaePwe,
     Security,
     StpPortRole,
     StpPortState,
     StpProtocol,
+    UnknownMulticast,
     WifiStandard,
     WpsMethod,
     passphrase_digest,
     passphrase_fingerprint,
+    segment_id,
 )
 from signalbox.sim.openwrt import WG_KEY, WG_PHONE, WG_SITE_A, OpenWrtSim, _wg_key, create_app
 from signalbox.sim.server import TlsFiles, free_port, self_signed_certificate, serve
@@ -2290,3 +2293,73 @@ def test_portal_options() -> None:
     one, two = portal.portals("ap", "opennds", sections, lambda name: None)
     assert (one.id, one.enabled, one.session_minutes) == ("ap/portal/opennds-1", False, None)
     assert (two.session_minutes, two.segments) == (1440, [])
+
+
+# --- multicast (#161) -----------------------------------------------------------------------
+
+
+async def test_multicast_snooping_from_sysfs(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    snap = await assert_contract(adapter)
+    m = snap.device.multicast
+    assert m is not None and m.reflectors == []
+    by_segment = {s.segment_id: s for s in m.settings}
+    assert set(by_segment) == {segment_id("home", None), segment_id("home", 20)}
+    s = by_segment[segment_id("home", None)]
+    assert (s.name, s.igmp_snooping, s.mld_snooping, s.querier) == ("br-lan", True, True, True)
+    assert s.querier_version == 2 and s.fast_leave is False
+    assert s.unknown_multicast is UnknownMulticast.FLOOD
+    sim.querier = False
+    again = (await assert_contract(adapter)).device.multicast
+    assert again is not None
+    assert [(x.querier, x.querier_version) for x in again.settings] == [(False, None)] * 2
+
+
+async def test_multicast_reflectors_of_the_optional_packages(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    sim.packages = {"igmpproxy", "avahi"}
+    snap = await assert_contract(adapter)
+    assert snap.device.multicast is not None
+    by_kind = {r.kind: r for r in snap.device.multicast.reflectors}
+    proxy, mdns = by_kind[ReflectorKind.IGMP_PROXY], by_kind[ReflectorKind.MDNS]
+    assert proxy.interfaces == ["wan", "lan"]  # the disabled interface is left out
+    assert proxy.upstream_interface == "wan" and proxy.upstream_segment_id is None
+    assert proxy.segments == [segment_id("home", None)]
+    assert mdns.interfaces == ["br-lan.1", "br-lan.20"]
+    assert mdns.segments == sorted([segment_id("home", None), segment_id("home", 20)])
+
+
+async def test_multicast_with_an_old_acl_keeps_the_uci_setting(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sim.packages = {"igmpproxy"}
+    sim.denied = {"uci:igmpproxy"}
+    monkeypatch.setattr(openwrt_sim, "FILES", ("/tmp/dhcp.leases",))
+    obs = await adapter.read_interfaces()
+    settings = obs.multicast["ap1"].settings
+    assert settings and all(s.igmp_snooping is True and s.querier is None for s in settings)
+    (gap,) = [g for g in obs.incomplete if g.message_id == "openwrt.multicastGap"]
+    assert gap.optional and "igmpproxy" in gap.message
+
+
+def test_multicast_parsers() -> None:
+    from signalbox.adapters.openwrt import multicast as om
+
+    seen = om.settings("br", {"igmp_snooping": "0", "igmp_version": "3"}, {}, [], None)
+    assert seen.igmp_snooping is False and seen.querier is None and seen.querier_version is None
+    kernel = {"multicast_snooping": "1", "multicast_querier": "1", "multicast_igmp_version": "9"}
+    uci = om.settings("br", {"igmp_version": "3"}, kernel, [], "home/segment/native")
+    assert (uci.igmp_snooping, uci.querier, uci.querier_version) == (True, True, None)
+    version = om.settings("br", {"multicast_querier": "1", "igmp_version": "3"}, {}, [], None)
+    assert version.querier_version == 3
+    ports = [{"multicast_flood": "0"}, {"multicast_flood": "1"}, {"multicast_fast_leave": "1"}]
+    mixed = om.settings("br", {}, {}, ports, None)
+    assert mixed.unknown_multicast is None and mixed.fast_leave is True
+    dropped = om.settings("br", {}, {}, [{"multicast_flood": "0"}], None)
+    assert dropped.unknown_multicast is UnknownMulticast.DROP
+    assert om.igmpproxy([{"network": "wan", "direction": "disabled"}], lambda n: None) is None
+    assert om.avahi("[reflector]\nenable-reflector=no\n", lambda n: None) is None
+    on = om.avahi("# c\n[server]\nallow-interfaces=a, b\n[reflector]\nenable-reflector = yes", str)
+    assert on is not None and on.interfaces == ["a", "b"] and on.segments == ["a", "b"]
+    everything = om.avahi("[reflector]\nenable-reflector=yes\n", lambda n: None)
+    assert everything is not None and everything.interfaces == [] and everything.segments == []

@@ -1346,3 +1346,68 @@ async def test_no_captive_portal_api_reports_nothing(http_url: str, sim: Opnsens
     del sim.data["/api/captiveportal/settings/search_zones"]
     snap = await observe(adapter(http_url))
     assert snap.portals == [] and not [e for e in snap.errors if "captive" in e.message]
+
+
+# --- multicast reflectors (#161) --------------------------------------------------------------
+
+
+async def test_mdns_repeater_and_ssdp_relay(snap: Snapshot) -> None:
+    from signalbox.model import ReflectorKind, segment_id
+
+    assert snap.device.multicast is not None
+    assert snap.device.multicast.settings == []  # OPNsense has no snooping setting
+    by_kind = {r.kind: r for r in snap.device.multicast.reflectors}
+    both = sorted([segment_id("home", None), segment_id("home", 20)])
+    assert by_kind[ReflectorKind.MDNS].segments == both
+    assert by_kind[ReflectorKind.MDNS].interfaces == ["lan", "opt1"]
+    assert by_kind[ReflectorKind.SSDP].segments == both and by_kind[ReflectorKind.SSDP].enabled
+
+
+async def test_relay_of_port_5353_joins_the_mdns_repeater(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    from signalbox.model import ReflectorKind
+
+    sim.data["/api/udpbroadcastrelay/settings/search_relay"]["rows"] = [
+        {"uuid": "r1", "enabled": "1", "listenport": "5353", "interfaces": "opt2"},
+        {"uuid": "r2", "enabled": "0", "listenport": "9999", "interfaces": "lan"},
+    ]
+    snap = await observe(adapter(http_url))
+    assert snap.device.multicast is not None
+    by_kind = {r.kind: r for r in snap.device.multicast.reflectors}
+    assert by_kind[ReflectorKind.MDNS].interfaces == ["lan", "opt1", "opt2"]
+    assert by_kind[ReflectorKind.UDP_BROADCAST_RELAY].enabled is False
+    assert ReflectorKind.SSDP not in by_kind
+
+
+async def test_without_the_plugins_nothing_is_reported(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    del sim.data["/api/mdnsrepeater/settings/get"]
+    del sim.data["/api/udpbroadcastrelay/settings/search_relay"]
+    snap = await observe(adapter(http_url))
+    assert snap.device.multicast is not None and snap.device.multicast.reflectors == []
+    assert not [e for e in snap.errors if "repeater" in e.message or "relay" in e.message]
+
+
+async def test_refused_plugin_reads_are_optional_gaps(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    sim.fail = {
+        "/api/mdnsrepeater/settings/get": 403,
+        "/api/udpbroadcastrelay/settings/search_relay": 403,
+    }
+    snap = await observe(adapter(http_url))
+    gaps = [e for e in snap.errors if e.message.startswith(("mDNS repeater", "UDP broadcast"))]
+    assert len(gaps) == 2 and all(g.optional for g in gaps)
+    assert snap.status.value == "ok"
+
+
+def test_multicast_reader_shapes() -> None:
+    from signalbox.adapters.opnsense import multicast as reader
+
+    assert reader.mdns_repeater({}, {}) is None
+    off = reader.mdns_repeater({"mdnsrepeater": {"enabled": "0", "interfaces": "lan"}}, {})
+    assert off is not None and not off.enabled
+    (odd,) = reader.relays([{"enabled": "1", "listenport": "x", "interfaces": "lan"}], {"lan": "s"})
+    assert odd.kind.value == "udp-broadcast-relay" and odd.segments == ["s"]

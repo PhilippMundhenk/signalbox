@@ -1148,3 +1148,16 @@ community (stable), `opnsense-business` business (long-term), `opnsense-devel` d
 `needs_reboot` is `reboot_pending`. *(Guess: on releases without `product_id` the channel falls
 back to `product_name`; whether "apply needed" can be read is open, so `pending` stays unknown,
 #21.)*
+
+## Multicast reflectors (#161)
+
+Read with `interfaces`; both plugins are optional (404: nothing to report) and a 403 is an
+optional gap naming the privilege. `/api/mdnsrepeater/settings/get` (`os-mdns-repeater`):
+`enabled` and the selected `interfaces`. `/api/udpbroadcastrelay/settings/search_relay`
+(`os-udpbroadcastrelay`): one row per relay with `enabled`, `listenport` and `interfaces`; port
+5353 counts as mDNS, 1900 as SSDP, other ports as UDP broadcast relay, rows of one kind are
+merged. Interface identifiers are mapped to the networks Signalbox knows. OPNsense has no
+snooping setting, and the IGMP proxy page has no API: it is not read. *(Guess, #21: endpoint
+and field names of both plugins, and the privilege names `page-services-mdnsrepeater` and
+`page-services-udpbroadcastrelay`.)* Covered: 24.7, 25.1, 25.7 and 26.1 as far as the plugins
+exist there.
