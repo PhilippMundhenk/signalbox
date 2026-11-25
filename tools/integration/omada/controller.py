@@ -259,13 +259,19 @@ def web_scripts(oid: str) -> str:
     """The Open API strings of the web UI's scripts: what to try when no path answers."""
     status, page = request("GET", f"/{oid}/")
     if not isinstance(page, str):
-        return f"index page: HTTP {status}"
+        return f"index page: HTTP {status} {str(page)[:200]}"
+    srcs = re.findall(r"""src=["']([^"']+\.js[^"']*)["']""", page)
+    out = [f"index page HTTP {status}, {len(page)} bytes, scripts {srcs[:12]}"]
     found: set[str] = set()
-    for src in re.findall(r'src="([^"]+\.js)"', page)[:30]:
-        _, js = request("GET", src if src.startswith("/") else f"/{oid}/{src}")
+    for src in srcs[:40]:
+        path = src if src.startswith("/") else f"/{oid}/{src}"
+        code, js = request("GET", path)
         if isinstance(js, str):
-            found.update(re.findall(r'["\'`]([^"\'`\s]*open-?[aA]pi[^"\'`\s]*)["\'`]', js))
-    return "\n".join(sorted(found))[:3500]
+            for m in re.finditer(r"open-?api", js, re.IGNORECASE):
+                found.add(js[max(0, m.start() - 40) : m.end() + 50].replace("\n", " "))
+        else:
+            out.append(f"{path}: HTTP {code} not text")
+    return "\n".join(out + sorted(found)[:40])[:6000]
 
 
 def applications_path(oid: str, web: dict[str, str]) -> str:
@@ -276,7 +282,8 @@ def applications_path(oid: str, web: dict[str, str]) -> str:
         if status == 200 and isinstance(answer, dict) and answer.get("errorCode") == 0:
             return path
         seen.append(f"{sub}: HTTP {status} {str(answer)[:120]}")
-    fail("Omada setup: no Open API applications path", "\n".join(seen) + "\n" + web_scripts(oid))
+    notice("Omada web UI: Open API strings", web_scripts(oid))
+    fail("Omada setup: no Open API applications path", "\n".join(seen))
     raise AssertionError
 
 
