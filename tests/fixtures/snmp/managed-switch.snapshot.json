@@ -26,7 +26,10 @@
    "last_checked": null,
    "release_date": null,
    "security_update": null,
-   "reboot_pending": null
+   "reboot_pending": null,
+   "last_updated": null,
+   "pending_updates": null,
+   "pending_security_updates": null
   },
   "management_address": "192.0.2.10",
   "mac": "02:00:00:00:01:00",

@@ -115,6 +115,9 @@ async def test_contract_over_pinned_tls(adapter: FritzboxAdapter, sim: FritzboxS
     snap = await assert_contract(adapter)
     assert (snap.device.vendor, snap.device.model) == ("AVM", "FRITZ!Box 7590")
     assert snap.device.firmware is not None and snap.device.firmware.current == "154.07.57"
+    assert snap.device.firmware.auto_update is True
+    assert snap.device.firmware.last_updated is not None
+    assert snap.device.firmware.last_updated.year == 2026
     assert snap.device.management_address == "127.0.0.1"
     assert adapter.http.secure
     assert sim.authenticated > 0

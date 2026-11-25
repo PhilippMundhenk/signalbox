@@ -1089,7 +1089,8 @@ class UnifiAdapter(_Adapter):
         dev = self.context.device_id
         devices = await self._devices()
         nets = await self._networks()
-        managed = [self._device(d) for d in devices]
+        auto = await self._auto_upgrade()
+        managed = [self._device(d, auto) for d in devices]
         if self._mode == "integration":
             segs = self._segments(nets, {})
             return Observation(segments=segs, devices=managed, incomplete=self._take_gaps())
@@ -1141,7 +1142,21 @@ class UnifiAdapter(_Adapter):
             incomplete=self._take_gaps(),
         )
 
-    def _device(self, d: _Managed) -> Device:
+    async def _auto_upgrade(self) -> bool | None:
+        """Whether the site installs device firmware by itself (#181): the ``auto_upgrade`` flag
+        of the site settings (``rest/setting``, the ``super_mgmt`` section on the controller
+        versions known; any section that carries the flag otherwise). ``None``: not said, and
+        always in integration mode, which has no settings endpoint."""
+        if self._mode == "integration":
+            return None
+        sections = await self._optional_quiet("rest/setting")
+        ordered = sorted(sections, key=lambda r: _text(r.get("key")) != "super_mgmt")
+        for row in ordered:
+            if isinstance(row.get("auto_upgrade"), bool):
+                return bool(row["auto_upgrade"])
+        return None
+
+    def _device(self, d: _Managed, auto_update: bool | None = None) -> Device:
         return Device(
             id=self._prefix(d),
             site_id=self.context.site_id,
@@ -1153,6 +1168,7 @@ class UnifiAdapter(_Adapter):
                 current=d.firmware,
                 available=d.upgrade_to if d.upgrade_to and d.upgrade_to != d.firmware else None,
                 upgradable=d.upgradable,
+                auto_update=auto_update,
             )
             if d.firmware
             else None,

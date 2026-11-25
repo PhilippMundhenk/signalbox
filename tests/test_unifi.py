@@ -117,6 +117,8 @@ async def test_contract_login(style: str, version: str) -> None:
     login = "/api/auth/login" if style == "unifi_os" else "/api/login"
     assert login in sim.requests
     assert len(snap.extra_devices) == 4  # the pending switch is not adopted
+    # the site setting auto_upgrade (#181) reaches every managed device that has a firmware
+    assert {d.firmware.auto_update for d in snap.extra_devices if d.firmware} == {False}
 
 
 @pytest.mark.parametrize("style", STYLES)

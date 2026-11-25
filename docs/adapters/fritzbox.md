@@ -616,7 +616,10 @@ rc, other `Labor*` testing, `Inhaus` development); `X_AVM-DE_GetInfo` the auto-u
 (`off` and `notify` are not automatic, `important` and `all` are). Both are optional: a box
 whose description lacks the service (FRITZ!OS 6.83 and 7.29 in the simulator) reports the
 version only. TR-064 has no configuration state or backup without a password for
-`X_AVM-DE_GetConfigFile`, which Signalbox does not use.
+`X_AVM-DE_GetConfigFile`, which Signalbox does not use. `NewX_AVM-DE_UpdateTime` (when the box
+installed its last update; a box that never did says `0001-01-01`) gives `Firmware.last_updated`,
+read as UTC because the box does not name its time zone. TR-064 has no time of the last update
+*check*, so `last_checked` stays empty.
 
 ## FRITZ!Mesh (#171)
 

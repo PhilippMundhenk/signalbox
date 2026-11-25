@@ -31,3 +31,34 @@ def test_update_available_and_end_of_life() -> None:
     assert ("firmware.update-available", "a runs 1.0, 1.2 is available") in out
     assert ("firmware.end-of-life", "a runs firmware 1.0, which is end of life") in out
     assert len(out) == 2
+
+
+def test_auto_update_off_and_reboot_pending() -> None:
+    out = run(
+        ap("off", "1.0", auto_update=False, reboot_pending=True),
+        ap("on", "1.0", auto_update=True, reboot_pending=False),
+        ap("unknown", "1.0"),
+    )
+    assert out == [
+        ("firmware.auto-update-off", "off does not install updates by itself"),
+        ("firmware.reboot-pending", "off needs a restart to finish an update"),
+    ]
+
+
+def test_package_update_counts_replace_the_generic_message() -> None:
+    out = run(
+        ap(
+            "sec",
+            "1.0",
+            upgradable=True,
+            security_update=True,
+            pending_updates=5,
+            pending_security_updates=2,
+        ),
+        ap("plain", "1.0", upgradable=True, pending_updates=3),
+        ap("none", "1.0", upgradable=False, pending_updates=0, pending_security_updates=0),
+    )
+    assert out == [
+        ("firmware.security-update", "sec has 2 security updates waiting"),
+        ("firmware.update-available", "plain has 3 package updates waiting"),
+    ]

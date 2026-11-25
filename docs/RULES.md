@@ -63,6 +63,7 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`config.unsaved`](rules/config_state.md#configunsaved)
 - [`config.pending`](rules/config_state.md#configpending)
 - [`backup.none`](rules/config_state.md#backupnone)
+- [`config.changed-outside`](rules/config_state.md#configchanged-outside)
 
 ## [Device identity](rules/device_identity.md)
 
@@ -121,6 +122,8 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`firmware.end-of-life`](rules/firmware.md#firmwareend-of-life)
 - [`firmware.security-update`](rules/firmware.md#firmwaresecurity-update)
 - [`firmware.beta-channel`](rules/firmware.md#firmwarebeta-channel)
+- [`firmware.auto-update-off`](rules/firmware.md#firmwareauto-update-off)
+- [`firmware.reboot-pending`](rules/firmware.md#firmwarereboot-pending)
 
 ## [Foreign DHCP servers and routers](rules/foreign.md)
 
@@ -418,6 +421,13 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `warn_days` | `30` | d | Days before the expiry date from which a warning is reported. |
 | `urgent_days` | `7` | d | Days before the expiry date from which the warning is an error (an expired certificate is always an error). |
+
+### `config.changed-outside`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `days` | `7` | d | Report changes made in the last this many days. |
+| `minutes` | `30` | min | A change that follows Signalbox's own backup within this time is Signalbox's. |
 
 ### `ddns.stale`
 

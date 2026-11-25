@@ -55,9 +55,18 @@ def drift(net: Network) -> Iterator[Result]:
 def update_available(net: Network) -> Iterator[Result]:
     for d in net.devices:
         fw = d.firmware
-        if fw and fw.security_update and fw.available:
+        if fw and fw.security_update and (fw.available or fw.pending_security_updates):
             continue  # reported as firmware.security-update
-        if fw and fw.upgradable and not fw.available:
+        if fw and fw.pending_updates:
+            yield found(
+                f"{d.name} has {fw.pending_updates} package updates waiting",
+                [d.id],
+                fix=f"Install the pending updates of {d.name} in the next maintenance window.",
+                mid="firmware.updatesPending",
+                fix_id="firmware.updatesPending.fix",
+                params={"name": d.name, "count": fw.pending_updates},
+            )
+        elif fw and fw.upgradable and not fw.available:
             yield found(
                 f"{d.name} has a firmware update available",
                 [d.id],
@@ -106,7 +115,16 @@ def end_of_life(net: Network) -> Iterator[Result]:
 def security_update(net: Network) -> Iterator[Result]:
     for d in net.devices:
         fw = d.firmware
-        if fw and fw.security_update and fw.available:
+        if fw and fw.security_update and not fw.available and fw.pending_security_updates:
+            yield found(
+                f"{d.name} has {fw.pending_security_updates} security updates waiting",
+                [d.id],
+                fix=f"Install the pending updates of {d.name} soon.",
+                mid="firmware.securityUpdatesPending",
+                fix_id="firmware.securityUpdatesPending.fix",
+                params={"name": d.name, "count": fw.pending_security_updates},
+            )
+        elif fw and fw.security_update and fw.available:
             yield found(
                 f"{d.name} has a security update available ({fw.available})",
                 [d.id],
@@ -149,4 +167,54 @@ def beta_channel(net: Network) -> Iterator[Result]:
             )
 
 
-RULES = [drift, update_available, end_of_life, security_update, beta_channel]
+@rule(
+    "firmware.auto-update-off",
+    "Device does not install updates by itself",
+    Severity.INFO,
+    "The device says it does not install updates automatically (unattended-upgrades or "
+    "dnf-automatic off, a FRITZ!Box or UniFi site set to update by hand). That is a choice, but "
+    "then updates only happen when someone remembers; Signalbox lists them as they appear.",
+)
+def auto_update_off(net: Network) -> Iterator[Result]:
+    for d in net.devices:
+        if d.firmware and d.firmware.auto_update is False:
+            yield found(
+                f"{d.name} does not install updates by itself",
+                [d.id],
+                fix=f"Switch on automatic updates on {d.name} (at least the security updates), "
+                "or update it by hand regularly.",
+                mid="firmware.autoUpdateOff",
+                fix_id="firmware.autoUpdateOff.fix",
+                params={"name": d.name},
+            )
+
+
+@rule(
+    "firmware.reboot-pending",
+    "Restart needed to finish an update",
+    Severity.INFO,
+    "The device installed an update and runs the old code until it restarts (the file "
+    "/var/run/reboot-required on Debian and Ubuntu, OPNsense's restart flag).",
+)
+def reboot_pending(net: Network) -> Iterator[Result]:
+    for d in net.devices:
+        if d.firmware and d.firmware.reboot_pending:
+            yield found(
+                f"{d.name} needs a restart to finish an update",
+                [d.id],
+                fix=f"Restart {d.name} in a maintenance window.",
+                mid="firmware.rebootPending",
+                fix_id="firmware.rebootPending.fix",
+                params={"name": d.name},
+            )
+
+
+RULES = [
+    drift,
+    update_available,
+    end_of_life,
+    security_update,
+    beta_channel,
+    auto_update_off,
+    reboot_pending,
+]

@@ -1108,6 +1108,9 @@ async function overview(main, ctx, device, adapters, sites) {
         [t('device.overview.vendor'), observed ? observed.vendor : null],
         [t('device.overview.model'), observed ? observed.model : null],
         [t('device.overview.firmware'), fw ? [fw.current || '–', fw.available ? ` (${t('device.overview.updateAvailable', { version: fw.available })})` : '', fw.end_of_life ? ` – ${t('device.overview.endOfLife')}` : ''].join('') : null],
+        // Update and configuration state (#181): only what the device says (null is not shown)
+        ...firmwareRows(fw),
+        ...configRows(observed),
         [t('device.overview.managementAddress'), observed ? observed.management_address : null],
         // Identity (#177): shown where the device says it. The serial number is private data.
         ...[
@@ -1228,6 +1231,42 @@ async function advanced(main, ctx, device) {
       ),
     );
   }
+}
+
+
+// Rows of the firmware state beyond the version (#181); a field the device does not say is left out.
+function firmwareRows(fw) {
+  if (!fw) return [];
+  const known = (v) => v !== null && v !== undefined;
+  return [
+    [t('device.overview.channel'), fw.channel],
+    [t('device.overview.autoUpdate'), known(fw.auto_update) ? yesNo(fw.auto_update) : null],
+    [t('device.overview.lastChecked'), fw.last_checked ? fmtTime(fw.last_checked) : null],
+    [t('device.overview.lastUpdated'), fw.last_updated ? fmtTime(fw.last_updated) : null],
+    [t('device.overview.pendingUpdates'), known(fw.pending_updates) ? t('device.overview.pendingUpdatesValue', { count: fw.pending_updates, security: known(fw.pending_security_updates) ? fw.pending_security_updates : '?' }) : null],
+    [t('device.overview.rebootPending'), known(fw.reboot_pending) ? yesNo(fw.reboot_pending) : null],
+  ].filter(([, v]) => v);
+}
+
+// Configuration state and the backups the device keeps (#181). The user the device logged for the
+// last change is a name from the device: it goes into a text node only (kv() never parses markup).
+function configRows(observed) {
+  if (!observed) return [];
+  const cs = observed.config_state;
+  const lb = observed.local_backups;
+  const known = (v) => v !== null && v !== undefined;
+  const rows = [];
+  if (cs) {
+    if (known(cs.unsaved)) rows.push([t('device.overview.configSaved'), yesNo(!cs.unsaved)]);
+    if (known(cs.pending)) rows.push([t('device.overview.configStaged'), yesNo(cs.pending)]);
+    if (cs.last_changed) {
+      rows.push([t('device.overview.configChanged'), cs.changed_by ? t('device.overview.configChangedBy', { when: fmtTime(cs.last_changed), user: cs.changed_by }) : fmtTime(cs.last_changed)]);
+    }
+  }
+  if (lb && known(lb.count)) {
+    rows.push([t('device.overview.backups'), lb.newest ? t('device.overview.backupsNewest', { count: lb.count, when: fmtTime(lb.newest) }) : String(lb.count)]);
+  }
+  return rows;
 }
 
 export async function renderDevice(main, ctx, route) {

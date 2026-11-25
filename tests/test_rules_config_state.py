@@ -34,7 +34,7 @@ def test_saved_or_unknown_configuration_is_quiet() -> None:
     quiet = run(
         RULES,
         device("a", config_state=ConfigState(unsaved=False, pending=False)),
-        device("b", config_state=ConfigState(last_changed=T0)),
+        device("b", config_state=ConfigState(last_changed=T0 - timedelta(days=60))),
         device("c"),
     )
     assert quiet == []
@@ -111,3 +111,32 @@ def test_drift_does_not_compare_channels() -> None:
         ap("b", "2.0b", FirmwareChannel.BETA),
     )
     assert out == []
+
+
+def test_changed_outside_needs_a_recent_change_without_a_signalbox_backup() -> None:
+    out = run(
+        RULES,
+        device("hand", config_state=ConfigState(last_changed=T0 - timedelta(hours=5))),
+        device(
+            "mine",
+            config_state=ConfigState(last_changed=T0 - timedelta(hours=1)),
+            signalbox_backup_newest=T0 - timedelta(hours=1, minutes=2),
+        ),
+        device(
+            "after-mine",
+            config_state=ConfigState(last_changed=T0 - timedelta(hours=1)),
+            signalbox_backup_newest=T0 - timedelta(hours=9),
+        ),
+        device("old", config_state=ConfigState(last_changed=T0 - timedelta(days=30))),
+        device("unknown", config_state=ConfigState(unsaved=False)),
+        device("none"),
+    )
+    hits = sorted(m.split()[3] for r, m in out if r == "config.changed-outside")
+    assert hits == ["after-mine", "hand"]
+
+
+def test_changed_outside_is_silent_without_a_clock() -> None:
+    net = merge([SITE], [snapshot(device("a", config_state=ConfigState(last_changed=T0)))])
+    assert [
+        f for f in evaluate(net, RULES, history=History()) if f.rule_id.endswith("outside")
+    ] == []
