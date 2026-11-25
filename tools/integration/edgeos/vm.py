@@ -281,7 +281,9 @@ def configure(con: Console, name: str, commands: list[str], required: bool) -> b
     )
     path = f"/tmp/sb-{name}.sh"
     con.run(f"cat > {path} <<'SB_EOF'\n{body}\nSB_EOF")
-    out = con.run(f"vbash {path} 2>&1", 300)
+    t0 = time.time()
+    out = con.run(f"vbash {path} </dev/null >{path}.out 2>&1; cat {path}.out", 900)
+    log(f"{name}: {time.time() - t0:.0f} s")
     log(f"{name}:\n{out[-1500:]}")
     bad = CONFIG_ERROR.search(out) is not None
     if bad:
