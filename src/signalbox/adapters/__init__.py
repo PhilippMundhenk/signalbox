@@ -38,6 +38,7 @@ from signalbox.model import (
     AccountPrivilege,
     Certificate,
     Client,
+    ConfigState,
     Device,
     DeviceAccount,
     DeviceHealth,
@@ -54,6 +55,7 @@ from signalbox.model import (
     Firewall,
     Firmware,
     GatewayGroup,
+    LocalBackups,
     LogTarget,
     ManagementService,
     MessageParams,
@@ -601,6 +603,9 @@ class SystemInfo(BaseModel):
     contact: str | None = None
     os: str | None = None
     os_version: str | None = None
+    #: Configuration state and backups kept on the device (#181), copied to ``Device``.
+    config_state: ConfigState | None = None
+    local_backups: LocalBackups | None = None
     #: Vendor fields of the device itself (MAC, serial, protocol details); shown on the
     #: device's advanced tab only, never read by rules.
     vendor_extra: dict[str, JsonValue] = Field(default_factory=dict)

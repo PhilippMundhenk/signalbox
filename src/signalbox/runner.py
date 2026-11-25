@@ -92,6 +92,7 @@ class Runner:
                     self.store.set_pending_fingerprint(rec.id, presented)
         snap = self._with_certificate_history(rec, snap)
         snap = self._with_write_login(rec, snap)
+        snap = self._with_signalbox_backup(rec, snap)
         self.store.save_snapshot(snap)
         log.info("%s: %s", rec.id, snap.status.value)
         return snap
@@ -108,6 +109,18 @@ class Runner:
         ):
             return snap
         device = snap.device.model_copy(update={"signalbox_account_needed": AccountPrivilege.WRITE})
+        return snap.model_copy(update={"device": device})
+
+    def _with_signalbox_backup(self, rec: DeviceRecord, snap: Snapshot) -> Snapshot:
+        """``Device.signalbox_backup_newest`` (#181): when Signalbox took its newest backup of
+        this device (taken before a deployment), so rules can tell a device with no backup
+        anywhere from one that only keeps none itself."""
+        backups = self.store.backups(rec.id)
+        if not backups:
+            return snap
+        device = snap.device.model_copy(
+            update={"signalbox_backup_newest": max(b.taken_at for b in backups)}
+        )
         return snap.model_copy(update={"device": device})
 
     def _with_certificate_history(self, rec: DeviceRecord, snap: Snapshot) -> Snapshot:

@@ -143,3 +143,9 @@ the controller 8, 9 and 10 are the same in the simulator; on older controllers a
 leaves the value empty *(guess, #21)*. `rest/dynamicdns` (`host_name`, `service`, `interface`)
 gives the DDNS entries; `login` and `x_password` are never read, the result is unknown, and a
 controller without the list gives none.
+
+### Firmware upgrade flag (#181)
+
+The classic device list's `upgradable` and `upgrade_to_firmware` give `Firmware.upgradable` and
+`available` of the managed device; the Integration API has neither (unknown). The auto-upgrade
+schedule is not read yet.

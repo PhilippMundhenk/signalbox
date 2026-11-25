@@ -661,3 +661,8 @@ authorization-code mode; Signalbox uses client mode" (message id `omada.accounts
 It is not an error and needs no fix in Signalbox: the site's device account is still read and
 checked. After the first -44118 the adapter does not ask for the users again until it is
 restarted. Authorization-code mode needs an interactive browser login and is not planned.
+
+### Firmware upgrade flag (#181)
+
+`needUpgrade` of the device list is `Firmware.upgradable` of the managed device. The controller's
+auto-upgrade and auto-backup settings are not read (no documented Open API call found).

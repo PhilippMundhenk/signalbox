@@ -26,6 +26,30 @@
   },
   {
    "method": "POST",
+   "path": "/upnp/control/userif",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:UserInterface:1#GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfo xmlns:u=\"urn:dslforum-org:service:UserInterface:1\"></u:GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetInfoResponse xmlns:u=\"urn:dslforum-org:service:UserInterface:1\"><NewUpgradeAvailable>1</NewUpgradeAvailable><NewPasswordRequired>1</NewPasswordRequired><NewPasswordUserSelectable>1</NewPasswordUserSelectable><NewWarrantyDate>0001-01-01T00:00:00</NewWarrantyDate><NewX_AVM-DE_Version>999.99.99</NewX_AVM-DE_Version><NewX_AVM-DE_DownloadURL></NewX_AVM-DE_DownloadURL><NewX_AVM-DE_InfoURL></NewX_AVM-DE_InfoURL><NewX_AVM-DE_UpdateState>UpdateAvailable</NewX_AVM-DE_UpdateState><NewX_AVM-DE_BuildType>Release</NewX_AVM-DE_BuildType><NewX_AVM-DE_SetupAssistantStatus>1</NewX_AVM-DE_SetupAssistantStatus></u:GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/userif",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:UserInterface:1#X_AVM-DE_GetInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetInfo xmlns:u=\"urn:dslforum-org:service:UserInterface:1\"></u:X_AVM-DE_GetInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetInfoResponse xmlns:u=\"urn:dslforum-org:service:UserInterface:1\"><NewX_AVM-DE_AutoUpdateMode>important</NewX_AVM-DE_AutoUpdateMode><NewX_AVM-DE_UpdateTime>0001-01-01T00:00:00</NewX_AVM-DE_UpdateTime><NewX_AVM-DE_LastFwVersion></NewX_AVM-DE_LastFwVersion><NewX_AVM-DE_LastInfoUrl></NewX_AVM-DE_LastInfoUrl><NewX_AVM-DE_CurrentFwVersion></NewX_AVM-DE_CurrentFwVersion><NewX_AVM-DE_UpdateSuccessful>unknown</NewX_AVM-DE_UpdateSuccessful></u:X_AVM-DE_GetInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
    "path": "/upnp/control/wlanconfig1",
    "headers": {
     "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#GetInfo\"",
@@ -997,8 +1021,15 @@
    "model": "FRITZ!Box 7590",
    "firmware": {
     "current": "154.07.57",
-    "available": null,
-    "end_of_life": null
+    "available": "999.99.99",
+    "end_of_life": null,
+    "channel": "stable",
+    "upgradable": null,
+    "auto_update": true,
+    "last_checked": null,
+    "release_date": null,
+    "security_update": null,
+    "reboot_pending": null
    },
    "management_address": "127.0.0.1",
    "mac": null,
@@ -1084,7 +1115,10 @@
    "signalbox_account_privilege": "admin",
    "signalbox_account_needed": "admin",
    "stp_bridges": null,
-   "poe": null
+   "poe": null,
+   "config_state": null,
+   "local_backups": null,
+   "signalbox_backup_newest": null
   },
   "status": "ok",
   "ports": [

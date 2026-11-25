@@ -94,6 +94,7 @@ from signalbox.model import (
     Band,
     Cipher,
     Client,
+    ConfigState,
     DeviceAccount,
     DeviceRole,
     Dhcp6Mode,
@@ -970,8 +971,10 @@ class OpenWrtAdapter(Adapter):
             if isinstance(st, dict) and name != "lo" and (m := _mac(st.get("macaddr"))):
                 base_mac = m
                 break
+        pending = await self._pending_changes()
         return SystemInfo(
             vendor=None,
+            config_state=ConfigState(pending=pending) if pending else None,
             model=model if isinstance(model, str) else None,
             firmware=Firmware(current=str(version)) if version else None,
             management_address=self.ubus.http.host,
@@ -985,6 +988,24 @@ class OpenWrtAdapter(Adapter):
             os_version=text(version) if isinstance(version, str) else None,
             vendor_extra={"kernel": k} if (k := text(board.get("kernel"))) else {},
         )
+
+    async def _pending_changes(self) -> bool | None:
+        """``True`` when UCI changes are staged and not committed (``uci changes``, #181).
+
+        rpcd keeps staged changes per login session, so this sees what Signalbox's own session
+        holds (for example changes a rolled-back apply put back, see ``_clear_staging``) and
+        what a client sharing the session left: an empty answer is not "nothing is pending
+        on the router", so it is reported as unknown (``None``), never as ``False``. A login
+        whose ACL lacks ``uci changes`` (read ACL before 0.5) reads as unknown as well.
+        """
+        try:
+            data = await self.ubus.call("uci", "changes", {}, keep_session=True)
+        except (AdapterError, NotFound):
+            return None
+        changes = data.get("changes") if isinstance(data, dict) else None
+        if isinstance(changes, dict) and any(changes.values()):
+            return True
+        return None
 
     # interfaces -----------------------------------------------------------------------
 

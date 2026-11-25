@@ -635,7 +635,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "network.device": ["status"],
         "network.interface": ["dump"],
         "network.wireless": ["status"],
-        "uci": ["get"],
+        "uci": ["get", "changes"],
         "hostapd.*": ["get_clients", "get_status"],
         "iwinfo": ["info", "freqlist", "txpowerlist", "survey", "scan"],
         "luci-rpc": ["getDHCPLeases", "getWirelessDevices", "getNetworkDevices"],
@@ -755,7 +755,7 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "network.device": ["status"],
         "network.interface": ["dump"],
         "network.wireless": ["status"],
-        "uci": ["get"],
+        "uci": ["get", "changes"],
         "hostapd.*": ["get_clients", "get_status"],
         "iwinfo": ["info", "freqlist", "txpowerlist", "survey", "scan"],
         "luci-rpc": ["getDHCPLeases", "getWirelessDevices", "getNetworkDevices"],
@@ -1007,3 +1007,13 @@ Leases: `ubus call dhcp ipv6leases` (odhcpd; `device` -> name -> `leases` with `
 `ipv6-addr` `address` / `valid-lifetime`; the MAC address of a DUID-LL or DUID-LLT is taken from
 it), in the read-only ACL as `"dhcp": ["ipv6leases"]` (an older ACL is refused: the DHCPv6 leases
 of `luci-rpc getDHCPLeases` are used instead). Not tested against a real device (#21).
+
+### Configuration state (#181)
+
+`ubus uci changes` is read with the system read: when it lists staged (uncommitted) UCI changes,
+`config_state.pending` is true (`config.pending`). rpcd keeps staged changes per login session,
+so this sees the changes in Signalbox's own session (for example ones a rolled-back apply put
+back) and not changes staged in a LuCI or SSH session; an empty answer is reported as unknown,
+never as "nothing is pending". The read ACL needs `uci: ["changes"]` (added to the ACL above; an
+older ACL leaves the field empty). *(Guess: the cross-session behaviour is from the rpcd
+sources, #21.)*

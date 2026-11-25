@@ -52,6 +52,12 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`clients.duplicate-hostname`](rules/clients.md#clientsduplicate-hostname)
 - [`clients.random-mac`](rules/clients.md#clientsrandom-mac)
 
+## [Configuration state and backups](rules/config_state.md)
+
+- [`config.unsaved`](rules/config_state.md#configunsaved)
+- [`config.pending`](rules/config_state.md#configpending)
+- [`backup.none`](rules/config_state.md#backupnone)
+
 ## [DHCP and addressing](rules/dhcp.md)
 
 - [`dhcp.one-server`](rules/dhcp.md#dhcpone-server)
@@ -99,6 +105,8 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`firmware.drift`](rules/firmware.md#firmwaredrift)
 - [`firmware.update-available`](rules/firmware.md#firmwareupdate-available)
 - [`firmware.end-of-life`](rules/firmware.md#firmwareend-of-life)
+- [`firmware.security-update`](rules/firmware.md#firmwaresecurity-update)
+- [`firmware.beta-channel`](rules/firmware.md#firmwarebeta-channel)
 
 ## [Foreign DHCP servers and routers](rules/foreign.md)
 

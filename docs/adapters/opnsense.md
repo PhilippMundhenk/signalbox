@@ -1089,3 +1089,13 @@ spelling on 24.7 and 25.x (compared with the sources, not recorded).
   rows hold `username` and `password`; they are never read. Not installed (404) or no privilege
   (403, *Services: Dynamic DNS*, `page-services-dyndns`, *guess*): nothing is reported, without
   a gap on every read. The plugin has no API for the last update or the address announced.
+
+### Configuration state, backups and channel (#181)
+
+The configuration history (`/api/core/backup/backups/this`, the same call the backup uses) gives
+`local_backups` (number of revisions, newest, automatic) and `config_state` (newest revision,
+time and user). The channel comes from `product_id` of `core/firmware/status`: `opnsense` is
+community (stable), `opnsense-business` business (long-term), `opnsense-devel` development;
+`needs_reboot` is `reboot_pending`. *(Guess: on releases without `product_id` the channel falls
+back to `product_name`; whether "apply needed" can be read is open, so `pending` stays unknown,
+#21.)*

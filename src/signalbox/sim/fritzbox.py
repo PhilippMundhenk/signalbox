@@ -654,6 +654,28 @@ class FritzboxSim:
                 "NewUpTime": str(self.uptime),
                 "NewDeviceLog": "",
             }
+        if name == "UserInterface" and action == "GetInfo":
+            return {
+                "NewUpgradeAvailable": "1",
+                "NewPasswordRequired": "1",
+                "NewPasswordUserSelectable": "1",
+                "NewWarrantyDate": "0001-01-01T00:00:00",
+                "NewX_AVM-DE_Version": "999.99.99",  # invented newer release
+                "NewX_AVM-DE_DownloadURL": "",
+                "NewX_AVM-DE_InfoURL": "",
+                "NewX_AVM-DE_UpdateState": "UpdateAvailable",
+                "NewX_AVM-DE_BuildType": "Release",
+                "NewX_AVM-DE_SetupAssistantStatus": "1",
+            }
+        if name == "UserInterface" and action == "X_AVM-DE_GetInfo":
+            return {
+                "NewX_AVM-DE_AutoUpdateMode": "important",
+                "NewX_AVM-DE_UpdateTime": "0001-01-01T00:00:00",
+                "NewX_AVM-DE_LastFwVersion": "",
+                "NewX_AVM-DE_LastInfoUrl": "",
+                "NewX_AVM-DE_CurrentFwVersion": "",
+                "NewX_AVM-DE_UpdateSuccessful": "unknown",
+            }
         if name == "X_AVM-DE_RemoteAccess" and action == "GetInfo":
             return dict(self.remote_access)
         if name == "X_AVM-DE_RemoteAccess" and action == "GetDDNSInfo":

@@ -423,6 +423,10 @@ class _Managed:
     firmware: str | None
     slug: str
     row: dict[str, Any] = field(compare=False, hash=False, repr=False)
+    #: ``upgradable`` / ``upgrade_to_firmware`` of the classic device list (#181); the
+    #: Integration API has neither.
+    upgradable: bool | None = None
+    upgrade_to: str | None = None
 
     def identity(self) -> dict[str, JsonValue]:
         out: dict[str, JsonValue] = {"name": self.name, "mac": self.mac, "type": self.kind}
@@ -842,6 +846,10 @@ class UnifiAdapter(_Adapter):
                     firmware=_text(row.get("version")) or None,
                     slug=f"{kind}-{mac.replace(':', '')}",
                     row=row,
+                    upgradable=row["upgradable"]
+                    if isinstance(row.get("upgradable"), bool)
+                    else None,
+                    upgrade_to=_text(row.get("upgrade_to_firmware")) or None,
                 )
             )
         return out
@@ -1017,7 +1025,13 @@ class UnifiAdapter(_Adapter):
             role=ROLES.get(d.kind, DeviceRole.OTHER),
             vendor="Ubiquiti",
             model=d.model,
-            firmware=Firmware(current=d.firmware) if d.firmware else None,
+            firmware=Firmware(
+                current=d.firmware,
+                available=d.upgrade_to if d.upgrade_to and d.upgrade_to != d.firmware else None,
+                upgradable=d.upgradable,
+            )
+            if d.firmware
+            else None,
             mac=d.mac,
             management_address=_text(d.row.get("ip")) or None,
             adapter=self.manifest.id,
