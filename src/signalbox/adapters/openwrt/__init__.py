@@ -1793,7 +1793,8 @@ class OpenWrtAdapter(Adapter):
             if vid is None or iface == "wan":
                 continue
             seg = self._seg(vid)
-            key = "lan" if vid == _NATIVE else str(vid)
+            key = seg.rsplit("/", 1)[-1]
+            key = "lan" if key == "native" else key
             v6 = [
                 a
                 for a in view.addresses(iface)

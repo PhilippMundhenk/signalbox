@@ -1642,7 +1642,10 @@ class OpnsenseAdapter(_Adapter):
 
     async def _kea6(self, layout: _Layout) -> list[Dhcp6Server]:
         """Kea DHCPv6 subnets (``/api/kea/dhcpv6``); none when the plugin is not there."""
-        data = await self._optional("/api/kea/dhcpv6/get")
+        try:
+            data = await self._optional("/api/kea/dhcpv6/get")
+        except AuthFailed:  # the read-only user has no Kea DHCPv6 privilege: optional
+            return []
         if data is None:
             return []
         root = _sub(_dict(data, "/api/kea/dhcpv6/get", "the answer"), "dhcpv6")
@@ -1650,8 +1653,11 @@ class OpnsenseAdapter(_Adapter):
         listen = set(_selected(general.get("interfaces")))
         enabled = _flag(general.get("enabled"))
         subnet_url, pd_url = "/api/kea/dhcpv6/search_subnet", "/api/kea/dhcpv6/search_pd_pool"
-        rows = _rows(await self._optional(subnet_url, grid=True), subnet_url)
-        pd_rows = _rows(await self._optional(pd_url, grid=True), pd_url)
+        try:
+            rows = _rows(await self._optional(subnet_url, grid=True), subnet_url)
+            pd_rows = _rows(await self._optional(pd_url, grid=True), pd_url)
+        except AuthFailed:
+            return []
         out: list[Dhcp6Server] = []
         for row in rows:
             try:
