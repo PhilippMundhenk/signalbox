@@ -56,7 +56,7 @@ export function ruleParams(r, reload) {
   const names = Object.keys(props);
   const fileScopes = (p ? p.scopes : []).filter((s) => s.source === 'file');
   const uiScopes = (p ? p.scopes : []).filter((s) => s.source === 'ui');
-  const unit = (n) => (props[n] && props[n].unit ? ` ${props[n].unit}` : '');
+  const unit = (n) => (props[n] && props[n].unit && props[n].type !== 'boolean' ? ` ${props[n].unit}` : '');
   const box = slot('rule-params-error');
   const inputs = {};
 

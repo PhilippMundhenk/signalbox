@@ -18,13 +18,11 @@ from signalbox.rules import Result, RuleParams, Severity, ctx, found, param, rul
 
 
 class NameMismatchParams(RuleParams):
-    strip_domain: float = param(
-        1,
-        unit="count",
-        ge=0,
-        le=1,
-        description="1: compare only the part before the first dot (nas and nas.example.lan "
-        "are the same name); 0: compare the full names.",
+    strip_domain: bool = param(
+        True,
+        unit="flag",
+        description="On: compare only the part before the first dot (nas and nas.example.lan "
+        "are the same name); off: compare the full names. 1 and 0 are accepted as well.",
     )
 
 
@@ -60,7 +58,7 @@ def name_mismatch(net: Network) -> Iterator[Result]:
             continue
         if _is_address(dev.name.strip()) or _is_address(dev.hostname.strip()):
             continue
-        strip = bool(ctx.params(NameMismatchParams, dev).strip_domain)
+        strip = ctx.params(NameMismatchParams, dev).strip_domain
         if _normal(dev.name, strip) == _normal(dev.hostname, strip):
             continue
         yield found(

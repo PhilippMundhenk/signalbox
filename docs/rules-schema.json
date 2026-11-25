@@ -1742,13 +1742,11 @@
       "additionalProperties": false,
       "properties": {
         "strip_domain": {
-          "default": 1,
-          "description": "1: compare only the part before the first dot (nas and nas.example.lan are the same name); 0: compare the full names.",
-          "maximum": 1,
-          "minimum": 0,
+          "default": true,
+          "description": "On: compare only the part before the first dot (nas and nas.example.lan are the same name); off: compare the full names. 1 and 0 are accepted as well.",
           "title": "Strip Domain",
-          "type": "number",
-          "unit": "count"
+          "type": "boolean",
+          "unit": "flag"
         }
       },
       "title": "device.name-mismatch",

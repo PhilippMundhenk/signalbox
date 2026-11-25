@@ -6,7 +6,12 @@ from factories import SITE, device, snapshot
 from signalbox.merge import merge
 from signalbox.model import Device, Network
 from signalbox.rules import Finding, Rule, RuleSettings, evaluate
-from signalbox.rules.device_identity import RULES, bootloader_outdated, name_mismatch
+from signalbox.rules.device_identity import (
+    RULES,
+    NameMismatchParams,
+    bootloader_outdated,
+    name_mismatch,
+)
 
 
 def net_of(*devices: Device) -> Network:
@@ -36,8 +41,19 @@ def test_name_mismatch_ignores_case_and_domain() -> None:
 
 def test_name_mismatch_domain_stripping_can_be_switched_off() -> None:
     net = net_of(device("d", name="nas", hostname="nas.example.lan"))
-    full = {"device.name-mismatch": {"params": {"strip_domain": 0}}}
+    full = {"device.name-mismatch": {"params": {"strip_domain": False}}}
     assert len(run(name_mismatch, net, full)) == 1
+
+
+def test_name_mismatch_strip_domain_accepts_one_and_zero() -> None:
+    net = net_of(device("d", name="nas", hostname="nas.example.lan"))
+    off = {"device.name-mismatch": {"params": {"strip_domain": 0}}}
+    on = {"device.name-mismatch": {"params": {"strip_domain": 1}}}
+    assert len(run(name_mismatch, net, off)) == 1
+    assert run(name_mismatch, net, on) == []
+    schema = NameMismatchParams.model_json_schema()["properties"]["strip_domain"]
+    assert schema["type"] == "boolean"
+    assert NameMismatchParams().strip_domain is True
 
 
 def test_name_mismatch_stays_quiet() -> None:

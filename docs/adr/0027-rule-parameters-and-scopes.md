@@ -118,3 +118,13 @@ git and read-only mounts keep working.
   200 characters are refused.
 - **Apply**: the saved change replaces the live `rules:` mapping the runner reads and the rules
   are evaluated again at once; no restart.
+
+## Addendum: boolean parameters (#465)
+
+A parameter may be a `bool` (`name: bool = param(True, unit="flag", ...)`; `ge`/`le` stay for
+numbers). The JSON Schema export says `"type": "boolean"`, the store overlay and the file
+configuration are validated by the same model, and the settings form renders a checkbox. Pydantic
+accepts `1` and `0` (and `true`/`false`) for a boolean, so settings written when the flag was a
+number keep working: `device.name-mismatch` `strip_domain` was `1`/`0` and is now a boolean, and
+both spellings stay valid in `signalbox.yaml` and in saved overlays (other numbers are refused).
+The effective values and the API report real booleans. No other rule has a 0/1 flag.

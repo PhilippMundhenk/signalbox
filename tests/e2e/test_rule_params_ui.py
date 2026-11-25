@@ -92,3 +92,33 @@ def test_add_a_scope_with_pickers_and_remove_it(app: Any) -> None:
     rule.get_by_test_id("params-save").click()
     expect(rule.get_by_test_id("ui-scope")).to_have_count(0)
     wait_scopes(app, 0)
+
+
+def test_a_boolean_parameter_is_a_checkbox(app: Any) -> None:
+    rule_id = "device.name-mismatch"
+
+    def values() -> dict[str, Any]:
+        out: dict[str, Any] = next(r for r in api(app, "GET", "/rules") if r["id"] == rule_id)[
+            "parameters"
+        ]["values"]
+        return out
+
+    go(app, "#/settings")
+    rule = app.locator(f'[data-testid="rule"][data-id="{rule_id}"]')
+    rule.locator("summary").click()
+    row = rule.locator('[data-testid="rule-param"][data-name="strip_domain"]')
+    box = row.get_by_test_id("param-input")
+    expect(box).to_have_attribute("type", "checkbox")
+    expect(box).to_be_checked()
+    box.uncheck()
+    rule.get_by_test_id("params-save").click()
+    expect(app.get_by_test_id("toast").first).to_be_visible()
+    row = rule.locator('[data-testid="rule-param"][data-name="strip_domain"]')
+    expect(row).to_have_attribute("data-source", "ui")
+    expect(row.get_by_test_id("param-input")).not_to_be_checked()
+    assert values()["strip_domain"] is False
+    row.get_by_test_id("param-reset").click()
+    expect(rule.locator('[data-testid="rule-param"][data-name="strip_domain"]')).to_have_attribute(
+        "data-source", "default"
+    )
+    assert values()["strip_domain"] is True
