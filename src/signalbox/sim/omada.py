@@ -842,22 +842,25 @@ def _missing(body: dict[str, Any], keys: tuple[str, ...]) -> str | None:
 RELEASES: dict[str, str] = {
     "6.3": "6.3.0.111",
     "5.15": "5.15.20.18",
+    "5.13": "5.13.30.8",
+    "5.12": "5.12.7",
     "5.9": "5.9.31",
     "5.8": "5.8.4",
     "4.4": "4.4.8",
 }
-#: path parts a release does not serve (404): 5.15 has no user list, 5.9 no ACLs and no
-#: port forwarding
+#: path parts a release does not serve (404): 5.15 has no user list, 5.13 no ACLs and no
+#: port forwarding (guess)
 _NOT_SERVED: dict[str, tuple[str, ...]] = {
     "5.15": ("/users", "/all-users", "/roles/available"),
-    "5.9": ("/users", "/all-users", "/roles/available", "/acls/", "/nat/port-forwardings"),
+    "5.13": ("/users", "/all-users", "/roles/available", "/acls/", "/nat/port-forwardings"),
 }
 
 
 @dataclass
 class OmadaSimulator:
-    #: ``"6.3"`` (default), ``"5.15"``, ``"5.9"``, ``"5.8"`` (no Open API) or ``"4.4"`` (no Open
-    #: API, no omadacId in ``/api/info``): see ``RELEASES``.
+    #: ``"6.3"`` (default), ``"5.15"``, ``"5.13"`` (first with the Open API), ``"5.12"``, ``"5.9"``,
+    #: ``"5.8"`` (no working Open API) or ``"4.4"`` (no Open API, no omadacId in
+    #: ``/api/info``): see ``RELEASES``.
     release: str = "6.3"
     omadac_id: str = OMADAC_ID
     client_id: str = CLIENT_ID
@@ -975,7 +978,7 @@ class OmadaSimulator:
                 if self.release == "4.4":
                     info.pop("omadacId", None)
                 return JSONResponse({"errorCode": 0, "msg": "Success.", "result": info})
-            if path.startswith("/openapi/") and self.release in ("5.8", "4.4"):
+            if path.startswith("/openapi/") and self.release in ("5.12", "5.9", "5.8", "4.4"):
                 return _html(404, "Not Found")
             if any(part in path for part in _NOT_SERVED.get(self.release, ())):
                 return _html(404, "Not Found")

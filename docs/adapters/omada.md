@@ -22,7 +22,7 @@ their DHCP, switch ports, SSIDs ([Changing the site](#changing-the-site)).
 | wireless | radios of every EAP; SSIDs of its WLAN group per band (security, VLAN, hidden, PMF) |
 | clients | wired and wireless clients with address, network and where they were seen (switch port or EAP WLAN) |
 
-> **Verified against Omada Controller 6.3.0.111, 5.15.24.19 and 5.14.32.4 in CI.** What the controller holds itself
+> **Verified against Omada Controller 6.3.0.111, 5.15.24.19, 5.14.32.4 and 5.13.30.8 in CI.** What the controller holds itself
 > (sites, LAN networks, DHCP, port profiles, WLAN groups and SSIDs, the token, roles and
 > refusals) is checked every night against TP-Link's Omada Software Controller, the official
 > Linux package in Docker, set up through its own first-start wizard:
@@ -493,14 +493,15 @@ from the other two.
 
 Supported: the current major version (6.x) and the two before it (5.x, 4.x), as far as each
 has an API Signalbox can read. The adapter reads the controller version from `/api/info`
-(`controllerVer`). `OmadaSimulator(release="6.3" | "5.15" | "5.9" | "5.8" | "4.4")` plays each
-row; contract tests run it for 6.3, 5.15 and 5.9 and check the errors for 5.8 and 4.4.
+(`controllerVer`). `OmadaSimulator(release="6.3" | "5.15" | "5.13" | "5.12" | "5.9" | "5.8" | "4.4")` plays each
+row; contract tests run it for 6.3, 5.15 and 5.13 and check the errors for 5.12 and older.
 
 | Controller | Open API | CI | What Signalbox does |
 | --- | --- | --- | --- |
 | 6.x (6.3.0.111) | yes, `/openapi/v1`, client credentials | real controller, official package in Docker | everything above |
-| 5.9 to 5.15 | yes *(guess: from 5.9)* | simulator, contract tests | same calls; where the controller answers 404 for the user list, the gateway ACLs or the port forwarding, an **optional gap** names the version ("accounts: controller 5.15 does not offer it through the Open API (controller 6 does)"); the rest is read as on 6.x |
-| 5.0 to 5.8 | no (the token endpoint answers 404) | simulator | **gap, not read**: "this controller (5.8) has no Open API: Signalbox needs Omada controller 5.9 or later" |
+| 5.13 to 5.15 | yes (**CI**: 5.13.30.8, 5.14.32.4, 5.15.24.19) | real controller for 5.13, 5.14 and 5.15; simulator, contract tests | same calls; where the controller answers 404 for the user list, the gateway ACLs or the port forwarding, an **optional gap** names the version ("accounts: controller 5.15 does not offer it through the Open API (controller 6 does)"); the rest is read as on 6.x |
+| 5.12 | announced by TP-Link (Open API since 5.12, September 2023), but **5.12.7 refused the token request** of an application it had created (-44106, "Client Id Or Client Secret is Invalid", **CI**) | real controller, setup only | **gap, not read** (same message as below): Signalbox does not try it |
+| 5.0 to 5.9 | no (5.9.31: -1600 "Unsupported request path" on the application setup, **CI**; no 5.10 or 5.11 image exists) | real controller (5.9.31, setup only), simulator | **gap, not read**: "this controller (5.9) has no Open API: Signalbox needs Omada controller 5.13 or later" |
 | 4.x (4.4.8) | no (and no `omadacId` in `/api/info`) | simulator | **gap, not read**, same message naming 4.x; nothing is sent to the controller except `/api/info` |
 
 ### Decision: no classic web API fallback
@@ -517,10 +518,12 @@ Signalbox.
 
 ### CI
 
-6.3, 5.15 and 5.14 run against a real controller (#501). **5.9 does not**: the 5.9.31 image
+6.3, 5.15, 5.14 and 5.13 run against a real controller (#501, #515). **5.9 has no Open API**: the 5.9.31 image
 answers the Open API application calls of `controller.py` (`/api/v2/open-api/applications` and
-three other spellings) with -1600 "Unsupported request path", and its web UI scripts do not
-mention the Open API, so the application cannot be created headless. Differences the real
+three other spellings) with -1600 "Unsupported request path" and its web UI scripts do not
+mention the Open API; there is no way to enable it. **5.12.7 has the application page** but its
+token endpoint answers -44106 for the (32 character) secret the application list shows; 5.13.30.8 is
+the first release where the whole setup works (no 5.10 or 5.11 image exists). Differences the real
 5.x controllers showed, handled in the adapter or the tests:
 
 - 5.15: an SSID has no on/off switch in the Open API (no `ssidEnable`, `.../enable` is 404):
@@ -531,12 +534,11 @@ mention the Open API, so the application cannot be created headless. Differences
 
 ### Guesses to confirm on real controllers (#21)
 
-- That the Open API (`/openapi/authorize/token`, `/openapi/v1/...`) starts with 5.9: TP-Link's
-  page names 6.4 as the requirement for its current description and does not date the start. On
-  5.0 to 5.8 the token request is expected to answer Tomcat's 404; any 404 there is taken as
-  "no Open API".
+- That 5.12 could be made to work: its token request was refused in CI for the application's
+  secret as listed; the cause (a second secret, a different request) is unknown. On 5.0 to 5.9 the
+  token request is expected to answer Tomcat's 404 or -1600; any 404 there is taken as "no Open API".
 - That 4.x answers `/api/info` with `controllerVer` and without `omadacId`.
-- That 5.x has no user list (`/users`, `/all-users`, `/roles/available`) and 5.9 no gateway ACLs
+- That 5.x has no user list (`/users`, `/all-users`, `/roles/available`) and 5.13 no gateway ACLs
   or port forwarding in the Open API; each missing endpoint (404) becomes the optional gap, an
   endpoint that exists is read as on 6.x.
 - That field names of the 5.x answers equal the 6.x ones (parsing is tolerant: a missing field
@@ -545,12 +547,12 @@ mention the Open API, so the application cannot be created headless. Differences
 ## Integration tests
 
 `tools/integration/omada/controller.py` runs on the GitHub Actions runner only (job
-`Integration / Omada`, one matrix entry per version line: 6.3, 5.15 and 5.14, #501), never locally;
+`Integration / Omada`, one matrix entry per version line: 6.3, 5.15, 5.14 and 5.13, #501, #515), never locally;
 tests/integration/test_omada_real.py skips without
 `IT_OMADA_URL` (and fails in CI, `REQUIRE_INTEGRATION`).
 
 - **The controller**: `mbentley/omada-controller` in the versions 6.3.0.111 (current),
-  5.15.24.19 and 5.14.32.4, each pinned by digest, a maintained community image that installs
+  5.15.24.19, 5.14.32.4 and 5.13.30.8, each pinned by digest, a maintained community image that installs
   TP-Link's official Linux package unchanged; it answers
   `/api/info` some 40 seconds after the start.
 - **Setup** through the calls of the controller's own web UI (read from its scripts): the

@@ -4,7 +4,7 @@
 Runs on a GitHub Actions runner (Docker), never in the development sandbox. Standard library
 only.
 
-    controller.py start DIR VER  pull the pinned image (6.3, 5.15, 5.14 or 5.12), start
+    controller.py start DIR VER  pull the pinned image (6.3, 5.15, 5.14 or 5.13), start
                                the controller, wait for /api/info
     controller.py setup DIR    the first-start wizard, two Open API applications (viewer and
                                administrator) and the test site's networks, SSIDs and profile;
@@ -13,9 +13,10 @@ only.
 
 The image is mbentley/omada-controller, a maintained community image that installs TP-Link's
 official Linux package (the .deb) unchanged; it is pinned by version tag and digest. Versions:
-6.3 (current), 5.15, 5.14 (#501) and 5.12 (#515). 5.9.31 is not covered: it has no Open API (its
-open-api/applications path answers "Unsupported request path", -1600); 5.12 is the first release
-with it (TP-Link: Open API since 5.12, September 2023).
+6.3 (current), 5.15, 5.14 (#501) and 5.13 (#515). 5.9.31 has no Open API (its
+open-api/applications path answers "Unsupported request path", -1600); 5.12.7 has it but refused
+the token request of the application it created (-44106, Client Id Or Secret Invalid); 5.13 is the
+first release that works.
 
 The setup uses the calls of the controller's own web UI (read from its scripts): the
 administrator (``/api/v2/anon/register``), the wizard (``/api/v2/anon/cmd/wizardConfig``),
@@ -48,8 +49,6 @@ IMAGES = {
     "@sha256:d5d688dc39c8c6d17926d2a090d2ce806e221e00a037e3a43ff8cbc2d61f269b",
     "5.15": "mbentley/omada-controller:5.15.24.19"
     "@sha256:908a4e38ff273b0be77db5525237cf039f724c169f33d3be8b32f3acf34bbe2b",
-    "5.12": "mbentley/omada-controller:5.12"
-    "@sha256:23e41dcafda345ada930ea2c0a06159ab5737fe30b8c9e96f53e4fe4a1c64503",
     "5.13": "mbentley/omada-controller:5.13.30.8"
     "@sha256:bcabcfaf73e5b75b09fa2dcb1db9e7cf498960d851556b1c52742fb67729fcd9",
     "5.14": "mbentley/omada-controller:5.14.32.4"
@@ -262,7 +261,7 @@ def application(oid: str, web: dict[str, str], name: str, role: str) -> dict[str
         fail("Omada setup: no such role", f"{role!r} not in {names}")
     body = {"name": name, "mode": 1, "permission": {"roleId": match, "sitePrivilege": 0}}
     base = f"/{oid}/api/v2/open-api/applications"
-    created = ok("POST", base, body, headers=web)
+    ok("POST", base, body, headers=web)
     listed = ok("GET", f"{base}?currentPage=1&currentPageSize=100", headers=web)
     rows = listed.get("data", listed) if isinstance(listed, dict) else listed
     app = next((r for r in rows if r.get("name") == name), None)
@@ -270,22 +269,7 @@ def application(oid: str, web: dict[str, str], name: str, role: str) -> dict[str
         fail("Omada setup: application not listed", json.dumps(listed)[:2000])
     shown = {k: v for k, v in app.items() if k not in ("clientSecret",)}
     log(f"application {name}: {json.dumps(shown)[:800]}")
-    # 5.12 shows the secret only in the answer to the creation (the list holds a masked or
-    # different one, #515); newer releases return it in both
-    made = created if isinstance(created, dict) else {}
-    log(f"application {name}: creation answer keys {sorted(made)}")
-    secret = made.get("clientSecret") or app["clientSecret"]
-    notice(
-        f"Omada application {name}",
-        f"created keys {sorted(made)}; listed {json.dumps(shown)[:600]}; "
-        f"secret lengths created {len(str(made.get('clientSecret', '')))} "
-        f"listed {len(str(app['clientSecret']))}",
-    )
-    return {
-        "client_id": made.get("clientId") or app["clientId"],
-        "client_secret": secret,
-        "role": role,
-    }
+    return {"client_id": app["clientId"], "client_secret": app["clientSecret"], "role": role}
 
 
 class OpenApi:
@@ -307,7 +291,7 @@ class OpenApi:
         return ok(method, f"/openapi/v1/{self.oid}{path}", body, self.headers)
 
     def rows(self, path: str) -> list[dict[str, Any]]:
-        result = self.ok("GET", path + ("&" if "?" in path else "?") + "page=1&pageSize=1000")
+        result = self.ok("GET", path + ("&" if "?" in path else "?") + "page=1&pageSize=100")
         rows: list[dict[str, Any]] = result.get("data", []) if isinstance(result, dict) else result
         return rows
 
@@ -415,32 +399,6 @@ def site_data(api: OpenApi) -> dict[str, Any]:
     return {"site_id": sid, "wlan_id": gid, "refused": refused}
 
 
-def probe(oid: str, web: dict[str, str], app: dict[str, str]) -> None:
-    """Diagnostics while a release (5.12, #515) refuses the application: other token spellings."""
-    q = f"client_id={app['client_id']}&client_secret={app['client_secret']}"
-    tries = [
-        ("json", "/openapi/authorize/token?grant_type=client_credentials", None),
-        ("query", f"/openapi/authorize/token?grant_type=client_credentials&omadacId={oid}&{q}", {}),
-        ("query-only-id", f"/openapi/authorize/token?grant_type=client_credentials&{q}", {}),
-    ]
-    out = {}
-    for name, path, body in tries:
-        if body is None:
-            body = {
-                "omadacId": oid,
-                "client_id": app["client_id"],
-                "client_secret": app["client_secret"],
-            }
-        status, answer = request("POST", path, body)
-        out[name] = (status, str(answer)[:150].replace(app["client_secret"], "***"))
-    base = f"/{oid}/api/v2/open-api/applications"
-    status, listed = request("GET", f"{base}?currentPage=1&currentPageSize=100", headers=web)
-    rows = listed.get("result", {}).get("data", []) if isinstance(listed, dict) else []
-    first = rows[0] if rows else {}
-    out["list-keys"] = (status, sorted(first))
-    gh_error("Omada probe", json.dumps(out)[:3500])
-
-
 def setup(d: Path) -> None:
     info = wait_info(60)
     oid = info["omadacId"]
@@ -454,10 +412,6 @@ def setup(d: Path) -> None:
     }
     for app in apps.values():
         print(f"::add-mask::{app['client_secret']}", flush=True)
-    try:
-        probe(oid, web, apps["admin"])
-    except Exception as exc:  # diagnostics only
-        gh_error("Omada probe failed", repr(exc)[:500])
     data = site_data(OpenApi(oid, apps["admin"]))
     if data["refused"]:
         notice("Omada setup: refused by the controller", json.dumps(data["refused"]))

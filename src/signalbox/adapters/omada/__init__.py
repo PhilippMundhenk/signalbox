@@ -1086,8 +1086,8 @@ class OmadaAdapter(_Adapter):
         self._token = None
         info = _dict(_check(await self.http.get_json(INFO), INFO), INFO, "result")
         self._release = controller_release(_text(info.get("controllerVer")))
-        if self._release is not None and self._release[0] < 5:
-            raise self._no_open_api()  # 4.x: classic web API only
+        if self._release is not None and self._release < OPEN_API_FROM:
+            raise self._no_open_api()  # 4.x to 5.12: no (working) Open API
         self._omadac_id = self.config.omadac_id or _text(info.get("omadacId"))
         if not self._omadac_id:
             raise _unexpected(INFO, "no omadacId (set the controller id in the settings)")
