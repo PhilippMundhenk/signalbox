@@ -70,6 +70,7 @@ Mapping to the model:
   domain; such an upstream given by name is `vendor_extra.named_domain_forwards`. Block lists
   (`/control/filtering/status`) carry `last_updated` as `updated`; `cache_size` is `dns_info.cache_size`
   (bytes). Whether filtering is on is `vendor_extra.filtering_enabled`.
+  `register_dhcp` and `dynamic_records` follow whether AdGuard Home's own DHCP server is enabled (`/control/dhcp/status`, it answers the names of its leases). **Rebinding protection is not read** (`None`): AdGuard Home has no such setting; `use_private_ptr_resolvers` and `private_networks` only route reverse lookups of private ranges. 0.107.x and later behave alike (#456).
 - **Host records**: DNS rewrites whose answer is an IP address (wildcards and CNAME answers
   are skipped).
 - **DHCP** (only when `enabled`): one server `<device>/dhcp/adguardhome` with the IPv4 range,

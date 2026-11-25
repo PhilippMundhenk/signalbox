@@ -1083,6 +1083,8 @@ flag names of older RouterOS 7 releases (#21).
 
 Static entries with `type=FWD` (`name` = the domain, `forward-to` = the server; a guess for the field names, #21) are forwarders with `domain` set; `/ip/dns` `cache-size` (kiB) is `cache_size`.
 
+RouterOS has no setting that registers lease names in DNS: the DHCP server's `lease-script` has to add `/ip dns static` entries. `register_dhcp` is true when an enabled DHCP server has a `lease-script` mentioning `dns` (a guess, #21), false when there is none; `dynamic_records` is true when the static table has `dynamic` entries. `listen_segments` are the segments of the layer-3 interfaces when `allow-remote-requests` is on. RouterOS (7.x) has no DNS rebinding protection setting in `/ip/dns`, so `rebind_protection` stays unknown (#456).
+
 `/ip/dns` `use-doh-server` (RouterOS 7.x; absent on older 7.x releases: plain DNS) marks the
 forwarders as `https` with the host of the URL as `tls_name`. `/ip/dns/adlist` (RouterOS 7.15
 and later; absent before: no block lists) gives the block lists by the host of their URL. Guess

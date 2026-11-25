@@ -1624,6 +1624,19 @@ async def test_dns_forward_entries_are_domain_upstreams(
     assert dns.cache_size == 2048 and dns.recursive is False
 
 
+async def test_dns_dhcp_names_and_segments(http_url: str, sim: MikrotikSimulator) -> None:
+    """#456: names of leases come from a lease script; no rebinding setting exists."""
+    (dns,) = (await observe(adapter(http_url))).dns_services
+    assert dns.register_dhcp is False and dns.dynamic_records is None
+    assert dns.rebind_protection is None and dns.listen_segments
+    sim.data["/rest/ip/dhcp-server"][0]["lease-script"] = ':dns "add static"'
+    sim.data[DNS_STATIC].append(
+        {"name": "dyn.example", "address": "192.0.2.77", "dynamic": "true", "disabled": "false"}
+    )
+    (dns,) = (await observe(adapter(http_url))).dns_services
+    assert dns.register_dhcp is True and dns.dynamic_records is True
+
+
 async def test_station_bridge_is_an_uplink_peer(http_url: str, sim: MikrotikSimulator) -> None:
     """A wifi interface in station-bridge mode and its registration row (#171)."""
     sim.data["/rest/interface"].append(

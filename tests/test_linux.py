@@ -171,6 +171,7 @@ async def test_contract_and_values() -> None:
     assert (split.domain, str(split.address)) == ("corp.example", "192.0.2.250")
     assert masq.local_domain == "home.example" and masq.recursive is False
     assert masq.rebind_protection is False and masq.cache_size is None
+    assert masq.register_dhcp is True and masq.dynamic_records is True
     assert {h.name for h in dns["dnsmasq"].host_records} == {
         "nas.home.example",
         "router.home.example",
