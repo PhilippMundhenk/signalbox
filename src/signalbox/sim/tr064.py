@@ -24,8 +24,19 @@ SERVICE_NS = "{urn:dslforum-org:service-1-0}"
 
 #: The descriptions in the source tree (``tests/fixtures/tr064/<version>/``).
 FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "tr064"
-#: FRITZ!OS versions whose descriptions are there; the first one is the default.
+#: FRITZ!OS versions with complete descriptions of a real box; the first one is the default.
 VERSIONS = ("fritzos-7.57", "fritzos-8.02")
+#: The older releases (#413): 7.29 is the files of a real box, 6.83 is derived from them (the
+#: actions that appeared after 6.x removed, see tests/fixtures/tr064/SOURCES.md). They lack
+#: actions and arguments the adapter reads, so the all-actions-present checks do not apply.
+OLDER = ("fritzos-7.29", "fritzos-6.83")
+#: ``FritzboxSim(release=...)`` -> directory of the descriptions
+RELEASES: dict[str, str] = {
+    "6.83": "fritzos-6.83",
+    "7.29": "fritzos-7.29",
+    "7.57": "fritzos-7.57",
+    "8.02": "fritzos-8.02",
+}
 
 #: integer data types -> (minimum, maximum)
 INTEGERS: dict[str, tuple[int, int]] = {

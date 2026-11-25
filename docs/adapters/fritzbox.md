@@ -51,6 +51,45 @@ access points can be compared); the passphrase itself is never stored. If the us
 right for `GetSecurityKeys` (UPnP error 606), wireless is reported as "could not read" with a
 message naming the right; everything else is still read.
 
+## FRITZ!OS versions (#413, part of #389)
+
+Supported: the current major version (8.x) and the two before it (7.x, 6.x). Real boxes in
+use run 6.x and 7.x. Every action below is read with a fallback or as an optional gap: a missing
+action never fails the whole read. `FritzboxSim(release="6.83" | "7.29" | "7.57" | "8.02")`
+serves the descriptions of that release without the actions it lacks.
+
+| FRITZ!OS | Descriptions | CI | What differs |
+| --- | --- | --- | --- |
+| 8.x | real (8.02) | simulator, contract tests | spelling `None` of the open beacon type |
+| 7.57 | real | simulator, contract tests | `LANConfigSecurity GetInfo` has `NewX_AVM-DE_IsDefaultPasswordActive` |
+| 7.29 | real (FRITZ!Box 7530 AX dump) | simulator, contract tests | no `NewX_AVM-DE_IsDefaultPasswordActive` (default-password state stays unknown); no `NewX_AVM-DE_FrequencyBand` in `WLANConfiguration GetInfo`/`GetChannelInfo` (the band comes from the channel), no `NewX_AVM-DE_AutoChannelEnabled`, no `NewX_AVM-DE_WLANGlobalEnable`; the login page `?version=2` exists |
+| 6.x (6.83) | derived from 7.29, **guesses** | simulator, contract tests | login page version 1 only (see below); no `LANConfigSecurity X_AVM-DE_GetUserList`/`X_AVM-DE_GetCurrentUser` (optional gap "accounts: FRITZ!OS 6.83 has no user list"); no `X_AVM-DE_GetWLANExtInfo` (guest WLAN = the last one); no `X_AVM-DE_GetHostListPath` (host table entry by entry); no WPA3 beacon types (`WPA3`, `11iandWPA3`, `OWE`) |
+
+None of these versions is tested on a real box in CI; the 7.29 descriptions are a real
+box's, the 6.83 ones are derived (`tests/fixtures/tr064/SOURCES.md`). The FRITZ!OS version is
+read from `DeviceInfo:1 GetInfo` (`NewSoftwareVersion`, for example `154.07.57` is 7.57); the
+last two numbers are the release.
+
+Login page: `/login_sid.lua?version=2` (the user list of [password-only
+login](#password-only-login-373)) exists from FRITZ!OS 7.24. Before that the box ignores the
+parameter and answers the version 1 page (a challenge for the MD5 login, no `<Users>`); a box
+that refuses the parameter (404) is asked again for `/login_sid.lua`. A version 1 page has no
+user list, so with an empty user name the empty name stays and the error says the page cannot
+name the user (a box of that age without users often accepts `dslf-config` *(guess)*). With a
+configured user name nothing is looked up.
+
+### Guesses to confirm on real boxes (#21)
+
+- Which actions FRITZ!OS 6.83 lacks (the user list and current user, `X_AVM-DE_GetWLANExtInfo`,
+  `X_AVM-DE_GetHostListPath`) and that it has no WPA3: AVM's pages with the version of each
+  action could not be reached, so the 6.83 files are the 7.29 ones minus these. A box that has
+  them is used with them; one that lacks others is handled by the same fallbacks.
+- That a 6.x box answers `/login_sid.lua?version=2` with the version 1 page (not 404); both are
+  handled.
+- That `dslf-config` is the TR-064 user of a 6.x box without users.
+- The `NewSoftwareVersion` spelling of a 6.x box (`113.06.83`).
+- The layout of the user list and rights on 7.x (see [Accounts](#accounts-175)).
+
 ## Password-only login (#373)
 
 Even if the box asks only for a password in its web interface, it has a user (since

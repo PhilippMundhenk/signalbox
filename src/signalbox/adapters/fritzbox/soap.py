@@ -223,6 +223,14 @@ def login_user(body: bytes) -> str | None:
     return named[0][1] if len(named) == 1 else None
 
 
+def login_page_version(body: bytes) -> int:
+    """2 if the login page lists users (``<Users>``, FRITZ!OS 7.24 and later), else 1: a box
+    before 7.24 ignores ``?version=2`` and answers the version 1 page (a challenge for the MD5
+    login, no user list)."""
+    root = parse_xml(body, "login_sid.lua")
+    return 2 if any(_local(e.tag) == "Users" for e in root.iter()) else 1
+
+
 class Tr064:
     def __init__(
         self, http: DeviceHttp, prepare: Callable[[], Awaitable[None]] | None = None
