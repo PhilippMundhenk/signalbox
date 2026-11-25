@@ -1026,11 +1026,11 @@ async def test_contract_per_release(http_url: str, sim: OmadaSimulator, release:
         snap = await assert_contract(a)
     finally:
         await a.close()
-    assert snap.status in (DeviceStatus.OK, DeviceStatus.PARTIAL)
+    assert snap.status is DeviceStatus.OK
     assert snap.device.firmware is not None
     assert snap.device.firmware.current.startswith(release)
     assert snap.ports and snap.wlans and snap.clients
-    old = [g.message for g in snap.incomplete if g.message_id == "omada.oldController"]
+    old = [g.message for g in snap.errors if g.message_id == "omada.oldController"]
     if release == "6.3":
         assert not old
     elif release == "5.15":
@@ -1043,7 +1043,7 @@ async def test_contract_per_release(http_url: str, sim: OmadaSimulator, release:
             "firewall ACLs",
             "port forwarding",
         ]
-        assert all(g.optional for g in snap.incomplete if g.message_id == "omada.oldController")
+        assert all(g.optional for g in snap.errors if g.message_id == "omada.oldController")
 
 
 @pytest.mark.parametrize(("release", "version"), [("5.8", "5.8"), ("4.4", "4.4")])
