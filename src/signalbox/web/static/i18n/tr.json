@@ -1047,6 +1047,8 @@
  "msg.mikrotik.foreignGroup.fix": "Gruba okuma, api ve rest-api ilkelerini kurulum kılavuzunda gösterildiği gibi elle verin.",
  "msg.mikrotik.keptClash": "{label}: yönlendiricideki satırın, bildirimin modellemediği ve ona uymayan özellikleri var: {clash}. Devralma şunları korurdu: {kept}. Bildirimi veya yönlendiricideki satırı değiştirin",
  "msg.mikrotik.logTargets": "günlük hedefleri: {cause}",
+ "msg.mikrotik.ros6": "RouterOS 6 desteklenmiyor: {endpoint} için REST API yok (RouterOS 6 burada 404 veya bir web sayfası döndürür). Signalbox, RouterOS 7.1 veya daha yenisini gerektirir",
+ "msg.mikrotik.ros6.fix": "RouterOS'u 7.1 veya daha yeni bir sürüme güncelleyin ya da cihazı genel SNMP entegrasyonuyla okuyun.",
  "msg.mikrotik.noUser": "yönlendiricide {login} kullanıcısı yok",
  "msg.mikrotik.noUser.fix": "Cihazı yeniden kurun (cihaz ayarları: Otomatik kur veya kurulum kılavuzu): Düzelt yalnızca var olan bir kullanıcının grubunun ilkelerini onarır.",
  "msg.mikrotik.noWireless": "kablosuz paketi yok: bu cihazda ne {wifi} ne de {wireless} var",

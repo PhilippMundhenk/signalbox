@@ -1047,6 +1047,8 @@
  "msg.mikrotik.foreignGroup.fix": "সেটআপ গাইডের মতো হাতে গ্রুপটিকে read, api ও rest-api policy দিন।",
  "msg.mikrotik.keptClash": "{label}: রাউটারের সারিতে এমন বৈশিষ্ট্য আছে যা ঘোষণা মডেল করে না এবং যা তার সাথে মেলে না: {clash}। গ্রহণ করলে রাখা হবে: {kept}। ঘোষণা বা রাউটারের সারি বদলান",
  "msg.mikrotik.logTargets": "log target: {cause}",
+ "msg.mikrotik.ros6": "RouterOS 6 সমর্থিত নয়: {endpoint}-এ REST API নেই (RouterOS 6 সেখানে 404 বা একটি ওয়েব পেজ দেয়)। Signalbox-এর জন্য RouterOS 7.1 বা নতুন প্রয়োজন",
+ "msg.mikrotik.ros6.fix": "RouterOS 7.1 বা নতুন সংস্করণে আপডেট করুন, অথবা সাধারণ SNMP ইন্টিগ্রেশনের মাধ্যমে ডিভাইসটি পড়ুন।",
  "msg.mikrotik.noUser": "router-এ ব্যবহারকারী {login} নেই",
  "msg.mikrotik.noUser.fix": "ডিভাইসটি আবার সেট আপ করুন (ডিভাইস সেটিংস: স্বয়ংক্রিয়ভাবে সেট আপ করুন, অথবা সেটআপ গাইড): ঠিক করুন শুধু বিদ্যমান ব্যবহারকারীর গ্রুপের policy মেরামত করে।",
  "msg.mikrotik.noWireless": "কোনো wireless প্যাকেজ নেই: এই ডিভাইসে {wifi} বা {wireless} কোনোটিই নেই",

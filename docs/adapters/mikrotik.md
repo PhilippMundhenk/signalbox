@@ -7,6 +7,8 @@ transactions of [#38](https://github.com/PhilippMundhenk/signalbox/issues/38) wh
 "allow changes" setting is on and the user may write: see [Writing](#writing). Reading only ever
 sends `GET` requests.
 
+**Supported versions:** RouterOS 7.1 and newer (the REST API). RouterOS 6 has no REST API and is not supported: Signalbox reports "RouterOS 6 is not supported" (`/rest` answers 404 or a web page, or the version says 6.x). Update to 7.1+, or read the device through the generic SNMP integration ([#400](https://github.com/PhilippMundhenk/signalbox/issues/400)).
+
 | Capability | What is read |
 | --- | --- |
 | system | model (RouterBOARD model, else board name), RouterOS version and the newest available version |

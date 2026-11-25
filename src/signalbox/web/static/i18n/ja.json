@@ -1047,6 +1047,8 @@
  "msg.mikrotik.foreignGroup.fix": "セットアップガイドに示すとおり、グループにポリシー read、api、rest-api を手動で付与してください。",
  "msg.mikrotik.keptClash": "{label}: ルーター上の行に、宣言がモデル化しておらず宣言と一致しないプロパティがあります: {clash}。引き継ぐと次を保持します: {kept}。宣言またはルーター上の行を変更してください",
  "msg.mikrotik.logTargets": "ログの送信先: {cause}",
+ "msg.mikrotik.ros6": "RouterOS 6 はサポートされていません: {endpoint} には REST API がありません (RouterOS 6 は 404 または Web ページを返します)。Signalbox には RouterOS 7.1 以降が必要です",
+ "msg.mikrotik.ros6.fix": "RouterOS を 7.1 以降に更新するか、汎用 SNMP 連携でデバイスを読み取ってください。",
  "msg.mikrotik.noUser": "ルーターにユーザー {login} がありません",
  "msg.mikrotik.noUser.fix": "機器を再度セットアップしてください (機器の設定:「自動セットアップ」またはセットアップガイド)。「修正する」は、既存ユーザーのグループのポリシーを修復するだけです。",
  "msg.mikrotik.noWireless": "wireless パッケージがありません: この機器には {wifi} も {wireless} もありません",

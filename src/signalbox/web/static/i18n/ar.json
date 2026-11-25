@@ -1047,6 +1047,8 @@
  "msg.mikrotik.foreignGroup.fix": "امنح المجموعة السياسات read وapi وrest-api يدويًا كما يوضح دليل الإعداد.",
  "msg.mikrotik.keptClash": "{label}: صف الموجّه فيه خصائص لا يُنمذجها التصريح ولا تتوافق معه: {clash}. سيحتفظ التبنّي بما يلي: {kept}. غيّر التصريح أو الصف على الموجّه",
  "msg.mikrotik.logTargets": "وجهات السجلات: {cause}",
+ "msg.mikrotik.ros6": "RouterOS 6 غير مدعوم: لا توجد واجهة REST في {endpoint} (يردّ RouterOS 6 بالخطأ 404 أو بصفحة ويب). يتطلب Signalbox الإصدار RouterOS 7.1 أو أحدث",
+ "msg.mikrotik.ros6.fix": "حدّث RouterOS إلى الإصدار 7.1 أو أحدث، أو اقرأ الجهاز عبر تكامل SNMP العام.",
  "msg.mikrotik.noUser": "لا يوجد على الراوتر مستخدم {login}",
  "msg.mikrotik.noUser.fix": "أعد إعداد الجهاز (إعدادات الجهاز: الإعداد التلقائي، أو دليل الإعداد): أصلحه لا يُصلح إلا سياسات مجموعة مستخدم موجود.",
  "msg.mikrotik.noWireless": "لا توجد حزمة لاسلكية: لا {wifi} ولا {wireless} موجود على هذا الجهاز",

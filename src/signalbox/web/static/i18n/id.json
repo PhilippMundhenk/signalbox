@@ -1047,6 +1047,8 @@
  "msg.mikrotik.foreignGroup.fix": "Beri grup kebijakan read, api, dan rest-api secara manual, seperti ditunjukkan panduan penyiapan.",
  "msg.mikrotik.keptClash": "{label}: baris di router memiliki properti yang tidak dimodelkan deklarasi dan tidak cocok dengannya: {clash}. Adopsi akan mempertahankan: {kept}. Ubah deklarasi atau baris di router",
  "msg.mikrotik.logTargets": "target log: {cause}",
+ "msg.mikrotik.ros6": "RouterOS 6 tidak didukung: {endpoint} tidak memiliki REST API (RouterOS 6 menjawab 404 atau halaman web). Signalbox membutuhkan RouterOS 7.1 atau lebih baru",
+ "msg.mikrotik.ros6.fix": "Perbarui RouterOS ke 7.1 atau lebih baru, atau baca perangkat melalui integrasi SNMP generik.",
  "msg.mikrotik.noUser": "router tidak memiliki pengguna {login}",
  "msg.mikrotik.noUser.fix": "Siapkan perangkat lagi (pengaturan perangkat: Siapkan otomatis, atau panduan penyiapan): Perbaiki hanya memperbaiki kebijakan grup dari pengguna yang sudah ada.",
  "msg.mikrotik.noWireless": "tidak ada paket wireless: {wifi} maupun {wireless} tidak ada di perangkat ini",

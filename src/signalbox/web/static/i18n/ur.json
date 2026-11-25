@@ -1047,6 +1047,8 @@
  "msg.mikrotik.foreignGroup.fix": "گروپ کو پالیسیاں read، api اور rest-api ہاتھ سے دیں، جیسا سیٹ اپ گائیڈ میں دکھایا گیا ہے۔",
  "msg.mikrotik.keptClash": "{label}: راؤٹر کی قطار میں ایسی خصوصیات ہیں جنہیں اعلان ماڈل نہیں کرتا اور جو اس سے میل نہیں کھاتیں: {clash}۔ اپنانے پر یہ برقرار رہیں گی: {kept}۔ اعلان یا راؤٹر کی قطار بدلیں",
  "msg.mikrotik.logTargets": "لاگ اہداف: {cause}",
+ "msg.mikrotik.ros6": "RouterOS 6 معاون نہیں ہے: {endpoint} پر REST API نہیں ہے (RouterOS 6 وہاں 404 یا ویب صفحہ لوٹاتا ہے)۔ Signalbox کو RouterOS 7.1 یا نیا درکار ہے",
+ "msg.mikrotik.ros6.fix": "RouterOS کو 7.1 یا نئے ورژن پر اپ ڈیٹ کریں، یا ڈیوائس کو عمومی SNMP انٹیگریشن سے پڑھیں۔",
  "msg.mikrotik.noUser": "router پر صارف {login} موجود نہیں",
  "msg.mikrotik.noUser.fix": "آلے کو دوبارہ سیٹ اپ کریں (آلے کی ترتیبات: خودکار سیٹ اپ، یا سیٹ اپ گائیڈ): “درست کریں” صرف موجود صارف کے گروپ کی پالیسیاں مرمت کرتا ہے۔",
  "msg.mikrotik.noWireless": "کوئی wireless پیکیج نہیں: اس آلے پر نہ {wifi} ہے اور نہ {wireless}",

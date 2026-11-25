@@ -1077,6 +1077,8 @@
  "msg.mikrotik.foreignGroup.fix": "Donnez au groupe les politiques read, api et rest-api à la main, comme le montre le guide de configuration.",
  "msg.mikrotik.keptClash": "{label} : la ligne du routeur a des propriétés que la déclaration ne modélise pas et qui ne lui correspondent pas : {clash}. L'adoption conserverait : {kept}. Modifiez la déclaration ou la ligne sur le routeur",
  "msg.mikrotik.logTargets": "cibles de journalisation : {cause}",
+ "msg.mikrotik.ros6": "RouterOS 6 n'est pas pris en charge : {endpoint} n'a pas d'API REST (RouterOS 6 répond 404 ou une page web). Signalbox exige RouterOS 7.1 ou plus récent",
+ "msg.mikrotik.ros6.fix": "Mettez RouterOS à jour vers la version 7.1 ou plus récente, ou lisez l'appareil avec l'intégration SNMP générique.",
  "msg.mikrotik.noUser": "le routeur n'a pas d'utilisateur {login}",
  "msg.mikrotik.noUser.fix": "Configurez de nouveau l'appareil (paramètres de l'appareil : Configurer automatiquement, ou le guide de configuration) : Corriger ne répare que les politiques du groupe d'un utilisateur existant.",
  "msg.mikrotik.noWireless": "aucun paquet wireless : ni {wifi} ni {wireless} n'existe sur cet appareil",
