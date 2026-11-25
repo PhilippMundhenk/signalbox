@@ -189,6 +189,7 @@ All notable changes to this project are documented here. The format follows
 - Translations: the UI is translatable (language from the browser or Settings), German is complete; server texts carry translatable ids, starting with the device form, setup, read errors and DHCP/address checks (#204)
 
 ### Changed
+- `device.replaced` shows the old and new base MAC address in full; serial numbers stay shortened to their last four characters (#427).
 - Notices and errors: every page, form and dialog has one notice place; a newer result replaces it, a success or new attempt clears it, page errors can be dismissed, and errors are no longer toasts (#311)
 - Topology diagram redesigned: layers by role and uplink direction with fewer crossings, parallel cables bundled with a count badge, sites as groups, wires end at the port squares, collapsible legend, device names link to their page, hover highlight, zoom/pan/pinch and a full-screen view (#303)
 - Setup preview: a test per integration (Linux, OpenWrt, MikroTik, OPNsense with its ISC SSH script, every *Fix it* remedy) checks that the credential-free preview lists every step the real plan can contain (fixing three missing ones); OPNsense with the optional SSH step now fetches the HTTPS certificate and the SSH host key together before any password, so the passwords are asked once (#290)
