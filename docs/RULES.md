@@ -214,6 +214,7 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`wan.group-last-member`](rules/multiwan.md#wangroup-last-member)
 - [`wan.monitor-local`](rules/multiwan.md#wanmonitor-local)
 - [`wan.on-backup`](rules/multiwan.md#wanon-backup)
+- [`wan.flapping`](rules/multiwan.md#wanflapping)
 - [`wan.failover-same-path`](rules/multiwan.md#wanfailover-same-path)
 - [`wan.monitor-missing`](rules/multiwan.md#wanmonitor-missing)
 - [`wan.degraded`](rules/multiwan.md#wandegraded)
@@ -704,6 +705,13 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `loss_pct` | `5` | % | Packet loss from which a line is degraded. |
 | `latency_ms` | `300` | ms | Latency from which a line is degraded. |
+
+### `wan.flapping`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `count` | `4` | count | Changes of the active line from which a group flaps. |
+| `hours` | `24` | h | Period over which the changes are counted. |
 
 ### `wifi.channel-busy`
 

@@ -170,7 +170,8 @@ async def roundtrip(url: str, changes: list[Change], secrets: dict[str, str] | N
 
 
 def test_manifest_declares_every_kind() -> None:
-    assert MikrotikAdapter.manifest.writes == frozenset(ChangeKind)
+    # gateway groups (#463) are written by a later change
+    assert MikrotikAdapter.manifest.writes == frozenset(ChangeKind) - {ChangeKind.GATEWAY_GROUP}
     assert issubclass(MikrotikAdapter, WritesConfig)
     assert ros_duration(0) == "0s" and ros_duration(90061) == "1d1h1m1s"
 
@@ -1002,9 +1003,9 @@ async def test_deployment_and_revert(
         desired = parse(WANT)
         p = plan(desired, svc.runner.network(), RULES, secret=svc.store.get_secret)
         kinds = {c.kind for c in p.changes}
-        assert kinds == set(ChangeKind) - FIREWALL_KINDS - LOGGING_KINDS, [
-            c.describe() for c in p.changes
-        ]
+        assert kinds == set(ChangeKind) - FIREWALL_KINDS - LOGGING_KINDS - {
+            ChangeKind.GATEWAY_GROUP
+        }, [c.describe() for c in p.changes]
         d = Deployer(svc.runner)
         cid = (await d.prepare(p, "tidy up the IoT network", "tester")).id
         d.approve(cid, "tester", override="test")

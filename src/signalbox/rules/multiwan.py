@@ -222,6 +222,54 @@ def on_backup(net: Network) -> Iterator[Result]:
         )
 
 
+class FlappingParams(RuleParams):
+    count: int = param(
+        4,
+        unit="count",
+        ge=2,
+        le=1000,
+        description="Changes of the active line from which a group flaps.",
+    )
+    hours: int = param(
+        24, unit="h", ge=1, le=720, description="Period over which the changes are counted."
+    )
+
+
+@history_rule(
+    "wan.flapping",
+    "A failover group keeps switching lines",
+    Severity.WARNING,
+    "The line that carries the traffic of a failover group changed at least count times (4 by "
+    "default) in the last hours hours (24 by default): failovers and failbacks, as seen in the "
+    "observation rounds. A group that switches back and forth breaks connections each time; "
+    "the usual causes are a first line that drops out now and then, or a monitor that is too "
+    "strict (an address that does not always answer pings). Switches between two rounds are "
+    "not seen. Quiet without an observation history.",
+    params=FlappingParams,
+)
+def flapping(net: Network, history: History) -> Iterator[Result]:
+    now = history.now
+    if now is None:
+        return
+    for group in sorted(net.gateway_groups, key=lambda g: g.id):
+        p = ctx.params(FlappingParams, group)
+        count = history.failovers(group.id, now - timedelta(hours=p.hours))
+        if count < p.count:
+            continue
+        device = device_name(net, group.device_id)
+        yield found(
+            f"The gateway group {group.name} on {device} switched its active line {count} "
+            f"times in the last {p.hours} hours",
+            [group.id],
+            fix="Check the first line (cable, modem, signal) and the monitor of the group: an "
+            "address that does not always answer, or limits that are too strict, make the "
+            "group switch back and forth. Raise the parameters if this is expected.",
+            mid="wan.flapping",
+            fix_id="wan.flapping.fix",
+            params={"group": group.name, "device": device, "count": count, "hours": p.hours},
+        )
+
+
 @rule(
     "wan.failover-same-path",
     "The backup line goes the same way as the first choice",
@@ -617,6 +665,7 @@ RULES: list[Rule] = [
     last_member,
     monitor_local,
     on_backup,
+    flapping,
     failover_same_path,
     monitor_missing,
     degraded,

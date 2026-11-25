@@ -36,6 +36,7 @@ from signalbox.model import (
     Annotation,
     AnnotationSource,
     DeviceRole,
+    DeviceStatus,
     Expected,
     Firewall,
     FirewallAction,
@@ -59,6 +60,7 @@ from signalbox.model import (
     check_expected,
     is_native_segment,
     normalise_mac,
+    object_id,
     passphrase_fingerprint,
     port_id,
     segment_id,
@@ -515,6 +517,35 @@ def effective_logging(spec: LoggingSpec, device_ids: list[str]) -> list[Effectiv
     return out
 
 
+# gateway groups (#463) -------------------------------------------------------------------------
+
+
+class GatewayMemberSpec(Spec):
+    """One member of a gateway group: the fields to set, the others are left as they are."""
+
+    name: str = Field(description="The device's name of the member (mwan3 interface, route)")
+    tier: Annotated[int, Field(ge=1)] | None = Field(
+        None, description="Failover tier: 1 is the first choice, higher numbers are backups"
+    )
+    weight: Annotated[int, Field(ge=0)] | None = Field(
+        None, description="Share of the load among the members of one tier"
+    )
+    monitor: list[IPAddress] | None = Field(
+        None, description="Addresses the gateway pings to check the line; [] means none"
+    )
+
+
+class GatewayGroupSpec(Spec):
+    """Tiers, weights and monitors of a gateway group the device has (#463, ADR 0032).
+    Signalbox never creates or removes groups or members; ``adopt: true`` lets a deployment
+    change the group."""
+
+    device: str
+    name: str = Field(description="The device's name of the group (mwan3 policy; default)")
+    adopt: bool = Field(False, description="Let a deployment change this group of the device")
+    members: list[GatewayMemberSpec] = Field(default_factory=list)
+
+
 def _as_datetime(value: datetime | date | None) -> datetime | None:
     if value is None or isinstance(value, datetime):
         return value
@@ -529,6 +560,8 @@ class SiteSpec(Spec):
     firewalls: list[FirewallSpec] = Field(default_factory=list)
     #: Syslog targets and the SNMP policy of the devices (#327).
     logging: LoggingSpec | None = None
+    #: Tiers, weights and monitors of the devices' gateway groups (#463).
+    gateway_groups: list[GatewayGroupSpec] = Field(default_factory=list)
     #: User annotations of objects of the site (#186).
     annotations: list[AnnotationSpec] = Field(default_factory=list)
     #: Accepted findings (#186).
@@ -574,6 +607,7 @@ class DesiredState(Spec):
                     ports=[*old.ports, *spec.ports],
                     firewalls=[*old.firewalls, *spec.firewalls],
                     logging=_merge_logging(old.logging, spec.logging),
+                    gateway_groups=[*old.gateway_groups, *spec.gateway_groups],
                     annotations=[*old.annotations, *spec.annotations],
                     acknowledgements=[*old.acknowledgements, *spec.acknowledgements],
                 )
@@ -631,6 +665,7 @@ def _check_unique(state: DesiredState, source: str) -> None:
             )
         if spec.logging is not None:
             _check_logging(spec.logging, source, site)
+        _check_groups(spec.gateway_groups, source, site)
         for fw in spec.firewalls:
             for what, names in (
                 ("rule", [firewall_key(r.name) for r in fw.rules]),
@@ -885,9 +920,29 @@ def from_network(net: Network, site_id: str) -> DesiredState:
                 ports=ports,
                 firewalls=firewalls,
                 logging=_logging_spec(net, list(devices)),
+                gateway_groups=_group_specs(net, list(devices)),
             )
         }
     )
+
+
+def _group_specs(net: Network, device_ids: list[str]) -> list[GatewayGroupSpec]:
+    """Every gateway group with all its members as the device reports them, not adopted:
+    adopting is the user's decision (ADR 0032)."""
+    return [
+        GatewayGroupSpec(
+            device=g.device_id,
+            name=g.name,
+            members=[
+                GatewayMemberSpec(
+                    name=m.name, tier=m.tier, weight=m.weight, monitor=list(m.monitor_targets)
+                )
+                for m in g.members
+            ],
+        )
+        for dev in device_ids
+        for g in net.gateway_groups_of(dev)
+    ]
 
 
 def _logging_spec(net: Network, device_ids: list[str]) -> LoggingSpec | None:
@@ -987,6 +1042,21 @@ def _firewall_spec(fw: Firewall) -> FirewallSpec | None:
 # drift ---------------------------------------------------------------------------------------
 
 SecretLookup = Callable[[str], str | None]
+
+
+def _check_groups(groups: list[GatewayGroupSpec], source: str, site: str) -> None:
+    keys = [(g.device, g.name) for g in groups]
+    dup = sorted({f"{d}/{n}" for d, n in keys if keys.count((d, n)) > 1})
+    if dup:
+        raise DesiredError(f"{source}: site {site}: gateway group declared twice: {', '.join(dup)}")
+    for g in groups:
+        names = [m.name for m in g.members]
+        dup = sorted({n for n in names if names.count(n) > 1})
+        if dup:
+            raise DesiredError(
+                f"{source}: site {site}: gateway group {g.device}/{g.name}: member declared "
+                "twice: " + ", ".join(dup)
+            )
 
 
 def _fmt(value: Any) -> str:
@@ -1313,6 +1383,51 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                         message = f"Logging of {eff.device}: {what} {name}: " + "; ".join(diffs)
                     yield found(message, [eff.device], key=f"{eff.device}/{c.key}")
 
+    def groups(net: Network) -> Iterator[Result]:
+        from signalbox.changes import GatewayGroupValue, PlanError, gateway_group_changes
+        from signalbox.sightings import ANSWERED
+
+        for site_id, spec in state.sites.items():
+            for gg in spec.gateway_groups:
+                subject = f"Gateway group {gg.name} of {gg.device}"
+                if (
+                    net.device(gg.device) is None
+                    or net.statuses.get(gg.device, DeviceStatus.OK) not in ANSWERED
+                ):
+                    yield incomplete(
+                        f"{subject}: not read", [gg.device], key=f"{gg.device}/{gg.name}"
+                    )
+                    continue
+                try:
+                    found_changes = gateway_group_changes(net, site_id, gg, planning=False)
+                except PlanError as exc:
+                    yield found(
+                        f"{subject}: {exc}",
+                        [gg.device],
+                        key=f"{gg.device}/{gg.name}",
+                        fix="Correct the desired state: Signalbox changes the members of the "
+                        "device's groups, it does not create groups or members.",
+                    )
+                    continue
+                target = object_id(gg.device, "gateway-group", gg.name)
+                for c in found_changes:
+                    assert isinstance(c.old, GatewayGroupValue)
+                    assert isinstance(c.new, GatewayGroupValue)
+                    have = {m.name: m.model_dump(mode="json") for m in c.old.members}
+                    for m in c.new.members:
+                        want, now = m.model_dump(mode="json"), have[m.name]
+                        diffs = [
+                            _differ(k, want[k], now.get(k))
+                            for k in ("tier", "weight", "monitor")
+                            if now.get(k) != want[k]
+                        ]
+                        if diffs:
+                            yield found(
+                                f"{subject}: member {m.name}: " + "; ".join(diffs),
+                                [target],
+                                key=f"{gg.device}/{gg.name}/{m.name}",
+                            )
+
     explanation = (
         "The observed configuration differs from the desired state. Either deploy the desired "
         "state, or change the desired state to accept what is there."
@@ -1356,6 +1471,15 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
             + " Only the syslog targets Signalbox created or was told to adopt are compared "
             "with a change; the SNMP policy is compared by the state of the agent.",
             logging,
+        ),
+        Rule(
+            "drift.gateway-group",
+            "Gateway group differs from the desired state",
+            Severity.WARNING,
+            explanation
+            + " Tiers are compared by their order, monitor addresses as a set; only the "
+            "declared fields of the declared members are compared.",
+            groups,
         ),
     ]
 
