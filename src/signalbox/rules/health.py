@@ -1,7 +1,7 @@
 """Device health rules (checks #130, #131 and the health checks of #178).
 
 They read :class:`~signalbox.model.DeviceHealth` and stay silent for devices that do not report
-a value. Thresholds are fixed for now (rule parameters are issue #187); they are all here.
+a value. The thresholds are rule parameters (#187); the constants here are their defaults.
 """
 
 from __future__ import annotations
@@ -10,7 +10,17 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta
 
 from signalbox.model import Device, DeviceHealth, Network, RebootReason, StorageKind
-from signalbox.rules import Result, Rule, Severity, found, history_rule, rule
+from signalbox.rules import (
+    Result,
+    Rule,
+    RuleParams,
+    Severity,
+    ctx,
+    found,
+    history_rule,
+    param,
+    rule,
+)
 from signalbox.sightings import CPU_HIGH_PCT, History, parse_boot
 
 #: Memory in use (programs, not page cache) from which a device is reported, in percent.
@@ -36,6 +46,54 @@ REBOOT_COUNT = 3
 REBOOT_MIN_SHIFT = timedelta(minutes=3)
 #: Reasons of planned restarts: not reported.
 PLANNED_REBOOTS = frozenset({RebootReason.UPGRADE.value, RebootReason.USER.value})
+
+
+class ResourceParams(RuleParams):
+    memory_pct: float = param(
+        MEMORY_PCT, unit="%", ge=1, le=100, description="Memory in use from which it is reported."
+    )
+    temperature_c: float = param(
+        TEMPERATURE_C,
+        unit="°C",
+        ge=20,
+        le=150,
+        description="Temperature limit for sensors that report no limit of their own.",
+    )
+
+
+class StorageParams(RuleParams):
+    warn_pct: float = param(
+        STORAGE_PCT, unit="%", ge=1, le=100, description="Fill level from which it is a warning."
+    )
+    error_pct: float = param(
+        STORAGE_ERROR_PCT,
+        unit="%",
+        ge=1,
+        le=100,
+        description="Fill level from which it is an error.",
+    )
+
+
+class UpsRuntimeParams(RuleParams):
+    minutes: int = param(
+        int(UPS_RUNTIME.total_seconds() // 60),
+        unit="min",
+        ge=1,
+        le=600,
+        description="Remaining runtime below which it is reported.",
+    )
+
+
+class UpsTestParams(RuleParams):
+    days: int = param(
+        UPS_TEST_AGE.days, unit="d", ge=1, le=3650, description="Age of the last self-test."
+    )
+
+
+class UptimeParams(RuleParams):
+    days: int = param(
+        UPTIME_LONG.days, unit="d", ge=1, le=3650, description="Uptime from which it is reported."
+    )
 
 
 def _healthy(net: Network) -> Iterator[tuple[Device, DeviceHealth]]:
@@ -70,11 +128,13 @@ def _when(at: datetime) -> str:
     "clients; an overheating switch in a cupboard fails in summer. Memory counts what programs "
     "use (not the page cache); CPU load is reported only when it was high in two consecutive "
     "observations; temperatures are compared with the sensor's own limit, or a generic one.",
+    params=ResourceParams,
 )
 def resources(net: Network, history: History) -> Iterator[Result]:
     for dev, h in _healthy(net):
+        p = ctx.params(ResourceParams, dev)
         mem = h.memory_used_pct()
-        if mem is not None and mem >= MEMORY_PCT:
+        if mem is not None and mem >= p.memory_pct:
             yield found(
                 f"{dev.name} has {_pct(mem)} of its memory in use",
                 [dev.id],
@@ -110,7 +170,7 @@ def resources(net: Network, history: History) -> Iterator[Result]:
                 },
             )
         for sensor in h.temperatures:
-            limit = sensor.limit_c if sensor.limit_c is not None else TEMPERATURE_C
+            limit = sensor.limit_c if sensor.limit_c is not None else p.temperature_c
             if sensor.value_c >= limit:
                 own = "its limit" if sensor.limit_c is not None else "the generic limit"
                 yield found(
@@ -140,14 +200,16 @@ def resources(net: Network, history: History) -> Iterator[Result]:
     "A full system storage (OpenWrt overlay, flash, root file system) means settings can no "
     "longer be saved and firmware or package updates fail; a full data disk stops logging. "
     "RAM-backed storage (tmpfs) is not counted: it is memory.",
+    params=StorageParams,
 )
 def storage_full(net: Network) -> Iterator[Result]:
     for dev, h in _healthy(net):
+        p = ctx.params(StorageParams, dev)
         for st in h.storage:
             if st.kind not in (StorageKind.SYSTEM, StorageKind.DATA):
                 continue
             used = st.used_pct()
-            if used is None or used < STORAGE_PCT:
+            if used is None or used < p.warn_pct:
                 continue
             what = "system storage" if st.kind is StorageKind.SYSTEM else "storage"
             yield found(
@@ -155,7 +217,7 @@ def storage_full(net: Network) -> Iterator[Result]:
                 [dev.id],
                 fix="Remove unused packages, old logs or firmware images, or move logs to "
                 "another disk. Settings and updates fail when it is full.",
-                severity=Severity.ERROR if used >= STORAGE_ERROR_PCT else None,
+                severity=Severity.ERROR if used >= p.error_pct else None,
                 key=st.name,
                 mid="health.systemStorage" if st.kind is StorageKind.SYSTEM else "health.storage",
                 fix_id="health.storage.fix",
@@ -246,10 +308,11 @@ def ups_on_battery(net: Network) -> Iterator[Result]:
     "A UPS whose battery lasts only a few minutes at the present load cannot carry the network "
     "through a short power cut or give servers time for a clean shutdown. Usually the battery "
     "is old, or the UPS carries more load than it was meant for.",
+    params=UpsRuntimeParams,
 )
 def ups_runtime_low(net: Network) -> Iterator[Result]:
-    limit = int(UPS_RUNTIME.total_seconds())
     for dev, h in _healthy(net):
+        limit = ctx.params(UpsRuntimeParams, dev).minutes * 60
         for ups in h.ups:
             if ups.runtime_seconds is None or ups.runtime_seconds >= limit:
                 continue
@@ -279,14 +342,16 @@ def ups_runtime_low(net: Network) -> Iterator[Result]:
     Severity.INFO,
     "A UPS battery ages without anyone noticing; a self-test finds a dead battery before the "
     "next power cut does. Reported when the last self-test the UPS reports is more than 180 "
-    "days ago; silent when it reports none.",
+    "days ago (parameter days); silent when it reports none.",
+    params=UpsTestParams,
 )
 def ups_not_tested(net: Network, history: History) -> Iterator[Result]:
     if history.now is None:
         return
     for dev, h in _healthy(net):
+        age_limit = timedelta(days=ctx.params(UpsTestParams, dev).days)
         for ups in h.ups:
-            if ups.last_test is None or history.now - ups.last_test < UPS_TEST_AGE:
+            if ups.last_test is None or history.now - ups.last_test < age_limit:
                 continue
             age = _span(history.now - ups.last_test)
             yield found(
@@ -307,10 +372,11 @@ def ups_not_tested(net: Network, history: History) -> Iterator[Result]:
     "A device that has not restarted for more than a year has not had a firmware update in that "
     "time either (updates restart it), and some problems only show at the next restart, for "
     "example settings that were never saved.",
+    params=UptimeParams,
 )
 def uptime_very_long(net: Network) -> Iterator[Result]:
-    limit = UPTIME_LONG.total_seconds()
     for dev, h in _healthy(net):
+        limit = ctx.params(UptimeParams, dev).days * 86400
         if h.uptime_seconds is not None and h.uptime_seconds >= limit:
             yield found(
                 f"{dev.name} has been running for {h.uptime_seconds // 86400} days without a "

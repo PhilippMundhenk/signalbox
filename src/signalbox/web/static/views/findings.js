@@ -74,6 +74,25 @@ function ackLine(f, onDone) {
   );
 }
 
+// The parameter values a finding was judged with and where each came from (#187).
+function paramsLine(f) {
+  if (!f.parameters || !f.parameters.length) return null;
+  const origin = (p) => {
+    if (p.origin === 'scope') return t('findings.params.scope', { scope: p.scope || '' });
+    return p.origin === 'rule' ? t('findings.params.rule') : t('findings.params.default');
+  };
+  const value = (p) => {
+    const v = typeof p.value === 'number' ? fmtNumber(p.value) : String(p.value);
+    return p.unit && p.unit !== 'count' ? `${v} ${p.unit}` : v;
+  };
+  return h(
+    'p',
+    { class: 'muted small', 'data-testid': 'finding-params' },
+    t('findings.params.label'),
+    f.parameters.map((p, i) => [i ? ' · ' : '', h('code', {}, p.name), ` = ${value(p)} (${origin(p)})`]),
+  );
+}
+
 // fixable(f): the device's integration offers the finding's remedy (Fix it, #215).
 function findingCard(ix, rec, onDone, fixable = () => false) {
   const f = rec.finding;
@@ -90,6 +109,7 @@ function findingCard(ix, rec, onDone, fixable = () => false) {
     h('p', { 'data-testid': 'finding-message' }, findingMessage(f)),
     f.objects.length ? h('p', { class: 'objects' }, h('span', { class: 'muted' }, t('findings.affects')), f.objects.map((id, i) => [i ? ', ' : '', objectRef(ix, id)])) : null,
     f.fix ? h('p', { class: 'fix', 'data-testid': 'finding-fix' }, h('strong', {}, t('findings.howToFix')), findingFix(f)) : null,
+    paramsLine(f),
     !resolved && fixable(f) ? h('p', {}, h('a', { class: 'btn small', href: `#/device/${encodeURIComponent(f.objects[0])}`, 'data-testid': 'finding-fix-it' }, t('findings.fixIt'))) : null,
     f.acknowledged ? ackLine(f, onDone) : null,
     h(

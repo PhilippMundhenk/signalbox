@@ -14,7 +14,9 @@ def load_tool():  # type: ignore[no-untyped-def]
     return mod
 
 
-@pytest.mark.parametrize("name", ["CONFIGURATION.md", "MATURITY.md"])
+@pytest.mark.parametrize(
+    "name", ["CONFIGURATION.md", "MATURITY.md", "RULES.md", "rules-schema.json"]
+)
 def test_generated_docs_are_current(name: str) -> None:
     mod = load_tool()
     assert (ROOT / "docs" / name).read_text() == mod.OUTPUTS[name](), "run python tools/gen_docs.py"

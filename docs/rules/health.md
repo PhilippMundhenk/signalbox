@@ -4,8 +4,8 @@
 
 These checks read the health values a device reports (uptime, CPU, memory, storage, sensors,
 fans, power supplies, UPS; capability `health`). Devices report very different subsets: a check
-stays silent for a device that does not report its value. The thresholds are fixed for now
-(configurable rule parameters are issue #187):
+stays silent for a device that does not report its value. The default thresholds (most can be
+changed per site, device or network, see [Parameters](../RULES.md#parameters)):
 
 | Value | Threshold |
 | --- | --- |

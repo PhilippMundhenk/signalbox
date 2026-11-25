@@ -13,7 +13,17 @@ from collections.abc import Iterator
 from datetime import timedelta
 
 from signalbox.model import PRIVILEGE_RANK, AccountPrivilege, Device, DeviceAccount, Network
-from signalbox.rules import Result, Rule, Severity, found, history_rule, rule
+from signalbox.rules import (
+    Result,
+    Rule,
+    RuleParams,
+    Severity,
+    ctx,
+    found,
+    history_rule,
+    param,
+    rule,
+)
 from signalbox.rules.vlan import address_segment
 from signalbox.sightings import History
 
@@ -155,6 +165,10 @@ def no_password(net: Network) -> Iterator[Result]:
         )
 
 
+class StaleParams(RuleParams):
+    days: int = param(STALE_DAYS, unit="d", ge=1, le=3650, description="Days without a login.")
+
+
 @history_rule(
     "account.stale",
     "Administrator account not used for a long time",
@@ -162,14 +176,16 @@ def no_password(net: Network) -> Iterator[Result]:
     f"An enabled administrator account that did not log in for {STALE_DAYS} days, or never "
     f"while Signalbox has known the device for {STALE_DAYS} days, is a forgotten way in. Only "
     "for devices that report login times (MikroTik); Signalbox's own login is left out. Needs "
-    "the observation history clock.",
+    "the observation history clock. The days are the parameter days.",
+    params=StaleParams,
 )
 def stale(net: Network, history: History) -> Iterator[Result]:
     now = history.now
     if now is None:
         return
-    limit = now - timedelta(days=STALE_DAYS)
     for dev in _devices(net):
+        days = ctx.params(StaleParams, dev).days
+        limit = now - timedelta(days=days)
         known = history.devices.get(dev.id)
         known_long = known is not None and known.first_seen <= limit
         hits = [
@@ -183,13 +199,12 @@ def stale(net: Network, history: History) -> Iterator[Result]:
         if not hits:
             continue
         yield found(
-            f"{dev.name} has {len(hits)} administrator account(s) without a login for "
-            f"{STALE_DAYS} days",
+            f"{dev.name} has {len(hits)} administrator account(s) without a login for {days} days",
             [dev.id],
             fix="Disable or delete the accounts marked on the device page if nobody needs them.",
             mid="account.stale",
             fix_id="account.stale.fix",
-            params={"device": dev.name, "count": len(hits), "days": STALE_DAYS},
+            params={"device": dev.name, "count": len(hits), "days": days},
         )
 
 

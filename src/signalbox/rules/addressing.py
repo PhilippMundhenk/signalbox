@@ -26,7 +26,17 @@ from signalbox.model import (
     Subnet,
     Uplink,
 )
-from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
+from signalbox.rules import (
+    Result,
+    Rule,
+    RuleParams,
+    Severity,
+    ctx,
+    found,
+    incomplete,
+    param,
+    rule,
+)
 from signalbox.rules._names import device_name, router_subnets, segment_name, site_of_device
 
 # --- helpers -------------------------------------------------------------------------------------
@@ -347,9 +357,18 @@ class _Usage:
     used: int
     seen: int
 
-    @property
-    def high(self) -> bool:
-        return self.used > 0.8 * self.available
+    def high(self, pct: float) -> bool:
+        return self.used > pct / 100 * self.available
+
+
+class PoolParams(RuleParams):
+    high_pct: float = param(
+        80,
+        unit="%",
+        ge=1,
+        le=100,
+        description="Share of the pool in use above which it is reported as nearly full.",
+    )
 
 
 def _usage(net: Network, srv: DhcpServer) -> _Usage | None:
@@ -400,7 +419,9 @@ def _usage(net: Network, srv: DhcpServer) -> _Usage | None:
     Severity.WARNING,
     "When the address pool of a network is full, new phones, guests or a replaced device get no "
     "address and fall back to 169.254.x.x. Small pools with long lease times run out quickly, "
-    "because every visitor keeps an address for days.",
+    "because every visitor keeps an address for days. Nearly full means more than 80 % of "
+    "the free addresses in use (parameter high_pct).",
+    params=PoolParams,
 )
 def pool_usage(net: Network) -> Iterator[Result]:
     for srv in _enabled(net):
@@ -427,7 +448,7 @@ def pool_usage(net: Network) -> Iterator[Result]:
                 fix_id="addr.pool.fix",
                 params={"label": label, "count": usage.available, "used": usage.used},
             )
-        elif usage.high:
+        elif usage.high(ctx.params(PoolParams, srv).high_pct):
             yield found(
                 f"The pool of {label} has {size} and {usage.used} are in use",
                 [srv.id],
@@ -449,8 +470,23 @@ def pool_usage(net: Network) -> Iterator[Result]:
             )
 
 
-#: Lease times outside these bounds (seconds) are reported.
+#: Lease times outside these bounds (seconds) are reported (defaults of the parameters).
 LEASE_MIN, LEASE_MAX, GUEST_LEASE_MAX = 5 * 60, 7 * 86400, 86400
+
+
+class LeaseParams(RuleParams):
+    min_seconds: int = param(
+        LEASE_MIN, unit="s", ge=1, description="Leases shorter than this are reported."
+    )
+    max_seconds: int = param(
+        LEASE_MAX, unit="s", ge=1, description="Leases longer than this are reported."
+    )
+    guest_max_seconds: int = param(
+        GUEST_LEASE_MAX,
+        unit="s",
+        ge=1,
+        description="Leases longer than this are reported on guest networks.",
+    )
 
 
 def _duration(seconds: int) -> str:
@@ -478,7 +514,10 @@ def _is_guest(net: Network, segment_id: str) -> bool:
     Severity.INFO,
     "Very short leases cause constant DHCP traffic and short outages when the server is busy. "
     "Very long leases exhaust small pools (every visitor keeps an address) and keep moved "
-    "devices on old addresses for days.",
+    "devices on old addresses for days. By default shorter than 5 minutes, longer than 7 "
+    "days, or longer than a day on a guest network (parameters min_seconds, max_seconds, "
+    "guest_max_seconds).",
+    params=LeaseParams,
 )
 def lease_time(net: Network) -> Iterator[Result]:
     for srv in _enabled(net):
@@ -495,7 +534,9 @@ def lease_time(net: Network) -> Iterator[Result]:
             continue  # every client has a fixed lease
         label = segment_name(net, srv.segment_id)
         usage = _usage(net, srv)
-        severity = Severity.WARNING if usage and usage.high else None
+        high = usage is not None and usage.high(ctx.params(PoolParams, srv).high_pct)
+        severity = Severity.WARNING if high else None
+        p = ctx.params(LeaseParams, srv)
         lead = f"{_server_name(net, srv, 'The')} hands out leases of {_duration(seconds)}"
         lease_values = {
             "device": device_name(net, srv.device_id),
@@ -503,7 +544,7 @@ def lease_time(net: Network) -> Iterator[Result]:
             "label": label,
         }
         fix = "Use 12-24 hours (a few hours on guest networks)."
-        if seconds < LEASE_MIN:
+        if seconds < p.min_seconds:
             yield found(
                 f"{lead} on {label}, which is very short",
                 [srv.id],
@@ -512,7 +553,7 @@ def lease_time(net: Network) -> Iterator[Result]:
                 fix_id="addr.lease.fix",
                 params=lease_values,
             )
-        elif seconds > LEASE_MAX:
+        elif seconds > p.max_seconds:
             yield found(
                 f"{lead} on {label}, which is very long",
                 [srv.id],
@@ -522,7 +563,7 @@ def lease_time(net: Network) -> Iterator[Result]:
                 fix_id="addr.lease.fix",
                 params=lease_values,
             )
-        elif seconds > GUEST_LEASE_MAX and _is_guest(net, srv.segment_id):
+        elif seconds > p.guest_max_seconds and _is_guest(net, srv.segment_id):
             yield found(
                 f"{lead} on the guest network {label}; visitors keep their address that long",
                 [srv.id],

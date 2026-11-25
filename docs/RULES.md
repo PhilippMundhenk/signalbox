@@ -321,3 +321,94 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`wifi.country`](rules/wireless.md#wificountry)
 - [`wifi.channel-overlap`](rules/wireless.md#wifichannel-overlap)
 - [`wifi.segment-at-gateway`](rules/wireless.md#wifisegment-at-gateway)
+
+## Parameters
+
+The thresholds of these rules can be changed in the configuration, for all objects
+(`rules.<id>.params`) or for some sites, devices or networks (`rules.<id>.scopes`, see
+[CONFIGURATION.md](CONFIGURATION.md#rules)). A finding lists the values it was judged with and
+where each came from. The defaults are the values the rules used before they had parameters.
+
+### `account.stale`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `days` | `90` | d | Days without a login. |
+
+### `device.resources`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `memory_pct` | `90` | % | Memory in use from which it is reported. |
+| `temperature_c` | `85` | °C | Temperature limit for sensors that report no limit of their own. |
+
+### `dhcp.lease-time`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `min_seconds` | `300` | s | Leases shorter than this are reported. |
+| `max_seconds` | `604800` | s | Leases longer than this are reported. |
+| `guest_max_seconds` | `86400` | s | Leases longer than this are reported on guest networks. |
+
+### `dhcp.pool-usage`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `high_pct` | `80` | % | Share of the pool in use above which it is reported as nearly full. |
+
+### `health.storage-full`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `warn_pct` | `90` | % | Fill level from which it is a warning. |
+| `error_pct` | `98` | % | Fill level from which it is an error. |
+
+### `health.ups-not-tested`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `days` | `180` | d | Age of the last self-test. |
+
+### `health.ups-runtime-low`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `minutes` | `10` | min | Remaining runtime below which it is reported. |
+
+### `health.uptime-very-long`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `days` | `365` | d | Uptime from which it is reported. |
+
+### `poe.budget`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `warn_pct` | `80` | % | Share of the budget in use from which it is a warning (100 % is an error). |
+
+### `time.offset`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `max_seconds` | `60` | s | Clock offset allowed beyond the uncertainty of the read. |
+
+### `vpn.handshake-stale`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `minutes` | `5` | min | Time without a handshake after which a peer is reported. |
+
+### `wifi.channel-busy`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `info_pct` | `60` | % | Utilisation reported as information. |
+| `warning_pct` | `80` | % | Utilisation reported as a warning. |
+
+### `wifi.channel-crowded`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `dbm` | `-80` | dBm | Neighbours weaker than this are not counted. |
+| `count` | `3` | count | Neighbours from which it is reported. |

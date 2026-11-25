@@ -1,8 +1,8 @@
 """Clock, NTP and time zone rules (check #129, model #179).
 
 They read :class:`~signalbox.model.DeviceTime` and ``DhcpServer.ntp_servers`` and stay silent
-for devices that do not report a value. Thresholds are fixed for now (rule parameters are issue
-#187); they are all here.
+for devices that do not report a value. ``time.offset`` has a parameter (#187); the other
+thresholds are fixed and all here.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from ipaddress import ip_network
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from signalbox.model import Device, DeviceRole, DeviceTime, IPAddress, Network
-from signalbox.rules import Result, Rule, Severity, found, rule
+from signalbox.rules import Result, Rule, RuleParams, Severity, ctx, found, param, rule
 from signalbox.rules._names import device_name, segment_name
 from signalbox.rules.dns import _Index, _local_segment, _parse
 
@@ -72,6 +72,15 @@ def _local_servers(net: Network, site: str) -> list[Device]:
     return [d for d in net.devices if d.site_id == site and _serves(d)]
 
 
+class OffsetParams(RuleParams):
+    max_seconds: float = param(
+        OFFSET_SECONDS,
+        unit="s",
+        ge=1,
+        description="Clock offset allowed beyond the uncertainty of the read.",
+    )
+
+
 def _site_name(net: Network, site: str) -> str:
     return next((s.name for s in net.sites if s.id == site), site)
 
@@ -88,12 +97,15 @@ def _servers_text(net: Network, servers: list[Device]) -> str:
     '(certificates "not yet valid"), WPA3 and 802.1X, VPN handshakes and scheduled Wi-Fi or '
     "parental-control times. A device without a battery-backed clock starts in 1970 after a "
     "power cut until NTP corrects it. The device's clock is compared with Signalbox's at the "
-    "moment it was read; the request's round trip is allowed for.",
+    "moment it was read; the request's round trip is allowed for, plus 60 seconds "
+    "(parameter max_seconds).",
+    params=OffsetParams,
 )
 def offset(net: Network) -> Iterator[Result]:
     for dev, t in _timed(net):
         off = t.offset_seconds()
-        if off is None or abs(off) <= OFFSET_SECONDS + (t.uncertainty_seconds or 0.0):
+        allowed = ctx.params(OffsetParams, dev).max_seconds
+        if off is None or abs(off) <= allowed + (t.uncertainty_seconds or 0.0):
             continue
         way = "ahead" if off > 0 else "behind"
         local = [d for d in _local_servers(net, dev.site_id) if d.id != dev.id]

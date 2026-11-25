@@ -4,6 +4,8 @@
 
 - docs/CONFIGURATION.md: every setting with its environment variable, default and meaning
 - docs/MATURITY.md: what every adapter can read, and what is confirmed on real devices
+- docs/RULES.md: the rule groups in docs/rules/ and every rule parameter (#187)
+- docs/rules-schema.json: JSON Schema of the rules: section with every rule's parameters
 
 Tests fail when the committed files differ from what this writes.
 """
@@ -23,6 +25,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from signalbox.adapters import Capability, load_adapters  # noqa: E402
 from signalbox.changes import ChangeKind  # noqa: E402
 from signalbox.config import Config, Section  # noqa: E402
+from signalbox.rules import load_rules, rules_schema  # noqa: E402
+from signalbox.rules._params import unit_of  # noqa: E402
 
 REPORTS = ROOT / "docs" / "hardware-reports.json"
 
@@ -69,14 +73,34 @@ def configuration() -> str:
     lines += [
         "## `rules`",
         "",
-        "Per rule (ids in [RULES.md](RULES.md)): `enabled` (true/false) and `severity`",
-        "(info/warning/error). Only in the file:",
+        "Per rule (ids in [RULES.md](RULES.md)): `enabled` (true/false), `severity`",
+        "(info/warning/error), `params` (the rule's parameters, listed with default and unit in",
+        "[RULES.md](RULES.md#parameters)) and `scopes`: settings for some objects only. Only in",
+        "the file:",
         "",
         "```yaml",
         "rules:",
         "  wifi.channel-overlap: {enabled: false}",
         "  dhcp.one-server: {severity: warning}",
+        "  health.storage-full:",
+        "    params: {warn_pct: 80, error_pct: 95}",
+        "    scopes:",
+        "      - match: {site: lab}",
+        "        params: {warn_pct: 95}",
+        "      - match: {segment_purpose: guest}",
+        "        enabled: false",
         "```",
+        "",
+        "A scope's `match` takes `site`, `device` (id or name), `device_role`, `segment` (id, name",
+        "or VLAN id), `segment_purpose` and `tag` (a tag of the object's annotation); every",
+        "selector given must match. A finding belongs to its first affected object: a port or",
+        "server counts for its device and network. When several scopes match, the most specific",
+        "wins (device, then network, tag, role or purpose, site; more selectors before fewer),",
+        "and among equally specific ones the first listed. A scope changes only what it sets.",
+        "Parameters are checked at start: an unknown name or a value out of range stops",
+        "Signalbox with the setting's path. The JSON Schema of the whole section is",
+        "[rules-schema.json](rules-schema.json)",
+        "([ADR 0027](adr/0027-rule-parameters-and-scopes.md)).",
         "",
     ]
     return "\n".join(lines)
@@ -168,13 +192,41 @@ def rules_index() -> str:
         lines.append(f"## [{title.group(1) if title else path.stem}](rules/{path.name})\n\n")
         lines.extend(f"- [`{i}`](rules/{path.name}#{re.sub(r'[^a-z0-9-]', '', i)})\n" for i in ids)
         lines.append("\n")
+    lines.append(PARAMS_INTRO)
+    for r in load_rules():
+        if r.params is None:
+            continue
+        lines.append(f"### `{r.id}`\n\n| Parameter | Default | Unit | Meaning |\n")
+        lines.append("| --- | --- | --- | --- |\n")
+        for name, info in r.params.model_fields.items():
+            unit = unit_of(r.params, name)
+            default = info.default
+            if isinstance(default, float) and default.is_integer():
+                default = int(default)
+            lines.append(f"| `{name}` | `{default}` | {unit} | {info.description} |\n")
+        lines.append("\n")
     return "".join(lines).rstrip("\n") + "\n"
+
+
+PARAMS_INTRO = """## Parameters
+
+The thresholds of these rules can be changed in the configuration, for all objects
+(`rules.<id>.params`) or for some sites, devices or networks (`rules.<id>.scopes`, see
+[CONFIGURATION.md](CONFIGURATION.md#rules)). A finding lists the values it was judged with and
+where each came from. The defaults are the values the rules used before they had parameters.
+
+"""
+
+
+def rules_schema_json() -> str:
+    return json.dumps(rules_schema(load_rules()), indent=2, ensure_ascii=False) + "\n"
 
 
 OUTPUTS = {
     "CONFIGURATION.md": configuration,
     "MATURITY.md": maturity,
     "RULES.md": rules_index,
+    "rules-schema.json": rules_schema_json,
 }
 
 if __name__ == "__main__":

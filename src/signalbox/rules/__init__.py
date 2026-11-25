@@ -10,6 +10,11 @@ A rule is a plain function over a :class:`~signalbox.model.Network` that yields
         ...
         yield found(f"{n} DHCP servers on {seg}", [seg.id, *ids], fix="Disable all but one.")
 
+A rule with thresholds declares a :class:`RuleParams` model next to it, names it in the
+decorator (``params=``) and reads the values with :data:`ctx` (``ctx.params(Model, obj)``) for
+the object they apply to, so the configuration can change them per site, device or network
+(#187, ADR 0027).
+
 A rule that needs the past (first/last seen, status and link changes) uses
 :func:`history_rule` and receives a read-only :class:`~signalbox.sightings.History` as a second
 argument.
@@ -24,8 +29,8 @@ import hashlib
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import StrEnum
 from importlib.metadata import entry_points
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -37,13 +42,37 @@ from signalbox.model import (
     MessageValue,
     Network,
 )
+from signalbox.rules._params import (
+    AppliedParam,
+    ParamOrigin,
+    Resolver,
+    RuleContext,
+    RuleParams,
+    RuleScope,
+    RuleSettings,
+    ScopeMatch,
+    Severity,
+    active,
+    bind,
+    check_settings,
+    ctx,
+    param,
+    params_schema,
+)
 from signalbox.sightings import History
 
-
-class Severity(StrEnum):
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
+__all__ = [
+    "AppliedParam",
+    "ParamOrigin",
+    "RuleContext",
+    "RuleParams",
+    "RuleScope",
+    "RuleSettings",
+    "ScopeMatch",
+    "Severity",
+    "ctx",
+    "param",
+]
 
 
 SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
@@ -74,6 +103,9 @@ class Finding(BaseModel):
     #: The user's acknowledgement that covers this finding (#186): it is shown apart and not
     #: counted as a problem (start page, MQTT, plan approval). None: not acknowledged.
     acknowledged: Acknowledgement | None = None
+    #: The parameter values the finding was judged with and where each came from (default,
+    #: the rule's ``params`` or a scope; #187). Empty for a rule without parameters.
+    parameters: list[AppliedParam] = Field(default_factory=list)
 
     @property
     def problem(self) -> bool:
@@ -145,19 +177,36 @@ class Rule:
     default_enabled: bool = True
     #: Set for a rule that needs the observation history (see :func:`history_rule`).
     history_check: HistoryCheck | None = field(default=None, compare=False)
+    #: The rule's parameter model (#187); its values are read with ``ctx.params``.
+    params: type[RuleParams] | None = field(default=None, compare=False)
 
 
 def rule(
-    id: str, title: str, severity: Severity, explanation: str, *, enabled: bool = True
+    id: str,
+    title: str,
+    severity: Severity,
+    explanation: str,
+    *,
+    enabled: bool = True,
+    params: type[RuleParams] | None = None,
 ) -> Callable[[Check], Rule]:
+    if params is not None:
+        bind(params, id)
+
     def wrap(fn: Check) -> Rule:
-        return Rule(id, title, severity, explanation, fn, enabled)
+        return Rule(id, title, severity, explanation, fn, enabled, None, params)
 
     return wrap
 
 
 def history_rule(
-    id: str, title: str, severity: Severity, explanation: str, *, enabled: bool = True
+    id: str,
+    title: str,
+    severity: Severity,
+    explanation: str,
+    *,
+    enabled: bool = True,
+    params: type[RuleParams] | None = None,
 ) -> Callable[[HistoryCheck], Rule]:
     """Like :func:`rule` for a check of ``(net, history)``.
 
@@ -165,6 +214,9 @@ def history_rule(
     installation): such a rule must stay silent then. Called as ``rule.check(net)`` it sees an
     empty history.
     """
+
+    if params is not None:
+        bind(params, id)
 
     def wrap(fn: HistoryCheck) -> Rule:
         return Rule(
@@ -175,18 +227,27 @@ def history_rule(
             lambda net: fn(net, History.empty()),
             enabled,
             fn,
+            params,
         )
 
     return wrap
 
 
-class RuleSettings(BaseModel):
-    """Per-rule configuration: ``rules: {dhcp.one-server: {enabled: false}}``."""
+def parameter_models(rules: Iterable[Rule]) -> dict[str, type[RuleParams]]:
+    """Rule id -> parameter model, for the rules that have parameters."""
+    return {r.id: r.params for r in rules if r.params is not None}
 
-    model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = True
-    severity: Severity | None = None
+def check_rule_settings(rules: Iterable[Rule], settings: Mapping[str, RuleSettings]) -> list[str]:
+    """Problems of the ``rules:`` configuration against the installed rules (empty: fine)."""
+    rules = list(rules)
+    known = set(all_rule_ids(rules))
+    return check_settings(parameter_models(rules), settings, known)
+
+
+def rules_schema(rules: Iterable[Rule]) -> dict[str, Any]:
+    """JSON Schema of the ``rules:`` configuration with every rule's parameters."""
+    return params_schema(parameter_models(rules))
 
 
 def finding_id(rule_id: str, objects: Iterable[str], key: str = "") -> str:
@@ -376,17 +437,29 @@ def evaluate(
     if enabled(ACK_EXPIRED):
         for f in _expired_findings(net, when, severity_of(ACK_EXPIRED)):
             findings[f.id] = f
+    rules = list(rules)
+    resolver = Resolver(net, settings, parameter_models(rules))
     for r in rules:
-        if not enabled(r):
+        scoped = resolver.has_scopes(r.id)
+        s = settings.get(r.id)
+        some_scope_on = scoped and s is not None and any(x.enabled for x in s.scopes)
+        if not enabled(r) and not some_scope_on:
             continue
         try:
-            results = list(r.history_check(net, past) if r.history_check else r.check(net))
+            with active(resolver):
+                results = list(r.history_check(net, past) if r.history_check else r.check(net))
         except Exception as exc:  # a broken rule must be visible
             results = [
                 Result(f"rule failed: {type(exc).__name__}: {exc}", (), None, Severity.ERROR)
             ]
         for res in results:
-            f = _finding(r, res, severity_of(r))
+            about = res.objects[0] if res.objects else None
+            on, severity = resolver.scoped(r.id, about) if scoped else (None, None)
+            if not (enabled(r) if on is None else on):
+                continue
+            f = _finding(r, res, severity or severity_of(r))
+            if r.params is not None:
+                f = f.model_copy(update={"parameters": resolver.applied(r.id, about)})
             findings.setdefault(f.id, f)
     return sorted(
         acknowledge(findings.values(), net, when),

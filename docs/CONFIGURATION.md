@@ -139,11 +139,31 @@ Generated from the code by `tools/gen_docs.py`.
 
 ## `rules`
 
-Per rule (ids in [RULES.md](RULES.md)): `enabled` (true/false) and `severity`
-(info/warning/error). Only in the file:
+Per rule (ids in [RULES.md](RULES.md)): `enabled` (true/false), `severity`
+(info/warning/error), `params` (the rule's parameters, listed with default and unit in
+[RULES.md](RULES.md#parameters)) and `scopes`: settings for some objects only. Only in
+the file:
 
 ```yaml
 rules:
   wifi.channel-overlap: {enabled: false}
   dhcp.one-server: {severity: warning}
+  health.storage-full:
+    params: {warn_pct: 80, error_pct: 95}
+    scopes:
+      - match: {site: lab}
+        params: {warn_pct: 95}
+      - match: {segment_purpose: guest}
+        enabled: false
 ```
+
+A scope's `match` takes `site`, `device` (id or name), `device_role`, `segment` (id, name
+or VLAN id), `segment_purpose` and `tag` (a tag of the object's annotation); every
+selector given must match. A finding belongs to its first affected object: a port or
+server counts for its device and network. When several scopes match, the most specific
+wins (device, then network, tag, role or purpose, site; more selectors before fewer),
+and among equally specific ones the first listed. A scope changes only what it sets.
+Parameters are checked at start: an unknown name or a value out of range stops
+Signalbox with the setting's path. The JSON Schema of the whole section is
+[rules-schema.json](rules-schema.json)
+([ADR 0027](adr/0027-rule-parameters-and-scopes.md)).

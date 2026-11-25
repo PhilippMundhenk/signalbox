@@ -16,12 +16,22 @@ from signalbox.model import (
     Network,
     PoeStatus,
 )
-from signalbox.rules import Result, Rule, Severity, found, rule
+from signalbox.rules import Result, Rule, RuleParams, Severity, ctx, found, param, rule
 
 #: Share of the budget from which the draw counts as near the limit (warning); 100 % is an error.
 WARN_SHARE = 0.8
 #: Tolerance above the class limit (measurement error) before a port counts as overdrawing.
 CLASS_MARGIN = 1.05
+
+
+class PoeParams(RuleParams):
+    warn_pct: float = param(
+        WARN_SHARE * 100,
+        unit="%",
+        ge=1,
+        le=100,
+        description="Share of the budget in use from which it is a warning (100 % is an error).",
+    )
 
 
 def _used_w(net: Network, device: Device) -> float | None:
@@ -44,7 +54,7 @@ def _budget(net: Network, device: Device) -> Iterator[Result]:
     if used is None:
         return
     share = used / supply.budget_w
-    if share < WARN_SHARE:
+    if share * 100 < ctx.params(PoeParams, device).warn_pct:
         return
     over = share >= 1.0
     params: dict[str, MessageValue] = {
@@ -129,10 +139,12 @@ def _idle(net: Network, device: Device) -> Iterator[Result]:
     Severity.WARNING,
     "A PoE switch has a power budget (40 to 120 W for small ones). When the devices draw more "
     "than that, the switch cuts power to the lowest-priority ports and access points or cameras "
-    "reboot at random. The check warns when the draw reaches 80 % of the budget, reports an "
+    "reboot at random. The check warns when the draw reaches 80 % of the budget (parameter "
+    "warn_pct), reports an "
     "error from 100 %, warns about a port whose powered device draws more than its PoE class "
     "allows, and notes ports with PoE on where no powered device is detected. Switches that "
     "report no budget are not checked.",
+    params=PoeParams,
 )
 def poe_budget(net: Network) -> Iterator[Result]:
     for device in net.devices:

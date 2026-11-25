@@ -379,7 +379,8 @@ class Config(Section):
     plugins: PluginsConfig = PluginsConfig()
     rules: dict[str, RuleSettings] = Field(
         default_factory=dict,
-        description="Per rule: enabled (true/false) and severity (info/warning/error).",
+        description="Per rule: enabled (true/false), severity (info/warning/error), params "
+        "and scopes (docs/RULES.md#parameters).",
     )
 
 
@@ -551,6 +552,12 @@ plugins:
 # rules:
 #   wifi.channel-overlap: {enabled: false}
 #   dhcp.one-server: {severity: warning}
+#   health.storage-full:
+#     params: {warn_pct: 80}
+#     scopes:
+#       - match: {site: lab}
+#         params: {warn_pct: 95}
+# Parameters with their defaults and units: docs/RULES.md#parameters.
 rules: {}
 """
 

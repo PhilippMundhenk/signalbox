@@ -1,0 +1,1031 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Signalbox rule parameters",
+  "description": "The rules: section of signalbox.yaml (ADR 0027). Rules without parameters accept enabled, severity and scopes without params.",
+  "type": "object",
+  "properties": {
+    "account.stale": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/account.stale"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/account.stale"
+              }
+            }
+          }
+        }
+      }
+    },
+    "device.resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/device.resources"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/device.resources"
+              }
+            }
+          }
+        }
+      }
+    },
+    "dhcp.lease-time": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/dhcp.lease-time"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/dhcp.lease-time"
+              }
+            }
+          }
+        }
+      }
+    },
+    "dhcp.pool-usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/dhcp.pool-usage"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/dhcp.pool-usage"
+              }
+            }
+          }
+        }
+      }
+    },
+    "health.storage-full": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/health.storage-full"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/health.storage-full"
+              }
+            }
+          }
+        }
+      }
+    },
+    "health.ups-not-tested": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/health.ups-not-tested"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/health.ups-not-tested"
+              }
+            }
+          }
+        }
+      }
+    },
+    "health.ups-runtime-low": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/health.ups-runtime-low"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/health.ups-runtime-low"
+              }
+            }
+          }
+        }
+      }
+    },
+    "health.uptime-very-long": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/health.uptime-very-long"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/health.uptime-very-long"
+              }
+            }
+          }
+        }
+      }
+    },
+    "poe.budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/poe.budget"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/poe.budget"
+              }
+            }
+          }
+        }
+      }
+    },
+    "time.offset": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/time.offset"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/time.offset"
+              }
+            }
+          }
+        }
+      }
+    },
+    "vpn.handshake-stale": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/vpn.handshake-stale"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/vpn.handshake-stale"
+              }
+            }
+          }
+        }
+      }
+    },
+    "wifi.channel-busy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/wifi.channel-busy"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/wifi.channel-busy"
+              }
+            }
+          }
+        }
+      }
+    },
+    "wifi.channel-crowded": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/wifi.channel-crowded"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/wifi.channel-crowded"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": {
+    "$ref": "#/$defs/RuleSettings"
+  },
+  "$defs": {
+    "account.stale": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "default": 90,
+          "description": "Days without a login.",
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Days",
+          "type": "integer",
+          "unit": "d"
+        }
+      },
+      "title": "account.stale",
+      "type": "object"
+    },
+    "device.resources": {
+      "additionalProperties": false,
+      "properties": {
+        "memory_pct": {
+          "default": 90.0,
+          "description": "Memory in use from which it is reported.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Memory Pct",
+          "type": "number",
+          "unit": "%"
+        },
+        "temperature_c": {
+          "default": 85.0,
+          "description": "Temperature limit for sensors that report no limit of their own.",
+          "maximum": 150,
+          "minimum": 20,
+          "title": "Temperature C",
+          "type": "number",
+          "unit": "°C"
+        }
+      },
+      "title": "device.resources",
+      "type": "object"
+    },
+    "dhcp.lease-time": {
+      "additionalProperties": false,
+      "properties": {
+        "min_seconds": {
+          "default": 300,
+          "description": "Leases shorter than this are reported.",
+          "minimum": 1,
+          "title": "Min Seconds",
+          "type": "integer",
+          "unit": "s"
+        },
+        "max_seconds": {
+          "default": 604800,
+          "description": "Leases longer than this are reported.",
+          "minimum": 1,
+          "title": "Max Seconds",
+          "type": "integer",
+          "unit": "s"
+        },
+        "guest_max_seconds": {
+          "default": 86400,
+          "description": "Leases longer than this are reported on guest networks.",
+          "minimum": 1,
+          "title": "Guest Max Seconds",
+          "type": "integer",
+          "unit": "s"
+        }
+      },
+      "title": "dhcp.lease-time",
+      "type": "object"
+    },
+    "dhcp.pool-usage": {
+      "additionalProperties": false,
+      "properties": {
+        "high_pct": {
+          "default": 80,
+          "description": "Share of the pool in use above which it is reported as nearly full.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "High Pct",
+          "type": "number",
+          "unit": "%"
+        }
+      },
+      "title": "dhcp.pool-usage",
+      "type": "object"
+    },
+    "health.storage-full": {
+      "additionalProperties": false,
+      "properties": {
+        "warn_pct": {
+          "default": 90.0,
+          "description": "Fill level from which it is a warning.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Warn Pct",
+          "type": "number",
+          "unit": "%"
+        },
+        "error_pct": {
+          "default": 98.0,
+          "description": "Fill level from which it is an error.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Error Pct",
+          "type": "number",
+          "unit": "%"
+        }
+      },
+      "title": "health.storage-full",
+      "type": "object"
+    },
+    "health.ups-not-tested": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "default": 180,
+          "description": "Age of the last self-test.",
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Days",
+          "type": "integer",
+          "unit": "d"
+        }
+      },
+      "title": "health.ups-not-tested",
+      "type": "object"
+    },
+    "health.ups-runtime-low": {
+      "additionalProperties": false,
+      "properties": {
+        "minutes": {
+          "default": 10,
+          "description": "Remaining runtime below which it is reported.",
+          "maximum": 600,
+          "minimum": 1,
+          "title": "Minutes",
+          "type": "integer",
+          "unit": "min"
+        }
+      },
+      "title": "health.ups-runtime-low",
+      "type": "object"
+    },
+    "health.uptime-very-long": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "default": 365,
+          "description": "Uptime from which it is reported.",
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Days",
+          "type": "integer",
+          "unit": "d"
+        }
+      },
+      "title": "health.uptime-very-long",
+      "type": "object"
+    },
+    "poe.budget": {
+      "additionalProperties": false,
+      "properties": {
+        "warn_pct": {
+          "default": 80.0,
+          "description": "Share of the budget in use from which it is a warning (100 % is an error).",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Warn Pct",
+          "type": "number",
+          "unit": "%"
+        }
+      },
+      "title": "poe.budget",
+      "type": "object"
+    },
+    "time.offset": {
+      "additionalProperties": false,
+      "properties": {
+        "max_seconds": {
+          "default": 60.0,
+          "description": "Clock offset allowed beyond the uncertainty of the read.",
+          "minimum": 1,
+          "title": "Max Seconds",
+          "type": "number",
+          "unit": "s"
+        }
+      },
+      "title": "time.offset",
+      "type": "object"
+    },
+    "vpn.handshake-stale": {
+      "additionalProperties": false,
+      "properties": {
+        "minutes": {
+          "default": 5,
+          "description": "Time without a handshake after which a peer is reported.",
+          "maximum": 10080,
+          "minimum": 1,
+          "title": "Minutes",
+          "type": "integer",
+          "unit": "min"
+        }
+      },
+      "title": "vpn.handshake-stale",
+      "type": "object"
+    },
+    "wifi.channel-busy": {
+      "additionalProperties": false,
+      "properties": {
+        "info_pct": {
+          "default": 60.0,
+          "description": "Utilisation reported as information.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Info Pct",
+          "type": "number",
+          "unit": "%"
+        },
+        "warning_pct": {
+          "default": 80.0,
+          "description": "Utilisation reported as a warning.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Warning Pct",
+          "type": "number",
+          "unit": "%"
+        }
+      },
+      "title": "wifi.channel-busy",
+      "type": "object"
+    },
+    "wifi.channel-crowded": {
+      "additionalProperties": false,
+      "properties": {
+        "dbm": {
+          "default": -80,
+          "description": "Neighbours weaker than this are not counted.",
+          "maximum": -30,
+          "minimum": -100,
+          "title": "Dbm",
+          "type": "integer",
+          "unit": "dBm"
+        },
+        "count": {
+          "default": 3,
+          "description": "Neighbours from which it is reported.",
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "wifi.channel-crowded",
+      "type": "object"
+    },
+    "ScopeMatch": {
+      "additionalProperties": false,
+      "description": "Which objects a scope applies to; every selector given must match (and).",
+      "properties": {
+        "site": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Site id or name.",
+          "title": "Site"
+        },
+        "device": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Device id or name.",
+          "title": "Device"
+        },
+        "device_role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceRole"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Role of the device."
+        },
+        "segment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Network (segment) id, name or VLAN id.",
+          "title": "Segment"
+        },
+        "segment_purpose": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SegmentPurpose"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Purpose of the network."
+        },
+        "tag": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A tag of the object's annotation (#186).",
+          "title": "Tag"
+        }
+      },
+      "title": "ScopeMatch",
+      "type": "object"
+    },
+    "DeviceRole": {
+      "enum": [
+        "gateway",
+        "switch",
+        "ap",
+        "other"
+      ],
+      "type": "string"
+    },
+    "SegmentPurpose": {
+      "enum": [
+        "main",
+        "guest",
+        "iot",
+        "management",
+        "servers",
+        "lab",
+        "voice",
+        "cameras",
+        "transit",
+        "other"
+      ],
+      "type": "string"
+    },
+    "RuleSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
