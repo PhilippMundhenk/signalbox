@@ -520,6 +520,21 @@ transfer); with a read ACL from before this method was added the read fails with
 denied" for the `vpn` capability only. ACL entry: `"luci.wireguard": ["getWgInstances"]`, the
 only addition.
 
+
+### OpenVPN: `uci get {"config": "openvpn"}` *(optional)* (vpn, #153)
+
+Every `config openvpn '<name>'` section is a tunnel (`openvpn-<name>`): a client with
+`client '1'` or a `remote` and no `server`, a server with `server`. Read: `enabled`, `proto`,
+`port`, `server` (tunnel network, address and mask), `remote`, `cipher`/`data_ciphers`, the
+`push`/`route` lines (routes) and whether `tls_auth`, `tls_crypt` or `tls_crypt_v2` is set. The
+static key (`secret`), the key files, `askpass` and `auth_user_pass` are dropped when the
+answer arrives; only the flags remain. A static-key tunnel counts as no TLS (no finding about
+`tls-auth`). The runtime (status file, connected clients) is not in the read-only ACL: `up`
+and the sessions stay unknown. No package: no tunnels; an ACL without `openvpn` (set up before
+#153): an optional gap, fixed by adding `"openvpn"` to the `uci` list. Covered: OpenWrt 21.02,
+22.03, 23.05 and 24.10 (the section type is `openvpn` in all). strongSwan (`ipsec` UCI,
+`swanctl`) is not read: there is no rpcd call for it.
+
 ### Captive portals: `uci get` of `opennds` and `nodogsplash` *(optional)* (interfaces)
 
 Both packages are optional (#460): without them there is no config and nothing is reported, and
@@ -666,7 +681,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd", "openvpn"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -788,7 +803,7 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd", "openvpn"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],

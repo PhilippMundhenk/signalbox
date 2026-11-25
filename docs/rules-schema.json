@@ -1508,6 +1508,53 @@
         }
       }
     },
+    "vpn.weak-crypto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/vpn.weak-crypto"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/vpn.weak-crypto"
+              }
+            }
+          }
+        }
+      }
+    },
     "wan.degraded": {
       "type": "object",
       "additionalProperties": false,
@@ -2577,6 +2624,22 @@
         }
       },
       "title": "vpn.handshake-stale",
+      "type": "object"
+    },
+    "vpn.weak-crypto": {
+      "additionalProperties": false,
+      "properties": {
+        "min_dh_group": {
+          "default": 14,
+          "description": "Diffie-Hellman groups with a lower number are reported as weak (1, 2 and 5 are 768 to 1536 bit).",
+          "maximum": 40,
+          "minimum": 1,
+          "title": "Min Dh Group",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "vpn.weak-crypto",
       "type": "object"
     },
     "wan.degraded": {

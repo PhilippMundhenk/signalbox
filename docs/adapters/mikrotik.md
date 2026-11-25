@@ -632,6 +632,26 @@ from `/ip/address` and `/ipv6/address` of the interface. Without the menu (no
 `wireguard` package) there are no tunnels and no error. *Guess*: field names per 7.x release; CI
 (CHR) confirms the interface, the peer, the allowed addresses and the keepalive, not a handshake.
 
+### IPsec and OpenVPN: `/rest/ip/ipsec/*`, `/rest/interface/ovpn-server*`, `/rest/interface/ovpn-client` *(optional)* (vpn, #153)
+
+Read policy only. A tunnel is one IPsec `peer` (`address`, `exchange-mode`: `ike2` is IKEv2,
+`aggressive` sets the aggressive flag, `profile`) with its `identity` (`auth-method` only), its
+`profile` (RouterOS 7.1 and later: `enc-algorithm`, `hash-algorithm`, `dh-group`,
+`dpd-interval`; before that the peer holds them itself, read the same way), the `policy` rows
+naming the peer (child SAs: `src-address`, `dst-address`, `ph2-state`, `proposal`), the
+`proposal` (`enc-algorithms`, `auth-algorithms`, `pfs-group`, `lifetime`) and
+`active-peers` (`remote-address`, `uptime`: the peer is up). RouterOS lists algorithms per
+kind, so every entry becomes one `CryptoProposal` and a weak one is reported whatever it is
+combined with. `/rest/ip/ipsec/identity` carries `secret`, `eap-password` and key names: every
+secret-like field is dropped while the answer is parsed (nothing is cached), only `auth-method`
+is used. OpenVPN: `/interface/ovpn-server/server` (a tunnel `ovpn-server` once enabled or in
+use: `port`, `protocol`, `cipher`), the connected clients of `/interface/ovpn-server`
+(`user`, `client-address`) and every `/interface/ovpn-client` (`connect-to`, `running`,
+`cipher`); the `password` of a client is dropped. RouterOS has no `tls-auth`/`tls-crypt`, so
+`tls_auth` stays unknown. A menu that is missing is skipped, one the group may not read is an
+optional gap. Guesses until a CHR run (#21): `ph2-state`, the `active-peers` field names and
+the `ovpn-server` menu answers.
+
 ### Configuration state and backups (#181)
 
 RouterOS saves every change at once, so `config_state.unsaved` and `pending` are `false`.

@@ -1030,6 +1030,52 @@
       "title": "ConfigState",
       "type": "object"
     },
+    "CryptoProposal": {
+      "additionalProperties": false,
+      "description": "One algorithm combination of an IPsec proposal (#153). Names as the device gives them\nin lower case (``aes256``, ``3des``, ``sha1``, ``sha256``); ``dh_group`` is the number of\nthe Diffie-Hellman group (2, 14, 19). None: not known.",
+      "properties": {
+        "dh_group": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dh Group"
+        },
+        "encryption": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Encryption"
+        },
+        "integrity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Integrity"
+        }
+      },
+      "title": "CryptoProposal",
+      "type": "object"
+    },
     "DdnsResult": {
       "enum": [
         "ok",
@@ -10392,6 +10438,60 @@
           "title": "Addresses",
           "type": "array"
         },
+        "aggressive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Aggressive"
+        },
+        "auth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TunnelAuth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "certificate_subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Certificate Subject"
+        },
+        "children": {
+          "items": {
+            "$ref": "#/$defs/TunnelChild"
+          },
+          "title": "Children",
+          "type": "array"
+        },
+        "cipher": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cipher"
+        },
         "description": {
           "anyOf": [
             {
@@ -10408,6 +10508,18 @@
           "title": "Device Id",
           "type": "string"
         },
+        "dpd": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dpd"
+        },
         "enabled": {
           "default": true,
           "title": "Enabled",
@@ -10416,6 +10528,22 @@
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "ike_version": {
+          "anyOf": [
+            {
+              "enum": [
+                1,
+                2
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ike Version"
         },
         "kind": {
           "$ref": "#/$defs/TunnelKind",
@@ -10486,6 +10614,29 @@
           "default": null,
           "title": "Port Id"
         },
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/CryptoProposal"
+          },
+          "title": "Proposals",
+          "type": "array"
+        },
+        "protocol": {
+          "anyOf": [
+            {
+              "enum": [
+                "udp",
+                "tcp"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Protocol"
+        },
         "public_key": {
           "anyOf": [
             {
@@ -10498,6 +10649,45 @@
           ],
           "default": null,
           "title": "Public Key"
+        },
+        "pushed_routes": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Pushed Routes",
+          "type": "array"
+        },
+        "remote_gateway": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remote Gateway"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TunnelRole"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "routes": {
           "anyOf": [
@@ -10523,6 +10713,21 @@
           "default": null,
           "title": "Routes"
         },
+        "sessions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TunnelSession"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sessions"
+        },
         "source": {
           "anyOf": [
             {
@@ -10533,6 +10738,35 @@
             }
           ],
           "default": null
+        },
+        "tls_auth": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tls Auth"
+        },
+        "tunnel_network": {
+          "anyOf": [
+            {
+              "format": "ipv4network",
+              "type": "string"
+            },
+            {
+              "format": "ipv6network",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tunnel Network"
         },
         "up": {
           "anyOf": [
@@ -10562,9 +10796,111 @@
       "title": "Tunnel",
       "type": "object"
     },
+    "TunnelAuth": {
+      "description": "How an IPsec connection authenticates (#153); never the secret itself.",
+      "enum": [
+        "psk",
+        "certificate",
+        "eap"
+      ],
+      "title": "TunnelAuth",
+      "type": "string"
+    },
+    "TunnelChild": {
+      "additionalProperties": false,
+      "description": "A child SA / phase 2 / traffic selector pair of an IPsec connection (#153).",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "established": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Established"
+        },
+        "last_rekey": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Rekey"
+        },
+        "local_networks": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Local Networks",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "rekey_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rekey Seconds"
+        },
+        "remote_networks": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Remote Networks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "TunnelChild",
+      "type": "object"
+    },
     "TunnelKind": {
       "enum": [
-        "wireguard"
+        "wireguard",
+        "ipsec",
+        "openvpn"
       ],
       "title": "TunnelKind",
       "type": "string"
@@ -10707,6 +11043,64 @@
         "public_key"
       ],
       "title": "TunnelPeer",
+      "type": "object"
+    },
+    "TunnelRole": {
+      "enum": [
+        "server",
+        "client"
+      ],
+      "title": "TunnelRole",
+      "type": "string"
+    },
+    "TunnelSession": {
+      "additionalProperties": false,
+      "description": "A client connected to an OpenVPN server (#153). No password, no key.",
+      "properties": {
+        "common_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Common Name"
+        },
+        "connected_since": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connected Since"
+        },
+        "virtual_address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Virtual Address"
+        }
+      },
+      "title": "TunnelSession",
       "type": "object"
     },
     "UnknownMulticast": {

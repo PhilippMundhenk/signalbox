@@ -64,6 +64,7 @@ from signalbox.adapters.openwrt import (
     lag,
     monitoring,
     multiwan,
+    openvpn,
     portal,
     provision,
     routes,
@@ -161,6 +162,7 @@ from signalbox.model import (
     StpBridge,
     Subnet,
     TemperatureSensor,
+    Tunnel,
     Uplink,
     UplinkKind,
     WifiScanResult,
@@ -1018,6 +1020,8 @@ class OpenWrtAdapter(Adapter):
             ) from None
         if config == "network":  # WireGuard keys: dropped on arrival (#152)
             wireguard.scrub(data)
+        if config == "openvpn":  # static keys: dropped on arrival (#153)
+            openvpn.scrub(data)
         if config == "rpcd":  # login password hashes: dropped on arrival (#175)
             accounts.scrub(data)
         return data
@@ -3042,8 +3046,9 @@ class OpenWrtAdapter(Adapter):
         UCI (keys already dropped by :meth:`_uci`), with handshakes and transfer from
         ``luci.wireguard getWgInstances`` (luci-proto-wireguard) where that is installed (#152)."""
         uci = await self._uci("network")
+        more, gaps = await self._openvpn()
         if not wireguard.interfaces(uci):
-            return Observation(tunnels=[])
+            return Observation(tunnels=more, incomplete=gaps)
         runtime: dict[str, dict[str, Any]] = {}
         with contextlib.suppress(NotFound):  # no luci-proto-wireguard: configuration only
             runtime = wireguard.instances(await self.ubus.call("luci.wireguard", "getWgInstances"))
@@ -3058,7 +3063,26 @@ class OpenWrtAdapter(Adapter):
         status = await self.ubus.call("network.device", "status")
         ports = set(status) if isinstance(status, dict) else set()  # as read_interfaces names them
         tunnels = wireguard.tunnels(uci, runtime, self.context.device_id, up, ports)
-        return Observation(tunnels=tunnels)
+        return Observation(tunnels=[*tunnels, *more], incomplete=gaps)
+
+    async def _openvpn(self) -> tuple[list[Tunnel], list[Gap]]:
+        """OpenVPN instances from the UCI ``openvpn`` config (#153); no package: none; an ACL
+        older than this one refuses it: an optional gap naming the fix."""
+        try:
+            uci = await self._uci("openvpn")
+        except AccessDenied as exc:
+            return [], [
+                Gap(
+                    message=f"OpenVPN settings: {exc}",
+                    fix=exc.fix,
+                    remedy=exc.remedy,
+                    optional=True,
+                    message_id="openwrt.openvpnGap",
+                    fix_id=exc.fix_id,
+                    params={**exc.params, "cause": str(exc)},
+                )
+            ]
+        return openvpn.tunnels(uci, self.context.device_id), []
 
     # firewall -------------------------------------------------------------------------
 

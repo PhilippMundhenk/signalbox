@@ -50,6 +50,7 @@ READ_ACL: dict[str, Any] = {
                 "nodogsplash",
                 "igmpproxy",
                 "upnpd",
+                "openvpn",
             ],
             "file": {
                 "/tmp/dhcp.leases": ["read"],

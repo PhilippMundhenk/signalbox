@@ -68,6 +68,7 @@ READ_ONLY = (
     "nodogsplash",
     "igmpproxy",
     "upnpd",
+    "openvpn",
 )
 #: Of those, the configs of optional packages (#180): only there when installed
 PACKAGES = (
@@ -83,6 +84,7 @@ PACKAGES = (
     "nodogsplash",
     "igmpproxy",
     "upnpd",
+    "openvpn",
 )
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
@@ -1150,6 +1152,49 @@ def upnp_leases(now: float) -> str:
     )
 
 
+#: static key and key files of the simulated OpenVPN: tests assert they never leak (#153)
+OPENVPN_SECRET = "sim-openvpn-static-key-do-not-leak"
+
+
+def openvpn_config() -> dict[str, Any]:
+    """``/etc/config/openvpn`` (#153): a server with tls-crypt and AES-GCM, and a client with
+    the old BF-CBC cipher and no tls-auth (documentation addresses)."""
+    return _uci(
+        (
+            "openvpn",
+            "road_warrior",
+            {
+                "enabled": "1",
+                "dev": "tun",
+                "proto": "udp",
+                "port": "1194",
+                "server": "198.18.77.0 255.255.255.0",
+                "ca": "/etc/openvpn/ca.crt",
+                "cert": "/etc/openvpn/server.crt",
+                "key": "/etc/openvpn/server.key",
+                "tls_crypt": OPENVPN_SECRET,
+                "data_ciphers": "AES-256-GCM:AES-128-GCM",
+                "push": ["route 192.0.2.0 255.255.255.0"],
+            },
+        ),
+        (
+            "openvpn",
+            "to_provider",
+            {
+                "enabled": "1",
+                "client": "1",
+                "dev": "tun",
+                "proto": "tcp-client",
+                "remote": "203.0.113.60 443",
+                "ca": "/etc/openvpn/provider-ca.crt",
+                "cipher": "BF-CBC",
+                "secret": OPENVPN_SECRET,
+                "auth_user_pass": OPENVPN_SECRET,
+            },
+        ),
+    )
+
+
 def igmpproxy_config() -> dict[str, Any]:
     """``/etc/config/igmpproxy`` (#161): the uplink ``wan`` upstream, the main network down."""
     return _uci(
@@ -1797,6 +1842,7 @@ class OpenWrtSim:
                 "nodogsplash": _sections(nodogsplash_config()),
                 "igmpproxy": _sections(igmpproxy_config()),
                 "upnpd": _sections(upnpd_config()),
+                "openvpn": _sections(openvpn_config()),
                 "https-dns-proxy": {},
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
             }

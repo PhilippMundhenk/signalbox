@@ -117,6 +117,14 @@ WG_KEY = _wg_key("sim-opnsense-wg0")
 WG_SITE_B = _wg_key("sim-site-b")
 WG_PHONE = _wg_key("sim-phone")
 WG_SHOW = "/api/wireguard/service/show"
+#: IPsec and OpenVPN (#153); the pre-shared key is in the simulator's answers so that tests can
+#: assert it never reaches the model.
+IPSEC_PSK = "sim-ipsec-psk-do-not-leak"
+IPSEC_PSKS = "/api/ipsec/pre_shared_keys/search_item"
+IPSEC_CONNECTION = "7f1c2a10-0000-4000-8000-0000000000a1"
+IPSEC_CHILD = "7f1c2a10-0000-4000-8000-0000000000b1"
+OVPN_SERVER = "9d3e5b20-0000-4000-8000-0000000000c1"
+OVPN_CLIENT = "5a1b7c40-0000-4000-8000-0000000000c2"
 
 
 def _opt(selected: dict[str, tuple[str, bool]]) -> dict[str, dict[str, Any]]:
@@ -2016,6 +2024,135 @@ LOGIN_PAGE = """<!doctype html>
 """
 
 
+def vpn_data() -> dict[str, Any]:
+    """IPsec connections, sessions and OpenVPN instances (#153): opt-in (``vpn=True``), so that
+    the sample of the other tests keeps one WireGuard tunnel."""
+    return {
+        # IPsec connections (swanctl) to a site, and its sessions; documentation addresses
+        "/api/ipsec/connections/search_connection": {
+            "total": 1,
+            "rowCount": 1,
+            "current": 1,
+            "rows": [
+                {
+                    "uuid": IPSEC_CONNECTION,
+                    "enabled": "1",
+                    "description": "site-c",
+                    "version": "IKEv2",
+                    "aggressive": "0",
+                    "remote_addrs": "203.0.113.50",
+                    "proposals": "aes256-sha256-modp2048",
+                    "dpd_delay": "10",
+                }
+            ],
+        },
+        "/api/ipsec/connections/search_child": {
+            "total": 1,
+            "rowCount": 1,
+            "current": 1,
+            "rows": [
+                {
+                    "uuid": IPSEC_CHILD,
+                    "enabled": "1",
+                    "connection": IPSEC_CONNECTION,
+                    "description": "lan-to-site-c",
+                    "local_ts": "192.0.2.0/24",
+                    "remote_ts": "198.18.99.0/24",
+                    "esp_proposals": "aes256-sha256-modp2048",
+                    "rekey_time": "3600",
+                }
+            ],
+        },
+        "/api/ipsec/connections/search_local": {
+            "total": 1,
+            "rowCount": 1,
+            "current": 1,
+            "rows": [
+                {"uuid": "1", "connection": IPSEC_CONNECTION, "auth": "psk", "id": "fw.example"}
+            ],
+        },
+        IPSEC_PSKS: {
+            "total": 1,
+            "rowCount": 1,
+            "current": 1,
+            "rows": [{"uuid": "2", "ident": "fw.example", "Key": IPSEC_PSK}],
+        },
+        "/api/ipsec/sessions/search_phase1": {
+            "total": 1,
+            "rowCount": 1,
+            "current": 1,
+            "rows": [
+                {
+                    "ikeid": "1",
+                    "name": IPSEC_CONNECTION,
+                    "phase1desc": "site-c",
+                    "status": "ESTABLISHED",
+                }
+            ],
+        },
+        "/api/ipsec/sessions/search_phase2": {
+            "total": 1,
+            "rowCount": 1,
+            "current": 1,
+            "rows": [
+                {
+                    "ikeid": "1",
+                    "name": IPSEC_CHILD,
+                    "state": "INSTALLED",
+                    "install-time": "1800",
+                }
+            ],
+        },
+        # OpenVPN instances (23.7 and later) and who is connected (#153)
+        "/api/openvpn/instances/search": {
+            "total": 2,
+            "rowCount": 2,
+            "current": 1,
+            "rows": [
+                {
+                    "uuid": OVPN_SERVER,
+                    "enabled": "1",
+                    "description": "road-warrior",
+                    "role": "server",
+                    "proto": "udp4",
+                    "port": "1194",
+                    "server": "198.18.77.0/24",
+                    "route": "192.0.2.0/24",
+                    "tls_key": "static-key-uuid",
+                    "data-ciphers": "AES-256-GCM,AES-128-GCM",
+                },
+                {
+                    "uuid": OVPN_CLIENT,
+                    "enabled": "1",
+                    "description": "to-provider",
+                    "role": "client",
+                    "proto": "tcp4",
+                    "port": "443",
+                    "remote": "203.0.113.60",
+                    "tls_key": "static-key-uuid",
+                    "data-ciphers": "AES-256-GCM",
+                },
+            ],
+        },
+        "/api/openvpn/service/search_sessions": {
+            "total": 2,
+            "rowCount": 2,
+            "current": 1,
+            "rows": [
+                {
+                    "type": "server",
+                    "description": "road-warrior",
+                    "common_name": "laptop",
+                    "virtual_address": "198.18.77.2",
+                    "connected_since": "2026-11-22 08:00:00",
+                    "status": "connected",
+                },
+                {"type": "client", "description": "to-provider", "status": "connected"},
+            ],
+        },
+    }
+
+
 @dataclass
 class OpnsenseSimulator(_Writes):
     api_key: str = KEY
@@ -2046,6 +2183,8 @@ class OpnsenseSimulator(_Writes):
     assignment_api: str = "26.7.6"
     #: The simulated release (``RELEASES``); older ones answer as :func:`older_release` says.
     release: str = "26.7"
+    #: IPsec connection and OpenVPN instances in the answers (#153).
+    vpn: bool = False
     #: False: only camelCase actions exist (``searchItem``), snake_case answers 404 (a guess for
     #: releases before 24.7, whose router is not known to translate it).
     snake_case: bool = True
@@ -2071,6 +2210,8 @@ class OpnsenseSimulator(_Writes):
     traces: list[Any] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        if self.vpn:
+            self.data.update(vpn_data())
         older_release(self.data, self.release)
         if self.release != "26.7":
             self.assignment_api = "none"

@@ -358,6 +358,15 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`vpn.keepalive-behind-nat`](rules/vpn.md#vpnkeepalive-behind-nat)
 - [`vpn.ends-disagree`](rules/vpn.md#vpnends-disagree)
 
+## [IPsec and OpenVPN tunnels](rules/vpn_tunnels.md)
+
+- [`vpn.weak-crypto`](rules/vpn_tunnels.md#vpnweak-crypto)
+- [`vpn.tunnel-down`](rules/vpn_tunnels.md#vpntunnel-down)
+- [`vpn.child-down`](rules/vpn_tunnels.md#vpnchild-down)
+- [`vpn.openvpn-no-tls-auth`](rules/vpn_tunnels.md#vpnopenvpn-no-tls-auth)
+- [`vpn.selector-overlap-local`](rules/vpn_tunnels.md#vpnselector-overlap-local)
+- [`vpn.selector-mismatch`](rules/vpn_tunnels.md#vpnselector-mismatch)
+
 ## [Internet connection (WAN)](rules/wan.md)
 
 - [`wan.cgnat`](rules/wan.md#wancgnat)
@@ -645,6 +654,12 @@ where each came from. The defaults are the values the rules used before they had
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
 | `minutes` | `5` | min | Time without a handshake after which a peer is reported. |
+
+### `vpn.weak-crypto`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `min_dh_group` | `14` | count | Diffie-Hellman groups with a lower number are reported as weak (1, 2 and 5 are 768 to 1536 bit). |
 
 ### `wan.degraded`
 
