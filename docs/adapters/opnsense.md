@@ -226,6 +226,7 @@ remedy, the fix adds exactly that privilege and the same key reads the firewall 
    | Diagnostics: Netflow configuration | `/api/diagnostics/netflow/getconfig` (NetFlow export, #180; `page-diagnostics-netflow`) |
    | System: Certificate Manager, System: Authority Manager | `/api/trust/cert/search`, `/api/trust/ca/search` (stored certificates and authorities, #330; `page-system-certmanager`, `page-system-camanager`; never `get/<uuid>` or the exports, which answer private keys) |
    | System: Static Routes, System: Gateways | `/api/routes/routes/searchroute`, `/api/routes/gateway/status` (static routes and gateway status, #149; `page-system-staticroutes`, `page-system-gateways`, *guess* until a 26.7 image says otherwise) |
+   | System: Gateway Groups | `/api/routing/group_settings/search` (gateway groups, #150; `page-system-gatewaygroups`, **26.7 and newer only**: an older firewall does not know the privilege, the automatic setup leaves it out there, and the groups stay unread; the 26.7 integration image refused the read with 403 until the privilege was granted) |
    | Services: Dynamic DNS | `/api/dyndns/accounts/search_item` (dynamic DNS accounts of `os-ddclient`, #154; `page-services-dyndns`, *guess*) |
 
    ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
@@ -1090,7 +1091,7 @@ spelling on 24.7 and 25.x (compared with the sources, not recorded).
   uplink's next hop gives the uplink's health (`status` `none` is online, a status with `down`
   is down, `loss` and `delay` are degraded; `delay` and `loss` as `4.2 ms` and `0.0 %`) and its
   monitor (`monitor`, the address pinged). Fields as of 24.7 to 26.1 *(guess, #21)*.
-- **Gateway groups** (#150): `GET /api/routing/group_settings/search` lists them, with the tiers
+- **Gateway groups** (#150): `GET /api/routing/group_settings/search` (privilege *System: Gateway Groups*, `page-system-gatewaygroups`) lists them, with the tiers
   and the status row of every gateway in a tier (`gateways`: tier index to rows with `name`,
   `address`, `status`, `delay`, `loss`, `monitor`). The API exists since **26.7**, when Deciso
   moved the groups into the MVC model `GatewayGroups` (`System: Gateways: Group`); **24.7, 25.1,

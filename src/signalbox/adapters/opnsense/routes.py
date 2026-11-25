@@ -39,7 +39,7 @@ GATEWAY_STATUS = "/api/routes/gateway/status"
 #: Gateway groups (#150): an API of its own since the groups became an MVC model (26.7);
 #: before, they live in config.xml only and no API lists them.
 GROUPS_SEARCH = "/api/routing/group_settings/search"
-GROUPS_PRIVILEGE = "System: Gateways: Group (page-system-gateways)"
+GROUPS_PRIVILEGE = "System: Gateway Groups (page-system-gatewaygroups)"
 ROUTES_PRIVILEGE = "System: Static Routes (page-system-staticroutes)"
 GATEWAY_PRIVILEGE = "System: Gateways (page-system-gateways)"
 

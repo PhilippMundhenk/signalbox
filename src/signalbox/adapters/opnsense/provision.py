@@ -72,12 +72,16 @@ READ_PRIVILEGES: tuple[str, ...] = (
     "page-system-camanager",
     "page-system-staticroutes",
     "page-system-gateways",
+    "page-system-gatewaygroups",
     "page-services-dyndns",
 )
 #: Privileges that exist only with an optional plugin (os-ddclient adds *Services: Dynamic DNS*):
 #: the setup grants them when the firewall offers them, and leaves them out otherwise, since
 #: the user manager refuses a privilege it does not know (#440).
 PLUGIN_PRIVILEGES: frozenset[str] = frozenset({"page-services-dyndns"})
+#: Privileges that only newer releases have: *System: Gateway Groups* came with the gateway group
+#: API of 26.7 (#150). Left out where the firewall does not offer them, like plugin privileges.
+NEWER_PRIVILEGES: frozenset[str] = frozenset({"page-system-gatewaygroups"})
 #: Added while path traces are on (#253, docs: "Path traces").
 TRACE_PRIVILEGES: tuple[str, ...] = ("page-diagnostics-traceroute",)
 #: Optional extra "accounts" (#349): lets Signalbox list the local users. The user manager has no
@@ -302,7 +306,7 @@ class OpnsenseSetup:
             options = blank.get("priv") if isinstance(blank, dict) else None
         if isinstance(options, dict) and options:
             self.offered = {str(k) for k in options}
-            gone = PLUGIN_PRIVILEGES - self.offered
+            gone = (PLUGIN_PRIVILEGES | NEWER_PRIVILEGES) - self.offered
             self.privileges = [p for p in self.privileges if p not in gone]
 
     async def inspect(self, http: DeviceHttp) -> tuple[str | None, dict[str, Any]]:

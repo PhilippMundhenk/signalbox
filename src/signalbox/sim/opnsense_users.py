@@ -43,6 +43,7 @@ PRIVILEGES = (
     "page-system-camanager",
     "page-system-staticroutes",
     "page-system-gateways",
+    "page-system-gatewaygroups",
     "page-services-dyndns",
     "page-system-usermanager",
 )

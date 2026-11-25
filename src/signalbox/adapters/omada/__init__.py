@@ -1296,6 +1296,8 @@ class OmadaAdapter(_Adapter):
         groups, group_gaps = (
             await self._wan_groups(gateway, uplinks) if gateway is not None else ([], [])
         )
+        accounts = await self._accounts([m.id for m in managed])
+        accounts["incomplete"] = [*group_gaps, *accounts.get("incomplete", [])]
         return Observation(
             ports=ports,
             poe=poe_supply,
@@ -1306,9 +1308,8 @@ class OmadaAdapter(_Adapter):
             mesh=mesh_members,
             uplinks=uplinks,
             gateway_groups=groups,
-            incomplete=group_gaps,
             services=await self._services([m.id for m in managed]),
-            **await self._accounts([m.id for m in managed]),
+            **accounts,
             log_targets=await self._log_targets([m.id for m in managed]),
         )
 
