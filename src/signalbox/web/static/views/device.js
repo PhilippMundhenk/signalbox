@@ -669,6 +669,41 @@ function counterFact(d) {
   return t('device.port.deltas', { errors, drops, minutes });
 }
 
+// PoE (#159): the budget of the switch with a bar, and the state and power of each port.
+const POE_STATUS = { delivering: 'device.poe.status.delivering', searching: 'device.poe.status.searching', disabled: 'device.poe.status.disabled', fault: 'device.poe.status.fault', overload: 'device.poe.status.overload' };
+const watts = (v) => fmtNumber(Math.round(v * 10) / 10);
+
+function poeFacts(poe) {
+  return [
+    poe.status ? (POE_STATUS[poe.status] ? t(POE_STATUS[poe.status]) : poe.status) : poe.enabled === true ? t('device.poe.on') : poe.enabled === false ? t('device.poe.off') : null,
+    opt(poe.power_w, (v) => t('device.poe.power', { power: watts(v) })),
+    opt(poe.max_w, (v) => t('device.poe.max', { max: watts(v) })),
+    opt(poe.power_class, (v) => t('device.poe.class', { class: v })),
+    opt(poe.mode, (v) => t('device.poe.mode', { mode: v })),
+    opt(poe.priority, (v) => t('device.poe.priority', { priority: v })),
+  ].filter(Boolean);
+}
+
+function poeCard(ix, observed, deviceId) {
+  const supply = observed && observed.poe;
+  const ports = [...ix.ports.values()].filter((p) => p.device_id === deviceId && p.poe);
+  if (!supply && !ports.length) return null;
+  const rows = [];
+  if (supply && given(supply.budget_w)) {
+    const used = given(supply.used_w) ? supply.used_w : null;
+    rows.push([
+      t('device.poe.budget'),
+      h('span', { 'data-testid': 'poe-budget' },
+        used !== null ? t('device.poe.budgetUsed', { used: watts(used), budget: watts(supply.budget_w) }) : t('device.poe.budgetOnly', { budget: watts(supply.budget_w) }),
+        used !== null ? [' ', h('progress', { max: String(supply.budget_w), value: String(Math.min(used, supply.budget_w)), 'data-testid': 'poe-bar' })] : null),
+    ]);
+    if (given(supply.reserved_w)) rows.push([t('device.poe.reservedLabel'), t('device.poe.reserved', { reserved: watts(supply.reserved_w) })]);
+  }
+  if (supply && supply.standard) rows.push([t('device.poe.standard'), supply.standard]);
+  for (const p of ports) rows.push([p.name, h('span', { 'data-testid': 'poe-port', 'data-id': p.id }, poeFacts(p.poe).join(' · '))]);
+  return h('section', { class: 'card', 'data-testid': 'device-poe' }, h('h2', {}, t('device.poe.title')), kv(rows));
+}
+
 // One entry of the port tree (#252): the port (or radio), what it is, and what runs on it.
 function portNode(ix, node, deltas = {}) {
   const name = (pid) => (ix.ports.get(pid) || {}).name || pid.split('/port/').pop();
@@ -944,6 +979,7 @@ async function overview(main, ctx, device, adapters, sites) {
     inferredCard(ix, device.id),
     portsCard(ix, tree, deltas),
     observed ? stpCard(ix, observed) : null,
+    poeCard(ix, observed, device.id),
     radiosCard(ix, device.id),
     neighboursCard(ix, heard),
     learnedCard(ix, learned),

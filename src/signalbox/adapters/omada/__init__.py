@@ -85,11 +85,14 @@ from signalbox.model import (
     Membership,
     Neighbour,
     Pmf,
+    PoeStatus,
+    PoeSupply,
     Port,
     PortCounters,
     PortForward,
     PortKind,
     PortMembership,
+    PortPoe,
     PortRole,
     PurposeSource,
     Radio,
@@ -448,6 +451,46 @@ def _int(value: Any) -> int | None:
         return value
     text = _text(value)
     return int(text) if text.lstrip("-").isdigit() else None
+
+
+def _watts(value: Any) -> float | None:
+    """A number of watts (a number or numeric text); ``None`` for anything else."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number >= 0 else None
+
+
+def _port_poe(row: dict[str, Any]) -> PortPoe | None:
+    """PoE of a switch port: ``poe`` (on or off) and ``poePower`` (watts delivered now). Both
+    names are a guess for the Omada versions without a documented field (#21); a controller
+    that reports neither gives ``None``."""
+    on = row.get("poe") if isinstance(row.get("poe"), bool) else None
+    power = _watts(row.get("poePower"))
+    if on is None and power is None:
+        return None
+    status = None
+    if on is False:
+        status = PoeStatus.DISABLED
+    elif power is not None:
+        status = PoeStatus.DELIVERING if power > 0 else PoeStatus.SEARCHING
+    return PortPoe(enabled=on, status=status, power_w=power)
+
+
+def _poe_supply(switch: dict[str, Any]) -> PoeSupply | None:
+    """The budget of a PoE switch: ``totalPower`` (older controllers ``poePower``) in watts and
+    ``poeRemain`` (watts left); used power is the difference. ``None``: not reported."""
+    total = _watts(switch.get("totalPower"))
+    if total is None:
+        total = _watts(switch.get("poePower"))
+    remain = _watts(switch.get("poeRemain"))
+    if total is None:
+        return None
+    used = max(total - remain, 0.0) if remain is not None else None
+    return PoeSupply(budget_w=total, used_w=used)
 
 
 def _flag(value: Any, default: bool = False) -> bool:
@@ -1054,10 +1097,15 @@ class OmadaAdapter(_Adapter):
         }
 
         ports: list[Port] = []
+        poe_supply: dict[str, PoeSupply] = {}
         for sw in (d for d in await self._devices() if d.kind == "switch"):
             first = len(ports)
             lag_types: dict[str, Any] = {}
-            jumbo = jumbo_of(await self._switch(sw.raw_mac))
+            switch_row = await self._switch(sw.raw_mac)
+            jumbo = jumbo_of(switch_row)
+            supply = _poe_supply(switch_row)
+            if supply is not None:
+                poe_supply[self._prefix(sw)] = supply
             for row in await self._ports(sw.raw_mac):
                 number = _int(row.get("port"))
                 if number is None:
@@ -1084,7 +1132,7 @@ class OmadaAdapter(_Adapter):
                         up=False if disable is True else None if link is None else link == 1,
                         speed_mbps=None if link == 0 else LINK_SPEEDS.get(speed or 0),
                         full_duplex=None if link == 0 else {1: False, 2: True}.get(duplex or 0),
-                        poe=row["poe"] if isinstance(row.get("poe"), bool) else None,
+                        poe=_port_poe(row),
                         lag=_lag_id(row.get("lagId")),
                         role=PortRole.JACK,
                         admin_up=not disable if isinstance(disable, bool) else None,
@@ -1154,6 +1202,7 @@ class OmadaAdapter(_Adapter):
         uplinks = await self._uplinks(gateway) if gateway is not None else []
         return Observation(
             ports=ports,
+            poe=poe_supply,
             segments=segs,
             subnets=subnets,
             devices=managed,

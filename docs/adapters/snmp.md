@@ -142,8 +142,15 @@ the adapter covers these older or partial variants:
 - Aggregations without IEEE8023-LAG-MIB (found through `ifStackTable`, mode unknown).
 - No ENTITY-MIB, no LLDP-MIB: optional gaps, as above.
 
+PoE (#159): POWER-ETHERNET-MIB (RFC 3621) is walked when the switch has it: `pethMainPsePower` and
+`pethMainPseConsumptionPower` of group 1 as budget and used power, per port the admin state,
+detection status, priority and class (`pethPsePortPowerClassifications`, 1..5 is class 0..4). The
+MIB has no per-port power, so `power_w` stays empty on SNMP.
+
 ## Guesses (need a real switch, [#21](https://github.com/PhilippMundhenk/signalbox/issues/21))
 
+- PoE: the port number of `pethPsePortTable` (`group.port`) is read as the bridge port or ifIndex
+  of group 1; stacked groups above 1 are skipped *(guess: the MIB does not say how it maps)*.
 - The IEEE8023-LAG-MIB port column numbers (`dot3adAggPortAttachedAggID` 13, actor admin and
   oper state 21 and 22, partner system 9, key 11 and port 17) are from the MIB definition
   *(guess)*; they are only used for the LACP details, the members come from the stack table

@@ -39,10 +39,14 @@ from signalbox.model import (
     LagMode,
     Membership,
     Neighbour,
+    PoePriority,
+    PoeStatus,
+    PoeSupply,
     Port,
     PortCounters,
     PortKind,
     PortMembership,
+    PortPoe,
     PortRole,
     Segment,
     StpBridge,
@@ -796,3 +800,54 @@ def neighbours(device_id: str, pmap: PortMap, data: Mib) -> list[Neighbour]:
             description=as_text(cols[mib.REM_SYS_DESC].get(key)),
         )
     return list(out.values())
+
+
+#: pethPsePortDetectionStatus (RFC 3621): 1 disabled, 2 searching, 3 deliveringPower, 4 fault,
+#: 5 test, 6 otherFault
+_PETH_STATUS = {
+    1: PoeStatus.DISABLED,
+    2: PoeStatus.SEARCHING,
+    3: PoeStatus.DELIVERING,
+    4: PoeStatus.FAULT,
+    6: PoeStatus.FAULT,
+}
+#: pethPsePortPowerPriority: 1 critical, 2 high, 3 low
+_PETH_PRIORITY = {1: PoePriority.CRITICAL, 2: PoePriority.HIGH, 3: PoePriority.LOW}
+
+
+def poe(pmap: PortMap, data: Mib) -> tuple[PoeSupply | None, dict[str, PortPoe]]:
+    """PoE of POWER-ETHERNET-MIB: the budget (``pethMainPsePower`` and the consumption of
+    group 1) and per port the admin state, detection status, class
+    (``pethPsePortPowerClassifications`` 1..5 is class 0..4) and priority. RFC 3621 has no
+    per-port power, so ``power_w`` stays empty.
+    The port number of the table (``group.port``) is read as the bridge port or ifIndex of
+    group 1 (a guess: the MIB does not say; stacked groups above 1 are skipped). Empty: no PoE."""
+    ports: dict[str, PortPoe] = {}
+    admin = data.col(mib.PETH_PORT, mib.PETH_PORT_ADMIN)
+    detection = data.col(mib.PETH_PORT, mib.PETH_PORT_DETECTION)
+    priority = data.col(mib.PETH_PORT, mib.PETH_PORT_PRIORITY)
+    klass = data.col(mib.PETH_PORT, mib.PETH_PORT_CLASS)
+    for index in sorted({*admin, *detection, *priority, *klass}):
+        group, _, number = index.partition(".")
+        if group != "1" or not number.isdigit():
+            continue
+        pid = pmap.of_bridge(int(number))
+        if pid is None:
+            continue
+        flag = as_int(admin.get(index))
+        cls = as_int(klass.get(index))
+        ports[pid] = PortPoe(
+            enabled={1: True, 2: False}.get(flag) if flag is not None else None,
+            status=_PETH_STATUS.get(as_int(detection.get(index)) or 0),
+            power_class=cls - 1 if cls is not None and 1 <= cls <= 5 else None,
+            priority=_PETH_PRIORITY.get(as_int(priority.get(index)) or 0),
+        )
+    main = data.col(mib.PETH_MAIN, mib.PETH_MAIN_POWER).get("1")
+    used = data.col(mib.PETH_MAIN, mib.PETH_MAIN_CONSUMPTION).get("1")
+    budget, drawn = as_int(main), as_int(used)
+    supply = (
+        PoeSupply(budget_w=budget, used_w=drawn)
+        if budget is not None or drawn is not None
+        else None
+    )
+    return supply, ports

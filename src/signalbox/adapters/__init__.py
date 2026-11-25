@@ -56,6 +56,7 @@ from signalbox.model import (
     MessageParams,
     Neighbour,
     Observed,
+    PoeSupply,
     Port,
     Radio,
     ReadError,
@@ -706,6 +707,10 @@ class Observation(BaseModel):
     #: API version needed. A device that was read and has no bridge gets ``[]``; the port
     #: state goes into ``Port.stp``.
     stp_bridges: dict[str, list[StpBridge]] = Field(default_factory=dict)
+    #: PoE budget per device id (#159), read with ``interfaces``; no API version needed. The
+    #: per-port state goes into ``Port.poe``. Leave a device out when it has no PoE or does not
+    #: say.
+    poe: dict[str, PoeSupply] = Field(default_factory=dict)
     #: Per device id: the login Signalbox uses is a factory default (#126), compared in
     #: memory with :func:`signalbox.factory_defaults.is_factory_default`; only the boolean.
     default_credentials: dict[str, bool] = Field(default_factory=dict)
@@ -987,6 +992,7 @@ class Adapter(ABC):
         logs: dict[str, list[LogTarget]] = {}
         accounts: dict[str, list[DeviceAccount]] = {}
         stp: dict[str, list[StpBridge]] = {}
+        poe: dict[str, PoeSupply] = {}
         defaults: dict[str, bool] = {}
         privileges: dict[str, AccountPrivilege] = {}
         try:
@@ -1038,6 +1044,7 @@ class Adapter(ABC):
                     accounts.setdefault(key, []).extend(users)
                 for key, bridges in result.stp_bridges.items():
                     stp.setdefault(key, []).extend(bridges)
+                poe.update(result.poe)
                 for key, flag in result.default_credentials.items():
                     defaults[key] = defaults.get(key, False) or flag
                 privileges.update(result.signalbox_privilege)
@@ -1061,6 +1068,7 @@ class Adapter(ABC):
             log_targets=logs.get(ctx.device_id),
             accounts=accounts.get(ctx.device_id),
             stp_bridges=stp.get(ctx.device_id),
+            poe=poe.get(ctx.device_id),
             default_credentials=defaults.get(ctx.device_id),
             signalbox_account_privilege=privileges.get(ctx.device_id),
             signalbox_account_needed=self.manifest.least_privilege,
@@ -1073,6 +1081,7 @@ class Adapter(ABC):
             "log_targets",
             "accounts",
             "stp_bridges",
+            "poe",
             "default_credentials",
             "signalbox_privilege",
             "incomplete",
@@ -1098,6 +1107,7 @@ class Adapter(ABC):
                             "log_targets": logs.get(d.id, d.log_targets),
                             "accounts": accounts.get(d.id, d.accounts),
                             "stp_bridges": stp.get(d.id, d.stp_bridges),
+                            "poe": poe.get(d.id, d.poe),
                             "default_credentials": defaults.get(d.id, d.default_credentials),
                             "signalbox_account_privilege": privileges.get(
                                 d.id, d.signalbox_account_privilege

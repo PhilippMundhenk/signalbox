@@ -1071,7 +1071,8 @@
    "default_credentials": false,
    "signalbox_account_privilege": "admin",
    "signalbox_account_needed": "admin",
-   "stp_bridges": null
+   "stp_bridges": null,
+   "poe": null
   },
   "status": "ok",
   "ports": [

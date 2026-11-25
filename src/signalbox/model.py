@@ -737,6 +737,9 @@ class Device(Observed):
     #: Spanning tree per bridge (#155, ADR 0023), read with ``interfaces``
     #: (``Observation.stp_bridges``). ``None``: not read; ``[]``: read, no bridge.
     stp_bridges: list[StpBridge] | None = None
+    #: PoE budget of a switch (#159), read with ``interfaces`` (``Observation.poe``).
+    #: ``None``: not reported.
+    poe: PoeSupply | None = None
 
     def sends_to(self, kind: LogKind) -> list[LogTarget]:
         """The enabled targets of one kind (empty when not read)."""
@@ -925,6 +928,77 @@ COUNTER_FIELDS = (
 )
 
 
+class PoeMode(StrEnum):
+    """PoE standard a port delivers power with (802.3af/at/bt, or passive PoE)."""
+
+    AF = "af"
+    AT = "at"
+    BT = "bt"
+    PASSIVE_24V = "passive-24v"
+    PASSIVE_48V = "passive-48v"
+
+
+class PoeStatus(StrEnum):
+    """What a PoE port is doing right now."""
+
+    DELIVERING = "delivering"
+    SEARCHING = "searching"  # on, no powered device detected
+    DISABLED = "disabled"
+    FAULT = "fault"
+    OVERLOAD = "overload"
+
+
+class PoePriority(StrEnum):
+    LOW = "low"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+#: Largest power the switch (PSE) delivers to a powered device of an 802.3 class 0 to 8, in
+#: watts at the port (IEEE 802.3af/at/bt; class 0 is the 802.3af default). A device that draws
+#: more than its class allows is faulty or misclassified.
+POE_CLASS_PSE_W: dict[int, float] = {
+    0: 15.4,
+    1: 4.0,
+    2: 7.0,
+    3: 15.4,
+    4: 30.0,
+    5: 45.0,
+    6: 60.0,
+    7: 75.0,
+    8: 90.0,
+}
+
+
+class PortPoe(Model):
+    """PoE state of one port of a power sourcing switch (#159). ``None`` fields: not reported."""
+
+    #: Administratively on (the old ``Port.poe`` bool).
+    enabled: bool | None = None
+    status: PoeStatus | None = None
+    mode: PoeMode | None = None
+    #: 802.3 class of the detected powered device, 0 to 8.
+    power_class: Annotated[int, Field(ge=0, le=8)] | None = None
+    priority: PoePriority | None = None
+    #: Power the port delivers now, in watts.
+    power_w: Annotated[float, Field(ge=0)] | None = None
+    #: Largest power the port may deliver (configured limit or hardware maximum), in watts.
+    max_w: Annotated[float, Field(gt=0)] | None = None
+    voltage_v: Annotated[float, Field(ge=0)] | None = None
+    current_ma: Annotated[float, Field(ge=0)] | None = None
+
+
+class PoeSupply(Model):
+    """The PoE budget of a switch (#159), in watts. ``None`` fields: not reported."""
+
+    budget_w: Annotated[float, Field(ge=0)] | None = None
+    used_w: Annotated[float, Field(ge=0)] | None = None
+    #: Power reserved (allocated by class) but not necessarily drawn.
+    reserved_w: Annotated[float, Field(ge=0)] | None = None
+    #: Strongest standard the switch supports.
+    standard: PoeMode | None = None
+
+
 class Port(Observed):
     """A port of a device.
 
@@ -939,7 +1013,8 @@ class Port(Observed):
     up: bool | None = None
     speed_mbps: int | None = None
     full_duplex: bool | None = None
-    poe: bool | None = None
+    #: PoE of the port (#159). A bool is read as ``PortPoe(enabled=...)`` (older data).
+    poe: PortPoe | None = None
     lag: str | None = None
     mac: Mac | None = None
     #: The user's own label of the port (alias, comment: "office desk"). User text: may
@@ -993,6 +1068,11 @@ class Port(Observed):
     stp: StpPort | None = None
     #: Traffic and error counters (#158); None: not reported.
     counters: PortCounters | None = None
+
+    @field_validator("poe", mode="before")
+    @classmethod
+    def _poe_bool(cls, value: Any) -> Any:
+        return PortPoe(enabled=value) if isinstance(value, bool) else value
 
     @field_validator("advertised_speeds_mbps")
     @classmethod

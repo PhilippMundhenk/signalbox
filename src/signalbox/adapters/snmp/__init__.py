@@ -396,13 +396,20 @@ class SnmpAdapter(Adapter):
         table = mapping.fdb(d, site, pmap, self._mib, vlans)
         if not table:
             gaps.append(self._gap("a MAC address table (Q-BRIDGE-MIB, BRIDGE-MIB)"))
+        await self._walks("poe", (mib.PETH_PORT, mib.PETH_MAIN))
+        supply, port_poe = mapping.poe(pmap, self._mib)
+        ports = [
+            p.model_copy(update={"poe": port_poe[p.id]}) if p.id in port_poe else p
+            for p in pmap.ports
+        ]
         bridge = mapping.stp_bridge(pmap, self._mib, self._bridge_mac)
         if bridge is None:
             gaps.append(self._gap("spanning tree (BRIDGE-MIB)"))
         if self._entity_missing:
             gaps.append(self._gap("ENTITY-MIB (model, serial, firmware)"))
         return Observation(
-            ports=pmap.ports,
+            ports=ports,
+            poe={d: supply} if supply else {},
             segments=segments or [],
             fdb=table,
             services=self._services(),

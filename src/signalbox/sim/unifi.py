@@ -100,6 +100,8 @@ def sample_data(major: int) -> dict[str, Any]:
             poe_enable=True,
             poe_power="4.2",
             poe_mode="auto",
+            poe_good=True,
+            poe_class="Class 2",
             mac_table=[{"mac": "02:00:00:00:01:01", "vlan": 1, "age": 3}],
         ),
         _port(
@@ -278,6 +280,7 @@ def sample_data(major: int) -> dict[str, Any]:
                     "speed": 1000,
                     "up": True,
                 },
+                "total_max_power": 60,
                 "port_table": switch_ports,
                 **switch_lldp,
             },

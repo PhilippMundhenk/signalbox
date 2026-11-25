@@ -1356,6 +1356,8 @@ class OpenWrtSim:
     packages: set[str] = field(default_factory=set)
     #: no ``network.wireless`` ubus object (a device without Wi-Fi)
     no_wireless_object: bool = False
+    #: answer of ``ubus call poe info`` (realtek-poe); None: the daemon is not installed
+    poe_info: dict[str, Any] | None = None
     #: UCI configs the ACL lets the user change (``write`` → ``uci`` in the rpcd ACL)
     writable: set[str] = field(default_factory=lambda: {*CONFIGS, *WRITE_ALSO})
     #: objects answered with broken JSON (``*``: every request)
@@ -1618,6 +1620,8 @@ class OpenWrtSim:
             zone = next((sec for sec in self.state["system"].values()), {})
             name = str(zone.get("zonename") or "UTC")
             return [0, system_info(time.time() + self.clock_skew, name)]
+        if obj == "poe" and method == "info":  # realtek-poe: only on PoE switches
+            return None if self.poe_info is None else [0, self.poe_info]
         if obj == "network.device" and method == "status":
             return [0, self._device_status()]
         if obj == "network.interface" and method == "dump":

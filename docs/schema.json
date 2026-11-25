@@ -1032,6 +1032,17 @@
           "default": null,
           "title": "Os Version"
         },
+        "poe": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoeSupply"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "role": {
           "$ref": "#/$defs/DeviceRole"
         },
@@ -4421,6 +4432,97 @@
       "title": "Pmf",
       "type": "string"
     },
+    "PoeMode": {
+      "description": "PoE standard a port delivers power with (802.3af/at/bt, or passive PoE).",
+      "enum": [
+        "af",
+        "at",
+        "bt",
+        "passive-24v",
+        "passive-48v"
+      ],
+      "title": "PoeMode",
+      "type": "string"
+    },
+    "PoePriority": {
+      "enum": [
+        "low",
+        "high",
+        "critical"
+      ],
+      "title": "PoePriority",
+      "type": "string"
+    },
+    "PoeStatus": {
+      "description": "What a PoE port is doing right now.",
+      "enum": [
+        "delivering",
+        "searching",
+        "disabled",
+        "fault",
+        "overload"
+      ],
+      "title": "PoeStatus",
+      "type": "string"
+    },
+    "PoeSupply": {
+      "additionalProperties": false,
+      "description": "The PoE budget of a switch (#159), in watts. ``None`` fields: not reported.",
+      "properties": {
+        "budget_w": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget W"
+        },
+        "reserved_w": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reserved W"
+        },
+        "standard": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoeMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "used_w": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Used W"
+        }
+      },
+      "title": "PoeSupply",
+      "type": "object"
+    },
     "Port": {
       "additionalProperties": false,
       "description": "A port of a device.\n\n``up`` is the link state. The configuration details below (from ``description`` on) are\nfilled only where the device reports them, as part of the ``interfaces`` capability;\n``None`` (or an empty list) means \"not reported\", never \"off\".",
@@ -4725,14 +4827,13 @@
         "poe": {
           "anyOf": [
             {
-              "type": "boolean"
+              "$ref": "#/$defs/PortPoe"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Poe"
+          "default": null
         },
         "profile": {
           "anyOf": [
@@ -5211,6 +5312,125 @@
         "mode"
       ],
       "title": "PortMembership",
+      "type": "object"
+    },
+    "PortPoe": {
+      "additionalProperties": false,
+      "description": "PoE state of one port of a power sourcing switch (#159). ``None`` fields: not reported.",
+      "properties": {
+        "current_ma": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Ma"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "max_w": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max W"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoeMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "power_class": {
+          "anyOf": [
+            {
+              "maximum": 8,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Power Class"
+        },
+        "power_w": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Power W"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoePriority"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoeStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "voltage_v": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Voltage V"
+        }
+      },
+      "title": "PortPoe",
       "type": "object"
     },
     "PortRange": {

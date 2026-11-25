@@ -563,12 +563,16 @@ def sample_data() -> dict[str, Any]:
             },
         ],
         # the switch's own settings: jumbo frames up to 9216 bytes (1518: off)
-        f"{SITE}/switches/{SWITCH}{SETTINGS_KEY}": {"jumbo": 9216},
+        f"{SITE}/switches/{SWITCH}{SETTINGS_KEY}": {
+            "jumbo": 9216,
+            "totalPower": 65,
+            "poeRemain": 47.5,
+        },
         f"{SITE}/switches/{SWITCH}{PORTS_KEY}": [
             _port(1, "prof-all", "All", speed=4, max_speed=4),
             # LAG 1, LACP active (#157; the lagType values are a guess, #21)
-            _port(2, "prof-all", "All", poe=True, lagId=1, lagType=1),
-            _port(3, "prof-all", "All", poe=True, lagId=1, lagType=1),
+            _port(2, "prof-all", "All", poe=True, poePower=12.3, lagId=1, lagType=1),
+            _port(3, "prof-all", "All", poe=True, poePower=5.2, lagId=1, lagType=1),
             _port(4, "prof-lan", "LAN", link=0, speed=0, duplex=0),
             _port(5, "prof-lan", "LAN", speed=2, duplex=1),
             _port(6, "prof-lan", "LAN", link=0, speed=0, duplex=0, disable=True),

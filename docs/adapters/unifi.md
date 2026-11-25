@@ -100,8 +100,12 @@ not adopted are left out.
 | neighbours | `uplink` of every device, `lldp_table` | an AP's switch port, mesh uplinks between APs, switch-to-gateway links; LLDP neighbours (name, port, description) |
 | health, time | `stat/device`, `Date` header | uptime, CPU, load, memory, temperature, storage per device; clock and time zone |
 
-`stat/device` also answers with the PoE budget, STP state, SFP data and more; they are not read
-yet. Firewall, VPN and routes are not read.
+PoE (#159): per port `poe_enable`, `poe_mode` (`auto`, `pasv24`, `passthrough`, `off`), the delivered
+`poe_power` (W), `poe_good` and `poe_class` (`Class 4`); per switch `total_max_power` (W) as the
+budget and the sum of the port power as used. A Network version without a field leaves it out
+(*guess: the field names are from the classic API of Network 7 and 8, not checked on a real switch*);
+the integration API (`/integration/v1`) has no ports, so no PoE. `stat/device` also answers with STP
+state, SFP data and more; they are not read yet. Firewall, VPN and routes are not read.
 
 ## Findings you may see
 

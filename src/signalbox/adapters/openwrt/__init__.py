@@ -60,6 +60,7 @@ from signalbox.adapters.openwrt import (
     wireguard,
 )
 from signalbox.adapters.openwrt import discovery as _discovery
+from signalbox.adapters.openwrt import poe as _poe
 from signalbox.adapters.openwrt import radio as radio_state
 from signalbox.adapters.openwrt import stp as _stp
 from signalbox.adapters.openwrt.structure import structure
@@ -107,6 +108,7 @@ from signalbox.model import (
     Membership,
     Neighbour,
     Pmf,
+    PoeSupply,
     Port,
     PortCounters,
     PortKind,
@@ -1013,6 +1015,7 @@ class OpenWrtAdapter(Adapter):
             return ports[name].id
 
         bridges, stp_gaps = await self._stp(view, status, ports)
+        supply = await self._poe(ports)
 
         names = view.segment_names()
         members: dict[int, dict[str, Membership]] = {}
@@ -1123,10 +1126,24 @@ class OpenWrtAdapter(Adapter):
             log_targets={} if targets is None else {d: targets},
             accounts={} if users is None else {d: users},
             stp_bridges={d: bridges},
+            poe={d: supply} if supply else {},
             default_credentials={d: await self._default_credentials()},
             signalbox_privilege={} if own is None else {d: own.privilege},
             incomplete=gaps,
         )
+
+    async def _poe(self, ports: dict[str, Port]) -> PoeSupply | None:
+        """PoE of a switch with the ``realtek-poe`` daemon (``ubus call poe info``); the port
+        state goes into ``ports``. Nothing on a device without that object."""
+        try:
+            info = await self.ubus.call("poe", "info")
+        except (AdapterError, NotFound):
+            return None
+        supply, found = _poe.read(info)
+        for name, state in found.items():
+            if name in ports:
+                ports[name] = ports[name].model_copy(update={"poe": state})
+        return supply
 
     async def _stp_file(self, path: str) -> str | None:
         """One sysfs value through ``file read``; None when the file does not exist."""
