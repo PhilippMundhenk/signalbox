@@ -273,6 +273,12 @@ def application(oid: str, web: dict[str, str], name: str, role: str) -> dict[str
     made = created if isinstance(created, dict) else {}
     log(f"application {name}: creation answer keys {sorted(made)}")
     secret = made.get("clientSecret") or app["clientSecret"]
+    notice(
+        f"Omada application {name}",
+        f"created keys {sorted(made)}; listed {json.dumps(shown)[:600]}; "
+        f"secret lengths created {len(str(made.get('clientSecret', '')))} "
+        f"listed {len(str(app['clientSecret']))}",
+    )
     return {
         "client_id": made.get("clientId") or app["clientId"],
         "client_secret": secret,
