@@ -3383,6 +3383,7 @@
  "topology.origin.inferred": "{origin}, abgeleitet",
  "topology.evidence": "Gesehen von: {sources}",
  "topology.evidence.fdb": "MAC-Tabelle",
+ "topology.evidence.gateway": "Standard-Gateway der Geräte an diesem Port",
  "topology.evidence.arp": "ARP/NDP-Tabelle",
  "topology.evidence.address": "Verwaltungsadresse in der ARP-Tabelle",
  "topology.origin.mesh": "Mesh",

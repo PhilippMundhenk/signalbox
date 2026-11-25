@@ -228,7 +228,7 @@ function internetCard(ix, deviceId) {
 }
 
 // Cables drawn from partial data (#378): each with the observations that support it.
-const EVIDENCE = { fdb: 'topology.evidence.fdb', arp: 'topology.evidence.arp', address: 'topology.evidence.address' };
+const EVIDENCE = { fdb: 'topology.evidence.fdb', arp: 'topology.evidence.arp', address: 'topology.evidence.address', gateway: 'topology.evidence.gateway' };
 function inferredCard(ix, deviceId) {
   const ours = (id) => (ix.ports.get(id) || {}).device_id === deviceId || id.startsWith(`${deviceId}/port/`);
   const links = ix.net.links.filter((l) => l.inferred && (ours(l.a) || ours(l.b)));

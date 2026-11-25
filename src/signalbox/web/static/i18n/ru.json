@@ -3383,6 +3383,7 @@
  "topology.origin.inferred": "{origin}, выведено",
  "topology.evidence": "Видно: {sources}",
  "topology.evidence.fdb": "таблица MAC",
+ "topology.evidence.gateway": "шлюз по умолчанию для устройств на этом порту",
  "topology.evidence.arp": "таблица ARP/NDP",
  "topology.evidence.address": "адрес управления в таблице ARP",
  "topology.origin.mesh": "mesh",

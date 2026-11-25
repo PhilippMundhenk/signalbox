@@ -34,7 +34,7 @@ import json
 import re
 import secrets
 import string
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
 from functools import cache
@@ -199,7 +199,9 @@ STATIONS: dict[int, list[tuple[str, str]]] = {
 }
 
 #: Host table (Hosts1): MAC, IP, source, interface type, active, host name
-HOSTS: list[tuple[str, str, str, str, str, str]] = [
+#: A host list entry: MAC, IPv4 address, address source, interface type, active, host name.
+HostRow = tuple[str, str, str, str, str, str]
+HOSTS: list[HostRow] = [
     (_mac(0x20, 1), "192.0.2.101", "DHCP", "802.11", "1", "laptop"),
     (_mac(0x20, 2), "", "DHCP", "802.11", "1", "guest-phone"),
     (_mac(0x10, 1), "192.0.2.50", "DHCP", "Ethernet", "1", "printer"),
@@ -228,8 +230,8 @@ def time_info(zone: str, skew: float = 0.0) -> dict[str, str]:
     }
 
 
-def host_entry(index: int) -> dict[str, str]:
-    mac, ip, source, kind, active, name = HOSTS[index]
+def host_entry(index: int, extra: Sequence[HostRow] = ()) -> dict[str, str]:
+    mac, ip, source, kind, active, name = [*HOSTS, *extra][index]
     return {
         "NewIPAddress": ip,
         "NewAddressSource": source,
@@ -241,16 +243,16 @@ def host_entry(index: int) -> dict[str, str]:
     }
 
 
-def host_list() -> str:
+def host_list(extra: Sequence[HostRow] = ()) -> str:
     items = "".join(
         "<Item><Index>{}</Index>{}</Item>".format(
             i + 1,
             "".join(
                 f"<{k.removeprefix('New')}>{escape(v)}</{k.removeprefix('New')}>"
-                for k, v in host_entry(i).items()
+                for k, v in host_entry(i, extra).items()
             ),
         )
-        for i in range(len(HOSTS))
+        for i in range(len(HOSTS) + len(extra))
     )
     return f'<?xml version="1.0" encoding="utf-8"?><List>{items}</List>'
 
@@ -525,6 +527,8 @@ class FritzboxSim:
     host_list: bool = True
     #: path X_AVM-DE_GetHostListPath points to
     host_list_path: str = ""
+    #: hosts after the sample ones (#529): other devices of the LAN, as :data:`HOSTS`
+    extra_hosts: list[HostRow] = field(default_factory=list)
     #: FRITZ!Mesh (#171): ``X_AVM-DE_GetMeshListPath`` points to :func:`mesh_topology` (or to
     #: ``mesh_doc``); off: the box has no mesh and answers fault 401 as a FRITZ!OS without it
     mesh: bool = False
@@ -840,10 +844,11 @@ class FritzboxSim:
                 return dict(self.forwarding[index]) if index < len(self.forwarding) else 713
         if name == "Hosts":
             if action == "GetHostNumberOfEntries":
-                return {"NewHostNumberOfEntries": str(len(HOSTS))}
+                return {"NewHostNumberOfEntries": str(len(HOSTS) + len(self.extra_hosts))}
             if action == "GetGenericHostEntry":
                 index = int(args["NewIndex"])
-                return host_entry(index) if index < len(HOSTS) else 713
+                total = len(HOSTS) + len(self.extra_hosts)
+                return host_entry(index, self.extra_hosts) if index < total else 713
             if action == "X_AVM-DE_GetHostListPath":
                 return {"NewX_AVM-DE_HostListPath": self.host_list_path or self.list_path}
             if action == "X_AVM-DE_GetMeshListPath":
@@ -1210,7 +1215,7 @@ def create_app(sim: FritzboxSim | None = None) -> FastAPI:
             return Response('<!DOCTYPE List [<!ENTITY x "x">]><List/>', media_type="text/xml")
         if "HostList" in state.malformed:
             return Response("<List><Item>", media_type="text/xml")
-        return Response(host_list(), media_type="text/xml")
+        return Response(host_list(state.extra_hosts), media_type="text/xml")
 
     @app.get(MESH_LIST)
     async def mesh_list(sid: str = "") -> Response:

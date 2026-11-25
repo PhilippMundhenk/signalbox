@@ -3383,6 +3383,7 @@
  "topology.origin.inferred": "{origin}, déduit",
  "topology.evidence": "Vu par : {sources}",
  "topology.evidence.fdb": "table MAC",
+ "topology.evidence.gateway": "passerelle par défaut des appareils sur ce port",
  "topology.evidence.arp": "table ARP/NDP",
  "topology.evidence.address": "adresse de gestion dans la table ARP",
  "topology.origin.mesh": "maillage",

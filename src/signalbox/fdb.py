@@ -26,6 +26,12 @@ keeps them; everything here is derived on the merged :class:`~signalbox.model.Ne
 - The addresses of a managed device are its ports' MACs, its own table entries, ``Device.mac``
   and the MAC an ARP/NDP table gives for its management address (#378).
 - Sightings on a VLAN interface count for the jack below it (an ARP table names ``igb1.10``).
+- A *coarse* port (``Port.coarse``: a host list that puts every wired host on one port, as the
+  FRITZ!Box ``lan``) is no per-port table: it is linked only to devices that report no table
+  or whose own table learns it on a wired port, never to one whose bridge uplink is wireless
+  (#529). When several devices learned on one port are told apart by nothing and one of them
+  lacks a per-port table, the one holding their default next hop (the gateway) is the nearest:
+  a LAN is taken as a star around its gateway.
 """
 
 from __future__ import annotations
@@ -41,6 +47,8 @@ from signalbox.model import (
     LinkEvidence,
     LinkKind,
     Membership,
+    MeshPeerRole,
+    MeshUplink,
     Network,
     Port,
     PortKind,
@@ -75,6 +83,10 @@ class Index:
     tables: dict[str, dict[str, set[str]]] = field(default_factory=dict)
     #: MAC → the port of the ARP/NDP entry that gave it to a device by its management address.
     by_address: dict[str, str] = field(default_factory=dict)
+    #: Devices that report a MAC address table (even one with nothing usable in it).
+    reporting: set[str] = field(default_factory=set)
+    #: Coarse ports (``Port.coarse``, #529): their sightings are no per-port table.
+    coarse: set[str] = field(default_factory=set)
 
     def count(self, port_id: str) -> int:
         return len(self.learned.get(port_id, ()))
@@ -140,11 +152,20 @@ def index(net: Network, held: bool = False) -> Index:
         port = usable(_jack(net, h.port_id))
         if port is not None and owner.get(h.mac) not in (None, port.device_id):
             sightings[Sighting(port.device_id, port.id, h.mac)] = None
-    ix = Index(list(sightings), owner, port_of_mac, macs, by_address=by_address)
+    coarse = {p.id for p in net.ports if p.coarse}
+    ix = Index(
+        list(sightings),
+        owner,
+        port_of_mac,
+        macs,
+        by_address=by_address,
+        reporting=with_table,
+        coarse=coarse,
+    )
     for s in ix.sightings:
         ix.learned.setdefault(s.port_id, set()).add(s.mac)
         ix.where.setdefault(s.mac, []).append(s)
-        if s.device_id in with_table:
+        if s.device_id in with_table and s.port_id not in coarse:
             ix.tables.setdefault(s.device_id, {}).setdefault(s.port_id, set()).add(s.mac)
         if owner.get(s.mac, s.device_id) != s.device_id:
             ix.uplinks.add(s.port_id)
@@ -298,12 +319,15 @@ def adjacencies(net: Network) -> list[Adjacent]:
     """Ports that learn another managed device's address, with the nearest such device.
 
     A router without a bridge table only says that a device is in the same layer-2 network
-    as one of its ports (ARP/NDP, #378): when a known switch of that network may sit between,
-    no cable is drawn from it to a device that is no switch, and one to a switch is inferred.
+    as one of its ports (ARP/NDP, #378): when a known switch, or another bridging device that
+    reports where hosts are (#529), may sit between, no cable is drawn from it to a device
+    that is no switch, and one to a switch is inferred.
     """
     ix = index(net, held=True)
     roles = {d.id: d.role for d in net.devices}
-    switches = sorted(d for d, r in roles.items() if r is DeviceRole.SWITCH)
+    bridging = _bridging(net, ix)
+    wireless_up = _wireless_uplinks(net, ix)
+    hops = _next_hops(net)
     port_segments = _segments_of_ports(net)
     device_segments = _segments_of_devices(net)
     learned: dict[str, set[str]] = {}
@@ -322,30 +346,51 @@ def adjacencies(net: Network) -> list[Adjacent]:
             dev = ix.owner.get(mac)
             if dev is not None and dev != here:
                 seen.setdefault(dev, mac)
+        coarse = port_id in ix.coarse
+        if coarse:  # a host list of the whole LAN: only what the far tables allow (#529)
+            seen = {
+                dev: mac
+                for dev, mac in seen.items()
+                if dev not in wireless_up and _wired_toward(net, ix, dev, here)
+            }
         nearest = [
             dev
             for dev in seen
             if not any(
                 other != dev
-                and (_between(ix, here, dev, other) or _switch_first(ix, roles, dev, other))
+                and (
+                    _between(ix, here, dev, other, coarse)
+                    or (not coarse and _switch_first(ix, roles, dev, other))
+                )
                 for other in seen
             )
         ]
         wireless = port.kind is PortKind.WIRELESS
+        # nothing tells them apart: a star around the gateway (#529); over Wi-Fi the nearest
+        # is the access point, not the gateway
+        gateway = None if wireless else _gateway(ix, hops, here, nearest)
+        if gateway is not None:
+            nearest = [gateway]
         arp_only = roles.get(here) is DeviceRole.GATEWAY and here not in ix.tables
         here_segments = port_segments.get(port_id, set())
         for dev in nearest:
             unsure = False
             if arp_only:
+                # any bridging device may sit in between; before the gateway only where its
+                # own table says so (#529)
+                between = _separates if dev == gateway else _may_sit_between
                 unsure = any(
                     sw not in (here, dev)
                     and device_segments.get(sw, set()) & here_segments
-                    and _may_sit_between(ix, here, dev, sw)
-                    for sw in switches
+                    and between(ix, here, dev, sw)
+                    for sw in bridging
                 )
                 if unsure and roles.get(dev) is not DeviceRole.SWITCH:
                     continue  # same network, not a cable: a switch may be in between
             evidence = _evidence(ix, port_id, here, dev, seen[dev])
+            if dev == gateway:
+                evidence += (LinkEvidence(port_id=port_id, source=EvidenceSource.GATEWAY),)
+            inferred = unsure or dev == gateway or (coarse and dev not in ix.reporting)
             remote, choices = _far_port(net, ix, here, dev, seen[dev])
             if remote is None:
                 if choices:
@@ -355,7 +400,7 @@ def adjacencies(net: Network) -> list[Adjacent]:
                 continue
             out.setdefault(
                 (port_id, remote),
-                Adjacent(port_id, remote, wireless, unsure, evidence),
+                Adjacent(port_id, remote, wireless, inferred, evidence),
             )
     for local, remote, evidence in _guess(net, open_ends, out):
         port = net.port(local)
@@ -375,11 +420,12 @@ def _switch_first(ix: Index, roles: dict[str, DeviceRole], dev: str, other: str)
     )
 
 
-def _between(ix: Index, here: str, far: str, other: str) -> bool:
+def _between(ix: Index, here: str, far: str, other: str, coarse: bool = False) -> bool:
     """``other`` sits between ``here`` and ``far``: its own table learns the two on different
     ports; or ``far`` learns ``other`` on the same port as ``here``, and ``other`` learns them
     on different ports (or reports no table, so nothing says it is beside the path: an
-    unmanaged switch joining all three)."""
+    unmanaged switch joining all three). From a ``coarse`` port (#529) a device without a
+    table is no such switch: the coarse device's own LAN switch joins them."""
     a = ix.ports_learning(other, ix.macs.get(here, set()))
     b = ix.ports_learning(other, ix.macs.get(far, set()))
     if a and b and not set(a) & set(b):
@@ -389,8 +435,96 @@ def _between(ix: Index, here: str, far: str, other: str) -> bool:
     if not set(toward_here) & set(toward_other):
         return False
     if other not in ix.tables:
-        return True
+        return not coarse
     return not a or not b
+
+
+def _separates(ix: Index, here: str, dev: str, sw: str) -> bool:
+    """``sw``'s own table learns ``here`` and ``dev`` on different ports."""
+    a = ix.ports_learning(sw, ix.macs.get(here, set()))
+    b = ix.ports_learning(sw, ix.macs.get(dev, set()))
+    return bool(a and b and not set(a) & set(b))
+
+
+def _bridging(net: Network, ix: Index) -> list[str]:
+    """Devices that may sit between a router and what its ARP table sees (#529): every switch,
+    and any other device that bridges and says where hosts are, by a MAC address table (an
+    access point, a router with LAN ports) or a host list (``Port.coarse``). A device that says
+    nothing about its ports is not taken to sit in between (it would hide every cable)."""
+    out = {d.id for d in net.devices if d.role is DeviceRole.SWITCH}
+    out |= {p.device_id for p in net.ports if p.id in ix.coarse}
+    return sorted(out | ix.reporting)
+
+
+def _wireless_port(net: Network, port_id: str) -> bool:
+    port = net.port(port_id)
+    return port is not None and (port.kind is PortKind.WIRELESS or port.role is PortRole.WIRELESS)
+
+
+def _wireless_uplinks(net: Network, ix: Index) -> set[str]:
+    """Devices whose bridge uplink is wireless (#529): a repeater or mesh node by its mesh
+    membership (wireless uplink, wireless hops to the controller), a bridge whose STP root port
+    is a Wi-Fi/WDS/mesh interface, the station end of a wireless backhaul (a peer reported as
+    uplink, or the station of a WDS access point's downlink)."""
+    out: set[str] = set()
+    for d in net.devices:
+        if d.mesh is not None and (d.mesh.uplink is MeshUplink.WIRELESS or (d.mesh.hop or 0) > 0):
+            out.add(d.id)
+        for bridge in d.stp_bridges or []:
+            if bridge.root_port_id and _wireless_port(net, bridge.root_port_id):
+                out.add(d.id)
+    for peer in net.mesh_peers:
+        if peer.role is MeshPeerRole.UPLINK:
+            out.add(peer.device_id)
+        elif peer.role is MeshPeerRole.DOWNLINK and (o := ix.owner.get(peer.peer_mac)):
+            out.add(o)
+    return out
+
+
+def _wired_toward(net: Network, ix: Index, dev: str, here: str) -> bool:
+    """``dev`` may be cabled to ``here`` by its own table: it reports none, or it learns
+    ``here`` on a port that is no Wi-Fi interface."""
+    if dev not in ix.reporting:
+        return True
+    toward = ix.ports_learning(dev, ix.macs.get(here, set()))
+    return any(not _wireless_port(net, p) for p in toward)
+
+
+def _next_hops(net: Network) -> dict[str, set[str]]:
+    """Device -> the devices holding its default next hop (default routes, uplinks)."""
+    owner: dict[str, str] = {}
+    for d in net.devices:
+        if d.management_address:
+            owner.setdefault(str(d.management_address), d.id)
+    for sub in net.subnets:
+        owner.setdefault(str(sub.interface.ip), sub.device_id)
+    hops: dict[str, set[str]] = {}
+
+    def add(device_id: str, address: object) -> None:
+        dev = owner.get(str(address))
+        if dev is not None and dev != device_id:
+            hops.setdefault(device_id, set()).add(dev)
+
+    for r in net.routes:
+        if r.default and r.gateway is not None and r.enabled and r.active is not False:
+            add(r.device_id, r.gateway)
+    for u in net.uplinks:
+        if u.upstream_gateway is not None:
+            add(u.device_id, u.upstream_gateway)
+    return hops
+
+
+def _gateway(ix: Index, hops: dict[str, set[str]], here: str, nearest: list[str]) -> str | None:
+    """Of several devices learned on one port, none between the others, the one that holds the
+    default next hop of this device or of the others (#529). Only where one of them reports no
+    per-port table: with real tables an unmanaged switch joins them all."""
+    if len(nearest) < 2 or all(d in ix.tables for d in nearest):
+        return None
+    found: set[str] = set()
+    for d in (here, *nearest):
+        found |= hops.get(d, set())
+    found &= set(nearest)
+    return found.pop() if len(found) == 1 else None
 
 
 def _far_port(

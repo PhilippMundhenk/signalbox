@@ -972,6 +972,8 @@ class FritzboxAdapter(Adapter):
             device_id=d,
             name="lan",
             kind=PortKind.BRIDGE,
+            # the host list puts every wired host on this one port, whichever jack (#529)
+            coarse=True,
             up=eth.get("NewStatus", "").strip().lower() == "up" if eth.get("NewStatus") else None,
             full_duplex={"full": True, "half": False}.get(duplex),
             mac=_mac(eth.get("NewMACAddress")),
