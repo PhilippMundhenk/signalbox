@@ -92,7 +92,7 @@ echo @@model; show /proc/device-tree/model /proc/device-tree/serial-number \
   /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name \
   /sys/class/dmi/id/product_serial /sys/class/dmi/id/board_name \
   /sys/class/dmi/id/board_version /sys/class/dmi/id/bios_version
-echo @@link; ip -j -d link show
+echo @@link; ip -j -s -s -d link show
 echo @@addr; ip -j addr show
 echo @@route; ip -j route show table main
 echo @@route6; ip -j -6 route show table main

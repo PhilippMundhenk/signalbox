@@ -33,8 +33,8 @@ is too short, and on the desired or the predicted state of a plan (which have no
 - **Severity:** warning for a port on a link between network devices; info for other ports
 - **Checks:** an Ethernet port or LAG whose link went down at least 3 times in the last 24
   hours. The link state is taken from each observation round, so only losses that last until a
-  round are seen. Wireless and virtual interfaces are ignored. Error counters (CRC, FCS) are not
-  read yet (#115, #158).
+  round are seen. Wireless and virtual interfaces are ignored. Error counters are checked by
+  `port.errors`.
 - **Fix:** replace or re-terminate the cable, check the connectors, keep auto-negotiation on
   both ends. A computer that sleeps and wakes often also causes this (info).
 

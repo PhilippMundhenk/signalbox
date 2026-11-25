@@ -241,7 +241,9 @@ class Runner:
 
     def history(self, now: datetime | None = None) -> History:
         """The observation history (read-only) as of ``now``."""
-        return self.store.history(now or datetime.now(UTC), self.config.history.days)
+        return self.store.history(
+            now or datetime.now(UTC), self.config.history.days, self.config.counters.limits()
+        )
 
     def evaluate(self, record: bool = False) -> tuple[Network, list[Finding]]:
         """Check the network. ``record``: this is a new observation round, add it to the history."""

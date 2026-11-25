@@ -732,6 +732,15 @@ class FritzboxSim:
 
     def _wan(self, name: str, action: str, args: dict[str, str]) -> dict[str, str] | int:
         if name == "WANCommonInterfaceConfig":
+            totals = {
+                "GetTotalBytesSent": ("NewTotalBytesSent", 1_204_117_552),
+                "GetTotalBytesReceived": ("NewTotalBytesReceived", 3_881_020_914),
+                "GetTotalPacketsSent": ("NewTotalPacketsSent", 7_204_511),
+                "GetTotalPacketsReceived": ("NewTotalPacketsReceived", 9_113_207),
+            }
+            if action in totals:  # fixed values (the 32-bit counters of every FRITZ!OS)
+                key, value = totals[action]
+                return {key: str(value)}
             if action != "GetCommonLinkProperties":
                 raise NotSimulated(f"{name} {action}")
             access, down, upstream = WAN_ACCESS[self.wan]

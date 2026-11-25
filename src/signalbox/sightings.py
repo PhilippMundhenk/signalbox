@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import Field
 
+from signalbox.counters import CounterLimits, CounterRecord
 from signalbox.fdb import fdb_access_ports, managed_sightings
 from signalbox.model import Client, DeviceStatus, Model, Network, PortKind
 
@@ -35,10 +36,15 @@ FDB = "fdb"
 #: Per port and MAC address of a managed device: it was seen there (``<port id> <mac>``, the
 #: value is the :class:`~signalbox.model.EvidenceSource`), for the link inference (#378).
 MAC_PORT = "mac-port"
+#: Per port: its last counters and their delta to the read before (a JSON value, #158). Only the
+#: last value is kept: no change log.
+COUNTERS = "counters"
 #: How long such a sighting still counts after it was last seen.
 MAC_HOLD = timedelta(hours=24)
 #: Kinds whose key is a device id (deleted with the device).
-DEVICE_KINDS = (DEVICE, PORT, BOOT, CPU, MAC_PORT)
+DEVICE_KINDS = (DEVICE, PORT, BOOT, CPU, MAC_PORT, COUNTERS)
+#: Kinds whose value changes with every round: the changes are not logged.
+UNLOGGED_KINDS = (COUNTERS,)
 #: CPU load (percent) from which an observation counts as high for ``device.resources``.
 CPU_HIGH_PCT = 90.0
 
@@ -160,6 +166,10 @@ class History(Model):
     cpu: dict[str, ValueHistory] = Field(default_factory=dict)
     #: By MAC address: the access port its MAC address table entries put it behind.
     fdb: dict[str, ValueHistory] = Field(default_factory=dict)
+    #: By port id: the last counters and the delta to the read before (#158).
+    counters: dict[str, CounterRecord] = Field(default_factory=dict)
+    #: Thresholds of ``port.errors`` (the runner sets them from the configuration).
+    counter_limits: CounterLimits = Field(default_factory=CounterLimits)
 
     @classmethod
     def empty(cls) -> History:
@@ -214,6 +224,9 @@ def observed_values(net: Network) -> dict[tuple[str, str], str | None]:
     for port in net.ports:
         if port.up is not None and port.kind in (PortKind.ETHERNET, PortKind.LAG):
             out[(PORT, port.id)] = "up" if port.up else "down"
+    for port in net.ports:
+        if port.counters is not None and port.counters.has_values():
+            out[(COUNTERS, port.id)] = port.counters.model_dump_json(exclude_none=True)
     for dev in net.devices:
         h = dev.health
         if h is None or net.statuses.get(dev.id, DeviceStatus.OK) not in ANSWERED:

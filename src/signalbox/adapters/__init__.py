@@ -801,6 +801,9 @@ def _stamp(obj: Observed, source: Source, when: datetime) -> Observed:
         update["source"] = source
     if obj.observed_at is None:
         update["observed_at"] = when
+    if isinstance(obj, Port) and obj.counters is not None and obj.counters.read_at is None:
+        # the time base of the counter deltas (#158): adapters only return the totals
+        update["counters"] = obj.counters.model_copy(update={"read_at": when})
     return obj.model_copy(update=update) if update else obj
 
 

@@ -159,6 +159,17 @@ def typical_switch() -> str:
         w.add(f"1.3.6.1.2.1.2.2.1.10.{n}", "65", 1000 * n)
         w.text(f"1.3.6.1.2.1.31.1.1.1.1.{n}", name)
         w.add(f"1.3.6.1.2.1.31.1.1.1.15.{n}", "66", mbit)
+        if n in up and n <= 8:  # counters: fixed values, the HC ones past 32 bits on port 1
+            big = 5_000_000_000 if n == 1 else 0
+            w.add(f"1.3.6.1.2.1.31.1.1.1.6.{n}", "70", big + 91_220_000 * n)  # ifHCInOctets
+            w.add(f"1.3.6.1.2.1.31.1.1.1.10.{n}", "70", big + 17_330_000 * n)  # ifHCOutOctets
+            w.add(f"1.3.6.1.2.1.31.1.1.1.7.{n}", "70", 70_000 * n)  # ifHCInUcastPkts
+            w.add(f"1.3.6.1.2.1.31.1.1.1.11.{n}", "70", 41_000 * n)  # ifHCOutUcastPkts
+            w.add(f"1.3.6.1.2.1.31.1.1.1.8.{n}", "70", 300)  # ifHCInMulticastPkts
+            w.add(f"1.3.6.1.2.1.2.2.1.13.{n}", "65", 1)  # ifInDiscards
+            w.add(f"1.3.6.1.2.1.2.2.1.14.{n}", "65", 2 if n == 2 else 0)  # ifInErrors
+            w.add(f"1.3.6.1.2.1.2.2.1.20.{n}", "65", 0)  # ifOutErrors
+            w.add(f"1.3.6.1.2.1.10.7.2.1.3.{n}", "65", 2 if n == 2 else 0)  # dot3StatsFCSErrors
         if n == 1:
             w.text("1.3.6.1.2.1.31.1.1.1.18.1", "uplink to the router")
         if n <= 8 and n in up:

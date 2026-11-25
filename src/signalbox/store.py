@@ -16,6 +16,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from signalbox.adapters import AdapterConfig, Backup
+from signalbox.counters import CounterLimits, CounterRecord, counter_record, counter_value
 from signalbox.history import BackupInfo, ChangeEvent, ChangeRecord
 from signalbox.model import (
     Acknowledgement,
@@ -29,6 +30,7 @@ from signalbox.model import (
     MacSighting,
     Network,
     PathTrace,
+    PortCounters,
     Site,
     Snapshot,
 )
@@ -39,12 +41,14 @@ from signalbox.sightings import (
     BOOT,
     CLIENT,
     CLIENT_SEGMENT,
+    COUNTERS,
     CPU,
     DEVICE,
     DEVICE_KINDS,
     FDB,
     MAC_PORT,
     PORT,
+    UNLOGGED_KINDS,
     ClientHistory,
     DeviceHistory,
     History,
@@ -889,6 +893,17 @@ class Store:
                 for r in db.execute("SELECT kind, key, value FROM sightings")
             }
             for (kind, key), value in seen.items():
+                if kind == COUNTERS:
+                    value = counter_value(
+                        known.get((kind, key)), PortCounters.model_validate_json(str(value))
+                    )
+                    if value is None:  # the same read again: keep the last delta
+                        if (kind, key) in known:
+                            db.execute(
+                                "UPDATE sightings SET last_seen = ? WHERE kind = ? AND key = ?",
+                                (stamp, kind, key),
+                            )
+                        continue
                 ok = stamp if kind == DEVICE and DeviceStatus(str(value)) in ANSWERED else None
                 if (kind, key) not in known:
                     db.execute(
@@ -899,7 +914,7 @@ class Store:
                     continue
                 old = known[(kind, key)]
                 if value is not None and value != old:
-                    if old is not None:
+                    if old is not None and kind not in UNLOGGED_KINDS:
                         db.execute(
                             "INSERT INTO sighting_changes (kind, key, at, old, new) "
                             "VALUES (?, ?, ?, ?, ?)",
@@ -955,7 +970,7 @@ class Store:
             db.execute("DELETE FROM sighting_changes WHERE at < ?", (stamp,))
             return int(gone)
 
-    def history(self, now: datetime, days: int) -> History:
+    def history(self, now: datetime, days: int, limits: CounterLimits | None = None) -> History:
         """The recorded history as rules and the UI see it."""
         changes: dict[tuple[str, str], list[sqlite3.Row]] = {}
         for r in self._all("SELECT * FROM sighting_changes ORDER BY seq"):
@@ -963,6 +978,7 @@ class Store:
         devices: dict[str, DeviceHistory] = {}
         clients: dict[str, ClientHistory] = {}
         ports: dict[str, PortHistory] = {}
+        counters: dict[str, CounterRecord] = {}
         values: dict[str, dict[str, ValueHistory]] = {BOOT: {}, CPU: {}, FDB: {}}
         segments: dict[str, list[SegmentSighting]] = {}
         for r in self._all("SELECT * FROM sightings ORDER BY kind, key"):
@@ -985,6 +1001,9 @@ class Store:
                     since=r["value_since"],
                     changes=[LinkChange(at=c["at"], up=c["new"] == "up") for c in own],
                 )
+            elif kind == COUNTERS:
+                if (record := counter_record(r["value"])) is not None:
+                    counters[key] = record
             elif kind == CLIENT:
                 clients[key] = ClientHistory(
                     mac=key,
@@ -1023,4 +1042,6 @@ class Store:
             boots=values[BOOT],
             cpu=values[CPU],
             fdb=values[FDB],
+            counters=counters,
+            counter_limits=limits or CounterLimits(),
         )

@@ -622,6 +622,23 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
         Empty for a device that is not known or not read yet."""
         return [n.model_dump(mode="json") for n in runner.network().port_tree(device_id)]
 
+    @api.get("/devices/{device_id}/port-counters")
+    def port_counters(device_id: str) -> dict[str, dict[str, Any]]:
+        """What the counters of a device's ports did between the last two reads (#158): the
+        error and drop deltas and the seconds between the reads, per port id. Never the
+        lifetime totals; a port without two reads is missing, one whose counters were reset
+        has ``reset`` set."""
+        out: dict[str, dict[str, Any]] = {}
+        for pid, record in runner.history().counters.items():
+            if pid.startswith(f"{device_id}/port/") and record.delta is not None:
+                out[pid] = {
+                    "seconds": record.delta.seconds,
+                    "reset": record.delta.reset,
+                    "errors": record.delta.errors,
+                    "drops": record.delta.drops,
+                }
+        return out
+
     # network, findings, links -----------------------------------------------------------
 
     @api.get("/network")

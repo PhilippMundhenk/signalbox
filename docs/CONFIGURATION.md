@@ -61,6 +61,15 @@ Generated from the code by `tools/gen_docs.py`.
 | --- | --- | --- | --- |
 | `history.days` | `SIGNALBOX_HISTORY_DAYS` | `30` | Days the observation history (first/last seen, status and link changes) is kept. Client sightings are a presence log: keep this short. |
 
+## `counters`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `counters.error_ratio` | `SIGNALBOX_COUNTERS_ERROR_RATIO` | `0.001` | Port error check (port.errors): report a port when the errors between two reads are at least this share of its packets (0.001: one in a thousand). |
+| `counters.crc_ratio` | `SIGNALBOX_COUNTERS_CRC_RATIO` | `0.0001` | Report a warning when the CRC/FCS errors received between two reads are at least this share of the packets received (0.0001: one in ten thousand). |
+| `counters.min_packets` | `SIGNALBOX_COUNTERS_MIN_PACKETS` | `1000` | Reads with fewer packets than this on a port are too small to judge. |
+| `counters.min_errors` | `SIGNALBOX_COUNTERS_MIN_ERRORS` | `5` | Fewer errors than this between two reads are never reported (a single bad frame). |
+
 ## `certificates`
 
 | Setting | Environment variable | Default | Meaning |

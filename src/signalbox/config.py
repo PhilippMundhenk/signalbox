@@ -19,6 +19,7 @@ from typing import Any, Literal, get_args
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 
+from signalbox.counters import CounterLimits
 from signalbox.rules import RuleSettings, Severity
 
 ENV_PREFIX = "SIGNALBOX_"
@@ -89,6 +90,42 @@ class HistoryConfig(Section):
         description="Days the observation history (first/last seen, status and link changes) "
         "is kept. Client sightings are a presence log: keep this short.",
     )
+
+
+class CountersConfig(Section):
+    error_ratio: float = Field(
+        0.001,
+        ge=0,
+        le=1,
+        description="Port error check (port.errors): report a port when the errors between two "
+        "reads are at least this share of its packets (0.001: one in a thousand).",
+    )
+    crc_ratio: float = Field(
+        0.0001,
+        ge=0,
+        le=1,
+        description="Report a warning when the CRC/FCS errors received between two reads are at "
+        "least this share of the packets received (0.0001: one in ten thousand).",
+    )
+    min_packets: int = Field(
+        1000,
+        ge=1,
+        description="Reads with fewer packets than this on a port are too small to judge.",
+    )
+    min_errors: int = Field(
+        5,
+        ge=1,
+        description="Fewer errors than this between two reads are never reported "
+        "(a single bad frame).",
+    )
+
+    def limits(self) -> CounterLimits:
+        return CounterLimits(
+            error_ratio=self.error_ratio,
+            crc_ratio=self.crc_ratio,
+            min_packets=self.min_packets,
+            min_errors=self.min_errors,
+        )
 
 
 class CertificatesConfig(Section):
@@ -332,6 +369,7 @@ class Config(Section):
     mqtt: MqttConfig = MqttConfig()
     deploy: DeployConfig = DeployConfig()
     history: HistoryConfig = HistoryConfig()
+    counters: CountersConfig = CountersConfig()
     certificates: CertificatesConfig = CertificatesConfig()
     discovery: DiscoveryConfig = DiscoveryConfig()
     setup: SetupConfig = SetupConfig()
@@ -406,6 +444,15 @@ history:
   # clients that change networks, long outages). Client sightings show who was at home:
   # they are never exported and are deleted after this many days.
   days: 30
+
+counters:
+  # Port error check (port.errors): the errors between two reads of a port's counters
+  # (received/sent errors, CRC/FCS) relative to its packets. Counters are read from the
+  # devices; only the last value per port is kept.
+  error_ratio: 0.001   # report at this share of errors per packet (one in a thousand)
+  crc_ratio: 0.0001    # warn at this share of CRC/FCS errors per received packet
+  min_packets: 1000    # reads with fewer packets are too small to judge
+  min_errors: 5        # fewer errors are never reported
 
 discovery:
   # "Find devices" on the devices page probes the networks Signalbox knows (and ranges you

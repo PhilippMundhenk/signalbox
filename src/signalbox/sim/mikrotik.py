@@ -96,7 +96,25 @@ def _iface(name: str, kind: str, mac: str, running: bool = True, **kw: Any) -> d
         "disabled": "false",
         "dynamic": "false",
         "slave": "false",
+        **({"link-downs": "1"} if kind == "ether" else {}),
+        **(_traffic(running) if kind in ("ether", "bridge", "wifi") else {}),
         **kw,
+    }
+
+
+def _traffic(running: bool) -> dict[str, str]:
+    """The counters of a ``/rest/interface`` row (fixed values, RouterOS writes numbers as text)."""
+    if not running:
+        return dict.fromkeys(("rx-byte", "tx-byte", "rx-packet", "tx-packet"), "0")
+    return {
+        "rx-byte": "73920411",
+        "tx-byte": "402331874",
+        "rx-packet": "611203",
+        "tx-packet": "702114",
+        "rx-error": "0",
+        "tx-error": "0",
+        "rx-drop": "4",
+        "tx-drop": "0",
     }
 
 

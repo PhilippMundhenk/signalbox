@@ -72,6 +72,7 @@ from signalbox.adapters.openwrt.ubus import (
     Ubus,
     unexpected,
 )
+from signalbox.adapters.portcounters import counters_of
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.factory_defaults import is_factory_default
@@ -107,6 +108,7 @@ from signalbox.model import (
     Neighbour,
     Pmf,
     Port,
+    PortCounters,
     PortKind,
     PortMembership,
     PortRole,
@@ -139,6 +141,26 @@ from signalbox.model import (
 )
 
 __all__ = ["OpenWrtAdapter", "OpenWrtConfig"]
+
+
+#: ``network.device status`` ``statistics`` (the kernel's rtnl_link_stats64, as netifd lists
+#: them); ``rx_crc_errors`` only where the driver counts them.
+_COUNTER_KEYS = {
+    "rx_bytes": "rx_bytes",
+    "tx_bytes": "tx_bytes",
+    "rx_packets": "rx_packets",
+    "tx_packets": "tx_packets",
+    "rx_errors": "rx_errors",
+    "tx_errors": "tx_errors",
+    "rx_crc_errors": "rx_crc_errors",
+    "rx_drops": ("rx_dropped", "rx_drops"),
+    "tx_drops": ("tx_dropped", "tx_drops"),
+    "collisions": "collisions",
+}
+
+
+def _counters(stats: object) -> PortCounters | None:
+    return counters_of(stats, _COUNTER_KEYS) if isinstance(stats, dict) else None
 
 
 class OpenWrtConfig(AdapterConfig):
@@ -967,6 +989,7 @@ class OpenWrtAdapter(Adapter):
                 max_speed_mbps=supported[-1] if supported else None,
                 advertised_speeds_mbps=link_speeds(st.get("link-advertising")),
                 autoneg=autoneg if isinstance(autoneg, bool) else None,
+                counters=_counters(st.get("statistics")),
                 vendor_extra=_extra(st, "type"),
             )
 

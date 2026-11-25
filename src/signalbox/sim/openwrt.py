@@ -433,6 +433,32 @@ def running_ifaces(wireless: Sections) -> list[tuple[str, str, str, str]]:
 GIGABIT = ["10baseT-H", "10baseT-F", "100baseT-H", "100baseT-F", "1000baseT-F"]
 
 
+def _stats(busy: bool) -> dict[str, int]:
+    """``statistics`` of ``network.device status`` (rtnl_link_stats64), fixed values: a port
+    with a link has carried some traffic and a few errors, one without has nothing."""
+    if not busy:
+        return dict.fromkeys(("rx_bytes", "tx_bytes", "rx_packets", "tx_packets"), 0) | {
+            "rx_errors": 0,
+            "tx_errors": 0,
+            "rx_dropped": 0,
+            "tx_dropped": 0,
+            "collisions": 0,
+            "rx_crc_errors": 0,
+        }
+    return {
+        "rx_bytes": 48_211_904,
+        "tx_bytes": 391_220_117,
+        "rx_packets": 402_113,
+        "tx_packets": 511_902,
+        "rx_errors": 3,
+        "tx_errors": 0,
+        "rx_dropped": 12,
+        "tx_dropped": 0,
+        "collisions": 0,
+        "rx_crc_errors": 3,
+    }
+
+
 def device_status(network: Sections, wireless: Sections) -> dict[str, Any]:
     def eth(carrier: bool) -> dict[str, Any]:
         return {
@@ -447,6 +473,7 @@ def device_status(network: Sections, wireless: Sections) -> dict[str, Any]:
             "autoneg": True,
             "link-supported": GIGABIT,
             "link-advertising": GIGABIT,
+            "statistics": _stats(carrier),
         }
 
     status: dict[str, Any] = {f"lan{n}": eth(n < 4) for n in range(1, 5)}

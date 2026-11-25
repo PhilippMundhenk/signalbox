@@ -670,6 +670,32 @@ def sample_data() -> dict[str, Any]:
                 }
             ],
         },
+        # netstat -i style rows, keyed "<name> / <MAC>" or "<name> / <network>" (fixed values)
+        "/api/diagnostics/interface/get_interface_statistics": {
+            "statistics": {
+                "igb0 / 02:00:00:00:01:00": {
+                    "name": "igb0",
+                    "flags": "0x8843",
+                    "mtu": "1500",
+                    "network": "<Link#1>",
+                    "address": "02:00:00:00:01:00",
+                    "received-packets": "5120344",
+                    "received-errors": "2",
+                    "dropped-packets": "0",
+                    "received-bytes": "3841230112",
+                    "sent-packets": "4311870",
+                    "send-errors": "0",
+                    "sent-bytes": "1893340871",
+                    "collisions": "0",
+                },
+                "igb0 / 192.0.2.0/24": {
+                    "name": "igb0",
+                    "network": "192.0.2.0/24",
+                    "address": "192.0.2.1",
+                    "received-packets": "1",
+                },
+            }
+        },
         "/api/diagnostics/interface/get_arp": [
             {
                 "mac": "00:00:5e:00:53:10",
