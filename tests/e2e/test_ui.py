@@ -342,6 +342,8 @@ def test_concept_views_show_the_network(app: Any) -> None:
     # multicast (#508): snooping and querier of the bridge, as the device reports them
     mcast = app.get_by_test_id("device-multicast")
     expect(mcast.get_by_test_id("multicast-setting").first).to_contain_text("IGMP snooping on")
+    expect(mcast.get_by_test_id("multicast-setting").first).to_contain_text("sends the membership")
+    expect(mcast.get_by_test_id("multicast-reflector").first).to_contain_text("mDNS between")
 
     go(app, "#/device/router/advanced")
     expect(app.get_by_test_id("raw-services")).to_contain_text("services (6)")
