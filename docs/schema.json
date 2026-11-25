@@ -741,6 +741,15 @@
       "title": "ClientCategory",
       "type": "string"
     },
+    "DdnsResult": {
+      "enum": [
+        "ok",
+        "error",
+        "unknown"
+      ],
+      "title": "DdnsResult",
+      "type": "string"
+    },
     "Device": {
       "additionalProperties": false,
       "properties": {
@@ -2449,6 +2458,129 @@
       "title": "DnsTransport",
       "type": "string"
     },
+    "DynamicDns": {
+      "additionalProperties": false,
+      "description": "A dynamic DNS client of a device (#154), ``object_id(device, \"ddns\", <name>)``.\n\nRead with ``interfaces``. Never an account name, password or token: there is no field for\nthem, also not in ``vendor_extra``. The hostname identifies the household: shown behind a\nclick like an uplink's address, never exported.",
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "families": {
+          "items": {
+            "enum": [
+              4,
+              6
+            ],
+            "type": "integer"
+          },
+          "title": "Families",
+          "type": "array"
+        },
+        "hostname": {
+          "title": "Hostname",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "last_result": {
+          "$ref": "#/$defs/DdnsResult",
+          "default": "unknown"
+        },
+        "last_update": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Update"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "provider": {
+          "default": "other",
+          "title": "Provider",
+          "type": "string"
+        },
+        "published_address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Published Address"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "uplink_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uplink Id"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "hostname"
+      ],
+      "title": "DynamicDns",
+      "type": "object"
+    },
     "EvidenceSource": {
       "description": "What kind of observation supports a link drawn from MAC tables (#378).",
       "enum": [
@@ -3278,6 +3410,217 @@
       "title": "FrameTypes",
       "type": "string"
     },
+    "GatewayGroup": {
+      "additionalProperties": false,
+      "description": "Uplinks that back each other up or share the load (#150),\n``object_id(device, \"gateway-group\", <name>)``. Read with ``interfaces``.",
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/GatewayGroupMember"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "mode": {
+          "$ref": "#/$defs/GroupMode",
+          "default": "failover"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "segments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "name"
+      ],
+      "title": "GatewayGroup",
+      "type": "object"
+    },
+    "GatewayGroupMember": {
+      "additionalProperties": false,
+      "description": "One member of a gateway group (#150): a gateway or an uplink, with its tier and weight.",
+      "properties": {
+        "gateway": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gateway"
+        },
+        "latency_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms"
+        },
+        "loss_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loss Pct"
+        },
+        "monitor_targets": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Monitor Targets",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UplinkState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tier": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Tier",
+          "type": "integer"
+        },
+        "uplink_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uplink Id"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weight"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "GatewayGroupMember",
+      "type": "object"
+    },
+    "GroupMode": {
+      "enum": [
+        "failover",
+        "balance"
+      ],
+      "title": "GroupMode",
+      "type": "string"
+    },
     "HostRecord": {
       "additionalProperties": false,
       "properties": {
@@ -3893,6 +4236,70 @@
       "title": "Membership",
       "type": "string"
     },
+    "Monitor": {
+      "additionalProperties": false,
+      "description": "How a gateway checks that an uplink reaches the internet (#150): it pings the targets.",
+      "properties": {
+        "interval_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interval Seconds"
+        },
+        "latency_ms_threshold": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms Threshold"
+        },
+        "loss_pct_threshold": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loss Pct Threshold"
+        },
+        "targets": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "title": "Monitor",
+      "type": "object"
+    },
     "NatRule": {
       "additionalProperties": false,
       "description": "Source NAT: traffic leaving through ``zones`` gets the device's address (masquerade) or\n``to_address``. OpenWrt zone ``masq`` is :attr:`FirewallZone.masquerade` instead.",
@@ -4126,6 +4533,13 @@
           "title": "Clients",
           "type": "array"
         },
+        "ddns": {
+          "items": {
+            "$ref": "#/$defs/DynamicDns"
+          },
+          "title": "Ddns",
+          "type": "array"
+        },
         "devices": {
           "items": {
             "$ref": "#/$defs/Device"
@@ -4187,6 +4601,13 @@
             "$ref": "#/$defs/ForeignServer"
           },
           "title": "Foreign Servers",
+          "type": "array"
+        },
+        "gateway_groups": {
+          "items": {
+            "$ref": "#/$defs/GatewayGroup"
+          },
+          "title": "Gateway Groups",
           "type": "array"
         },
         "held_sightings": {
@@ -7280,6 +7701,13 @@
           "title": "Clients",
           "type": "array"
         },
+        "ddns": {
+          "items": {
+            "$ref": "#/$defs/DynamicDns"
+          },
+          "title": "Ddns",
+          "type": "array"
+        },
         "device": {
           "$ref": "#/$defs/Device"
         },
@@ -7344,6 +7772,13 @@
             "$ref": "#/$defs/Firewall"
           },
           "title": "Firewalls",
+          "type": "array"
+        },
+        "gateway_groups": {
+          "items": {
+            "$ref": "#/$defs/GatewayGroup"
+          },
+          "title": "Gateway Groups",
           "type": "array"
         },
         "neighbours": {
@@ -8440,6 +8875,17 @@
           "default": null,
           "title": "Downstream Kbps"
         },
+        "health": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UplinkHealth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "id": {
           "title": "Id",
           "type": "string"
@@ -8447,6 +8893,17 @@
         "kind": {
           "$ref": "#/$defs/UplinkKind",
           "default": "other"
+        },
+        "monitor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Monitor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "name": {
           "anyOf": [
@@ -8484,6 +8941,19 @@
           ],
           "default": null,
           "title": "Port Id"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Priority"
         },
         "public_ipv4": {
           "anyOf": [
@@ -8570,6 +9040,19 @@
           },
           "title": "Vendor Extra",
           "type": "object"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weight"
         }
       },
       "required": [
@@ -8577,6 +9060,60 @@
         "device_id"
       ],
       "title": "Uplink",
+      "type": "object"
+    },
+    "UplinkHealth": {
+      "additionalProperties": false,
+      "description": "What the gateway's monitor currently sees of an uplink (#150): a current value, not drift.",
+      "properties": {
+        "last_change": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Change"
+        },
+        "latency_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms"
+        },
+        "loss_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loss Pct"
+        },
+        "state": {
+          "$ref": "#/$defs/UplinkState"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "UplinkHealth",
       "type": "object"
     },
     "UplinkKind": {
@@ -8592,6 +9129,17 @@
         "other"
       ],
       "title": "UplinkKind",
+      "type": "string"
+    },
+    "UplinkState": {
+      "description": "How an uplink or group member is doing, as the gateway's monitor says (#150).",
+      "enum": [
+        "online",
+        "degraded",
+        "down",
+        "standby"
+      ],
+      "title": "UplinkState",
       "type": "string"
     },
     "UpsStatus": {

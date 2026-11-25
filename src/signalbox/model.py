@@ -1242,6 +1242,37 @@ def address_nat_class(address: IPv4Address) -> NatClass:
     return NatClass.PUBLIC
 
 
+class UplinkState(StrEnum):
+    """How an uplink or group member is doing, as the gateway's monitor says (#150)."""
+
+    ONLINE = "online"
+    #: Reachable, but loss or latency are above the thresholds.
+    DEGRADED = "degraded"
+    DOWN = "down"
+    #: Healthy and waiting: a backup line that carries no traffic.
+    STANDBY = "standby"
+
+
+class Monitor(Model):
+    """How a gateway checks that an uplink reaches the internet (#150): it pings the targets."""
+
+    #: Addresses pinged through the uplink (OpenWrt ``track_ip``, OPNsense monitor IP, MikroTik
+    #: ``check-gateway`` target or netwatch host). Empty: not known.
+    targets: list[IPAddress] = Field(default_factory=list)
+    interval_seconds: Annotated[int, Field(ge=0)] | None = None
+    loss_pct_threshold: Annotated[float, Field(ge=0, le=100)] | None = None
+    latency_ms_threshold: Annotated[float, Field(ge=0)] | None = None
+
+
+class UplinkHealth(Model):
+    """What the gateway's monitor currently sees of an uplink (#150): a current value, not drift."""
+
+    state: UplinkState
+    latency_ms: Annotated[float, Field(ge=0)] | None = None
+    loss_pct: Annotated[float, Field(ge=0, le=100)] | None = None
+    last_change: datetime | None = None
+
+
 class Uplink(Observed):
     """A gateway's connection to its provider (WAN), ``object_id(device, "uplink", <name>)``.
 
@@ -1276,6 +1307,13 @@ class Uplink(Observed):
     #: Line rate where the modem knows it (DSL sync, LTE), in kbit/s.
     downstream_kbps: Annotated[int, Field(ge=0)] | None = None
     upstream_kbps: Annotated[int, Field(ge=0)] | None = None
+    #: Failover rank (0 or 1 is the first choice; higher is a backup) and the share of
+    #: load-balanced traffic (#150), where the gateway has them per uplink.
+    priority: Annotated[int, Field(ge=0)] | None = None
+    weight: Annotated[int, Field(ge=0)] | None = None
+    #: How the gateway checks the uplink, and what it currently sees (#150).
+    monitor: Monitor | None = None
+    health: UplinkHealth | None = None
 
     def ipv4(self) -> list[IPv4Interface]:
         return [a for a in self.addresses if isinstance(a, IPv4Interface)]
@@ -1302,6 +1340,76 @@ class Uplink(Observed):
         if found or self.ipv6():
             return NatClass.NONE
         return None
+
+
+class GroupMode(StrEnum):
+    #: One member carries the traffic; the next tier takes over when it fails.
+    FAILOVER = "failover"
+    #: Several members carry traffic at the same time, by weight.
+    BALANCE = "balance"
+
+
+class GatewayGroupMember(Model):
+    """One member of a gateway group (#150): a gateway or an uplink, with its tier and weight."""
+
+    #: The device's name of the member (OPNsense gateway, mwan3 member, MikroTik route).
+    name: str
+    #: The :class:`Uplink` it belongs to, where the member is one the model has.
+    uplink_id: str | None = None
+    #: Failover tier: 1 is the first choice, higher numbers are backups.
+    tier: Annotated[int, Field(ge=1)] = 1
+    weight: Annotated[int, Field(ge=0)] | None = None
+    #: The member's next hop (its gateway), where the device says.
+    gateway: IPAddress | None = None
+    #: What the monitor of this member pings, and what it currently sees of it.
+    monitor_targets: list[IPAddress] = Field(default_factory=list)
+    state: UplinkState | None = None
+    latency_ms: Annotated[float, Field(ge=0)] | None = None
+    loss_pct: Annotated[float, Field(ge=0, le=100)] | None = None
+
+
+class GatewayGroup(Observed):
+    """Uplinks that back each other up or share the load (#150),
+    ``object_id(device, "gateway-group", <name>)``. Read with ``interfaces``."""
+
+    device_id: str
+    name: str
+    mode: GroupMode = GroupMode.FAILOVER
+    members: list[GatewayGroupMember] = Field(default_factory=list)
+    #: The member that carries the traffic now (:attr:`GatewayGroupMember.name`); None: not
+    #: known, or several (a balancing group).
+    active: str | None = None
+    #: Networks (segment ids) that use the group, where the device says.
+    segments: list[str] = Field(default_factory=list)
+
+
+class DdnsResult(StrEnum):
+    OK = "ok"
+    ERROR = "error"
+    UNKNOWN = "unknown"
+
+
+class DynamicDns(Observed):
+    """A dynamic DNS client of a device (#154), ``object_id(device, "ddns", <name>)``.
+
+    Read with ``interfaces``. Never an account name, password or token: there is no field for
+    them, also not in ``vendor_extra``. The hostname identifies the household: shown behind a
+    click like an uplink's address, never exported.
+    """
+
+    device_id: str
+    #: Normalised provider: ``dyndns2``, ``cloudflare``, ``duckdns``, ``myfritz``,
+    #: ``mikrotik-cloud``, ``noip``, ``other``.
+    provider: str = "other"
+    hostname: str
+    #: The uplink whose address it announces, where the device says.
+    uplink_id: str | None = None
+    families: list[Literal[4, 6]] = Field(default_factory=list)
+    enabled: bool = True
+    last_update: datetime | None = None
+    last_result: DdnsResult = DdnsResult.UNKNOWN
+    #: The address the provider was told (or answers for the name), where the device knows it.
+    published_address: IPAddress | None = None
 
 
 # VPN tunnels (#239) -------------------------------------------------------------------------
@@ -3634,6 +3742,9 @@ class Snapshot(Model):
     subnets: list[Subnet] = Field(default_factory=list)
     #: WAN connections of a gateway (#148; part of ``interfaces``).
     uplinks: list[Uplink] = Field(default_factory=list)
+    #: Gateway groups (#150) and dynamic DNS clients (#154; part of ``interfaces``).
+    gateway_groups: list[GatewayGroup] = Field(default_factory=list)
+    ddns: list[DynamicDns] = Field(default_factory=list)
     #: Management services of the devices (#173; part of ``interfaces``).
     services: list[ManagementService] = Field(default_factory=list)
     #: Certificates stored on the devices (#330; part of ``interfaces``).
@@ -3741,6 +3852,9 @@ class Network(Model):
     subnets: list[Subnet] = Field(default_factory=list)
     #: WAN connections of a gateway (#148; part of ``interfaces``).
     uplinks: list[Uplink] = Field(default_factory=list)
+    #: Gateway groups (#150) and dynamic DNS clients (#154; part of ``interfaces``).
+    gateway_groups: list[GatewayGroup] = Field(default_factory=list)
+    ddns: list[DynamicDns] = Field(default_factory=list)
     #: Management services of the devices (#173; part of ``interfaces``).
     services: list[ManagementService] = Field(default_factory=list)
     #: Certificates stored on the devices (#330; part of ``interfaces``).
@@ -3821,6 +3935,8 @@ class Network(Model):
             self.segments,
             self.subnets,
             self.uplinks,
+            self.gateway_groups,
+            self.ddns,
             self.certificates,
             self.dhcp_servers,
             self.dhcp_relays,
@@ -4027,6 +4143,14 @@ class Network(Model):
             (r for r in self.routing_rules if r.device_id == device_id),
             key=lambda r: (r.priority is None, r.priority or 0, r.id),
         )
+
+    def gateway_groups_of(self, device_id: str) -> list[GatewayGroup]:
+        return sorted(
+            (g for g in self.gateway_groups if g.device_id == device_id), key=lambda g: g.id
+        )
+
+    def uplink(self, uplink_id: str) -> Uplink | None:
+        return next((u for u in self.uplinks if u.id == uplink_id), None)
 
     def uplinks_of(self, device_id: str) -> list[Uplink]:
         return [u for u in self.uplinks if u.device_id == device_id]

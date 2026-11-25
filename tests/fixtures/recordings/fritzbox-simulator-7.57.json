@@ -1265,9 +1265,15 @@
     ],
     "public_ipv4": null,
     "downstream_kbps": 116790,
-    "upstream_kbps": 46719
+    "upstream_kbps": 46719,
+    "priority": null,
+    "weight": null,
+    "monitor": null,
+    "health": null
    }
   ],
+  "gateway_groups": [],
+  "ddns": [],
   "services": [
    {
     "id": "recorded/service/http",

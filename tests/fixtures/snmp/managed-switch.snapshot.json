@@ -800,6 +800,8 @@
  ],
  "subnets": [],
  "uplinks": [],
+ "gateway_groups": [],
+ "ddns": [],
  "services": [
   {
    "id": "switch/service/snmp",
