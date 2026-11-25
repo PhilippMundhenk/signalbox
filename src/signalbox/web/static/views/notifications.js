@@ -191,6 +191,67 @@ function browserBox() {
   return box;
 }
 
+// Web Push (#372): notifications with no tab open. Opt-in per browser, on a button press: only
+// then the service worker is registered and the browser's push service is asked for a subscription.
+const PUSH_ID = 'signalbox.push.id';
+function keyBytes(text) {
+  const raw = atob((text + '='.repeat((4 - (text.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function pushBox(ctx) {
+  const state = await get('/notifications/webpush');
+  const box = h('div', { 'data-testid': 'notify-push' });
+  place(box, h('h3', {}, t('notify.push.title')), h('p', { class: 'muted' }, t('notify.push.hint')));
+  if (!state.available) {
+    place(box, h('p', { class: 'muted', 'data-testid': 'notify-push-unavailable' }, t('notify.push.unavailable')));
+    return box;
+  }
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !window.isSecureContext) {
+    place(box, h('p', { class: 'muted', 'data-testid': 'notify-push-unsupported' }, t('notify.push.unsupported')));
+    return box;
+  }
+  const mine = localStorage.getItem(PUSH_ID);
+  const own = state.subscriptions.some((s) => s.id === mine);
+  const button = h('button', { class: 'btn', type: 'button', 'data-testid': own ? 'notify-push-off' : 'notify-push-on' }, own ? t('notify.push.unsubscribe') : t('notify.push.subscribe'));
+  button.addEventListener('click', () =>
+    run(button, async () => {
+      if (own) {
+        const reg = await navigator.serviceWorker.getRegistration('/');
+        const sub = reg ? await reg.pushManager.getSubscription() : null;
+        if (sub) await sub.unsubscribe();
+        await del(`/notifications/webpush/subscriptions/${enc(mine)}`);
+        localStorage.removeItem(PUSH_ID);
+      } else {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') throw new Error(t('notify.browserDenied'));
+        const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(state.public_key) });
+        const saved = await post('/notifications/webpush/subscriptions', sub.toJSON());
+        localStorage.setItem(PUSH_ID, saved.id);
+        toast(t('notify.push.subscribed'));
+      }
+      ctx.refresh();
+    }),
+  );
+  place(box, button);
+  const list = h('ul', { 'data-testid': 'notify-push-list' });
+  for (const s of state.subscriptions) {
+    const remove = h('button', { class: 'btn', type: 'button', 'data-testid': 'notify-push-delete' }, t('common.delete'));
+    remove.addEventListener('click', () =>
+      run(remove, async () => {
+        await del(`/notifications/webpush/subscriptions/${enc(s.id)}`);
+        if (s.id === mine) localStorage.removeItem(PUSH_ID);
+        ctx.refresh();
+      }),
+    );
+    place(list, h('li', { 'data-testid': 'notify-push-item' }, t('notify.push.item', { host: s.host, date: s.created.slice(0, 10) }), s.id === mine ? ` (${t('notify.push.thisBrowser')}) ` : ' ', remove));
+  }
+  place(box, state.subscriptions.length ? list : h('p', { class: 'muted' }, t('notify.push.none')));
+  return box;
+}
+
 export async function notificationsCard(ctx) {
   const state = await get('/notifications');
   const list = h('div', { 'data-testid': 'notify-channels' });
@@ -205,6 +266,7 @@ export async function notificationsCard(ctx) {
     h('details', { 'data-testid': 'notify-new' }, h('summary', {}, t('notify.add')), channelForm(ctx, state.kinds, null)),
     h('hr', {}),
     browserBox(),
+    await pushBox(ctx),
   );
 }
 

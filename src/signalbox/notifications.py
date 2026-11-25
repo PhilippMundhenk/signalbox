@@ -47,6 +47,7 @@ from signalbox.config import (
 from signalbox.model import DeviceStatus, Network
 from signalbox.rules import SEVERITY_ORDER, Finding, Severity
 from signalbox.store import Store
+from signalbox.webpush import WebPush
 
 log = logging.getLogger(__name__)
 
@@ -585,6 +586,7 @@ class Notifier:
         self.store = store
         self.base_url = base_url
         self.channels = ChannelStore(store)
+        self.webpush = WebPush(store, base_url)
         self.executor = executor or ThreadPoolExecutor(max_workers=2, thread_name_prefix="notify")
         self.sleep = sleep
         self.clock = clock
@@ -667,6 +669,10 @@ class Notifier:
                     self._browser_id, msg.subject, msg.lines, msg.severity.value, msg.link
                 )
             )
+        # Web Push (#372): browsers that subscribed get it with no tab open
+        self.executor.submit(
+            self.webpush.send, msg.subject, msg.lines, msg.link, self.config.timeout_seconds
+        )
         self._mark(name, None)
 
     def browser_since(self, after: int) -> list[BrowserMessage]:

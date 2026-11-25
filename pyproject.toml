@@ -34,12 +34,15 @@ dev = [
   "pytest-playwright>=0.5",
   "amqtt>=0.11",
   "aiosmtpd>=1.4",
+  "pywebpush>=2",
   "pysnmp>=7.1,<8",
   "snmpsim>=1.2.2",
   "pysmi>=2,<3",  # snmpsim imports it without declaring it
 ]
 # Apprise URLs as one more notification channel kind (docs/NOTIFICATIONS.md)
 apprise = ["apprise>=1.8"]
+# Web Push for the browser notification channel (docs/NOTIFICATIONS.md)
+webpush = ["pywebpush>=2"]
 # Generic read-only SNMP switches (docs/adapters/snmp.md)
 snmp = ["pysnmp>=7.1,<8"]
 # NETGEAR ProSAFE Plus and TP-Link Easy Smart switches (docs/adr/0003-switchyard-library.md)
@@ -100,7 +103,7 @@ exclude = ["^\\.claude/"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["paho.*", "switchyard.*", "pysnmp.*", "snmpsim.*"]
+module = ["paho.*", "switchyard.*", "pysnmp.*", "snmpsim.*", "pywebpush.*", "py_vapid.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
