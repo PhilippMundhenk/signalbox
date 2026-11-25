@@ -935,9 +935,10 @@ def poe(pmap: PortMap, data: Mib) -> tuple[PoeSupply | None, dict[str, PortPoe]]
 _VLAN_INTERFACE = re.compile(r"^(?:vlan|vl|vlan-?interface)\s*(\d{1,4})$", re.IGNORECASE)
 
 
-def multicast(site_id: str, data: Mib) -> DeviceMulticast | None:
+def multicast(site_id: str, data: Mib, known: set[str]) -> DeviceMulticast | None:
     """IGMP of the interfaces from IGMP-STD-MIB (#508): the querier an interface sees and the
-    IGMP version it runs. An interface named like a VLAN (``Vlan10``) gets that VLAN's segment.
+    IGMP version it runs. An interface named like a VLAN (``Vlan10``) gets that VLAN's segment
+    when the switch reports it (``known``: the ids of its segments).
     None when the switch has no such table. The MIB has no object for snooping, so that stays
     unreported (``None``), as does whether this switch is the querier."""
     status = data.col(mib.IGMP_INTERFACE, mib.IGMP_IF_STATUS)
@@ -960,12 +961,14 @@ def multicast(site_id: str, data: Mib) -> DeviceMulticast | None:
                 observed = None
         if observed is not None and observed.is_unspecified:
             observed = None
+        sid = segment_id(site_id, vid) if vid and 1 <= vid <= 4094 else None
+        sid = sid if sid in known else None
         if observed is None and vid is None:  # nothing to say about this interface
             continue
         out.append(
             MulticastSettings(
                 name=name,
-                segment_id=segment_id(site_id, vid) if vid and 1 <= vid <= 4094 else None,
+                segment_id=sid,
                 observed_querier=observed,
             )
         )

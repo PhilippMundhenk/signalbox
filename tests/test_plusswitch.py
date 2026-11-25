@@ -830,13 +830,13 @@ async def test_tplink_loop_prevention_off(easysmart: Start) -> None:
 @needs_switchyard
 async def test_netgear_igmp_snooping(nsdp: Start) -> None:
     switch = netgear()
-    switch.igmp = (True, 20)
+    switch.igmp = (True, 1)
     switch.block_unknown = True
     _, port = await nsdp(switch)
     snap = await assert_contract(ProsafeAdapter(_context(ProsafeAdapter, port)))
     assert snap.device.multicast is not None
     (m,) = snap.device.multicast.settings
-    assert (m.name, m.igmp_snooping, m.segment_id) == ("switch", True, "home/segment/20")
+    assert (m.name, m.igmp_snooping, m.segment_id) == ("switch", True, "home/segment/native")
     assert m.unknown_multicast is UnknownMulticast.DROP and m.querier is None
 
 
@@ -872,10 +872,10 @@ async def test_tplink_igmp_snooping(easysmart: Start) -> None:
 
 def test_igmp_answers_that_are_not_understood() -> None:
     a = ProsafeAdapter(_context(ProsafeAdapter, 9))
-    assert a._multicast(plus._Reading(info={})) == {}
-    assert a._multicast(plus._Reading(info={}, igmp={"enabled": "yes"})) == {}
+    assert a._multicast(plus._Reading(info={}), set()) == {}
+    assert a._multicast(plus._Reading(info={}, igmp={"enabled": "yes"}), set()) == {}
     on = plus._Reading(info={}, igmp={"enabled": True, "vlan": 99999, "block_unknown": 1})
-    (m,) = a._multicast(on)[a.context.device_id].settings
+    (m,) = a._multicast(on, set())[a.context.device_id].settings
     assert m.segment_id is None and m.unknown_multicast is None
 
 

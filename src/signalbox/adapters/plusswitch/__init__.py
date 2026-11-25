@@ -334,7 +334,7 @@ class _PlusSwitch(Adapter):
                 "services": self._services(),
                 "incomplete": gaps,
                 "stp_bridges": self._stp(reading),
-                "multicast": self._multicast(reading),
+                "multicast": self._multicast(reading, {s.id for s in observed.segments}),
                 **self._login_facts(),
             }
         )
@@ -547,7 +547,7 @@ class _PlusSwitch(Adapter):
         igmp = features.get("igmp") if isinstance(features, Mapping) else None
         reading.igmp = dict(igmp) if isinstance(igmp, Mapping) else None
 
-    def _multicast(self, reading: _Reading) -> dict[str, DeviceMulticast]:
+    def _multicast(self, reading: _Reading, known: set[str]) -> dict[str, DeviceMulticast]:
         """IGMP snooping of the whole switch (#508): the protocol has no querier. NETGEAR names
         the VLAN it snoops in (0: none), TP-Link Easy Smart snoops in all."""
         igmp = reading.igmp
@@ -561,11 +561,10 @@ class _PlusSwitch(Adapter):
             if block
             else UnknownMulticast.FLOOD
         )
+        sid = segment_id(self.context.site_id, vlan) if isinstance(vlan, int) else None
         setting = MulticastSettings(
             name="switch",
-            segment_id=segment_id(self.context.site_id, vlan)
-            if igmp["enabled"] and isinstance(vlan, int) and 1 <= vlan <= 4094
-            else None,
+            segment_id=sid if igmp["enabled"] and sid in known else None,
             igmp_snooping=igmp["enabled"],
             unknown_multicast=unknown,
         )

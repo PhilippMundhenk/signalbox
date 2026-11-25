@@ -432,7 +432,7 @@ class SnmpAdapter(Adapter):
             for p in pmap.ports
         ]
         await self._walks("igmp", _IGMP_COLUMNS)
-        igmp = mapping.multicast(site, self._mib)
+        igmp = mapping.multicast(site, self._mib, {s.id for s in segments or []})
         bridge = mapping.stp_bridge(pmap, self._mib, self._bridge_mac)
         if bridge is None:
             gaps.append(self._gap("spanning tree (BRIDGE-MIB)"))
