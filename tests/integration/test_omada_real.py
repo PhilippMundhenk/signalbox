@@ -507,7 +507,7 @@ async def test_refusal_of_the_controller_names_the_code(ctrl: dict[str, str]) ->
         body = {"name": "Twice", "purpose": 0, "vlan": 20, "igmpSnoopEnable": False}
         with pytest.raises(
             AdapterError,
-            match="-34517: This VLAN ID is already used|-33501: This VLAN already exists",
+            match=r"-34517: This VLAN ID is already used|-33501: This VLAN already exists",
         ):
             await Writer(a).send("POST", f"{a._site_path}/lan-networks", body)
     finally:
