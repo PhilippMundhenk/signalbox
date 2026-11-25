@@ -306,7 +306,9 @@ def applications_path(oid: str, web: dict[str, str]) -> str:
         if status == 200 and isinstance(answer, dict) and answer.get("errorCode") == 0:
             return path
         seen.append(f"{sub}: HTTP {status} {str(answer)[:120]}")
-    notice("Omada web UI: Open API strings", web_scripts(oid))
+    text = web_scripts(oid)
+    for i in range(0, len(text), 3800):
+        notice(f"Omada web UI: Open API strings {i // 3800}", text[i : i + 3800])
     fail("Omada setup: no Open API applications path", "\n".join(seen))
     raise AssertionError
 
