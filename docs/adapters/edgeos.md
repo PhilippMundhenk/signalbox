@@ -220,5 +220,10 @@ is tests/integration/test_edgeos_real.py, it skips without `IT_EDGEOS_URL` and f
   forwarding, VLAN 20 on eth2, LLDP and source NAT, all on documentation prefixes.
 - **Tests** read it over SSH as that user, with the pinned host key: contract, system and
   version, ports and subnets, DHCP and DNS, NAT and routes, time, untrusted and wrong pin.
-- Whatever the first runs showed differently from the guesses of this page is listed here once
-  the job has run.
+- **What the real VyOS rolling showed**: `set system login user <name> level operator` is
+  refused (`[level] is not valid`): the rolling release (1.5) has no user levels, the login
+  options are `operator-group` command policies, so the setup commands of this page apply to
+  VyOS 1.3 and 1.4 and EdgeOS only; on newer VyOS create the user without the `level` line
+  (the job reads as such a user). The firewall rule-sets (`firewall ipv4`, `ipv6`) are not read
+  yet (known gap, status partial, #389); everything else of the lab (ports, VLAN, subnets,
+  DHCP, DNS forwarding, NAT, routes, uptime, time) is read as the simulator expects.
