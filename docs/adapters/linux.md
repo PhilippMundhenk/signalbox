@@ -31,7 +31,8 @@ newest release.
 
 | Distribution | Versions | Status | Package manager |
 | --- | --- | --- | --- |
-| Debian, Raspberry Pi OS | 13 (trixie), 12 (bookworm), 11 (bullseye) | Debian 12 tested in CI (Linux container) and on real devices; 11 and 13 follow from the same tools, not run (#21) | `apt` |
+| Debian | 13 (trixie), 12 (bookworm), 11 (bullseye) | all three tested in CI (one container each, the same integration tests, #417); 12 also on real devices | `apt` |
+| Raspberry Pi OS | 12 (bookworm), 11 (bullseye) | Debian-based (`ID=raspbian` on 11, `ID=debian` on 12, both read as Debian): the Debian 11 and 12 rows apply; not tested on hardware (#21) | `apt` |
 | Ubuntu | 26.04, 24.04, 22.04 (LTS) | as Debian, not run (#21) | `apt` |
 | Arch Linux ARM, Arch Linux | rolling: images of any age (an old image has a stale package database, see below) | simulator (single-NIC Raspberry Pi 2, systemd-networkd, legacy iptables) and one real Raspberry Pi 2 (#302) | `pacman` |
 | Fedora and relatives | the current release and the two before | simulator only, not tried on a device (#21) | `dnf` |
@@ -230,7 +231,7 @@ says so.
 
 ## Integration tests
 
-CI starts a Debian 12 container with OpenSSH, iproute2, dnsmasq, chrony, nftables, iptables and wireguard-tools
+CI starts a container per Debian release (11 bullseye, 12 bookworm, 13 trixie; a job matrix, one job summary each, #417) with OpenSSH, iproute2, dnsmasq, chrony, nftables, iptables and wireguard-tools
 (`tools/integration/linux/`): a dummy LAN with a VLAN, a bridge, dnsmasq with a lease, chrony,
 a WireGuard interface with a peer, and nftables rules with a port forward and masquerade (the runner's kernel has the modules; the container gets
 `NET_ADMIN`). The manual setup above is run as written to create the read user; the tests read
@@ -248,7 +249,7 @@ zone (#21).
 `bridge -j -s fdb show` runs as the read user (a netlink dump, no root, no sudoers line):
 entries with a `master` are the bridge's table (`permanent` → `self`, `static` → `static`,
 else `dynamic`, `updated` → age); entries without one (a port's own unicast/multicast list) and
-multicast addresses are left out. Confirmed in CI: a static entry added on the Debian 12
+multicast addresses are left out. Confirmed in CI: a static entry added on the Debian 11, 12 and 13
 target's bridge port is read.
 
 ## Routes and policy rules (#149)

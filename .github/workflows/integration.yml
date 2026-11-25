@@ -520,11 +520,17 @@ jobs:
   linux:
     needs: changes
     if: needs.changes.outputs.linux == 'true'
-    name: Linux gateway (Debian 12 container with sshd, dnsmasq, chrony, WireGuard)
+    name: Linux gateway Debian ${{ matrix.debian }} (container with sshd, dnsmasq, chrony, WireGuard)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # the current Debian and the two before it (#417, #389)
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: ["13", "12", "11"]
     env:
       REQUIRE_INTEGRATION: "1"
+      DEBIAN: ${{ matrix.debian }}
       TARGET_DIR: ${{ github.workspace }}/.target/linux
     steps:
       - uses: actions/checkout@v7
@@ -532,7 +538,17 @@ jobs:
         with: { python-version: "3.13", cache: pip }
       - run: pip install -e ".[dev,switches]"
       - name: Start the container, create the read user as documented
-        run: python3 tools/integration/linux/target.py start "$TARGET_DIR"
+        run: |
+          set -o pipefail
+          mkdir -p "$TARGET_DIR"
+          python3 tools/integration/linux/target.py start "$TARGET_DIR" 2>&1 | tee "$TARGET_DIR/start.log" || {
+            code=$?
+            body=$(tail -n 40 "$TARGET_DIR/start.log")
+            body=${body//'%'/'%25'}
+            body=${body//$'\n'/'%0A'}
+            echo "::error title=Linux (Debian ${DEBIAN}) container did not start::$body"
+            exit $code
+          }
       - name: Integration tests
         run: |
           set -o pipefail
@@ -543,14 +559,18 @@ jobs:
               body=$(printf '%s\n--- last lines ---\n%s' "$summary" "$(tail -n 40 "$TARGET_DIR/pytest.log")")
               body=${body//'%'/'%25'}
               body=${body//$'\n'/'%0A'}
-              echo "::error title=Linux integration tests failed::$body"
+              echo "::error title=Linux (Debian ${DEBIAN}) integration tests failed::$body"
               exit $code
             }
-      - name: Legacy iptables test in the job summary (#404)
+      - name: Result and legacy iptables test in the job summary (#404, #417)
         if: always()
         run: |
           {
-            echo "### Linux legacy iptables end-to-end test"
+            echo "### Linux gateway on Debian ${DEBIAN}: integration tests"
+            echo
+            echo "Counts: $(grep -cE ' PASSED' "$TARGET_DIR/pytest.log" 2>/dev/null || true) passed, $(grep -cE ' (FAILED|ERROR)' "$TARGET_DIR/pytest.log" 2>/dev/null || true) failed, $(grep -cE ' SKIPPED' "$TARGET_DIR/pytest.log" 2>/dev/null || true) skipped"
+            echo
+            echo "#### Legacy iptables end-to-end test"
             echo
             line=$(grep -E 'test_legacy_iptables_is_read_with_iptables_save .*(PASSED|FAILED|ERROR|SKIPPED)' "$TARGET_DIR/pytest.log" 2>/dev/null | head -n 1)
             if [ -z "$line" ]; then
@@ -571,12 +591,14 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: A second DHCP server and IPv6 router (dnsmasq in a network namespace, #184)
+        if: matrix.debian == '12'  # the probe runs on the runner, once is enough (#417)
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends dnsmasq-base
           bash tools/integration/probe/netns.sh start "$RUNNER_TEMP/probe"
           cat "$RUNNER_TEMP/probe/env" >> "$GITHUB_ENV"
       - name: Probe tests (DHCP as the CI user, the router solicitation as root)
+        if: matrix.debian == '12'  # the probe runs on the runner, once is enough (#417)
         run: |
           set -o pipefail
           {
@@ -589,7 +611,7 @@ jobs:
               body=$(printf '%s\n--- dnsmasq ---\n%s' "$summary" "$(tail -n 20 "$RUNNER_TEMP/probe/dnsmasq.log" 2>/dev/null)")
               body=${body//'%'/'%25'}
               body=${body//$'\n'/'%0A'}
-              echo "::error title=Probe integration tests failed::$body"
+              echo "::error title=Probe integration tests failed (Debian ${DEBIAN})::$body"
               exit $code
             }
       - name: Container log on failure
@@ -598,7 +620,7 @@ jobs:
           body=$(docker logs signalbox-linux 2>&1 | tail -n 40)
           body=${body//'%'/'%25'}
           body=${body//$'\n'/'%0A'}
-          echo "::error title=Linux container log::$body"
+          echo "::error title=Linux container log (Debian ${DEBIAN})::$body"
       - name: Stop
         if: always()
         run: |
@@ -607,7 +629,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: linux-logs
+          name: linux-logs-debian${{ matrix.debian }}
           path: .target/linux/*.log
           if-no-files-found: ignore
           retention-days: 7

@@ -1,5 +1,5 @@
-"""The Linux integration (#240) against a real Debian 12 (a container with sshd, iproute2,
-dnsmasq, chrony and a WireGuard interface; tools/integration/linux).
+"""The Linux integration (#240) against a real Debian 11, 12 or 13 (IT_LINUX_DEBIAN; a container
+with sshd, iproute2, dnsmasq, chrony and a WireGuard interface; tools/integration/linux).
 
 The read user ``signalbox`` was created with the commands of the setup guide, including the
 sudoers rule for ``wg show``. The tests read the container as that user, then without the rule,
@@ -11,12 +11,14 @@ and run the automatic setup as root and as a sudo user that needs its password.
     IT_LINUX_ROOT_PASSWORD    root's password
     IT_LINUX_ADMIN_USER       a sudo user, and IT_LINUX_ADMIN_PASSWORD
     IT_LINUX_CONTAINER        the container (docker exec for the test without the rule)
+    IT_LINUX_DEBIAN           the Debian major version (default 12)
     IT_LINUX_WG_PUBLIC        wg0's public key, IT_LINUX_HOST_KEY the ed25519 host key
 """
 
 from __future__ import annotations
 
 import dataclasses
+import os
 import subprocess
 from collections.abc import Callable
 from ipaddress import ip_address
@@ -101,7 +103,8 @@ async def test_untrusted_first(lx: Target) -> None:
 async def test_read_as_the_documented_user(lx: Target) -> None:
     snap = await observe(context(lx))
     d = snap.device
-    assert d.firmware is not None and "Debian GNU/Linux 12" in (d.firmware.current or "")
+    debian = os.environ.get("IT_LINUX_DEBIAN", "12")
+    assert d.firmware is not None and f"Debian GNU/Linux {debian}" in (d.firmware.current or "")
     ports = {p.name: p for p in snap.ports}
     assert ports["br0"].role is PortRole.BRIDGE
     assert ports["br0"].lower == ["gw2/port/lan1", "gw2/port/lan2"]

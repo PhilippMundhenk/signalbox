@@ -12,7 +12,7 @@ they are tested against the simulators.
 *Emulated*: verified against the real device software in CI, reads and writes
 ([TESTING.md](TESTING.md)):
 
-- Linux gateway: Debian 12 in a container (sshd, iproute2, dnsmasq, chrony, WireGuard), read only ([details](adapters/linux.md#integration-tests))
+- Linux gateway: Debian 11, 12 and 13 in containers (sshd, iproute2, dnsmasq, chrony, WireGuard), read only ([details](adapters/linux.md#integration-tests))
 - MikroTik: RouterOS 7.25.1, official CHR image in QEMU, without Wi-Fi ([details](adapters/mikrotik.md#integration-tests))
 - TP-Link Omada: Software Controller 6.3.0.111, official Linux package in Docker, without managed devices ([details](adapters/omada.md#integration-tests))
 - OpenWrt: 23.05.6, 24.10.8 and 25.12.6, official x86-64 images in QEMU ([details](adapters/openwrt.md#verified-against-the-real-openwrt))
