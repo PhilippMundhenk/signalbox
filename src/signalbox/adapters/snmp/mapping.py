@@ -29,6 +29,7 @@ from signalbox.adapters import SystemInfo
 from signalbox.adapters.snmp import mib
 from signalbox.adapters.snmp.client import Value, column
 from signalbox.model import (
+    AccessControlMode,
     DeviceHealth,
     FdbEntry,
     FdbKind,
@@ -45,6 +46,8 @@ from signalbox.model import (
     PoeStatus,
     PoeSupply,
     Port,
+    PortAccessControl,
+    PortAuthState,
     PortCounters,
     PortKind,
     PortMembership,
@@ -862,6 +865,28 @@ _PETH_STATUS = {
 }
 #: pethPsePortPowerPriority: 1 critical, 2 high, 3 low
 _PETH_PRIORITY = {1: PoePriority.CRITICAL, 2: PoePriority.HIGH, 3: PoePriority.LOW}
+
+
+_PAE_CONTROL = {2: AccessControlMode.DOT1X}
+_PAE_STATE = {1: PortAuthState.AUTHORISED, 2: PortAuthState.UNAUTHORISED}
+
+
+def access_control(pmap: PortMap, data: Mib) -> dict[str, PortAccessControl]:
+    """802.1X per port from IEEE8021-PAE-MIB (``dot1xAuthAuthControlledPortControl`` and
+    ``...PortStatus``, indexed by ifIndex). Ports forced authorised or unauthorised are not
+    reported as 802.1X ports; a switch without the MIB reports nothing (#162)."""
+    out: dict[str, PortAccessControl] = {}
+    control = data.col(mib.PAE_AUTH, mib.PAE_AUTH_PORT_CONTROL)
+    status = data.col(mib.PAE_AUTH, mib.PAE_AUTH_PORT_STATUS)
+    for index, value in control.items():
+        mode = _PAE_CONTROL.get(as_int(value) or 0)
+        pid = pmap.by_if.get(int(index)) if index.isdigit() else None
+        if mode is None or pid is None:
+            continue
+        out[pid] = PortAccessControl(
+            mode=mode, state=_PAE_STATE.get(as_int(status.get(index)) or 0)
+        )
+    return out
 
 
 def poe(pmap: PortMap, data: Mib) -> tuple[PoeSupply | None, dict[str, PortPoe]]:

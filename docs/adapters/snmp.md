@@ -191,3 +191,8 @@ the tests are made up at runtime.
 
 Secrets are stored encrypted like those of the other adapters and never appear in a snapshot,
 log or error.
+
+## 802.1X per port (IEEE8021-PAE-MIB, #162)
+
+- `dot1xAuthAuthControlledPortControl` (auto means 802.1X) and `...PortStatus` per ifIndex, when
+  the switch exposes the MIB. Without it nothing is reported.

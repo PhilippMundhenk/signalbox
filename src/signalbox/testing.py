@@ -54,6 +54,7 @@ from signalbox.model import (
     PortKind,
     PortRole,
     Radio,
+    RadiusServer,
     Security,
     ServiceKind,
     ServiceTransport,
@@ -474,6 +475,22 @@ def upnp_problems(device_id: str, upnp: DeviceUpnp) -> list[str]:
     return out
 
 
+def radius_problems(device_id: str, servers: list[RadiusServer]) -> list[str]:
+    """RADIUS servers (#162): a name once per device, an address for each."""
+    out: list[str] = []
+    names = [s.name for s in servers]
+    for name in sorted({n for n in names if names.count(n) > 1}):
+        out.append(f"{device_id}: RADIUS server {name} listed twice")
+    out += [
+        f"{device_id}: RADIUS server {s.name} without an address" for s in servers if not s.address
+    ]
+    return out
+
+
+#: The simulators' RADIUS shared secrets contain this: it must never reach the model (#162).
+SIM_SECRET_MARKER = "do-not-leak"
+
+
 def credential_problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
     """No configured secret and no password hash anywhere in the snapshot (#175): only the
     booleans derived from them may leave the integration."""
@@ -487,6 +504,8 @@ def credential_problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
             out.append(f"the secret setting {name} appears in the snapshot")
     if _HASH.search(text):
         out.append("a password hash appears in the snapshot")
+    if SIM_SECRET_MARKER in text:
+        out.append("a shared secret of the simulator (RADIUS, #162) appears in the snapshot")
     return out
 
 
@@ -756,6 +775,8 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             if Capability.INTERFACES.value not in caps:
                 out.append(f"upnp reported without declaring {Capability.INTERFACES.value}")
             out += upnp_problems(d.id, d.upnp)
+        if d.radius_servers is not None:
+            out += radius_problems(d.id, d.radius_servers)
         if d.health is not None:
             out += health_problems(d.id, d.health)
         if d.time is not None:

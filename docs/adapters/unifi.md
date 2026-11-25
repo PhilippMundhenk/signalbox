@@ -182,3 +182,10 @@ The settings are the site's and are reported on the gateway. A missing field is 
 Integration mode has none of them. *(Guess, #21: the field names are from the controller's JSON as
 known from community documentation; the site-wide mDNS switch of controllers before 7 is not
 read.)*
+
+## Access control: RADIUS profiles, 802.1X, MAC filter (#162)
+
+- `rest/radiusprofile` (servers, ports, whether a secret is set), `rest/wlanconf`
+  (`radiusprofile_id`, `mac_filter_enabled`, `mac_filter_policy`, count of `mac_filter_list`),
+  port profile `dot1x_ctrl` and port overrides `port_security_*`. Secrets and MAC lists are never
+  kept. *Guess for a real controller (#21):* all of these field names.

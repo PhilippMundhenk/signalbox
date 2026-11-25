@@ -90,6 +90,7 @@
   ],
   "multicast": null,
   "upnp": null,
+  "radius_servers": null,
   "poe": null,
   "config_state": null,
   "local_backups": null,
@@ -161,7 +162,8 @@
     "link_downs": null,
     "last_link_change": null,
     "counters_since": null
-   }
+   },
+   "access_control": null
   },
   {
    "id": "switch/port/Gi2",
@@ -227,7 +229,8 @@
     "link_downs": null,
     "last_link_change": null,
     "counters_since": null
-   }
+   },
+   "access_control": null
   },
   {
    "id": "switch/port/Gi3",
@@ -293,7 +296,8 @@
     "link_downs": null,
     "last_link_change": null,
     "counters_since": null
-   }
+   },
+   "access_control": null
   },
   {
    "id": "switch/port/Gi4",
@@ -359,7 +363,8 @@
     "link_downs": null,
     "last_link_change": null,
     "counters_since": null
-   }
+   },
+   "access_control": null
   },
   {
    "id": "switch/port/Gi5",
@@ -425,7 +430,8 @@
     "link_downs": null,
     "last_link_change": null,
     "counters_since": null
-   }
+   },
+   "access_control": null
   },
   {
    "id": "switch/port/Gi6",
@@ -491,7 +497,8 @@
     "link_downs": null,
     "last_link_change": null,
     "counters_since": null
-   }
+   },
+   "access_control": null
   },
   {
    "id": "switch/port/Gi7",
@@ -563,7 +570,8 @@
     "link_downs": null,
     "last_link_change": null,
     "counters_since": null
-   }
+   },
+   "access_control": null
   },
   {
    "id": "switch/port/Gi8",
@@ -635,7 +643,8 @@
     "link_downs": null,
     "last_link_change": null,
     "counters_since": null
-   }
+   },
+   "access_control": null
   },
   {
    "id": "switch/port/Po1",
@@ -704,7 +713,8 @@
     "link_downs": null,
     "last_link_change": null,
     "counters_since": null
-   }
+   },
+   "access_control": null
   }
  ],
  "segments": [

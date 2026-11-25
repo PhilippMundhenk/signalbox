@@ -726,6 +726,8 @@ def wireless_config() -> dict[str, Any]:
     )
 
 
+#: shared secret of the simulated RADIUS server: tests assert that it is never read
+RADIUS_SECRET = "sim-radius-secret-do-not-leak"
 #: the 802.11s peer of the simulator's mesh point (``OpenWrtSim.mesh``)
 MESH_PEER = _mac(0x30, 1)
 #: the WDS station of the access point interface ``default_radio0`` when it has ``wds '1'``
@@ -1683,6 +1685,9 @@ class OpenWrtSim:
     packages: set[str] = field(default_factory=set)
     #: an 802.11s mesh point on radio1 with one mesh peer (#171), ``mesh_peer_mac`` away
     mesh: bool = False
+    #: A WPA2-Enterprise SSID with RADIUS server and shared secret (#162); the secret must never
+    #: show up in the model, logs or API output.
+    enterprise: bool = False
     #: no ``network.wireless`` ubus object (a device without Wi-Fi)
     no_wireless_object: bool = False
     #: answer of ``ubus call poe info`` (realtek-poe); None: the daemon is not installed
@@ -1794,6 +1799,25 @@ class OpenWrtSim:
                 "upnpd": _sections(upnpd_config()),
                 "https-dns-proxy": {},
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
+            }
+        if self.enterprise and "corp_radio1" not in self.configs["wireless"]:
+            self.configs["wireless"]["corp_radio1"] = {
+                ".anonymous": False,
+                ".type": "wifi-iface",
+                "device": "radio1",
+                "mode": "ap",
+                "network": "lan",
+                "ssid": "Example-Corp",
+                "encryption": "wpa2+ccmp",
+                "auth_server": "192.0.2.53",
+                "auth_port": "1812",
+                "auth_secret": RADIUS_SECRET,
+                "acct_server": "192.0.2.53",
+                "acct_port": "1813",
+                "acct_secret": RADIUS_SECRET,
+                "dynamic_vlan": "1",
+                "macfilter": "deny",
+                "maclist": ["02:00:00:00:99:01", "02:00:00:00:99:02"],
             }
         if self.mesh and "mesh0" not in self.configs["wireless"]:
             self.configs["wireless"]["mesh0"] = {

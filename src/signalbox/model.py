@@ -843,6 +843,102 @@ class DeviceUpnp(Model):
     mappings_complete: bool = True
 
 
+class RadiusPurpose(StrEnum):
+    """What a RADIUS server of a device is used for (#162)."""
+
+    WLAN = "wlan"
+    DOT1X = "dot1x"
+    VPN = "vpn"
+    LOGIN = "login"
+
+
+class RadiusServer(Model):
+    """A RADIUS server a device knows or runs (#162, ADR 0030).
+
+    The shared secret is never read into the model: ``secret_set`` only says whether one is
+    configured. ``None`` everywhere: the device does not say.
+    """
+
+    #: Name of the entry on the device (or its address where the device has no names).
+    name: str
+    #: IP address or host name as configured.
+    address: str = Field(max_length=253)
+    auth_port: int | None = Field(default=None, ge=1, le=65535)
+    acct_port: int | None = Field(default=None, ge=1, le=65535)
+    purposes: list[RadiusPurpose] = Field(default_factory=list)
+    secret_set: bool | None = None
+    #: The device runs this server itself (a FreeRADIUS plugin, a built-in server).
+    local: bool = False
+
+
+class RadiusEndpoint(Model):
+    """One RADIUS server an SSID uses: address (or host name) and port as configured."""
+
+    address: str = Field(max_length=253)
+    port: int | None = Field(default=None, ge=1, le=65535)
+
+
+class RadiusRef(Model):
+    """The RADIUS servers an enterprise SSID uses (#162). No secret, only whether it is set."""
+
+    auth: list[RadiusEndpoint] = Field(default_factory=list)
+    acct: list[RadiusEndpoint] = Field(default_factory=list)
+    secret_set: bool | None = None
+
+
+class MacFilterMode(StrEnum):
+    ALLOW = "allow"
+    DENY = "deny"
+
+
+class MacFilter(Model):
+    """MAC address filter of an SSID (#162). Only the mode and the number of entries are read:
+    the addresses of the people who use the network stay on the device."""
+
+    mode: MacFilterMode
+    count: int = Field(ge=0)
+
+
+class AccessControlMode(StrEnum):
+    """How a port decides who may use it (#162)."""
+
+    OPEN = "open"
+    DOT1X = "dot1x"
+    MAC_AUTH = "mac-auth"
+    DOT1X_OR_MAC = "dot1x-or-mac"
+    #: Only fixed MAC addresses (port security without 802.1X).
+    STATIC_MACS = "static-macs"
+
+
+class PortViolation(StrEnum):
+    SHUTDOWN = "shutdown"
+    RESTRICT = "restrict"
+    PROTECT = "protect"
+
+
+class PortAuthState(StrEnum):
+    AUTHORISED = "authorised"
+    UNAUTHORISED = "unauthorised"
+
+
+class PortAccessControl(Model):
+    """802.1X, MAC authentication and port security of a port (#162); ``None`` fields: not
+    reported. Read with ``interfaces``."""
+
+    mode: AccessControlMode
+    #: Most MAC addresses the port learns (port security); None: no limit or not reported.
+    max_macs: int | None = Field(default=None, ge=0)
+    #: Learnt addresses are kept (sticky MACs).
+    sticky: bool | None = None
+    violation: PortViolation | None = None
+    #: VLAN for devices that cannot authenticate, and for failed authentications.
+    guest_vlan: Vlan | None = None
+    auth_fail_vlan: Vlan | None = None
+    state: PortAuthState | None = None
+    #: The RADIUS server may assign the VLAN.
+    dynamic_vlan: bool | None = None
+
+
 class Device(Observed):
     site_id: str
     name: str
@@ -931,6 +1027,9 @@ class Device(Observed):
     #: UPnP, NAT-PMP and PCP: protocols, secure mode and the dynamic mappings (#176, ADR 0029),
     #: read with ``interfaces`` (``Observation.upnp``). ``None``: not read.
     upnp: DeviceUpnp | None = None
+    #: RADIUS servers the device knows or runs (#162, ADR 0030), read with ``interfaces``
+    #: (``Observation.radius_servers``). Never the shared secrets. ``None``: not read.
+    radius_servers: list[RadiusServer] | None = None
     #: PoE budget of a switch (#159), read with ``interfaces`` (``Observation.poe``).
     #: ``None``: not reported.
     poe: PoeSupply | None = None
@@ -1280,6 +1379,8 @@ class Port(Observed):
     stp: StpPort | None = None
     #: Traffic and error counters (#158); None: not reported.
     counters: PortCounters | None = None
+    #: 802.1X, MAC authentication, port security (#162); None: not reported.
+    access_control: PortAccessControl | None = None
 
     @field_validator("poe", mode="before")
     @classmethod
@@ -3291,6 +3392,12 @@ class Wlan(Observed):
     #: A backhaul SSID (#171): used only between mesh nodes (hidden mesh SSID, 802.11s mesh id,
     #: WDS link, a repeater's uplink network), not offered to clients. SSID rules skip it.
     backhaul: bool = False
+    #: MAC filter of the SSID (#162): mode and number of entries, never the addresses.
+    mac_filter: MacFilter | None = None
+    #: RADIUS servers of an enterprise SSID (#162); None: not reported.
+    radius: RadiusRef | None = None
+    #: The RADIUS server assigns the VLAN of a station (#162).
+    dynamic_vlan: bool | None = None
 
 
 class ScanSource(StrEnum):

@@ -57,6 +57,7 @@ from signalbox.adapters import upnp as mapping_reader
 from signalbox.adapters.bonding import Bond
 from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.openwrt import (
+    access,
     accounts,
     brforward,
     firewall,
@@ -1895,12 +1896,17 @@ class OpenWrtAdapter(Adapter):
                     port_id=port_id(d, ifnames[name]) if name in ifnames else None,
                     bssid=bssids.get(ifnames.get(name, "")),
                     backhaul=mode == "mesh",
+                    mac_filter=access.mac_filter(s),
+                    radius=access.radius_ref(s) if "enterprise" in sec.value else None,
+                    dynamic_vlan=access.dynamic_vlan(s),
                     vendor_extra=_extra(s, "encryption", "network"),
                 )
             )
+        refs = [w.radius for w in wlans if w.radius is not None]
         return Observation(
             radios=list(radios.values()),
             wlans=wlans,
+            radius_servers={d: access.servers(refs)} if refs else {},
             wifi_scan=heard,
             mesh_peers=peers,
             mesh=membership,

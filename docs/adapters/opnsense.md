@@ -1180,3 +1180,8 @@ No plugin (404): nothing is reported; a 403 is an optional gap naming the privil
 `page-services-upnp`. The active mappings have no API (miniupnpd keeps them in a lease file on
 the firewall), so the list is marked not complete. *(Guess, #21: endpoint, field and privilege
 names.)* Covered: 24.7, 25.1, 25.7 and 26.1 as far as the plugin exists there.
+## RADIUS servers (user manager, #162)
+
+- The authentication servers of type RADIUS (`/api/auth/server/search`, *guess for a real
+  firewall (#21): endpoint and field names*), without the secret (only whether one is set).
+  No such endpoint (404): nothing; 403: an optional gap. FreeRADIUS (plugin) is not read.

@@ -1111,3 +1111,11 @@ documentation, not yet seen on a device.)* Covered: OpenWrt 23.05, 24.10 and 25.
 yet seen on a device; the `luci.upnp` ubus object is not used because its fields are not
 documented.)* Covered: OpenWrt 23.05, 24.10 and 25.12 (miniupnpd 2.3; the file format is the same
 in 2.1 and later).
+## Access control: MAC filter, RADIUS, dynamic VLAN (wifi, #162)
+
+- Read from the `wifi-iface` sections of `/etc/config/wireless` (no extra permission): `macfilter`
+  (`allow`, `deny`) with the *number* of `maclist` entries, and for WPA-Enterprise networks
+  `auth_server`, `auth_port`, `acct_server`, `acct_port` and `dynamic_vlan`. The RADIUS servers
+  are also listed per device. The shared secrets (`auth_secret`, `acct_secret`) are only tested
+  for presence; the MAC addresses are never kept. Same option names on OpenWrt 21.02, 22.03,
+  23.05 and later. Wired 802.1X (hostapd `wired` driver) is not read.

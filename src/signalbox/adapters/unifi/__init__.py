@@ -54,6 +54,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.portcounters import counters_of
+from signalbox.adapters.unifi import access as _access
 from signalbox.adapters.unifi import multicast as _multicast
 from signalbox.adapters.unifi import multiwan
 from signalbox.model import (
@@ -94,6 +95,8 @@ from signalbox.model import (
     PortRole,
     PurposeSource,
     Radio,
+    RadiusRef,
+    RadiusServer,
     Security,
     Segment,
     SegmentPurpose,
@@ -491,6 +494,9 @@ class _Wireless:
     wlans: list[Wlan] = field(default_factory=list)
     #: (AP MAC, radio code, SSID) → WLAN id, for the clients.
     by_ssid: dict[tuple[str, str, str], str] = field(default_factory=dict)
+    #: ``rest/radiusprofile`` entries (#162), reduced to what the model keeps.
+    radius: list[RadiusServer] = field(default_factory=list)
+    profiles: dict[str, RadiusRef] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -1263,6 +1269,7 @@ class UnifiAdapter(_Adapter):
                     autoneg=_flag(row.get("autoneg"), None),
                     jumbo=_flag(row.get("jumbo"), None),
                     counters=counters_of(row, _COUNTER_KEYS),
+                    access_control=None if wan else _access.port_access(profile, row),
                     profile=None if wan else _text(profile.get("name")) or None,
                     pvid=native.vlan if native and native.vlan else (1 if native else None),
                     vendor_extra=d.extra(
@@ -1617,6 +1624,12 @@ class UnifiAdapter(_Adapter):
         wlans = {
             _text(w.get("_id")): w for w in await self._optional("rest/wlanconf", "Wi-Fi networks")
         }
+        radius_rows = await self._optional_quiet(_access.PROFILES)
+        out.radius = _access.servers_of(radius_rows)
+        for prof in radius_rows:
+            ref = _access.ref_of(prof)
+            if ref is not None and _text(prof.get("_id")):
+                out.profiles[_text(prof.get("_id"))] = ref
         groups = {
             _text(g.get("_id")): {m for m in (_mac(x) for x in g.get("device_macs") or []) if m}
             for g in await self._optional_quiet("rest/apgroups")
@@ -1720,6 +1733,10 @@ class UnifiAdapter(_Adapter):
                         segment_id=seg,
                         hidden=bool(_flag(conf.get("hide_ssid"), False)),
                         client_isolation=_flag(conf.get("l2_isolation"), None),
+                        mac_filter=_access.mac_filter(conf),
+                        radius=out.profiles.get(_text(conf.get("radiusprofile_id")))
+                        if sec.value.endswith("enterprise")
+                        else None,
                         **_roaming(conf),
                         purpose=SegmentPurpose.GUEST if guest else None,
                         purpose_source=PurposeSource.REPORTED if guest else None,
@@ -1733,7 +1750,12 @@ class UnifiAdapter(_Adapter):
 
     async def read_wireless(self) -> Observation:
         w = await self._wireless()
-        return Observation(radios=w.radios, wlans=w.wlans, incomplete=self._take_gaps())
+        return Observation(
+            radios=w.radios,
+            wlans=w.wlans,
+            radius_servers={self.context.device_id: w.radius} if w.radius else {},
+            incomplete=self._take_gaps(),
+        )
 
     # --- clients ------------------------------------------------------------------------------
 

@@ -49,6 +49,8 @@ AP2 = "02:00:00:00:0c:02"
 
 NET_LAN, NET_IOT, NET_GUEST, NET_WAN = "net-lan", "net-iot", "net-guest", "net-wan"
 PROF_ALL, PROF_IOT, PROF_OFF = "prof-all", "prof-iot", "prof-off"
+#: shared secret of the simulated RADIUS profile: tests assert that it is never read (#162)
+RADIUS_SECRET = "sim-radius-secret-do-not-leak"
 WLAN_HOME, WLAN_IOT, WLAN_GUEST = "wlan-home", "wlan-iot", "wlan-guest"
 
 
@@ -409,6 +411,15 @@ def sample_data(major: int) -> dict[str, Any]:
                 "server": "dyn.example.invalid",
             }
         ],
+        # RADIUS profile (#162); the shared secret is there and never read
+        "rest/radiusprofile": [
+            {
+                "_id": "radius1",
+                "name": "Office RADIUS",
+                "auth_servers": [{"ip": "192.0.2.53", "port": 1812, "x_secret": RADIUS_SECRET}],
+                "acct_servers": [{"ip": "192.0.2.53", "port": 1813, "x_secret": RADIUS_SECRET}],
+            }
+        ],
         "rest/portconf": [
             {"_id": PROF_ALL, "name": "All", "forward": "all"},
             {
@@ -416,6 +427,7 @@ def sample_data(major: int) -> dict[str, Any]:
                 "name": "IoT access",
                 "native_networkconf_id": NET_IOT,
                 "forward": "native",
+                "dot1x_ctrl": "auto",
             },
             {"_id": PROF_OFF, "name": "Disabled", "forward": "disabled"},
             {"_id": "prof-trunk", "name": "Trunk", **custom([NET_IOT])},
@@ -450,6 +462,9 @@ def sample_data(major: int) -> dict[str, Any]:
                 "hide_ssid": True,
                 "networkconf_id": NET_IOT,
                 "l2_isolation": True,
+                "mac_filter_enabled": True,
+                "mac_filter_policy": "allow",
+                "mac_filter_list": ["02:00:00:00:99:01", "02:00:00:00:99:02"],
                 **band("2g"),
             },
             {
