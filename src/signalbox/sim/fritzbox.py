@@ -781,7 +781,7 @@ class FritzboxSim:
         if name == "UserInterface" and action == "X_AVM-DE_GetInfo":
             return {
                 "NewX_AVM-DE_AutoUpdateMode": "important",
-                "NewX_AVM-DE_UpdateTime": "0001-01-01T00:00:00",
+                "NewX_AVM-DE_UpdateTime": "2026-01-15T03:12:00",
                 "NewX_AVM-DE_LastFwVersion": "",
                 "NewX_AVM-DE_LastInfoUrl": "",
                 "NewX_AVM-DE_CurrentFwVersion": "",

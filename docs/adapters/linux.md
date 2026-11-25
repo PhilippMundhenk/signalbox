@@ -179,6 +179,23 @@ One script (`signalbox.adapters.linux.collect.READ`) per observation, one more f
 Not read: Pi-hole's own DHCP server, dnsmasq IPv6 ranges (`constructor:`), firewalld and ufw
 as such (only what they put into nftables).
 
+### Update state (#181)
+
+Read without root and without network access, for the Debian family (Debian 11 to 13, Ubuntu,
+Raspberry Pi OS) and the Fedora family (Fedora, RHEL 8 to 10 and clones); other systems report
+none of it:
+
+| What | Debian family | Fedora family |
+|---|---|---|
+| Installs by itself (`auto_update`) | `apt-config shell` of `APT::Periodic::Unattended-Upgrade` non-zero, `/usr/bin/unattended-upgrade` installed and `apt-daily-upgrade.timer` not disabled | `dnf-automatic-install.timer` enabled, or `dnf-automatic.timer` (`dnf5-automatic.timer`) enabled with `apply_updates = yes` |
+| Waiting updates | `apt-get -s upgrade` (the lists of the last `apt update`), security: origin `*-security` | `dnf -C check-update` (cache only), security: `dnf -C updateinfo list --security` |
+| Last check | mtime of `/var/lib/apt/periodic/update-success-stamp` | not read |
+| Restart pending | `/var/run/reboot-required` | not read |
+
+The restart flag is only ever "yes": not every system writes the file, so its absence says
+nothing. The Fedora family reads and the dnf5 names are unconfirmed on real systems (#21). No
+sudoers rule is needed.
+
 ### Remote syslog (#180)
 
 The read script prints `/etc/rsyslog.conf`, `/etc/rsyslog.d/*.conf`,

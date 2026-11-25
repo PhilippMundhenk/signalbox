@@ -19,3 +19,9 @@
 - **Severity:** info
 - **Checks:** a device that says what backups it keeps and has none (or none newer than 30 days although its configuration changed since), while Signalbox has no backup from the last 30 days either (Signalbox takes one before every change it deploys). Silent for devices that do not say, and while there is no history.
 - **Fix:** download a backup from the device, or deploy a change through Signalbox.
+
+## `config.changed-outside`
+
+- **Severity:** info
+- **Checks:** a device whose own record says its configuration changed in the last days (parameter `days`, default 7) and where the change does not follow a backup Signalbox took within `minutes` (default 30) before it; Signalbox takes a backup before every change it deploys, so a change without one is somebody else's. Only for devices that record the time of the last change (MikroTik, OPNsense); the user the device logs is shown on the device page, not in the finding. Silent while there is no history.
+- **Fix:** nothing to do if you made the change in the device's own interface; otherwise check who has access.

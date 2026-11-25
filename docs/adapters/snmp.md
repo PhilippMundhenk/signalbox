@@ -123,6 +123,10 @@ the rest is read and an **optional** gap says what is missing:
 | LLDP-MIB | no neighbours (enable LLDP on the switch, or add the LLDP subtree to the SNMP view) |
 | ENTITY-MIB | no model, serial or firmware (`sysDescr` stays in the advanced tab) |
 
+No standard MIB tells whether an update exists, whether the device installs updates by itself or
+whether its configuration is saved (those are vendor MIBs), so SNMP devices report the firmware
+revision and nothing more about updates (#181).
+
 Errors that stop the read: no answer at all (wrong address, SNMP off, an access list, or a wrong
 v2c community or v3 user, which an agent silently drops), a refused v3 login (wrong
 authentication password or algorithm, unknown user, missing privacy), no `sysDescr`, or no

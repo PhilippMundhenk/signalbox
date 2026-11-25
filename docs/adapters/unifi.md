@@ -148,4 +148,7 @@ controller without the list gives none.
 
 The classic device list's `upgradable` and `upgrade_to_firmware` give `Firmware.upgradable` and
 `available` of the managed device; the Integration API has neither (unknown). The auto-upgrade
-schedule is not read yet.
+schedule is not read yet. The site-wide `auto_upgrade` flag of `rest/setting` (the `super_mgmt`
+section) gives `Firmware.auto_update` of every managed device; the hour of the schedule
+(`auto_upgrade_hour`) is not kept. Unconfirmed on a real controller (#21); absent in integration
+mode.

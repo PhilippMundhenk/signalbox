@@ -11,7 +11,17 @@ from collections.abc import Iterator
 from datetime import timedelta
 
 from signalbox.model import Network
-from signalbox.rules import Result, Rule, Severity, found, history_rule, rule
+from signalbox.rules import (
+    Result,
+    Rule,
+    RuleParams,
+    Severity,
+    ctx,
+    found,
+    history_rule,
+    param,
+    rule,
+)
 from signalbox.sightings import History
 
 #: A backup older than this, of a configuration that changed after it, counts as missing.
@@ -110,4 +120,55 @@ def no_backup(net: Network, history: History) -> Iterator[Result]:
             )
 
 
-RULES: list[Rule] = [unsaved, pending, no_backup]
+class OutsideParams(RuleParams):
+    days: int = param(
+        7, unit="d", ge=1, le=365, description="Report changes made in the last this many days."
+    )
+    minutes: int = param(
+        30,
+        unit="min",
+        ge=1,
+        le=1440,
+        description="A change that follows Signalbox's own backup within this time is Signalbox's.",
+    )
+
+
+@history_rule(
+    "config.changed-outside",
+    "Configuration changed outside Signalbox",
+    Severity.INFO,
+    "The device's own record says its configuration changed recently, and Signalbox did not "
+    "make the change (Signalbox takes a backup right before every change it deploys; a change "
+    "that does not follow one is somebody else's). Fine when it was you in the device's own "
+    "interface; worth a look when it was not. Only for devices that record the time of the "
+    "last change (MikroTik, OPNsense); the user the device logs is on the device page. The "
+    "parameters are the days to look back and the minutes a deployment may take.",
+    params=OutsideParams,
+)
+def changed_outside(net: Network, history: History) -> Iterator[Result]:
+    now = history.now
+    if now is None:
+        return
+    for d in net.devices:
+        changed = d.config_state.last_changed if d.config_state else None
+        if changed is None:
+            continue
+        p = ctx.params(OutsideParams, d)
+        if now - changed > timedelta(days=p.days) or changed > now:
+            continue
+        mine = d.signalbox_backup_newest
+        if mine is not None and timedelta(0) <= changed - mine <= timedelta(minutes=p.minutes):
+            continue
+        yield found(
+            f"The configuration of {d.name} was changed in the last {p.days} days, and not "
+            "through Signalbox",
+            [d.id],
+            fix="If you made the change in the device's own interface, nothing to do. If not, "
+            "check who has access to the device (the device page shows the user it logged).",
+            mid="config.changedOutside",
+            fix_id="config.changedOutside.fix",
+            params={"name": d.name, "days": p.days},
+        )
+
+
+RULES: list[Rule] = [unsaved, pending, no_backup, changed_outside]

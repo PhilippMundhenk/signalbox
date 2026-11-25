@@ -95,6 +95,10 @@ async def test_contract_and_values() -> None:
     assert d.model == "Raspberry Pi 5 Model B Rev 1.0" and d.vendor == "Raspberry Pi"
     assert d.firmware is not None and d.firmware.current == "Debian GNU/Linux 12 (bookworm)"
     assert d.transport_encrypted is True
+    fw = d.firmware
+    assert (fw.auto_update, fw.reboot_pending, fw.upgradable) == (True, True, True)
+    assert (fw.pending_updates, fw.pending_security_updates, fw.security_update) == (2, 1, True)
+    assert fw.last_checked == datetime(2026, 1, 1, tzinfo=UTC)
     # br0's table (#160): no multicast, no entries of a port's own list, no unknown port
     assert [(e.port_id, e.mac, e.kind.value, e.age_seconds) for e in snap.fdb] == [
         ("gw2/port/br0", "02:5b:00:00:00:02", "self", None),

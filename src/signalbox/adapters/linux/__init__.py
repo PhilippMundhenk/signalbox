@@ -55,6 +55,7 @@ from signalbox.adapters.linux import (
     provision,
     setup,
     syslog,
+    updates,
     wireguard,
 )
 from signalbox.adapters.linux import (
@@ -408,13 +409,14 @@ class LinuxAdapter(Adapter):
         if found.manager:
             extra["os_family"] = found.family
             extra["package_manager"] = found.manager
+        state = updates.read(a, found.manager)
         forwarding = parse.forwarding(a)
         if forwarding is not None:
             extra["ip_forwarding"] = forwarding
         return SystemInfo(
             vendor=vendor,
             model=model,
-            firmware=Firmware(current=pretty) if pretty else None,
+            firmware=Firmware(current=pretty, **state) if pretty or state else None,
             management_address=self.config.host,
             transport_encrypted=True,
             vendor_extra=extra,

@@ -145,6 +145,53 @@
         }
       }
     },
+    "config.changed-outside": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/config.changed-outside"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/config.changed-outside"
+              }
+            }
+          }
+        }
+      }
+    },
     "ddns.stale": {
       "type": "object",
       "additionalProperties": false,
@@ -1720,6 +1767,31 @@
         }
       },
       "title": "cert.vpn-expiring",
+      "type": "object"
+    },
+    "config.changed-outside": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "default": 7,
+          "description": "Report changes made in the last this many days.",
+          "maximum": 365,
+          "minimum": 1,
+          "title": "Days",
+          "type": "integer",
+          "unit": "d"
+        },
+        "minutes": {
+          "default": 30,
+          "description": "A change that follows Signalbox's own backup within this time is Signalbox's.",
+          "maximum": 1440,
+          "minimum": 1,
+          "title": "Minutes",
+          "type": "integer",
+          "unit": "min"
+        }
+      },
+      "title": "config.changed-outside",
       "type": "object"
     },
     "ddns.stale": {

@@ -389,6 +389,8 @@ def sample_data(major: int) -> dict[str, Any]:
                 "enabled": True,
             },
         ],
+        # site settings (#181): device firmware is installed by hand
+        "rest/setting": [{"key": "super_mgmt", "auto_upgrade": False, "auto_upgrade_hour": 3}],
         # dynamic DNS (#154); the account fields are there and never read
         "rest/dynamicdns": [
             {

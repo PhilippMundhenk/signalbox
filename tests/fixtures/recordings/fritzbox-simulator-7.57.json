@@ -1041,7 +1041,10 @@
     "last_checked": null,
     "release_date": null,
     "security_update": null,
-    "reboot_pending": null
+    "reboot_pending": null,
+    "last_updated": null,
+    "pending_updates": null,
+    "pending_security_updates": null
    },
    "management_address": "127.0.0.1",
    "mac": null,

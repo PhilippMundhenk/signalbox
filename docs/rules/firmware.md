@@ -31,3 +31,15 @@
 - **Severity:** info
 - **Checks:** a device that follows or runs a beta, release candidate, testing or development channel (MikroTik, OPNsense development, FRITZ!OS Labs).
 - **Fix:** switch to the stable or long-term channel unless testing on purpose.
+
+## `firmware.auto-update-off`
+
+- **Severity:** info
+- **Checks:** a device that says it does not install updates by itself: Linux without unattended-upgrades (Debian, Ubuntu) or dnf-automatic (Fedora, RHEL), a FRITZ!Box on "off" or "notify", a UniFi site with automatic device upgrades off. Silent where the device does not say.
+- **Fix:** switch on automatic updates (at least security updates), or update by hand regularly.
+
+## `firmware.reboot-pending`
+
+- **Severity:** info
+- **Checks:** a device that installed an update and waits for a restart (`/var/run/reboot-required` on Linux, OPNsense's restart flag).
+- **Fix:** restart in a maintenance window.

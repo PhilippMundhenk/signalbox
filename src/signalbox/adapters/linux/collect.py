@@ -83,6 +83,33 @@ echo @@{key}-save; printf '%s\\n' "$S"
 
 _WG = "".join(f'echo @@wg-{f}; [ -n "$WG" ] && $WG show all {f} 2>/dev/null\n' for f in WG_FIELDS)
 
+# Update state (#181): files and caches only, no root, no network. ``apt-get -s`` simulates on the
+# package lists of the last ``apt update`` and ``dnf -C`` answers from its cache.
+_UPDATES = """echo @@updates-files; show /var/run/reboot-required /etc/dnf/automatic.conf \
+  /etc/dnf/dnf5-plugins/automatic.conf /var/lib/update-notifier/updates-available
+echo @@updates-timers
+for u in unattended-upgrades.service apt-daily-upgrade.timer dnf-automatic.timer \
+  dnf-automatic-install.timer dnf-automatic-download.timer dnf-automatic-notifyonly.timer \
+  dnf5-automatic.timer; do
+  echo "$u $(systemctl is-enabled "$u" 2>/dev/null | head -n1)"
+done
+echo @@updates-apt-auto; apt-config shell U APT::Periodic::Unattended-Upgrade 2>/dev/null
+[ -x /usr/bin/unattended-upgrade ] && echo installed
+echo @@updates-apt-stamp; stat -c %Y /var/lib/apt/periodic/update-success-stamp 2>/dev/null
+echo @@updates-apt
+if command -v apt-get >/dev/null 2>&1; then
+  A=$(timeout 30 apt-get -s -o Debug::NoLocking=1 upgrade 2>/dev/null) && {
+    echo "# ok"; printf '%s\\n' "$A" | grep '^Inst '; }
+fi
+echo @@updates-dnf
+if command -v dnf >/dev/null 2>&1; then
+  timeout 30 dnf -C -q check-update 2>/dev/null; R=$?
+  [ "$R" = 0 ] || [ "$R" = 100 ] && echo "# ok"
+  echo @@updates-dnf-security
+  timeout 30 dnf -C -q updateinfo list --security 2>/dev/null
+fi
+"""
+
 READ = (
     "# signalbox-read\n"
     + _PRELUDE
@@ -166,6 +193,7 @@ echo @@nft-tool; echo "${N:-none}"
 echo @@nft; printf '%s\\n' "$J"
 echo @@iptables; iptables -V 2>/dev/null
 """
+    + _UPDATES
     + _IPT
     + _WG
     + "echo @@end\n"

@@ -432,6 +432,14 @@ def default_sections() -> dict[str, str]:
         "isc-leases": "",
         "networkd": "",
         "iptables": "iptables v1.8.9 (nf_tables)\n",
+        # update state (#181): unattended-upgrades on, one security update waiting, restart due
+        "updates-files": _files({"/var/run/reboot-required": "*** System restart required ***\n"}),
+        "updates-timers": "unattended-upgrades.service enabled\napt-daily-upgrade.timer enabled\n",
+        "updates-apt-auto": "U='1'\ninstalled\n",
+        "updates-apt-stamp": "1767225600\n",
+        "updates-apt": "# ok\n"
+        "Inst libc6 [2.36-9+deb12u9] (2.36-9+deb12u10 Debian-Security:12/stable-security [arm64])\n"
+        "Inst vim-tiny [2:9.0.1378-2] (2:9.0.1378-2+deb12u2 Debian:12.12/stable [arm64])\n",
     }
 
 

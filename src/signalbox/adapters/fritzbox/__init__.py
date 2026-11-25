@@ -321,6 +321,18 @@ def _flag(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "up")
 
 
+def _avm_time(value: str | None) -> datetime | None:
+    """A time of TR-064 (``2026-01-15T03:12:00``, no offset: read as UTC, the box's own clock
+    zone is not told); ``0001-01-01T00:00:00`` and the like mean "never"."""
+    try:
+        when = datetime.fromisoformat((value or "").strip())
+    except ValueError:
+        return None
+    if when.year < 2000:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
+
+
 def _wlan_on(info: Mapping[str, str]) -> bool:
     """A WLAN is on when enabled and its status is not ``Disabled``."""
     status = info.get("NewStatus", "Up").strip().lower()
@@ -801,6 +813,7 @@ class FritzboxAdapter(Adapter):
             channel=_BUILD_TYPES.get((ui.get("NewX_AVM-DE_BuildType") or "").strip().lower()),
             # "notify" only tells the user; "important" and "all" install by themselves
             auto_update=mode not in ("off", "notify") if mode else None,
+            last_updated=_avm_time(auto.get("NewX_AVM-DE_UpdateTime")),
         )
 
     async def _no_tr064(self, exc: AdapterError) -> AdapterError:

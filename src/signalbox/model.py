@@ -290,6 +290,12 @@ class Firmware(Model):
     security_update: bool | None = None
     #: The device installed an update and waits for a restart.
     reboot_pending: bool | None = None
+    #: When the device last installed an update (FRITZ!OS), where it says.
+    last_updated: datetime | None = None
+    #: How many package updates wait on a general-purpose system (Linux), and how many of
+    #: those are security updates; ``None``: not said (``0``: the system says none wait).
+    pending_updates: int | None = Field(default=None, ge=0)
+    pending_security_updates: int | None = Field(default=None, ge=0)
 
 
 class ConfigState(Model):
