@@ -146,6 +146,7 @@ def test_manifest_declares_what_it_writes() -> None:
         ChangeKind.PORT_FORWARD,
         ChangeKind.LOG_TARGET,
         ChangeKind.SNMP_POLICY,
+        ChangeKind.GATEWAY_GROUP,
     }
     assert issubclass(OpenWrtAdapter, WritesConfig)
 

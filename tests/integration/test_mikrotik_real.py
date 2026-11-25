@@ -976,7 +976,8 @@ async def test_gateway_group_distances_and_check_then_revert(
     """#463: two more static default routes (never active: their distances stay above the
     DHCP route's) form the group default with the DHCP route; the deployment swaps their
     order (distance), sets check-gateway=ping on one, arms and removes the revert timer; the
-    revert puts distance and check-gateway back. The DHCP route is not touched."""
+    revert puts the old order back as tier numbers (2 and 3, behind the DHCP route; ADR 0032)
+    and unsets check-gateway again. The DHCP route is not touched."""
     made = [
         write_call(
             rt,
@@ -1000,7 +1001,12 @@ async def test_gateway_group_distances_and_check_then_revert(
             assert menus(rt, "/rest/system/scheduler")["/rest/system/scheduler"] == {}
         finally:
             await revert(svc, d, cid)
-        assert_same_menus(raw, menus(rt, "/rest/ip/route"))
+        after = menus(rt, "/rest/ip/route")["/rest/ip/route"]
+        before = raw["/rest/ip/route"]
+        assert (after["it-a"].pop("distance"), after["it-b"].pop("distance")) == ("2", "3")
+        for name in ("it-a", "it-b"):
+            before[name].pop("distance")
+        assert_same_menus(raw, {"/rest/ip/route": after})
     finally:
         for row in made:
             if isinstance(row, dict) and row.get(".id"):
