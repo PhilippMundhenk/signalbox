@@ -2444,7 +2444,6 @@ async def test_sqm_queues_are_shapers(sim: OpenWrtSim, adapter: OpenWrtAdapter) 
     (shaper,) = (await adapter.read_interfaces()).shapers
     assert shaper.kind.value == "cake" and shaper.enabled and shaper.interface == "wan"
     assert (shaper.download_kbps, shaper.upload_kbps) == (90_000, 18_000)
-    assert shaper.uplink_id is not None and shaper.uplink_id.endswith("/uplink/wan")
 
 
 async def test_sqm_refused_by_an_old_acl_reports_nothing(

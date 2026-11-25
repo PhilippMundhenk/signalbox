@@ -210,6 +210,12 @@ async def test_the_key_of_the_new_user_cannot_manage_users(fw: Target, clean: No
         await http.close()
 
 
+def unshaped(errors: list[Any]) -> list[Any]:
+    """Without the gap of the traffic shaper (#166): the automatic setup does not grant its
+    privilege (page-firewall-trafficshaper) yet, so it is an optional gap everywhere."""
+    return [e for e in errors if e.params.get("what") != "traffic shaper"]
+
+
 async def test_accounts_extra_confirms_the_user_manager_privilege(fw: Target, clean: None) -> None:
     """The optional extra (#349): the privilege page-system-usermanager (System: Access:
     Users) is accepted by the firewall and is exactly what the read needs: the accounts are
@@ -218,12 +224,12 @@ async def test_accounts_extra_confirms_the_user_manager_privilege(fw: Target, cl
     check(plain, await root_answers(fw))
     snap = await read_with(fw, plain)
     assert snap.device.accounts is None, snap.device.accounts
-    assert [e.message_id for e in snap.errors] == ["opnsense.accounts"], snap.errors
+    assert [e.message_id for e in unshaped(snap.errors)] == ["opnsense.accounts"], snap.errors
 
     result = await OpnsenseAdapter.apply_setup(request(fw, fw.pin, extras=["accounts"]))
     check(result, await root_answers(fw))
     snap = await read_with(fw, result)
-    assert snap.status is DeviceStatus.OK and not snap.errors, (
+    assert snap.status is DeviceStatus.OK and not unshaped(snap.errors), (
         snap.errors,
         await root_answers(fw),
     )
