@@ -3202,6 +3202,34 @@ class MeshMembership(Model):
     uplink: MeshUplink | None = None
 
 
+class MeshPeerRole(StrEnum):
+    """Which way a wireless peer lies from the node that reports it (#171)."""
+
+    #: The peer is upstream: this node is a station (repeater, client bridge, WDS client).
+    UPLINK = "uplink"
+    #: The peer is a station of this node (WDS access point side, a repeater behind it).
+    DOWNLINK = "downlink"
+    #: Equal peers (802.11s): no direction.
+    PEER = "peer"
+
+
+class MeshPeer(Observed):
+    """A wireless backhaul neighbour a node reports by MAC address (#171): the other end is
+    not known to the node as a device. Core finds the device by the MAC address (a port, or the
+    BSSID of an SSID) and draws the link (:func:`signalbox.topology.mesh_peer_links`); a peer
+    that is no known device is not drawn. Where the node knows the other end's port, it reports
+    ``Observation.wireless_links`` instead."""
+
+    device_id: str
+    #: The node's own Wi-Fi port the link runs on.
+    port_id: str
+    #: The peer's MAC address: its interface address (802.11s peer, WDS station) or, for an
+    #: uplink, the BSSID of the access point the node is a station of.
+    peer_mac: Mac
+    role: MeshPeerRole = MeshPeerRole.PEER
+    wireless: WirelessLinkInfo
+
+
 class Client(Observed):
     mac: Mac
     addresses: list[IPAddress] = Field(default_factory=list)
@@ -4073,6 +4101,8 @@ class Snapshot(Model):
     wlans: list[Wlan] = Field(default_factory=list)
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
+    #: Wireless backhaul peers by MAC address (#171; part of ``interfaces``).
+    mesh_peers: list[MeshPeer] = Field(default_factory=list)
     #: Forwarding database (MAC address table) entries (#160), at most
     #: :data:`FDB_LIMIT` per device.
     fdb: list[FdbEntry] = Field(default_factory=list)
@@ -4185,6 +4215,7 @@ class Network(Model):
     wlans: list[Wlan] = Field(default_factory=list)
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
+    mesh_peers: list[MeshPeer] = Field(default_factory=list)
     #: Forwarding database (MAC address table) entries (#160), at most
     #: :data:`FDB_LIMIT` per device.
     fdb: list[FdbEntry] = Field(default_factory=list)

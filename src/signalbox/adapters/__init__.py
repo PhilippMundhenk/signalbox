@@ -60,6 +60,7 @@ from signalbox.model import (
     LogTarget,
     ManagementService,
     MeshMembership,
+    MeshPeer,
     MessageParams,
     Neighbour,
     Observed,
@@ -679,6 +680,10 @@ class Observation(BaseModel):
     wlans: list[Wlan] = Field(default_factory=list)
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
+    #: Wireless backhaul peers by MAC address (#171), read with ``interfaces``; no API version
+    #: needed. For a peer whose device Signalbox has to find by the MAC address; a node that
+    #: knows the other end's port reports ``wireless_links`` instead.
+    mesh_peers: list[MeshPeer] = Field(default_factory=list)
     #: Forwarding database (MAC address table) entries (#160), read with ``clients`` (or
     #: ``interfaces`` without a client read); no API version needed. Report what the device
     #: says, on the physical port where it knows it; ``observe()`` keeps at most

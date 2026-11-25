@@ -762,7 +762,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
                 out.append(f"{kind} {obj.id} has device_id {obj.device_id}")
             elif not obj.id.startswith(f"{owner}/"):
                 out.append(f"{kind} id {obj.id} does not start with {owner}/")
-    for kind in ("clients", "neighbours"):
+    for kind in ("clients", "neighbours", "mesh_peers"):
         for obj in getattr(snapshot, kind):
             if not obj.id.startswith(own):
                 out.append(f"{kind} id {obj.id} does not start with {own}")
@@ -873,9 +873,17 @@ def mesh_problems(snapshot: Snapshot, port_ids: set[str], owners: Iterable[str])
     out: list[str] = []
     caps = set(snapshot.device.capabilities)
     ids = set(owners)
-    if snapshot.wireless_links and not caps & {Capability.INTERFACES.value, "wireless"}:
+    if (snapshot.wireless_links or snapshot.mesh_peers) and not caps & {
+        Capability.INTERFACES.value,
+        "wireless",
+    }:
         out.append("wireless_links reported without declaring interfaces or wireless")
     ports = {p.id: p.device_id for p in snapshot.ports}
+    for peer in snapshot.mesh_peers:
+        if peer.port_id not in port_ids:
+            out.append(f"mesh peer {peer.id} on unknown port {peer.port_id}")
+        if peer.device_id not in ids:
+            out.append(f"mesh peer {peer.id} has device_id {peer.device_id}")
     for link in snapshot.wireless_links:
         if link.origin is not LinkOrigin.MESH or link.kind is not LinkKind.WIRELESS:
             out.append(f"wireless link {link.id} is not a wireless link of origin mesh")

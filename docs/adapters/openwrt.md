@@ -1024,3 +1024,15 @@ back) and not changes staged in a LuCI or SSH session; an empty answer is report
 never as "nothing is pending". The read ACL needs `uci: ["changes"]` (added to the ACL above; an
 older ACL leaves the field empty). *(Guess: the cross-session behaviour is from the rpcd
 sources, #21.)*
+
+## Mesh and wireless uplinks (#171)
+
+`wifi-iface` sections of mode `mesh` (802.11s) become a `Wlan` with `backhaul` set (the mesh id is
+its SSID; SSID rules skip it). For interfaces of mode `mesh` and `sta` that are up,
+`iwinfo assoclist` (rpcd-mod-iwinfo) gives the peers: a `MeshPeer` with the MAC address, signal and
+the rates (kbit/s in the answer). A `sta` interface is a client bridge, with `wds '1'` a WDS client;
+its peer is the access point (role `uplink`), an 802.11s peer has no direction. Core finds the
+device behind the MAC address (a port, or the BSSID of an SSID) and draws the link. A device with
+such peers has `Device.mesh` (role `repeater` for a station uplink, `agent` for a mesh point).
+Without `rpcd-mod-iwinfo` nothing is reported. EasyMesh (prplMesh) is not read. *Guess (#21): the
+MAC of a `sta` peer is the BSSID the access point reports as its `Wlan.bssid`.*

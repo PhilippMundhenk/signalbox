@@ -16,6 +16,7 @@ from signalbox.model import (
     LinkKind,
     LinkOrigin,
     Membership,
+    MeshPeerRole,
     Network,
     Port,
     Subnet,
@@ -118,12 +119,49 @@ def tunnel_links(net: Network) -> Iterator[Link]:
             )
 
 
+def _port_of_mac(net: Network, mac: str) -> Port | None:
+    """The port a MAC address belongs to: a port with that address, else the Wi-Fi port of the
+    SSID that sends it (its BSSID)."""
+    port = next((p for p in net.ports if p.mac == mac), None)
+    if port is not None:
+        return port
+    wlan = next((w for w in net.wlans if w.bssid == mac and w.port_id), None)
+    return net.port(wlan.port_id) if wlan is not None and wlan.port_id else None
+
+
+def mesh_peer_links(net: Network) -> Iterator[Link]:
+    """A ``mesh`` link for every wireless peer a node reports by MAC address whose device is
+    known (#171). ``a`` is the upstream end (the peer of an ``uplink``, the node for a
+    ``downlink``); equal peers (802.11s) are ordered by port id."""
+    for peer in sorted(net.mesh_peers, key=lambda x: x.id):
+        local, remote = net.port(peer.port_id), _port_of_mac(net, peer.peer_mac)
+        if local is None or remote is None or remote.device_id == local.device_id:
+            continue
+        if peer.role is MeshPeerRole.UPLINK:
+            up, down = remote, local
+        elif peer.role is MeshPeerRole.DOWNLINK:
+            up, down = local, remote
+        else:
+            up, down = sorted((local, remote), key=lambda p: p.id)
+        yield Link(
+            id=link_id(LinkOrigin.MESH, up.id, down.id),
+            a=up.id,
+            b=down.id,
+            kind=LinkKind.WIRELESS,
+            origin=LinkOrigin.MESH,
+            wireless=peer.wireless,
+        )
+
+
 def discovered_links(net: Network) -> list[Link]:
     """LLDP first; a MAC-table link only where LLDP has nothing for either port; VPN links
     between tunnels (they join tunnels, never ports)."""
     out: dict[frozenset[str], Link] = {}
     # ports the devices report as ends of a wireless backhaul (#171): nothing else is guessed there
+    for link in mesh_peer_links(net):
+        out.setdefault(frozenset((link.a, link.b)), link)
     meshed = {p for link in net.links if link.origin is LinkOrigin.MESH for p in (link.a, link.b)}
+    meshed |= {p for pair in out for p in pair}
     for link in lldp_links(net):
         if {link.a, link.b} & meshed:
             continue

@@ -31,6 +31,7 @@ from signalbox.adapters.omada import (
     vitals,
 )
 from signalbox.model import (
+    Band,
     Cipher,
     DeviceHealth,
     DeviceRole,
@@ -1074,3 +1075,33 @@ def test_controller_release() -> None:
     assert controller_release("5.15.20.18") == (5, 15)
     assert controller_release("6.3.0.111") == (6, 3)
     assert controller_release("") is None and controller_release("x") is None
+
+
+async def test_mesh_uplink_becomes_a_wireless_link(snap: Snapshot) -> None:
+    """AP 2 reaches AP 1 over a mesh uplink (#171): link with the radio details, membership."""
+    ap1, ap2 = "omada1/eap-020000000c01", "omada1/eap-020000000c02"
+    (link,) = snap.wireless_links
+    assert (link.origin.value, link.kind.value) == ("mesh", "wireless")
+    assert (link.a, link.b) == (f"{ap1}/port/mesh", f"{ap2}/port/mesh")
+    info = link.wireless
+    assert info is not None
+    assert (info.band, info.channel, info.signal_dbm) == (Band.GHZ_5, 36, -58)
+    assert (info.tx_rate_mbps, info.rx_rate_mbps) == (866.0, 780.0)
+    by_id = {d.id: d for d in snap.extra_devices}
+    first, second = by_id[ap1].mesh, by_id[ap2].mesh
+    assert first is not None and first.hop == 0 and first.uplink is not None
+    assert first.uplink.value == "wired"
+    assert second is not None and second.hop == 1 and second.uplink is not None
+    assert second.uplink.value == "wireless"
+    assert second.controller_id == DEV and second.role.value == "agent"
+
+
+def test_mesh_info_without_radio_id_uses_the_channel() -> None:
+    from signalbox.adapters.omada import mesh_info
+
+    low = mesh_info({"channel": 6, "rssi": -70})
+    assert (low.band, low.signal_dbm, low.tx_rate_mbps) == (Band.GHZ_2_4, -70, None)
+    assert mesh_info({"channel": 100}).band is Band.GHZ_5
+    assert mesh_info({"rssi": -500}).signal_dbm is None
+    tri = mesh_info({"partnerLinks": [{"radioId": 2, "channel": 5}]})
+    assert tri.band is Band.GHZ_6 and tri.channel == 5

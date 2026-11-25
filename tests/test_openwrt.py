@@ -2179,3 +2179,50 @@ async def test_dnsmasq_forward_to_the_proxy_is_the_encrypted_upstream(
         ("corp.example", "https", "dns2.example.net"),
     ]
     assert dns.supports_encrypted_dns is True
+
+
+async def test_mesh_point_reports_backhaul_ssid_and_peer(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    """An 802.11s mesh point (#171): a backhaul Wlan with the mesh id, and its peer by MAC."""
+    sim.mesh = True
+    obs = await adapter.read_wireless()
+    mesh = next(w for w in obs.wlans if w.id == "ap1/wlan/mesh0")
+    assert (mesh.ssid, mesh.backhaul) == ("example-mesh", True)
+    assert not any(w.backhaul for w in obs.wlans if w.id != "ap1/wlan/mesh0")
+    (peer,) = obs.mesh_peers
+    assert peer.peer_mac == openwrt_sim.MESH_PEER and peer.port_id.endswith("/phy1-mesh0")
+    assert peer.role.value == "peer"
+    info = peer.wireless
+    assert (info.kind.value, info.band, info.signal_dbm) == ("802.11s", Band.GHZ_5, -78)
+    assert (info.tx_rate_mbps, info.rx_rate_mbps) == (48.0, 54.0)
+    assert obs.mesh["ap1"].role.value == "agent" and obs.mesh["ap1"].uplink is None
+
+
+async def test_mesh_peers_are_in_the_snapshot_and_pass_the_contract(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    sim.mesh = True
+    snap = await adapter.observe()
+    assert [p.peer_mac for p in snap.mesh_peers] == [openwrt_sim.MESH_PEER]
+    assert snap.device.mesh is not None
+    assert_contract(adapter, snap)
+
+
+async def test_without_a_mesh_there_are_no_peers(adapter: OpenWrtAdapter) -> None:
+    obs = await adapter.read_wireless()
+    assert obs.mesh_peers == [] and obs.mesh == {}
+    assert not any(w.backhaul for w in obs.wlans)
+
+
+async def test_station_interface_is_a_wds_uplink(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    sim.mesh = True
+    wireless = sim.state["wireless"]
+    wireless["mesh0"] = wireless["mesh0"] | {"mode": "sta", "wds": "1", "ssid": "Upstream"}
+    del wireless["mesh0"]["mesh_id"]
+    obs = await adapter.read_wireless()
+    (peer,) = obs.mesh_peers
+    assert peer.role.value == "uplink" and peer.wireless.kind.value == "wds"
+    member = obs.mesh["ap1"]
+    assert member.role.value == "repeater" and member.uplink is not None
+    assert not any(w.backhaul for w in obs.wlans)  # a station interface is no SSID we offer

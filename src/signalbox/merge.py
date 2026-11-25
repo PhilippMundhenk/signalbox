@@ -549,6 +549,7 @@ def merge(
             "wlans": every("wlans"),
             "clients": _merge_clients(snaps),
             "neighbours": every("neighbours"),
+            "mesh_peers": every("mesh_peers"),
             "fdb": every("fdb"),
             "routes": every("routes"),
             "routing_rules": every("routing_rules"),

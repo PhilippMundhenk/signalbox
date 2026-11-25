@@ -170,6 +170,14 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`security.service-exposure`](rules/management.md#securityservice-exposure)
 - [`security.plaintext-read`](rules/management.md#securityplaintext-read)
 
+## [Wi-Fi mesh and wireless backhaul](rules/mesh_checks.md)
+
+- [`mesh.weak-backhaul`](rules/mesh_checks.md#meshweak-backhaul)
+- [`mesh.backhaul-2-4`](rules/mesh_checks.md#meshbackhaul-2-4)
+- [`mesh.chain-too-long`](rules/mesh_checks.md#meshchain-too-long)
+- [`mesh.wired-possible`](rules/mesh_checks.md#meshwired-possible)
+- [`mesh.channel-locked`](rules/mesh_checks.md#meshchannel-locked)
+
 ## [Multi-WAN and dynamic DNS](rules/multiwan.md)
 
 - [`wan.group-member-down`](rules/multiwan.md#wangroup-member-down)
@@ -442,6 +450,19 @@ where each came from. The defaults are the values the rules used before they had
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
 | `tolerance_bytes` | `22` | bytes | Frame size the neighbour may be smaller than the local MTU needs before it is reported (devices count header, tag and FCS differently). |
+
+### `mesh.chain-too-long`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `max_hops` | `2` | count | Most wireless hops between a node and the wired network. |
+
+### `mesh.weak-backhaul`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `signal_dbm` | `-75` | dBm | Backhaul signal below which a link is weak. |
+| `rate_mbps` | `100` | Mbit/s | Backhaul link rate below which a link is slow. |
 
 ### `poe.budget`
 

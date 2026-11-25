@@ -1000,3 +1000,78 @@ async def test_radio_details_refused(sim: FritzboxSim, adapter: FritzboxAdapter)
     r1 = next(r for r in obs.radios if r.id == "fb/radio/1")
     assert r1.supported_channels is None and r1.channel_auto is None
     assert r1.client_count is None and r1.standard is WifiStandard.AX
+
+
+async def test_mesh_list_reports_repeaters_links_and_roles(
+    sim: FritzboxSim, adapter: FritzboxAdapter
+) -> None:
+    """FRITZ!Mesh (#171): repeaters are devices the box manages, the wireless uplinks links."""
+    sim.mesh = True
+    snap = await adapter.observe()
+    assert_contract(adapter, snap)
+    names = {d.id: d for d in snap.extra_devices}
+    hall, garden = names["fb/node/n-rep1"], names["fb/node/n-rep2"]
+    assert (hall.name, hall.model, hall.vendor) == ("Repeater Hall", "FRITZ!Repeater 3000", "AVM")
+    assert hall.management_address == "192.0.2.21" and hall.managed_by == "fb"
+    assert "fb/node/n-client" not in names  # a client of the mesh list is not a node
+    assert snap.device.mesh is not None and snap.device.mesh.role.value == "controller"
+    assert hall.mesh is not None and hall.mesh.hop == 1 and hall.mesh.uplink is not None
+    assert hall.mesh.uplink.value == "wireless"
+    assert garden.mesh is not None and garden.mesh.hop == 2 and garden.mesh.controller_id == "fb"
+    links = {link.b: link for link in snap.wireless_links}
+    first = links["fb/node/n-rep1/port/uplink"]
+    assert first.a == "fb/port/mesh-n-rep1" and first.origin.value == "mesh"
+    assert first.wireless is not None
+    assert (first.wireless.band, first.wireless.channel) == (Band.GHZ_5, 36)
+    assert first.wireless.signal_dbm == -60 and first.wireless.tx_rate_mbps == 866.0
+    second = links["fb/node/n-rep2/port/uplink"]
+    assert second.a == "fb/node/n-rep1/port/mesh-n-rep2"  # behind the first repeater
+    assert second.wireless is not None and second.wireless.band is Band.GHZ_2_4
+    assert second.wireless.signal_dbm == -82 and second.wireless.rx_rate_mbps == 40.0
+
+
+async def test_box_without_a_mesh_reports_nothing(adapter: FritzboxAdapter) -> None:
+    snap = await adapter.observe()
+    assert snap.wireless_links == [] and snap.device.mesh is None
+    assert not any("/node/" in d.id for d in snap.extra_devices)
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        [],
+        {"nodes": "x"},
+        {"nodes": [{"uid": "a", "is_meshed": True, "mesh_role": "master"}]},  # one box
+        {"nodes": [{"uid": "a", "is_meshed": True}, {"uid": "b", "is_meshed": True}]},  # no master
+    ],
+)
+async def test_odd_mesh_documents_report_nothing(
+    sim: FritzboxSim, adapter: FritzboxAdapter, doc: Any
+) -> None:
+    sim.mesh, sim.mesh_doc = True, doc
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.OK and snap.wireless_links == []
+    assert snap.device.mesh is None
+
+
+async def test_broken_or_foreign_mesh_list_is_skipped(
+    sim: FritzboxSim, adapter: FritzboxAdapter
+) -> None:
+    sim.mesh = True
+    sim.malformed = {"MeshList"}
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.OK and snap.wireless_links == []
+    sim.malformed = set()
+    sim.mesh_list_path = "https://198.51.100.9/meshlist.lua"  # not a path on the box
+    snap = await adapter.observe()
+    assert snap.status is DeviceStatus.OK and snap.wireless_links == []
+
+
+def test_mesh_signal_and_rate_helpers() -> None:
+    from signalbox.adapters.fritzbox import mesh
+
+    assert (mesh.dbm(100), mesh.dbm(0), mesh.dbm(220)) == (-60, -110, 0)
+    assert mesh.dbm(255) is None and mesh.dbm("x") is None and mesh.dbm(True) is None
+    assert mesh._mbps(866_000) == 866.0 and mesh._mbps(0) is None and mesh._mbps(None) is None
+    assert mesh._band("UPLINK:5G:0") is Band.GHZ_5 and mesh._band("LAN:0") is None
+    assert mesh._band("AP:6G:1") is Band.GHZ_6

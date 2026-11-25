@@ -617,3 +617,24 @@ rc, other `Labor*` testing, `Inhaus` development); `X_AVM-DE_GetInfo` the auto-u
 whose description lacks the service (FRITZ!OS 6.83 and 7.29 in the simulator) reports the
 version only. TR-064 has no configuration state or backup without a password for
 `X_AVM-DE_GetConfigFile`, which Signalbox does not use.
+
+## FRITZ!Mesh (#171)
+
+`Hosts:1 X_AVM-DE_GetMeshListPath` (in the service descriptions of FRITZ!OS 6.83, 7.29, 7.57 and
+8.02) names the JSON document of the mesh topology. Read with `interfaces`:
+
+- the nodes with `is_meshed` true become the box itself (`Device.mesh` role `controller` for the
+  master, `repeater` otherwise) and **repeaters as devices the box manages** (`extra_devices`,
+  ids `<box>/node/<uid>`, role `ap`, name, model, firmware and the first interface address from
+  the document); the other entries of the list are clients and are left to the host list;
+- every wireless link between two nodes becomes a `Link` of origin `mesh` with the band (from the
+  interface name `AP:5G:0` or `UPLINK:2G:0`), the channel, the signal (802.11k RCPI, dBm =
+  RCPI / 2 - 110) and the current rates in Mbit/s; which end is upstream is found by walking the
+  links from the master; `Device.mesh.hop` counts the wireless links to the master;
+- a box without the action (fault 401), without a mesh (fewer than two meshed nodes) or with a
+  document that is not in the expected shape reports nothing.
+
+*Guesses to confirm on a real box (#21): the field names of the JSON document (written from AVM's
+description of the mesh topology, not from a recording), the unit of `cur_data_rate_*` (kbit/s),
+`current_channel` on the interface, and the RCPI scale. A repeater that is also set up as a device
+of its own in Signalbox shows twice (its own device and the box's node).*
