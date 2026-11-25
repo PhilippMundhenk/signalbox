@@ -10,7 +10,9 @@ from __future__ import annotations
 SYS_DESCR = "1.3.6.1.2.1.1.1.0"
 SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"
 SYS_UPTIME = "1.3.6.1.2.1.1.3.0"  # TimeTicks, hundredths of a second
+SYS_CONTACT = "1.3.6.1.2.1.1.4.0"
 SYS_NAME = "1.3.6.1.2.1.1.5.0"
+SYS_LOCATION = "1.3.6.1.2.1.1.6.0"
 
 # ENTITY-MIB entPhysicalEntry
 ENT_PHYSICAL = "1.3.6.1.2.1.47.1.1.1.1"

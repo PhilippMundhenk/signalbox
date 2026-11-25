@@ -166,7 +166,12 @@ async def test_system_and_health() -> None:
     assert (d.vendor, d.model, d.mac) == ("Example Networks", "EX-8G-SW", "02:00:00:00:01:00")
     assert d.firmware is not None and d.firmware.current == "1.2.3"
     assert d.health is not None and d.health.uptime_seconds == 86400
-    assert d.vendor_extra["serial"] == "EXAMPLE-0001"
+    assert (d.serial, d.hardware_revision) == ("EXAMPLE-0001", "A1")
+    assert (d.hostname, d.location, d.contact) == (
+        "switch-example",
+        "Rack 1, server room",
+        "noc@example.net",
+    )
 
 
 async def test_ports_vlans_and_lag() -> None:

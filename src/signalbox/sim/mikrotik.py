@@ -319,10 +319,12 @@ def sample_data() -> dict[str, Any]:
             "routerboard": "true",
             "board-name": "hAP ax^2",
             "model": "C52iG-5HaxD2HaxD",
+            "serial-number": "SIM0000001A",  # invented
             "firmware-type": "ipq6000",
             "current-firmware": "7.15.3",
             "upgrade-firmware": "7.15.3",
         },
+        "/rest/system/identity": {"name": "hap-ax2"},
         "/rest/system/package/update": {
             "channel": "stable",
             "installed-version": "7.15.3",

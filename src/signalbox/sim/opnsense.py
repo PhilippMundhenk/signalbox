@@ -699,6 +699,10 @@ def sample_data() -> dict[str, Any]:
             "config": "Thu Nov 19 13:10:02 CET 2026",
             "loadavg": "0.13, 0.07, 0.04",
         },
+        "/api/diagnostics/system/system_information": {
+            "name": "fw.example.net",
+            "versions": ["OPNsense 26.7.8_1-amd64", "FreeBSD 14.3-RELEASE-p4"],
+        },
         "/api/diagnostics/system/system_resources": {
             "memory": {
                 "total": "4277690368",

@@ -630,7 +630,7 @@ class FritzboxSim:
                 "NewModelName": desc.value("modelName"),
                 "NewDescription": f"{desc.value('modelName')} {desc.value('Display')}",
                 "NewProductClass": "AVMFB",
-                "NewSerialNumber": "000000000000",
+                "NewSerialNumber": "020000000001",  # invented; a real box: its base MAC
                 "NewSoftwareVersion": desc.value("Display"),
                 "NewHardwareVersion": desc.value("modelName"),
                 "NewSpecVersion": "1.0",
