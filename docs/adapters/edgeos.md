@@ -201,7 +201,24 @@ switch; report your model in #21.
 
 ## Integration tests
 
-Simulator only: the recorded command output of an EdgeRouter X (EdgeOS 2.0), an EdgeRouter Lite
+Two layers. The recorded command output of an EdgeRouter X (EdgeOS 2.0), an EdgeRouter Lite
 (EdgeOS 1.10) and VyOS 1.3 and 1.4 is served by `signalbox.sim.edgeos` and read by the contract
-tests (`tests/test_edgeos.py`). There is no emulator image of EdgeOS; VyOS publishes rolling ISO
-images that could run in QEMU in CI (a later step).
+tests (`tests/test_edgeos.py`). There is no emulator image of EdgeOS itself.
+
+The real VyOS runs in CI (job `Integration / VyOS`, `tools/integration/edgeos/vm.py`; the test
+is tests/integration/test_edgeos_real.py, it skips without `IT_EDGEOS_URL` and fails in CI,
+`REQUIRE_INTEGRATION`), never locally:
+
+- **The image**: the official rolling ISO (2026.11.25-0017, VyOS 1.5 development) from
+  github.com/vyos/vyos-nightly-build, pinned by version and SHA-256. The release page keeps
+  about 30 builds; when the pinned one is gone the job takes the newest build and warns with
+  its hash. VyOS publishes the stable and LTS images only to subscribers, so the 1.3 and 1.4
+  branches are covered by the simulator only.
+- **Boot**: the live system on the serial console (nothing is installed), login with the
+  documented live password, then a throw-away read user `signalbox` with a generated key
+  (level operator where the version has levels), eth1 192.0.2.1/24 with a DHCP server, DNS
+  forwarding, VLAN 20 on eth2, LLDP and source NAT, all on documentation prefixes.
+- **Tests** read it over SSH as that user, with the pinned host key: contract, system and
+  version, ports and subnets, DHCP and DNS, NAT and routes, time, untrusted and wrong pin.
+- Whatever the first runs showed differently from the guesses of this page is listed here once
+  the job has run.

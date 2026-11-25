@@ -181,6 +181,11 @@ What the real OpenWrt showed that the simulator had wrong is listed in
 `tools/integration/unifi/`, job `Integration / UniFi`; see
 [adapters/unifi.md](adapters/unifi.md#integration-tests).
 
+### VyOS (rolling ISO in QEMU, edgeos adapter)
+
+`tools/integration/edgeos/`, job `Integration / VyOS`; see
+[adapters/edgeos.md](adapters/edgeos.md#integration-tests).
+
 ### OPNsense (nano image in QEMU)
 
 `tools/integration/opnsense/`, job `Integration / OPNsense`; see
