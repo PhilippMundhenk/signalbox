@@ -20,7 +20,7 @@ from signalbox.service import Services, build
 from signalbox.web.app import create_app
 from writable import Writable
 
-from .fakes import Gate, Lab, Resolver, Service, Switch, open_wifi
+from .fakes import Gate, Lab, Resolver, Service, Switch, Wan, open_wifi
 
 PASSWORD = "e2e-password-1"
 os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
@@ -48,6 +48,7 @@ class LiveServer:
                 "labswitch": Switch,
                 "labresolver": Resolver,
                 "labvpn": Gate,
+                "labwan": Wan,
                 "labservice": Service,
                 "w": Writable,
             },

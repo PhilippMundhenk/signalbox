@@ -267,6 +267,12 @@ svg.topo { display: block; font-family: var(--font); }
 .topo .edge.bundle.lag { stroke-width: 7; }
 .topo .node.role-remote .box { stroke-dasharray: 5 4; fill: none; }
 .topo .node.stp-root .box { stroke-width: 3px; }
+/* the Internet cloud and the wires of the border routers to it (#534); both themes use the variables */
+.topo .node.role-internet .box.cloud { fill: var(--surface-2); stroke: var(--accent); stroke-width: 2; }
+.topo .edge.wan { stroke: var(--text); stroke-width: 3; }
+.topo .edge.wan.wan-active { stroke-width: 4; }
+.topo .edge.wan.wan-backup { stroke-dasharray: 8 5; stroke-width: 2.5; }
+.topo .edge.wan.wan-down { stroke: var(--danger); stroke-dasharray: 2 6; stroke-linecap: round; }
 .topo .bad-end { fill: none; stroke: var(--danger); stroke-width: 3; pointer-events: none; }
 .topo .badge { cursor: pointer; }
 .topo .badge circle { fill: var(--surface); stroke: var(--text); stroke-width: 1.5; }
