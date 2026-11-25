@@ -88,7 +88,22 @@
     "last_topology_change": null
    }
   ],
-  "multicast": null,
+  "multicast": {
+   "settings": [
+    {
+     "name": "Vlan10",
+     "segment_id": "home/segment/10",
+     "igmp_snooping": null,
+     "mld_snooping": null,
+     "querier": null,
+     "querier_version": null,
+     "observed_querier": "192.0.2.1",
+     "fast_leave": null,
+     "unknown_multicast": null
+    }
+   ],
+   "reflectors": []
+  },
   "upnp": null,
   "radius_servers": null,
   "poe": null,

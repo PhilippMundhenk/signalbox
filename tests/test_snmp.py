@@ -221,6 +221,34 @@ async def test_spanning_tree() -> None:
     assert ports["Gi4"].stp is not None and ports["Gi4"].stp.edge is True
 
 
+async def test_igmp_interface_table() -> None:
+    snap = await observe()
+    m = snap.device.multicast
+    assert m is not None
+    (s,) = m.settings  # the loopback has no querier and no VLAN: left out
+    assert (s.name, s.segment_id, str(s.observed_querier)) == (
+        "Vlan10",
+        "home/segment/10",
+        "192.0.2.1",
+    )
+    assert s.igmp_snooping is None and s.querier is None
+    no_table = await observe(without(typical_switch(), "1.3.6.1.2.1.85.1.1.1"))
+    assert no_table.device.multicast is None
+
+
+async def test_igmp_inactive_or_unspecified_querier() -> None:
+    text = typical_switch().replace(
+        "1.3.6.1.2.1.85.1.1.1.5.100|64|192.0.2.1", "1.3.6.1.2.1.85.1.1.1.5.100|64|0.0.0.0"
+    )
+    m = (await observe(text)).device.multicast
+    assert m is not None and m.settings[0].observed_querier is None
+    assert m.settings[0].segment_id == "home/segment/10"
+    off = typical_switch().replace(
+        "1.3.6.1.2.1.85.1.1.1.3.100|2|1", "1.3.6.1.2.1.85.1.1.1.3.100|2|2"
+    )
+    assert (await observe(off)).device.multicast is None
+
+
 async def test_lldp_neighbours() -> None:
     snap = await observe()
     by_id = {n.local_port_id.rsplit("/", 1)[1]: n for n in snap.neighbours}

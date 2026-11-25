@@ -137,6 +137,10 @@ _POE_COLUMNS = (
     ),
     *(f"{mib.PETH_MAIN}.{n}" for n in (mib.PETH_MAIN_POWER, mib.PETH_MAIN_CONSUMPTION)),
 )
+_IGMP_COLUMNS = tuple(
+    f"{mib.IGMP_INTERFACE}.{n}"
+    for n in (mib.IGMP_IF_STATUS, mib.IGMP_IF_VERSION, mib.IGMP_IF_QUERIER)
+)
 _PAE_COLUMNS = tuple(
     f"{mib.PAE_AUTH}.{n}" for n in (mib.PAE_AUTH_PORT_STATUS, mib.PAE_AUTH_PORT_CONTROL)
 )
@@ -427,6 +431,8 @@ class SnmpAdapter(Adapter):
             )
             for p in pmap.ports
         ]
+        await self._walks("igmp", _IGMP_COLUMNS)
+        igmp = mapping.multicast(site, self._mib, {s.id for s in segments or []})
         bridge = mapping.stp_bridge(pmap, self._mib, self._bridge_mac)
         if bridge is None:
             gaps.append(self._gap("spanning tree (BRIDGE-MIB)"))
@@ -439,6 +445,7 @@ class SnmpAdapter(Adapter):
             fdb=table,
             services=self._services(),
             stp_bridges={d: [bridge] if bridge else []},
+            multicast={d: igmp} if igmp else {},
             incomplete=gaps,
             **self._login_facts(),
         )

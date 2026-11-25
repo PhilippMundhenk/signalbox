@@ -1216,12 +1216,17 @@ Read with `interfaces`, no new privilege beyond the read policy. `/rest/interfac
 bridge is the querier); RouterOS snoops MLD together with IGMP. The bridge ports give
 `fast-leave` and `unknown-multicast-flood` (all ports alike: the value, otherwise unknown). The
 network of a bridge is the one of its own interface (`pvid`); the other VLANs of a filtering
-bridge are not listed. The mDNS repeater is `mdns-repeat-ifaces` of `/rest/ip/dns` (RouterOS 7.16
+bridge gets one more entry per VLAN where it learned groups (`/rest/interface/bridge/mdb`, only
+the VLAN ids are used, never the groups), repeating the bridge's own settings. The querier a
+bridge sees is read from `/rest/interface/bridge/monitor` (`once`) when the monitor names one;
+without the field or the right to run the monitor the bridge is reported without it. The mDNS repeater is `mdns-repeat-ifaces` of `/rest/ip/dns` (RouterOS 7.16
 and later; the field is absent before, then there is no repeater to report). The IGMP proxy is
 `/rest/routing/igmp-proxy/interface` (RouterOS 7; `upstream=yes` marks the uplink side);
 a login that may not read it gets an optional gap. *(Guess, #21: the field names
 `mdns-repeat-ifaces` and the proxy menu path are from the RouterOS documentation, not yet seen on
-a device; the querier a bridge sees is not read, the monitor has no field known to us.)* Covered:
+a device; the monitor field of the observed querier is a guess among `multicast-querier-address`,
+`current-igmp-querier`, `igmp-querier`, `current-querier` and `querier`, and the `mdb` menu
+(`bridge`, `vid`) is read as RouterOS 7 prints it.)* Covered:
 RouterOS 7.16 and later for the repeater, 7.x for the rest; RouterOS 6 has no REST API.
 
 ## UPnP and its mappings (#176)

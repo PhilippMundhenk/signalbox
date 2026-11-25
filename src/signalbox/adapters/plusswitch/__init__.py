@@ -59,12 +59,16 @@ from signalbox.model import (
     SERVICE_PORTS,
     AccountPrivilege,
     DeviceAccount,
+    DeviceMulticast,
     DeviceRole,
     ManagementService,
+    MulticastSettings,
     ServiceKind,
     StpBridge,
     StpProtocol,
+    UnknownMulticast,
     object_id,
+    segment_id,
 )
 
 _T = TypeVar("_T")
@@ -133,6 +137,9 @@ class _Reading:
     skipped: list[str] = field(default_factory=list)
     #: loop detection / loop prevention on (#155); None: not answered
     loop_detection: bool | None = None
+    #: IGMP snooping of ``read_features``: ``enabled``, ``vlan`` (NETGEAR), ``block_unknown``
+    #: (unknown multicast dropped); None: not answered
+    igmp: dict[str, Any] | None = None
 
 
 # -- sessions take turns per UDP port; refused passwords are not resent ------------------
@@ -327,6 +334,7 @@ class _PlusSwitch(Adapter):
                 "services": self._services(),
                 "incomplete": gaps,
                 "stp_bridges": self._stp(reading),
+                "multicast": self._multicast(reading, {s.id for s in observed.segments}),
                 **self._login_facts(),
             }
         )
@@ -536,6 +544,31 @@ class _PlusSwitch(Adapter):
             return
         loop = features.get("loop_detection") if isinstance(features, Mapping) else None
         reading.loop_detection = loop if isinstance(loop, bool) else None
+        igmp = features.get("igmp") if isinstance(features, Mapping) else None
+        reading.igmp = dict(igmp) if isinstance(igmp, Mapping) else None
+
+    def _multicast(self, reading: _Reading, known: set[str]) -> dict[str, DeviceMulticast]:
+        """IGMP snooping of the whole switch (#508): the protocol has no querier. NETGEAR names
+        the VLAN it snoops in (0: none), TP-Link Easy Smart snoops in all."""
+        igmp = reading.igmp
+        if igmp is None or not isinstance(igmp.get("enabled"), bool):
+            return {}
+        vlan, block = igmp.get("vlan"), igmp.get("block_unknown")
+        unknown = (
+            None
+            if not isinstance(block, bool)
+            else UnknownMulticast.DROP
+            if block
+            else UnknownMulticast.FLOOD
+        )
+        sid = segment_id(self.context.site_id, vlan) if isinstance(vlan, int) else None
+        setting = MulticastSettings(
+            name="switch",
+            segment_id=sid if igmp["enabled"] and sid in known else None,
+            igmp_snooping=igmp["enabled"],
+            unknown_multicast=unknown,
+        )
+        return {self.context.device_id: DeviceMulticast(settings=[setting])}
 
     def _stp(self, reading: _Reading) -> dict[str, list[StpBridge]]:
         """These switches have no spanning tree: the whole switch is one bridge with loop
