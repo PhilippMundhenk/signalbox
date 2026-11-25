@@ -30,6 +30,7 @@ jobs:
       openwrt: ${{ steps.sel.outputs.openwrt }}
       mikrotik: ${{ steps.sel.outputs.mikrotik }}
       omada: ${{ steps.sel.outputs.omada }}
+      unifi: ${{ steps.sel.outputs.unifi }}
       linux: ${{ steps.sel.outputs.linux }}
     steps:
       - uses: actions/checkout@v7
@@ -517,6 +518,57 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  unifi:
+    needs: changes
+    if: needs.changes.outputs.unifi == 'true'
+    name: UniFi Network application ${{ matrix.major }} (Docker with MongoDB, no adopted device)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Network 10, 9 and 8: the newest release of each major version (#432)
+    strategy:
+      fail-fast: false
+      matrix:
+        major: ["10", "9", "8"]
+    env:
+      REQUIRE_INTEGRATION: "1"
+      CTRL_DIR: ${{ github.workspace }}/.ctrl/unifi${{ matrix.major }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -e ".[dev,switches]"
+      - name: Start MongoDB and the Network application
+        run: python3 tools/integration/unifi/controller.py start "$CTRL_DIR" ${{ matrix.major }}
+      - name: First-run setup, read-only account, test networks
+        run: python3 tools/integration/unifi/controller.py setup "$CTRL_DIR" ${{ matrix.major }}
+      - name: Record the API answers
+        run: python3 tools/integration/unifi/controller.py dump "$CTRL_DIR"
+      - name: Integration tests
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_unifi_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$CTRL_DIR/pytest.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$CTRL_DIR/pytest.log" | cut -c1-1200 | tail -n 40)
+              body=$(printf '%s\n--- last lines ---\n%s' "$summary" "$(tail -n 60 "$CTRL_DIR/pytest.log")")
+              body=${body//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=UniFi ${{ matrix.major }} integration tests failed::$body"
+              exit $code
+            }
+      - name: Stop
+        if: always()
+        run: python3 tools/integration/unifi/controller.py stop "$CTRL_DIR" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: unifi-logs-${{ matrix.major }}
+          path: |
+            .ctrl/unifi*/*.log
+            .ctrl/unifi*/api-*.json
+          if-no-files-found: ignore
+          retention-days: 7
+
   linux:
     needs: changes
     if: needs.changes.outputs.linux == 'true'
@@ -637,7 +689,7 @@ jobs:
   integration-ok:
     name: Integration (all needed targets passed)
     if: always()
-    needs: [changes, opnsense, openwrt, mikrotik, omada, linux]
+    needs: [changes, opnsense, openwrt, mikrotik, omada, unifi, linux]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

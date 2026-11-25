@@ -176,6 +176,11 @@ What the real OpenWrt showed that the simulator had wrong is listed in
 `tools/integration/omada/`, job `Integration / Omada`; see
 [adapters/omada.md](adapters/omada.md#integration-tests).
 
+### UniFi Network application (Docker with MongoDB, versions 8, 9 and 10)
+
+`tools/integration/unifi/`, job `Integration / UniFi`; see
+[adapters/unifi.md](adapters/unifi.md#integration-tests).
+
 ### OPNsense (nano image in QEMU)
 
 `tools/integration/opnsense/`, job `Integration / OPNsense`; see
