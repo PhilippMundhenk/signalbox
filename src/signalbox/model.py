@@ -261,10 +261,63 @@ class Certificate(Observed, CertificateFacts):
     uses: list[CertificateUse] = Field(default_factory=list)
 
 
+class FirmwareChannel(StrEnum):
+    """The release channel a device follows (#181)."""
+
+    STABLE = "stable"  # MikroTik stable, OPNsense community, OpenWrt release
+    LONG_TERM = "long-term"  # MikroTik long-term, OPNsense business
+    TESTING = "testing"  # MikroTik testing
+    BETA = "beta"
+    RC = "rc"  # release candidate
+    DEVELOPMENT = "development"  # MikroTik development, OPNsense development, OpenWrt snapshot
+
+
 class Firmware(Model):
     current: str | None = None
     available: str | None = None
     end_of_life: bool | None = None
+    #: The release channel the device follows, where it says (#181); ``None``: not said.
+    channel: FirmwareChannel | None = None
+    #: The device says an update exists without naming its version (controller flags such as
+    #: Omada ``needUpgrade``, UniFi ``upgradable``); ``available`` names it where known.
+    upgradable: bool | None = None
+    #: The device installs updates by itself; ``None``: not said.
+    auto_update: bool | None = None
+    #: When the device last asked for updates, and when the running release was published.
+    last_checked: datetime | None = None
+    release_date: datetime | None = None
+    #: The vendor flags the available update as a security update (where it does).
+    security_update: bool | None = None
+    #: The device installed an update and waits for a restart.
+    reboot_pending: bool | None = None
+
+
+class ConfigState(Model):
+    """Configuration state of a device (#181). Every field is ``None`` where the device does
+    not say; ``False`` only where it says so (never guessed from silence)."""
+
+    #: When the device's own record says the configuration last changed.
+    last_changed: datetime | None = None
+    #: The user the device logs for that change (a user name: device view only).
+    changed_by: str | None = None
+    #: The running configuration differs from the saved (startup) one and is lost on a
+    #: restart. ``False`` for devices that save at once (RouterOS).
+    unsaved: bool | None = None
+    #: Configuration revision (OPNsense).
+    revision: str | None = None
+    #: Changes are staged but not applied (UCI ``uci changes``).
+    pending: bool | None = None
+
+
+class LocalBackups(Model):
+    """Backups the device keeps itself (#181)."""
+
+    count: int | None = Field(default=None, ge=0)
+    newest: datetime | None = None
+    #: The device makes them by itself (OPNsense config history, a scheduled export).
+    automatic: bool | None = None
+    #: Where the device sends its backups (a cloud or file target), if it says.
+    remote_target: str | None = None
 
 
 Percent = Annotated[float, Field(ge=0, le=100)]
@@ -740,6 +793,12 @@ class Device(Observed):
     #: PoE budget of a switch (#159), read with ``interfaces`` (``Observation.poe``).
     #: ``None``: not reported.
     poe: PoeSupply | None = None
+    #: Configuration state and the backups the device keeps itself (#181). ``None``: not read.
+    config_state: ConfigState | None = None
+    local_backups: LocalBackups | None = None
+    #: When Signalbox itself took the newest backup of this device (a deployment, #181);
+    #: filled by core from the store, ``None``: none taken.
+    signalbox_backup_newest: datetime | None = None
 
     def sends_to(self, kind: LogKind) -> list[LogTarget]:
         """The enabled targets of one kind (empty when not read)."""

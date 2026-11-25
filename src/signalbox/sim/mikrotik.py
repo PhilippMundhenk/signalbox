@@ -344,6 +344,26 @@ def sample_data() -> dict[str, Any]:
             "upgrade-firmware": "7.15.3",
         },
         "/rest/system/identity": {"name": "hap-ax2"},
+        "/rest/system/history": [
+            {
+                ".id": "*1",
+                "action": "set bridge vlan-filtering",
+                "by": "admin",
+                "time": "2026-11-20 10:11:12",
+                "undoable": "true",
+                "policy": "write",
+            },
+        ],
+        "/rest/file": [
+            {
+                ".id": "*1",
+                "name": "pre-change.backup",
+                "type": "backup",
+                "size": "180000",
+                "creation-time": "2026-11-18 09:00:00",
+            },
+            {".id": "*2", "name": "skins", "type": "directory"},
+        ],
         "/rest/system/package/update": {
             "channel": "stable",
             "installed-version": "7.15.3",

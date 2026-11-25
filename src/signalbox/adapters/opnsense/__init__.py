@@ -88,6 +88,7 @@ from signalbox.model import (
     Blocklist,
     Certificate,
     Client,
+    ConfigState,
     DeviceAccount,
     DeviceRole,
     Dhcp6Mode,
@@ -105,11 +106,13 @@ from signalbox.model import (
     DnsTransport,
     DynamicDns,
     Firmware,
+    FirmwareChannel,
     HostRecord,
     IPAddress,
     IPInterface,
     IPNetwork,
     LeaseState,
+    LocalBackups,
     LogKind,
     LogTarget,
     LogTransport,
@@ -451,6 +454,35 @@ def _sub(parent: dict[str, Any], key: str) -> dict[str, Any]:
 
 def _flag(value: Any) -> bool:
     return value in (True, 1, "1", "true", "yes", "on", "enabled")
+
+
+def _epoch(value: Any) -> datetime | None:
+    """A revision time: seconds since 1970 (as a number or a string, with a fraction)."""
+    try:
+        return datetime.fromtimestamp(float(_text(value) or value), UTC)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def _flag01(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    text = _text(value).lower()
+    return True if text in ("1", "true", "yes") else False if text in ("0", "false", "no") else None
+
+
+def _channel(product: dict[str, Any]) -> FirmwareChannel | None:
+    """The update channel from ``product_id`` (``opnsense``: community, ``opnsense-devel``:
+    development, ``opnsense-business``: business) of ``core/firmware/status`` (22.x and
+    later; guess for older: the product name). Unknown: ``None``."""
+    ident = (_text(product.get("product_id")) or _text(product.get("product_name"))).lower()
+    if not ident:
+        return None
+    if "devel" in ident:
+        return FirmwareChannel.DEVELOPMENT
+    if "business" in ident:
+        return FirmwareChannel.LONG_TERM
+    return FirmwareChannel.STABLE if ident.startswith("opnsense") else None
 
 
 def _text(value: Any) -> str:
@@ -1121,10 +1153,19 @@ class OpnsenseAdapter(_Adapter):
         except AdapterError:
             information = None
         name = _text(information.get("name")) if isinstance(information, dict) else ""
+        state, backups = await self._config_history()
         return SystemInfo(
+            config_state=state,
+            local_backups=backups,
             vendor="Deciso",
             model=_text(product.get("product_name")) or "OPNsense",
-            firmware=Firmware(current=current, available=latest if newer else None),
+            firmware=Firmware(
+                current=current,
+                available=latest if newer else None,
+                channel=_channel(product),
+                # ``needs_reboot`` is "1" / "0" (a string up to 24.x, a bool later); absent: unknown
+                reboot_pending=_flag01(data.get("needs_reboot")),
+            ),
             management_address=self.http.host,
             transport_encrypted=self.http.secure,
             hostname=name or None,
@@ -1135,6 +1176,26 @@ class OpnsenseAdapter(_Adapter):
             os="OPNsense",
             os_version=current,
         )
+
+    async def _config_history(self) -> tuple[ConfigState | None, LocalBackups | None]:
+        """Newest revision and number of revisions of System > Configuration > History
+        (#181). OPNsense keeps the history in ``config.xml`` revisions, so ``count`` is what
+        it still holds (it keeps 60 by default); unreadable (older release, missing
+        privilege): nothing."""
+        try:
+            rows = await self._history()
+        except AdapterError:
+            return None, None
+        if not rows:
+            return None, LocalBackups(count=0, automatic=True)
+        newest = rows[0]
+        when = _epoch(newest.get("time"))
+        state = ConfigState(
+            last_changed=when,
+            changed_by=_text(newest.get("username")) or None,
+            revision=_text(newest.get("id")) or None,
+        )
+        return state, LocalBackups(count=len(rows), newest=when, automatic=True)
 
     async def _release(self) -> compat.Version | None:
         """The firmware version, read once per observation (None: not readable)."""

@@ -741,6 +741,75 @@
       "title": "ClientCategory",
       "type": "string"
     },
+    "ConfigState": {
+      "additionalProperties": false,
+      "description": "Configuration state of a device (#181). Every field is ``None`` where the device does\nnot say; ``False`` only where it says so (never guessed from silence).",
+      "properties": {
+        "changed_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Changed By"
+        },
+        "last_changed": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Changed"
+        },
+        "pending": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pending"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "unsaved": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unsaved"
+        }
+      },
+      "title": "ConfigState",
+      "type": "object"
+    },
     "DdnsResult": {
       "enum": [
         "ok",
@@ -819,6 +888,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/CertificateInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "config_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigState"
             },
             {
               "type": "null"
@@ -911,6 +991,17 @@
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "local_backups": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalBackups"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "location": {
           "anyOf": [
@@ -1088,6 +1179,19 @@
             }
           ],
           "default": null
+        },
+        "signalbox_backup_newest": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signalbox Backup Newest"
         },
         "site_id": {
           "title": "Site Id",
@@ -3244,6 +3348,18 @@
     "Firmware": {
       "additionalProperties": false,
       "properties": {
+        "auto_update": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auto Update"
+        },
         "available": {
           "anyOf": [
             {
@@ -3255,6 +3371,17 @@
           ],
           "default": null,
           "title": "Available"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FirmwareChannel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "current": {
           "anyOf": [
@@ -3279,10 +3406,85 @@
           ],
           "default": null,
           "title": "End Of Life"
+        },
+        "last_checked": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Checked"
+        },
+        "reboot_pending": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reboot Pending"
+        },
+        "release_date": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Date"
+        },
+        "security_update": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Security Update"
+        },
+        "upgradable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Upgradable"
         }
       },
       "title": "Firmware",
       "type": "object"
+    },
+    "FirmwareChannel": {
+      "description": "The release channel a device follows (#181).",
+      "enum": [
+        "stable",
+        "long-term",
+        "testing",
+        "beta",
+        "rc",
+        "development"
+      ],
+      "title": "FirmwareChannel",
+      "type": "string"
     },
     "ForeignServer": {
       "additionalProperties": false,
@@ -3874,6 +4076,64 @@
       ],
       "title": "LinkOrigin",
       "type": "string"
+    },
+    "LocalBackups": {
+      "additionalProperties": false,
+      "description": "Backups the device keeps itself (#181).",
+      "properties": {
+        "automatic": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Automatic"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Count"
+        },
+        "newest": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Newest"
+        },
+        "remote_target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remote Target"
+        }
+      },
+      "title": "LocalBackups",
+      "type": "object"
     },
     "LogKind": {
       "description": "What a device sends to a log or monitoring target (#180).",

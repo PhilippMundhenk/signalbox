@@ -1228,3 +1228,13 @@ async def test_many_host_overrides_are_read_completely(
     (dns,) = (await observe(adapter(http_url))).dns_services
     names = [h.name for h in dns.host_records if h.source == "host-override"]
     assert len(names) == 450 and len(set(names)) == 450
+
+
+async def test_config_history_and_channel(snap: Snapshot) -> None:
+    """Revisions of the configuration history and the update channel (#181)."""
+    d = snap.device
+    assert d.local_backups is not None and (d.local_backups.count or 0) >= 1
+    assert d.local_backups.automatic is True
+    assert d.config_state is not None and d.config_state.revision
+    assert d.firmware is not None and d.firmware.channel is not None
+    assert d.firmware.channel.value == "stable" and d.firmware.reboot_pending is False

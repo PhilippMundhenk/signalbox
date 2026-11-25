@@ -607,3 +607,13 @@ the address announced, so `published_address` stays empty (and `ddns.mismatch` q
 `X_AVM-DE_MyFritz:1 GetInfo` gives the MyFRITZ! name (`NewDynDNSName`, `NewState`); the account
 (`NewEmail`) is never read. A box without a DDNS domain reports none. Multi-WAN: the mobile
 fallback of FRITZ!OS is not in TR-064, nothing is read.
+
+### Firmware update and auto-update (#181)
+
+`UserInterface:1 GetInfo` gives whether an update exists (`NewUpgradeAvailable`), its version
+(`NewX_AVM-DE_Version`) and the build type (`Release` is stable, `Labor_Beta` beta, `Labor_RC`
+rc, other `Labor*` testing, `Inhaus` development); `X_AVM-DE_GetInfo` the auto-update mode
+(`off` and `notify` are not automatic, `important` and `all` are). Both are optional: a box
+whose description lacks the service (FRITZ!OS 6.83 and 7.29 in the simulator) reports the
+version only. TR-064 has no configuration state or backup without a password for
+`X_AVM-DE_GetConfigFile`, which Signalbox does not use.

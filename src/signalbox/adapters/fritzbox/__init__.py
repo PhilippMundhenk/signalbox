@@ -104,6 +104,7 @@ from signalbox.model import (
     FirewallRule,
     FirewallZone,
     Firmware,
+    FirmwareChannel,
     LeaseState,
     ManagementService,
     Membership,
@@ -167,6 +168,20 @@ def fritzos_release(version: str | None) -> tuple[int, int] | None:
 
 #: Web interface port of the box; its login page names the user in password-only mode (#373).
 WEB_PORT = 443
+
+
+#: ``NewX_AVM-DE_BuildType`` (UserInterface:1): the release, or one of AVM Labs' test builds.
+_BUILD_TYPES = {
+    "release": FirmwareChannel.STABLE,
+    "labor_beta": FirmwareChannel.BETA,
+    "labor_rc": FirmwareChannel.RC,
+    "labor": FirmwareChannel.TESTING,
+    "labor_dsl": FirmwareChannel.TESTING,
+    "labor_phone": FirmwareChannel.TESTING,
+    "labor_test": FirmwareChannel.TESTING,
+    "labor_plus": FirmwareChannel.TESTING,
+    "inhaus": FirmwareChannel.DEVELOPMENT,
+}
 
 
 def _identity(info: dict[str, str]) -> dict[str, Any]:
@@ -735,13 +750,33 @@ class FritzboxAdapter(Adapter):
             raise self._login_refused(exc) from exc
         version = info.get("NewSoftwareVersion")
         self._release = fritzos_release(version)
+        firmware = await self._firmware(version)
         return SystemInfo(
             vendor=info.get("NewManufacturerName") or "AVM",
             model=info.get("NewModelName") or None,
-            firmware=Firmware(current=version) if version else None,
+            firmware=firmware,
             management_address=self.http.host,
             transport_encrypted=self.http.secure,
             **_identity(info),
+        )
+
+    async def _firmware(self, version: str | None) -> Firmware | None:
+        """Firmware with the update state (#181): ``UserInterface:1 GetInfo`` (an update is
+        available, its version, the build type: release or AVM Labs) and ``X_AVM-DE_GetInfo``
+        (the auto-update mode). Both are optional: FRITZ!OS 6 and early 7 boxes, or a login
+        without the right, give the version only."""
+        if not version:
+            return None
+        ui = await self._try("UserInterface1", "GetInfo") or {}
+        auto = await self._try("UserInterface1", "X_AVM-DE_GetInfo") or {}
+        newer = (ui.get("NewX_AVM-DE_Version") or "").strip()
+        mode = (auto.get("NewX_AVM-DE_AutoUpdateMode") or "").strip().lower()
+        return Firmware(
+            current=version,
+            available=newer if _flag(ui.get("NewUpgradeAvailable")) and newer != version else None,
+            channel=_BUILD_TYPES.get((ui.get("NewX_AVM-DE_BuildType") or "").strip().lower()),
+            # "notify" only tells the user; "important" and "all" install by themselves
+            auto_update=mode not in ("off", "notify") if mode else None,
         )
 
     async def _no_tr064(self, exc: AdapterError) -> AdapterError:

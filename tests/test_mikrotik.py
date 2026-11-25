@@ -1549,3 +1549,18 @@ async def test_ipv6_router_advertisements_and_dhcpv6(snap: Snapshot) -> None:
     assert server.lease_seconds == 3 * 86400 and server.pools == []
     [pool] = server.prefix_pools
     assert (str(pool.prefix), pool.length) == ("2001:db8:2::/48", 56)
+
+
+async def test_config_state_and_backups(snap: Snapshot) -> None:
+    """RouterOS saves at once; the last change and the backup files are read (#181)."""
+    d = snap.device
+    assert d.config_state is not None
+    assert (d.config_state.unsaved, d.config_state.pending) == (False, False)
+    assert (d.config_state.changed_by, d.config_state.last_changed) == (
+        "admin",
+        datetime(2026, 11, 20, 10, 11, 12, tzinfo=UTC),
+    )
+    assert d.local_backups is not None and d.local_backups.count == 1
+    assert d.local_backups.newest == datetime(2026, 11, 18, 9, 0, tzinfo=UTC)
+    assert d.firmware is not None and d.firmware.channel is not None
+    assert d.firmware.channel.value == "stable"

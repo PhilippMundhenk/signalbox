@@ -391,8 +391,10 @@ def sample_data() -> dict[str, Any]:
         "/api/core/firmware/status": {
             "status": "update",
             "status_msg": "There are 3 updates available.",
+            "needs_reboot": "0",
             "product": {
                 "product_name": "OPNsense",
+                "product_id": "opnsense",
                 "product_version": "26.7.8_1",
                 "product_latest": "26.7.9",
                 "product_arch": "amd64",

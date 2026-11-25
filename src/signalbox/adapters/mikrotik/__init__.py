@@ -98,6 +98,7 @@ from signalbox.model import (
     CertificateUse,
     Cipher,
     Client,
+    ConfigState,
     DeviceAccount,
     DeviceHealth,
     DeviceRole,
@@ -120,6 +121,7 @@ from signalbox.model import (
     FdbEntry,
     FdbKind,
     Firmware,
+    FirmwareChannel,
     FrameTypes,
     HostRecord,
     IPAddress,
@@ -130,6 +132,7 @@ from signalbox.model import (
     LagMemberState,
     LagMode,
     LeaseState,
+    LocalBackups,
     LogKind,
     LogTarget,
     LogTransport,
@@ -193,6 +196,8 @@ RESOURCE = "/rest/system/resource"
 ROUTERBOARD = "/rest/system/routerboard"
 PACKAGE_UPDATE = "/rest/system/package/update"
 IDENTITY = "/rest/system/identity"
+HISTORY = "/rest/system/history"
+FILES = "/rest/file"
 INTERFACE = "/rest/interface"
 ETHERNET = "/rest/interface/ethernet"
 BRIDGE = "/rest/interface/bridge"
@@ -1207,7 +1212,13 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         return SystemInfo(
             vendor="MikroTik",
             model=model,
-            firmware=Firmware(current=current, available=available),
+            firmware=Firmware(
+                current=current,
+                available=available,
+                channel=_CHANNELS.get(_text(update.get("channel"))),
+            ),
+            config_state=await self._config_state(),
+            local_backups=await self._local_backups(),
             management_address=self.http.host,
             transport_encrypted=self.http.secure,
             mac=base_mac,
@@ -1221,6 +1232,37 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             os="RouterOS",
             os_version=current,
         )
+
+    async def _config_state(self) -> ConfigState:
+        """The last change from ``/system/history`` (#181). RouterOS applies and saves every
+        change at once, so nothing is ever unsaved or pending (``False``, from RouterOS 6
+        on: there is no startup configuration to differ from). ``/system/history`` lives in
+        memory (undoable actions since the boot), so no row means "none since the restart",
+        not "never changed"."""
+        rows = await self._readable(HISTORY) or []
+        stamped: list[tuple[datetime, str | None]] = []
+        for r in rows:
+            at = login_time(r.get("time"))
+            if at is not None:
+                stamped.append((at, _text(r.get("by")) or None))
+        last = max(stamped, key=lambda x: x[0], default=None)
+        when, by = last if last else (None, None)
+        return ConfigState(unsaved=False, pending=False, last_changed=when, changed_by=by)
+
+    async def _local_backups(self) -> LocalBackups | None:
+        """Binary backups and exports in the device's file list (#181); ``None`` where the
+        login may not list files (the list is empty then, as for a router without any)."""
+        rows = await self._readable(FILES)
+        if rows is None:
+            return None
+        found = [
+            r
+            for r in rows
+            if _text(r.get("type")) == "backup"
+            or _text(r.get("name")).lower().endswith((".backup", ".rsc"))
+        ]
+        times = [t for r in found if (t := login_time(r.get("creation-time"))) is not None]
+        return LocalBackups(count=len(found), newest=max(times, default=None))
 
     # --- interfaces ---------------------------------------------------------------------------
 
@@ -3139,6 +3181,13 @@ def health_of(resource: dict[str, Any], sensors: list[dict[str, Any]]) -> Device
     )
 
 
+#: ``/system/package/update`` ``channel`` (RouterOS 7; older 7.x name it the same way).
+_CHANNELS = {
+    "stable": FirmwareChannel.STABLE,
+    "long-term": FirmwareChannel.LONG_TERM,
+    "testing": FirmwareChannel.TESTING,
+    "development": FirmwareChannel.DEVELOPMENT,
+}
 _MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
 _OFFSET = re.compile(r"([+-])(\d{1,2}):(\d\d)")
 _CLOCK = re.compile(r"(\d\d?):(\d\d):(\d\d)")

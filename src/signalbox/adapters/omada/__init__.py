@@ -639,6 +639,8 @@ class _Managed:
     #: Identity (#177): ``sn`` / ``hwVersion`` of the device list (``serialNumber`` is a guess).
     serial: str | None = None
     hardware: str | None = None
+    #: ``needUpgrade`` of the device list (#181): the controller has a newer firmware for it.
+    upgradable: bool | None = None
 
     def identity(self) -> dict[str, JsonValue]:
         out: dict[str, JsonValue] = {"name": self.name, "mac": self.mac, "type": self.kind}
@@ -1048,6 +1050,9 @@ class OmadaAdapter(_Adapter):
                     slug=f"{kind}-{mac.replace(':', '')}",
                     serial=_text(row.get("sn") or row.get("serialNumber")) or None,
                     hardware=_text(row.get("hwVersion") or row.get("hardwareVersion")) or None,
+                    upgradable=row["needUpgrade"]
+                    if isinstance(row.get("needUpgrade"), bool)
+                    else None,
                 )
             )
         return out
@@ -1189,7 +1194,9 @@ class OmadaAdapter(_Adapter):
                 role=ROLES.get(d.kind, DeviceRole.OTHER),
                 vendor="TP-Link",
                 model=d.model,
-                firmware=Firmware(current=d.firmware) if d.firmware else None,
+                firmware=Firmware(current=d.firmware, upgradable=d.upgradable)
+                if d.firmware
+                else None,
                 mac=d.mac,
                 serial=d.serial,
                 hardware_revision=d.hardware,

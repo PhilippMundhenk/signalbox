@@ -19,7 +19,14 @@
   "firmware": {
    "current": "1.2.3",
    "available": null,
-   "end_of_life": null
+   "end_of_life": null,
+   "channel": null,
+   "upgradable": null,
+   "auto_update": null,
+   "last_checked": null,
+   "release_date": null,
+   "security_update": null,
+   "reboot_pending": null
   },
   "management_address": "192.0.2.10",
   "mac": "02:00:00:00:01:00",
@@ -76,7 +83,10 @@
     "last_topology_change": null
    }
   ],
-  "poe": null
+  "poe": null,
+  "config_state": null,
+  "local_backups": null,
+  "signalbox_backup_newest": null
  },
  "status": "ok",
  "ports": [

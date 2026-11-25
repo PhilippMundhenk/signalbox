@@ -632,6 +632,16 @@ from `/ip/address` and `/ipv6/address` of the interface. Without the menu (Route
 `wireguard` package) there are no tunnels and no error. *Guess*: field names per 7.x release; CI
 (CHR) confirms the interface, the peer, the allowed addresses and the keepalive, not a handshake.
 
+### Configuration state and backups (#181)
+
+RouterOS saves every change at once, so `config_state.unsaved` and `pending` are `false`.
+`last_changed` and `changed_by` come from the newest row of `/rest/system/history` (undoable
+actions since the boot: no row means none since the restart). `local_backups` counts the `backup`
+files and `.rsc` exports of `/rest/file` (count 0 when the list is readable and has none; unknown
+when the login may not list files, as with the read-only group above, which has no `ftp` policy *(guess)*) with the newest `creation-time`. The firmware channel is
+`/rest/system/package/update` `channel` (stable, long-term, testing, development). *(Guess: the
+`/rest/file` `type` and `creation-time` spelling of older 7.x releases, #21.)*
+
 ## Writing
 
 Signalbox changes a RouterOS device only through a reviewed and approved change (see

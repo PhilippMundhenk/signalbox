@@ -269,6 +269,8 @@ def sample_data(major: int) -> dict[str, Any]:
                 "model": "US8P150",
                 "name": "Switch",
                 "version": "7.0.50",
+                "upgradable": True,
+                "upgrade_to_firmware": "7.0.66",
                 "ip": "192.0.2.11",
                 "adopted": True,
                 "state": 1,
