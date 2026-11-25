@@ -319,7 +319,7 @@ def key_pair(d: Path) -> tuple[Path, str]:
     return key, parts[1]
 
 
-def host_key_pin() -> str:
+def host_key_pin(d: Path) -> str:
     """The SHA-256 of the router's ed25519 host key as hex (what the adapter pins)."""
     for _ in range(30):
         out = subprocess.run(
@@ -333,7 +333,8 @@ def host_key_pin() -> str:
             if len(parts) >= 3 and parts[1] == "ssh-ed25519":
                 return hashlib.sha256(base64.b64decode(parts[2])).hexdigest()
         time.sleep(2)
-    raise SystemExit("ssh-keyscan: no ed25519 host key")
+    fail("ssh-keyscan", f"no ed25519 host key from 127.0.0.1:{SSH_PORT}", d)
+    raise AssertionError
 
 
 def start(d: Path) -> None:
@@ -355,6 +356,7 @@ def start(d: Path) -> None:
         "user",
         [
             f"set system host-name {HOSTNAME}",
+            "set interfaces ethernet eth0 address dhcp",
             "set service ssh port 22",
             "set system login user signalbox authentication public-keys it type ssh-ed25519",
             f"set system login user signalbox authentication public-keys it key {public}",
@@ -416,7 +418,7 @@ def start(d: Path) -> None:
         ],
         required=False,
     )
-    pin = host_key_pin()
+    pin = host_key_pin(d)
     env = {
         "IT_EDGEOS_URL": f"ssh://127.0.0.1:{SSH_PORT}",
         "IT_EDGEOS_USER": "signalbox",
