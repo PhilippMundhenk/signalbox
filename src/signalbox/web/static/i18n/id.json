@@ -3065,5 +3065,13 @@
  "msg.snmp.authFailed.fix": "Periksa di pengaturan perangkat nama pengguna SNMPv3, algoritme autentikasi (SHA atau SHA-256) dan kedua kata sandi, serta apakah pengguna memiliki view atas MIB. Pada v2c periksa string community.",
  "msg.snmp.error": "{host}: permintaan SNMP gagal ({detail})",
  "msg.snmp.gapMib": "{host}: switch tidak menyediakan {mib} lewat SNMP; yang bergantung padanya tidak dibaca",
- "msg.snmp.gapMib.fix": "Tidak ada masalah pada Signalbox: switch tidak memiliki data itu, fiturnya mati (aktifkan LLDP atau spanning tree di switch), atau view pengguna SNMP tidak mencakupnya (SNMPv3: tambahkan MIB ke view). Pemeriksaan yang membutuhkannya melaporkan \"tidak lengkap\" sampai data tersedia."
+ "msg.snmp.gapMib.fix": "Tidak ada masalah pada Signalbox: switch tidak memiliki data itu, fiturnya mati (aktifkan LLDP atau spanning tree di switch), atau view pengguna SNMP tidak mencakupnya (SNMPv3: tambahkan MIB ke view). Pemeriksaan yang membutuhkannya melaporkan \"tidak lengkap\" sampai data tersedia.",
+ "msg.unifi.error": "{path}: kesalahan UniFi {detail}",
+ "msg.unifi.loginRefused": "aplikasi Network menolak login: {detail}",
+ "msg.unifi.loginRefused.fix": "Periksa nama pengguna dan kata sandi akun lokal (akun cloud Ubiquiti atau akun dengan login dua faktor tidak dapat digunakan) atau gunakan kunci API.",
+ "msg.unifi.noSite": "aplikasi Network tidak memiliki situs {site} (situs: {sites})",
+ "msg.unifi.version": "aplikasi Network versi {version}; Signalbox ditulis untuk versi {tested}: tetap membaca, tetapi ada kolom yang mungkin hilang",
+ "msg.unifi.integrationOnly": "aplikasi Network hanya menerima kunci API ini untuk Integration API: perangkat, jaringan, dan klien dibaca, sedangkan port, radio, jaringan Wi-Fi, dan uplink tidak",
+ "msg.unifi.integrationOnly.fix": "Gunakan akun lokal dengan peran hanya-baca untuk pembacaan penuh.",
+ "msg.unifi.optional": "{what}: tidak dibaca ({cause})"
 }

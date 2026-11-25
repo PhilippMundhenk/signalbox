@@ -48,7 +48,7 @@ python tools/record_device.py --adapter fritzbox --url https://192.0.2.1:49443 \
 Use the address of the device as you reach it; it is replaced in the file. Further settings
 of the adapter (see its page under [adapters/](adapters/)) are given with `--set key=value`,
 and `--role ap` where the device is not the gateway. It works for the adapters that talk
-HTTP(S): `fritzbox`, `openwrt`, `opnsense`, `mikrotik`, `omada`. The first secret setting
+HTTP(S): `fritzbox`, `openwrt`, `opnsense`, `mikrotik`, `omada`, `unifi`. The first secret setting
 (password, API key, client secret) is read from `SIGNALBOX_RECORD_PASSWORD`, further ones from
 `SIGNALBOX_RECORD_<SETTING>` (OPNsense: `SIGNALBOX_RECORD_API_SECRET`).
 

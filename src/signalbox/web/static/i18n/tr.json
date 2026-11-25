@@ -3065,5 +3065,13 @@
  "msg.snmp.authFailed.fix": "Cihaz ayarlarında SNMPv3 kullanıcı adını, kimlik doğrulama algoritmasını (SHA veya SHA-256) ve her iki parolayı, ayrıca kullanıcının MIB'leri görebildiğini kontrol edin. v2c'de community dizesini kontrol edin.",
  "msg.snmp.error": "{host}: SNMP isteği başarısız oldu ({detail})",
  "msg.snmp.gapMib": "{host}: switch {mib} verisini SNMP üzerinden sunmuyor; buna bağlı olanlar okunmaz",
- "msg.snmp.gapMib.fix": "Sorun Signalbox'ta değil: switch'te bu veriler yok, özellik kapalı (switch'te LLDP veya spanning tree'yi açın) ya da SNMP kullanıcısının görünümü bunları içermiyor (SNMPv3: MIB'i görünüme ekleyin). Bunlara ihtiyaç duyan denetimler, veriler gelene kadar \"eksik\" bildirir."
+ "msg.snmp.gapMib.fix": "Sorun Signalbox'ta değil: switch'te bu veriler yok, özellik kapalı (switch'te LLDP veya spanning tree'yi açın) ya da SNMP kullanıcısının görünümü bunları içermiyor (SNMPv3: MIB'i görünüme ekleyin). Bunlara ihtiyaç duyan denetimler, veriler gelene kadar \"eksik\" bildirir.",
+ "msg.unifi.error": "{path}: UniFi hatası {detail}",
+ "msg.unifi.loginRefused": "Network uygulaması oturum açmayı reddetti: {detail}",
+ "msg.unifi.loginRefused.fix": "Yerel hesabın kullanıcı adını ve parolasını kontrol edin (Ubiquiti bulut hesabı veya iki adımlı girişli bir hesap kullanılamaz) ya da bir API anahtarı kullanın.",
+ "msg.unifi.noSite": "Network uygulamasında {site} sitesi yok (siteler: {sites})",
+ "msg.unifi.version": "Network uygulamasının sürümü {version}; Signalbox {tested} sürümleri için yazılmıştır: okumaya devam eder, ancak bir alan eksik olabilir",
+ "msg.unifi.integrationOnly": "Network uygulaması bu API anahtarını yalnızca Integration API için kabul ediyor: cihazlar, ağlar ve istemciler okunur; portlar, radyolar, Wi-Fi ağları ve uplink'ler okunmaz",
+ "msg.unifi.integrationOnly.fix": "Tam okuma için salt okunur rolü olan bir yerel hesap kullanın.",
+ "msg.unifi.optional": "{what}: okunmadı ({cause})"
 }

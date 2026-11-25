@@ -9,7 +9,9 @@ description = "Public protocol constants in test fixtures, not secrets"
 # docs/PROTOCOL-EASYSMART.md); tests/fixtures/switches/captures.json pins it.
 # A firewall policy key ("policy/<from zone>/<to zone>") in an earlier commit of the OPNsense firewall
 # tests (#295) matches the generic-api-key rule; it is a zone name path, not a secret.
-regexes = ['''5c746a047dbeb0b2fb6b06c314957e95''', '''policy/lan/dmz''']
+# An invented UniFi simulator API key in an early commit of #403 (PR #409, src/signalbox/sim/unifi.py);
+# not a real credential. Allowed by the owner's decision (option A, 2026-11-25).
+regexes = ['''5c746a047dbeb0b2fb6b06c314957e95''', '''policy/lan/dmz''', '''sim-api-key-0123456789''']
 # The vendors' documented factory logins (#126, #175: "password", admin/admin) that Signalbox
 # compares the configured secret with, in memory. Public defaults, not anyone's secret; this one
 # module is the only place they are written down.

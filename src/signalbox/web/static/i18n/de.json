@@ -3065,5 +3065,13 @@
  "msg.snmp.authFailed.fix": "Prüfen Sie in den Geräteeinstellungen den SNMPv3-Benutzernamen, den Authentifizierungsalgorithmus (SHA oder SHA-256) und beide Passwörter sowie, ob der Benutzer eine Sicht auf die MIBs hat. Prüfen Sie bei v2c den Community-String.",
  "msg.snmp.error": "{host}: SNMP-Anfrage fehlgeschlagen ({detail})",
  "msg.snmp.gapMib": "{host}: der Switch bietet {mib} nicht über SNMP an; was davon abhängt, wird nicht gelesen",
- "msg.snmp.gapMib.fix": "An Signalbox liegt es nicht: Der Switch hat diese Daten nicht, die Funktion ist ausgeschaltet (aktivieren Sie LLDP oder Spanning Tree am Switch) oder die Sicht des SNMP-Benutzers enthält sie nicht (SNMPv3: die MIB zur Sicht hinzufügen). Die Prüfungen, die sie brauchen, melden \"unvollständig\", bis sie vorhanden ist."
+ "msg.snmp.gapMib.fix": "An Signalbox liegt es nicht: Der Switch hat diese Daten nicht, die Funktion ist ausgeschaltet (aktivieren Sie LLDP oder Spanning Tree am Switch) oder die Sicht des SNMP-Benutzers enthält sie nicht (SNMPv3: die MIB zur Sicht hinzufügen). Die Prüfungen, die sie brauchen, melden \"unvollständig\", bis sie vorhanden ist.",
+ "msg.unifi.error": "{path}: UniFi-Fehler {detail}",
+ "msg.unifi.loginRefused": "Die Network-Anwendung hat die Anmeldung abgelehnt: {detail}",
+ "msg.unifi.loginRefused.fix": "Prüfen Sie Benutzername und Passwort des lokalen Kontos (ein Ubiquiti-Cloud-Konto oder eines mit Zwei-Faktor-Anmeldung lässt sich nicht verwenden) oder verwenden Sie einen API-Schlüssel.",
+ "msg.unifi.noSite": "Die Network-Anwendung hat keine Site {site} (Sites: {sites})",
+ "msg.unifi.version": "Die Network-Anwendung hat die Version {version}; Signalbox ist für die Versionen {tested} geschrieben: Es liest weiter, aber ein Feld kann fehlen",
+ "msg.unifi.integrationOnly": "Die Network-Anwendung akzeptiert diesen API-Schlüssel nur für die Integration-API: Geräte, Netzwerke und Clients werden gelesen, Ports, Funkmodule, WLANs und Uplinks nicht",
+ "msg.unifi.integrationOnly.fix": "Verwenden Sie für das vollständige Lesen ein lokales Konto mit einer schreibgeschützten Rolle.",
+ "msg.unifi.optional": "{what}: nicht gelesen ({cause})"
 }

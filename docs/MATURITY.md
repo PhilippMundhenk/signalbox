@@ -33,3 +33,4 @@ Generated from the adapter manifests by `tools/gen_docs.py`.
 | Pi-hole (`pihole`) | - | simulator | simulator | - | simulator | - | - | - | - | - | - | nothing yet |
 | NETGEAR ProSAFE Plus (`prosafe`) | simulator | - | - | - | - | - | - | - | - | - | port | nothing yet |
 | SNMP switch (generic, read only) (`snmp`) | simulator | - | - | - | - | simulator | simulator | - | - | - | - | nothing yet |
+| Ubiquiti UniFi (`unifi`) | simulator | simulator | - | simulator | simulator | simulator | simulator | simulator | - | - | - | nothing yet |

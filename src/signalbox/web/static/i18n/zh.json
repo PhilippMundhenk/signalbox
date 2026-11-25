@@ -3065,5 +3065,13 @@
  "msg.snmp.authFailed.fix": "请在设备设置中检查 SNMPv3 用户名、认证算法(SHA 或 SHA-256)和两个密码,并确认该用户有 MIB 的视图。使用 v2c 时请检查团体字符串。",
  "msg.snmp.error": "{host}:SNMP 请求失败({detail})",
  "msg.snmp.gapMib": "{host}:交换机不通过 SNMP 提供 {mib};依赖它的内容不会被读取",
- "msg.snmp.gapMib.fix": "Signalbox 没有问题:交换机没有这些数据,或该功能已关闭(请在交换机上启用 LLDP 或生成树),或 SNMP 用户的视图不包含它(SNMPv3:将该 MIB 加入视图)。需要这些数据的检查在数据出现之前会报告“不完整”。"
+ "msg.snmp.gapMib.fix": "Signalbox 没有问题:交换机没有这些数据,或该功能已关闭(请在交换机上启用 LLDP 或生成树),或 SNMP 用户的视图不包含它(SNMPv3:将该 MIB 加入视图)。需要这些数据的检查在数据出现之前会报告“不完整”。",
+ "msg.unifi.error": "{path}: UniFi 错误 {detail}",
+ "msg.unifi.loginRefused": "Network 应用拒绝了登录: {detail}",
+ "msg.unifi.loginRefused.fix": "请检查本地账户的用户名和密码 (不能使用 Ubiquiti 云账户或启用了双重验证的账户)，或使用 API 密钥。",
+ "msg.unifi.noSite": "Network 应用中没有站点 {site} (站点: {sites})",
+ "msg.unifi.version": "Network 应用的版本为 {version}；Signalbox 针对版本 {tested} 编写：会继续读取，但可能缺少某些字段",
+ "msg.unifi.integrationOnly": "Network 应用仅允许此 API 密钥访问 Integration API：可读取设备、网络和客户端，但不能读取端口、射频、Wi-Fi 网络和上行链路",
+ "msg.unifi.integrationOnly.fix": "请使用具有只读角色的本地账户以完整读取。",
+ "msg.unifi.optional": "{what}: 未读取 ({cause})"
 }
