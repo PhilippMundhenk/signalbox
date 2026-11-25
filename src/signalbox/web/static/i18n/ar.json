@@ -2086,6 +2086,8 @@
  "segments.col.device": "الجهاز",
  "segments.col.taggedPorts": "المنافذ الموسومة",
  "segments.col.untaggedPorts": "المنافذ غير الموسومة",
+ "segments.declared": "مُعلَن",
+ "segments.declaredTitle": "الاسم المعلن: الحالة المطلوبة تسمي هذه الشبكة {name}؛ الأجهزة تبلغ عن {reported}.",
  "segments.gateway": "بوابة",
  "segments.intro": "القطاع هو شبكة واحدة (VLAN) في موقع. وVLAN نفسه على عدة أجهزة هو قطاع واحد.",
  "segments.isolated": "معزول بواسطة الجهاز (لا يستطيع العملاء الوصول إلى الشبكات الأخرى).",

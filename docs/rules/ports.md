@@ -26,7 +26,9 @@ plugged in there.
 - **Checks:** a client seen on a wired access port (no tagged VLANs, no known link, no other
   client on the port) uses addresses in the network of that port: the port's PVID where it is
   reported, otherwise its only untagged VLAN. The client's network is taken from the subnets
-  its addresses lie in (link-local addresses are ignored). Where the switch reports a MAC
+  its addresses lie in (link-local addresses are ignored). Where a router saw the client, only
+  the addresses the router reports count (its leases are current), otherwise all addresses any
+  device reported (`Client.sightings`). Where the switch reports a MAC
   address table, the VLAN it learned the client in is the port's network (also on a tagged
   port), and a port whose table shows other addresses too counts as having several clients.
 - **Stays quiet** for trunk ports, uplinks, ports with several clients (see

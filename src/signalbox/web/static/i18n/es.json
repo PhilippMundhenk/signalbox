@@ -2138,6 +2138,8 @@
  "segments.col.device": "Dispositivo",
  "segments.col.taggedPorts": "Puertos etiquetados",
  "segments.col.untaggedPorts": "Puertos sin etiquetar",
+ "segments.declared": "declarado",
+ "segments.declaredTitle": "Nombre declarado: el estado deseado llama a esta red {name}; los dispositivos informan {reported}.",
  "segments.gateway": "puerta de enlace",
  "segments.intro": "Un segmento es una red (VLAN) de un sitio. La misma VLAN en varios dispositivos es un solo segmento.",
  "segments.isolated": "Aislada por el dispositivo (los clientes no pueden alcanzar las otras redes).",

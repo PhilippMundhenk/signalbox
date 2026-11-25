@@ -2086,6 +2086,8 @@
  "segments.col.device": "آلہ",
  "segments.col.taggedPorts": "ٹیگ شدہ ports",
  "segments.col.untaggedPorts": "بغیر ٹیگ ports",
+ "segments.declared": "اعلان شدہ",
+ "segments.declaredTitle": "اعلان شدہ نام: مطلوبہ حالت اس نیٹ ورک کو {name} کہتی ہے؛ آلات {reported} بتاتے ہیں۔",
  "segments.gateway": "گیٹ وے",
  "segments.intro": "سیگمنٹ سائٹ کا ایک نیٹ ورک (VLAN) ہے۔ کئی آلات پر ایک ہی VLAN ایک سیگمنٹ ہے۔",
  "segments.isolated": "آلے کی طرف سے الگ تھلگ (کلائنٹس دوسرے نیٹ ورکس تک نہیں پہنچ سکتے)۔",

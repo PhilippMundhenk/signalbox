@@ -8598,8 +8598,20 @@
     },
     "Segment": {
       "additionalProperties": false,
-      "description": "A layer-2 network (VLAN) of a site.\n\n``name`` is the merged display name. Precedence: the name of a gateway's view (the router\nis where users name their networks), else the first name by device id. A name declared in\nthe desired state is not put here, so that drift can compare it with the reported ones.",
+      "description": "A layer-2 network (VLAN) of a site.\n\n``name`` is the merged display name. Precedence: the name of a gateway's view (the router\nis where users name their networks), else the first name by device id. A name declared in\nthe desired state is not put here, so that drift can compare it with the reported ones; it\nis ``declared_name`` and :attr:`shown_name` puts it first (declared > gateway > first, #511).",
       "properties": {
+        "declared_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Declared Name"
+        },
         "id": {
           "title": "Id",
           "type": "string"

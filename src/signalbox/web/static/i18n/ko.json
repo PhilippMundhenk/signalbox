@@ -2086,6 +2086,8 @@
  "segments.col.device": "장치",
  "segments.col.taggedPorts": "태그 포트",
  "segments.col.untaggedPorts": "태그 없는 포트",
+ "segments.declared": "선언됨",
+ "segments.declaredTitle": "선언된 이름: 원하는 상태에서 이 네트워크는 {name}입니다. 장치가 보고한 이름은 {reported}입니다.",
  "segments.gateway": "게이트웨이",
  "segments.intro": "세그먼트는 사이트의 네트워크 (VLAN) 하나입니다. 여러 장치의 같은 VLAN은 하나의 세그먼트입니다.",
  "segments.isolated": "장치가 격리함 (클라이언트가 다른 네트워크에 접근할 수 없음).",

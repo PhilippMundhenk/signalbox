@@ -2086,6 +2086,8 @@
  "segments.col.device": "ডিভাইস",
  "segments.col.taggedPorts": "Tagged পোর্ট",
  "segments.col.untaggedPorts": "Untagged পোর্ট",
+ "segments.declared": "ঘোষিত",
+ "segments.declaredTitle": "ঘোষিত নাম: কাঙ্ক্ষিত অবস্থা এই নেটওয়ার্কের নাম দিয়েছে {name}; ডিভাইসগুলো জানায় {reported}।",
  "segments.gateway": "gateway",
  "segments.intro": "segment হলো একটি সাইটের একটি নেটওয়ার্ক (VLAN)। একাধিক ডিভাইসে একই VLAN একটি segment।",
  "segments.isolated": "ডিভাইস দ্বারা বিচ্ছিন্ন (ক্লায়েন্ট অন্য নেটওয়ার্কে পৌঁছাতে পারে না)।",

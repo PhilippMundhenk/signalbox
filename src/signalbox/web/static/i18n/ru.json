@@ -2086,6 +2086,8 @@
  "segments.col.device": "Устройство",
  "segments.col.taggedPorts": "Порты с тегами",
  "segments.col.untaggedPorts": "Порты без тегов",
+ "segments.declared": "заданное",
+ "segments.declaredTitle": "Заданное имя: желаемое состояние называет эту сеть {name}; устройства сообщают {reported}.",
  "segments.gateway": "шлюз",
  "segments.intro": "Сегмент — это одна сеть (VLAN) площадки. Один и тот же VLAN на нескольких устройствах — один сегмент.",
  "segments.isolated": "Изолирована устройством (клиенты не могут достичь других сетей).",

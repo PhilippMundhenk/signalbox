@@ -2086,6 +2086,8 @@
  "segments.col.device": "डिवाइस",
  "segments.col.taggedPorts": "Tagged पोर्ट",
  "segments.col.untaggedPorts": "Untagged पोर्ट",
+ "segments.declared": "घोषित",
+ "segments.declaredTitle": "घोषित नाम: वांछित स्थिति इस नेटवर्क को {name} कहती है; डिवाइस {reported} बताते हैं।",
  "segments.gateway": "गेटवे",
  "segments.intro": "सेगमेंट किसी साइट का एक नेटवर्क (VLAN) है। कई डिवाइस पर एक ही VLAN एक सेगमेंट है।",
  "segments.isolated": "डिवाइस द्वारा अलग-थलग (क्लाइंट अन्य नेटवर्क तक नहीं पहुँच सकते)।",

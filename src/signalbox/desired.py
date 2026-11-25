@@ -52,6 +52,7 @@ from signalbox.model import (
     PortRange,
     PurposeSource,
     Security,
+    Segment,
     SegmentPurpose,
     ServiceKind,
     annotation_target,
@@ -719,6 +720,20 @@ def save(data_dir: Path, text: str, message: str, author: str = "Signalbox") -> 
 # declared purposes --------------------------------------------------------------------------
 
 
+def _declared_segment(
+    seg: Segment,
+    purposes: dict[str, SegmentPurpose],
+    names: dict[str, str],
+    declared: Any,
+) -> Segment:
+    """``seg`` with its declared purpose and name (the name goes to ``declared_name`` only)."""
+    if seg.id in purposes:
+        seg = declared(seg, purposes[seg.id])
+    if seg.id in names:
+        seg = seg.model_copy(update={"declared_name": names[seg.id]})
+    return seg
+
+
 def apply_declared(net: Network, state: DesiredState | None) -> Network:
     """The network with the purposes the desired state declares (they beat reported ones).
 
@@ -728,15 +743,18 @@ def apply_declared(net: Network, state: DesiredState | None) -> Network:
     if state is None:
         return net
     segs: dict[str, SegmentPurpose] = {}
+    seg_names: dict[str, str] = {}
     ssids: dict[tuple[str, str], tuple[SegmentPurpose, list[str] | None]] = {}
     for site_id, spec in state.sites.items():
         for s in spec.segments:
             if s.purpose is not None:
                 segs[seg_sid(site_id, s.vlan)] = s.purpose
+            if s.name and s.name.strip():
+                seg_names[seg_sid(site_id, s.vlan)] = s.name.strip()
         for w in spec.wlans:
             if w.purpose is not None:
                 ssids[(site_id, w.ssid)] = (w.purpose, w.devices)
-    if not segs and not ssids:
+    if not segs and not ssids and not seg_names:
         return net
 
     def declared(obj: Any, purpose: SegmentPurpose) -> Any:
@@ -758,7 +776,7 @@ def apply_declared(net: Network, state: DesiredState | None) -> Network:
         wlans.append(x)
     return net.model_copy(
         update={
-            "segments": [declared(x, segs[x.id]) if x.id in segs else x for x in net.segments],
+            "segments": [_declared_segment(x, segs, seg_names, declared) for x in net.segments],
             "wlans": wlans,
         }
     )

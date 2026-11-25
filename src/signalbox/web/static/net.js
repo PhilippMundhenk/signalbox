@@ -48,7 +48,8 @@ export function segmentLabel(seg, id) {
     return /^native(-|$)/.test(m[1]) ? t('net.untagged') : t('net.vlan', { id: m[1] });
   }
   const base = seg.vlan ? t('net.vlan', { id: seg.vlan }) : t('net.untagged');
-  return seg.name ? `${base} (${seg.name})` : base;
+  const name = seg.declared_name || seg.name;
+  return name ? `${base} (${name})` : base;
 }
 
 function objectLabel(ix, id) {

@@ -1263,6 +1263,7 @@
     "vlan": null,
     "name": "LAN",
     "names_by_device": {},
+    "declared_name": null,
     "views": [],
     "members": [
      {
@@ -1288,6 +1289,7 @@
     "vlan": null,
     "name": "Guest network",
     "names_by_device": {},
+    "declared_name": null,
     "views": [],
     "members": [],
     "purpose": "guest",

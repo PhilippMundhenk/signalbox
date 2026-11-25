@@ -7,7 +7,13 @@ own view (#165): `Segment.views` (name, interface and role of every device for a
 trunk, access, wireless) and `Client.sightings` (segment, port, addresses and time per device).
 `Segment.name` is the display name: the name the gateway gives the network, else the first name
 by device id. A name declared in the desired state is not written into it, so that drift can
-still compare declared and reported names. `Segment.names_by_device` stays as before.
+still compare declared and reported names. It is `Segment.declared_name`, an overlay the
+segments page and the findings show first (declared > gateway > first), marked "declared" in
+the UI. `Segment.names_by_device` stays as before.
+
+`SegmentView.interface` comes from what the adapter reported: the one VLAN interface among the
+network's member ports (`br-lan.20`), else the one bridge, else the one VLAN interface of the
+device named after the VLAN (`vlan20`, `eth0.20`). Several candidates at one level: not known.
 
 ## `clients.segment-disagreement`
 

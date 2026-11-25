@@ -719,6 +719,7 @@
    "vlan": 1,
    "name": "default",
    "names_by_device": {},
+   "declared_name": null,
    "views": [],
    "members": [
     {
@@ -762,6 +763,7 @@
    "vlan": 10,
    "name": "office",
    "names_by_device": {},
+   "declared_name": null,
    "views": [],
    "members": [
     {
@@ -797,6 +799,7 @@
    "vlan": 20,
    "name": "iot",
    "names_by_device": {},
+   "declared_name": null,
    "views": [],
    "members": [
     {

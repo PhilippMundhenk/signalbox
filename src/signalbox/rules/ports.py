@@ -13,6 +13,8 @@ from ipaddress import IPv4Address, IPv6Address
 
 from signalbox.model import (
     STANDARD_MTU,
+    Client,
+    DeviceRole,
     FdbKind,
     FrameTypes,
     Link,
@@ -137,6 +139,14 @@ def _client_segment(net: Network, addresses: list[IPv4Address | IPv6Address], si
     return next(iter(segments)) if len(segments) == 1 else ""
 
 
+def _addresses(net: Network, c: Client) -> list[IPv4Address | IPv6Address]:
+    """The addresses of the client: what the router says (its leases and neighbour table
+    are current), else all that any device reported (#511)."""
+    routers = {d.id for d in net.devices if d.role is DeviceRole.GATEWAY}
+    from_routers = [a for s in c.sightings if s.device_id in routers for a in s.addresses]
+    return list(dict.fromkeys(from_routers)) if from_routers else list(c.addresses)
+
+
 def _port_segment(net: Network, p: Port, tagged: set[str]) -> str | None:
     """The network an access port puts its client into, or None for trunks and unknown ports."""
     if p.id in tagged or p.frame_types is FrameTypes.TAGGED_ONLY:
@@ -194,13 +204,14 @@ def client_port_mismatch(net: Network) -> Iterator[Result]:
         port_seg = learned or _port_segment(net, p, tagged)
         if site is None or port_seg is None or port_seg not in with_subnet:
             continue
-        client_seg = _client_segment(net, list(c.addresses), site)
+        addrs = _addresses(net, c)
+        client_seg = _client_segment(net, addrs, site)
         if not client_seg or client_seg == port_seg:
             continue
         who = c.hostname or c.mac
         shown = next(
             str(a)
-            for a in c.addresses
+            for a in addrs
             if _usable(a)
             and any(
                 a in sn.interface.network
