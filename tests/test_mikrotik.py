@@ -77,6 +77,7 @@ from signalbox.model import (
     DeviceStatus,
     Dhcp6Mode,
     FrameTypes,
+    FtKeyHolder,
     LeaseState,
     Membership,
     NtpClient,
@@ -471,6 +472,8 @@ async def test_wifi_security_details(http_url: str) -> None:
     assert iot.ciphers == [Cipher.CCMP, Cipher.TKIP] and iot.group_cipher is None
     assert iot.sae is None and iot.wps is not None and iot.wps.methods == [WpsMethod.PUSH_BUTTON]
     assert iot.key_rotation_seconds is None
+    # the R0 key holder id (ft-nas-identifier, #469) means keys are pushed *(guess)*
+    assert home.ft is not None and home.ft.key_holder is FtKeyHolder.PMK_R1_PUSH
     for r in snap.radios:
         assert r.supported_security is not None and Security.WPA3 in r.supported_security
 

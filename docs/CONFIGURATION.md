@@ -52,6 +52,7 @@ Generated from the code by `tools/gen_docs.py`.
 | Setting | Environment variable | Default | Meaning |
 | --- | --- | --- | --- |
 | `exports.identity` | `SIGNALBOX_EXPORTS_IDENTITY` | false | Include device serial numbers and base MAC addresses in what leaves Signalbox (MQTT / Home Assistant discovery and exporter plugins). Off: they stay on the device page. |
+| `exports.wifi_clients` | `SIGNALBOX_EXPORTS_WIFI_CLIENTS` | false | Publish the Wi-Fi association of each client (SSID, band, signal, standard, capabilities) per access point over MQTT. Off: only the number of clients. Client MAC addresses are included only if exports.identity is on as well. |
 
 ## `deploy`
 

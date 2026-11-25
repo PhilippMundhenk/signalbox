@@ -430,7 +430,7 @@ def test_mqtt_bridge_wired_into_app(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     fake = FakeClient()
     monkeypatch.setattr(m, "_default_client", lambda: fake)
-    monkeypatch.setattr(m.MqttBridge.__init__, "__defaults__", ("", lambda: fake, False))
+    monkeypatch.setattr(m.MqttBridge.__init__, "__defaults__", ("", lambda: fake, False, False))
     svc = build(
         tmp_path,
         env={

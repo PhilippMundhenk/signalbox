@@ -2798,6 +2798,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     prop(row, "security", "ft-mobility-domain")
                 ),
                 over_ds=_maybe(prop(row, "security", "ft-over-ds")),
+                key_holder=wifi_assoc.key_holder(prop(row, "security", "ft-nas-identifier")),
                 reassociation_deadline_ms=_ms(prop(row, "security", "ft-reassociation-deadline")),
             )
         dtim = _int(prop(row, "configuration", "dtim-period"))

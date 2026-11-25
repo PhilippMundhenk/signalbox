@@ -55,6 +55,7 @@ from signalbox.adapters.omada import (
     _Managed,
     _Net,
     _text,
+    wifi_extras,
 )
 from signalbox.changes import (
     Change,
@@ -655,10 +656,14 @@ class Writer:
             )
         # 802.11r is read since #447 (``enable11r``), so a value that is the SSID's own is no change
         current_r = _flag(row.get("enable11r")) if row is not None else False
+        # 802.11k/v are site settings read since #469: the value they have is no change either
+        site = wifi_extras.site_fields(
+            await self.a._object(f"{self.site}/setting/roaming"), None, None
+        )
         if (
             new.roaming_80211r not in (None, current_r)
-            or new.roaming_80211k is not None
-            or new.roaming_80211v is not None
+            or new.roaming_80211k not in (None, site.get("roaming_80211k"))
+            or new.roaming_80211v not in (None, site.get("roaming_80211v"))
         ):
             raise AdapterError(
                 f"{c.id}: fast roaming (802.11r/k/v) is not changed on Omada",

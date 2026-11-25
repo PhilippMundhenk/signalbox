@@ -52,7 +52,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.omada import discovery as _discovery
-from signalbox.adapters.omada import firewall, multiwan, vitals
+from signalbox.adapters.omada import firewall, multiwan, vitals, wifi_extras
 from signalbox.adapters.omada import portal as portal_reader
 from signalbox.adapters.portcounters import counters_of
 from signalbox.changes import Change, ChangeKind
@@ -1875,6 +1875,11 @@ class OmadaAdapter(_Adapter):
         nets = await self._networks()
         vlans = {n.vlan or 1 for n in nets.values()}
         groups, primary = await self._wlan_groups()
+        site_extra = wifi_extras.site_fields(
+            await self._object(f"{self._site_path}/setting/roaming"),
+            await self._object(f"{self._site_path}/setting/band-steering"),
+            await self._object(f"{self._site_path}/setting/airtime-fairness"),
+        )
         for ap in (d for d in await self._devices() if d.kind == "eap"):
             group = ap.wlan_id if ap.wlan_id in groups else primary
             ssids = await self._ssids(group) if group else []
@@ -1942,6 +1947,8 @@ class OmadaAdapter(_Adapter):
                                 # the SSID's own "Fast Roaming" switch (802.11r, #447); the
                                 # mobility domain is not in the documented API
                                 roaming_80211r=_flag(s["enable11r"]) if "enable11r" in s else None,
+                                **site_extra,
+                                **wifi_extras.ssid_fields(s),
                                 passphrase_fingerprint=(
                                     passphrase_fingerprint(name, key_text) if psk else None
                                 ),

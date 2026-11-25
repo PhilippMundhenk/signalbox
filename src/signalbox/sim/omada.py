@@ -649,6 +649,10 @@ def sample_data() -> dict[str, Any]:
             **copy.deepcopy(radios),
             "radioSetting5g": {"radioEnable": False, "channel": "0", "channelWidth": "6"},
         },
+        # roaming and steering settings (#469) *(guess: paths and field names)*
+        f"{SITE}/setting/roaming": {"dualBand11kReportEnable": True, "btmEnable": True},
+        f"{SITE}/setting/band-steering": {"enable": True, "connectionThreshold": 2},
+        f"{SITE}/setting/airtime-fairness": {"enable": False},
         f"{SITE}/wireless-network/wlans": [
             {
                 "wlanId": "wlan-default",
@@ -667,6 +671,8 @@ def sample_data() -> dict[str, Any]:
                 3,
                 pmfMode=2,
                 enable11r=True,
+                rateAndBeaconCtrl={"dtimPeriod": 3},
+                rssiSetting={"rssiEnable": True, "threshold": -80},
                 pskSetting={
                     "securityKey": "example-home-passphrase",
                     "versionPsk": 2,
