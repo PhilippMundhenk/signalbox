@@ -31,7 +31,7 @@ Generated from the adapter manifests by `tools/gen_docs.py`.
 | MikroTik RouterOS (`mikrotik`) | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | router, dhcp, reservation, port, wlan, zone-policy, firewall-rule, port-forward, log-target, snmp-policy | nothing yet |
 | TP-Link Omada (`omada`) | simulator | simulator | - | simulator | simulator | simulator | simulator | simulator | - | simulator | router, dhcp, port, wlan | nothing yet |
 | OpenWrt (`openwrt`) | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | dhcp, reservation, port, wlan, zone-policy, firewall-rule, port-forward, log-target, snmp-policy | nothing yet |
-| OPNsense (`opnsense`) | simulator | simulator | simulator | - | simulator | - | simulator | simulator | simulator | simulator | router, dhcp, reservation, port, zone-policy, firewall-rule, port-forward | nothing yet |
+| OPNsense (`opnsense`) | simulator | simulator | simulator | - | simulator | simulator | simulator | simulator | simulator | simulator | router, dhcp, reservation, port, zone-policy, firewall-rule, port-forward | nothing yet |
 | Pi-hole (`pihole`) | - | simulator | simulator | - | simulator | - | - | - | - | - | - | nothing yet |
 | NETGEAR ProSAFE Plus (`prosafe`) | simulator | - | - | - | - | - | - | - | - | - | port | nothing yet |
 | SNMP switch (generic, read only) (`snmp`) | simulator | - | - | - | - | simulator | simulator | - | - | - | - | nothing yet |

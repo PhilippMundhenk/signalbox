@@ -68,6 +68,42 @@ TRACE_PRIVILEGE = "page-diagnostics-traceroute"
 ACCOUNTS_PRIVILEGE = "page-system-usermanager"
 
 
+#: ``lldpcli show neighbors`` of lldpd 1.0.x as os-lldpd passes it on (documentation addresses,
+#: locally administered MACs); the last block is on an interface the adapter does not know.
+LLDPD_NEIGHBORS = """\
+-------------------------------------------------------------------------------
+LLDP neighbors:
+-------------------------------------------------------------------------------
+Interface:    igb0, via: LLDP, RID: 1, Time: 0 day, 03:12:44
+  Chassis:
+    ChassisID:    mac 02:00:00:00:10:01
+    SysName:      switch1
+    SysDescr:     Simulated managed switch
+    MgmtIP:       192.0.2.2
+    Capability:   Bridge, on
+    Capability:   Router, off
+  Port:
+    PortID:       ifname gi1
+    PortDescr:    uplink to firewall
+    TTL:          120
+    VLAN:         1, pvid: yes
+    VLAN:         20
+    MFS:          1522
+-------------------------------------------------------------------------------
+Interface:    igb2, via: CDPv2, RID: 2, Time: 1 day, 00:00:05
+  Chassis:
+    ChassisID:    local sim-ap-1
+    SysName:      ap1
+  Port:
+    PortID:       ifname eth0
+-------------------------------------------------------------------------------
+Interface:    tun9, via: LLDP, RID: 3, Time: 0 day, 00:00:01
+  Chassis:
+    ChassisID:    mac 02:00:00:00:10:09
+-------------------------------------------------------------------------------
+"""
+
+
 def _wg_key(name: str) -> str:
     """A WireGuard public key of the sample: base64 of SHA-256 of a name (valid, nobody's real
     key; computed so that no key-shaped literal is in the source)."""
@@ -276,6 +312,8 @@ def firewall_data() -> dict[str, Any]:
     ]
     return {
         "/api/firewall/filter/search_rule": _rows_of(rules),
+        # os-lldpd (#470): configd passes `lldpcli show neighbors` through as text
+        "/api/lldpd/service/neighbor": {"response": LLDPD_NEIGHBORS},
         # os-ddclient (#154): the rows also hold the account, which the adapter never reads
         "/api/dyndns/accounts/search_item": _rows_of(
             [

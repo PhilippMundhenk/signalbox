@@ -31,6 +31,7 @@ from signalbox.model import (
     DeviceRole,
     DeviceStatus,
     Membership,
+    NeighbourProtocol,
     PoeStatus,
     PortKind,
     PortRole,
@@ -249,6 +250,18 @@ async def test_neighbours(snaps: dict[str, Snapshot]) -> None:
     up = [n for n in snap.neighbours if n.local_port_id == f"{SW}/port/5"]
     assert len(up) == 1 and up[0].chassis_id == GATEWAY  # uplink and LLDP are one neighbour
     assert {p.id for p in snap.ports} >= {f"{AP_1}/port/mesh", f"{AP_2}/port/mesh"}
+
+
+async def test_lldp_details_fill_the_uplink_neighbour(snaps: dict[str, Snapshot]) -> None:
+    """chassis name, port description, capabilities and protocol of the LLDP table (#470),
+    for both field layouts (per device and per port)."""
+    for snap in snaps.values():
+        up = [n for n in snap.neighbours if n.local_port_id == f"{SW}/port/5"]
+        assert len(up) == 1
+        n = up[0]
+        assert (n.protocol, n.chassis_id_kind) == (NeighbourProtocol.LLDP, "mac")
+        assert (n.port_description, n.capabilities) == ("LAN 1", ["bridge", "router"])
+        assert n.age_seconds is None and n.last_seen is None
 
 
 async def test_wireless(snaps: dict[str, Snapshot]) -> None:

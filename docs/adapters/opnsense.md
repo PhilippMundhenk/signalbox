@@ -229,6 +229,7 @@ remedy, the fix adds exactly that privilege and the same key reads the firewall 
    | System: Gateway Groups | `/api/routing/group_settings/search` (gateway groups, #150; `page-system-gatewaygroups`, **26.7 and newer only**: an older firewall does not know the privilege, the automatic setup leaves it out there, and the groups stay unread; the 26.7 integration image refused the read with 403 until the privilege was granted) |
    | Services: Captive Portal | `/api/captiveportal/settings/search_zones`, `/api/captiveportal/voucher/list_providers` (captive portal zones, #460; `page-services-captiveportal`, *guess*; granted by the setup only where the firewall offers it) |
    | Services: Dynamic DNS | `/api/dyndns/accounts/search_item` (dynamic DNS accounts of `os-ddclient`, #154; `page-services-dyndns`, *guess*) |
+   | Services: Lldpd | `/api/lldpd/service/neighbor` (LLDP neighbours of `os-lldpd`, #470; `page-services-lldpd`, ACL pattern `api/lldpd/*`; granted only where the firewall offers it) |
 
    ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
    and are skipped. With the plugin, add its DHCP server and lease pages.
@@ -1108,6 +1109,22 @@ spelling on 24.7 and 25.x (compared with the sources, not recorded).
   reported, without a gap on every read. No privilege (403, *Services: Dynamic DNS*,
   `page-services-dyndns`, *guess*): an optional gap naming the privilege, never "no dynamic DNS";
   automatic setup and "Repair Signalbox's access" grant it where the firewall offers it (the privilege exists only with the plugin; without it the user manager refuses it, so it is left out) (#440). The plugin has no API for the last update or the address announced.
+
+### LLDP neighbours (#470)
+
+`GET /api/lldpd/service/neighbor` (plugin `os-lldpd`, privilege *Services: Lldpd*,
+`page-services-lldpd`, checked in the plugin sources: `ServiceController::neighborAction` and the
+ACL pattern `api/lldpd/*`) answers `{"response": "<text>"}`, the plain text of
+`lldpcli show neighbors` (no JSON). The adapter parses the `Interface:` blocks: chassis id and its
+kind, system name and description, management address, enabled capabilities, port id and
+description, TTL, VLANs (`pvid: yes` marks the port VLAN), MFS, and the protocol (`via:`; `CDPv2`
+is CDP). The `Time:` counts from the first sighting, so only `age_seconds` is set, never
+`last_seen`. PoE and LLDP-MED fields appear only in `show neighbors details`, which the endpoint
+does not run, so they stay empty. Interfaces that are not ports of the firewall layout are left
+out. Not installed (404): no neighbours, no gap; no privilege (403): an optional gap naming the
+privilege, repaired by "Repair Signalbox's access" where the firewall offers it. The plugin
+has had this endpoint since its first release, so every release covered has it; the text layout
+is that of lldpd 1.0.x *(guess, #21)*. CDP data is only present if lldpd is started with `-c`.
 
 ### Captive portal (#460)
 
