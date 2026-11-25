@@ -107,7 +107,7 @@ async def test_nat_routes_health_and_time(vy: Target) -> None:
     assert any(n.masquerade and n.zones == ["eth0"] for n in fw.nat), fw.nat
     assert any(str(r.destination) == "0.0.0.0/0" for r in snap.routes)
     assert snap.device.time is not None
-    assert snap.health is not None and snap.health.uptime_seconds is not None
+    assert snap.device.health is not None and snap.device.health.uptime_seconds is not None
 
 
 async def test_wrong_pin(vy: Target) -> None:
