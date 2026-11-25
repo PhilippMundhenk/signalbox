@@ -267,7 +267,14 @@ class SnmpAdapter(Adapter):
         self._done = set()
         self._pmap = None
         self._entity_missing = False
-        scalars = await self._get(mib.SYS_DESCR, mib.SYS_OBJECT_ID, mib.SYS_UPTIME, mib.SYS_NAME)
+        scalars = await self._get(
+            mib.SYS_DESCR,
+            mib.SYS_OBJECT_ID,
+            mib.SYS_UPTIME,
+            mib.SYS_CONTACT,
+            mib.SYS_NAME,
+            mib.SYS_LOCATION,
+        )
         if mib.SYS_DESCR not in scalars:
             raise AdapterError(
                 f"{self._cfg.address}: SNMP request failed (no sysDescr)",

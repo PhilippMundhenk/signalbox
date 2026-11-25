@@ -177,6 +177,7 @@ from signalbox.model import (
 RESOURCE = "/rest/system/resource"
 ROUTERBOARD = "/rest/system/routerboard"
 PACKAGE_UPDATE = "/rest/system/package/update"
+IDENTITY = "/rest/system/identity"
 INTERFACE = "/rest/interface"
 ETHERNET = "/rest/interface/ethernet"
 BRIDGE = "/rest/interface/bridge"
@@ -1131,7 +1132,8 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             board = _object(await self._get(ROUTERBOARD), ROUTERBOARD)
         except NotFound:  # CHR and x86 have no routerboard menu
             board = {}
-        if _flag(board.get("routerboard"), default=True):
+        is_board = _flag(board.get("routerboard"), default=True)
+        if is_board:
             model = _text(board.get("model")) or model
         available = None
         try:
@@ -1141,12 +1143,39 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         latest = _text(update.get("latest-version"))
         if latest and latest != current:
             available = latest
+        # Identity (#177): optional, a user without the right to see a menu gets fewer fields.
+        try:
+            identity = _object(await self._get(IDENTITY), IDENTITY)
+        except (NotFound, AdapterError):
+            identity = {}
+        ports = await self._readable(INTERFACE) or []
+        # The base MAC is the first Ethernet port's (RouterOS has no chassis MAC) (heuristic).
+        base_mac = next(
+            (
+                m
+                for r in ports
+                if _text(r.get("type")) == "ether"
+                for m in [_mac(r.get("orig-mac-address") or r.get("mac-address"))]
+                if m
+            ),
+            None,
+        )
         return SystemInfo(
             vendor="MikroTik",
             model=model,
             firmware=Firmware(current=current, available=available),
             management_address=self.http.host,
             transport_encrypted=self.http.secure,
+            mac=base_mac,
+            # RouterOS 7 and 6.4x name the serial ``serial-number``; CHR and x86 have none.
+            serial=(_text(board.get("serial-number")) or None) if is_board else None,
+            board=_text(resource.get("board-name")) or None,
+            architecture=_text(resource.get("architecture-name")) or None,
+            # The boot loader: RouterBOOT version as installed (``current-firmware``).
+            bootloader=(_text(board.get("current-firmware")) or None) if is_board else None,
+            hostname=_text(identity.get("name")) or None,
+            os="RouterOS",
+            os_version=current,
         )
 
     # --- interfaces ---------------------------------------------------------------------------

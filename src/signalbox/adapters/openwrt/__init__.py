@@ -905,12 +905,35 @@ class OpenWrtAdapter(Adapter):
         release = board.get("release") if isinstance(board.get("release"), dict) else {}
         version = release.get("version")
         model = board.get("model")
+
+        def text(value: Any) -> str | None:
+            return value.strip() or None if isinstance(value, str) else None
+
+        # Base MAC (#177, heuristic): the LAN bridge's, else the first Ethernet device's.
+        base_mac = None
+        try:
+            status = await self.ubus.call("network.device", "status")
+        except (AdapterError, NotFound):
+            status = {}
+        for name in ("br-lan", "eth0", *sorted(status)):
+            st = status.get(name)
+            if isinstance(st, dict) and name != "lo" and (m := _mac(st.get("macaddr"))):
+                base_mac = m
+                break
         return SystemInfo(
             vendor=None,
             model=model if isinstance(model, str) else None,
             firmware=Firmware(current=str(version)) if version else None,
             management_address=self.ubus.http.host,
             transport_encrypted=self.ubus.http.secure,
+            mac=base_mac,
+            board=text(board.get("board_name")),
+            hostname=text(board.get("hostname")),
+            # The platform (``target``, e.g. mediatek/filogic): ``system board`` has no arch.
+            architecture=text(release.get("target")),
+            os=text(release.get("distribution")),
+            os_version=text(version) if isinstance(version, str) else None,
+            vendor_extra={"kernel": k} if (k := text(board.get("kernel"))) else {},
         )
 
     # interfaces -----------------------------------------------------------------------

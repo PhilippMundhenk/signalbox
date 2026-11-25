@@ -411,6 +411,7 @@ class LinuxAdapter(Adapter):
             management_address=self.config.host,
             transport_encrypted=True,
             vendor_extra=extra,
+            **parse.identity(a, release),
         )
 
     # interfaces -------------------------------------------------------------------------

@@ -166,8 +166,6 @@ def system_info(
         ("sys_descr", descr),
         ("sys_name", name),
         ("sys_object_id", scalars.get(mib.SYS_OBJECT_ID)),
-        ("serial", as_text(entity.get(mib.ENT_SERIAL))),
-        ("hardware_revision", as_text(entity.get(mib.ENT_HARDWARE_REV))),
         ("firmware_revision", firmware),
     ):
         if isinstance(value, str) and value:
@@ -178,6 +176,12 @@ def system_info(
         firmware=Firmware(current=version) if version else None,
         management_address=address,
         mac=bridge_mac,
+        # Identity (#177): ENTITY-MIB chassis entry and SNMPv2-MIB system group
+        serial=as_text(entity.get(mib.ENT_SERIAL)) or None,
+        hardware_revision=as_text(entity.get(mib.ENT_HARDWARE_REV)) or None,
+        hostname=name or None,
+        location=as_text(scalars.get(mib.SYS_LOCATION)) or None,
+        contact=as_text(scalars.get(mib.SYS_CONTACT)) or None,
         vendor_extra=extra,
     )
 

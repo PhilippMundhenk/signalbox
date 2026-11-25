@@ -569,6 +569,9 @@ class _Managed:
     firmware: str | None
     wlan_id: str | None
     slug: str
+    #: Identity (#177): ``sn`` / ``hwVersion`` of the device list (``serialNumber`` is a guess).
+    serial: str | None = None
+    hardware: str | None = None
 
     def identity(self) -> dict[str, JsonValue]:
         out: dict[str, JsonValue] = {"name": self.name, "mac": self.mac, "type": self.kind}
@@ -976,6 +979,8 @@ class OmadaAdapter(_Adapter):
                     firmware=_text(row.get("firmwareVersion") or row.get("version")) or None,
                     wlan_id=_text(row.get("wlanId") or row.get("wlanGroupId")) or None,
                     slug=f"{kind}-{mac.replace(':', '')}",
+                    serial=_text(row.get("sn") or row.get("serialNumber")) or None,
+                    hardware=_text(row.get("hwVersion") or row.get("hardwareVersion")) or None,
                 )
             )
         return out
@@ -1112,6 +1117,10 @@ class OmadaAdapter(_Adapter):
                 vendor="TP-Link",
                 model=d.model,
                 firmware=Firmware(current=d.firmware) if d.firmware else None,
+                mac=d.mac,
+                serial=d.serial,
+                hardware_revision=d.hardware,
+                hostname=d.name if d.name != d.mac else None,
                 adapter=self.manifest.id,
                 vendor_extra={"omada_device": d.identity()},
             )

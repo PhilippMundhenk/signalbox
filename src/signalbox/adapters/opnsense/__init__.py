@@ -172,6 +172,7 @@ DNSMASQ = "/api/dnsmasq/settings/get"
 ARP = "/api/diagnostics/interface/get_arp"
 NDP = "/api/diagnostics/interface/get_ndp"
 SYSTEM_TIME = "/api/diagnostics/system/system_time"
+SYSTEM_INFORMATION = "/api/diagnostics/system/system_information"
 SYSTEM_RESOURCES = "/api/diagnostics/system/system_resources"
 SYSTEM_DISK = "/api/diagnostics/system/system_disk"
 SYSTEM_TEMPERATURE = "/api/diagnostics/system/system_temperature"
@@ -1044,12 +1045,26 @@ class OpnsenseAdapter(_Adapter):
         # product_version carries the package revision (26.7.9_3), product_latest does not
         newer = latest and latest not in (current, current.split("_", 1)[0])
         self._set_version(compat.parse_version(current))
+        # Identity (#177), optional: the endpoint is newer than the firmware status (guess for
+        # 22.x and older: then there is no hostname). OPNsense exposes no serial number.
+        try:
+            information = await self._optional(SYSTEM_INFORMATION)
+        except AdapterError:
+            information = None
+        name = _text(information.get("name")) if isinstance(information, dict) else ""
         return SystemInfo(
             vendor="Deciso",
             model=_text(product.get("product_name")) or "OPNsense",
             firmware=Firmware(current=current, available=latest if newer else None),
             management_address=self.http.host,
             transport_encrypted=self.http.secure,
+            hostname=name or None,
+            # ``product_arch`` (newer) or the ABI (``FreeBSD:14:amd64``) of older releases
+            architecture=_text(product.get("product_arch"))
+            or _text(product.get("product_abi")).rpartition(":")[2]
+            or None,
+            os="OPNsense",
+            os_version=current,
         )
 
     async def _release(self) -> compat.Version | None:
