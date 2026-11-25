@@ -69,6 +69,7 @@ from signalbox.adapters.opnsense import compat, provision, vitals
 from signalbox.adapters.opnsense import ddns as ddns_reader
 from signalbox.adapters.opnsense import discovery as _discovery
 from signalbox.adapters.opnsense import firewall as fw
+from signalbox.adapters.opnsense import lldpd as lldpd_reader
 from signalbox.adapters.opnsense import portal as portal_reader
 from signalbox.adapters.opnsense import routes as route_reader
 from signalbox.adapters.opnsense import trace as _trace
@@ -1019,6 +1020,7 @@ class OpnsenseAdapter(_Adapter):
                 Capability.TIME,
                 Capability.VPN,
                 Capability.FIREWALL,
+                Capability.NEIGHBOURS,
             }
         ),
         config=OpnsenseConfig,
@@ -1440,6 +1442,18 @@ class OpnsenseAdapter(_Adapter):
             return [], []
         rows = _rows(data, ddns_reader.ACCOUNTS)
         return ddns_reader.clients(self.context.device_id, rows, wan), []
+
+    async def read_neighbours(self) -> Observation:
+        """LLDP neighbours of the os-lldpd plugin (#470); not installed (404): none, without a
+        gap; a refused read (403) is an optional gap naming the privilege."""
+        try:
+            data = await self._optional(lldpd_reader.NEIGHBORS)
+        except AdapterError as exc:
+            return Observation(incomplete=[_privilege_gap("LLDP", exc, lldpd_reader.PRIVILEGE)])
+        if data is None:
+            return Observation()
+        known = {p.id for p in (await self._layout()).ports}
+        return Observation(neighbours=lldpd_reader.neighbours(self.context.device_id, data, known))
 
     async def _portals(self, layout: _Layout) -> tuple[list[CaptivePortal], list[Gap]]:
         """Captive portal zones (#460); no captive portal API (404): nothing to report; a

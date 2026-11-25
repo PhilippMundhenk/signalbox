@@ -652,6 +652,13 @@ mesh, a wireless port `Mesh`. The uplink is read from `GET …/aps/{mac}` (one c
 the device-list row) and reported as a **neighbour** (capability `neighbours`), which the topology
 turns into a link:
 
+LLDP neighbours (#470): **not available**. The OpenAPI description of the controller has no read of
+a switch's or access point's LLDP neighbour table; the only LLDP field is the port profile setting
+`lldpMedEnable`. The uplinks above are what the controller knows (its own adoption view), and the
+neighbours carry no protocol, port description, VLAN, PoE or age. Checked against 6.3 and the two
+major versions before it as far as the descriptions go; a controller that adds a neighbour read
+is picked up when it is documented (*guess*, #21).
+
 - **Mesh uplink** *(API description of 6.3, from the CI `spec` dump)*: `wirelessLinked` and
   `wireless uplink info` with `uplinkMac`, `name`, `channel`, `rssi`, `snr`, `txRateInt`,
   `partnerLinks[].radioId`. The description spells the key with spaces; `wirelessUpLinkInfo` and

@@ -126,6 +126,8 @@ def sample_data(major: int) -> dict[str, Any]:
             "port_id": "eth1",
             "chassis_name": "Gateway",
             "chassis_descr": "UniFi Dream Machine",
+            "port_descr": "LAN 1",
+            "chassis_capabilities": ["Bridge", "Router"],
             "is_wired": True,
         },
     ]

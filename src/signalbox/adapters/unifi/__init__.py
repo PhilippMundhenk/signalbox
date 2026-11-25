@@ -81,6 +81,7 @@ from signalbox.model import (
     MeshRole,
     MeshUplink,
     Neighbour,
+    NeighbourProtocol,
     Pmf,
     PoeMode,
     PoeStatus,
@@ -105,6 +106,7 @@ from signalbox.model import (
     WirelessLinkInfo,
     Wlan,
     fdb_id,
+    normalise_capabilities,
     normalise_mac,
     object_id,
     passphrase_digest,
@@ -1401,9 +1403,18 @@ class UnifiAdapter(_Adapter):
         def add(local: str, chassis: str, **kw: Any) -> None:
             if local in every:
                 nid = object_id(dev, "neighbour", f"{local}-{chassis}")
-                neighbours.setdefault(
-                    nid, Neighbour(id=nid, local_port_id=local, chassis_id=chassis, **kw)
-                )
+                seen = neighbours.get(nid)
+                if seen is None:
+                    neighbours[nid] = Neighbour(
+                        id=nid, local_port_id=local, chassis_id=chassis, **kw
+                    )
+                else:  # uplink and LLDP table name one neighbour: fill what is missing
+                    fill = {
+                        k: v
+                        for k, v in kw.items()
+                        if k != "vendor_extra" and v not in (None, [], "") and not getattr(seen, k)
+                    }
+                    neighbours[nid] = seen.model_copy(update=fill)
 
         for d in devices:
             link = links.get(d.mac)
@@ -1451,14 +1462,18 @@ class UnifiAdapter(_Adapter):
                     continue
                 name = _text(entry.get("chassis_name") or entry.get("system_name"))
                 descr = _text(entry.get("chassis_descr") or entry.get("system_descr"))
+                port_text = _text(entry.get("port_id"))
+                port_descr = _text(entry.get("port_descr") or entry.get("port_description"))
                 add(
                     f"{self._prefix(d)}/port/{idx}",
                     chassis,
-                    remote_port=_text(entry.get("port_id"))
-                    or _text(entry.get("port_descr"))
-                    or None,
+                    remote_port=port_text or port_descr or None,
+                    port_description=port_descr or None,
                     system_name=name or None,
                     description=descr or None,
+                    protocol=NeighbourProtocol.LLDP,
+                    chassis_id_kind="mac" if _mac(entry.get("chassis_id")) else None,
+                    capabilities=_lldp_capabilities(entry),
                     vendor_extra=d.extra(uplink="lldp"),
                 )
         self._cache["ap-mesh"] = self._mesh_of(devices, links, meshed)
@@ -1863,6 +1878,18 @@ def _lldp(row: dict[str, Any]) -> list[dict[str, Any]]:
         for entry in _list(port, "lldp_table"):
             out.append({"local_port_idx": port.get("port_idx"), **entry})
     return out
+
+
+def _lldp_capabilities(entry: dict[str, Any]) -> list[str]:
+    """System capabilities of an ``lldp_table`` entry, when the controller lists them: a list or
+    a comma separated text under ``chassis_capabilities`` / ``capabilities`` *(guess: the field
+    name, #21)*; none otherwise."""
+    value = entry.get("chassis_capabilities", entry.get("capabilities"))
+    if isinstance(value, str):
+        value = value.split(",")
+    if not isinstance(value, list):
+        return []
+    return normalise_capabilities(str(v) for v in value if isinstance(v, str | int) and str(v))
 
 
 def _nonneg(value: Any) -> int | None:

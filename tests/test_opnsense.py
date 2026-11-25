@@ -65,6 +65,7 @@ from signalbox.model import (
     DeviceStatus,
     LeaseState,
     Membership,
+    NeighbourProtocol,
     NtpClient,
     PortMedia,
     Site,
@@ -1254,6 +1255,51 @@ async def test_ddns_refused_is_a_gap_not_no_ddns(http_url: str, sim: OpnsenseSim
     assert snap.ddns == []
     (gap,) = [e for e in snap.errors if e.message.startswith("dynamic DNS")]
     assert gap.optional and "page-services-dyndns" in (gap.fix or "")
+    assert snap.status.value == "ok"
+
+
+async def test_lldpd_neighbours(snap: Snapshot) -> None:
+    """os-lldpd text output (#470): fields, VLANs, capabilities; unknown interfaces are left out."""
+    by_local = {n.local_port_id: n for n in snap.neighbours}
+    assert set(by_local) == {"fw/port/igb0", "fw/port/igb2"}
+    sw = by_local["fw/port/igb0"]
+    assert (sw.chassis_id, sw.chassis_id_kind) == ("02:00:00:00:10:01", "mac")
+    assert (sw.system_name, sw.remote_port, sw.port_description) == (
+        "switch1",
+        "gi1",
+        "uplink to firewall",
+    )
+    assert (sw.management_address, sw.capabilities, sw.protocol) == (
+        "192.0.2.2",
+        ["bridge"],
+        NeighbourProtocol.LLDP,
+    )
+    assert (sw.port_vlan, sw.vlans, sw.max_frame_size, sw.ttl_seconds) == (1, [1, 20], 1522, 120)
+    assert sw.age_seconds == 3 * 3600 + 12 * 60 + 44 and sw.last_seen is None
+    ap = by_local["fw/port/igb2"]
+    assert (ap.chassis_id, ap.chassis_id_kind, ap.protocol) == (
+        "sim-ap-1",
+        "local",
+        NeighbourProtocol.CDP,
+    )
+    assert ap.age_seconds == 86405
+
+
+async def test_lldpd_not_installed_is_no_neighbours(http_url: str, sim: OpnsenseSimulator) -> None:
+    sim.fail = {"/api/lldpd/service/neighbor": 404}
+    snap = await observe(adapter(http_url))
+    assert snap.neighbours == []
+    assert not [e for e in snap.errors if "LLDP" in e.message]
+
+
+async def test_lldpd_refused_is_a_gap_not_no_neighbours(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    sim.fail = {"/api/lldpd/service/neighbor": 403}
+    snap = await observe(adapter(http_url))
+    assert snap.neighbours == []
+    (gap,) = [e for e in snap.errors if e.message.startswith("LLDP")]
+    assert gap.optional and "page-services-lldpd" in (gap.fix or "")
     assert snap.status.value == "ok"
 
 

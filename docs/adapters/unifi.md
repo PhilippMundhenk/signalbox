@@ -97,7 +97,7 @@ not adopted are left out.
 | dhcp | `rest/networkconf` | pool, lease time, DNS, router, domain per network |
 | wireless | `radio_table`, `radio_table_stats`, `vap_table`, `rest/wlanconf` | per AP radio (band, channel, width, power, utilisation, clients) and the Wi-Fi networks it broadcasts (security, WPA3 mode, ciphers, PMF, hidden, guest, VLAN or network, isolation, passphrase fingerprint, never the passphrase) |
 | clients | `stat/sta`, `port_table[].mac_table` | wired and wireless clients with address, network and where they were seen; the switch MAC tables where the device lists them |
-| neighbours | `uplink` of every device, `lldp_table` | an AP's switch port, mesh uplinks between APs, switch-to-gateway links; LLDP neighbours (name, port, description) |
+| neighbours | `uplink` of every device, `lldp_table` | an AP's switch port, mesh uplinks between APs, switch-to-gateway links; LLDP neighbours (name, chassis id as MAC, port id and description, system description, capabilities where the entry lists them; protocol `lldp`, #470). The age is not reported (`stat/device` has none), so `age_seconds` and `last_seen` stay empty; VLANs, PoE and MFS are not in `lldp_table` |
 | health, time | `stat/device`, `Date` header | uptime, CPU, load, memory, temperature, storage per device; clock and time zone |
 
 PoE (#159): per port `poe_enable`, `poe_mode` (`auto`, `pasv24`, `passthrough`, `off`), the delivered
