@@ -159,6 +159,19 @@ def changed_outside(net: Network, history: History) -> Iterator[Result]:
         mine = d.signalbox_backup_newest
         if mine is not None and timedelta(0) <= changed - mine <= timedelta(minutes=p.minutes):
             continue
+        user = ((d.config_state.changed_by if d.config_state else None) or "").strip()[:64]
+        if user:
+            yield found(
+                f"The configuration of {d.name} was changed in the last {p.days} days by {user}, "
+                "and not through Signalbox",
+                [d.id],
+                fix="If you or somebody you know made the change in the device's own interface, "
+                "nothing to do. If not, check who has access to the device and that user.",
+                mid="config.changedOutsideBy",
+                fix_id="config.changedOutsideBy.fix",
+                params={"name": d.name, "days": p.days, "user": user},
+            )
+            continue
         yield found(
             f"The configuration of {d.name} was changed in the last {p.days} days, and not "
             "through Signalbox",

@@ -3368,6 +3368,8 @@
  "msg.config.pending.fix": "Apply the staged changes on {name}, or revert them.",
  "msg.config.changedOutside": "The configuration of {name} was changed in the last {days} days, and not through Signalbox",
  "msg.config.changedOutside.fix": "If you made the change in the device's own interface, nothing to do. If not, check who has access to the device (the device page shows the user it logged).",
+ "msg.config.changedOutsideBy": "The configuration of {name} was changed in the last {days} days by {user}, and not through Signalbox",
+ "msg.config.changedOutsideBy.fix": "If you or somebody you know made the change in the device's own interface, nothing to do. If not, check who has access to the device and that user.",
  "msg.backup.none": "{name} has no backup of its configuration, and Signalbox has none either",
  "msg.backup.none.fix": "Download a backup from the device, or deploy a change through Signalbox, which takes one first, and keep it somewhere safe.",
  "msg.backup.stale": "{name} has no backup newer than {days} days and changed since, and Signalbox has none either",

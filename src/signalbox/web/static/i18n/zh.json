@@ -3368,6 +3368,8 @@
  "msg.config.pending.fix": "请在 {name} 上应用已暂存的更改,或还原它们。",
  "msg.config.changedOutside": "{name} 的配置在最近 {days} 天内被更改，且不是通过 Signalbox",
  "msg.config.changedOutside.fix": "如果是您在设备自带界面中做的更改，无需处理。否则，请检查谁可以访问该设备（设备页面显示记录的用户）。",
+ "msg.config.changedOutsideBy": "{name} 的配置在最近 {days} 天内被 {user} 更改，并且不是通过 Signalbox 进行的",
+ "msg.config.changedOutsideBy.fix": "如果是您或您认识的人在设备自带界面中所做的更改，则无需处理。否则，请检查谁有权访问该设备，以及该用户是谁。",
  "msg.backup.none": "{name} 没有其配置的备份,Signalbox 也没有",
  "msg.backup.none.fix": "请从设备下载备份,或通过 Signalbox 部署更改(它会先做备份),并妥善保存。",
  "msg.backup.stale": "{name} 没有 {days} 天内的备份且之后发生了变化;Signalbox 也没有备份",

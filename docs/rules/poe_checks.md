@@ -51,8 +51,11 @@ data is not checked.
 - **Checks:** the power a switch has reserved (`Device.poe.reserved_w`: allocated by class,
   drawn or not) reaches `reserved_pct` (default 100 %) of its PoE budget. Switches that allocate
   by class refuse a new powered device then, although the real draw is low. Quiet where the
-  switch reports no reservation or no budget (no reader reports the reservation yet, so the rule
-  is ready for readers that do; the draw against the budget is `poe.budget`).
+  switch reports no reservation or no budget. No device reports an allocation itself: the SNMP
+  reader (POWER-ETHERNET-MIB has none) and the UniFi reader derive it as the 802.3 class maximum
+  of every delivering port with a known class, which is what a switch with static class
+  allocation holds back (a guess for real switches, #21). MikroTik, OpenWrt and Omada report none
+  (the draw against the budget is `poe.budget`).
 - **Fix:** limit the power of ports whose devices need less than their class reserves, use
   dynamic allocation where the switch has it, or add a PoE switch or injector.
 

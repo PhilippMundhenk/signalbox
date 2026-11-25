@@ -111,6 +111,7 @@ from signalbox.model import (
     object_id,
     passphrase_digest,
     passphrase_fingerprint,
+    poe_reserved_by_class,
     segment_id,
 )
 
@@ -317,13 +318,21 @@ def _port_poe(row: dict[str, Any]) -> PortPoe:
 
 
 def _poe_supply(row: dict[str, Any]) -> PoeSupply | None:
-    """The PoE budget of a switch: ``total_max_power`` (watts) and the sum of its ports'
-    ``poe_power``. ``None`` for a device without a budget."""
+    """The PoE budget of a switch: ``total_max_power`` (watts), the sum of its ports'
+    ``poe_power`` and the power reserved by class (the class maximum of every delivering port,
+    ``poe_class``; UniFi reports no allocation of its own, so this is the 802.3 class
+    reservation, a guess for what the switch holds back, #21). ``None`` for a device without a
+    budget."""
     budget = _num(row.get("total_max_power"))
     if budget is None or budget <= 0:
         return None
     drawn = [_num(p.get("poe_power")) for p in _list(row, "port_table")]
-    return PoeSupply(budget_w=budget, used_w=sum(w for w in drawn if w is not None))
+    rows = _list(row, "port_table")
+    return PoeSupply(
+        budget_w=budget,
+        used_w=sum(w for w in drawn if w is not None),
+        reserved_w=poe_reserved_by_class(_port_poe(p) for p in rows),
+    )
 
 
 def _flag(value: Any, default: bool | None = None) -> bool | None:

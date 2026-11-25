@@ -206,6 +206,8 @@ async def test_ports_and_vlans(snaps: dict[str, Snapshot]) -> None:
     assert p4.poe.status is PoeStatus.DISABLED
     switch = next(d for d in snap.extra_devices if d.id == SW)
     assert switch.poe is not None and switch.poe.budget_w == 60 and switch.poe.used_w == 4.2
+    # reserved by class: the one delivering port is class 2 (7 W)
+    assert switch.poe.reserved_w == 7.0
     segments = {s.id: {m.port_id: m.mode for m in s.members} for s in snap.segments}
     native, iot, guest = "home/segment/native", "home/segment/20", "home/segment/30"
     assert segments[native][f"{SW}/port/1"] is Membership.UNTAGGED

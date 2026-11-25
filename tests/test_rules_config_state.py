@@ -135,6 +135,20 @@ def test_changed_outside_needs_a_recent_change_without_a_signalbox_backup() -> N
     assert hits == ["after-mine", "hand"]
 
 
+def test_changed_outside_names_the_user_the_device_logged() -> None:
+    out = run(
+        RULES,
+        device(
+            "hand",
+            config_state=ConfigState(last_changed=T0 - timedelta(hours=5), changed_by="admin"),
+        ),
+        device("anon", config_state=ConfigState(last_changed=T0 - timedelta(hours=5))),
+    )
+    texts = {m.split()[3]: m for r, m in out if r == "config.changed-outside"}
+    assert " by admin," in texts["hand"]
+    assert " by " not in texts["anon"]
+
+
 def test_changed_outside_is_silent_without_a_clock() -> None:
     net = merge([SITE], [snapshot(device("a", config_state=ConfigState(last_changed=T0)))])
     assert [

@@ -175,7 +175,7 @@ async def test_snmp_reads_budget_and_ports() -> None:
     a = adapter_for(SnmprecTransport(_peth()))
     snap = await a.observe()
     await a.close()
-    assert snap.device.poe == PoeSupply(budget_w=65, used_w=18)
+    assert snap.device.poe == PoeSupply(budget_w=65, used_w=18, reserved_w=30)
     ports = {p.name: p.poe for p in snap.ports if p.poe}
     assert ports["Gi1"] == PortPoe(
         enabled=True,
