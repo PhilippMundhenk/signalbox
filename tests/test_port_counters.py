@@ -13,10 +13,10 @@ from signalbox.adapters.linux import parse
 from signalbox.adapters.opnsense import counters_by_interface
 from signalbox.adapters.portcounters import count, counters_of
 from signalbox.config import Config
-from signalbox.counters import CounterLimits, CounterRecord, counter_delta, counter_value
+from signalbox.counters import CounterRecord, counter_delta, counter_value
 from signalbox.merge import merge
 from signalbox.model import DeviceRole, Network, PortCounters, PortKind, PortRole
-from signalbox.rules import Severity, evaluate
+from signalbox.rules import RuleScope, RuleSettings, ScopeMatch, Severity, evaluate
 from signalbox.rules.port_counters import port_errors
 from signalbox.secrets import load_vault
 from signalbox.sightings import History
@@ -132,23 +132,29 @@ def test_store_ignores_a_stored_value_of_another_version(store: Store) -> None:
     assert store.history(T0, 30).counters == {}
 
 
-def test_limits_come_from_the_configuration() -> None:
-    limits = Config().counters.limits()
-    assert limits == CounterLimits()
-    assert Config(counters={"min_errors": 9}).counters.limits().min_errors == 9
+def test_deprecated_counters_settings_become_rule_parameters(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    assert Config().rules == {}  # defaults set nothing
+    cfg = Config(counters={"min_errors": 9, "error_ratio": 0.001})  # the default is not applied
+    assert cfg.rules["port.errors"].params == {"min_errors": 9}
+    assert "counters.min_errors is deprecated" in caplog.text
+    assert "error_ratio" not in caplog.text
+    # the rule's own parameter wins over the deprecated setting
+    both = Config(counters={"min_errors": 9}, rules={"port.errors": {"params": {"min_errors": 3}}})
+    assert both.rules["port.errors"].params == {"min_errors": 3}
 
 
 # rule -----------------------------------------------------------------------------------
 
 
-def history_of(net: Network, old: PortCounters, new: PortCounters, **limits: Any) -> History:
+def history_of(net: Network, old: PortCounters, new: PortCounters) -> History:
     pid = net.ports[0].id
     record = CounterRecord(last=new, delta=counter_delta(old, new))
     return History(
         now=T0 + STEP,
         since=T0,
         counters={pid: record},
-        counter_limits=CounterLimits(**limits),
     )
 
 
@@ -214,10 +220,23 @@ def test_thresholds_are_configurable() -> None:
     net = net_with(port("sw", "3", up=True))
     old = pc(0, rx_packets=0, rx_errors=0)
     new = pc(1, rx_packets=2000, rx_errors=6)
-    quiet = history_of(net, old, new, error_ratio=0.01)
-    assert evaluate(net, [port_errors], None, quiet) == []
-    loud = history_of(net, old, new, error_ratio=0.001)
-    assert len(evaluate(net, [port_errors], None, loud)) == 1
+    history = history_of(net, old, new)
+    quiet = {"port.errors": RuleSettings(params={"error_ratio": 0.01})}
+    assert evaluate(net, [port_errors], quiet, history) == []
+    assert len(evaluate(net, [port_errors], None, history)) == 1
+    # a scope changes it for the ports of one device only
+    scoped = {
+        "port.errors": RuleSettings(
+            scopes=[RuleScope(match=ScopeMatch(device="sw"), params={"error_ratio": 0.01})]
+        )
+    }
+    assert evaluate(net, [port_errors], scoped, history) == []
+    other = {
+        "port.errors": RuleSettings(
+            scopes=[RuleScope(match=ScopeMatch(device="other"), params={"error_ratio": 0.01})]
+        )
+    }
+    assert len(evaluate(net, [port_errors], other, history)) == 1
 
 
 # readers --------------------------------------------------------------------------------

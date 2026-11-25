@@ -6,15 +6,9 @@ from collections import defaultdict
 from collections.abc import Iterator
 
 from signalbox.model import Client, Network, WifiStandard, Wlan
-from signalbox.rules import Result, Rule, Severity, found, rule
+from signalbox.rules import Result, Rule, RuleParams, Severity, ctx, found, param, rule
 from signalbox.rules._names import device_name, site_of_device
 
-#: A minimum signal above this (dBm) kicks clients that are still usable (#168). To become a
-#: rule parameter with #187.
-MIN_RSSI_HIGH_DBM = -70
-#: A client below this signal (dBm) is slow and drops packets (#170). To become a rule
-#: parameter with #187.
-WEAK_CLIENT_SIGNAL_DBM = -75
 #: Standards that slow a whole radio down: 802.11b and g clients (#170).
 LEGACY_STANDARDS = (WifiStandard.B, WifiStandard.G)
 
@@ -76,24 +70,37 @@ def ft_mobility_domain_mismatch(net: Network) -> Iterator[Result]:
 # wifi.min-rssi-too-high (#168) ----------------------------------------------------------------
 
 
+class MinRssiHighParams(RuleParams):
+    max_dbm: int = param(
+        -70,
+        unit="dBm",
+        ge=-120,
+        le=0,
+        description="A minimum signal above this kicks clients that are still usable (#168). "
+        "The fix suggests 5 dBm below it.",
+    )
+
+
 @rule(
     "wifi.min-rssi-too-high",
     "Minimum signal strength of an SSID is set so high that it kicks usable clients",
     Severity.WARNING,
-    "A minimum signal (minimum RSSI) helps sticky clients roam, but above -70 dBm it also "
-    "kicks clients that still have a usable connection, and they reconnect in a loop. Only "
-    "access points that report the limit are judged.",
+    "A minimum signal (minimum RSSI) helps sticky clients roam, but above -70 dBm (the "
+    "parameter max_dbm) it also kicks clients that still have a usable connection, and they "
+    "reconnect in a loop. Only access points that report the limit are judged.",
+    params=MinRssiHighParams,
 )
 def min_rssi_too_high(net: Network) -> Iterator[Result]:
     for w in sorted(net.wlans, key=lambda w: w.id):
         limits = [v for v in (w.min_rssi_dbm, w.assoc_rssi_dbm) if v is not None]
-        if not w.enabled or not limits or max(limits) <= MIN_RSSI_HIGH_DBM:
+        max_dbm = ctx.params(MinRssiHighParams, w).max_dbm
+        if not w.enabled or not limits or max(limits) <= max_dbm:
             continue
         ap = device_name(net, w.device_id)
         yield found(
             f"SSID {w.ssid!r} on {ap} refuses or kicks clients weaker than {max(limits)} dBm",
             [w.id, w.device_id],
-            fix=f"Lower the minimum signal of {w.ssid!r} on {ap} to {MIN_RSSI_HIGH_DBM - 5} dBm "
+            fix=f"Lower the minimum signal of {w.ssid!r} on {ap} to {max_dbm - 5} dBm "
             "or weaker, or turn it off.",
             mid="wifi.minRssiHigh",
             fix_id="wifi.minRssiHigh.fix",
@@ -101,7 +108,7 @@ def min_rssi_too_high(net: Network) -> Iterator[Result]:
                 "ssid": repr(w.ssid),
                 "ap": ap,
                 "dbm": max(limits),
-                "suggested": MIN_RSSI_HIGH_DBM - 5,
+                "suggested": max_dbm - 5,
             },
         )
 
@@ -136,24 +143,37 @@ def min_rssi_inconsistent(net: Network) -> Iterator[Result]:
 # wifi.client-weak-signal (#170) ---------------------------------------------------------------
 
 
+class WeakSignalParams(RuleParams):
+    min_dbm: int = param(
+        -75,
+        unit="dBm",
+        ge=-120,
+        le=0,
+        description="A client below this signal is slow and drops packets (#170).",
+    )
+
+
 @rule(
     "wifi.client-weak-signal",
     "A Wi-Fi client has a weak signal",
     Severity.INFO,
-    "A client below -75 dBm gets slow rates and many retries. This is one reading, not a "
-    "trend: a device carried past the access point shows up too. Clients without a reported "
-    "signal are not judged.",
+    "A client below -75 dBm (the parameter min_dbm) gets slow rates and many retries. This is "
+    "one reading, not a trend: a device carried past the access point shows up too. Clients "
+    "without a reported signal are not judged.",
+    params=WeakSignalParams,
 )
 def client_weak_signal(net: Network) -> Iterator[Result]:
     for c in sorted(net.clients, key=lambda c: c.mac):
         signal = c.wireless.signal_dbm if c.wireless else None
         where = _ap_of(net, c)
-        if signal is None or signal >= WEAK_CLIENT_SIGNAL_DBM or where is None:
+        if signal is None or where is None:
             continue
         wlan, ap = where
+        if signal >= ctx.params(WeakSignalParams, wlan).min_dbm:
+            continue
         yield found(
             f"{_who(c)} has a weak Wi-Fi signal ({signal} dBm) on {ap}",
-            [c.id, wlan.id],
+            [wlan.id, c.id],
             fix="Move the device or an access point closer together, or add an access point "
             "where the device is used.",
             key=c.mac,

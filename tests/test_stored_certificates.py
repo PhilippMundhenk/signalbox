@@ -22,7 +22,7 @@ from signalbox.model import (
     Network,
     Snapshot,
 )
-from signalbox.rules import Finding, Rule, Severity, evaluate
+from signalbox.rules import Finding, Rule, RuleSettings, Severity, evaluate
 from signalbox.rules.stored_certificates import RULES, ca_expiring, vpn_expiring
 from signalbox.sightings import History
 from signalbox.sim.mikrotik import PASSWORD, MikrotikSimulator
@@ -287,9 +287,14 @@ def net_of(*certs: Certificate, **kw: Any) -> Network:
     )
 
 
-def run(rule_: Rule, n: Network, history: History | None = None) -> list[Finding]:
+def run(
+    rule_: Rule,
+    n: Network,
+    history: History | None = None,
+    settings: dict[str, RuleSettings] | None = None,
+) -> list[Finding]:
     h = history or History(now=NOW, since=NOW, observations=1)
-    return [f for f in evaluate(n, [rule_], None, h) if f.rule_id == rule_.id]
+    return [f for f in evaluate(n, [rule_], settings, h) if f.rule_id == rule_.id]
 
 
 def vpn(days: float, **kw: Any) -> Certificate:
@@ -320,9 +325,11 @@ def test_vpn_certificate_thresholds() -> None:
 
 
 def test_vpn_thresholds_are_the_configured_ones() -> None:
-    n = net_of(vpn(40), certificate_warn_days=60, certificate_urgent_days=45)
-    (f,) = run(vpn_expiring, n)
+    settings = {"cert.vpn-expiring": RuleSettings(params={"warn_days": 60, "urgent_days": 45})}
+    (f,) = run(vpn_expiring, net_of(vpn(40)), settings=settings)
     assert f.severity is Severity.ERROR
+    # the CA rule has its own parameters
+    assert run(ca_expiring, net_of(vpn(40, ca=True)), settings=settings) == []
 
 
 def test_vpn_rule_only_looks_at_vpn_certificates_and_needs_a_clock() -> None:

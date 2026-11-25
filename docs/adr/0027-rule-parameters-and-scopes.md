@@ -71,17 +71,26 @@ too. Annotations (#186, ADR 0007) already give objects tags.
 - *Parameters per site in the desired state rather than the global configuration?* No: they
   stay in `signalbox.yaml` with the other rule settings. The desired state describes the
   network that should exist, not how strictly Signalbox judges it; per-site values are a
-  `site` scope. The configuration is still a file only, so a UI editor is a later step.
+  `site` scope. The configuration is still a file only (the UI shows it read-only), so a UI editor is a later step.
 
 ## Consequences
 
 - Existing configurations and every finding's text and severity stay the same by default; the
   findings of the migrated rules carry `parameters`.
-- Thresholds that already had a global setting stay where they are for now: `counters.*`
-  (`port.errors`) and `certificates.warn_days`/`urgent_days` (certificate rules). Moving them to
-  rule parameters, so they can be scoped too, is a follow-up together with the UI form.
-- Engine rules (`signalbox.read`, `ack.expired`) take `enabled`/`severity` as before; scopes
-  apply to discovered rules.
+- Thresholds that had a global setting moved to rule parameters with the same defaults (#441):
+  `counters.*` to `port.errors`, `certificates.warn_days`/`urgent_days` to
+  `security.certificate-expiry`, `cert.vpn-expiring` and `cert.ca-expiring` (one parameter model
+  each). The old settings are deprecated aliases: a value other than the default is copied into
+  the rule-wide `params` of those rules when loading the configuration (an explicit
+  `rules.<id>.params` wins) and logs a warning. The Wi-Fi limits (#447) are parameters as well.
+- Engine rules (`signalbox.read`, `ack.expired`) have no parameters but honour the `enabled` and
+  `severity` of `scopes` (decided in #441): a finding matches on the first object it is about
+  (the device that could not be read, the target of the acknowledgement); an acknowledgement
+  without a target only follows the rule-wide setting.
+- `GET /api/rules` lists per rule `parameters`: `schema` (JSON Schema of the parameters, `unit`
+  per property), `defaults`, the effective rule-wide `values`, and `scopes` with `match`,
+  `enabled`, `severity`, the `params` it sets and its effective `values`. The settings page shows
+  them read-only; an editable form is still a follow-up.
 - A rule must pass the same object to `ctx.params` that it lists first in the finding,
   otherwise the recorded parameters could differ from those it used; the migrated rules do.
 - A device-reported limit still wins over the generic one where the model has it (temperature

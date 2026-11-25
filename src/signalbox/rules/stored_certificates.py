@@ -1,9 +1,9 @@
 """Rules about the certificates stored on devices (VPN, RADIUS, authorities; #330).
 
 They read :attr:`~signalbox.model.Network.certificates`, which devices that list their
-certificates report (MikroTik, OPNsense). The thresholds are those of the device's own
-certificate (``certificates.warn_days`` and ``urgent_days``, #174). A device that does not
-list certificates is left out: an empty list means "not read".
+certificates report (MikroTik, OPNsense). The thresholds are the parameters ``warn_days``
+and ``urgent_days`` of each rule (#174, #441). A device that does not list certificates is left
+out: an empty list means "not read".
 """
 
 from __future__ import annotations
@@ -12,7 +12,12 @@ from collections.abc import Iterator
 from datetime import datetime
 
 from signalbox.model import Certificate, CertificateUse, Network
-from signalbox.rules import Result, Rule, Severity, found, history_rule
+from signalbox.rules import Result, Rule, Severity, ctx, found, history_rule
+from signalbox.rules._certificate_params import (
+    CaExpiringParams,
+    CertificateExpiryParams,
+    VpnExpiringParams,
+)
 from signalbox.rules._names import device_name
 from signalbox.sightings import History
 
@@ -50,16 +55,19 @@ def issued_by(ca: Certificate, net: Network) -> list[Certificate]:
     return out
 
 
-def _state(net: Network, cert: Certificate, now: datetime) -> tuple[Severity, int] | None:
+def _state(
+    model: type[CertificateExpiryParams], cert: Certificate, now: datetime
+) -> tuple[Severity, int] | None:
     """``(severity, days)`` when the certificate is expired (days < 0) or expires within the
-    warning period; ``None`` otherwise."""
+    warning period of its device; ``None`` otherwise."""
     left = cert.not_after - now
     if left.total_seconds() <= 0:
         return Severity.ERROR, -1
     days = left.days
-    if days > net.certificate_warn_days:
+    limits = ctx.params(model, cert)
+    if days > limits.warn_days:
         return None
-    return (Severity.ERROR if days <= net.certificate_urgent_days else Severity.WARNING), days
+    return (Severity.ERROR if days <= limits.urgent_days else Severity.WARNING), days
 
 
 @history_rule(
@@ -69,10 +77,11 @@ def _state(net: Network, cert: Certificate, now: datetime) -> tuple[Severity, in
     "A VPN server or peer whose certificate expires stops accepting connections, often without "
     "any sign on the device until the first user is turned away. Reported for stored "
     "certificates a device names in its VPN configuration (MikroTik IPsec, OpenVPN and SSTP): "
-    "a warning 30 days before the expiry date, an error 7 days before and after it (the "
-    "thresholds of the HTTPS certificate check, under `certificates` in the configuration). "
+    "a warning 30 days before the expiry date, an error 7 days before and after it "
+    "(the parameters warn_days and urgent_days). "
     "Authorities are reported by `cert.ca-expiring`. Devices that do not list their "
     "certificates, and certificates whose use the device does not say, are left out.",
+    params=VpnExpiringParams,
 )
 def vpn_expiring(net: Network, history: History) -> Iterator[Result]:
     if history.now is None:
@@ -80,7 +89,7 @@ def vpn_expiring(net: Network, history: History) -> Iterator[Result]:
     for cert in sorted(net.certificates, key=lambda c: c.id):
         if CertificateUse.VPN not in cert.uses or cert.ca:
             continue
-        state = _state(net, cert, history.now)
+        state = _state(VpnExpiringParams, cert, history.now)
         if state is None:
             continue
         severity, days = state
@@ -117,8 +126,9 @@ def vpn_expiring(net: Network, history: History) -> Iterator[Result]:
     "clients, RADIUS servers and web interfaces signed by it are refused at once. Reported for "
     "authorities stored on a device, with the number of certificates on the same device that "
     "it issued: a warning 30 days before the expiry date, an error 7 days before and after it "
-    "(the thresholds of the HTTPS certificate check). Devices that do not list their "
+    "(the parameters warn_days and urgent_days). Devices that do not list their "
     "certificates are left out.",
+    params=CaExpiringParams,
 )
 def ca_expiring(net: Network, history: History) -> Iterator[Result]:
     if history.now is None:
@@ -126,7 +136,7 @@ def ca_expiring(net: Network, history: History) -> Iterator[Result]:
     for cert in sorted(net.certificates, key=lambda c: c.id):
         if not cert.ca:
             continue
-        state = _state(net, cert, history.now)
+        state = _state(CaExpiringParams, cert, history.now)
         if state is None:
             continue
         severity, days = state

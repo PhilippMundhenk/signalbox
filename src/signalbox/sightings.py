@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import Field
 
-from signalbox.counters import CounterLimits, CounterRecord
+from signalbox.counters import CounterRecord
 from signalbox.fdb import fdb_access_ports, managed_sightings
 from signalbox.model import Client, DeviceStatus, Model, Network, PortKind
 
@@ -174,8 +174,6 @@ class History(Model):
     fdb: dict[str, ValueHistory] = Field(default_factory=dict)
     #: By port id: the last counters and the delta to the read before (#158).
     counters: dict[str, CounterRecord] = Field(default_factory=dict)
-    #: Thresholds of ``port.errors`` (the runner sets them from the configuration).
-    counter_limits: CounterLimits = Field(default_factory=CounterLimits)
 
     @classmethod
     def empty(cls) -> History:

@@ -33,7 +33,7 @@ from signalbox.adapters.https import fingerprint
 from signalbox.adapters.mikrotik import MikrotikAdapter, MikrotikConfig
 from signalbox.config import Config
 from signalbox.model import CertificateInfo, DeviceRole, DeviceStatus, KeyType, Network
-from signalbox.rules import Finding, Rule, Severity, evaluate
+from signalbox.rules import Finding, Rule, RuleScope, RuleSettings, ScopeMatch, Severity, evaluate
 from signalbox.rules.certificate_checks import RULES, certificate_expiry, renewed, weak_key
 from signalbox.runner import Runner
 from signalbox.secrets import load_vault
@@ -299,12 +299,15 @@ async def test_first_certificate_is_not_a_renewal(store: Store) -> None:
     assert cert is not None and cert.previous_fingerprint_sha256 is None
 
 
-def test_thresholds_reach_the_network(store: Store) -> None:
+def test_deprecated_thresholds_become_parameters_of_the_three_rules(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     from signalbox.config import CertificatesConfig
 
-    cfg = Config(certificates=CertificatesConfig(warn_days=60, urgent_days=14))
-    net = Runner(store=store, adapters={}, rules=[], config=cfg).network()
-    assert (net.certificate_warn_days, net.certificate_urgent_days) == (60, 14)
+    cfg = Config(certificates=CertificatesConfig(warn_days=60, urgent_days=7))
+    for rule_id in ("security.certificate-expiry", "cert.vpn-expiring", "cert.ca-expiring"):
+        assert cfg.rules[rule_id].params == {"warn_days": 60}  # 7 is the default: not applied
+    assert "certificates.warn_days is deprecated" in caplog.text
 
 
 # --- rules -----------------------------------------------------------------------------------
@@ -320,14 +323,20 @@ def net_of(cert: CertificateInfo | None, **kw: Any) -> Network:
     return Network(sites=[SITE], devices=[device("gw", name="Gateway", certificate=cert)], **kw)
 
 
-def run(rule_: Rule, n: Network, history: History | None = None) -> list[Finding]:
+def run(
+    rule_: Rule,
+    n: Network,
+    history: History | None = None,
+    settings: dict[str, RuleSettings] | None = None,
+) -> list[Finding]:
     h = history or History(now=NOW, since=NOW, observations=1)
-    return [f for f in evaluate(n, [rule_], None, h) if f.rule_id == rule_.id]
+    return [f for f in evaluate(n, [rule_], settings, h) if f.rule_id == rule_.id]
 
 
-def expiry(days: float, **kw: Any) -> list[Finding]:
+def expiry(days: float, **params: Any) -> list[Finding]:
     end = NOW + timedelta(days=days)
-    return run(certificate_expiry, net_of(info(der=make_cert(end=end)), **kw))
+    settings = {"security.certificate-expiry": RuleSettings(params=params)}
+    return run(certificate_expiry, net_of(info(der=make_cert(end=end))), settings=settings)
 
 
 def test_registered() -> None:
@@ -355,10 +364,22 @@ def test_far_from_expiry_is_quiet() -> None:
 
 def test_thresholds_are_configurable() -> None:
     assert expiry(40) == []
-    (f,) = expiry(40, certificate_warn_days=60)
+    (f,) = expiry(40, warn_days=60)
     assert f.severity is Severity.WARNING
-    (f,) = expiry(10, certificate_urgent_days=14)
+    assert [p.value for p in f.parameters] == [60, 7]
+    (f,) = expiry(10, urgent_days=14)
     assert f.severity is Severity.ERROR
+
+
+def test_thresholds_can_be_scoped_to_a_device() -> None:
+    end = NOW + timedelta(days=40)
+    n = net_of(info(der=make_cert(end=end)))
+    scope = RuleScope(match=ScopeMatch(device="gw"), params={"warn_days": 60})
+    settings = {"security.certificate-expiry": RuleSettings(scopes=[scope])}
+    assert len(run(certificate_expiry, n, settings=settings)) == 1
+    elsewhere = RuleScope(match=ScopeMatch(device="other"), params={"warn_days": 60})
+    settings = {"security.certificate-expiry": RuleSettings(scopes=[elsewhere])}
+    assert run(certificate_expiry, n, settings=settings) == []
 
 
 def test_expiry_quiet_without_certificate_clock_or_trust() -> None:

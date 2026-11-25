@@ -7,6 +7,7 @@ example ``server.port`` → ``SIGNALBOX_SERVER_PORT``. Environment wins over the
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from collections.abc import Mapping
@@ -17,13 +18,22 @@ from pathlib import Path
 from typing import Any, Literal, get_args
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
-from signalbox.counters import CounterLimits
 from signalbox.rules import RuleSettings, Severity
 
 ENV_PREFIX = "SIGNALBOX_"
 FILE_NAME = "signalbox.yaml"
+
+log = logging.getLogger(__name__)
 
 
 class Section(BaseModel):
@@ -106,35 +116,31 @@ class CountersConfig(Section):
         0.001,
         ge=0,
         le=1,
-        description="Port error check (port.errors): report a port when the errors between two "
-        "reads are at least this share of its packets (0.001: one in a thousand).",
+        description="Deprecated, use rules.port.errors.params.error_ratio (#441). Port error "
+        "check (port.errors): report a port when the errors between two reads are at least this "
+        "share of its packets (0.001: one in a thousand).",
     )
     crc_ratio: float = Field(
         0.0001,
         ge=0,
         le=1,
-        description="Report a warning when the CRC/FCS errors received between two reads are at "
-        "least this share of the packets received (0.0001: one in ten thousand).",
+        description="Deprecated, use rules.port.errors.params.crc_ratio. Report a warning when "
+        "the CRC/FCS errors received between two reads are at least this share of the "
+        "packets received (0.0001: one in ten thousand).",
     )
     min_packets: int = Field(
         1000,
         ge=1,
-        description="Reads with fewer packets than this on a port are too small to judge.",
+        description="Deprecated, use rules.port.errors.params.min_packets. Reads with fewer "
+        "packets "
+        "than this on a port are too small to judge.",
     )
     min_errors: int = Field(
         5,
         ge=1,
-        description="Fewer errors than this between two reads are never reported "
-        "(a single bad frame).",
+        description="Deprecated, use rules.port.errors.params.min_errors. Fewer errors than this "
+        "between two reads are never reported (a single bad frame).",
     )
-
-    def limits(self) -> CounterLimits:
-        return CounterLimits(
-            error_ratio=self.error_ratio,
-            crc_ratio=self.crc_ratio,
-            min_packets=self.min_packets,
-            min_errors=self.min_errors,
-        )
 
 
 class CertificatesConfig(Section):
@@ -142,14 +148,17 @@ class CertificatesConfig(Section):
         30,
         ge=1,
         le=3650,
-        description="Days before a device's HTTPS certificate expires when Signalbox warns.",
+        description="Deprecated, use rules.<id>.params.warn_days of security.certificate-expiry, "
+        "cert.vpn-expiring and cert.ca-expiring (#441). Days before a certificate expires when "
+        "Signalbox warns.",
     )
     urgent_days: int = Field(
         7,
         ge=0,
         le=3650,
-        description="Days before it expires when the warning becomes an error (an expired "
-        "certificate is always an error).",
+        description="Deprecated, use rules.<id>.params.urgent_days of the same rules. Days "
+        "before it expires when the warning becomes an error (an expired certificate is always "
+        "an error).",
     )
 
 
@@ -393,6 +402,39 @@ class Config(Section):
         "and scopes (docs/RULES.md#parameters).",
     )
 
+    @model_validator(mode="after")
+    def _deprecated_thresholds(self) -> Config:
+        """``counters.*`` and ``certificates.*`` became rule parameters (#441): a value other
+        than the default still counts, as the rule-wide parameter unless ``rules`` sets it."""
+        for section, rule_ids in LEGACY_THRESHOLDS:
+            old = getattr(self, section)
+            for key, ids in rule_ids.items():
+                value = getattr(old, key)
+                if value == type(old).model_fields[key].default:
+                    continue
+                for rule_id in ids:
+                    settings = self.rules.setdefault(rule_id, RuleSettings())
+                    settings.params.setdefault(key, value)
+                log.warning(
+                    "%s.%s is deprecated: set rules.%s.params.%s instead (docs/RULES.md)",
+                    section,
+                    key,
+                    ids[0],
+                    key,
+                )
+        return self
+
+
+#: Settings that became rule parameters: section -> key -> the rules that take them over.
+_CERTIFICATE_RULES = ["security.certificate-expiry", "cert.vpn-expiring", "cert.ca-expiring"]
+LEGACY_THRESHOLDS: list[tuple[str, dict[str, list[str]]]] = [
+    (
+        "counters",
+        {k: ["port.errors"] for k in ("error_ratio", "crc_ratio", "min_packets", "min_errors")},
+    ),
+    ("certificates", dict.fromkeys(("warn_days", "urgent_days"), _CERTIFICATE_RULES)),
+]
+
 
 class ConfigError(Exception):
     pass
@@ -448,11 +490,9 @@ deploy:
   # Devices that can roll back by themselves (OpenWrt) do so unless confirmed in time.
   confirm_seconds: 120
 
-certificates:
-  # Days before the HTTPS certificate of a device expires when Signalbox warns, and when
-  # the warning becomes an error (an expired certificate is always an error).
-  warn_days: 30
-  urgent_days: 7
+# Deprecated: the certificate thresholds are parameters of the rules security.certificate-expiry,
+# cert.vpn-expiring and cert.ca-expiring (warn_days, urgent_days; see `rules` below). A
+# `certificates:` section with other values than 30 and 7 still works and is applied to all three.
 
 history:
   # Days the observation history is kept: when devices, clients and ports were first and
@@ -461,14 +501,10 @@ history:
   # they are never exported and are deleted after this many days.
   days: 30
 
-counters:
-  # Port error check (port.errors): the errors between two reads of a port's counters
-  # (received/sent errors, CRC/FCS) relative to its packets. Counters are read from the
-  # devices; only the last value per port is kept.
-  error_ratio: 0.001   # report at this share of errors per packet (one in a thousand)
-  crc_ratio: 0.0001    # warn at this share of CRC/FCS errors per received packet
-  min_packets: 1000    # reads with fewer packets are too small to judge
-  min_errors: 5        # fewer errors are never reported
+# Deprecated: the port error thresholds are parameters of the rule port.errors (error_ratio,
+# crc_ratio, min_packets, min_errors; see `rules` below). A `counters:` section with other
+# values than the defaults still works.
+
 
 discovery:
   # "Find devices" on the devices page probes the networks Signalbox knows (and ranges you

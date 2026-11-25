@@ -56,6 +56,7 @@ from signalbox.rules._params import (
     bind,
     check_settings,
     ctx,
+    describe,
     param,
     params_schema,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "ScopeMatch",
     "Severity",
     "ctx",
+    "describe",
     "param",
 ]
 
@@ -431,14 +433,25 @@ def evaluate(
         return rule_enabled(r, settings)
 
     findings: dict[str, Finding] = {}
-    if enabled(READ_ERRORS):
-        for f in _read_findings(net, severity_of(READ_ERRORS)):
-            findings[f.id] = f
-    if enabled(ACK_EXPIRED):
-        for f in _expired_findings(net, when, severity_of(ACK_EXPIRED)):
-            findings[f.id] = f
     rules = list(rules)
     resolver = Resolver(net, settings, parameter_models(rules))
+
+    def engine(r: Rule, made: list[Finding]) -> None:
+        """The engine's own findings honour the scopes' enabled and severity (ADR 0027): they
+        match on the first object a finding is about (the device, or the acknowledged
+        target); they have no parameters."""
+        scoped = resolver.has_scopes(r.id)
+        if not enabled(r) and not (scoped and any(x.enabled for x in settings[r.id].scopes)):
+            return
+        for f in made:
+            about = f.objects[0] if f.objects else None
+            on, severity = resolver.scoped(r.id, about) if scoped else (None, None)
+            if not (enabled(r) if on is None else on):
+                continue
+            findings[f.id] = f if severity is None else f.model_copy(update={"severity": severity})
+
+    engine(READ_ERRORS, _read_findings(net, severity_of(READ_ERRORS)))
+    engine(ACK_EXPIRED, _expired_findings(net, when, severity_of(ACK_EXPIRED)))
     for r in rules:
         scoped = resolver.has_scopes(r.id)
         s = settings.get(r.id)

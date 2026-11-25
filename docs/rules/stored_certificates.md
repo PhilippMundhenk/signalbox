@@ -4,14 +4,15 @@
 
 These rules read the certificates a device stores for other purposes than its own web interface:
 VPN servers, RADIUS, authorities (issue #330). They need an integration that lists them
-(MikroTik, OPNsense); a device that does not is not checked. The thresholds are those of
-`security.certificate-expiry` (`certificates.warn_days` and `urgent_days`). Only public
+(MikroTik, OPNsense); a device that does not is not checked. Each rule has the parameters
+`warn_days` (default 30) and `urgent_days` (default 7), like `security.certificate-expiry`; the
+deprecated `certificates.warn_days` / `urgent_days` settings still set all three. Only public
 certificate data is read; private keys never enter Signalbox.
 
 ## `cert.vpn-expiring`
 
-- **Severity:** warning up to `certificates.warn_days` (default 30) before the expiry date,
-  error up to `certificates.urgent_days` (default 7) before it and after it
+- **Severity:** warning up to `warn_days` (default 30) before the expiry date, error up to
+  `urgent_days` (default 7) before it and after it
 - **Checks:** a certificate the device names in its VPN configuration (MikroTik IPsec identity,
   OpenVPN and SSTP server) is not expired and does not expire soon. Authorities are reported by
   `cert.ca-expiring`. Needs the observation history clock. OPNsense does not say what uses a

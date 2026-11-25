@@ -5041,16 +5041,6 @@
           "title": "Annotations",
           "type": "array"
         },
-        "certificate_urgent_days": {
-          "default": 7,
-          "title": "Certificate Urgent Days",
-          "type": "integer"
-        },
-        "certificate_warn_days": {
-          "default": 30,
-          "title": "Certificate Warn Days",
-          "type": "integer"
-        },
         "certificates": {
           "items": {
             "$ref": "#/$defs/Certificate"
