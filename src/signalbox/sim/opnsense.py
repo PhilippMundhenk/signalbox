@@ -577,9 +577,15 @@ def sample_data() -> dict[str, Any]:
                 "general": {
                     "enabled": "1",
                     "port": "53",
+                    "dnssec": "1",
                     "active_interface": _opt(
                         {"lan": ("LAN", True), "opt1": ("IoT", True), "opt2": ("Guest", False)}
                     ),
+                },
+                "dnsbl": {
+                    "enabled": "1",
+                    "type": _opt({"ag": ("AdGuard List", True), "yy": ("Yoyo List", False)}),
+                    "lists": "https://lists.example.net/hosts?token=redacted",
                 },
                 "dots": {
                     "dot": {
@@ -596,6 +602,7 @@ def sample_data() -> dict[str, Any]:
                             "domain": "",
                             "server": "2001:db8:53::53",
                             "port": "853",
+                            "verify": "dns.example.net",
                         },
                         "d-3": {
                             "enabled": "1",

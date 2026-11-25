@@ -71,6 +71,7 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`dns.forwarder-loop`](rules/dns.md#dnsforwarder-loop)
 - [`dns.forwarder-missing`](rules/dns.md#dnsforwarder-missing)
 - [`dns.single-forwarder`](rules/dns.md#dnssingle-forwarder)
+- [`dns.forwarder-encrypted`](rules/dns.md#dnsforwarder-encrypted)
 - [`dns.conflicting-records`](rules/dns.md#dnsconflicting-records)
 
 ## [Expectations about clients](rules/expectations.md)

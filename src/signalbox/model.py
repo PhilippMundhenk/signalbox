@@ -2303,6 +2303,27 @@ def _split_host_port(text: str) -> tuple[str, int | None]:
     return text, None
 
 
+class DnsTransport(StrEnum):
+    """How a resolver talks to an upstream (#182)."""
+
+    UDP = "udp"  # plain DNS (UDP and TCP, port 53)
+    TLS = "tls"  # DNS over TLS (DoT)
+    HTTPS = "https"  # DNS over HTTPS (DoH)
+    QUIC = "quic"  # DNS over QUIC (DoQ)
+
+
+class Blocklist(Model):
+    """A list of blocked names a DNS service uses (Unbound DNSBL, AdGuard filter, Pi-hole list).
+
+    ``name`` is the list's name or the host of its URL: never the full URL, which can carry a
+    subscription token.
+    """
+
+    name: str
+    entries: int | None = None
+    enabled: bool = True
+
+
 class DnsForwarder(Model):
     """Where a DNS service forwards lookups to: an address and a port (#241).
 
@@ -2312,6 +2333,11 @@ class DnsForwarder(Model):
 
     address: IPAddress
     port: Annotated[int, Field(ge=1, le=65535)] = DNS_PORT
+    #: How it is reached (#182); snapshots from before have plain DNS.
+    transport: DnsTransport = DnsTransport.UDP
+    #: The server name the TLS certificate is checked against (DoT, DoH); None: not checked or
+    #: not known.
+    tls_name: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -2351,6 +2377,13 @@ class DnsService(Observed):
     #: False: the host records could not be read (refused, not found), so an empty list means
     #: "unknown", not "none configured" (#386); other settings were read.
     host_records_read: bool = True
+    #: Validates DNSSEC (#182); None: not known.
+    dnssec: bool | None = None
+    #: Block lists the service uses; empty: none, or not read.
+    blocklists: list[Blocklist] = Field(default_factory=list)
+    #: True: the software can forward over TLS or HTTPS (OPNsense Unbound, RouterOS 7, AdGuard
+    #: Home, Pi-hole, OpenWrt with https-dns-proxy); None: not known or not possible (#80).
+    supports_encrypted_dns: bool | None = None
     #: False: the service is only known to exist (something answers on the port, its own API
     #: needs its own login, like AdGuard Home on OPNsense); its forwarders and host records
     #: were not read, so empty lists mean "unknown", not "none".

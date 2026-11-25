@@ -1050,3 +1050,12 @@ Both privileges are in the read user's list (automatic setup, *Fix it*); a refus
 optional gap naming the privilege. Policy routing on OPNsense is a firewall rule with a gateway;
 the filter model has no gateway yet, so it is not read. *Guess:* the privilege names and the
 row fields until a 26.7 image says otherwise (#21).
+
+### DNS transport, DNSSEC and block lists (#182, #80)
+
+`unbound/settings/get`: a `dots` entry of type `dot` is a forwarder with transport `tls` and
+`tls_name` from `verify`; type `forward` is plain DNS. `general.dnssec` becomes `dnssec`. The
+DNSBL (`dnsbl`, 22.1 and later; older releases have none: no block lists) lists the selected
+predefined lists by name and own lists by the host of their URL (never the path, which can carry
+a token). Number of entries: not in the settings. Guesses for #21: the `verify` and `dnsbl`
+spelling on 24.7 and 25.x (compared with the sources, not recorded).

@@ -11,6 +11,7 @@ ever written: only GET requests are sent.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from ipaddress import ip_network
 from typing import Any
@@ -37,6 +38,7 @@ from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     DNS_PORT,
+    Blocklist,
     Client,
     DeviceRole,
     Firmware,
@@ -47,8 +49,11 @@ from signalbox.model import (
     object_id,
 )
 
+log = logging.getLogger(__name__)
+
 STATUS = "/control/status"
 DNS_INFO = "/control/dns_info"
+FILTERING = "/control/filtering/status"
 DHCP_STATUS = "/control/dhcp/status"
 CLIENTS = "/control/clients"
 REWRITES = "/control/rewrite/list"
@@ -222,6 +227,29 @@ class AdGuardHomeAdapter(Adapter):
                     "it the DNS checks do not know AdGuard Home's host names.",
                 )
             )
+        blocklists: list[Blocklist] = []
+        try:
+            data = _dict(await self._get(FILTERING), FILTERING)
+            for row in data.get("filters") or []:
+                if isinstance(row, dict) and (
+                    name := dnsmap.text(row.get("name")) or dnsmap.list_host(row.get("url"))
+                ):
+                    rules = row.get("rules_count")
+                    blocklists.append(
+                        Blocklist(
+                            name=name,
+                            entries=rules if isinstance(rules, int) else None,
+                            enabled=bool(row.get("enabled", True)),
+                        )
+                    )
+        except (Unreachable, AuthFailed):
+            raise
+        except AdapterError as exc:
+            log.debug("%s: no filter list: %s", dev, exc)  # an optional extra
+        # ``dnssec_enabled`` (current), ``enable_dnssec`` (a guess for older releases, #21)
+        dnssec = next(
+            (bool(info[k]) for k in ("dnssec_enabled", "enable_dnssec") if k in info), None
+        )
         protection = status.get("protection_enabled", info.get("protection_enabled"))
         extra: dict[str, Any] = {"filtering_enabled": bool(protection)}
         if isinstance(info.get("upstream_mode"), str):
@@ -238,6 +266,9 @@ class AdGuardHomeAdapter(Adapter):
             host_records=records,
             enabled=bool(status.get("running", True)),
             extra=extra,
+            dnssec=dnssec,
+            blocklists=blocklists,
+            encrypted=True,
         )
         return Observation(dns_services=[service], incomplete=gaps)
 

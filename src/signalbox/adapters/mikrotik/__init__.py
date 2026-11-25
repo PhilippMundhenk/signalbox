@@ -89,6 +89,7 @@ from signalbox.model import (
     AccountPrivilege,
     AddressSource,
     Band,
+    Blocklist,
     Certificate,
     CertificateUse,
     Cipher,
@@ -106,6 +107,7 @@ from signalbox.model import (
     DhcpServer,
     DnsForwarder,
     DnsService,
+    DnsTransport,
     Fan,
     FdbEntry,
     FdbKind,
@@ -207,6 +209,7 @@ DHCP_ALERT = "/rest/ip/dhcp-server/alert"
 POOL = "/rest/ip/pool"
 DNS = "/rest/ip/dns"
 DNS_STATIC = "/rest/ip/dns/static"
+DNS_ADLIST = "/rest/ip/dns/adlist"
 ARP = "/rest/ip/arp"
 IPV6_NEIGHBOR = "/rest/ipv6/neighbor"
 NEIGHBOR = "/rest/ip/neighbor"
@@ -2180,6 +2183,20 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             if not _active(row) or kind not in ("A", "AAAA") or not host or address is None:
                 continue
             records.append(HostRecord(name=host, address=address))
+        # ``use-doh-server``: with a DoH server set (RouterOS 7.x), every lookup goes there over
+        # HTTPS; ``servers`` then only resolve its name. The name is the host of the URL.
+        doh = _text(dns.get("use-doh-server")).split("://", 1)[-1].split("/", 1)[0]
+        # ``adlist`` (RouterOS 7.15 and later; a guess for ``match-count``, #21): not on older
+        # releases, where there are no block lists
+        blocklists = [
+            Blocklist(
+                name=_text(row.get("url")).split("://", 1)[-1].split("/", 1)[0].split("@")[-1],
+                entries=_int(row.get("match-count")) if row.get("match-count") else None,
+                enabled=_active(row),
+            )
+            for row in await self._readable(DNS_ADLIST) or []
+            if _text(row.get("url"))
+        ]
         remote = _flag(dns.get("allow-remote-requests"))
         listen = _unique(a.ip for n, a in layout.addresses if n in layout.l3) if remote else []
         return Observation(
@@ -2191,8 +2208,15 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     listen=listen,
                     name="dns",
                     forwarders=[
-                        DnsForwarder(address=a) for a in _unique(_addrs(dns.get("servers")))
+                        DnsForwarder(
+                            address=a,
+                            transport=DnsTransport.HTTPS if doh else DnsTransport.UDP,
+                            tls_name=doh or None,
+                        )
+                        for a in _unique(_addrs(dns.get("servers")))
                     ],
+                    blocklists=blocklists,
+                    supports_encrypted_dns=True,
                     host_records=records,
                     vendor_extra=_extra(dns, "dynamic-servers", "cache-size"),
                 )

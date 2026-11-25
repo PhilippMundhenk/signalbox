@@ -25,11 +25,13 @@ from typing import Any
 
 from signalbox.model import (
     DNS_PORT,
+    Blocklist,
     DhcpLease,
     DhcpPool,
     DhcpServer,
     DnsForwarder,
     DnsService,
+    DnsTransport,
     IPAddress,
     LeaseState,
     Reservation,
@@ -41,6 +43,13 @@ from signalbox.model import (
 
 #: Default port of an upstream by its scheme (the port a plain address uses is 53).
 _SCHEME_PORT = {"tls": 853, "quic": 853, "https": 443, "h3": 443}
+#: Transport of an upstream by its scheme (#182); no scheme: plain DNS.
+_SCHEME_TRANSPORT = {
+    "tls": DnsTransport.TLS,
+    "quic": DnsTransport.QUIC,
+    "https": DnsTransport.HTTPS,
+    "h3": DnsTransport.HTTPS,
+}
 
 
 @dataclass
@@ -95,7 +104,14 @@ def _one(spec: str) -> tuple[DnsForwarder | None, str | None]:
     number = port if port is not None else _SCHEME_PORT.get(scheme, DNS_PORT)
     if not 1 <= number <= 65535:
         return None, f"{scheme}://{where}" if scheme else where
-    return DnsForwarder(address=address, port=number), None
+    return (
+        DnsForwarder(
+            address=address,
+            port=number,
+            transport=_SCHEME_TRANSPORT.get(scheme, DnsTransport.UDP),
+        ),
+        None,
+    )
 
 
 def parse_upstreams(items: Iterable[str]) -> Upstreams:
@@ -144,6 +160,9 @@ def dns_service(
     host_records: list[Any] | None = None,
     enabled: bool = True,
     extra: dict[str, Any] | None = None,
+    dnssec: bool | None = None,
+    blocklists: list[Blocklist] | None = None,
+    encrypted: bool | None = None,
 ) -> DnsService:
     """The device's DNS service. ``upstreams`` None: their list could not be read, so the
     service is reported as not read (``config_read=False``) and the loop checks say so."""
@@ -156,6 +175,9 @@ def dns_service(
         port=port,
         forwarders=upstreams.forwarders if upstreams else [],
         host_records=host_records or [],
+        dnssec=dnssec,
+        blocklists=blocklists or [],
+        supports_encrypted_dns=encrypted,
         config_read=upstreams is not None,
         vendor_extra={**(upstreams.extra() if upstreams else {}), **(extra or {})},
     )
@@ -287,3 +309,11 @@ def dhcp_server(
         vendor_extra=extra or {},
     )
     return server, Segment(id=seg, site_id=site_id)
+
+
+def list_host(url: object) -> str:
+    """The host of a block list's URL (never the path or query, which can carry a token);
+    anything that is no URL is returned as it is."""
+    value = text(url)
+    host = value.split("://", 1)[-1].split("/", 1)[0].split("@")[-1].split("?", 1)[0]
+    return host or value
