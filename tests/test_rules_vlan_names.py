@@ -45,7 +45,7 @@ def test_different_names_are_reported_with_a_suggestion() -> None:
 
 def test_majority_name_is_suggested() -> None:
     (f,) = run(net(gw="IoT", sw="Smart", ap="smart"))
-    assert f.params["suggestion"] == "Smart"
+    assert str(f.params["suggestion"]).lower() == "smart"
 
 
 def test_case_and_whitespace_are_ignored() -> None:

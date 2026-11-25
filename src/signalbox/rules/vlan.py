@@ -767,10 +767,10 @@ def name_consistent(net: Network) -> Iterator[Result]:
         )
         listing = ", ".join(f"{n} ({_device_name(net, d)})" for d, n in named.items())
         yield found(
-            f"VLAN {seg.vlan} is called differently: {listing}.",
+            f"VLAN {seg.vlan} has different names: {listing}.",
             [seg.id, *named],
-            fix=f"Check that these devices mean the same network (a wrong VLAN id on one of "
-            f"them is the usual cause), then use one name, for example {best}.",
+            fix="Check that these devices mean the same network (a wrong VLAN id on one of them is "
+            f"the usual cause), then use one name, for example {best}.",
             mid="vlan.nameConsistent",
             fix_id="vlan.nameConsistent.fix",
             params={"vlan": seg.vlan, "names": listing, "suggestion": best},
