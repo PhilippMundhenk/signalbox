@@ -1,9 +1,10 @@
-// Settings: sites, password, rules (read-only).
+// Settings: sites, password, rules and their parameters.
 import { del, enc, get, post, put } from '../api.js';
 import { clear, h, place } from '../util.js';
 import { availableLanguages, savedLanguage, setLanguage, t } from '../i18n.js';
 import { card, clearNotice, confirmDialog, field, pageHead, run, select, setNotice, severityBadge, slot, table, tag, toast } from '../ui.js';
 import { notificationsCard } from './notifications.js';
+import { ruleParams } from './ruleparams.js';
 import { ruleExplanation, ruleTitle } from '../texts.js';
 
 function sitesCard(ctx, sites, devices) {
@@ -125,31 +126,12 @@ function languageCard(ctx) {
   return card(t('settings.language'), h('p', { class: 'muted' }, t('settings.languageHint')), field(t('settings.language'), pick));
 }
 
-// The parameters of a rule (#441), read-only, from the JSON Schema the API sends: the value in
-// force for the whole rule next to its default, then what each scope changes.
-function paramsView(r) {
-  const p = r.parameters;
-  const props = (p && p.schema && p.schema.properties) || {};
-  const names = Object.keys(props);
-  if (!names.length && !(p && p.scopes.length)) return null;
-  const unit = (n) => (props[n] && props[n].unit ? ` ${props[n].unit}` : '');
-  const rows = names.map((n) =>
-    h(
-      'li',
-      { 'data-testid': 'rule-param', 'data-name': n },
-      h('code', {}, n),
-      ` = ${p.values[n]}${unit(n)} `,
-      h('span', { class: 'muted small' }, `(${t('settings.paramDefault', { value: p.defaults[n] })}) ${props[n].description || ''}`),
-    ),
-  );
-  const scopes = p.scopes.map((s) => {
-    const match = Object.entries(s.match).map(([k, v]) => `${k}=${v}`).join(', ');
-    const set = names.filter((n) => n in s.params).map((n) => `${n} = ${s.values[n]}${unit(n)}`);
-    if (s.enabled !== null) set.push(`enabled = ${s.enabled}`);
-    if (s.severity) set.push(`severity = ${s.severity}`);
-    return h('li', { 'data-testid': 'rule-scope' }, h('strong', {}, t('settings.paramScope', { match })), ` ${set.join(', ')}`);
-  });
-  return h('div', { class: 'rule-params', 'data-testid': 'rule-params' }, h('h4', {}, t('settings.params')), h('ul', {}, rows, scopes), h('p', { class: 'muted small' }, t('settings.paramsFile')));
+// The parameters and scopes of a rule (#441, #454): the editor redraws itself after a save.
+function paramsHolder(r) {
+  const holder = h('div', {});
+  const draw = (rule) => place(clear(holder), ruleParams(rule, async () => draw((await get('/rules')).find((x) => x.id === rule.id) || rule)));
+  draw(r);
+  return holder;
 }
 
 function rulesCard(rules) {
@@ -165,7 +147,7 @@ function rulesCard(rules) {
           { class: 'rule', 'data-testid': 'rule', 'data-id': r.id },
           h('summary', {}, severityBadge(r.severity), ' ', h('strong', {}, ruleTitle(r)), ' ', r.enabled ? null : tag(t('settings.off')), h('span', { class: 'muted small' }, ` ${r.id}`)),
           h('p', {}, ruleExplanation(r)),
-          paramsView(r),
+          paramsHolder(r),
         ),
       ),
     ),

@@ -38,7 +38,6 @@ from signalbox.mqtt import MqttBridge
 from signalbox.neighbours import radio_neighbours, scan_rows
 from signalbox.notifications import Notifier
 from signalbox.prober import Prober
-from signalbox.rules import ENGINE_RULES, describe, rule_enabled
 from signalbox.secrets import SecretError
 from signalbox.service import Services
 from signalbox.sightings import History
@@ -52,6 +51,7 @@ from signalbox.web.discovery_api import router as discovery_router
 from signalbox.web.manage_url import manage_url
 from signalbox.web.notifications_api import router as notifications_router
 from signalbox.web.probes_api import router as probes_router
+from signalbox.web.rules_api import router as rules_router
 from signalbox.web.traces_api import router as traces_router
 from signalbox.wifimap import wifi_map
 
@@ -409,24 +409,6 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
             for k in sorted(services.adapters)
         ]
 
-    @api.get("/rules")
-    def rules() -> list[dict[str, Any]]:
-        """All rules with severity, enabled state and parameters (schema, defaults, scopes)."""
-        out = []
-        for r in [*ENGINE_RULES, *services.rules]:
-            s = config.rules.get(r.id)
-            out.append(
-                {
-                    "id": r.id,
-                    "title": r.title,
-                    "explanation": r.explanation,
-                    "severity": (s.severity if s and s.severity else r.severity).value,
-                    "enabled": rule_enabled(r, config.rules),
-                    "parameters": describe(r.params, s),
-                }
-            )
-        return out
-
     # sites ------------------------------------------------------------------------------
 
     @api.get("/sites")
@@ -741,6 +723,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
 
     app.include_router(api)
     app.include_router(desired_router(services))
+    app.include_router(rules_router(services))
     app.include_router(notifications_router(notifier))
     app.include_router(annotations_router(services))
     app.include_router(changes_router(services, Deployer(runner)))
