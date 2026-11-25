@@ -121,3 +121,24 @@ AVM's published TR-064 interface specification.
 
 `layer3forwardingSCPD.xml` (Layer3Forwarding:1, the static IPv4 routes and the default
 connection) is from the same gofritz dump and commit, byte for byte, for both versions.
+
+## FRITZ!OS 7.29 and 6.83 (#413)
+
+`fritzos-7.29/` is the files of a FRITZ!Box 7530 AX with FRITZ!OS 7.29 (`256.07.29`), byte for
+byte from [chikenborgir/avmtools](https://github.com/chikenborgir/avmtools) (MIT), commit
+`5a8140dbb9bd54277ca3a343d415d564a12f9079`, `docs/xml/<Service>/FRITZ_Box_7530_AX_07.29_*.xml`
+and `docs/xml/FRITZ_Box_7530_AX_07.29_tr64desc.xml`, copied under the names the other
+directories use. Only `presentationURL` of `tr64desc.xml` was neutralised
+(`http://fritz.box` -> `http://192.0.2.1`). Against 7.57 the 7.29 files lack, among others,
+`NewX_AVM-DE_IsDefaultPasswordActive`, `NewX_AVM-DE_FrequencyBand`,
+`NewX_AVM-DE_AutoChannelEnabled`, `NewX_AVM-DE_WLANGlobalEnable`, `SetMyFRITZ`,
+`SetLetsEncryptEnable`.
+
+`fritzos-6.83/` is **derived, not a real box's files**: no 6.x service descriptions could be
+found or fetched (AVM's pages are not reachable from the build environment). It is the 7.29 set
+with these removals, which are guesses of what FRITZ!OS 6.83 lacks (#21): the actions
+`X_AVM-DE_GetCurrentUser` and `X_AVM-DE_GetUserList` (LANConfigSecurity),
+`X_AVM-DE_GetHostListPath` and `X_AVM-DE_GetMeshListPath` (Hosts), `X_AVM-DE_GetWLANExtInfo`
+(WLANConfiguration), and the WPA3 beacon types `WPA3`, `11iandWPA3`, `OWE`, `OWETrans` from the
+allowed values of `BeaconType`; `tr64desc.xml` shows `113.06.83` and `FRITZ!Box 7490`. Replace
+the directory with a real box's files when one is available.
