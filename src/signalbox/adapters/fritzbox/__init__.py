@@ -50,6 +50,8 @@ from signalbox.adapters import (
 from signalbox.adapters.fritzbox import ddns as ddns_reader
 from signalbox.adapters.fritzbox import discovery
 from signalbox.adapters.fritzbox.accounts import box_rights, user_names
+from signalbox.adapters.fritzbox.mesh import MeshRead
+from signalbox.adapters.fritzbox.mesh import parse as parse_mesh
 from signalbox.adapters.fritzbox.routes import (
     ENTRY_LIMIT,
     default_gateway,
@@ -962,8 +964,12 @@ class FritzboxAdapter(Adapter):
         forwarding = await self._forwarding()
         uplinks = await self._uplinks(forwarding)
         wan = await self._wan_port()
+        mesh = await self._mesh({port.mac} if port.mac else set())
         return Observation(
-            ports=[port, *([wan] if wan else [])],
+            ports=[port, *([wan] if wan else []), *mesh.ports],
+            devices=mesh.devices,
+            wireless_links=mesh.links,
+            mesh=mesh.mesh,
             segments=segments,
             subnets=subnets,
             routes=await self._routes(uplinks, forwarding),
@@ -972,6 +978,24 @@ class FritzboxAdapter(Adapter):
             services=await self._services(),
             **await self._accounts(),
         )
+
+    async def _mesh(self, own_macs: set[str]) -> MeshRead:
+        """FRITZ!Mesh (#171): ``X_AVM-DE_GetMeshListPath`` and the topology document it names.
+        A box without the action (fault 401; the service descriptions of FRITZ!OS 6.83 and
+        later list it) or without a mesh reports nothing, and a document that is not in the
+        shape expected is skipped: the mesh is an extra, not part of the box itself."""
+        try:
+            answer = await self.tr064.call("Hosts1", "X_AVM-DE_GetMeshListPath")
+        except SoapFault:
+            return MeshRead()
+        path = answer.get("NewX_AVM-DE_MeshListPath", "")
+        if not path:
+            return MeshRead()
+        try:
+            doc = await self.tr064.get_json(path, "Hosts1 mesh list")
+        except AdapterError:
+            return MeshRead()
+        return parse_mesh(doc, self.context.device_id, own_macs)
 
     async def _ddns(self, uplinks: list[Uplink]) -> list[DynamicDns]:
         """The box's DDNS provider and its MyFRITZ! name (#154); a box without them (a repeater,

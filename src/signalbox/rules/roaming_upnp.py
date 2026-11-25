@@ -27,7 +27,7 @@ def roaming(net: Network) -> Iterator[Result]:
     groups: dict[tuple[str, str], list[Wlan]] = defaultdict(list)
     for w in sorted(net.wlans, key=lambda w: w.id):
         site = site_of_device(net, w.device_id)
-        if w.enabled and site is not None:
+        if w.enabled and not w.backhaul and site is not None:
             groups[(site, w.ssid)].append(w)
     for (_, ssid), wlans in sorted(groups.items()):
         with_r = [w for w in wlans if w.roaming_80211r is True]

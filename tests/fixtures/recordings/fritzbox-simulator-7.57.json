@@ -229,6 +229,18 @@
    "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetHostListPathResponse xmlns:u=\"urn:dslforum-org:service:Hosts:1\"><NewX_AVM-DE_HostListPath>/devicehostlist.lua?sid=redacted-secret-03</NewX_AVM-DE_HostListPath></u:X_AVM-DE_GetHostListPathResponse></s:Body></s:Envelope>"
   },
   {
+   "method": "POST",
+   "path": "/upnp/control/hosts",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:Hosts:1#X_AVM-DE_GetMeshListPath\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:X_AVM-DE_GetMeshListPath xmlns:u=\"urn:dslforum-org:service:Hosts:1\"></u:X_AVM-DE_GetMeshListPath></s:Body></s:Envelope>",
+   "status": 500,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail><UPnPError xmlns=\"urn:dslforum-org:control-1-0\"><errorCode>401</errorCode><errorDescription>Invalid Action</errorDescription></UPnPError></detail></s:Fault></s:Body></s:Envelope>"
+  },
+  {
    "method": "GET",
    "path": "/devicehostlist.lua?sid=redacted-secret-03",
    "headers": {},
@@ -1044,6 +1056,7 @@
    "os": "FRITZ!OS",
    "os_version": "154.07.57",
    "hosted_on": null,
+   "mesh": null,
    "adapter": "fritzbox",
    "capabilities": [
     "clients",
@@ -1829,7 +1842,8 @@
     "key_rotation_seconds": null,
     "beacon_protection": null,
     "port_id": null,
-    "bssid": "00:00:5e:00:53:00"
+    "bssid": "00:00:5e:00:53:00",
+    "backhaul": false
    },
    {
     "id": "recorded/wlan/2",
@@ -1881,7 +1895,8 @@
     "key_rotation_seconds": null,
     "beacon_protection": null,
     "port_id": null,
-    "bssid": "00:00:5e:00:53:01"
+    "bssid": "00:00:5e:00:53:01",
+    "backhaul": false
    },
    {
     "id": "recorded/wlan/3",
@@ -1932,7 +1947,8 @@
     "key_rotation_seconds": null,
     "beacon_protection": null,
     "port_id": null,
-    "bssid": "00:00:5e:00:53:02"
+    "bssid": "00:00:5e:00:53:02",
+    "backhaul": false
    }
   ],
   "clients": [
@@ -2038,6 +2054,7 @@
    }
   ],
   "neighbours": [],
+  "mesh_peers": [],
   "fdb": [],
   "routes": [
    {
@@ -2097,6 +2114,7 @@
   ],
   "routing_rules": [],
   "wifi_scan": [],
+  "wireless_links": [],
   "tunnels": [],
   "firewalls": [
    {

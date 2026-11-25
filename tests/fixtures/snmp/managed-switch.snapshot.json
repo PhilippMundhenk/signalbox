@@ -41,6 +41,7 @@
   "os": null,
   "os_version": null,
   "hosted_on": null,
+  "mesh": null,
   "adapter": "snmp",
   "capabilities": [
    "health",
@@ -956,6 +957,7 @@
    "age_seconds": null
   }
  ],
+ "mesh_peers": [],
  "fdb": [
   {
    "id": "switch/fdb/Gi1/1/02:00:00:00:00:01",
@@ -1036,6 +1038,7 @@
  "routes": [],
  "routing_rules": [],
  "wifi_scan": [],
+ "wireless_links": [],
  "tunnels": [],
  "firewalls": [],
  "server_sightings": [],

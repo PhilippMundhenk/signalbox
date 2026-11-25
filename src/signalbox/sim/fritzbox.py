@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import hashlib
+import json
 import re
 import secrets
 import string
@@ -38,7 +39,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
 from functools import cache
 from ipaddress import IPv4Address, IPv4Network
-from typing import ClassVar
+from typing import Any, ClassVar
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -54,6 +55,7 @@ REALM_HTTPS = "HTTPS Access"
 REALM_HTTP = "F!Box SOAP-Auth"
 SOAP_ENV = "http://schemas.xmlsoap.org/soap/envelope/"
 HOST_LIST = "/devicehostlist.lua"
+MESH_LIST = "/meshlist.lua"
 MAC = "02:00:00:00:{:02x}:{:02x}"
 _PARAM = re.compile(r'(\w+)=(?:"([^"]*)"|([^\s,]*))')
 
@@ -253,6 +255,107 @@ def host_list() -> str:
     return f'<?xml version="1.0" encoding="utf-8"?><List>{items}</List>'
 
 
+def _mesh_node(
+    uid: str, name: str, model: str, mac: str, role: str, ip: str, itfs: list[dict[str, Any]]
+) -> dict[str, Any]:
+    return {
+        "uid": uid,
+        "device_name": name,
+        "device_model": model,
+        "device_manufacturer": "AVM",
+        "device_firmware_version": "7.57",
+        "device_mac_address": mac,
+        "is_meshed": True,
+        "mesh_role": role,
+        "node_interfaces": [{"ip": ip, **i} for i in itfs],
+    }
+
+
+def _mesh_link(uid: str, a: str, b: str, ia: str, ib: str, rate: int, rcpi: int) -> dict[str, Any]:
+    return {
+        "uid": uid,
+        "type": "WLAN",
+        "state": "CONNECTED",
+        "node_1_uid": a,
+        "node_2_uid": b,
+        "node_interface_1_uid": ia,
+        "node_interface_2_uid": ib,
+        "cur_data_rate_rx": rate,
+        "cur_data_rate_tx": rate,
+        "rx_rcpi": rcpi,
+        "tx_rcpi": rcpi,
+    }
+
+
+def mesh_topology() -> dict[str, Any]:
+    """A mesh in the shape of AVM's mesh topology document (#171): the box (master), a repeater
+    on 5 GHz and a second one behind it on 2.4 GHz, plus a client the document lists as a node
+    (``is_meshed`` false). Documentation addresses and made-up MACs; the field names are the
+    adapter's guess (#21), not a recording."""
+    l1 = _mesh_link("SEG-1", "n-box", "n-rep1", "i-box-ap5", "i-rep1-up5", 866_000, 100)
+    l2 = _mesh_link("SEG-2", "n-rep1", "n-rep2", "i-rep1-ap2", "i-rep2-up2", 40_000, 56)
+    box = _mesh_node(
+        "n-box",
+        "fritz.box",
+        "FRITZ!Box 7590",
+        _mac(0, 1),
+        "master",
+        "192.0.2.1",
+        [
+            {
+                "uid": "i-box-ap5",
+                "name": "AP:5G:0",
+                "mac_address": _mac(0, 2),
+                "current_channel": 36,
+                "node_links": [l1],
+            }
+        ],
+    )
+    rep1 = _mesh_node(
+        "n-rep1",
+        "Repeater Hall",
+        "FRITZ!Repeater 3000",
+        _mac(2, 1),
+        "slave",
+        "192.0.2.21",
+        [
+            {
+                "uid": "i-rep1-up5",
+                "name": "UPLINK:5G:0",
+                "mac_address": _mac(2, 2),
+                "current_channel": 36,
+                "node_links": [l1],
+            },
+            {
+                "uid": "i-rep1-ap2",
+                "name": "AP:2G:0",
+                "mac_address": _mac(2, 3),
+                "current_channel": 6,
+                "node_links": [l2],
+            },
+        ],
+    )
+    rep2 = _mesh_node(
+        "n-rep2",
+        "Repeater Garden",
+        "FRITZ!Repeater 1200",
+        _mac(3, 1),
+        "slave",
+        "192.0.2.22",
+        [
+            {
+                "uid": "i-rep2-up2",
+                "name": "UPLINK:2G:0",
+                "mac_address": _mac(3, 2),
+                "current_channel": 6,
+                "node_links": [l2],
+            }
+        ],
+    )
+    client = {"uid": "n-client", "device_name": "phone", "is_meshed": False, "node_interfaces": []}
+    return {"schema_version": "1.9", "nodes": [box, rep1, rep2, client]}
+
+
 _CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 #: ``wan`` -> (NewWANAccessType, Layer 1 downstream and upstream rate in bit/s)
 WAN_ACCESS = {
@@ -422,6 +525,12 @@ class FritzboxSim:
     host_list: bool = True
     #: path X_AVM-DE_GetHostListPath points to
     host_list_path: str = ""
+    #: FRITZ!Mesh (#171): ``X_AVM-DE_GetMeshListPath`` points to :func:`mesh_topology` (or to
+    #: ``mesh_doc``); off: the box has no mesh and answers fault 401 as a FRITZ!OS without it
+    mesh: bool = False
+    mesh_doc: object = None
+    #: path X_AVM-DE_GetMeshListPath points to (empty: this simulator's own)
+    mesh_list_path: str = ""
     nonces: set[str] = field(default_factory=set)
     #: requests that reached the application (authenticated or not)
     requests: int = 0
@@ -552,6 +661,8 @@ class FritzboxSim:
             off.add("X_AVM-DE_GetWLANExtInfo")
         if not self.host_list:
             off.add("X_AVM-DE_GetHostListPath")
+        if not self.mesh:
+            off.add("X_AVM-DE_GetMeshListPath")
         if not self.beacon_advertisement:
             off |= {"GetBeaconAdvertisement", "SetBeaconAdvertisement"}
         return off
@@ -735,6 +846,8 @@ class FritzboxSim:
                 return host_entry(index) if index < len(HOSTS) else 713
             if action == "X_AVM-DE_GetHostListPath":
                 return {"NewX_AVM-DE_HostListPath": self.host_list_path or self.list_path}
+            if action == "X_AVM-DE_GetMeshListPath":
+                return {"NewX_AVM-DE_MeshListPath": self.mesh_list_path or self.mesh_path}
         raise NotSimulated(f"{service} {action}")
 
     # characters a password and a user name may have (built, not written out: a literal looks
@@ -827,6 +940,10 @@ class FritzboxSim:
     @property
     def list_path(self) -> str:
         return f"{HOST_LIST}?sid={self.sid}"
+
+    @property
+    def mesh_path(self) -> str:
+        return f"{MESH_LIST}?sid={self.sid}"
 
     def _set_lan(self, action: str, args: dict[str, str]) -> dict[str, str] | int:
         if action == "SetDHCPServerEnable":
@@ -1094,5 +1211,15 @@ def create_app(sim: FritzboxSim | None = None) -> FastAPI:
         if "HostList" in state.malformed:
             return Response("<List><Item>", media_type="text/xml")
         return Response(host_list(), media_type="text/xml")
+
+    @app.get(MESH_LIST)
+    async def mesh_list(sid: str = "") -> Response:
+        state.requests += 1
+        if sid != state.sid:
+            return Response("<html>403 Forbidden</html>", status_code=403)
+        if "MeshList" in state.malformed:
+            return Response('{"nodes": [', media_type="application/json")
+        doc = state.mesh_doc if state.mesh_doc is not None else mesh_topology()
+        return Response(json.dumps(doc), media_type="application/json")
 
     return app

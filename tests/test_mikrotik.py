@@ -1608,3 +1608,45 @@ async def test_dns_forward_entries_are_domain_upstreams(
     assert (split.domain, str(split.address)) == ("corp.example", "192.0.2.53")
     assert [str(f) for f in dns.forwarders if f.domain is None] == ["192.0.2.53", "2001:db8:53::53"]
     assert dns.cache_size == 2048 and dns.recursive is False
+
+
+async def test_station_bridge_is_an_uplink_peer(http_url: str, sim: MikrotikSimulator) -> None:
+    """A wifi interface in station-bridge mode and its registration row (#171)."""
+    sim.data["/rest/interface"].append(
+        {".id": "*98", "name": "wifi4", "type": "wifi", "running": "true", "disabled": "false"}
+    )
+    sim.data["/rest/interface/wifi"].append(
+        {
+            "name": "wifi4",
+            "mac-address": "02:00:00:00:00:09",
+            "configuration.mode": "station-bridge",
+            "channel.band": "5ghz-ax",
+            "channel.frequency": "5180",
+            "disabled": "false",
+            "running": "true",
+        }
+    )
+    sim.data["/rest/interface/wifi/registration-table"].append(
+        {
+            ".id": "*77",
+            "interface": "wifi4",
+            "mac-address": "02:00:00:00:00:77",
+            "signal": "-67",
+            "tx-rate": "433.3Mbps-80MHz-1S",
+            "rx-rate": "390.0Mbps-80MHz-1S",
+        }
+    )
+    snap = await observe(adapter(http_url))
+    (peer,) = snap.mesh_peers
+    assert peer.peer_mac == "02:00:00:00:00:77" and peer.role.value == "uplink"
+    assert peer.port_id == "rt/port/wifi4"
+    info = peer.wireless
+    assert (info.kind.value, info.band, info.channel) == ("client-bridge", Band.GHZ_5, 36)
+    assert (info.signal_dbm, info.tx_rate_mbps, info.rx_rate_mbps) == (-67, 433.3, 390.0)
+    assert snap.device.mesh is not None and snap.device.mesh.role.value == "repeater"
+    assert not any(w.id == "rt/wlan/wifi4" for w in snap.wlans)
+
+
+async def test_plain_station_and_ap_registrations_are_no_mesh(http_url: str) -> None:
+    snap = await observe(adapter(http_url))
+    assert snap.mesh_peers == [] and snap.device.mesh is None

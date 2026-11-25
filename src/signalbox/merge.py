@@ -474,6 +474,23 @@ def prefix_sources(snaps: Iterable[Snapshot]) -> list[Subnet]:
     return out
 
 
+def _with_mesh_links(links: Iterable[Link], snaps: list[Snapshot]) -> list[Link]:
+    """The known links plus the wireless backhaul links the devices report (#171); a manual
+    link between the same two ports wins, then the first report."""
+    out = list(links)
+    ids = {x.id for x in out}
+    pairs = {frozenset((x.a, x.b)) for x in out}
+    for s in snaps:
+        for link in s.wireless_links:
+            pair = frozenset((link.a, link.b))
+            if link.id in ids or pair in pairs:
+                continue
+            ids.add(link.id)
+            pairs.add(pair)
+            out.append(link)
+    return out
+
+
 def merge(
     sites: Iterable[Site],
     snapshots: Iterable[Snapshot],
@@ -487,7 +504,7 @@ def merge(
     duplicates = sorted({i for i in ids if ids.count(i) > 1})
     if duplicates:
         raise ValueError(f"more than one snapshot for device(s) {', '.join(duplicates)}")
-    links = list(links)
+    links = _with_mesh_links(links, snaps)
     native = _native_split(snaps, links)
     segments = []
     if native:
@@ -532,6 +549,7 @@ def merge(
             "wlans": every("wlans"),
             "clients": _merge_clients(snaps),
             "neighbours": every("neighbours"),
+            "mesh_peers": every("mesh_peers"),
             "fdb": every("fdb"),
             "routes": every("routes"),
             "routing_rules": every("routing_rules"),

@@ -666,3 +666,13 @@ restarted. Authorization-code mode needs an interactive browser login and is not
 
 `needUpgrade` of the device list is `Firmware.upgradable` of the managed device. The controller's
 auto-upgrade and auto-backup settings are not read (no documented Open API call found).
+
+## Mesh backhaul (#171)
+
+The wireless uplink of an access point (`wireless uplink info` of `GET …/aps/{mac}`, see #336)
+also becomes a `Link` of origin `mesh` between the mesh ports of the two access points, with the
+band (the partner link's `radioId`, else the channel), `channel`, `rssi` as the signal and
+`txRateInt`/`rxRateInt` in Mbit/s. Every access point in a mesh gets `Device.mesh` (role `agent`,
+the controller as `controller_id`, `hop` counted along the uplinks, `uplink` wired or wireless).
+*Guess (#21): the `radioId` numbering (0: 2.4 GHz, 1: 5 GHz, 2: third radio) and the field names
+of a real controller's answer.*

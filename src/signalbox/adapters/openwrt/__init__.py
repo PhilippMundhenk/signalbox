@@ -124,6 +124,12 @@ from signalbox.model import (
     ManagementService,
     MedDeviceClass,
     Membership,
+    MeshLinkKind,
+    MeshMembership,
+    MeshPeer,
+    MeshPeerRole,
+    MeshRole,
+    MeshUplink,
     Neighbour,
     Pmf,
     PoeSupply,
@@ -149,6 +155,7 @@ from signalbox.model import (
     Uplink,
     UplinkKind,
     WifiScanResult,
+    WirelessLinkInfo,
     Wlan,
     Wps,
     WpsMethod,
@@ -1675,14 +1682,17 @@ class OpenWrtAdapter(Adapter):
             if found.enabled and running:
                 fields = await self._radio_state(found, running, gaps, bssids, to_scan)
                 radios[name] = found.model_copy(update=fields)
+        peers, membership = await self._mesh_peers(uci, radios, ifnames)
         heard = await self._scan(to_scan, gaps, started) if to_scan else []
         wlans: list[Wlan] = []
         for name, s in _sections(uci, "wifi-iface"):
             radio = radios.get(str(s.get("device")))
-            if radio is None or s.get("mode", "ap") != "ap":
+            mode = s.get("mode", "ap")
+            if radio is None or mode not in ("ap", "mesh"):
                 continue
             sec = security(s.get("encryption"))
-            ssid = str(s.get("ssid", ""))
+            # an 802.11s mesh point has a mesh id instead of an SSID, and only nodes use it (#171)
+            ssid = str(s.get("mesh_id" if mode == "mesh" else "ssid", ""))
             key = s.get("key")
             networks = _list(s.get("network"))
             vid = view.vlan_of_interface(networks[0]) if networks else None
@@ -1720,12 +1730,76 @@ class OpenWrtAdapter(Adapter):
                     client_isolation=_flag(s.get("isolate")),
                     port_id=port_id(d, ifnames[name]) if name in ifnames else None,
                     bssid=bssids.get(ifnames.get(name, "")),
+                    backhaul=mode == "mesh",
                     vendor_extra=_extra(s, "encryption", "network"),
                 )
             )
         return Observation(
-            radios=list(radios.values()), wlans=wlans, wifi_scan=heard, incomplete=gaps[:1]
+            radios=list(radios.values()),
+            wlans=wlans,
+            wifi_scan=heard,
+            mesh_peers=peers,
+            mesh=membership,
+            incomplete=gaps[:1],
         )
+
+    async def _mesh_peers(
+        self, uci: Any, radios: dict[str, Radio], ifnames: dict[str, str]
+    ) -> tuple[list[MeshPeer], dict[str, MeshMembership]]:
+        """Wireless backhaul peers (#171): the access point of a station interface (``mode sta``,
+        with ``wds 1`` a WDS client, else a client bridge or repeater) and the peers of an
+        802.11s mesh point (``mode mesh``), from ``iwinfo assoclist`` (rpcd-mod-iwinfo; without it
+        nothing is reported). The other end is found by its MAC address in core. Signal and
+        rates are those of the station entry; a repeater is a node with a wireless uplink, a mesh
+        point a node of a mesh whose uplink is not known."""
+        d = self.context.device_id
+        peers: list[MeshPeer] = []
+        uplink = False
+        for name, s in _sections(uci, "wifi-iface"):
+            mode = str(s.get("mode", "ap"))
+            ifname = ifnames.get(name)
+            if mode not in ("sta", "mesh") or ifname is None or _flag(s.get("disabled")):
+                continue
+            radio = radios.get(str(s.get("device")))
+            kind = (
+                MeshLinkKind.IEEE80211S
+                if mode == "mesh"
+                else MeshLinkKind.WDS
+                if _flag(s.get("wds"))
+                else MeshLinkKind.CLIENT_BRIDGE
+            )
+            for mac, item in sorted((await self._assoclist(ifname)).items()):
+                rx, tx = item.get("rx"), item.get("tx")
+                rx_rate = _int(rx.get("rate")) if isinstance(rx, dict) else None
+                tx_rate = _int(tx.get("rate")) if isinstance(tx, dict) else None
+                signal = _int(item.get("signal"))
+                peers.append(
+                    MeshPeer(
+                        id=object_id(d, "meshpeer", f"{ifname}-{mac}"),
+                        device_id=d,
+                        port_id=port_id(d, ifname),
+                        peer_mac=mac,
+                        role=MeshPeerRole.PEER if mode == "mesh" else MeshPeerRole.UPLINK,
+                        wireless=WirelessLinkInfo(
+                            band=radio.band if radio else None,
+                            channel=radio.channel if radio else None,
+                            signal_dbm=signal
+                            if signal is not None and -120 <= signal <= 0
+                            else None,
+                            tx_rate_mbps=tx_rate / 1000 if tx_rate else None,
+                            rx_rate_mbps=rx_rate / 1000 if rx_rate else None,
+                            kind=kind,
+                        ),
+                    )
+                )
+                uplink |= mode == "sta"
+        if not peers:
+            return [], {}
+        member = MeshMembership(
+            role=MeshRole.REPEATER if uplink else MeshRole.AGENT,
+            uplink=MeshUplink.WIRELESS if uplink else None,
+        )
+        return peers, {d: member}
 
     async def _scan(
         self, radios: list[tuple[Radio, str]], gaps: list[Gap], started: float

@@ -615,6 +615,100 @@
         }
       }
     },
+    "mesh.chain-too-long": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/mesh.chain-too-long"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/mesh.chain-too-long"
+              }
+            }
+          }
+        }
+      }
+    },
+    "mesh.weak-backhaul": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/mesh.weak-backhaul"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/mesh.weak-backhaul"
+              }
+            }
+          }
+        }
+      }
+    },
     "poe.budget": {
       "type": "object",
       "additionalProperties": false,
@@ -1349,6 +1443,47 @@
         }
       },
       "title": "link.mtu-mismatch",
+      "type": "object"
+    },
+    "mesh.chain-too-long": {
+      "additionalProperties": false,
+      "properties": {
+        "max_hops": {
+          "default": 2,
+          "description": "Most wireless hops between a node and the wired network.",
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Max Hops",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "mesh.chain-too-long",
+      "type": "object"
+    },
+    "mesh.weak-backhaul": {
+      "additionalProperties": false,
+      "properties": {
+        "signal_dbm": {
+          "default": -75,
+          "description": "Backhaul signal below which a link is weak.",
+          "maximum": -30,
+          "minimum": -120,
+          "title": "Signal Dbm",
+          "type": "integer",
+          "unit": "dBm"
+        },
+        "rate_mbps": {
+          "default": 100,
+          "description": "Backhaul link rate below which a link is slow.",
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Rate Mbps",
+          "type": "number",
+          "unit": "Mbit/s"
+        }
+      },
+      "title": "mesh.weak-backhaul",
       "type": "object"
     },
     "poe.budget": {

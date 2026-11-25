@@ -43,7 +43,7 @@ def _radios(net: Network) -> dict[str, Radio]:
 
 
 def _enabled_wlans(net: Network) -> list[Wlan]:
-    return sorted((w for w in net.wlans if w.enabled), key=lambda w: w.id)
+    return sorted((w for w in net.wlans if w.enabled and not w.backhaul), key=lambda w: w.id)
 
 
 def _radio_of(net: Network, radio: Radio, *, start: bool = False) -> str:
@@ -175,7 +175,7 @@ def _backhaul_ssids(net: Network) -> set[tuple[str, str]]:
     """(device, SSID) of hidden SSIDs that both ends of a wireless link broadcast (mesh)."""
     hidden: dict[str, set[str]] = defaultdict(set)
     for w in net.wlans:
-        if w.enabled and w.hidden:
+        if w.enabled and (w.hidden or w.backhaul):
             hidden[w.device_id].add(w.ssid)
     out: set[tuple[str, str]] = set()
     for link in net.links:

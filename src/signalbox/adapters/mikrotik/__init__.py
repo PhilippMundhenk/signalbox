@@ -140,6 +140,12 @@ from signalbox.model import (
     LogTransport,
     ManagementService,
     Membership,
+    MeshLinkKind,
+    MeshMembership,
+    MeshPeer,
+    MeshPeerRole,
+    MeshRole,
+    MeshUplink,
     NatClass,
     Neighbour,
     NtpClient,
@@ -180,6 +186,7 @@ from signalbox.model import (
     Uplink,
     UplinkKind,
     WifiStandard,
+    WirelessLinkInfo,
     Wlan,
     Wps,
     WpsMethod,
@@ -245,6 +252,14 @@ WIFI_SECURITY = "/rest/interface/wifi/security"
 WIFI_CHANNEL = "/rest/interface/wifi/channel"
 WIFI_DATAPATH = "/rest/interface/wifi/datapath"
 WIFI_STEERING = "/rest/interface/wifi/steering"
+#: ``configuration.mode`` (``wifi``) or ``mode`` (``wireless``) of a station that bridges a LAN
+#: into the Wi-Fi, and what kind of backhaul link it is (#171)
+_STATION_KINDS = {
+    "station-bridge": MeshLinkKind.CLIENT_BRIDGE,
+    "station-pseudobridge": MeshLinkKind.CLIENT_BRIDGE,
+    "station-pseudobridge-clone": MeshLinkKind.CLIENT_BRIDGE,
+    "station-wds": MeshLinkKind.WDS,
+}
 WIFI_REGISTRATION = "/rest/interface/wifi/registration-table"
 WIFI_ACCESS_LIST = "/rest/interface/wifi/access-list"
 WIFI_RADIO = "/rest/interface/wifi/radio"
@@ -2649,7 +2664,64 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     },
                 )
             )
-        return Observation(radios=list(radios.values()), wlans=wlans)
+        stations = [
+            (name, masters[name], _text(prop(row, "configuration", "mode")))
+            for name, row in by_name.items()
+        ]
+        peers, member = await self._station_peers(layout, stations, radios, WIFI_REGISTRATION)
+        return Observation(radios=list(radios.values()), wlans=wlans, mesh_peers=peers, mesh=member)
+
+    async def _station_peers(
+        self,
+        layout: _Layout,
+        stations: list[tuple[str, str, str]],
+        radios: dict[str, Radio],
+        endpoint: str,
+    ) -> tuple[list[MeshPeer], dict[str, MeshMembership]]:
+        """Wireless backhaul peers (#171): the access point a station interface is connected
+        to, from the registration table (``interface``, ``mac-address`` of the access point,
+        ``signal``, ``tx-rate``, ``rx-rate``). Only modes that carry a LAN: ``station-bridge``
+        and ``station-pseudobridge`` (client bridge), ``station-wds`` (WDS). A plain ``station``
+        is an uplink of a router, not a mesh node. Not readable: nothing is reported."""
+        dev = self.context.device_id
+        modes = {
+            name: (master, _STATION_KINDS[mode])
+            for name, master, mode in stations
+            if mode in _STATION_KINDS
+        }
+        if not modes:
+            return [], {}
+        table = await self._readable(endpoint)
+        peers: list[MeshPeer] = []
+        for row in table or []:
+            name = _text(row.get("interface"))
+            mac, port = _mac(row.get("mac-address")), layout.port(name)
+            if name not in modes or mac is None or port is None:
+                continue
+            master, kind = modes[name]
+            radio = radios.get(master)
+            tx, rx = wifi_assoc.rate(row.get("tx-rate"))[0], wifi_assoc.rate(row.get("rx-rate"))[0]
+            peers.append(
+                MeshPeer(
+                    id=object_id(dev, "meshpeer", f"{name}-{mac}"),
+                    device_id=dev,
+                    port_id=port,
+                    peer_mac=mac,
+                    role=MeshPeerRole.UPLINK,
+                    wireless=WirelessLinkInfo(
+                        band=radio.band if radio else None,
+                        channel=radio.channel if radio else None,
+                        signal_dbm=wifi_assoc.signal(row.get("signal", row.get("signal-strength"))),
+                        tx_rate_mbps=tx,
+                        rx_rate_mbps=rx,
+                        kind=kind,
+                    ),
+                )
+            )
+        if not peers:
+            return [], {}
+        member = MeshMembership(role=MeshRole.REPEATER, uplink=MeshUplink.WIRELESS)
+        return peers, {dev: member}
 
     @staticmethod
     def _roaming(
@@ -2796,7 +2868,13 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     vendor_extra=_extra(row, "mode", "security-profile"),
                 )
             )
-        return Observation(radios=list(radios.values()), wlans=wlans)
+        stations = [
+            (_text(r.get("name")), masters[_text(r.get("name"))], _text(r.get("mode")))
+            for r in rows
+            if _text(r.get("name"))
+        ]
+        peers, member = await self._station_peers(layout, stations, radios, WIRELESS_REGISTRATION)
+        return Observation(radios=list(radios.values()), wlans=wlans, mesh_peers=peers, mesh=member)
 
     # --- clients ------------------------------------------------------------------------------
 

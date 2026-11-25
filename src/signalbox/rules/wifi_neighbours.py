@@ -68,7 +68,7 @@ def rogue_ssid(net: Network) -> Iterator[Result]:
     ours: dict[tuple[str, str], list[Wlan]] = defaultdict(list)
     for w in net.wlans:
         site = site_of_device(net, w.device_id)
-        if w.enabled and site is not None:
+        if w.enabled and not w.backhaul and site is not None:
             ours[(site, w.ssid)].append(w)
     radios = {r.id: r for r in net.radios}
     for r in sorted(net.wifi_scan, key=lambda r: r.id):

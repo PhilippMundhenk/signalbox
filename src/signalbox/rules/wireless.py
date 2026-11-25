@@ -39,7 +39,7 @@ def _ssid_groups(net: Network) -> dict[tuple[str, str], list[Wlan]]:
     groups: dict[tuple[str, str], list[Wlan]] = defaultdict(list)
     for wlan in net.wlans:
         site = site_of_device(net, wlan.device_id)
-        if wlan.enabled and site is not None:
+        if wlan.enabled and not wlan.backhaul and site is not None:
             groups[(site, wlan.ssid)].append(wlan)
     return groups
 
@@ -282,7 +282,12 @@ def segment_at_gateway(net: Network) -> Iterator[Result]:
     gateways = {site for s in at_router if (site := site_of_device(net, s.device_id))}
     unchecked: dict[str, set[str]] = defaultdict(set)
     for wlan in sorted(net.wlans, key=lambda w: w.id):
-        if not wlan.enabled or wlan.segment_id is None or wlan.segment_id in routed:
+        if (
+            not wlan.enabled
+            or wlan.backhaul
+            or wlan.segment_id is None
+            or wlan.segment_id in routed
+        ):
             continue
         if device_internal(net, wlan.segment_id):
             continue

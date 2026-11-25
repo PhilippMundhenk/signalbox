@@ -1120,3 +1120,14 @@ four menus. RouterOS 6 has no REST API (see #389).
   RouterOS 7.1 and later (REST); RouterOS 6 has no REST API.
 - **Cloud DDNS**: `/rest/ip/cloud` `dns-name`, `public-address`, `status` (`updated` is ok,
   `error...` is an error) and `ddns-enabled`; no name, no client.
+
+## Wireless uplinks (#171)
+
+Interfaces in `configuration.mode` (`wifi` package) or `mode` (`wireless` package)
+`station-bridge`, `station-pseudobridge`(`-clone`) or `station-wds` are wireless uplinks: their
+rows in the registration table (`interface`, `mac-address` of the access point, `signal`,
+`tx-rate`, `rx-rate`) become a `MeshPeer` (role `uplink`, kind client bridge or WDS), and the
+router gets `Device.mesh` role `repeater`. A plain `station` is a router's uplink, not a mesh node.
+Access points with WDS (the dynamic WDS interfaces) and CAPsMAN are not read yet. *Guess (#21): the
+mode names of the `wifi` package and that the registration table of a station interface lists the
+access point.*

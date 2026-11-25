@@ -1113,6 +1113,17 @@
           "default": null,
           "title": "Management Port"
         },
+        "mesh": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MeshMembership"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "model": {
           "anyOf": [
             {
@@ -4238,6 +4249,17 @@
         },
         "origin": {
           "$ref": "#/$defs/LinkOrigin"
+        },
+        "wireless": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WirelessLinkInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -4282,7 +4304,8 @@
         "lldp",
         "mac",
         "manual",
-        "tunnel"
+        "tunnel",
+        "mesh"
       ],
       "title": "LinkOrigin",
       "type": "string"
@@ -4715,6 +4738,166 @@
         "tagged"
       ],
       "title": "Membership",
+      "type": "string"
+    },
+    "MeshLinkKind": {
+      "description": "How two nodes are connected wirelessly (#171).",
+      "enum": [
+        "mesh",
+        "wds",
+        "repeater",
+        "client-bridge",
+        "802.11s"
+      ],
+      "title": "MeshLinkKind",
+      "type": "string"
+    },
+    "MeshMembership": {
+      "additionalProperties": false,
+      "description": "A device's place in a Wi-Fi mesh (#171).",
+      "properties": {
+        "controller_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Controller Id"
+        },
+        "hop": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hop"
+        },
+        "role": {
+          "$ref": "#/$defs/MeshRole"
+        },
+        "uplink": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MeshUplink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "title": "MeshMembership",
+      "type": "object"
+    },
+    "MeshPeer": {
+      "additionalProperties": false,
+      "description": "A wireless backhaul neighbour a node reports by MAC address (#171): the other end is\nnot known to the node as a device. Core finds the device by the MAC address (a port, or the\nBSSID of an SSID) and draws the link (:func:`signalbox.topology.mesh_peer_links`); a peer\nthat is no known device is not drawn. Where the node knows the other end's port, it reports\n``Observation.wireless_links`` instead.",
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "peer_mac": {
+          "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+          "title": "Peer Mac",
+          "type": "string"
+        },
+        "port_id": {
+          "title": "Port Id",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/MeshPeerRole",
+          "default": "peer"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        },
+        "wireless": {
+          "$ref": "#/$defs/WirelessLinkInfo"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "port_id",
+        "peer_mac",
+        "wireless"
+      ],
+      "title": "MeshPeer",
+      "type": "object"
+    },
+    "MeshPeerRole": {
+      "description": "Which way a wireless peer lies from the node that reports it (#171).",
+      "enum": [
+        "uplink",
+        "downlink",
+        "peer"
+      ],
+      "title": "MeshPeerRole",
+      "type": "string"
+    },
+    "MeshRole": {
+      "enum": [
+        "controller",
+        "agent",
+        "repeater",
+        "standalone"
+      ],
+      "title": "MeshRole",
+      "type": "string"
+    },
+    "MeshUplink": {
+      "enum": [
+        "wired",
+        "wireless"
+      ],
+      "title": "MeshUplink",
       "type": "string"
     },
     "Monitor": {
@@ -5255,6 +5438,13 @@
             "$ref": "#/$defs/Link"
           },
           "title": "Links",
+          "type": "array"
+        },
+        "mesh_peers": {
+          "items": {
+            "$ref": "#/$defs/MeshPeer"
+          },
+          "title": "Mesh Peers",
           "type": "array"
         },
         "neighbours": {
@@ -8414,6 +8604,13 @@
           "title": "Gateway Groups",
           "type": "array"
         },
+        "mesh_peers": {
+          "items": {
+            "$ref": "#/$defs/MeshPeer"
+          },
+          "title": "Mesh Peers",
+          "type": "array"
+        },
         "neighbours": {
           "items": {
             "$ref": "#/$defs/Neighbour"
@@ -8512,6 +8709,13 @@
             "$ref": "#/$defs/WifiScanResult"
           },
           "title": "Wifi Scan",
+          "type": "array"
+        },
+        "wireless_links": {
+          "items": {
+            "$ref": "#/$defs/Link"
+          },
+          "title": "Wireless Links",
           "type": "array"
         },
         "wlans": {
@@ -10261,6 +10465,106 @@
       "title": "WirelessAssociation",
       "type": "object"
     },
+    "WirelessLinkInfo": {
+      "additionalProperties": false,
+      "description": "Radio details of a wireless backhaul link (#171). Every field is ``None`` where the\ndevice does not say. ``radio_a``/``radio_b`` are radio ids of the two ends where known.",
+      "properties": {
+        "band": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Band"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel"
+        },
+        "kind": {
+          "$ref": "#/$defs/MeshLinkKind",
+          "default": "mesh"
+        },
+        "radio_a": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Radio A"
+        },
+        "radio_b": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Radio B"
+        },
+        "rx_rate_mbps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rx Rate Mbps"
+        },
+        "signal_dbm": {
+          "anyOf": [
+            {
+              "maximum": 0,
+              "minimum": -120,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signal Dbm"
+        },
+        "tx_rate_mbps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tx Rate Mbps"
+        }
+      },
+      "title": "WirelessLinkInfo",
+      "type": "object"
+    },
     "Wlan": {
       "additionalProperties": false,
       "properties": {
@@ -10289,6 +10593,11 @@
           ],
           "default": null,
           "title": "Assoc Rssi Dbm"
+        },
+        "backhaul": {
+          "default": false,
+          "title": "Backhaul",
+          "type": "boolean"
         },
         "band_steering": {
           "anyOf": [

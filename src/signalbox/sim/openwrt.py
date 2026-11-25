@@ -687,8 +687,11 @@ def wireless_config() -> dict[str, Any]:
     )
 
 
+#: the 802.11s peer of the simulator's mesh point (``OpenWrtSim.mesh``)
+MESH_PEER = _mac(0x30, 1)
 #: wifi-iface section -> associated stations
 STATIONS = {
+    "mesh0": [MESH_PEER],
     "default_radio0": [_mac(0x20, 1)],
     "iot_radio0": [_mac(0x20, 2)],
     "default_radio1": [_mac(0x20, 3)],
@@ -1157,6 +1160,17 @@ STATION_DETAILS: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
             "tx": {"rate": 11000, "packets": 400, "retries": 200, "failed": 40},
         },
     ),
+    MESH_PEER: (
+        {"signal": -78},
+        {
+            "signal": -78,
+            "noise": -95,
+            "inactive": 30,
+            "connected_time": 5000,
+            "rx": {"rate": 54000, "packets": 9000},
+            "tx": {"rate": 48000, "packets": 8000, "retries": 100, "failed": 2},
+        },
+    ),
     _mac(0x20, 3): (
         {"signal": -61, "ht": True, "vht": True, "he": False, "mfp": True},
         {
@@ -1506,6 +1520,8 @@ class OpenWrtSim:
     #: optional packages installed (#180): ``snmpd``, ``luci_statistics``, ``softflowd``; and
     #: ``mwan3`` (#150) and ``ddns`` (ddns-scripts, #154)
     packages: set[str] = field(default_factory=set)
+    #: an 802.11s mesh point on radio1 with one mesh peer (#171), ``mesh_peer_mac`` away
+    mesh: bool = False
     #: no ``network.wireless`` ubus object (a device without Wi-Fi)
     no_wireless_object: bool = False
     #: answer of ``ubus call poe info`` (realtek-poe); None: the daemon is not installed
@@ -1609,6 +1625,18 @@ class OpenWrtSim:
                 "ddns": _sections(ddns_config()),
                 "https-dns-proxy": {},
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
+            }
+        if self.mesh and "mesh0" not in self.configs["wireless"]:
+            self.configs["wireless"]["mesh0"] = {
+                ".anonymous": False,
+                ".type": "wifi-iface",
+                "device": "radio1",
+                "mode": "mesh",
+                "network": "lan",
+                "mesh_id": "example-mesh",
+                "encryption": "sae",
+                "key": "example-mesh-passphrase",
+                "mesh_fwding": "1",
             }
         return self.configs
 
@@ -1790,7 +1818,11 @@ class OpenWrtSim:
         if obj == "uci":
             return self._uci(sid, method, args)
         if obj.startswith("hostapd."):
-            running = {ifname: s for s, _, ifname, mode in running_ifaces(self.state["wireless"])}
+            running = {
+                ifname: s
+                for s, _, ifname, mode in running_ifaces(self.state["wireless"])
+                if mode == "ap"
+            }
             if obj[8:] in running:
                 ifname = obj[8:]
                 if method == "get_status":

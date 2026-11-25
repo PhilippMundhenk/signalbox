@@ -55,9 +55,12 @@ from signalbox.model import (
     Firewall,
     Firmware,
     GatewayGroup,
+    Link,
     LocalBackups,
     LogTarget,
     ManagementService,
+    MeshMembership,
+    MeshPeer,
     MessageParams,
     Neighbour,
     Observed,
@@ -677,6 +680,10 @@ class Observation(BaseModel):
     wlans: list[Wlan] = Field(default_factory=list)
     clients: list[Client] = Field(default_factory=list)
     neighbours: list[Neighbour] = Field(default_factory=list)
+    #: Wireless backhaul peers by MAC address (#171), read with ``interfaces``; no API version
+    #: needed. For a peer whose device Signalbox has to find by the MAC address; a node that
+    #: knows the other end's port reports ``wireless_links`` instead.
+    mesh_peers: list[MeshPeer] = Field(default_factory=list)
     #: Forwarding database (MAC address table) entries (#160), read with ``clients`` (or
     #: ``interfaces`` without a client read); no API version needed. Report what the device
     #: says, on the physical port where it knows it; ``observe()`` keeps at most
@@ -696,6 +703,11 @@ class Observation(BaseModel):
     #: default). Never a station of a foreign network. ``observe()`` keeps at most
     #: :data:`~signalbox.model.SCAN_LIMIT` per device, the strongest.
     wifi_scan: list[WifiScanResult] = Field(default_factory=list)
+    #: Wireless backhaul links between mesh nodes (#171), read with ``interfaces`` or
+    #: ``wireless``; no API version needed. ``Link.origin`` is ``mesh``, ``a`` and ``b`` are
+    #: ports (a Wi-Fi port of each node, reported by the adapter), ``wireless`` the radio details.
+    #: Report only what the mesh controller or the node says; ids unique per device.
+    wireless_links: list[Link] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239), read with ``vpn`` (API 1.3). Never a private or
     #: pre-shared key, also not in ``vendor_extra``.
     tunnels: list[Tunnel] = Field(default_factory=list)
@@ -729,6 +741,9 @@ class Observation(BaseModel):
     #: per-port state goes into ``Port.poe``. Leave a device out when it has no PoE or does not
     #: say.
     poe: dict[str, PoeSupply] = Field(default_factory=dict)
+    #: Mesh membership per device id (#171): the observed device or one of ``devices``. Leave a
+    #: device out when it is not known to be part of a mesh.
+    mesh: dict[str, MeshMembership] = Field(default_factory=dict)
     #: Per device id: the login Signalbox uses is a factory default (#126), compared in
     #: memory with :func:`signalbox.factory_defaults.is_factory_default`; only the boolean.
     default_credentials: dict[str, bool] = Field(default_factory=dict)
@@ -819,6 +834,8 @@ PROTOCOLS: dict[Capability, tuple[type, str]] = {
 
 
 def _stamp(obj: Observed, source: Source, when: datetime) -> Observed:
+    if not isinstance(obj, Observed):  # a Link has no observation stamp
+        return obj
     update: dict[str, object] = {}
     if obj.source is None:
         update["source"] = source
@@ -1013,6 +1030,7 @@ class Adapter(ABC):
         poe: dict[str, PoeSupply] = {}
         defaults: dict[str, bool] = {}
         privileges: dict[str, AccountPrivilege] = {}
+        meshes: dict[str, MeshMembership] = {}
         try:
             info = await self._call(self.read_system)
         except UntrustedCertificate as exc:
@@ -1066,6 +1084,7 @@ class Adapter(ABC):
                 for key, flag in result.default_credentials.items():
                     defaults[key] = defaults.get(key, False) or flag
                 privileges.update(result.signalbox_privilege)
+                meshes.update(result.mesh)
             if any(not e.optional for e in errors):
                 status = DeviceStatus.PARTIAL
 
@@ -1090,8 +1109,10 @@ class Adapter(ABC):
             default_credentials=defaults.get(ctx.device_id),
             signalbox_account_privilege=privileges.get(ctx.device_id),
             signalbox_account_needed=self.manifest.least_privilege,
+            mesh=meshes.get(ctx.device_id),
         )
         skip = {
+            "mesh",
             "devices",
             "device_status",
             "health",
@@ -1130,6 +1151,7 @@ class Adapter(ABC):
                             "signalbox_account_privilege": privileges.get(
                                 d.id, d.signalbox_account_privilege
                             ),
+                            "mesh": meshes.get(d.id, d.mesh),
                         }
                     ),
                 )

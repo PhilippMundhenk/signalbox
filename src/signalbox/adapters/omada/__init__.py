@@ -78,11 +78,18 @@ from signalbox.model import (
     IPAddress,
     IPInterface,
     LagMode,
+    Link,
+    LinkKind,
+    LinkOrigin,
     LogKind,
     LogTarget,
     LogTransport,
     ManagementService,
     Membership,
+    MeshLinkKind,
+    MeshMembership,
+    MeshRole,
+    MeshUplink,
     Neighbour,
     Pmf,
     PoeStatus,
@@ -109,6 +116,7 @@ from signalbox.model import (
     WifiScanResult,
     WifiStandard,
     WirelessAssociation,
+    WirelessLinkInfo,
     Wlan,
     fdb_id,
     firewall_id,
@@ -680,6 +688,8 @@ class _ApLink:
     port: str | None  # that device's port as the controller writes it (wired uplink)
     speed: int | None  # Mbit/s of the wired link
     mesh: bool  # a wireless uplink to another access point
+    #: the ``wireless uplink info`` object (channel, rssi, rates, partner radio), mesh only
+    info: dict[str, Any] | None = None
 
 
 #: Names the controller gives the wireless uplink of an access point in its answer: the 6.3
@@ -700,6 +710,33 @@ def _first(rows: tuple[dict[str, Any], ...], keys: tuple[str, ...]) -> Any:
     return None
 
 
+#: ``radioId`` of the controller's radios: 0 is 2.4 GHz, 1 is 5 GHz, 2 the third radio (6 GHz
+#: on a tri-band access point; *guess*, #21).
+_RADIO_BANDS = {0: Band.GHZ_2_4, 1: Band.GHZ_5, 2: Band.GHZ_6}
+
+
+def mesh_info(info: dict[str, Any]) -> WirelessLinkInfo:
+    """Radio details of a mesh uplink from ``wireless uplink info`` (#171): ``channel``,
+    ``rssi`` (dBm), ``txRateInt`` and ``rxRateInt`` (Mbit/s) are the controller's own field names
+    (6.3 description); the partner link's ``radioId`` names the radio, else the channel decides
+    (up to 14: 2.4 GHz)."""
+    partners = [p for p in info.get("partnerLinks") or [] if isinstance(p, dict)]
+    channel = _int(info.get("channel")) or _int(partners[0].get("channel") if partners else None)
+    rssi = _int(info.get("rssi")) if info.get("rssi") is not None else None
+    band = _RADIO_BANDS.get(_int(partners[0].get("radioId")) if partners else None)  # type: ignore[arg-type]
+    if band is None and channel:
+        band = Band.GHZ_2_4 if channel <= 14 else Band.GHZ_5
+    tx, rx = _int(info.get("txRateInt")), _int(info.get("rxRateInt"))
+    return WirelessLinkInfo(
+        band=band,
+        channel=channel or None,
+        signal_dbm=rssi if rssi is not None and -120 <= rssi <= 0 else None,
+        tx_rate_mbps=float(tx) if tx else None,
+        rx_rate_mbps=float(rx) if rx else None,
+        kind=MeshLinkKind.MESH,
+    )
+
+
 def ap_link(row: dict[str, Any], detail: dict[str, Any]) -> _ApLink | None:
     """The uplink of an access point from its device-list row and its detail answer: a mesh
     uplink (``wirelessLinked`` with the uplink AP's MAC) or a wired one (switch MAC, port and
@@ -709,7 +746,7 @@ def ap_link(row: dict[str, Any], detail: dict[str, Any]) -> _ApLink | None:
     if isinstance(info, dict) and detail.get("wirelessLinked") is not False:
         parent = _mac(info.get("uplinkMac"))
         if parent is not None:
-            return _ApLink(parent=parent, port=None, speed=None, mesh=True)
+            return _ApLink(parent=parent, port=None, speed=None, mesh=True, info=info)
     both = (detail, row)
     parent = _mac(_first(both, WIRED_MAC_KEYS))
     if parent is None:
@@ -1204,6 +1241,7 @@ class OmadaAdapter(_Adapter):
                     vendor_extra=gateway.extra(network=n.name) if gateway else {"network": n.name},
                 )
             )
+        mesh_links, mesh_members = await self._mesh()
         managed = [
             Device(
                 id=self._prefix(d),
@@ -1231,6 +1269,8 @@ class OmadaAdapter(_Adapter):
             segments=segs,
             subnets=subnets,
             devices=managed,
+            wireless_links=mesh_links,
+            mesh=mesh_members,
             uplinks=uplinks,
             services=await self._services([m.id for m in managed]),
             **await self._accounts([m.id for m in managed]),
@@ -1318,7 +1358,55 @@ class OmadaAdapter(_Adapter):
                 )
             )
         self._cache["ap-view"] = (ports, neighbours)
+        self._cache["ap-mesh"] = self._mesh_of(aps, links, meshed)
         return ports, neighbours
+
+    def _mesh_of(
+        self, aps: list[_Managed], links: dict[str, _ApLink], meshed: set[str]
+    ) -> tuple[list[Link], dict[str, MeshMembership]]:
+        """Backhaul links and mesh membership of the access points (#171). The controller
+        manages the mesh: the access points are its agents; a root AP has a wired uplink, the
+        others a wireless one, and their hop count is the length of the chain to a root AP."""
+        by_mac = {ap.mac: ap for ap in aps}
+        out: list[Link] = []
+        member: dict[str, MeshMembership] = {}
+        for ap in aps:
+            if ap.mac not in meshed:
+                continue
+            hops, cur, seen = 0, ap.mac, {ap.mac}
+            while (up := links.get(cur)) is not None and up.mesh and up.parent in by_mac:
+                if up.parent in seen:
+                    break
+                cur = up.parent
+                seen.add(cur)
+                hops += 1
+            link = links.get(ap.mac)
+            wireless = link is not None and link.mesh
+            member[self._prefix(ap)] = MeshMembership(
+                role=MeshRole.AGENT,
+                controller_id=self.context.device_id,
+                hop=hops,
+                uplink=MeshUplink.WIRELESS if wireless else MeshUplink.WIRED,
+            )
+            if link is None or not link.mesh or link.info is None or link.parent not in by_mac:
+                continue
+            a = f"{self._prefix(by_mac[link.parent])}/port/mesh"
+            b = f"{self._prefix(ap)}/port/mesh"
+            out.append(
+                Link(
+                    id=f"mesh:{min(a, b)}~{max(a, b)}",
+                    a=a,
+                    b=b,
+                    kind=LinkKind.WIRELESS,
+                    origin=LinkOrigin.MESH,
+                    wireless=mesh_info(link.info),
+                )
+            )
+        return out, member
+
+    async def _mesh(self) -> tuple[list[Link], dict[str, MeshMembership]]:
+        await self._ap_view()
+        return self._cache["ap-mesh"]  # type: ignore[no-any-return]
 
     async def _switch_port_name(self, sw: _Managed, text: str) -> str:
         """The name of the switch port an AP's uplink field names (a number or ``Port5``)."""
