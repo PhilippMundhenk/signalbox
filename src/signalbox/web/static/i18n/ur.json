@@ -3087,5 +3087,20 @@
  "msg.unifi.version": "Network ایپلیکیشن کا ورژن {version} ہے؛ Signalbox ورژن {tested} کے لیے لکھا گیا ہے: پڑھنا جاری رہتا ہے لیکن کوئی فیلڈ غائب ہو سکتی ہے",
  "msg.unifi.integrationOnly": "Network ایپلیکیشن یہ API کلید صرف Integration API کے لیے قبول کرتی ہے: ڈیوائسز، نیٹ ورکس اور کلائنٹس پڑھے جاتے ہیں، پورٹس، ریڈیوز، Wi-Fi نیٹ ورکس اور اپ لنکس نہیں",
  "msg.unifi.integrationOnly.fix": "مکمل پڑھنے کے لیے صرف پڑھنے والے رول کا مقامی اکاؤنٹ استعمال کریں۔",
- "msg.unifi.optional": "{what}: نہیں پڑھا گیا ({cause})"
+ "msg.unifi.optional": "{what}: نہیں پڑھا گیا ({cause})",
+ "msg.edgeos.privateKey": "نجی کلید: {detail}",
+ "msg.edgeos.auth.fix": "ترتیبات میں صارف نام اور نجی کلید (یا پاس ورڈ) چیک کریں، اور یہ بھی کہ صارف راؤٹر پر operator سطح اور اپنی عوامی کلید کے ساتھ موجود ہے (سیٹ اپ گائیڈ دیکھیں)۔",
+ "msg.edgeos.incompleteAnswer": "راؤٹر نے ریڈ کمانڈز کا مکمل جواب نہیں دیا: {tail}",
+ "msg.edgeos.incompleteAnswer.fix": "Signalbox اپنی کمانڈز sh -s سے چلاتا ہے۔ چیک کریں کہ صارف کا لاگ اِن شیل ڈیفالٹ (vbash) ہے اور صارف کی سطح operator ہے۔",
+ "msg.edgeos.versionUnknown": "ورژن: show version نے کوئی Version لائن نہیں دکھائی، اس لیے سافٹ ویئر ورژن نامعلوم ہے؛ کنفیگریشن EdgeOS 2.0 کی طرح پڑھی جاتی ہے",
+ "msg.edgeos.noLinks": "انٹرفیس: ip -o link نے کوئی انٹرفیس نہیں دکھایا، اس لیے لنک کی حالت، MAC ایڈریس اور انسٹال شدہ ایڈریس نہیں پڑھے گئے",
+ "msg.edgeos.configEmpty": "کنفیگریشن: show configuration commands نے کچھ نہیں دکھایا، اس لیے کنفیگریشن کا کچھ بھی نہیں پڑھا گیا",
+ "msg.edgeos.configEmpty.fix": "چیک کریں کہ صارف کی سطح operator ہے اور /opt/vyatta/bin/vyatta-op-cmd-wrapper موجود ہے۔",
+ "msg.edgeos.rangeNoNetwork": "{server}: DHCP سب نیٹ {range} راؤٹر کے کسی نیٹ ورک پر نہیں ہے",
+ "msg.edgeos.lldpOff": "راؤٹر پر LLDP بند ہے، اس لیے پڑوسی نہیں پڑھے گئے",
+ "msg.edgeos.lldpOff.fix": "اختیاری: اسے آن کریں (configure, set service lldp interface all, commit, save)۔",
+ "msg.edgeos.firewallVyos14": "فائر وال: {version} اپنے اصول سیٹس کو firewall ipv4 اور firewall ipv6 کہتا ہے (VyOS 1.4 اور نیا)؛ صرف NAT اور پورٹ فارورڈ پڑھے جاتے ہیں",
+ "msg.edgeos.firewallUnsupported": "فائر وال: {what} نہیں پڑھا گیا، اس لیے زون پالیسی کے اصول موجود نہیں",
+ "msg.edgeos.ruleSetMissing": "فائر وال: {interface} غیر متعین اصول سیٹ {name} استعمال کرتا ہے",
+ "msg.edgeos.natSkipped": "NAT: قابلِ استعمال ترجمہ ایڈریس کے بغیر ایک اصول چھوڑ دیا گیا"
 }

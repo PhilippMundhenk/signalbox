@@ -3087,5 +3087,20 @@
  "msg.unifi.version": "aplikasi Network versi {version}; Signalbox ditulis untuk versi {tested}: tetap membaca, tetapi ada kolom yang mungkin hilang",
  "msg.unifi.integrationOnly": "aplikasi Network hanya menerima kunci API ini untuk Integration API: perangkat, jaringan, dan klien dibaca, sedangkan port, radio, jaringan Wi-Fi, dan uplink tidak",
  "msg.unifi.integrationOnly.fix": "Gunakan akun lokal dengan peran hanya-baca untuk pembacaan penuh.",
- "msg.unifi.optional": "{what}: tidak dibaca ({cause})"
+ "msg.unifi.optional": "{what}: tidak dibaca ({cause})",
+ "msg.edgeos.privateKey": "kunci privat: {detail}",
+ "msg.edgeos.auth.fix": "Periksa nama pengguna dan kunci privat (atau kata sandi) di pengaturan, serta pastikan pengguna ada di router dengan level operator dan kunci publiknya (lihat panduan penyiapan).",
+ "msg.edgeos.incompleteAnswer": "router tidak menjawab perintah baca dengan lengkap: {tail}",
+ "msg.edgeos.incompleteAnswer.fix": "Signalbox menjalankan perintahnya dengan sh -s. Periksa bahwa shell login pengguna adalah bawaan (vbash) dan pengguna memiliki level operator.",
+ "msg.edgeos.versionUnknown": "versi: show version tidak mencetak baris Version, sehingga versi perangkat lunak tidak diketahui; konfigurasi dibaca seperti EdgeOS 2.0",
+ "msg.edgeos.noLinks": "antarmuka: ip -o link tidak mencetak antarmuka apa pun, sehingga status tautan, alamat MAC, dan alamat terpasang tidak dibaca",
+ "msg.edgeos.configEmpty": "konfigurasi: show configuration commands tidak mencetak apa pun, sehingga tidak ada konfigurasi yang dibaca",
+ "msg.edgeos.configEmpty.fix": "Periksa bahwa pengguna memiliki level operator dan /opt/vyatta/bin/vyatta-op-cmd-wrapper ada.",
+ "msg.edgeos.rangeNoNetwork": "{server}: subnet DHCP {range} tidak berada di jaringan mana pun pada router",
+ "msg.edgeos.lldpOff": "LLDP mati di router, sehingga tetangga tidak dibaca",
+ "msg.edgeos.lldpOff.fix": "Opsional: aktifkan (configure, set service lldp interface all, commit, save).",
+ "msg.edgeos.firewallVyos14": "firewall: {version} menamai kumpulan aturannya firewall ipv4 dan firewall ipv6 (VyOS 1.4 ke atas); hanya NAT dan penerusan port yang dibaca",
+ "msg.edgeos.firewallUnsupported": "firewall: {what} tidak dibaca, sehingga aturan kebijakan zona tidak ada",
+ "msg.edgeos.ruleSetMissing": "firewall: {interface} memakai kumpulan aturan {name} yang tidak terdefinisi",
+ "msg.edgeos.natSkipped": "NAT: satu aturan tanpa alamat terjemahan yang dapat dipakai dilewati"
 }

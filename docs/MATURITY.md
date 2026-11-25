@@ -24,6 +24,7 @@ Generated from the adapter manifests by `tools/gen_docs.py`.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | AdGuard Home (`adguardhome`) | - | simulator | simulator | - | simulator | - | - | - | - | - | - | nothing yet |
 | TP-Link Easy Smart (`easysmart`) | simulator | - | - | - | - | - | - | - | - | - | port | nothing yet |
+| Ubiquiti EdgeRouter (EdgeOS) and VyOS (`edgeos`) | simulator | simulator | simulator | - | - | simulator | simulator | simulator | simulator | simulator | - | nothing yet |
 | AVM Fritz!Box (`fritzbox`) | simulator | simulator | - | simulator | simulator | - | simulator | simulator | - | simulator | dhcp, wlan | nothing yet |
 | Linux (Debian, Raspberry Pi OS, Arch Linux ARM) (`linux`) | simulator | simulator | simulator | - | - | - | simulator | simulator | simulator | simulator | - | nothing yet |
 | MikroTik RouterOS (`mikrotik`) | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | router, dhcp, reservation, port, wlan, zone-policy, firewall-rule, port-forward, log-target, snmp-policy | nothing yet |

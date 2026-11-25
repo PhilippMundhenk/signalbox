@@ -3087,5 +3087,20 @@
  "msg.unifi.version": "Network 应用的版本为 {version}；Signalbox 针对版本 {tested} 编写：会继续读取，但可能缺少某些字段",
  "msg.unifi.integrationOnly": "Network 应用仅允许此 API 密钥访问 Integration API：可读取设备、网络和客户端，但不能读取端口、射频、Wi-Fi 网络和上行链路",
  "msg.unifi.integrationOnly.fix": "请使用具有只读角色的本地账户以完整读取。",
- "msg.unifi.optional": "{what}: 未读取 ({cause})"
+ "msg.unifi.optional": "{what}: 未读取 ({cause})",
+ "msg.edgeos.privateKey": "私钥:{detail}",
+ "msg.edgeos.auth.fix": "请检查设置中的用户名和私钥(或密码),并确认该用户在路由器上以 operator 级别及其公钥存在(参见设置指南)。",
+ "msg.edgeos.incompleteAnswer": "路由器没有完整响应读取命令:{tail}",
+ "msg.edgeos.incompleteAnswer.fix": "Signalbox 通过 sh -s 运行其命令。请检查用户的登录 shell 是否为默认的 vbash,以及用户是否具有 operator 级别。",
+ "msg.edgeos.versionUnknown": "版本:show version 没有输出 Version 行,因此软件版本未知;配置按 EdgeOS 2.0 读取",
+ "msg.edgeos.noLinks": "接口:ip -o link 没有输出任何接口,因此未读取链路状态、MAC 地址和已安装的地址",
+ "msg.edgeos.configEmpty": "配置:show configuration commands 没有输出任何内容,因此未读取任何配置",
+ "msg.edgeos.configEmpty.fix": "请检查用户是否具有 operator 级别,以及 /opt/vyatta/bin/vyatta-op-cmd-wrapper 是否存在。",
+ "msg.edgeos.rangeNoNetwork": "{server}:DHCP 子网 {range} 不在路由器的任何网络上",
+ "msg.edgeos.lldpOff": "路由器上的 LLDP 已关闭,因此不读取邻居",
+ "msg.edgeos.lldpOff.fix": "可选:启用它(configure、set service lldp interface all、commit、save)。",
+ "msg.edgeos.firewallVyos14": "防火墙:{version} 将其规则集命名为 firewall ipv4 和 firewall ipv6(VyOS 1.4 及更高版本);仅读取 NAT 和端口转发",
+ "msg.edgeos.firewallUnsupported": "防火墙:未读取 {what},因此缺少区域策略的规则",
+ "msg.edgeos.ruleSetMissing": "防火墙:{interface} 使用了未定义的规则集 {name}",
+ "msg.edgeos.natSkipped": "NAT:已忽略一条没有可用转换地址的规则"
 }
