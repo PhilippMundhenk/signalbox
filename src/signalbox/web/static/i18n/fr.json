@@ -1067,6 +1067,8 @@
  "msg.linux.ip6tablesDenied": "pare-feu : ip6tables-save n'est pas autorisé pour cet utilisateur, les règles IPv6 ne sont pas lues",
  "msg.linux.staleDatabase": "Les listes de paquets de l'appareil sont obsolètes. Installer un seul paquet nécessite d'abord une mise à jour complète du système (sudo pacman -Syu), qui peut être longue sur un ancien appareil. Signalbox lit iptables hérité sans nftables.",
  "msg.linux.keaError": "Kea : {cause}",
+ "msg.linux.ddnsUnreadable": "DNS dynamique : {files} non lisible, donc les noms ou la dernière mise à jour du client sont inconnus",
+ "msg.linux.ddnsUnreadable.fix": "Relancez la configuration automatique ou la réparation de l'accès de Signalbox (elle ajoute une règle en lecture seule pour le fichier de configuration), ou acceptez que le client DNS dynamique ne soit pas lu.",
  "msg.linux.logUnreadable": "cibles de journalisation : {files} non lisible pour {user}",
  "msg.linux.logUnreadable.fix": "Donnez à l'utilisateur un accès en lecture à ces fichiers, ou acceptez que les cibles syslog distantes ne soient pas lues.",
  "msg.linux.nft.chainJump": "{source} : {kind} vers la chaîne {chain} ne peut pas être suivi (chaîne inconnue ou boucle)",

@@ -7,6 +7,8 @@ container is prepared with ``commands()``, so what users paste is what is tested
 from __future__ import annotations
 
 from signalbox.adapters.linux.collect import (
+    CAT,
+    DDNS_SUDO_FILES,
     IP6TABLES_SAVE,
     IPTABLES_SAVE,
     NFT,
@@ -29,18 +31,23 @@ KEY_COMMENT = "signalbox-read"
 
 def sudoers(user: str = "signalbox") -> str:
     """The sudoers rule: exactly the read commands (``wg show all <field>``, nft, and
-    ``iptables-save`` / ``ip6tables-save`` with an empty argument list), no password."""
+    ``iptables-save`` / ``ip6tables-save`` with an empty argument list, and ``cat`` of the two
+    dynamic DNS configuration files, whose credential lines the read script removes on the
+    device, #450), no password."""
     commands = ", ".join(
         [
             *(f"{WG} show all {f}" for f in WG_FIELDS),
             f"{NFT} {NFT_ARGS}",
             f'{IPTABLES_SAVE} ""',
             f'{IP6TABLES_SAVE} ""',
+            *(f"{CAT} {path}" for path in DDNS_SUDO_FILES),
         ]
     )
     return (
         "# Signalbox: read the WireGuard status (public keys only), the nftables ruleset and the\n"
-        "# legacy iptables rules (iptables-save without arguments).\n"
+        "# legacy iptables rules (iptables-save without arguments), and the dynamic DNS\n"
+        "# configuration files of ddclient and inadyn (read through a filter that drops the\n"
+        "# password and token lines on the device).\n"
         f"{user} ALL=(root) NOPASSWD: {commands}\n"
     )
 

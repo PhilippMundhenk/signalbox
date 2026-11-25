@@ -1038,6 +1038,8 @@
  "msg.linux.ip6tablesDenied": "Firewall: ip6tables-save ist für diesen Benutzer nicht erlaubt, die IPv6-Regeln werden nicht gelesen",
  "msg.linux.staleDatabase": "Die Paketlisten auf dem Gerät sind veraltet. Für die Installation eines einzelnen Pakets ist zuerst ein vollständiges Systemupdate nötig (sudo pacman -Syu), das auf einem alten Gerät lange dauern kann. Signalbox liest Legacy-iptables auch ohne nftables.",
  "msg.linux.keaError": "Kea: {cause}",
+ "msg.linux.ddnsUnreadable": "Dynamisches DNS: {files} ist nicht lesbar, daher sind die Namen oder die letzte Aktualisierung des Clients nicht bekannt",
+ "msg.linux.ddnsUnreadable.fix": "Führen Sie die automatische Einrichtung oder „Zugriff von Signalbox reparieren“ erneut aus (sie ergänzt eine lesende Regel für die Konfigurationsdatei), oder akzeptieren Sie, dass der DDNS-Client nicht gelesen wird.",
  "msg.linux.logUnreadable": "Protokollziele: {files} ist für {user} nicht lesbar",
  "msg.linux.logUnreadable.fix": "Geben Sie dem Benutzer Lesezugriff auf diese Dateien, oder akzeptieren Sie, dass die entfernten Syslog-Ziele nicht gelesen werden.",
  "msg.linux.nft.chainJump": "{source}: {kind} zur Kette {chain} kann nicht verfolgt werden (unbekannte Kette oder eine Schleife)",

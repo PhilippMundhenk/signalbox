@@ -659,6 +659,12 @@ neighbours carry no protocol, port description, VLAN, PoE or age. Checked agains
 major versions before it as far as the descriptions go; a controller that adds a neighbour read
 is picked up when it is documented (*guess*, #21).
 
+Dynamic DNS (#450): **not available**. The OpenAPI description of the controller has no read of the
+gateway's dynamic DNS clients (provider, host name, status); the web interface shows them, the
+Open API does not. Checked against 6.3 and the two major versions before it as far as the
+descriptions go. Omada gateways report no `DynamicDns`, so the `ddns.*` checks stay quiet for
+them; a controller that documents a read is picked up then (*guess*, #21).
+
 - **Mesh uplink** *(API description of 6.3, from the CI `spec` dump)*: `wirelessLinked` and
   `wireless uplink info` with `uplinkMac`, `name`, `channel`, `rssi`, `snr`, `txRateInt`,
   `partnerLinks[].radioId`. The description spells the key with spaces; `wirelessUpLinkInfo` and

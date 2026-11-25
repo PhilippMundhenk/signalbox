@@ -13,6 +13,8 @@ from typing import Any
 from signalbox.adapters import Adapter, AdapterConfig, AdapterContext
 from signalbox.annotate import apply as apply_annotations
 from signalbox.config import Config
+from signalbox.ddns_resolve import apply as apply_resolved
+from signalbox.ddns_resolve import hostnames, resolve_names
 from signalbox.desired import DesiredError, DesiredState, apply_declared, drift_rules
 from signalbox.foreign import attach as attach_foreign
 from signalbox.merge import merge
@@ -57,6 +59,8 @@ class Runner:
     _wake: asyncio.Event = field(default_factory=asyncio.Event)
     _stop: asyncio.Event = field(default_factory=asyncio.Event)
     last_run: datetime | None = None
+    #: ``ddns.resolve`` (#450): name -> the IPv4 addresses it resolved to in the last round.
+    ddns_resolved: dict[str, list[Any]] = field(default_factory=dict)
 
     # one device -------------------------------------------------------------------------
 
@@ -189,6 +193,8 @@ class Runner:
         state = self._declared()
         net = apply_declared(self._merged(), state)
         net = apply_annotations(net, state, self.store.annotations(), self.store.acknowledgements())
+        if self.config.ddns.resolve:  # names resolved in the last round (#450): only while on
+            net = apply_resolved(net, self.ddns_resolved)
         if self.config.traces.enabled:  # path traces (#253): only while the feature is on
             net = attach_traces(net, self.store.traces())
         # answering DHCP servers and routers (#184): the devices' sightings always, the
@@ -282,6 +288,11 @@ class Runner:
 
         await asyncio.gather(*(one(r) for r in self.store.devices() if r.enabled))
         self.last_run = datetime.now(UTC)
+        if self.config.ddns.resolve:
+            names = hostnames(self._merged())
+            self.ddns_resolved = await resolve_names(names, self.config.ddns.timeout_seconds)
+        else:
+            self.ddns_resolved = {}
         net, findings = self.evaluate(record=True)
         for listener in self.round_listeners:
             try:

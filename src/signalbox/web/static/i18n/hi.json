@@ -1038,6 +1038,8 @@
  "msg.linux.ip6tablesDenied": "फ़ायरवॉल: इस उपयोगकर्ता को ip6tables-save चलाने की अनुमति नहीं है, IPv6 नियम पढ़े नहीं जाते",
  "msg.linux.staleDatabase": "डिवाइस की पैकेज सूचियाँ पुरानी हैं। एक पैकेज इंस्टॉल करने के लिए पहले पूरा सिस्टम अपडेट (sudo pacman -Syu) ज़रूरी है, जो पुराने डिवाइस पर लंबा समय ले सकता है। Signalbox nftables के बिना भी लेगेसी iptables पढ़ता है।",
  "msg.linux.keaError": "Kea: {cause}",
+ "msg.linux.ddnsUnreadable": "डायनेमिक DNS: {files} पढ़ा नहीं जा सकता, इसलिए क्लाइंट के नाम या अंतिम अपडेट का पता नहीं है",
+ "msg.linux.ddnsUnreadable.fix": "स्वचालित सेटअप या Signalbox की पहुँच की मरम्मत दोबारा चलाएँ (यह कॉन्फ़िगरेशन फ़ाइल के लिए केवल-पढ़ने वाला नियम जोड़ता है), या मान लें कि डायनेमिक DNS क्लाइंट नहीं पढ़ा जाएगा।",
  "msg.linux.logUnreadable": "लॉग लक्ष्य: {user} के लिए {files} पढ़ने योग्य नहीं हैं",
  "msg.linux.logUnreadable.fix": "उपयोगकर्ता को इन फ़ाइलों की पढ़ने की पहुँच दें, या मान लें कि remote syslog लक्ष्य नहीं पढ़े जाते।",
  "msg.linux.nft.chainJump": "{source}: chain {chain} तक {kind} का पीछा नहीं किया जा सकता (अज्ञात chain या लूप)",

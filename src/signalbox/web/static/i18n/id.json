@@ -1038,6 +1038,8 @@
  "msg.linux.ip6tablesDenied": "firewall: ip6tables-save tidak diizinkan untuk pengguna ini, aturan IPv6 tidak dibaca",
  "msg.linux.staleDatabase": "Daftar paket di perangkat sudah usang. Memasang satu paket memerlukan pembaruan sistem penuh terlebih dahulu (sudo pacman -Syu), yang bisa lama di perangkat lama. Signalbox membaca iptables lama tanpa nftables.",
  "msg.linux.keaError": "Kea: {cause}",
+ "msg.linux.ddnsUnreadable": "DNS dinamis: {files} tidak dapat dibaca, sehingga nama atau pembaruan terakhir klien tidak diketahui",
+ "msg.linux.ddnsUnreadable.fix": "Jalankan kembali penyiapan otomatis atau perbaikan akses Signalbox (menambahkan aturan hanya-baca untuk berkas konfigurasi), atau terima bahwa klien DNS dinamis tidak dibaca.",
  "msg.linux.logUnreadable": "target log: {files} tidak dapat dibaca oleh {user}",
  "msg.linux.logUnreadable.fix": "Beri pengguna akses baca ke file-file ini, atau terima bahwa target syslog jarak jauh tidak dibaca.",
  "msg.linux.nft.chainJump": "{source}: {kind} ke chain {chain} tidak dapat diikuti (chain tidak dikenal atau berulang)",

@@ -896,6 +896,8 @@ class LinuxSim:
     users: dict[str, User] = field(default_factory=default_users)
     sudoers_files: dict[str, str] = field(default_factory=dict)
     wg_installed: bool = True
+    #: ddclient or inadyn is installed (#450): the setup then adds the sudoers rule
+    ddns_installed: bool = False
     #: ``ip -j`` works (iproute2); ``False``: busybox ``ip``, the JSON sections stay empty
     ip_json: bool = True
     visudo: bool = True
@@ -1103,6 +1105,9 @@ class LinuxSim:
             out.append("@@ipt")
             if self.iptables_installed:
                 out.append("/usr/sbin/iptables-save")
+            out.append("@@ddns")
+            if self.ddns_installed:
+                out.append("/usr/sbin/ddclient")
             out.append("@@os")
             out.append(self.sections.get("os", "").split("\n", 1)[-1].rstrip("\n"))
             out.append("@@markers")
