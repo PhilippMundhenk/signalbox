@@ -3308,7 +3308,6 @@
  "msg.edgeos.rangeNoNetwork": "{server}:DHCP 子网 {range} 不在路由器的任何网络上",
  "msg.edgeos.lldpOff": "路由器上的 LLDP 已关闭,因此不读取邻居",
  "msg.edgeos.lldpOff.fix": "可选:启用它(configure、set service lldp interface all、commit、save)。",
- "msg.edgeos.firewallUnsupported": "防火墙:未读取 {what},因此缺少区域策略的规则",
  "msg.edgeos.ruleSetMissing": "防火墙:{interface} 使用了未定义的规则集 {name}",
  "msg.edgeos.natSkipped": "NAT:已忽略一条没有可用转换地址的规则",
  "device.poe.title": "以太网供电 (PoE)",

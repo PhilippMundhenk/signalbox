@@ -3308,7 +3308,6 @@
  "msg.edgeos.rangeNoNetwork": "{server}: подсеть DHCP {range} не входит ни в одну сеть маршрутизатора",
  "msg.edgeos.lldpOff": "LLDP на маршрутизаторе выключен, поэтому соседи не читаются",
  "msg.edgeos.lldpOff.fix": "Необязательно: включите его (configure, set service lldp interface all, commit, save).",
- "msg.edgeos.firewallUnsupported": "межсетевой экран: {what} не читается, поэтому правил политики зон нет",
  "msg.edgeos.ruleSetMissing": "межсетевой экран: {interface} использует набор правил {name}, который не определён",
  "msg.edgeos.natSkipped": "NAT: правило без пригодного адреса трансляции пропущено",
  "device.poe.title": "Питание по Ethernet",

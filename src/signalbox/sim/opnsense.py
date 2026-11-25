@@ -96,6 +96,7 @@ Interface:    igb2, via: CDPv2, RID: 2, Time: 1 day, 00:00:05
     SysName:      ap1
   Port:
     PortID:       ifname eth0
+    VLAN:         30, pvid: yes
 -------------------------------------------------------------------------------
 Interface:    tun9, via: LLDP, RID: 3, Time: 0 day, 00:00:01
   Chassis:

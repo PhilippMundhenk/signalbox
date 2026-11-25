@@ -459,12 +459,142 @@ async def test_vyos_14_firewall_new_syntax() -> None:
 # --- other shapes of the configuration -----------------------------------------------------------
 
 
-async def test_zone_policy_is_a_gap() -> None:
-    snap = await observed("edgeos-2.0", extra_config="set zone-policy zone LAN interface switch0\n")
+_ZONE_POLICY = """set firewall name WAN_LAN default-action drop
+set firewall name WAN_LAN rule 10 action accept
+set firewall name WAN_LAN rule 10 state established enable
+set firewall name WAN_LAN rule 20 action accept
+set firewall name WAN_LAN rule 20 description 'Web to the LAN'
+set firewall name WAN_LAN rule 20 destination port 443
+set firewall name WAN_LAN rule 20 protocol tcp
+set firewall name WAN_LOCAL default-action drop
+set firewall name WAN_LOCAL rule 20 action accept
+set firewall name WAN_LOCAL rule 20 destination port 22
+set firewall name WAN_LOCAL rule 20 protocol tcp
+set firewall name LAN_LOCAL default-action accept
+set firewall name LOCAL_WAN default-action drop
+set firewall ipv6-name WAN_LAN6 default-action drop
+set zone-policy zone LAN interface switch0.20
+set zone-policy zone LAN from WAN firewall name WAN_LAN
+set zone-policy zone LAN from WAN firewall ipv6-name WAN_LAN6
+set zone-policy zone WAN interface eth0
+set zone-policy zone WAN default-action reject
+set zone-policy zone WAN from LOCAL firewall name LOCAL_WAN
+set zone-policy zone LOCAL local-zone
+set zone-policy zone LOCAL from WAN firewall name WAN_LOCAL
+set zone-policy zone LOCAL from LAN firewall name MISSING
+"""
+
+
+def _policies(found: firewall.Rules) -> set[tuple[str, str | None, FirewallAction]]:
+    return {(p.source, p.destination, p.action) for p in found.policies}
+
+
+def test_zone_policy_of_edgeos_and_vyos_13() -> None:
+    """``zone-policy zone X from Y firewall name N`` (#504): the rules of N from the zone Y to X,
+    the local zone is the input chain, a pair without rule-set follows the default action."""
+    found = firewall.filter_rules(tree.parse(_ZONE_POLICY), vyos_14=False)
+    assert found.applied and set(found.zones) == {"LAN", "WAN"}
+    assert found.zones["LAN"] == (["switch0.20"], True)
+    by_name = {r.name: r for r in found.rules}
+    web = by_name["Web to the LAN"]
+    assert web.chain is FirewallChain.FORWARD and web.family == 4 and web.exact is True
+    assert web.source.zones == ["WAN"] and web.destination.zones == ["LAN"]
+    assert [p.start for p in web.destination.ports] == [443]
+    assert "WAN_LAN 10" not in by_name  # only established: no rule for new connections
+    closing = by_name["WAN_LAN default"]
+    assert closing.action is FirewallAction.DROP and closing.destination.zones == ["LAN"]
+    assert by_name["WAN_LAN6 default"].family == 6
+    ssh = by_name["WAN_LOCAL 20"]
+    assert ssh.chain is FirewallChain.INPUT and ssh.source.zones == ["WAN"]
+    assert ssh.destination.zones == []
+    out = by_name["LOCAL_WAN default"]  # from the router: the output chain
+    assert out.chain is FirewallChain.OUTPUT and out.destination.zones == ["WAN"]
+    assert _policies(found) == {
+        ("LAN", "WAN", FirewallAction.REJECT),  # no rule-set: the default action of WAN
+        ("LAN", "LAN", FirewallAction.ACCEPT),
+        ("WAN", "WAN", FirewallAction.ACCEPT),
+    }
+    # LAN -> LOCAL names a rule-set that does not exist
+    assert found.complete is False
+    assert [g[2] for g in found.gaps] == [
+        {"interface": "zone LOCAL from LAN", "name": "MISSING"},
+    ]
+    assert found.zone_names == set()
+
+
+_FIREWALL_ZONE = """set firewall ipv4 name WAN_LAN default-action drop
+set firewall ipv4 name WAN_LAN rule 10 action accept
+set firewall ipv4 name WAN_LAN rule 10 protocol icmp
+set firewall ipv4 name LAN_LOCAL default-action drop
+set firewall ipv4 name LAN_LOCAL rule 5 action jump
+set firewall ipv4 name LAN_LOCAL rule 5 jump-target SSH
+set firewall ipv4 name SSH default-action return
+set firewall ipv4 name INSIDE rule 10 action drop
+set firewall zone LAN member interface eth1
+set firewall zone LAN member interface eth+
+set firewall zone LAN from WAN firewall name WAN_LAN
+set firewall zone LAN intra-zone-filtering action drop
+set firewall zone WAN member interface eth0
+set firewall zone WAN default-action drop
+set firewall zone MGMT member interface eth2
+set firewall zone MGMT member vrf mgmt
+set firewall zone MGMT intra-zone-filtering firewall name INSIDE
+set firewall zone LOCAL local-zone
+set firewall zone LOCAL from LAN firewall name LAN_LOCAL
+"""
+
+
+def test_firewall_zone_of_vyos_14() -> None:
+    """``firewall zone X`` (VyOS 1.4 and newer, #504): members spelled ``member interface``,
+    rule-sets under ``firewall ipv4 name``, intra-zone filtering, wildcards and VRF members make
+    the zone incomplete."""
+    found = firewall.filter_rules(tree.parse(_FIREWALL_ZONE), vyos_14=True)
+    assert found.zones == {
+        "LAN": (["eth1"], False),  # eth+ is a wildcard
+        "WAN": (["eth0"], True),
+        "MGMT": (["eth2"], False),  # a VRF is no port
+    }
+    by_name = {r.name: r for r in found.rules}
+    ping = by_name["WAN_LAN 10"]
+    assert ping.source.zones == ["WAN"] and ping.destination.zones == ["LAN"]
+    assert by_name["WAN_LAN default"].action is FirewallAction.DROP
+    # a jump inside a rule-set is unrolled; a `return` default makes the read incomplete
+    assert by_name["LAN_LOCAL default"].chain is FirewallChain.INPUT
+    assert by_name["INSIDE 10"].source.zones == ["MGMT"] == by_name["INSIDE 10"].destination.zones
+    assert found.complete is False
+    assert _policies(found) == {
+        ("LAN", "WAN", FirewallAction.DROP),
+        ("LAN", "MGMT", FirewallAction.DROP),
+        ("WAN", "MGMT", FirewallAction.DROP),
+        ("MGMT", "LAN", FirewallAction.DROP),
+        ("MGMT", "WAN", FirewallAction.DROP),
+        ("LAN", "LAN", FirewallAction.DROP),  # intra-zone-filtering action drop
+        ("WAN", "WAN", FirewallAction.ACCEPT),
+        ("WAN", None, FirewallAction.DROP),
+        ("MGMT", None, FirewallAction.DROP),
+    }
+
+
+async def test_zone_policy_in_the_firewall_model() -> None:
+    """The zones of a zone-based firewall map their interfaces to the objects of the device and
+    the rules are no longer reported as missing (#504)."""
+    extra = (
+        "set zone-policy zone WAN interface eth0\n"
+        "set zone-policy zone IOT interface switch0.20\n"
+        "set zone-policy zone LOCAL local-zone\n"
+        "set zone-policy zone IOT from WAN firewall name WAN_IN\n"
+    )
+    snap = await observed("edgeos-2.0", extra_config=extra)
     (fw,) = snap.firewalls
-    assert fw.rules_complete is False
-    gap = next(e for e in snap.errors if e.message_id == "edgeos.firewallUnsupported")
-    assert "zone-policy" in gap.message
+    assert [e for e in snap.errors if e.capability == "firewall"] == []
+    assert fw.rules_complete is True
+    zones = {z.name: z for z in fw.zones}
+    assert zones["WAN"].uplinks == [f"{DEV}/uplink/eth0"] and zones["WAN"].complete is True
+    assert zones["IOT"].segments == ["home/segment/20"]
+    assert "LOCAL" not in zones
+    assert fw.policy("IOT", "WAN") is FirewallAction.DROP
+    assert fw.policy("WAN", None) is FirewallAction.DROP
+    assert fw.policy("IOT", "IOT") is FirewallAction.ACCEPT
 
 
 async def test_unknown_rule_set_is_a_gap() -> None:

@@ -3308,7 +3308,6 @@
  "msg.edgeos.rangeNoNetwork": "{server}: {range} DHCP alt ağı yönlendiricinin hiçbir ağında değil",
  "msg.edgeos.lldpOff": "LLDP yönlendiricide kapalı, bu yüzden komşular okunmadı",
  "msg.edgeos.lldpOff.fix": "İsteğe bağlı: açın (configure, set service lldp interface all, commit, save).",
- "msg.edgeos.firewallUnsupported": "güvenlik duvarı: {what} okunmadı, bu yüzden bölge ilkesinin kuralları eksik",
  "msg.edgeos.ruleSetMissing": "güvenlik duvarı: {interface} tanımlı olmayan {name} kural kümesini kullanıyor",
  "msg.edgeos.natSkipped": "NAT: kullanılabilir çeviri adresi olmayan bir kural dışarıda bırakıldı",
  "device.poe.title": "Ethernet Üzerinden Güç",

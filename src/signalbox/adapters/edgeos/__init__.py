@@ -774,17 +774,6 @@ class EdgeosAdapter(Adapter):
         rules = firewall.filter_rules(root, vyos_14)
         nat = firewall.nat(root)
         complete = rules.complete
-        other = firewall.unsupported_firewall(root)
-        if other:
-            complete = False
-            gaps.append(
-                Gap(
-                    message=f"firewall: {', '.join(other)} is not read, so the rules of the "
-                    "zone policy are missing",
-                    message_id="edgeos.firewallUnsupported",
-                    params={"what": ", ".join(other)},
-                )
-            )
         for message, mid, params in rules.gaps:
             gaps.append(Gap(message=message, message_id=mid, params=params))
         if not nat.complete:
@@ -795,14 +784,17 @@ class EdgeosAdapter(Adapter):
                     message_id="edgeos.natSkipped",
                 )
             )
-        names = sorted(rules.zone_names | nat.zone_names)
+        names = sorted((rules.zone_names | nat.zone_names) - set(rules.zones))
+        zones = [self._zone(lay, n) for n in names]
+        zones += [self._zone_group(lay, n, *rules.zones[n]) for n in sorted(rules.zones)]
         return Observation(
             firewalls=[
                 Firewall(
                     id=firewall_id(d),
                     device_id=d,
                     enabled=rules.applied or not complete,
-                    zones=[self._zone(lay, n) for n in names],
+                    zones=zones,
+                    policies=rules.policies,
                     rules=rules.rules,
                     rules_complete=complete,
                     nat=nat.nat,
@@ -812,6 +804,18 @@ class EdgeosAdapter(Adapter):
                 )
             ],
             incomplete=gaps,
+        )
+
+    def _zone_group(self, lay: _Layout, name: str, members: list[str], plain: bool) -> FirewallZone:
+        """A zone of ``zone-policy`` / ``firewall zone``: the objects of its member interfaces."""
+        found = [self._zone(lay, member) for member in members]
+        return FirewallZone(
+            name=name,
+            segments=[x for z in found for x in z.segments],
+            uplinks=[x for z in found for x in z.uplinks],
+            tunnels=[x for z in found for x in z.tunnels],
+            ports=[x for z in found for x in z.ports],
+            complete=plain and all(z.complete for z in found),
         )
 
     def _zone(self, lay: _Layout, name: str) -> FirewallZone:

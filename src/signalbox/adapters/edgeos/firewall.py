@@ -17,7 +17,16 @@ name their interfaces (``inbound-interface name eth0``) and named chains
 (``firewall ipv4 name X``) that a rule enters with ``action jump``. They are read into the same
 model (:func:`_new_rules`): a base chain is the chain of that name, a jump to a named chain is
 unrolled in place under the zones of the jump rule, the default action of a named chain closes
-that part. Zone-based firewalls (``firewall zone``) are named in a gap (#389, #495).
+that part.
+
+Zone-based firewalls (EdgeOS 1.x/2.0 and VyOS 1.3 ``zone-policy zone X``, VyOS 1.4 and newer
+``firewall zone X``) are read by :func:`zone_rules` into the same model as the zones of OPNsense
+and MikroTik (#504): a zone is a :class:`FirewallZone` of its member interfaces, ``zone X from Y
+firewall name N`` puts the rules of N into the forward chain from the zone Y to X (into the input
+chain when X is the ``local-zone``, the output chain when Y is), the default action of N closes
+them, and a pair of zones without a rule-set gets the default action of the target zone as a
+:class:`ZonePolicy` (traffic inside one zone is allowed). The ``zone-policy`` and ``firewall
+zone`` trees spell the members differently (``interface`` and ``member interface``).
 """
 
 from __future__ import annotations
@@ -40,6 +49,7 @@ from signalbox.model import (
     NatRule,
     PortForward,
     PortRange,
+    ZonePolicy,
 )
 
 #: Service names EdgeOS accepts as ports (the ones in everyday rules).
@@ -107,6 +117,9 @@ class Rules:
     applied: bool = False
     complete: bool = True
     gaps: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
+    #: Zone-based firewall: zone name -> (member interfaces, all of them understood).
+    zones: dict[str, tuple[list[str], bool]] = field(default_factory=dict)
+    policies: list[ZonePolicy] = field(default_factory=list)
 
 
 def _ports(text: str | None) -> tuple[list[PortRange], bool]:
@@ -273,6 +286,12 @@ def _default(
 
 def filter_rules(root: Node, vyos_14: bool) -> Rules:
     """The rule-sets that are applied to an interface, in the order EdgeOS evaluates them."""
+    out = _interface_rules(root, vyos_14)
+    zone_rules(root, out)
+    return out
+
+
+def _interface_rules(root: Node, vyos_14: bool) -> Rules:
     out = Rules()
     if vyos_14 or root.has("firewall", "ipv4") or root.has("firewall", "ipv6"):
         return _new_rules(root)
@@ -644,14 +663,124 @@ def nat(root: Node) -> Nat:
     return out
 
 
-def unsupported_firewall(root: Node) -> list[str]:
-    """Parts of the firewall this reader does not map (named in a gap)."""
-    found = []
-    if root.has("zone-policy"):
-        found.append("zone-policy")
-    if root.has("firewall", "zone"):
-        found.append("firewall zone")
-    return found
+def _zone_declarations(root: Node) -> list[tuple[str, Node]]:
+    found: dict[str, Node] = {}
+    for path in (("zone-policy", "zone"), ("firewall", "zone")):
+        for name, node in root.items(*path):
+            found.setdefault(name, node)
+    return list(found.items())
+
+
+def _zone_members(node: Node) -> tuple[list[str], bool]:
+    """Interfaces of a zone (``interface eth0`` or ``member interface eth0``) and whether all of
+    them are plain names (a wildcard such as ``eth+`` or a VRF member maps to no single port)."""
+    members = [*node.keys("interface"), *node.keys("member", "interface")]
+    plain = not node.has("member", "vrf") and not any(re.search(r"[+*]", m) for m in members)
+    return [m for m in members if not re.search(r"[+*]", m)], plain
+
+
+def _zone_set(root: Node, key: str, name: str) -> tuple[Node, Node] | None:
+    """The rule-set ``name`` that a zone names (``firewall name`` / ``ipv6-name``) as (the node
+    holding the named chains, the chain): ``firewall ipv4 name X`` in VyOS 1.4 and newer, else
+    ``firewall name X`` / ``firewall ipv6-name X``."""
+    firewall = root.get("firewall")
+    if firewall is None:
+        return None
+    family = "ipv4" if key == "name" else "ipv6"
+    for holder, word in ((firewall.get(family), "name"), (firewall, key)):
+        if holder is not None and holder.has(word, name):
+            node = holder.get(word, name)
+            assert node is not None
+            return holder, node
+    return None
+
+
+def zone_rules(root: Node, out: Rules) -> None:
+    """Read ``zone-policy`` / ``firewall zone`` into ``out`` (zones, rules, zone policies)."""
+    declared = _zone_declarations(root)
+    if not declared:
+        return
+    local = {n for n, node in declared if node.has("local-zone")}
+    for name, node in declared:
+        if name not in local:
+            out.zones[name] = _zone_members(node)
+    out.applied = True
+    for target, tnode in declared:
+        default = _ACTIONS.get(tnode.first("default-action") or "drop", FirewallAction.DROP)
+        for source, _ in declared:
+            if source in local and target in local:
+                continue
+            chain = FirewallChain.FORWARD
+            src: str | None = source
+            dst: str | None = target
+            if target in local:
+                chain, dst = FirewallChain.INPUT, None
+            elif source in local:
+                chain, src = FirewallChain.OUTPUT, None
+            pair = (source, target)
+            if source == target:
+                intra = tnode.get("intra-zone-filtering")
+                if _zone_pair(root, out, pair, intra, chain, src, dst):
+                    continue
+                dropped = intra is not None and intra.first("action") == "drop"
+                action = FirewallAction.DROP if dropped else FirewallAction.ACCEPT
+                out.policies.append(ZonePolicy(source=source, destination=target, action=action))
+                continue
+            had = _zone_pair(root, out, pair, tnode.get("from", source), chain, src, dst)
+            if not had and source not in local:
+                out.policies.append(ZonePolicy(source=source, destination=dst, action=default))
+    out.zone_names -= {n for n, _ in declared}
+
+
+def _zone_pair(
+    root: Node,
+    out: Rules,
+    pair: tuple[str, str],
+    node: Node | None,
+    chain: FirewallChain,
+    src: str | None,
+    dst: str | None,
+) -> bool:
+    """The rule-sets of ``zone T from S firewall name|ipv6-name N`` (or the ``intra-zone-filtering
+    firewall`` of a zone): rules and closing default into ``out``. False: no rule-set named."""
+    if node is None:
+        return False
+    had = False
+    for key, family in (("name", 4), ("ipv6-name", 6)):
+        wanted = node.first("firewall", key)
+        if wanted is None:
+            continue
+        had = True
+        found = _zone_set(root, key, wanted)
+        if found is None:
+            out.complete = False
+            out.gaps.append(
+                (
+                    f"firewall: zone {pair[1]} from {pair[0]} uses the rule-set {wanted}, "
+                    "which is not defined",
+                    "edgeos.ruleSetMissing",
+                    {"interface": f"zone {pair[1]} from {pair[0]}", "name": wanted},
+                )
+            )
+            continue
+        holder, chain_node = found
+        fam: Literal[4, 6] = 4 if family == 4 else 6
+        _walk(out, holder, chain_node, wanted, chain, fam, src, dst, False, (wanted,), 0)
+        closing = _ACTIONS.get(chain_node.first("default-action") or "drop")
+        if closing is None:
+            out.complete = False
+            continue
+        out.rules.append(
+            FirewallRule(
+                name=f"{wanted} default",
+                chain=chain,
+                family=fam,
+                source=FirewallMatch(zones=[src] if src else []),
+                destination=FirewallMatch(zones=[dst] if dst else []),
+                action=closing,
+            )
+        )
+    return had
 
 
 _RANGE = re.compile(r"^\d+-\d+$")

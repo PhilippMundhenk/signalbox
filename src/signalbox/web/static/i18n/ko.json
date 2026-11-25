@@ -3308,7 +3308,6 @@
  "msg.edgeos.rangeNoNetwork": "{server}: DHCP 서브넷 {range}이(가) 라우터의 어떤 네트워크에도 없습니다",
  "msg.edgeos.lldpOff": "라우터에서 LLDP가 꺼져 있어 이웃을 읽지 않습니다",
  "msg.edgeos.lldpOff.fix": "선택 사항: 켜세요(configure, set service lldp interface all, commit, save).",
- "msg.edgeos.firewallUnsupported": "방화벽: {what}을(를) 읽지 않아 영역 정책의 규칙이 없습니다",
  "msg.edgeos.ruleSetMissing": "방화벽: {interface}이(가) 정의되지 않은 규칙 집합 {name}을(를) 사용합니다",
  "msg.edgeos.natSkipped": "NAT: 사용할 수 있는 변환 주소가 없는 규칙을 건너뛰었습니다",
  "device.poe.title": "이더넷 전원 공급 (PoE)",

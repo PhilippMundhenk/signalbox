@@ -1283,6 +1283,9 @@ async def test_lldpd_neighbours(snap: Snapshot) -> None:
         NeighbourProtocol.CDP,
     )
     assert ap.age_seconds == 86405
+    # lldpd stores the native VLAN of a CDP frame as the port VLAN (pvid), so it is mapped as for
+    # LLDP; it decodes no VTP domain and no duplex from CDP, and CDP has no last-frame time (#494)
+    assert ap.port_vlan == 30 and ap.vlans == [30] and ap.last_seen is None
 
 
 async def test_lldpd_not_installed_is_no_neighbours(http_url: str, sim: OpnsenseSimulator) -> None:

@@ -3308,7 +3308,6 @@
  "msg.edgeos.rangeNoNetwork": "{server}: subnet DHCP {range} tidak berada di jaringan mana pun pada router",
  "msg.edgeos.lldpOff": "LLDP mati di router, sehingga tetangga tidak dibaca",
  "msg.edgeos.lldpOff.fix": "Opsional: aktifkan (configure, set service lldp interface all, commit, save).",
- "msg.edgeos.firewallUnsupported": "firewall: {what} tidak dibaca, sehingga aturan kebijakan zona tidak ada",
  "msg.edgeos.ruleSetMissing": "firewall: {interface} memakai kumpulan aturan {name} yang tidak terdefinisi",
  "msg.edgeos.natSkipped": "NAT: satu aturan tanpa alamat terjemahan yang dapat dipakai dilewati",
  "device.poe.title": "Power over Ethernet",
