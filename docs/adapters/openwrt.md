@@ -437,7 +437,7 @@ section name when there are several). `port` (default 53; 0 turns DNS off: disab
 forwarders, `192.0.2.53#5353` with its port, an `@interface` suffix dropped; domain-specific
 ones (`/corp.example/192.0.2.53`, also `/a.example/b.example/192.0.2.53`) are forwarders with `domain` set (#182). Without `noresolv` dnsmasq also uses the
 servers of `resolvfile` (the WAN's), which are not read (`vendor_extra.upstream`). `domain`
-sections (`name`, `ip`) are host records. *Guess*: not yet checked against the CI VMs.
+sections (`name`, `ip`) are host records. `register_dhcp` and `dynamic_records` are true while a `dhcp` section serves a network (not `ignore`, `dhcpv4` not `disabled`): dnsmasq then answers the names of its leases (#456). *Guess*: not yet checked against the CI VMs.
 
 ### `hostapd.<ifname> get_clients` (associated stations)
 

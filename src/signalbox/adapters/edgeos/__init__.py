@@ -610,6 +610,9 @@ class EdgeosAdapter(Adapter):
             address = _address(node.first("inet"))
             if address is not None:
                 records.append(HostRecord(name=host, address=address, source="host-override"))
+        cache = self.root.first("service", "dns", "forwarding", "cache-size")
+        # ``dhcp <interface>``: dnsmasq answers the names of that DHCP server's leases (#456)
+        names = self.root.has("service", "dns", "forwarding", "dhcp")
         return Observation(
             dns_services=[
                 DnsService(
@@ -620,6 +623,10 @@ class EdgeosAdapter(Adapter):
                     listen=listen,
                     forwarders=forwarders,
                     host_records=records,
+                    recursive=False,  # dnsmasq asks its name servers
+                    cache_size=int(cache) if cache and cache.isdigit() else None,
+                    register_dhcp=names,
+                    dynamic_records=names or None,
                 )
             ]
         )

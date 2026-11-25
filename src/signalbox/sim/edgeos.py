@@ -203,6 +203,7 @@ set service dhcp-server shared-network-name LAN subnet 192.0.2.0/25 static-mappi
 set service dhcp-server shared-network-name LAN subnet 192.0.2.0/25 static-mapping printer mac-address 02:00:00:00:00:50
 set service dns forwarding cache-size 150
 set service dns forwarding listen-on switch0
+set service dns forwarding dhcp switch0
 set service dns forwarding listen-on switch0.20
 set service dns forwarding name-server 203.0.113.53
 set service dns forwarding name-server 203.0.113.54

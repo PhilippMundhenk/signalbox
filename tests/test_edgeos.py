@@ -216,6 +216,9 @@ async def test_edgeos_20_dhcp_dns_neighbours() -> None:
     (dns,) = snap.dns_services
     assert [str(a) for a in dns.listen] == ["192.0.2.1", "192.0.2.129"]
     assert [str(f) for f in dns.forwarders] == ["203.0.113.53", "203.0.113.54"]
+    # dnsmasq with a 150 entry cache that answers the names of one DHCP server's leases (#456)
+    assert (dns.recursive, dns.cache_size) == (False, 150)
+    assert (dns.register_dhcp, dns.dynamic_records) == (True, True)
     assert [(r.name, str(r.address)) for r in dns.host_records] == [
         ("nas.lan.example", "192.0.2.60")
     ]

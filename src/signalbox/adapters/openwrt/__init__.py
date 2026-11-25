@@ -2211,6 +2211,11 @@ class OpenWrtAdapter(Adapter):
                 records.append(HostRecord(name=str(sec["name"]), address=address))
         services = []
         instances = _sections(uci, "dnsmasq")
+        # dnsmasq answers the names of its DHCP leases while it serves one network (#456)
+        names = any(
+            not _flag(sec.get("ignore")) and str(sec.get("dhcpv4", "")) != "disabled"
+            for _, sec in _sections(uci, "dhcp")
+        )
         # https-dns-proxy (DoH) or stubby (DoT) next to dnsmasq: dnsmasq then forwards to
         # 127.0.0.1#port, which the encryption check does not report (#80)
         proxy: dict[str, dict[str, Any]] = {}
@@ -2265,6 +2270,8 @@ class OpenWrtAdapter(Adapter):
                     rebind_protection=_flag(sec.get("rebind_protection", "1")),
                     rebind_allowed_domains=[d.lower() for d in _list(sec.get("rebind_domain"))],
                     cache_size=_int(sec.get("cachesize", 150)),
+                    register_dhcp=names,
+                    dynamic_records=names or None,
                     local_domain=str(sec["domain"]).strip(".").lower()
                     if sec.get("domain")
                     else None,

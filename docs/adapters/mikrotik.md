@@ -17,7 +17,7 @@ sends `GET` requests.
 | dns | DNS server: enabled (remote requests allowed), listen addresses, upstream servers, static `A`/`AAAA` entries |
 | wireless | radios and SSIDs from the RouterOS 7 `wifi` package (`/interface/wifi`), else the older `wireless` package |
 | clients | ARP and IPv6 neighbours, DHCP leases, the bridge host table (port) and the Wi-Fi registration table (SSID) |
-| neighbours | `/ip/neighbor` (LLDP, MNDP, CDP): identity, chassis MAC, remote port, address |
+| neighbours | `/ip/neighbor` (LLDP, MNDP, CDP): identity, chassis MAC, remote port, address, protocol, port VLAN; `last_seen` = read time minus `age` (RouterOS counts the age from the last update, lldpd from the first sighting, so only RouterOS fills it, #448) |
 
 > **Verified against RouterOS 7.25.1 CHR in CI.** The setup commands, user groups, the answers of
 > every menu the read side uses and the write calls for router interfaces, DHCP, static leases,

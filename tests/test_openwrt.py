@@ -356,6 +356,7 @@ async def test_dnsmasq_dns(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
     # dnsmasq on OpenWrt protects against rebinding by default, with a 150 entry cache
     assert dns.rebind_protection is True and dns.rebind_allowed_domains == []
     assert dns.cache_size == 150 and dns.recursive is False
+    assert isinstance(dns.register_dhcp, bool)  # from the DHCP sections (#456)
     sim.state["dhcp"][main].update(
         {"rebind_protection": "0", "rebind_domain": ["Corp.Example"], "cachesize": "1000"}
     )
