@@ -183,19 +183,40 @@ def add_switch(page: Any, name: str = "Core switch", site: str = "home") -> dict
     return result
 
 
-def observe(page: Any) -> None:
-    """Read every device now (POST /api/observe) and wait until the round has finished."""
+def observe(page: Any, timeout: float = 60.0) -> None:
+    """Read every device now (POST /api/observe) and wait until the round has finished and every
+    enabled device is in the merged network (#485). Raises with the missing ids after ``timeout``
+    seconds instead of going on with half the devices."""
     before = api(page, "GET", "/health")["last_run"]
     api(page, "POST", "/observe", {})
-    for _ in range(100):
-        if api(page, "GET", "/health")["last_run"] != before:
-            for _ in range(100):  # best effort: a device whose read fails may have no snapshot
-                if _all_read(page):
-                    return
-                time.sleep(0.1)
-            return
+    deadline = time.monotonic() + timeout
+    while api(page, "GET", "/health")["last_run"] == before:
+        if time.monotonic() > deadline:
+            raise AssertionError("observation round did not finish")
         time.sleep(0.1)
-    raise AssertionError("observation round did not finish")
+    while not _all_read(page):
+        if time.monotonic() > deadline:
+            raise AssertionError(f"devices not read after {timeout:.0f} s: {_unread(page)}")
+        time.sleep(0.2)
+
+
+def _unread(page: Any) -> list[str]:
+    wanted = {d["id"] for d in api(page, "GET", "/devices") if d.get("enabled", True)}
+    return sorted(wanted - {d["id"] for d in api(page, "GET", "/network")["devices"]})
+
+
+def topology_state(page: Any) -> str:
+    """Device ids of /api/network, node ids and hosted rows of /api/topology: for assertion
+    messages, so a CI annotation shows what the server had (#485)."""
+    net = api(page, "GET", "/network")
+    topo = api(page, "GET", "/topology")
+    devices = {d["id"]: d.get("hosted_on") for d in net["devices"]}
+    nodes = {n["id"]: [h["id"] for h in n.get("hosted", [])] for n in topo["nodes"]}
+    stored = {d["id"]: d.get("hosted_on") for d in api(page, "GET", "/devices")}
+    return (
+        f"/api/devices (hosted_on)={stored} /api/network devices (hosted_on)={devices} "
+        f"/api/topology nodes (hosted rows)={nodes}"
+    )
 
 
 def _all_read(page: Any) -> bool:
