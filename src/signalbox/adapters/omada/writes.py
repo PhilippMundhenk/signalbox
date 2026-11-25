@@ -743,6 +743,13 @@ class Writer:
             )
             out.append(Op(desc, "PATCH", update, body, _shown(body)))
         if new.enabled != (row.get("ssidEnable") is not False):
+            if "ssidEnable" not in row:
+                # Omada Software Controller 5.15 (CI, #501): an SSID has no on/off switch in the
+                # Open API (no ``ssidEnable`` in its answers, ``…/enable`` is a 404)
+                raise AdapterError(
+                    f"{c.id}: this controller version cannot switch an SSID off through its "
+                    "Open API (Omada 5.x); remove the SSID or turn it off in the controller"
+                )
             on = {"ssidEnable": new.enabled}
             desc = Described(
                 f"SSID {c.key} {where}: " + ("on" if new.enabled else "off"),

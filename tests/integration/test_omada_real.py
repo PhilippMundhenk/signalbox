@@ -263,7 +263,8 @@ async def test_ssids_and_port_profiles(ctrl: dict[str, str]) -> None:
     )
     assert PMF_MODES[iot["pmfMode"]] is Pmf.DISABLED
     assert (_security(guest), guest["vlanId"], "pmfMode" in guest) == (Security.OPEN, 30, False)
-    assert all(s["ssidEnable"] is True for s in rows.values())
+    # Omada 5.15 has no on/off switch for an SSID (no key in its answers, #501)
+    assert all(s.get("ssidEnable", True) is True for s in rows.values())
     assert profiles["IoT access"]["nativeNetworkId"] == nets[20]
     assert profiles["All"]["nativeNetworkId"] == nets[1]
     assert set(profiles["All"]["tagNetworkIds"]) == {nets[20], nets[30], nets[40]}
@@ -578,10 +579,14 @@ async def test_ssid_create_change_disable_delete(ctrl: dict[str, str]) -> None:
     )
 
     off = changed.model_copy(update={"enabled": False, "passphrase_secret": None})
-    await apply(ctrl, [wlan("Lab", changed, off)], secrets)
-    lab = (await ssids(ctrl))["Lab"]
-    assert lab["ssidEnable"] is False
-    assert lab["pskSetting"]["securityKey"] == "another-lab-passphrase"  # kept
+    if "ssidEnable" in lab:
+        await apply(ctrl, [wlan("Lab", changed, off)], secrets)
+        lab = (await ssids(ctrl))["Lab"]
+        assert lab["ssidEnable"] is False
+        assert lab["pskSetting"]["securityKey"] == "another-lab-passphrase"  # kept
+    else:  # Omada 5.15: no switch in the Open API, a readable refusal instead of a 404 (#501)
+        with pytest.raises(AdapterError, match="cannot switch an SSID off"):
+            await apply(ctrl, [wlan("Lab", changed, off)], secrets)
 
     await apply(ctrl, [wlan("Lab", off, None)], secrets)
     assert set(await ssids(ctrl)) == {"Home", "IoT", "Guest"}

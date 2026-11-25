@@ -246,6 +246,40 @@ def login(oid: str, admin_password: str) -> dict[str, str]:
     return {"Csrf-Token": result["token"]}
 
 
+#: where the web UI keeps the Open API applications: 6.x, then the spellings 5.x may use (#501)
+APP_PATHS = (
+    "open-api/applications",
+    "openapi/applications",
+    "open-api/application",
+    "openapi/application",
+)
+
+
+def web_scripts(oid: str) -> str:
+    """The Open API strings of the web UI's scripts: what to try when no path answers."""
+    status, page = request("GET", f"/{oid}/")
+    if not isinstance(page, str):
+        return f"index page: HTTP {status}"
+    found: set[str] = set()
+    for src in re.findall(r'src="([^"]+\.js)"', page)[:30]:
+        _, js = request("GET", src if src.startswith("/") else f"/{oid}/{src}")
+        if isinstance(js, str):
+            found.update(re.findall(r'["\'`]([^"\'`\s]*open-?[aA]pi[^"\'`\s]*)["\'`]', js))
+    return "\n".join(sorted(found))[:3500]
+
+
+def applications_path(oid: str, web: dict[str, str]) -> str:
+    seen = []
+    for sub in APP_PATHS:
+        path = f"/{oid}/api/v2/{sub}"
+        status, answer = request("GET", f"{path}?currentPage=1&currentPageSize=100", headers=web)
+        if status == 200 and isinstance(answer, dict) and answer.get("errorCode") == 0:
+            return path
+        seen.append(f"{sub}: HTTP {status} {str(answer)[:120]}")
+    fail("Omada setup: no Open API applications path", "\n".join(seen) + "\n" + web_scripts(oid))
+    raise AssertionError
+
+
 def application(oid: str, web: dict[str, str], name: str, role: str) -> dict[str, str]:
     roles = ok("GET", f"/{oid}/api/v2/roles-available", headers=web)
     found = roles.get("roles", roles) if isinstance(roles, dict) else roles
@@ -256,12 +290,9 @@ def application(oid: str, web: dict[str, str], name: str, role: str) -> dict[str
     if match is None:
         fail("Omada setup: no such role", f"{role!r} not in {names}")
     body = {"name": name, "mode": 1, "permission": {"roleId": match, "sitePrivilege": 0}}
-    ok("POST", f"/{oid}/api/v2/open-api/applications", body, headers=web)
-    listed = ok(
-        "GET",
-        f"/{oid}/api/v2/open-api/applications?currentPage=1&currentPageSize=100",
-        headers=web,
-    )
+    base = applications_path(oid, web)
+    ok("POST", base, body, headers=web)
+    listed = ok("GET", f"{base}?currentPage=1&currentPageSize=100", headers=web)
     rows = listed.get("data", listed) if isinstance(listed, dict) else listed
     app = next((r for r in rows if r.get("name") == name), None)
     if not app or not app.get("clientId") or not app.get("clientSecret"):
