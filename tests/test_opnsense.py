@@ -1476,3 +1476,49 @@ def test_multicast_reader_shapes() -> None:
     assert off is not None and not off.enabled
     (odd,) = reader.relays([{"enabled": "1", "listenport": "x", "interfaces": "lan"}], {"lan": "s"})
     assert odd.kind.value == "udp-broadcast-relay" and odd.segments == ["s"]
+
+
+async def test_traffic_shaper_pipes_with_rules(snap: Snapshot) -> None:
+    """Two FQ-CoDel pipes on the WAN: the download one through a queue (#166)."""
+    by_name = {s.name: s for s in snap.shapers}
+    down, up = by_name["Download"], by_name["Upload"]
+    assert (down.download_kbps, down.upload_kbps) == (90_000, None)
+    assert (up.download_kbps, up.upload_kbps) == (None, 18_000)
+    assert down.kind.value == "fq-codel" and down.enabled and down.interface == "wan"
+    assert down.uplink_id == snap.uplinks[0].id
+
+
+async def test_traffic_shaper_refused_is_an_optional_gap(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    sim.fail = {"/api/trafficshaper/settings/search_pipes": 403}
+    snap = await observe(adapter(http_url))
+    assert snap.shapers == []
+    (gap,) = [e for e in snap.errors if e.message.startswith("traffic shaper")]
+    assert gap.optional and "page-firewall-trafficshaper" in (gap.fix or "")
+    assert snap.status.value == "ok"
+
+
+async def test_no_traffic_shaper_api_reports_nothing(http_url: str, sim: OpnsenseSimulator) -> None:
+    del sim.data["/api/trafficshaper/settings/search_pipes"]
+    snap = await observe(adapter(http_url))
+    assert snap.shapers == [] and not [e for e in snap.errors if "shaper" in e.message]
+
+
+def test_traffic_shaper_directions_and_unused_pipes() -> None:
+    from signalbox.adapters.opnsense import shaper as reader
+
+    pipes = [
+        {"uuid": "a", "number": "1", "enabled": "1", "bandwidth": "10", "bandwidthMetric": "Mbit"},
+        {"uuid": "b", "number": "2", "enabled": "1", "bandwidth": "500", "bandwidthMetric": "Kbit"},
+        {"uuid": "c", "number": "3", "enabled": "1", "bandwidth": "1", "bandwidthMetric": "Gbit"},
+    ]
+    rules = [
+        {"enabled": "1", "interface": "lan", "direction": "in", "target": "a"},
+        {"enabled": "1", "interface": "lan", "direction": "out", "target": "b", "dscp": "ef"},
+        {"enabled": "0", "interface": "lan", "target": "c"},
+    ]
+    a, b, c = reader.shapers("fw", pipes, [], rules, [])
+    assert (a.upload_kbps, a.download_kbps) == (10_000, None)
+    assert (b.download_kbps, b.upload_kbps, b.dscp) == (500, None, True)
+    assert not c.enabled and c.download_kbps is None and c.upload_kbps is None

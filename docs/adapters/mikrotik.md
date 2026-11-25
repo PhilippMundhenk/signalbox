@@ -1130,6 +1130,18 @@ and nothing is reported.
 (option 23) and the bindings `/ipv6/dhcp-server/binding` are not read.)* The simulator answers all
 four menus. RouterOS 6 has no REST API (see #389).
 
+## Queues (#166)
+
+`/rest/queue/simple`, `/rest/queue/tree` and `/rest/queue/type` (cake and fq-codel types need
+RouterOS 7.1; 6.49 has the menus with plain types). Needs only the read policy; a menu that is
+refused or missing reports nothing. One shaper per static queue (dynamic queues of the hotspot and
+PPP are left out). A simple queue gives `max-limit` as `upload/download` for its target (a network
+or addresses); with a WAN interface as target the two values are read from the interface's side
+(first: our download). A tree queue with a WAN interface as parent limits the upload, with another
+interface as parent the download; children of other queues and queues with parent `global` are not
+interface shapers and are left out. The kind comes from the queue type (`cake`, `fq-codel`, else a
+plain queue). *(guess: field names and the direction of interface targets, #21.)*
+
 ## Hotspot (#460)
 
 `/rest/ip/hotspot` (one captive portal per server: `name`, `interface`, `profile`, `disabled`),

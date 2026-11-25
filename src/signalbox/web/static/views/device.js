@@ -414,6 +414,56 @@ function ddnsCard(ix, deviceId) {
   return h('section', { class: 'card', 'data-testid': 'device-ddns' }, h('h2', {}, t('device.ddns.title')), kv(rows));
 }
 
+// Traffic shaping (#166): what is limited, how (queueing discipline) and to which rates. The
+// addresses of a per-client limit are shown on request, like uplink addresses.
+const SHAPER_KINDS = {
+  sqm: 'device.shaper.kind.sqm',
+  cake: 'device.shaper.kind.cake',
+  'fq-codel': 'device.shaper.kind.fq-codel',
+  htb: 'device.shaper.kind.htb',
+  hfsc: 'device.shaper.kind.hfsc',
+  'simple-queue': 'device.shaper.kind.simple-queue',
+  priority: 'device.shaper.kind.priority',
+  other: 'device.shaper.kind.other',
+};
+
+function shaperRate(kbps) {
+  return kbps >= 1000 ? `${Math.round(kbps / 100) / 10} Mbit/s` : `${kbps} kbit/s`;
+}
+
+function shaperState(sh) {
+  return [
+    sh.enabled ? null : t('device.off'),
+    t(SHAPER_KINDS[sh.kind] || SHAPER_KINDS.other),
+    sh.interface ? t('device.shaper.on', { interface: sh.interface }) : null,
+    sh.download_kbps ? t('device.shaper.down', { rate: shaperRate(sh.download_kbps) }) : null,
+    sh.upload_kbps ? t('device.shaper.up', { rate: shaperRate(sh.upload_kbps) }) : null,
+    sh.dscp ? t('device.shaper.dscp') : null,
+  ].filter(Boolean);
+}
+
+function shaperCard(ix, deviceId) {
+  const shapers = (ix.net.shapers || []).filter((sh) => sh.device_id === deviceId);
+  if (!shapers.length) return null;
+  const rows = shapers.map((sh) => [
+    sh.name,
+    h(
+      'div',
+      { 'data-testid': 'shaper' },
+      h('span', { 'data-testid': 'shaper-state' }, shaperState(sh).join(' · ')),
+      sh.addresses.length
+        ? h(
+            'details',
+            { class: 'addresses', 'data-testid': 'shaper-addresses' },
+            h('summary', {}, t('device.peer.show')),
+            h('ul', { class: 'mono' }, sh.addresses.map((a) => h('li', {}, a))),
+          )
+        : null,
+    ),
+  ]);
+  return h('section', { class: 'card', 'data-testid': 'device-shapers' }, h('h2', {}, t('device.shaper.title')), kv(rows));
+}
+
 // Firewall (#135): zones and what is in them, the default action per zone pair, port forwards.
 function zoneMembers(ix, z) {
   const tail = (id, key) => id.split(`/${key}/`).pop();
@@ -1337,6 +1387,7 @@ async function overview(main, ctx, device, adapters, sites) {
     multiwanCard(ix, device.id),
     dnsCard(ix, device.id),
     ddnsCard(ix, device.id),
+    shaperCard(ix, device.id),
     inferredCard(ix, device.id),
     portsCard(ix, tree, deltas, series),
     observed ? stpCard(ix, observed) : null,

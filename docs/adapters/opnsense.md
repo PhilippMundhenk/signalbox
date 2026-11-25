@@ -1158,6 +1158,23 @@ time since the entry last *changed* (`p_lastchange`), not since the last frame, 
 stays empty for lldpd and only `age_seconds` is set (RouterOS' `age` is the only one that counts
 from the last update).
 
+### Traffic shaper (#166)
+
+`/api/trafficshaper/settings/search_pipes`, `search_queues` and `search_rules` (`searchPipes` and
+so on before 24.7, found by the 404 retry). One shaper per pipe: `bandwidth` with
+`bandwidthMetric` (Kbit, Mbit, Gbit), `scheduler` (`fq_codel`, `fq_pie`, `fifo`, `qfq`, `rr`,
+`prio`; empty is weighted fair queueing, reported as a plain queue), `enabled`. The rules that
+point at the pipe, directly or through a queue (`target`: uuid, number or description), give the
+interface and the direction: on the WAN `in` is the download and `out` the upload, on any other
+interface the other way round; no direction means both. A pipe no enabled rule uses is reported
+as disabled. Rules with a `dscp` match mark the shaper as using DSCP.
+
+The privilege is *Firewall: Traffic Shaper* (`page-firewall-trafficshaper`); a 403 is an optional
+gap naming it. The automatic setup does not grant it yet (leftover of #166: the setup code is
+being changed elsewhere), so it has to be added to the API user by hand. No API (404): nothing is
+reported. *(guess: row fields of `search_rules` and `search_queues`, #21; covered: 24.7, 25.1,
+25.7, 26.1.)*
+
 ### Captive portal (#460)
 
 `GET /api/captiveportal/settings/search_zones` (`searchZones` before 24.7, the router retries

@@ -554,6 +554,17 @@ security associations is not reachable through rpcd (vici is a local socket): `u
 `"/etc/swanctl/swanctl.conf": ["read"]`; an older ACL: an optional gap. *Guess (#21): the
 file layout of strongSwan 5.9 and 6.0 on OpenWrt 22.03 to 24.10.*
 
+### Smart queue management: `uci get` of `sqm` *(optional)* (interfaces, #166)
+
+The package `sqm-scripts` is optional: without it there is no config and nothing is reported,
+and an ACL from before #166 (without the config) reads as none. ACL entry: the UCI config `sqm`,
+nothing else. One shaper per `queue` section: `enabled`, `interface` (the device, matched to the
+uplink by its name or port), `download` and `upload` (kbit/s, `0`: not limited), `qdisc` (`cake`,
+default, or `fq_codel`; anything else is reported as SQM) and `script`. `diffserv` in
+`qdisc_opts` / `iqdisc_opts` marks DSCP use. Per-client limits and WMM are not read.
+*(guess: option names from the sqm-scripts documentation, #21; sqm-scripts 1.5 on OpenWrt 21.02
+to 25.12.)*
+
 ### Captive portals: `uci get` of `opennds` and `nodogsplash` *(optional)* (interfaces)
 
 Both packages are optional (#460): without them there is no config and nothing is reported, and
@@ -700,7 +711,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd", "openvpn"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd", "openvpn", "sqm"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -824,7 +835,7 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd", "openvpn"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd", "openvpn", "sqm"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],

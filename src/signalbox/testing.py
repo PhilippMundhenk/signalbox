@@ -319,6 +319,26 @@ def portal_problems(snapshot: Snapshot) -> list[str]:
     return out
 
 
+def shaper_problems(snapshot: Snapshot) -> list[str]:
+    """Traffic shapers (#166): ids once, uplinks and networks that were reported."""
+    out: list[str] = []
+    uplink_ids = {u.id for u in snapshot.uplinks}
+    segment_ids = {s.id for s in snapshot.segments}
+    seen: set[str] = set()
+    for sh in snapshot.shapers:
+        prefix = f"{sh.device_id}/shaper/"
+        if not sh.id.startswith(prefix) or sh.id == prefix:
+            out.append(f"shaper id {sh.id} is not {prefix}<name>")
+        if sh.id in seen:
+            out.append(f"shaper {sh.id} reported twice")
+        seen.add(sh.id)
+        if sh.uplink_id is not None and sh.uplink_id not in uplink_ids:
+            out.append(f"shaper {sh.id} shapes unknown uplink {sh.uplink_id}")
+        if sh.segment_id is not None and sh.segment_id not in segment_ids:
+            out.append(f"shaper {sh.id} references unknown segment {sh.segment_id}")
+    return out
+
+
 def multiwan_problems(snapshot: Snapshot) -> list[str]:
     """Gateway groups (#150) and dynamic DNS clients (#154): ids, members once, tiers, a known
     active member, uplinks that were reported, naive times."""
@@ -737,7 +757,15 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             out.append(f"declares {cap.value} but no device has {attr}")
         if cap.value not in caps and found:
             out.append(f"{attr} reported without declaring {cap.value}")
-    for kind in ("uplinks", "gateway_groups", "ddns", "portals", "services", "certificates"):
+    for kind in (
+        "uplinks",
+        "gateway_groups",
+        "ddns",
+        "shapers",
+        "portals",
+        "services",
+        "certificates",
+    ):
         if getattr(snapshot, kind) and Capability.INTERFACES.value not in caps:
             out.append(f"{kind} reported without declaring {Capability.INTERFACES.value}")
     if snapshot.dhcp_relays and Capability.DHCP.value not in caps:
@@ -819,6 +847,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         "uplinks",
         "gateway_groups",
         "ddns",
+        "shapers",
         "portals",
         "services",
         "certificates",
@@ -875,6 +904,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
             if obj.segment_id not in segment_ids:
                 out.append(f"{obj.id} references unknown segment {obj.segment_id}")
     out += portal_problems(snapshot)
+    out += shaper_problems(snapshot)
     sightings: set[str] = set()
     for sighting in snapshot.server_sightings:
         if sighting.id in sightings:

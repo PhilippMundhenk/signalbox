@@ -116,6 +116,13 @@ state, SFP data and more; they are not read yet. Firewall, VPN and routes are no
 | is version N; Signalbox is written for ... | a version outside 8 to 10; optional |
 | port profiles / networks / Wi-Fi networks: not read | an endpoint the role or version does not answer; optional |
 
+## Smart Queues (#166)
+
+The WAN rows of `rest/networkconf` carry `wan_smartq_enabled`, `wan_smartq_up_rate` and
+`wan_smartq_down_rate` (kbit/s); each becomes an fq_codel shaper on the uplink of that WAN. A
+WAN without the fields reports nothing; the integration API has none of this. *(guess: field
+names from community documentation of Network 7 to 10, #21.)*
+
 ## Site-to-site VPN (#527, `vpn`)
 
 The VPN networks of `rest/networkconf` (`purpose` `site-vpn` or `remote-user-vpn`; classic API

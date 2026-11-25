@@ -1827,6 +1827,54 @@ class DynamicDns(Observed):
     tls: bool | None = None
 
 
+class ShaperKind(StrEnum):
+    """The queueing discipline or mechanism of a shaper (#166)."""
+
+    #: OpenWrt sqm-scripts where the qdisc is not named (otherwise ``cake`` or ``fq_codel``).
+    SQM = "sqm"
+    CAKE = "cake"
+    FQ_CODEL = "fq-codel"
+    HTB = "htb"
+    HFSC = "hfsc"
+    #: A plain rate limit without a smart queue (MikroTik simple queue, OPNsense pipe with FIFO
+    #: or weighted fair queueing).
+    SIMPLE_QUEUE = "simple-queue"
+    PRIORITY = "priority"
+    OTHER = "other"
+
+    @property
+    def smart(self) -> bool:
+        """Fights bufferbloat (a CoDel based or SQM queue), not only a rate limit."""
+        return self in (ShaperKind.SQM, ShaperKind.CAKE, ShaperKind.FQ_CODEL)
+
+
+class Shaper(Observed):
+    """A traffic shaper or smart queue of a device (#166), ``object_id(device, "shaper", <name>)``.
+
+    Read with ``interfaces``; read-only. ``download_kbps`` and ``upload_kbps`` are the rates the
+    shaper limits to, seen from the LAN (download: towards the clients); ``None``: that direction
+    is not limited or not known. ``uplink_id`` names the internet connection it shapes where the
+    device says; ``interface`` is the device's own name of what it sits on. A shaper that limits
+    one client or network (``addresses``, ``segment_id``) shows which household devices exist:
+    shown behind the device page only, never exported.
+    """
+
+    device_id: str
+    name: str
+    kind: ShaperKind = ShaperKind.OTHER
+    interface: str | None = None
+    uplink_id: str | None = None
+    download_kbps: Annotated[int, Field(ge=0)] | None = None
+    upload_kbps: Annotated[int, Field(ge=0)] | None = None
+    enabled: bool = True
+    #: What it limits where it is not a whole interface: a network of the site, or addresses.
+    segment_id: str | None = None
+    addresses: list[IPNetwork] = Field(default_factory=list)
+    #: DSCP/WMM based priorities are used (``diffserv`` modes of cake, OPNsense rules with DSCP);
+    #: ``None``: the device does not say.
+    dscp: bool | None = None
+
+
 # VPN tunnels (#239) -------------------------------------------------------------------------
 #
 # A tunnel is a VPN interface of one device (a WireGuard interface, ``wg0``) with the peers it
@@ -4583,6 +4631,8 @@ class Snapshot(Model):
     #: Gateway groups (#150) and dynamic DNS clients (#154; part of ``interfaces``).
     gateway_groups: list[GatewayGroup] = Field(default_factory=list)
     ddns: list[DynamicDns] = Field(default_factory=list)
+    #: Traffic shapers and smart queues (#166; part of ``interfaces``).
+    shapers: list[Shaper] = Field(default_factory=list)
     #: Captive portals (#460; part of ``interfaces``).
     portals: list[CaptivePortal] = Field(default_factory=list)
     #: Management services of the devices (#173; part of ``interfaces``).
@@ -4699,6 +4749,8 @@ class Network(Model):
     #: Gateway groups (#150) and dynamic DNS clients (#154; part of ``interfaces``).
     gateway_groups: list[GatewayGroup] = Field(default_factory=list)
     ddns: list[DynamicDns] = Field(default_factory=list)
+    #: Traffic shapers and smart queues (#166; part of ``interfaces``).
+    shapers: list[Shaper] = Field(default_factory=list)
     #: Captive portals (#460; part of ``interfaces``).
     portals: list[CaptivePortal] = Field(default_factory=list)
     #: Management services of the devices (#173; part of ``interfaces``).
@@ -4780,6 +4832,7 @@ class Network(Model):
             self.uplinks,
             self.gateway_groups,
             self.ddns,
+            self.shapers,
             self.portals,
             self.certificates,
             self.dhcp_servers,
@@ -4905,6 +4958,9 @@ class Network(Model):
     def dhcp_relays_on(self, segment_id: str) -> list[DhcpRelay]:
         """Enabled DHCP relays on a segment (#183): it needs no DHCP server of its own."""
         return [r for r in self.dhcp_relays if r.segment_id == segment_id and r.enabled]
+
+    def shapers_of(self, device_id: str) -> list[Shaper]:
+        return sorted((s for s in self.shapers if s.device_id == device_id), key=lambda s: s.id)
 
     def portals_of(self, device_id: str) -> list[CaptivePortal]:
         return sorted((p for p in self.portals if p.device_id == device_id), key=lambda p: p.id)

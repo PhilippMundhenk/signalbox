@@ -57,6 +57,7 @@ from signalbox.adapters.portcounters import counters_of
 from signalbox.adapters.unifi import access as _access
 from signalbox.adapters.unifi import multicast as _multicast
 from signalbox.adapters.unifi import multiwan
+from signalbox.adapters.unifi import shaper as _shaper
 from signalbox.adapters.unifi import vpn as _vpn
 from signalbox.model import (
     Band,
@@ -101,6 +102,7 @@ from signalbox.model import (
     Security,
     Segment,
     SegmentPurpose,
+    Shaper,
     StorageUsage,
     Subnet,
     TemperatureSensor,
@@ -696,6 +698,8 @@ class UnifiAdapter(_Adapter):
         self._gaps: list[Gap] = []
         self._reported = 0
         self._wireless_cache: _Wireless | None = None
+        #: ``wan1`` ... -> the ``rest/networkconf`` row of the last uplink read (#166)
+        self._wan_confs: dict[str, dict[str, Any]] = {}
 
     async def close(self) -> None:
         await self.http.close()
@@ -1148,8 +1152,10 @@ class UnifiAdapter(_Adapter):
         uplinks: list[Uplink] = []
         wan_groups: list[GatewayGroup] = []
         wan_ddns: list[DynamicDns] = []
+        shapers: list[Shaper] = []
         if gateway is not None:
             uplinks, wan_groups, wan_ddns = await self._wan(gateway)
+            shapers = _shaper.smart_queues(self._prefix(gateway), uplinks, self._wan_confs)
         return Observation(
             ports=ports,
             segments=segs,
@@ -1160,6 +1166,7 @@ class UnifiAdapter(_Adapter):
             uplinks=uplinks,
             gateway_groups=wan_groups,
             ddns=wan_ddns,
+            shapers=shapers,
             multicast={self._prefix(gateway): site_multicast} if gateway else {},
             incomplete=self._take_gaps(),
         )
@@ -1364,6 +1371,7 @@ class UnifiAdapter(_Adapter):
                     vendor_extra=gateway.extra(),
                 )
             )
+        self._wan_confs = confs
         groups = multiwan.group(self._prefix(gateway), out, confs, infos)
         return out, groups
 

@@ -718,6 +718,7 @@ def merge(
             "uplinks": every("uplinks"),
             "gateway_groups": every("gateway_groups"),
             "ddns": every("ddns"),
+            "shapers": every("shapers"),
             "portals": every("portals"),
             "services": every("services"),
             "certificates": every("certificates"),
