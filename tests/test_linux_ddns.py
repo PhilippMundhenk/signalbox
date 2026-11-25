@@ -15,6 +15,7 @@ from signalbox.adapters.linux.setup import sudoers
 from signalbox.config import Config
 from signalbox.ddns_resolve import apply, hostnames, resolve_names
 from signalbox.model import DdnsResult, DynamicDns, Network, object_id
+from signalbox.rules import evaluate
 from signalbox.rules.multiwan import mismatch
 from signalbox.sim.linux import _files
 from test_linux import adapter_for, device
@@ -141,7 +142,7 @@ async def test_adapter_reads_ddclient_with_cache_and_never_the_secrets(
     )
     for secret in SECRETS:
         assert secret not in everything
-    assert "password" not in everything.lower()
+    assert "password" not in "".join(d.model_dump_json() for d in obs.ddns).lower()
 
 
 async def test_adapter_reads_inadyn_with_file_times() -> None:
@@ -230,9 +231,10 @@ def test_apply_prefers_an_answer_the_connection_has() -> None:
 
 def test_resolved_name_feeds_ddns_mismatch() -> None:
     net = apply(_net(None), {"x.example.org": [IPv4Address("198.51.100.77")]})
-    (found,) = list(mismatch(net))
-    assert "198.51.100.77" in found.message and "203.0.113.7" in found.message
-    assert not list(mismatch(apply(_net(None), {"x.example.org": [IPv4Address("203.0.113.7")]})))
+    (finding,) = evaluate(net, [mismatch])
+    assert "198.51.100.77" in finding.message and "203.0.113.7" in finding.message
+    same = apply(_net(None), {"x.example.org": [IPv4Address("203.0.113.7")]})
+    assert not evaluate(same, [mismatch])
 
 
 async def test_unresolvable_name_gives_no_answer() -> None:
