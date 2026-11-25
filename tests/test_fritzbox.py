@@ -127,7 +127,10 @@ def test_entry_point() -> None:
 
 async def test_interfaces(adapter: FritzboxAdapter) -> None:
     obs = await adapter.read_interfaces()
-    [port] = obs.ports
+    port, wan = obs.ports
+    assert wan.id == "fb/port/wan" and wan.counters is not None  # the WAN totals only (#158)
+    assert (wan.counters.rx_bytes, wan.counters.tx_packets) == (3_881_020_914, 7_204_511)
+    assert wan.counters.rx_errors is None and wan.kind.value == "virtual"
     assert (port.id, port.up, port.speed_mbps, port.full_duplex) == (
         "fb/port/lan",
         True,
@@ -255,7 +258,7 @@ async def test_wep_and_open_basic_networks(sim: FritzboxSim, adapter: FritzboxAd
 async def test_lan_with_automatic_bit_rate(sim: FritzboxSim, adapter: FritzboxAdapter) -> None:
     sim.ethernet |= {"NewMaxBitRate": "Auto", "NewDuplexMode": "Auto", "NewEnable": "0"}
     sim.ethernet["NewStatus"] = "Disabled"
-    [port] = (await adapter.read_interfaces()).ports
+    port, _wan = (await adapter.read_interfaces()).ports
     assert (port.max_speed_mbps, port.autoneg, port.full_duplex) == (None, True, None)
     assert (port.admin_up, port.up) == (False, False)
 

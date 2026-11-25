@@ -153,7 +153,7 @@ def history_of(net: Network, old: PortCounters, new: PortCounters, **limits: Any
 
 
 def check(old: PortCounters, new: PortCounters, **port_kw: Any) -> tuple[Network, list[Any]]:
-    net = net_with(port("sw", "3", up=True, **port_kw))
+    net = net_with(port("sw", "3", **({"up": True} | port_kw)))
     return net, evaluate(net, [port_errors], None, history_of(net, old, new))
 
 
