@@ -453,7 +453,7 @@ async def test_vyos_14_firewall_new_syntax() -> None:
     assert res.mac == "02:00:00:00:00:60"
     (tunnel,) = snap.tunnels
     assert tunnel.peers[0].public_key == sim.SITE_KEY  # public-key (1.4), pubkey (1.3)
-    assert snap.status is DeviceStatus.PARTIAL
+    assert snap.status is DeviceStatus.OK
 
 
 # --- other shapes of the configuration -----------------------------------------------------------
