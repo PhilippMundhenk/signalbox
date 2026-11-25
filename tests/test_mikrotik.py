@@ -1708,3 +1708,98 @@ def test_hotspot_login_methods() -> None:
     )
     assert (a.id, a.enabled, a.segments, a.auth.value) == ("rt/portal/h1", False, ["s"], "password")  # type: ignore[union-attr]
     assert (b.id, b.segments, b.auth) == ("rt/portal/hotspot3", [], None)
+
+
+async def test_legacy_wds_access_point_has_downlinks(http_url: str, sim: MikrotikSimulator) -> None:
+    """A dynamic WDS interface of an access point and its registration row (#475)."""
+    sim.wireless = "legacy"
+    sim.data["/rest/interface"].append(
+        {".id": "*97", "name": "wlan1", "type": "wlan", "running": "true", "disabled": "false"}
+    )
+    sim.data["/rest/interface/wireless/wds"] = [
+        {
+            ".id": "*1",
+            "name": "wds1",
+            "master-interface": "wlan1",
+            "wds-address": "02:00:00:00:00:66",
+            "dynamic": "true",
+        }
+    ]
+    sim.data["/rest/interface/wireless/registration-table"].append(
+        {
+            ".id": "*78",
+            "interface": "wds1",
+            "mac-address": "02:00:00:00:00:66",
+            "signal-strength": "-60dBm",
+            "tx-rate": "130Mbps-20MHz/2S",
+            "rx-rate": "144.4Mbps-20MHz/2S/SGI",
+        }
+    )
+    snap = await observe(adapter(http_url))
+    (peer,) = snap.mesh_peers  # the ordinary client of wlan1 is no peer
+    assert peer.peer_mac == "02:00:00:00:00:66" and peer.role.value == "downlink"
+    assert peer.port_id == "rt/port/wlan1"
+    info = peer.wireless
+    assert (info.kind.value, info.band, info.signal_dbm) == ("wds", Band.GHZ_2_4, -60)
+    assert (info.tx_rate_mbps, info.rx_rate_mbps) == (130.0, 144.4)
+    assert snap.device.mesh is not None and snap.device.mesh.role.value == "agent"
+
+
+async def test_registration_row_marked_wds_is_a_downlink(
+    http_url: str, sim: MikrotikSimulator
+) -> None:
+    sim.wireless = "legacy"
+    sim.data["/rest/interface"].append(
+        {".id": "*97", "name": "wlan1", "type": "wlan", "running": "true", "disabled": "false"}
+    )
+    sim.data["/rest/interface/wireless/registration-table"].append(
+        {".id": "*79", "interface": "wlan1", "mac-address": "02:00:00:00:00:67", "wds": "true"}
+    )
+    (peer,) = (await observe(adapter(http_url))).mesh_peers
+    assert peer.peer_mac == "02:00:00:00:00:67" and peer.wireless.signal_dbm is None
+
+
+@pytest.mark.parametrize(
+    ("path", "row"),
+    [
+        (
+            "/rest/interface/wifi/capsman/remote-cap",
+            {
+                "identity": "cap-hall",
+                "address": "192.0.2.50:5246",
+                "base-mac": "02:00:00:00:00:51",
+                "model": "cAP ax",
+                "version": "7.15.1 (stable)",
+                "state": "connected",
+            },
+        ),
+        (
+            "/rest/caps-man/remote-cap",
+            {
+                "identity": "cap-hall",
+                "address": "192.0.2.50/5246",
+                "base-mac": "02:00:00:00:00:51",
+                "board": "RBcAPGi-5acD2nD",
+                "version": "7.15.1 (stable)",
+                "state": "Run",
+            },
+        ),
+    ],
+)
+async def test_capsman_remote_caps_are_managed_access_points(
+    http_url: str, sim: MikrotikSimulator, path: str, row: dict[str, str]
+) -> None:
+    """RouterOS 7 and the legacy CAPsMAN list the CAPs as devices of the controller (#475)."""
+    sim.data[path] = [{".id": "*1", **row}]
+    snap = await observe(adapter(http_url))
+    (cap,) = [d for d in snap.extra_devices if d.id == "rt/cap/02:00:00:00:00:51"]
+    assert (cap.name, cap.role, cap.managed_by) == ("cap-hall", DeviceRole.AP, "rt")
+    assert cap.management_address == "192.0.2.50" and cap.firmware is not None
+    assert cap.firmware.current == "7.15.1" and cap.mac == "02:00:00:00:00:51"
+    assert cap.mesh is not None and cap.mesh.role.value == "agent"
+    assert cap.mesh.controller_id == "rt"
+    assert snap.device.mesh is not None and snap.device.mesh.role.value == "controller"
+
+
+async def test_no_capsman_no_managed_devices(snap: Snapshot) -> None:
+    assert not any("/cap/" in d.id for d in snap.extra_devices)

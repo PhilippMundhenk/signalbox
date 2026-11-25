@@ -704,6 +704,9 @@ def wireless_config() -> dict[str, Any]:
 
 #: the 802.11s peer of the simulator's mesh point (``OpenWrtSim.mesh``)
 MESH_PEER = _mac(0x30, 1)
+#: the WDS station of the access point interface ``default_radio0`` when it has ``wds '1'``
+#: (#475); it is served as a ``wds`` client by hostapd
+WDS_PEER = _mac(0x30, 2)
 #: wifi-iface section -> associated stations
 STATIONS = {
     "mesh0": [MESH_PEER],
@@ -1223,6 +1226,17 @@ STATION_DETAILS: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
             "tx": {"rate": 48000, "packets": 8000, "retries": 100, "failed": 2},
         },
     ),
+    WDS_PEER: (
+        {"signal": -70, "wds": True},
+        {
+            "signal": -70,
+            "noise": -95,
+            "inactive": 20,
+            "connected_time": 600,
+            "rx": {"rate": 144400, "packets": 900},
+            "tx": {"rate": 130000, "packets": 800, "retries": 10, "failed": 0},
+        },
+    ),
     _mac(0x20, 3): (
         {"signal": -61, "ht": True, "vht": True, "he": False, "mfp": True},
         {
@@ -1237,9 +1251,17 @@ STATION_DETAILS: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
 }
 
 
-def clients(ifname: str, section: str) -> dict[str, Any]:
+def _stations(section: str, wds: bool) -> list[str]:
+    """Stations of a section; with ``wds '1'`` the access point interface has a WDS station."""
+    return [
+        *STATIONS.get(section, []),
+        *([WDS_PEER] if wds and section == "default_radio0" else []),
+    ]
+
+
+def clients(ifname: str, section: str, wds: bool = False) -> dict[str, Any]:
     out: dict[str, Any] = {}
-    for mac in STATIONS.get(section, []):
+    for mac in _stations(section, wds):
         base = {"auth": True, "assoc": True, "authorized": True, "signal": -55, "aid": 1}
         hostapd, info = STATION_DETAILS.get(mac, ({}, {}))
         rate = {"rx": info["rx"]["rate"], "tx": info["tx"]["rate"]} if info else None
@@ -1247,12 +1269,12 @@ def clients(ifname: str, section: str) -> dict[str, Any]:
     return {"freq": 2437 if ifname.startswith("phy0") else 5180, "clients": out}
 
 
-def assoclist(ifname: str, section: str) -> dict[str, Any]:
+def assoclist(ifname: str, section: str, wds: bool = False) -> dict[str, Any]:
     """``iwinfo assoclist`` of an interface."""
     return {
         "results": [
             {"mac": mac, **STATION_DETAILS[mac][1]}
-            for mac in STATIONS.get(section, [])
+            for mac in _stations(section, wds)
             if mac in STATION_DETAILS
         ]
     }
@@ -1843,6 +1865,10 @@ class OpenWrtSim:
                     entry["macaddr"] = own + mac[len(base) :]
         return status
 
+    def _wds(self, section: str) -> bool:
+        """The section is an access point interface with ``wds '1'`` (#475)."""
+        return str(self.state["wireless"].get(section, {}).get("wds")) == "1"
+
     def _radio_of(self, ifname: str) -> dict[str, Any] | None:
         """The UCI wifi-device section of a running interface (``phy0-ap0``) or phy."""
         wireless = self.state["wireless"]
@@ -1884,7 +1910,10 @@ class OpenWrtSim:
                 ifname = obj[8:]
                 if method == "get_status":
                     return [0, hostapd_status(ifname, self._radio_of(ifname) or {})]
-                return [0, clients(ifname, running[ifname])] if method == "get_clients" else [3]
+                wds = self._wds(running[ifname])
+                return (
+                    [0, clients(ifname, running[ifname], wds)] if method == "get_clients" else [3]
+                )
         if obj == "iwinfo" and self.iwinfo:
             radio = self._radio_of(str(args.get("device", "")))
             if radio is None:
@@ -1892,7 +1921,8 @@ class OpenWrtSim:
             device = str(args.get("device", ""))
             if method == "assoclist":
                 running = {i: sec for sec, _, i, mode in running_ifaces(self.state["wireless"])}
-                return [0, assoclist(device, running.get(device, ""))]
+                section = running.get(device, "")
+                return [0, assoclist(device, section, self._wds(section))]
             if method == "scan":
                 band = 2 if str(radio.get("band", "2g")) == "2g" else 5
                 return [0, {"results": [n for n in self.neighbours if n["band"] == band]}]

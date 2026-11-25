@@ -69,9 +69,9 @@ from signalbox.adapters import (
     unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.mikrotik import capsman, hotspot, multiwan, wifi_assoc
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
-from signalbox.adapters.mikrotik import hotspot, multiwan, wifi_assoc
 from signalbox.adapters.mikrotik import poe as mikrotik_poe
 from signalbox.adapters.mikrotik import routes as route_reader
 from signalbox.adapters.mikrotik import stp as _stp
@@ -267,6 +267,7 @@ WIFI_RADIO = "/rest/interface/wifi/radio"
 WIRELESS = "/rest/interface/wireless"
 WIRELESS_SECURITY = "/rest/interface/wireless/security-profiles"
 WIRELESS_REGISTRATION = "/rest/interface/wireless/registration-table"
+WIRELESS_WDS = "/rest/interface/wireless/wds"
 HEALTH = "/rest/system/health"
 CLOCK = "/rest/system/clock"
 NTP_CLIENT = "/rest/system/ntp/client"
@@ -2599,8 +2600,28 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         layout = await self._layout()
         kind, rows = await self._wifi_rows()
         if kind == "wifi":
-            return await self._wifi(layout, rows)
-        return await self._wireless(layout, rows)
+            obs = await self._wifi(layout, rows)
+        else:
+            obs = await self._wireless(layout, rows)
+        return await self._with_capsman(obs)
+
+    async def _with_capsman(self, obs: Observation) -> Observation:
+        """The access points a CAPsMAN controller manages (#475) as devices of this one, from
+        ``remote-cap`` of both generations (a menu that does not exist: nothing). They are
+        agents of this device, which is the controller unless it is a repeater itself."""
+        dev = self.context.device_id
+        rows = [
+            *(await self._readable(capsman.REMOTE_CAP_V7) or []),
+            *(await self._readable(capsman.REMOTE_CAP_LEGACY) or []),
+        ]
+        caps = capsman.cap_devices(
+            rows, controller_id=dev, site_id=self.context.site_id, adapter_id=self.manifest.id
+        )
+        if not caps:
+            return obs
+        mesh = {c.id: capsman.cap_membership(dev) for c in caps} | obs.mesh
+        mesh.setdefault(dev, capsman.controller_membership())
+        return obs.model_copy(update={"devices": [*obs.devices, *caps], "mesh": mesh})
 
     def _wlan_segment(self, layout: _Layout, name: str, vid: int | None) -> str | None:
         if name in layout.port_segment:
@@ -2916,7 +2937,55 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             if _text(r.get("name"))
         ]
         peers, member = await self._station_peers(layout, stations, radios, WIRELESS_REGISTRATION)
+        wds = await self._wds_peers(layout, masters, radios)
+        if wds:
+            peers = [*peers, *wds]
+            member = member or {dev: MeshMembership(role=MeshRole.AGENT)}
         return Observation(radios=list(radios.values()), wlans=wlans, mesh_peers=peers, mesh=member)
+
+    async def _wds_peers(
+        self, layout: _Layout, masters: dict[str, str], radios: dict[str, Radio]
+    ) -> list[MeshPeer]:
+        """The WDS stations of an access point (#475, ``wireless`` package; the ``wifi`` package
+        has no WDS): registration rows marked ``wds`` or whose address is the ``wds-address`` of
+        an entry of ``/interface/wireless/wds`` (dynamic or static). Signal and rates are the
+        row's. The port is the access point interface the WDS interface belongs to
+        (``master-interface``). *(Guess, #21: the ``wds`` column of the registration table.)*"""
+        dev = self.context.device_id
+        entries = {
+            addr: _text(r.get("master-interface")) or _text(r.get("name"))
+            for r in await self._optional_rows(WIRELESS_WDS)
+            if (addr := _mac(r.get("wds-address"))) is not None
+        }
+        peers: list[MeshPeer] = []
+        for row in await self._readable(WIRELESS_REGISTRATION) or []:
+            mac = _mac(row.get("mac-address"))
+            if mac is None or not (_flag(row.get("wds")) or mac in entries):
+                continue
+            name = entries.get(mac) or _text(row.get("interface"))
+            port = layout.port(name) or layout.port(_text(row.get("interface")))
+            if port is None:
+                continue
+            radio = radios.get(masters.get(name, name))
+            tx, rx = wifi_assoc.rate(row.get("tx-rate"))[0], wifi_assoc.rate(row.get("rx-rate"))[0]
+            peers.append(
+                MeshPeer(
+                    id=object_id(dev, "meshpeer", f"{name}-{mac}"),
+                    device_id=dev,
+                    port_id=port,
+                    peer_mac=mac,
+                    role=MeshPeerRole.DOWNLINK,
+                    wireless=WirelessLinkInfo(
+                        band=radio.band if radio else None,
+                        channel=radio.channel if radio else None,
+                        signal_dbm=wifi_assoc.signal(row.get("signal", row.get("signal-strength"))),
+                        tx_rate_mbps=tx,
+                        rx_rate_mbps=rx,
+                        kind=MeshLinkKind.WDS,
+                    ),
+                )
+            )
+        return peers
 
     # --- clients ------------------------------------------------------------------------------
 
