@@ -1143,6 +1143,22 @@ Interfaces in `configuration.mode` (`wifi` package) or `mode` (`wireless` packag
 rows in the registration table (`interface`, `mac-address` of the access point, `signal`,
 `tx-rate`, `rx-rate`) become a `MeshPeer` (role `uplink`, kind client bridge or WDS), and the
 router gets `Device.mesh` role `repeater`. A plain `station` is a router's uplink, not a mesh node.
-Access points with WDS (the dynamic WDS interfaces) and CAPsMAN are not read yet. *Guess (#21): the
-mode names of the `wifi` package and that the registration table of a station interface lists the
-access point.*
+*Guess (#21): the mode names of the `wifi` package and that the registration table of a station
+interface lists the access point.*
+
+**WDS, access point side (#475, `wireless` package only; the `wifi` package has no WDS).** The
+registration rows of an access point that are marked `wds` or whose `mac-address` is the
+`wds-address` of an entry of `/interface/wireless/wds` (dynamic or static) become a `MeshPeer`
+(role `downlink`, kind WDS) on the port of the entry's `master-interface`; signal and rates are
+the row's. The router gets `Device.mesh` role `agent` unless it is a repeater itself. *Guess (#21):
+the `wds` column of the registration table and the `wds-address` of the dynamic entries.*
+
+**CAPsMAN (#475).** The CAPs a controller manages are devices of the controller (`<id>/cap/<MAC>`,
+role access point, `managed_by` the controller): `/interface/wifi/capsman/remote-cap` (RouterOS 7,
+`wifi` package from 7.13, `wifiwave2` from 7.6) and `/caps-man/remote-cap` (RouterOS 6, and 7 with
+the `wireless` package) with `identity`, `address` (a port suffix is dropped), `base-mac`, `model`
+or `board`, `version`, `serial` and `state` (kept in `vendor_extra`). The controller has
+`Device.mesh` role `controller`, each CAP `agent`; neither says how a CAP is connected, so there is
+no uplink. Not read: the clients and radios of the CAPs. Both menus need only the policy `read`:
+the group of the setup guide and *Repair Signalbox's access* are unchanged. *Guess (#21): the
+column names are from the RouterOS manual.*

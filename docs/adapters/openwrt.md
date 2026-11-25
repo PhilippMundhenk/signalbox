@@ -1052,5 +1052,19 @@ the rates (kbit/s in the answer). A `sta` interface is a client bridge, with `wd
 its peer is the access point (role `uplink`), an 802.11s peer has no direction. Core finds the
 device behind the MAC address (a port, or the BSSID of an SSID) and draws the link. A device with
 such peers has `Device.mesh` (role `repeater` for a station uplink, `agent` for a mesh point).
-Without `rpcd-mod-iwinfo` nothing is reported. EasyMesh (prplMesh) is not read. *Guess (#21): the
-MAC of a `sta` peer is the BSSID the access point reports as its `Wlan.bssid`.*
+Without `rpcd-mod-iwinfo` nothing is reported. *Guess (#21): the MAC of a `sta` peer is the BSSID
+the access point reports as its `Wlan.bssid`.*
+
+**WDS, access point side (#475).** On an access point interface with `wds '1'`, the stations
+that hostapd marks `wds` in `hostapd.<ifname> get_clients` (the 4-address stations) are `MeshPeer`s
+of role `downlink` and kind WDS, with signal and rates from `iwinfo assoclist`; ordinary clients of
+the interface stay clients. The device gets `Device.mesh` role `agent` (`repeater` if it also has a
+`sta` uplink). Both ubus calls are in the read ACL already: no change to the ACL. *Guess (#21):
+the field name `wds` of `get_clients` (from hostapd's ubus code); without it nothing is reported.*
+The stock `easymesh` package of OpenWrt is 802.11s plus batman-adv and is covered by the mesh
+point above.
+
+**EasyMesh / prplMesh: not supported.** prplMesh is part of prplOS, not of stock OpenWrt, and its
+data model (BBF `Device.WiFi.DataElements`) is reached through the Ambiorix bus with object names
+that are not documented for OpenWrt releases. Nothing is read until a stable, documented ubus or
+UCI interface exists (#475).

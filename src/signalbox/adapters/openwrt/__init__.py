@@ -1782,28 +1782,38 @@ class OpenWrtAdapter(Adapter):
         self, uci: Any, radios: dict[str, Radio], ifnames: dict[str, str]
     ) -> tuple[list[MeshPeer], dict[str, MeshMembership]]:
         """Wireless backhaul peers (#171): the access point of a station interface (``mode sta``,
-        with ``wds 1`` a WDS client, else a client bridge or repeater) and the peers of an
-        802.11s mesh point (``mode mesh``), from ``iwinfo assoclist`` (rpcd-mod-iwinfo; without it
-        nothing is reported). The other end is found by its MAC address in core. Signal and
-        rates are those of the station entry; a repeater is a node with a wireless uplink, a mesh
-        point a node of a mesh whose uplink is not known."""
+        with ``wds 1`` a WDS client, else a client bridge or repeater), the peers of an 802.11s
+        mesh point (``mode mesh``) and, on an access point with ``wds 1``, the stations that
+        hostapd marks as WDS (#475, role ``downlink``), from ``iwinfo assoclist``
+        (rpcd-mod-iwinfo; without it nothing is reported). The other end is found by its MAC
+        address in core. Signal and rates are those of the station entry; a repeater is a node
+        with a wireless uplink, a mesh point or a WDS access point a node of a mesh whose uplink
+        is not known."""
         d = self.context.device_id
         peers: list[MeshPeer] = []
         uplink = False
         for name, s in _sections(uci, "wifi-iface"):
             mode = str(s.get("mode", "ap"))
             ifname = ifnames.get(name)
-            if mode not in ("sta", "mesh") or ifname is None or _flag(s.get("disabled")):
+            wds = bool(_flag(s.get("wds")))
+            if ifname is None or _flag(s.get("disabled")):
+                continue
+            if mode not in ("sta", "mesh") and not (mode == "ap" and wds):
                 continue
             radio = radios.get(str(s.get("device")))
             kind = (
                 MeshLinkKind.IEEE80211S
                 if mode == "mesh"
                 else MeshLinkKind.WDS
-                if _flag(s.get("wds"))
+                if wds
                 else MeshLinkKind.CLIENT_BRIDGE
             )
-            for mac, item in sorted((await self._assoclist(ifname)).items()):
+            entries = await self._assoclist(ifname)
+            if mode == "ap":
+                wds_macs = await self._wds_stations(ifname)
+                entries = {m: e for m, e in entries.items() if m in wds_macs}
+                entries |= {m: {} for m in wds_macs if m not in entries}
+            for mac, item in sorted(entries.items()):
                 rx, tx = item.get("rx"), item.get("tx")
                 rx_rate = _int(rx.get("rate")) if isinstance(rx, dict) else None
                 tx_rate = _int(tx.get("rate")) if isinstance(tx, dict) else None
@@ -1814,7 +1824,11 @@ class OpenWrtAdapter(Adapter):
                         device_id=d,
                         port_id=port_id(d, ifname),
                         peer_mac=mac,
-                        role=MeshPeerRole.PEER if mode == "mesh" else MeshPeerRole.UPLINK,
+                        role=MeshPeerRole.DOWNLINK
+                        if mode == "ap"
+                        else MeshPeerRole.PEER
+                        if mode == "mesh"
+                        else MeshPeerRole.UPLINK,
                         wireless=WirelessLinkInfo(
                             band=radio.band if radio else None,
                             channel=radio.channel if radio else None,
@@ -1835,6 +1849,24 @@ class OpenWrtAdapter(Adapter):
             uplink=MeshUplink.WIRELESS if uplink else None,
         )
         return peers, {d: member}
+
+    async def _wds_stations(self, ifname: str) -> set[str]:
+        """The stations of an access point interface that are WDS stations (#475): hostapd
+        ``get_clients`` marks them ``wds`` (the 4-address stations of ``wds 1``). *(Guess: the
+        field name is from hostapd's ubus.c, not tried on a device, #21.)* Empty when hostapd
+        says nothing (older ACL, interface not up)."""
+        try:
+            data = await self.ubus.call(f"hostapd.{ifname}", "get_clients")
+        except AdapterError:
+            return set()
+        clients = data.get("clients")
+        if not isinstance(clients, dict):
+            return set()
+        return {
+            m
+            for mac, entry in clients.items()
+            if isinstance(entry, dict) and entry.get("wds") is True and (m := _mac(mac))
+        }
 
     async def _scan(
         self, radios: list[tuple[Radio, str]], gaps: list[Gap], started: float

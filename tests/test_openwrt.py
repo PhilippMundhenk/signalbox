@@ -2245,6 +2245,27 @@ async def test_station_interface_is_a_wds_uplink(sim: OpenWrtSim, adapter: OpenW
     assert not any(w.backhaul for w in obs.wlans)  # a station interface is no SSID we offer
 
 
+async def test_wds_access_point_reports_its_wds_stations(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    """An access point with ``wds '1'`` lists the stations hostapd marks WDS as downlinks (#475)."""
+    sim.state["wireless"]["default_radio0"]["wds"] = "1"
+    obs = await adapter.read_wireless()
+    (peer,) = obs.mesh_peers  # the ordinary clients of the interface are no peers
+    assert peer.peer_mac == openwrt_sim.WDS_PEER and peer.role.value == "downlink"
+    assert peer.port_id.endswith("/phy0-ap0")
+    info = peer.wireless
+    assert info.kind.value == "wds" and info.signal_dbm == -70
+    assert (info.tx_rate_mbps, info.rx_rate_mbps) == (130.0, 144.4)
+    member = obs.mesh["ap1"]
+    assert member.role.value == "agent" and member.uplink is None
+    assert any(w.id == "ap1/wlan/default_radio0" for w in obs.wlans)  # still our SSID
+
+
+async def test_wds_without_the_option_has_no_downlinks(adapter: OpenWrtAdapter) -> None:
+    assert (await adapter.read_wireless()).mesh_peers == []
+
+
 async def test_opennds_and_nodogsplash_portals(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
     """Both are optional packages (#460): without them nothing is reported."""
     assert (await adapter.read_interfaces()).portals == []
