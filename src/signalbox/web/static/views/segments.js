@@ -18,6 +18,14 @@ function members(ix, seg) {
   return [...perDevice.entries()].sort(by(([d]) => ix.deviceName(d)));
 }
 
+// Role of a device in a network (#165).
+const ROLES = {
+  access: 'segments.role.access',
+  gateway: 'segments.role.gateway',
+  trunk: 'segments.role.trunk',
+  wireless: 'segments.role.wireless',
+};
+
 // A captive portal (#460): its name, how guests log in and how long a session lasts.
 const PORTAL_AUTH = {
   'click-through': 'portal.auth.click-through',
@@ -44,16 +52,27 @@ function segmentCard(ix, seg) {
     { class: 'card', 'data-testid': 'segment', 'data-id': seg.id },
     h('h3', {}, seg.vlan ? h('span', { class: 'vlan-id' }, t('segments.vlan', { vlan: seg.vlan })) : h('span', { class: 'vlan-id' }, t('segments.untagged')), seg.name ? ` ${seg.name}` : '', seg.purpose ? [' ', purposeTag(seg)] : null),
     seg.isolated ? h('p', { class: 'muted small', 'data-testid': 'segment-isolated' }, t('segments.isolated')) : null,
-    Object.keys(seg.names_by_device || {}).length > 1
+    (seg.views || []).length > 1 || (seg.views || []).some((v) => v.interface)
       ? h(
-          'p',
-          { class: 'muted small', 'data-testid': 'segment-names' },
-          t('segments.namesByDevice', {
-            names: Object.entries(seg.names_by_device)
-              .sort(by(([d]) => ix.deviceName(d)))
-              .map(([d, n]) => `${n} (${ix.deviceName(d)})`)
-              .join(', '),
-          }),
+          'details',
+          { class: 'small', 'data-testid': 'segment-views' },
+          h('summary', {}, t('segments.views', { count: seg.views.length })),
+          h(
+            'ul',
+            {},
+            [...seg.views].sort(by((v) => ix.deviceName(v.device_id))).map((v) =>
+              h(
+                'li',
+                { 'data-testid': 'segment-view' },
+                t('segments.view', {
+                  device: ix.deviceName(v.device_id),
+                  role: t(ROLES[v.role] || 'segments.role.access'),
+                  name: v.name || t('segments.viewNoName'),
+                  interface: v.interface || t('segments.viewNoInterface'),
+                }),
+              ),
+            ),
+          ),
         )
       : null,
     portals.length

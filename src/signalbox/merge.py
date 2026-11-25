@@ -20,6 +20,7 @@ from signalbox.fdb import place_clients
 from signalbox.model import (
     AddressSource,
     Client,
+    ClientSighting,
     Device,
     DeviceRole,
     IPAddress,
@@ -29,8 +30,11 @@ from signalbox.model import (
     Network,
     Port,
     PortMembership,
+    PortRole,
     PrefixSource,
     Segment,
+    SegmentRole,
+    SegmentView,
     Site,
     Snapshot,
     Subnet,
@@ -318,6 +322,41 @@ def _name_natives(segments: list[Segment], snaps: list[Snapshot]) -> list[Segmen
     return out
 
 
+def _view(snap: Snapshot, seg: Segment) -> SegmentView:
+    """What the device of ``snap`` says about ``seg`` (#165)."""
+    dev = snap.device
+    own = [m for m in seg.members if m.port_id.startswith(f"{dev.id}/")]
+    if dev.role is DeviceRole.GATEWAY:
+        role = SegmentRole.GATEWAY
+    elif dev.role is DeviceRole.AP:
+        role = SegmentRole.WIRELESS
+    elif any(m.mode is Membership.TAGGED for m in own):
+        role = SegmentRole.TRUNK
+    else:
+        role = SegmentRole.ACCESS
+    ports = {p.id: p for p in snap.ports}
+    layered = sorted(
+        ports[m.port_id].name
+        for m in own
+        if m.port_id in ports and ports[m.port_id].role in (PortRole.VLAN, PortRole.BRIDGE)
+    )
+    name = seg.name.strip() if seg.name and seg.name.strip() else None
+    return SegmentView(
+        device_id=dev.id,
+        name=name,
+        interface=layered[0] if len(layered) == 1 else None,
+        role=role,
+    )
+
+
+def _display_name(views: list[SegmentView], first: str | None) -> str | None:
+    """The merged name: the first gateway's, else the first by device id (#165)."""
+    for view in views:
+        if view.role is SegmentRole.GATEWAY and view.name:
+            return view.name
+    return first
+
+
 def _merge_segments(snaps: list[Snapshot]) -> list[Segment]:
     """One segment per id; a port's membership is taken from the device that owns the port.
 
@@ -331,17 +370,24 @@ def _merge_segments(snaps: list[Snapshot]) -> list[Segment]:
         for seg in snap.segments:
             old = merged.get(seg.id)
             names = dict(old.names_by_device) if old else {}
+            views = [*old.views, _view(snap, seg)] if old else [_view(snap, seg)]
             if seg.name and seg.name.strip():
                 names.setdefault(snap.device.id, seg.name)
             merged[seg.id] = (
                 seg.model_copy(
-                    update={"source": None, "vendor_extra": {}, "names_by_device": names}
+                    update={
+                        "source": None,
+                        "vendor_extra": {},
+                        "names_by_device": names,
+                        "views": views,
+                    }
                 )
                 if old is None
                 else old.model_copy(
                     update={
                         "name": old.name or seg.name,
                         "names_by_device": names,
+                        "views": views,
                         # the first device that reports a purpose (or isolation) wins
                         "purpose": old.purpose or seg.purpose,
                         "purpose_source": old.purpose_source if old.purpose else seg.purpose_source,
@@ -357,8 +403,14 @@ def _merge_segments(snaps: list[Snapshot]) -> list[Segment]:
     result = []
     for sid in sorted(merged):
         by_port = members[sid]
+        seg = merged[sid]
         result.append(
-            merged[sid].model_copy(update={"members": [by_port[p][1] for p in sorted(by_port)]})
+            seg.model_copy(
+                update={
+                    "name": _display_name(seg.views, seg.name),
+                    "members": [by_port[p][1] for p in sorted(by_port)],
+                }
+            )
         )
     return result
 
@@ -370,6 +422,16 @@ def _merge_sources(old: Client, new: Client) -> dict[IPAddress, AddressSource]:
         if src is not AddressSource.UNKNOWN or addr not in out:
             out[addr] = src
     return out
+
+
+def _sighting(snap: Snapshot, c: Client) -> ClientSighting:
+    return ClientSighting(
+        device_id=snap.device.id,
+        segment_id=c.segment_id,
+        seen_on=c.seen_on,
+        addresses=list(c.addresses),
+        observed_at=c.observed_at or snap.observed_at,
+    )
 
 
 def _merge_clients(snapshots: list[Snapshot]) -> list[Client]:
@@ -386,8 +448,9 @@ def _merge_clients(snapshots: list[Snapshot]) -> list[Client]:
     for snap in ordered:
         for c in snap.clients:
             old = merged.get(c.mac)
+            seen = _sighting(snap, c)
             if old is None:
-                merged[c.mac] = c.model_copy(update={"id": f"client/{c.mac}"})
+                merged[c.mac] = c.model_copy(update={"id": f"client/{c.mac}", "sightings": [seen]})
                 continue
             addresses = list(dict.fromkeys([*old.addresses, *c.addresses]))
             last_seen = max(
@@ -402,6 +465,7 @@ def _merge_clients(snapshots: list[Snapshot]) -> list[Client]:
                     "wireless": old.wireless or c.wireless,
                     "last_seen": last_seen,
                     "address_sources": _merge_sources(old, c),
+                    "sightings": [*old.sightings, seen],
                 }
             )
     return sorted(merged.values(), key=lambda c: c.mac)
