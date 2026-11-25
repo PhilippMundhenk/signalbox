@@ -174,6 +174,11 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`port.autoneg-mismatch`](rules/ports.md#portautoneg-mismatch)
 - [`port.description-mismatch`](rules/ports.md#portdescription-mismatch)
 
+## [Fast roaming and UPnP](rules/roaming_upnp.md)
+
+- [`wifi.roaming`](rules/roaming_upnp.md#wifiroaming)
+- [`security.upnp`](rules/roaming_upnp.md#securityupnp)
+
 ## [Routing](rules/routing_checks.md)
 
 - [`route.default-missing`](rules/routing_checks.md#routedefault-missing)

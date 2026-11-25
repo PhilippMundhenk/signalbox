@@ -350,6 +350,19 @@ def _unexpected(endpoint: str, what: str) -> AdapterError:
     return unexpected_answer(endpoint, what)
 
 
+def _routeros6() -> AdapterError:
+    """RouterOS 6 has no REST API (/rest answers 404 or a web page, or the version says 6.x)."""
+    return AdapterError(
+        f"RouterOS 6 is not supported: {RESOURCE} has no REST API (RouterOS 6 answers 404 or a "
+        "web page there). Signalbox needs RouterOS 7.1 or newer",
+        fix="Update RouterOS to 7.1 or newer, or read the device through the generic SNMP "
+        "integration.",
+        fix_id="mikrotik.ros6.fix",
+        message_id="mikrotik.ros6",
+        params={"endpoint": RESOURCE},
+    )
+
+
 def _rows(data: Any, endpoint: str) -> list[dict[str, Any]]:
     """A menu answer: a list of objects; entries that are not objects are dropped."""
     if not isinstance(data, list):
@@ -1100,10 +1113,19 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         await self.http.reset()
         self._cache.clear()
         self._layout_cache = None
-        resource = _object(await self._get(RESOURCE), RESOURCE)
+        try:
+            resource = _object(await self._get(RESOURCE), RESOURCE)
+        except NotFound as exc:  # RouterOS 6 has no REST API
+            raise _routeros6() from exc
+        except AdapterError as exc:
+            if exc.message_id == "transport.notJson":  # its web page instead of JSON
+                raise _routeros6() from exc
+            raise
         current = _text(resource.get("version")).split(" ")[0]
         if not current:
             raise _unexpected(RESOURCE, "no version")
+        if current.startswith("6."):
+            raise _routeros6()
         model = _text(resource.get("board-name")) or None
         try:
             board = _object(await self._get(ROUTERBOARD), ROUTERBOARD)
