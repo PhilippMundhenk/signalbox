@@ -10,7 +10,17 @@ from collections.abc import Iterator
 from datetime import timedelta
 
 from signalbox.model import STANDARD_RANK, Band, DfsState, Network, Radio, WifiStandard
-from signalbox.rules import Result, Rule, Severity, found, history_rule, rule
+from signalbox.rules import (
+    Result,
+    Rule,
+    RuleParams,
+    Severity,
+    ctx,
+    found,
+    history_rule,
+    param,
+    rule,
+)
 from signalbox.rules._names import device_name
 from signalbox.rules.wifi_hygiene import dfs_fix
 from signalbox.sightings import History
@@ -26,6 +36,15 @@ def _label(net: Network, radio: Radio) -> str:
     return f"{device_name(net, radio.device_id)} ({radio.band.value} GHz)"
 
 
+class BusyParams(RuleParams):
+    info_pct: float = param(
+        BUSY_PCT, unit="%", ge=1, le=100, description="Utilisation reported as information."
+    )
+    warning_pct: float = param(
+        VERY_BUSY_PCT, unit="%", ge=1, le=100, description="Utilisation reported as a warning."
+    )
+
+
 def _enabled(net: Network) -> list[Radio]:
     return sorted((r for r in net.radios if r.enabled), key=lambda r: r.id)
 
@@ -39,12 +58,15 @@ def _enabled(net: Network) -> list[Radio]:
     f"client waits longer to send. From {BUSY_PCT:.0f} % this is reported for information, "
     f"from {VERY_BUSY_PCT:.0f} % as a warning. One read is a snapshot: a short peak (a large "
     "download) can trigger it, a channel that is busy at every read needs action. Radios "
-    "that do not report their utilisation are skipped.",
+    "that do not report their utilisation are skipped. The limits are the parameters "
+    "info_pct and warning_pct.",
+    params=BusyParams,
 )
 def channel_busy(net: Network) -> Iterator[Result]:
     for r in _enabled(net):
         busy = r.channel_utilisation_pct
-        if busy is None or busy < BUSY_PCT:
+        p = ctx.params(BusyParams, r)
+        if busy is None or busy < p.info_pct:
             continue
         params: dict[str, str | int | None] = {
             "radio": _label(net, r),
@@ -85,7 +107,7 @@ def channel_busy(net: Network) -> Iterator[Result]:
             text,
             [r.id],
             fix=fix,
-            severity=Severity.WARNING if busy >= VERY_BUSY_PCT else Severity.INFO,
+            severity=Severity.WARNING if busy >= p.warning_pct else Severity.INFO,
             mid=mid,
             fix_id=fix_id,
             params=params,

@@ -10,10 +10,10 @@ from pathlib import Path
 
 from signalbox.adapters import Adapter, load_adapters
 from signalbox.adapters.remote import load_remote
-from signalbox.config import Config, load
+from signalbox.config import FILE_NAME, Config, ConfigError, load
 from signalbox.desired import load as desired_load
 from signalbox.model import Network, set_passphrase_digest_key
-from signalbox.rules import Finding, Rule, load_rules
+from signalbox.rules import Finding, Rule, check_rule_settings, load_rules
 from signalbox.runner import LinkSource, Runner
 from signalbox.secrets import load_vault
 from signalbox.store import Store
@@ -58,6 +58,9 @@ def build(
                 raise ValueError(f"remote adapter {aid!r} has the id of an installed adapter")
             adapters[aid] = load_remote(aid, command)
     rules = load_rules() if rules is None else rules
+    problems = check_rule_settings(rules, config.rules)
+    if problems:
+        raise ConfigError(f"{data_dir / FILE_NAME}: " + "; ".join(problems))
     if link_sources is None:
         link_sources = _default_link_sources()
     runner = Runner(

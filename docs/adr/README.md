@@ -28,5 +28,6 @@
 | [0024](0024-routing-tables-and-policy-routing.md) | Routing tables: connected routes are derived from subnets, `next_hop` answers conservatively, policy routing only as far as it is known (#149) |
 | [0025](0025-neighbouring-wifi-networks.md) | Neighbouring Wi-Fi networks: BSSIDs, passive lists always, scans only on request, kept on the server (#169) |
 | [0026](0026-inferred-links-from-partial-mac-data.md) | Inferred links from partial MAC data: OpenWrt bridge tables, MACs from ARP entries, guessed ports drawn dashed and left out of the checks (#378) |
+| [0027](0027-rule-parameters-and-scopes.md) | Typed rule parameters next to each rule, read through `ctx.params`; per-scope settings by site, device, role, network, purpose or tag, most specific wins (#187) |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.

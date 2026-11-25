@@ -14,7 +14,7 @@ from datetime import timedelta
 from ipaddress import IPv4Network, IPv6Network
 
 from signalbox.model import IPNetwork, NatClass, Network, Tunnel, TunnelPeer, Uplink
-from signalbox.rules import Result, Severity, found, rule
+from signalbox.rules import Result, RuleParams, Severity, ctx, found, param, rule
 from signalbox.rules._names import device_name, site_of_device
 
 #: A peer that should be up and has not handshaken for this long is reported. WireGuard
@@ -53,6 +53,16 @@ def _local_networks(net: Network, device_id: str) -> list[IPNetwork]:
     ]
 
 
+class StaleParams(RuleParams):
+    minutes: int = param(
+        int(STALE_AFTER.total_seconds() // 60),
+        unit="min",
+        ge=1,
+        le=10080,
+        description="Time without a handshake after which a peer is reported.",
+    )
+
+
 def _active(t: Tunnel, p: TunnelPeer) -> bool:
     return t.enabled and t.up is not False and p.enabled
 
@@ -63,12 +73,15 @@ def _active(t: Tunnel, p: TunnelPeer) -> bool:
     Severity.WARNING,
     "WireGuard peers that are meant to stay connected (a persistent keepalive is set) complete "
     "a handshake about every two minutes. Without a handshake for five minutes, or none since "
-    "the tunnel came up, the other end is not answering: the site behind it is cut off.",
+    "the tunnel came up, the other end is not answering: the site behind it is cut off. "
+    "The five minutes are the parameter minutes.",
+    params=StaleParams,
 )
 def handshake_stale(net: Network) -> Iterator[Result]:
     for t in sorted(net.tunnels, key=lambda t: t.id):
         if t.observed_at is None:
             continue
+        stale_after = ctx.params(StaleParams, t).minutes * 60
         for p in t.peers:
             keeps = bool(p.keepalive_seconds)
             if not _active(t, p) or not (keeps or p.endpoint_host):
@@ -79,7 +92,7 @@ def handshake_stale(net: Network) -> Iterator[Result]:
                 age = None
             else:
                 age = p.handshake_age(t.observed_at)
-                if age is None or age < STALE_AFTER.total_seconds():
+                if age is None or age < stale_after:
                     continue
             when = (
                 "has not completed a handshake since the tunnel came up"

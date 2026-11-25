@@ -14,7 +14,7 @@ from collections.abc import Iterator
 
 from signalbox.model import Band, Network, Radio, ScanSource, WifiScanResult, Wlan
 from signalbox.neighbours import foreign_on_channel, heard_by, own_macs, shares_channel
-from signalbox.rules import Result, Rule, Severity, found, rule
+from signalbox.rules import Result, Rule, RuleParams, Severity, ctx, found, param, rule
 from signalbox.rules._names import device_name, site_of_device
 
 #: Signal (dBm) from which a foreign access point counts for a crowded channel: weaker ones
@@ -132,8 +132,21 @@ def _candidates(radio: Radio) -> list[int]:
     return sorted(c for c in radio.supported_channels if not 52 <= c <= 144)
 
 
-def _audible(results: list[WifiScanResult]) -> list[WifiScanResult]:
-    return [r for r in results if r.signal_dbm is None or r.signal_dbm >= AUDIBLE_DBM]
+def _audible(results: list[WifiScanResult], dbm: int = AUDIBLE_DBM) -> list[WifiScanResult]:
+    return [r for r in results if r.signal_dbm is None or r.signal_dbm >= dbm]
+
+
+class CrowdParams(RuleParams):
+    dbm: int = param(
+        AUDIBLE_DBM,
+        unit="dBm",
+        ge=-100,
+        le=-30,
+        description="Neighbours weaker than this are not counted.",
+    )
+    count: int = param(
+        CROWDED, unit="count", ge=1, le=50, description="Neighbours from which it is reported."
+    )
 
 
 @rule(
@@ -144,17 +157,20 @@ def _audible(results: list[WifiScanResult]) -> list[WifiScanResult]:
     "dBm on a channel overlapping its own. They all share the air time, so your clients wait "
     "longer to send, more so when the channel is also busy (wifi.channel-busy). Where the "
     "radio heard a channel with fewer neighbours, the finding names it. Based on a scan "
-    "(off by default) or a controller's rogue AP list; radios without one are skipped.",
+    "(off by default) or a controller's rogue AP list; radios without one are skipped. "
+    "The limits are the parameters count and dbm.",
+    params=CrowdParams,
 )
 def channel_crowded(net: Network) -> Iterator[Result]:
     own = own_macs(net)
     for radio in sorted(net.radios, key=lambda r: r.id):
         if not radio.enabled or radio.channel is None:
             continue
-        crowd = _audible(foreign_on_channel(net, radio, own))
-        if len(crowd) < CROWDED:
+        p = ctx.params(CrowdParams, radio)
+        crowd = _audible(foreign_on_channel(net, radio, own), p.dbm)
+        if len(crowd) < p.count:
             continue
-        heard = [r for r in _audible(heard_by(net, radio)) if r.bssid not in own]
+        heard = [r for r in _audible(heard_by(net, radio), p.dbm) if r.bssid not in own]
         best: tuple[int, int] | None = None
         for c in _candidates(radio):
             if c == radio.channel:
