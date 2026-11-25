@@ -1,5 +1,6 @@
-"""Start and stop the Linux integration target (#240): a Debian 12 container with sshd.
+"""Start and stop the Linux integration target (#240): a Debian container (11, 12 or 13) with sshd.
 
+    DEBIAN=11 python tools/integration/linux/target.py start DIR   # 11, 12 (default) or 13
     python tools/integration/linux/target.py start DIR   # build, run, create the read user
     python tools/integration/linux/target.py stop DIR
 
@@ -23,6 +24,8 @@ PORT = 2222
 ROOT_PASSWORD = "it-root-password-1"
 ADMIN_USER = "admin"
 ADMIN_PASSWORD = "it-admin-password-1"
+#: the Debian major version of the container (#417): 11, 12 or 13
+DEBIAN = os.environ.get("DEBIAN", "12")
 
 
 def sh(*args: str, check: bool = True, **kw: object) -> subprocess.CompletedProcess[str]:
@@ -57,7 +60,7 @@ def start(work: Path) -> None:
         "xt_nat",
     ):
         sh("sudo", "modprobe", module, check=False)
-    sh("docker", "build", "-q", "-t", IMAGE, str(HERE))
+    sh("docker", "build", "-q", "--build-arg", f"DEBIAN={DEBIAN}", "-t", IMAGE, str(HERE))
     sh("docker", "rm", "-f", NAME, check=False, capture_output=True)
     sh(
         "docker",
@@ -111,6 +114,7 @@ def start(work: Path) -> None:
         "IT_LINUX_ADMIN_USER": ADMIN_USER,
         "IT_LINUX_ADMIN_PASSWORD": ADMIN_PASSWORD,
         "IT_LINUX_CONTAINER": NAME,
+        "IT_LINUX_DEBIAN": DEBIAN,
         "IT_LINUX_WG_PUBLIC": wg_public,
         "IT_LINUX_HOST_KEY": host_key,
     }

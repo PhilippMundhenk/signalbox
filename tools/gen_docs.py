@@ -86,7 +86,7 @@ def configuration() -> str:
 EMULATED = {
     "mikrotik": "MikroTik: RouterOS 7.25.1, official CHR image in QEMU, without Wi-Fi "
     "([details](adapters/mikrotik.md#integration-tests))",
-    "linux": "Linux gateway: Debian 12 in a container (sshd, iproute2, dnsmasq, chrony, "
+    "linux": "Linux gateway: Debian 11, 12 and 13 in containers (sshd, iproute2, dnsmasq, chrony, "
     "WireGuard), read only ([details](adapters/linux.md#integration-tests))",
     "omada": "TP-Link Omada: Software Controller 6.3.0.111, official Linux package in Docker, "
     "without managed devices ([details](adapters/omada.md#integration-tests))",
