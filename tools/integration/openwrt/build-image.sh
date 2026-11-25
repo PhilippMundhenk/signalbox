@@ -34,6 +34,7 @@ done
 
 # SHA-256 of the image builder of each pinned release (checked in addition to sha256sums).
 declare -A PINNED=(
+  [23.05.6]="1086f40e313369bd04146408e287bb5edb0a02555f3f6030b67c07f33baa8ba9"
   [24.10.8]="1b0511a92126ed97550d91295459f8869962f9b7c31dd3d0c7cda75c75825741"
   [25.12.6]="a792e29bd2233cda67a0823030bfb53c0b61fbb3836b2063e88adf89730d563b"
 )
