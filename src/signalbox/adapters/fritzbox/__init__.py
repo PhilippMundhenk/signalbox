@@ -1019,7 +1019,6 @@ class FritzboxAdapter(Adapter):
         uplinks = await self._uplinks(forwarding)
         wan = await self._wan_port()
         mesh = await self._mesh({port.mac} if port.mac else set())
-        services = await self._services()
         return Observation(
             ports=[port, *([wan] if wan else []), *mesh.ports],
             devices=mesh.devices,
@@ -1030,35 +1029,9 @@ class FritzboxAdapter(Adapter):
             routes=await self._routes(uplinks, forwarding),
             uplinks=uplinks,
             ddns=await self._ddns(uplinks),
-            services=services,
-            upnp=await self._upnp(services, uplinks),
+            services=await self._services(),
             **await self._accounts(),
         )
-
-    async def _upnp(
-        self, services: list[ManagementService], uplinks: list[Uplink]
-    ) -> dict[str, DeviceUpnp]:
-        """UPnP state and the mappings with a lease (#176, ADR 0029). Only where the box says
-        UPnP is on; the mappings are the port sharing of the active connection, which is also
-        read by :meth:`read_firewall` (it reports its own gap). The protocols are UPnP IGD;
-        secure mode and permission rules are not in TR-064."""
-        d = self.context.device_id
-        upnp = next((s for s in services if s.kind is ServiceKind.UPNP), None)
-        if upnp is None or self.context.role is not DeviceRole.GATEWAY:
-            return {}
-        if not upnp.enabled or not uplinks:
-            return {d: DeviceUpnp(protocols=[UpnpProtocol.IGD] if upnp.enabled else [])}
-        service = str(uplinks[0].vendor_extra.get("service", "")).split(":")[0] + "1"
-        rows, _ = await self._port_mappings(service)
-        found = [m for row in rows if (m := upnp_mapping(row)) is not None]
-        return {
-            d: DeviceUpnp(
-                protocols=[UpnpProtocol.IGD],
-                mappings=found,
-                # permanent UPnP mappings look like port sharing and are not told apart
-                mappings_complete=False,
-            )
-        }
 
     async def _mesh(self, own_macs: set[str]) -> MeshRead:
         """FRITZ!Mesh (#171): ``X_AVM-DE_GetMeshListPath`` and the topology document it names.
@@ -1351,6 +1324,7 @@ class FritzboxAdapter(Adapter):
         policies = _fixed_policies(guest, wan)
         forwards: list[PortForward] = []
         gaps: list[Gap] = []
+        rows: list[dict[str, str]] = []
         if uplinks:
             service = str(uplinks[0].vendor_extra.get("service", "")).split(":")[0] + "1"
             rows, fault = await self._port_mappings(service)
@@ -1367,6 +1341,7 @@ class FritzboxAdapter(Adapter):
                         )
                     )
         return Observation(
+            upnp=await self._upnp(uplinks, rows),
             firewalls=[
                 Firewall(
                     id=firewall_id(d),
@@ -1381,6 +1356,27 @@ class FritzboxAdapter(Adapter):
             ],
             incomplete=gaps,
         )
+
+    async def _upnp(
+        self, uplinks: list[Uplink], rows: list[dict[str, str]]
+    ) -> dict[str, DeviceUpnp]:
+        """UPnP state and the mappings with a lease (#176, ADR 0029), from the port sharing
+        ``read_firewall`` has read anyway. Only gateways, and only where the box answers
+        ``X_AVM-DE_UPnP`` (``NewEnable``); the protocols are UPnP IGD, and secure mode and
+        permission rules are not in TR-064."""
+        info = await self._try("X_AVM-DE_UPnP1", "GetInfo")
+        if info is None:
+            return {}
+        on = _flag(info.get("NewEnable"))
+        found = [m for row in rows if on and (m := upnp_mapping(row)) is not None]
+        return {
+            self.context.device_id: DeviceUpnp(
+                protocols=[UpnpProtocol.IGD] if on else [],
+                mappings=found,
+                # permanent UPnP mappings look like port sharing and are not told apart
+                mappings_complete=not on or not uplinks,
+            )
+        }
 
     async def _port_mappings(self, service: str) -> tuple[list[dict[str, str]], Gap | None]:
         """Every ``GetGenericPortMappingEntry`` of *service* until the box answers 713; a gap

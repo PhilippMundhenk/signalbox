@@ -94,9 +94,9 @@ async def test_dynamic_nat_rows_are_the_mappings(url: str, sim: MikrotikSimulato
     assert u is not None and u.mappings_complete
     by = {m.external_port: m for m in u.mappings}
     assert sorted(by) == [3074, 4000]
-    assert by[3074].description == "Example console" and str(by[3074].internal_address) == (
-        "192.0.2.60"
-    )
+    assert by[3074].description == "192.0.2.60: Example console" and str(
+        by[3074].internal_address
+    ) == ("192.0.2.60")
     assert by[4000].protocol == "tcp" and by[4000].internal_port == 4001
     assert by[4000].description is None and by[4000].lease_seconds is None
 

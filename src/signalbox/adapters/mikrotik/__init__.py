@@ -1591,6 +1591,9 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         bridges, port_stp, stp_gaps = await self._stp(layout)
         multicast, multicast_gaps = await self._multicast(layout)
         upnp = await self._upnp(layout)
+        services = await self._services(layout)
+        if upnp and services:  # services are not read when /ip/service is refused
+            services.append(upnp[0])
         port_poe, poe_gaps = await self._poe()
         ports = [
             p.model_copy(update={"stp": port_stp[n]} if n in port_stp else {}).model_copy(
@@ -1632,7 +1635,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             gateway_groups=wan_groups,
             ddns=await self._cloud_ddns(uplinks),
             portals=await self._portals(layout),
-            services=[*await self._services(layout), *([upnp[0]] if upnp else [])],
+            services=services,
             certificates=await self._certificates(),
             log_targets={} if targets is None else {dev: targets},
             accounts={} if accounts is None else {dev: accounts},

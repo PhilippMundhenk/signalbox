@@ -644,7 +644,7 @@ of its own in Signalbox shows twice (its own device and the box's node).*
 
 ## UPnP and its mappings (#176)
 
-Read with `interfaces`, gateways only. `X_AVM-DE_UPnP:1 GetInfo` (`NewEnable`) says whether UPnP
+Read together with the firewall (gateways only). `X_AVM-DE_UPnP:1 GetInfo` (`NewEnable`) says whether UPnP
 is on (the management service `upnp`). The mappings are the entries of
 `WANIPConnection:1`/`WANPPPConnection:1 GetGenericPortMappingEntry` (the port sharing, also read
 for the firewall) that have a finite `NewLeaseDuration`: those were asked for through UPnP IGD.
