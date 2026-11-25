@@ -3427,6 +3427,7 @@
  "topology.origin.inferred": "{origin}، اخذ شدہ",
  "topology.evidence": "دیکھا: {sources}",
  "topology.evidence.fdb": "MAC جدول",
+ "topology.evidence.gateway": "اس پورٹ پر آلات کا ڈیفالٹ گیٹ وے",
  "topology.evidence.arp": "ARP/NDP جدول",
  "topology.evidence.address": "ARP جدول میں انتظامی پتہ",
  "topology.origin.mesh": "میش",

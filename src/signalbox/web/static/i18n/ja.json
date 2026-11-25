@@ -3427,6 +3427,7 @@
  "topology.origin.inferred": "{origin}、推定",
  "topology.evidence": "確認元: {sources}",
  "topology.evidence.fdb": "MAC テーブル",
+ "topology.evidence.gateway": "このポートにあるデバイスのデフォルトゲートウェイ",
  "topology.evidence.arp": "ARP/NDP テーブル",
  "topology.evidence.address": "ARP テーブル内の管理アドレス",
  "topology.origin.mesh": "メッシュ",

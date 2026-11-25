@@ -3427,6 +3427,7 @@
  "topology.origin.inferred": "{origin}, çıkarım",
  "topology.evidence": "Gören: {sources}",
  "topology.evidence.fdb": "MAC tablosu",
+ "topology.evidence.gateway": "bu porttaki cihazların varsayılan ağ geçidi",
  "topology.evidence.arp": "ARP/NDP tablosu",
  "topology.evidence.address": "ARP tablosundaki yönetim adresi",
  "topology.origin.mesh": "mesh",

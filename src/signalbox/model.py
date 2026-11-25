@@ -1392,6 +1392,10 @@ class Port(Observed):
     lag_member_state: LagMemberState | None = None
     #: Spanning tree of the port in its bridge (#155, ADR 0023); None: not reported.
     stp: StpPort | None = None
+    #: The device reports the hosts behind this port only as a whole, without saying which jack
+    #: or which neighbour each is behind (a host list such as the FRITZ!Box ``lan``: every wired
+    #: host of the LAN). "Learned on the same port" here says nothing about the cabling (#529).
+    coarse: bool = False
     #: Traffic and error counters (#158); None: not reported.
     counters: PortCounters | None = None
     #: 802.1X, MAC authentication, port security (#162); None: not reported.
@@ -4056,6 +4060,9 @@ class EvidenceSource(StrEnum):
     #: A device's management address in another device's ARP/NDP table names its MAC (a
     #: switch whose protocol reports neither a table nor its MAC per port).
     ADDRESS = "address"
+    #: Several devices are learned on this port and nothing tells them apart: the far device
+    #: holds their default next hop, and a LAN is taken as a star around its gateway (#529).
+    GATEWAY = "gateway"
 
 
 class LinkEvidence(Model):

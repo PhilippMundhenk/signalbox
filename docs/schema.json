@@ -3310,7 +3310,8 @@
       "enum": [
         "fdb",
         "arp",
-        "address"
+        "address",
+        "gateway"
       ],
       "title": "EvidenceSource",
       "type": "string"
@@ -6658,6 +6659,11 @@
           ],
           "default": null,
           "title": "Autoneg"
+        },
+        "coarse": {
+          "default": false,
+          "title": "Coarse",
+          "type": "boolean"
         },
         "counters": {
           "anyOf": [

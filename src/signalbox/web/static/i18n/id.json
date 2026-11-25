@@ -3427,6 +3427,7 @@
  "topology.origin.inferred": "{origin}, disimpulkan",
  "topology.evidence": "Dilihat oleh: {sources}",
  "topology.evidence.fdb": "tabel MAC",
+ "topology.evidence.gateway": "gateway default perangkat di port ini",
  "topology.evidence.arp": "tabel ARP/NDP",
  "topology.evidence.address": "alamat manajemen di tabel ARP",
  "topology.origin.mesh": "mesh",

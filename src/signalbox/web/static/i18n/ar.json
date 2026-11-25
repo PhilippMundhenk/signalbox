@@ -3427,6 +3427,7 @@
  "topology.origin.inferred": "{origin}، مستنتج",
  "topology.evidence": "رآه: {sources}",
  "topology.evidence.fdb": "جدول MAC",
+ "topology.evidence.gateway": "البوابة الافتراضية للأجهزة على هذا المنفذ",
  "topology.evidence.arp": "جدول ARP/NDP",
  "topology.evidence.address": "عنوان الإدارة في جدول ARP",
  "topology.origin.mesh": "شبكية",

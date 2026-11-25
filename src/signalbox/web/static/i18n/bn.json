@@ -3427,6 +3427,7 @@
  "topology.origin.inferred": "{origin}, অনুমিত",
  "topology.evidence": "দেখেছে: {sources}",
  "topology.evidence.fdb": "MAC টেবিল",
+ "topology.evidence.gateway": "এই পোর্টের ডিভাইসগুলির ডিফল্ট গেটওয়ে",
  "topology.evidence.arp": "ARP/NDP টেবিল",
  "topology.evidence.address": "ARP টেবিলে ব্যবস্থাপনা ঠিকানা",
  "topology.origin.mesh": "মেশ",

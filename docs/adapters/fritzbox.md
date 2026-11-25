@@ -560,6 +560,9 @@ the password policy and the app users' internet access (`X_AVM-DE_AppSetup`).
 ## MAC address table (#160)
 
 Not read: the host list says only whether a host is on LAN or Wi-Fi, not on which port.
+Every wired host is put on the one port `lan`, which is marked `coarse` (#529, ADR 0026): the
+topology links it only to devices that report no table or whose own bridge table learns the
+box on a wired port, never to an access point that reaches the LAN over Wi-Fi.
 
 ## Accounts (#175)
 

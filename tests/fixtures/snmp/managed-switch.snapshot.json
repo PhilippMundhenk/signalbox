@@ -149,6 +149,7 @@
     "root_guard": null,
     "loop_protect": null
    },
+   "coarse": false,
    "counters": {
     "rx_bytes": 5091220000,
     "tx_bytes": 5017330000,
@@ -216,6 +217,7 @@
     "root_guard": null,
     "loop_protect": null
    },
+   "coarse": false,
    "counters": {
     "rx_bytes": 182440000,
     "tx_bytes": 34660000,
@@ -283,6 +285,7 @@
     "root_guard": null,
     "loop_protect": null
    },
+   "coarse": false,
    "counters": {
     "rx_bytes": 273660000,
     "tx_bytes": 51990000,
@@ -350,6 +353,7 @@
     "root_guard": null,
     "loop_protect": null
    },
+   "coarse": false,
    "counters": {
     "rx_bytes": 364880000,
     "tx_bytes": 69320000,
@@ -417,6 +421,7 @@
     "root_guard": null,
     "loop_protect": null
    },
+   "coarse": false,
    "counters": {
     "rx_bytes": 5000,
     "tx_bytes": null,
@@ -484,6 +489,7 @@
     "root_guard": null,
     "loop_protect": null
    },
+   "coarse": false,
    "counters": {
     "rx_bytes": 6000,
     "tx_bytes": null,
@@ -557,6 +563,7 @@
     "root_guard": null,
     "loop_protect": null
    },
+   "coarse": false,
    "counters": {
     "rx_bytes": 638540000,
     "tx_bytes": 121310000,
@@ -630,6 +637,7 @@
     "root_guard": null,
     "loop_protect": null
    },
+   "coarse": false,
    "counters": {
     "rx_bytes": 729760000,
     "tx_bytes": 138640000,
@@ -700,6 +708,7 @@
     "root_guard": null,
     "loop_protect": null
    },
+   "coarse": false,
    "counters": {
     "rx_bytes": 9000,
     "tx_bytes": null,

@@ -3427,6 +3427,7 @@
  "topology.origin.inferred": "{origin}，推断",
  "topology.evidence": "来源：{sources}",
  "topology.evidence.fdb": "MAC 表",
+ "topology.evidence.gateway": "此端口上设备的默认网关",
  "topology.evidence.arp": "ARP/NDP 表",
  "topology.evidence.address": "ARP 表中的管理地址",
  "topology.origin.mesh": "Mesh",

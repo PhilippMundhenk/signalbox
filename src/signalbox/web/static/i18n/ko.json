@@ -3427,6 +3427,7 @@
  "topology.origin.inferred": "{origin}, 추론",
  "topology.evidence": "확인한 곳: {sources}",
  "topology.evidence.fdb": "MAC 테이블",
+ "topology.evidence.gateway": "이 포트에 있는 장치의 기본 게이트웨이",
  "topology.evidence.arp": "ARP/NDP 테이블",
  "topology.evidence.address": "ARP 테이블의 관리 주소",
  "topology.origin.mesh": "메시",

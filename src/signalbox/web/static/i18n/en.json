@@ -3427,6 +3427,7 @@
  "topology.origin.inferred": "{origin}, inferred",
  "topology.evidence": "Seen by: {sources}",
  "topology.evidence.fdb": "MAC table",
+ "topology.evidence.gateway": "default gateway of the devices on this port",
  "topology.evidence.arp": "ARP/NDP table",
  "topology.evidence.address": "management address in the ARP table",
  "topology.origin.mesh": "mesh",

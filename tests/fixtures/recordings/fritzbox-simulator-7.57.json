@@ -1195,6 +1195,7 @@
     "lacp_rate": null,
     "lag_member_state": null,
     "stp": null,
+    "coarse": true,
     "counters": null,
     "access_control": null
    },
@@ -1237,6 +1238,7 @@
     "lacp_rate": null,
     "lag_member_state": null,
     "stp": null,
+    "coarse": false,
     "counters": {
      "rx_bytes": 3881020914,
      "tx_bytes": 1204117552,

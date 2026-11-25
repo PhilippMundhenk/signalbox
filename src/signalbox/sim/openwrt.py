@@ -30,7 +30,7 @@ import hashlib
 import json
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from fnmatch import fnmatchcase
@@ -1384,31 +1384,54 @@ STATION_DETAILS: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
 }
 
 
-def _stations(section: str, wds: bool) -> list[str]:
-    """Stations of a section; with ``wds '1'`` the access point interface has a WDS station."""
+def _stations(section: str, wds: bool, extra: Sequence[str] = ()) -> list[str]:
+    """Stations of a section; with ``wds '1'`` the access point interface has a WDS station;
+    ``extra``: more stations a test gives (``OpenWrtSim.stations``, #529)."""
     return [
         *STATIONS.get(section, []),
         *([WDS_PEER] if wds and section == "default_radio0" else []),
+        *extra,
     ]
 
 
-def clients(ifname: str, section: str, wds: bool = False) -> dict[str, Any]:
+#: hostapd and iwinfo details of a station a test adds (``OpenWrtSim.stations``, #529)
+OTHER_STATION: tuple[dict[str, Any], dict[str, Any]] = (
+    {"signal": -64},
+    {
+        "signal": -64,
+        "noise": -95,
+        "inactive": 10,
+        "connected_time": 3600,
+        "rx": {"rate": 390000, "packets": 5000},
+        "tx": {"rate": 351000, "packets": 4000, "retries": 20, "failed": 0},
+    },
+)
+
+
+def clients(
+    ifname: str, section: str, wds: bool = False, extra: Sequence[str] = ()
+) -> dict[str, Any]:
     out: dict[str, Any] = {}
-    for mac in _stations(section, wds):
+    for mac in _stations(section, wds, extra):
         base = {"auth": True, "assoc": True, "authorized": True, "signal": -55, "aid": 1}
-        hostapd, info = STATION_DETAILS.get(mac, ({}, {}))
+        hostapd, info = STATION_DETAILS.get(mac, OTHER_STATION if mac in extra else ({}, {}))
+        if wds and mac in extra:
+            hostapd = {**hostapd, "wds": True}
         rate = {"rx": info["rx"]["rate"], "tx": info["tx"]["rate"]} if info else None
         out[mac] = {**base, **hostapd, **({"rate": rate} if rate else {})}
     return {"freq": 2437 if ifname.startswith("phy0") else 5180, "clients": out}
 
 
-def assoclist(ifname: str, section: str, wds: bool = False) -> dict[str, Any]:
+def assoclist(
+    ifname: str, section: str, wds: bool = False, extra: Sequence[str] = ()
+) -> dict[str, Any]:
     """``iwinfo assoclist`` of an interface."""
+    details = {**STATION_DETAILS, **dict.fromkeys(extra, OTHER_STATION)}
     return {
         "results": [
-            {"mac": mac, **STATION_DETAILS[mac][1]}
-            for mac in _stations(section, wds)
-            if mac in STATION_DETAILS
+            {"mac": mac, **details[mac][1]}
+            for mac in _stations(section, wds, extra)
+            if mac in details
         ]
     }
 
@@ -1791,6 +1814,12 @@ class OpenWrtSim:
     learned: list[tuple[str, str, int]] = field(default_factory=list)
     #: ``/sys/class/net/*/brforward`` in the ACL (the docs); False: an older ACL
     brforward_acl: bool = True
+    #: more stations per wifi-iface section (#529): the access point a station interface is
+    #: associated with, the WDS stations of an access point interface with ``wds '1'``
+    stations: dict[str, list[str]] = field(default_factory=dict)
+    #: the bridge member that is the STP root port of its bridge (#529): another bridge is the
+    #: root (a mesh node whose uplink is its Wi-Fi station); None: the bridge is the root
+    stp_root_port: str | None = None
     sessions: dict[str, float] = field(default_factory=dict)
     #: more logins, username -> md5-crypt hash (set by the SSH side, ``openwrt_ssh``)
     login_hashes: dict[str, str] = field(default_factory=dict)
@@ -2071,8 +2100,11 @@ class OpenWrtSim:
                 if method == "get_status":
                     return [0, hostapd_status(ifname, self._radio_of(ifname) or {})]
                 wds = self._wds(running[ifname])
+                extra = self.stations.get(running[ifname], [])
                 return (
-                    [0, clients(ifname, running[ifname], wds)] if method == "get_clients" else [3]
+                    [0, clients(ifname, running[ifname], wds, extra)]
+                    if method == "get_clients"
+                    else [3]
                 )
         if obj == "iwinfo" and self.iwinfo:
             radio = self._radio_of(str(args.get("device", "")))
@@ -2082,7 +2114,8 @@ class OpenWrtSim:
             if method == "assoclist":
                 running = {i: sec for sec, _, i, mode in running_ifaces(self.state["wireless"])}
                 section = running.get(device, "")
-                return [0, assoclist(device, section, self._wds(section))]
+                extra = self.stations.get(section, [])
+                return [0, assoclist(device, section, self._wds(section), extra)]
             if method == "scan":
                 band = 2 if str(radio.get("band", "2g")) == "2g" else 5
                 return [0, {"results": [n for n in self.neighbours if n["band"] == band]}]
@@ -2187,7 +2220,7 @@ class OpenWrtSim:
         (little-endian, as on x86), base64 when asked (rpcd's ``file read``)."""
         if not self.brforward_acl:
             return [DENIED]
-        status = device_status(self.state["network"], self.state["wireless"])
+        status = self._device_status()
         st = status.get(bridge)
         if not isinstance(st, dict) or st.get("type") != "bridge":
             return [NOT_FOUND]
@@ -2228,7 +2261,7 @@ class OpenWrtSim:
         kernel has no such file (no bridge, a port in none, ``no_brport``)."""
         name, _, rest = path.removeprefix("/sys/class/net/").partition("/")
         group, _, leaf = rest.partition("/")
-        status = device_status(self.state["network"], self.state["wireless"])
+        status = self._device_status()
         bridges = {n: st for n, st in status.items() if st.get("type") == "bridge"}
         settings = {
             str(sec.get("name")): sec
@@ -2239,11 +2272,14 @@ class OpenWrtSim:
             prio = int(str(settings.get(name, {}).get("priority", 0x7FFF)))
             own = f"{prio:04x}." + str(bridges[name]["macaddr"]).replace(":", "")
             on = str(settings.get(name, {}).get("stp", "0")) == "1"
+            members = list(bridges[name].get("bridge-members", []))
+            root_no = members.index(self.stp_root_port) + 1 if self.stp_root_port in members else 0
             values = {
                 "bridge_id": own,
-                "root_id": own,
-                "root_port": "0",
-                "root_path_cost": "0",
+                # another bridge is the root when a member is the root port (#529)
+                "root_id": "1000.020000ff0001" if root_no else own,
+                "root_port": str(root_no),
+                "root_path_cost": "100" if root_no else "0",
                 "stp_state": "1" if on else "0",
                 "priority": str(prio),
                 # multicast (#161): snooping on, the bridge is the querier unless the test says not

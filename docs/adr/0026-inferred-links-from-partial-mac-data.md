@@ -49,3 +49,39 @@ between, and linked the gateway's port to the one access point whose MAC it saw 
 - On DSA the software bridge only knows what reached the CPU (broadcasts, own traffic); enough
   for which port leads where, not for every client (a guess until a real device confirms it,
   #21).
+
+## Addendum: coarse host lists and wireless uplinks (#529)
+
+Two real networks with a FRITZ!Box as gateway showed false links. (1) A router with an ARP
+table only, cabled to the box, was also linked to an OpenWrt access point cabled to another box
+port. (2) In a Wi-Fi mesh of OpenWrt access points, of which one is cabled to the box, every
+mesh access point got a wired link to the box. Cause: the box's host list has no per-port
+information and puts every wired host of its LAN on its one `lan` port, so "learned on the same
+port" there was taken as evidence; and the ARP-only guard only looked at devices of role switch.
+
+- **Coarse ports**: `Port.coarse` marks a port that aggregates all hosts behind it without
+  per-port detail. The FRITZ!Box adapter sets it on `lan` (an explicit property, not a name
+  match). Its sightings never count as a per-port table (`_between`, `_may_sit_between`), and a
+  device without a table is not taken as an unmanaged switch beside it: the coarse device's own
+  LAN switch joins them.
+- **What a coarse port links to**: only devices that report no table, or whose own bridge table
+  learns the coarse device on a wired port (the cabled access point), never everything behind
+  it. A link to a device without a table is inferred (no table of either end confirms it).
+- **Wireless uplinks**: a device whose bridge uplink is wireless gets no wired link from a
+  coarse port: a bridge whose STP root port is a Wi-Fi/WDS/mesh interface, a mesh member with a
+  wireless uplink or wireless hops to the controller, the station end of a wireless backhaul
+  (mesh peer reported as uplink, or the WDS station of an access point's downlink).
+- **The gateway first**: when several devices learned on one port are told apart by nothing and
+  one of them reports no per-port table, the one holding the default next hop (default route,
+  uplink gateway) of this device or of the others is the nearest; the others are taken as
+  behind it (a LAN is a star around its gateway). The link is inferred, with evidence `gateway`.
+  Not on a Wi-Fi port (there the access point is nearer), and not where all of them have real
+  tables (then an unmanaged switch joins them all, as before).
+- **ARP-only guard**: every switch and every other device that bridges and says where hosts are
+  (a MAC address table, a coarse host list: access points, routers with LAN ports) may sit
+  between an ARP-only router and what its ARP table sees. A device that says nothing about its
+  ports is not taken to sit in between, or one table-less access point would hide every other.
+  Before the gateway only a table that learns the two ends on different ports puts it in between.
+
+Networks with real per-port tables (switches with FDBs, MikroTik and OpenWrt bridges) keep their
+links; only data with ambiguous ports changes.
