@@ -5944,6 +5944,13 @@
           "default": null,
           "title": "Name"
         },
+        "names_by_device": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Names By Device",
+          "type": "object"
+        },
         "observed_at": {
           "anyOf": [
             {

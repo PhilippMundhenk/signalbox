@@ -240,6 +240,7 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`link.speed-duplex`](rules/vlan.md#linkspeed-duplex)
 - [`vlan.trunk-scope`](rules/vlan.md#vlantrunk-scope)
 - [`link.slow`](rules/vlan.md#linkslow)
+- [`vlan.name-consistent`](rules/vlan.md#vlanname-consistent)
 
 ## [VPN tunnels](rules/vpn.md)
 

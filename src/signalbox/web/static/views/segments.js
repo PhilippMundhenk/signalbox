@@ -26,6 +26,18 @@ function segmentCard(ix, seg) {
     { class: 'card', 'data-testid': 'segment', 'data-id': seg.id },
     h('h3', {}, seg.vlan ? h('span', { class: 'vlan-id' }, t('segments.vlan', { vlan: seg.vlan })) : h('span', { class: 'vlan-id' }, t('segments.untagged')), seg.name ? ` ${seg.name}` : '', seg.purpose ? [' ', purposeTag(seg)] : null),
     seg.isolated ? h('p', { class: 'muted small', 'data-testid': 'segment-isolated' }, t('segments.isolated')) : null,
+    Object.keys(seg.names_by_device || {}).length > 1
+      ? h(
+          'p',
+          { class: 'muted small', 'data-testid': 'segment-names' },
+          t('segments.namesByDevice', {
+            names: Object.entries(seg.names_by_device)
+              .sort(by(([d]) => ix.deviceName(d)))
+              .map(([d, n]) => `${n} (${ix.deviceName(d)})`)
+              .join(', '),
+          }),
+        )
+      : null,
     rows.length
       ? table(
           [

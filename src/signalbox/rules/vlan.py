@@ -15,7 +15,8 @@ report uplinks, a gateway port in no segment that is cabled to another gateway i
 
 from __future__ import annotations
 
-from collections import deque
+import re
+from collections import Counter, deque
 from collections.abc import Iterator
 from dataclasses import dataclass
 from ipaddress import ip_address
@@ -728,6 +729,54 @@ def slow(net: Network) -> Iterator[Result]:
             )
 
 
+def _plain_name(name: str) -> str:
+    """Name without case and whitespace differences."""
+    return " ".join(name.split()).casefold()
+
+
+def _generic(plain: str, vlan: int) -> bool:
+    """A name derived from the id (``vlan20``, ``ether1.20``, ``br-lan.20``, ``20``)."""
+    return re.fullmatch(rf"(?:vlan[ _-]?)?{vlan}|.+\.{vlan}", plain) is not None
+
+
+@rule(
+    "vlan.name-consistent",
+    "The same VLAN has different names on different devices",
+    Severity.INFO,
+    "Devices of different vendors name a VLAN themselves. Different names for one VLAN id "
+    "often mean that a port or SSID was put into the wrong VLAN (the IoT SSID in the guest "
+    "VLAN). Case and spaces are ignored, as are devices without a name and names derived "
+    "from the id (vlan20, ether1.20).",
+)
+def name_consistent(net: Network) -> Iterator[Result]:
+    for seg in sorted(net.segments, key=lambda s: s.id):
+        if seg.vlan is None:
+            continue
+        named = {
+            dev: name
+            for dev, name in sorted(seg.names_by_device.items())
+            if name.strip() and not _generic(_plain_name(name), seg.vlan)
+        }
+        plain = {_plain_name(n) for n in named.values()}
+        if len(plain) < 2:
+            continue
+        common = Counter(_plain_name(n) for n in named.values()).most_common()
+        top = max(c for _, c in common)
+        best = next(
+            n for n in named.values() if _plain_name(n) == next(p for p, c in common if c == top)
+        )
+        listing = ", ".join(f"{n} ({_device_name(net, d)})" for d, n in named.items())
+        yield found(
+            f"VLAN {seg.vlan} is called differently: {listing}.",
+            [seg.id, *named],
+            fix=f"Check that these devices mean the same network (a wrong VLAN id on one of "
+            f"them is the usual cause), then use one name, for example {best}.",
+            mid="vlan.nameConsistent",
+            fix_id="vlan.nameConsistent.fix",
+            params={"vlan": seg.vlan, "names": listing, "suggestion": best},
+        )
+
+
 RULES = [
     path_to_gateway,
     native_mismatch,
@@ -736,4 +785,5 @@ RULES = [
     speed_duplex,
     trunk_scope,
     slow,
+    name_consistent,
 ]

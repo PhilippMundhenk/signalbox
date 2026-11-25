@@ -1084,6 +1084,7 @@
     "site_id": "home",
     "vlan": null,
     "name": "LAN",
+    "names_by_device": {},
     "members": [
      {
       "port_id": "recorded/port/lan",
@@ -1107,6 +1108,7 @@
     "site_id": "home",
     "vlan": null,
     "name": "Guest network",
+    "names_by_device": {},
     "members": [],
     "purpose": "guest",
     "purpose_source": "reported",
