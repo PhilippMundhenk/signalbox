@@ -1,5 +1,5 @@
-"""The Linux integration (#240) against a real Debian 11, 12 or 13 (IT_LINUX_DEBIAN; a container with
-sshd, iproute2, dnsmasq, chrony and a WireGuard interface; tools/integration/linux).
+"""The Linux integration (#240) against a real Debian 11, 12 or 13 (IT_LINUX_DEBIAN; a container
+with sshd, iproute2, dnsmasq, chrony and a WireGuard interface; tools/integration/linux).
 
 The read user ``signalbox`` was created with the commands of the setup guide, including the
 sudoers rule for ``wg show``. The tests read the container as that user, then without the rule,
