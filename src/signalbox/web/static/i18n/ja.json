@@ -3038,6 +3038,7 @@
  "msg.mikrotik.badUserName": "RouterOS のユーザー名ではありません: {login}",
  "msg.mikrotik.userIsAdmin": "セットアップするユーザーを管理者ログインにはできません。Signalbox 専用のユーザー (例: signalbox) を指定してください",
  "msg.mikrotik.usersUnexpected": "/rest/user: 予期しない応答です",
+ "msg.mikrotik.newLoginRefused": "ルーターは {seconds} 秒後も新しいユーザー {login} を拒否しています (HTTP 401)",
  "msg.mikrotik.noRemedy": "MikroTik に対処法 {remedy} はありません",
  "msg.mikrotik.fixHttpsOnly": "「修正」は管理者パスワードを https でのみ送信します",
  "msg.mikrotik.commandFailed": "{command}: {detail}",

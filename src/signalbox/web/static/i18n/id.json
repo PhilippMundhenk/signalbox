@@ -3038,6 +3038,7 @@
  "msg.mikrotik.badUserName": "bukan nama pengguna RouterOS: {login}",
  "msg.mikrotik.userIsAdmin": "pengguna yang disiapkan tidak boleh login admin: beri Signalbox pengguna tersendiri, misalnya signalbox",
  "msg.mikrotik.usersUnexpected": "/rest/user: jawaban tidak terduga",
+ "msg.mikrotik.newLoginRefused": "router masih menolak pengguna baru {login} setelah {seconds} dtk (HTTP 401)",
  "msg.mikrotik.noRemedy": "MikroTik tidak memiliki perbaikan {remedy}",
  "msg.mikrotik.fixHttpsOnly": "Perbaikan ini mengirim kata sandi admin hanya lewat https",
  "msg.mikrotik.commandFailed": "{command}: {detail}",

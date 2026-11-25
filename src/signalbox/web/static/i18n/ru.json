@@ -3038,6 +3038,7 @@
  "msg.mikrotik.badUserName": "это не имя пользователя RouterOS: {login}",
  "msg.mikrotik.userIsAdmin": "настраиваемый пользователь не должен быть учётной записью администратора: заведите для Signalbox отдельного пользователя, например signalbox",
  "msg.mikrotik.usersUnexpected": "/rest/user: неожиданный ответ",
+ "msg.mikrotik.newLoginRefused": "маршрутизатор всё ещё отклоняет нового пользователя {login} через {seconds} с (HTTP 401)",
  "msg.mikrotik.noRemedy": "У MikroTik нет исправления {remedy}",
  "msg.mikrotik.fixHttpsOnly": "Исправление отправляет пароль администратора только по https",
  "msg.mikrotik.commandFailed": "{command}: {detail}",

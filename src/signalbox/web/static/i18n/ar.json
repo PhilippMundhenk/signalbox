@@ -3038,6 +3038,7 @@
  "msg.mikrotik.badUserName": "ليس اسم مستخدم RouterOS: {login}",
  "msg.mikrotik.userIsAdmin": "يجب ألا يكون المستخدم المراد إعداده هو حساب المسؤول: امنح Signalbox مستخدمًا خاصًا به، مثل signalbox",
  "msg.mikrotik.usersUnexpected": "/rest/user: استجابة غير متوقعة",
+ "msg.mikrotik.newLoginRefused": "لا يزال الراوتر يرفض المستخدم الجديد {login} بعد {seconds} ث (HTTP 401)",
  "msg.mikrotik.noRemedy": "لا يملك MikroTik المعالجة {remedy}",
  "msg.mikrotik.fixHttpsOnly": "يرسل الإصلاح كلمة مرور المسؤول عبر https فقط",
  "msg.mikrotik.commandFailed": "{command}: {detail}",

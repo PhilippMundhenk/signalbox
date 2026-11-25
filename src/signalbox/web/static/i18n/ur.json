@@ -3038,6 +3038,7 @@
  "msg.mikrotik.badUserName": "RouterOS صارف نام نہیں: {login}",
  "msg.mikrotik.userIsAdmin": "جس صارف کو سیٹ اپ کرنا ہے وہ ایڈمن لاگ اِن نہیں ہونا چاہیے: Signalbox کو اس کا اپنا صارف دیں، مثلاً signalbox",
  "msg.mikrotik.usersUnexpected": "/rest/user: غیر متوقع جواب",
+ "msg.mikrotik.newLoginRefused": "{seconds} سیکنڈ بعد بھی راؤٹر نئے صارف {login} کو مسترد کر رہا ہے (HTTP 401)",
  "msg.mikrotik.noRemedy": "MikroTik کے پاس حل {remedy} نہیں",
  "msg.mikrotik.fixHttpsOnly": "حل کریں ایڈمن پاس ورڈ صرف https پر بھیجتا ہے",
  "msg.mikrotik.commandFailed": "{command}: {detail}",

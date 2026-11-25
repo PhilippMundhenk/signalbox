@@ -3038,6 +3038,7 @@
  "msg.mikrotik.badUserName": "RouterOS ব্যবহারকারীর নাম নয়: {login}",
  "msg.mikrotik.userIsAdmin": "সেটআপ করা ব্যবহারকারী অ্যাডমিন লগইন হতে পারবে না: Signalbox-কে নিজস্ব একটি ব্যবহারকারী দিন, যেমন signalbox",
  "msg.mikrotik.usersUnexpected": "/rest/user: অপ্রত্যাশিত উত্তর",
+ "msg.mikrotik.newLoginRefused": "{seconds} সেকেন্ড পরেও রাউটার নতুন ব্যবহারকারী {login} প্রত্যাখ্যান করছে (HTTP 401)",
  "msg.mikrotik.noRemedy": "MikroTik-এ প্রতিকার {remedy} নেই",
  "msg.mikrotik.fixHttpsOnly": "সমাধান করলে অ্যাডমিন পাসওয়ার্ড শুধু https-এ পাঠানো হয়",
  "msg.mikrotik.commandFailed": "{command}: {detail}",
