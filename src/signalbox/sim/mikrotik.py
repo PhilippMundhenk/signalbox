@@ -1284,6 +1284,8 @@ def sample_data() -> dict[str, Any]:
                 "group-key-update": "1h",
                 "ft": "yes",
                 "ft-over-ds": "yes",
+                "ft-mobility-domain": "44481",
+                "ft-reassociation-deadline": "20s",
             }
         ),
         "/rest/interface/wifi/channel": [],
@@ -1330,6 +1332,9 @@ def sample_data() -> dict[str, Any]:
                 "mac-address": _mac(0, 0x22),
                 "uptime": "1h2m3s",
                 "signal": "-61",
+                "tx-rate": "286.7Mbps-20MHz-2S",
+                "rx-rate": "172.0Mbps-20MHz-2S",
+                "auth-type": "wpa2-psk",
                 "band": "2ghz-ax",
             }
         ),
@@ -1401,7 +1406,14 @@ def legacy_wireless() -> dict[str, Any]:
             },
         ),
         "/rest/interface/wireless/registration-table": _ids(
-            {"interface": "wlan1", "mac-address": _mac(0, 0x23), "signal-strength": "-55dBm"}
+            {
+                "interface": "wlan1",
+                "mac-address": _mac(0, 0x23),
+                "signal-strength": "-55dBm",
+                "tx-rate": "144.4Mbps-20MHz/2S/SGI",
+                "rx-rate": "130Mbps-20MHz/2S",
+                "uptime": "3d2h",
+            }
         ),
     }
 

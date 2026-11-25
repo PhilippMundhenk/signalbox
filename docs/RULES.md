@@ -316,6 +316,14 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 
 - [`wifi.regulatory`](rules/wifi_regulatory.md#wifiregulatory)
 
+## [Wi-Fi roaming and client association](rules/wifi_roaming.md)
+
+- [`wifi.ft-mobility-domain-mismatch`](rules/wifi_roaming.md#wifift-mobility-domain-mismatch)
+- [`wifi.min-rssi-too-high`](rules/wifi_roaming.md#wifimin-rssi-too-high)
+- [`wifi.min-rssi-inconsistent`](rules/wifi_roaming.md#wifimin-rssi-inconsistent)
+- [`wifi.client-weak-signal`](rules/wifi_roaming.md#wificlient-weak-signal)
+- [`wifi.legacy-client`](rules/wifi_roaming.md#wifilegacy-client)
+
 ## [Wi-Fi security](rules/wifi_security.md)
 
 - [`wifi.weak-security`](rules/wifi_security.md#wifiweak-security)

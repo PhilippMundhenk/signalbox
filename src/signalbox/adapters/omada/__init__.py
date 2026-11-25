@@ -108,6 +108,7 @@ from signalbox.model import (
     UplinkKind,
     WifiScanResult,
     WifiStandard,
+    WirelessAssociation,
     Wlan,
     fdb_id,
     firewall_id,
@@ -152,6 +153,23 @@ CLIENT_RADIOS = {
     1: ("radioSetting5g", "radioSetting5g1"),
     2: ("radioSetting5g2",),
     3: ("radioSetting6g",),
+}
+#: Band of a wireless client's ``radioId``.
+CLIENT_BANDS = {0: Band.GHZ_2_4, 1: Band.GHZ_5, 2: Band.GHZ_5, 3: Band.GHZ_6}
+#: ``wifiMode`` of a wireless client: 0 11a, 1 11b, 2 11g, 3 11na, 4 11ng, 5 11ac, 6 11axa,
+#: 7 11axg, 8 11bea, 9 11beg, 10 11beg6 *(guess for 8 and up)*.
+CLIENT_STANDARDS = {
+    0: WifiStandard.A,
+    1: WifiStandard.B,
+    2: WifiStandard.G,
+    3: WifiStandard.N,
+    4: WifiStandard.N,
+    5: WifiStandard.AC,
+    6: WifiStandard.AX,
+    7: WifiStandard.AX,
+    8: WifiStandard.BE,
+    9: WifiStandard.BE,
+    10: WifiStandard.BE,
 }
 #: Bits of an SSID's ``band`` → radio keys.
 BAND_BITS = (
@@ -1867,6 +1885,7 @@ class OmadaAdapter(_Adapter):
                         vlan=vlan,
                         segment_id=seg,
                     )
+            association = _association(row, seen_on) if _flag(row.get("wireless")) else None
             hostname = _text(row.get("hostName")) or _text(row.get("name"))
             last = _int(row.get("lastSeen"))
             clients[mac] = Client(
@@ -1876,11 +1895,35 @@ class OmadaAdapter(_Adapter):
                 hostname=hostname if hostname and _mac(hostname) != mac else None,
                 segment_id=seg,
                 seen_on=seen_on,
+                wireless=association,
                 last_seen=datetime.fromtimestamp(last / 1000, UTC) if last else None,
             )
         return Observation(
             clients=[clients[m] for m in sorted(clients)], fdb=[fdb[k] for k in sorted(fdb)]
         )
+
+
+def _association(row: dict[str, Any], wlan_id: str | None) -> WirelessAssociation:
+    """Wi-Fi details of a controller client row (#170): ``rssi`` (dBm), ``snr``, ``rxRate`` and
+    ``txRate`` (kbit/s), ``wifiMode``, ``uptime`` (s), ``powerSave`` *(guess: field names from
+    the controller's client list, not checked against a device)*."""
+    signal = _int(row.get("rssi"))
+    snr = _int(row.get("snr"))
+    rx, tx = _int(row.get("rxRate")), _int(row.get("txRate"))
+    radio = _int(row.get("radioId"))
+    mode = _int(row.get("wifiMode"))
+    up = _int(row.get("uptime"))
+    return WirelessAssociation(
+        wlan_id=wlan_id,
+        band=CLIENT_BANDS.get(radio) if radio is not None else None,
+        signal_dbm=signal if signal is not None and -120 <= signal < 0 else None,
+        snr_db=snr if snr is not None and 0 <= snr <= 120 else None,
+        rx_rate_mbps=round(rx / 1000, 1) if rx is not None and rx >= 0 else None,
+        tx_rate_mbps=round(tx / 1000, 1) if tx is not None and tx >= 0 else None,
+        standard=CLIENT_STANDARDS.get(mode) if mode is not None else None,
+        connected_seconds=up if up is not None and up >= 0 else None,
+        power_save=_flag(row.get("powerSave")) if row.get("powerSave") is not None else None,
+    )
 
 
 __all__ = ["OmadaAdapter", "OmadaConfig"]

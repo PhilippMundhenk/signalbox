@@ -629,6 +629,11 @@ def wireless_config() -> dict[str, Any]:
                 "key": "example-passphrase",
                 "sae_pwe": "2",
                 "ieee80211r": "1",
+                "mobility_domain": "a1b2",
+                "ft_over_ds": "0",
+                "ft_psk_generate_local": "1",
+                "dtim_period": "2",
+                "rssi_reject_assoc_rssi": "-75",
             },
         ),
         (
@@ -643,6 +648,9 @@ def wireless_config() -> dict[str, Any]:
                 "key": "example-passphrase",
                 "sae_pwe": "2",
                 "ieee80211r": "1",
+                "mobility_domain": "a1b2",
+                "ft_over_ds": "0",
+                "ft_psk_generate_local": "1",
                 "ieee80211w": "1",
             },
         ),
@@ -1122,13 +1130,63 @@ def system_info(now: float, zone: str, uptime: int = 273906) -> dict[str, Any]:
     }
 
 
-def clients(ifname: str, section: str) -> dict[str, Any]:
-    return {
-        "freq": 2437 if ifname.startswith("phy0") else 5180,
-        "clients": {
-            mac: {"auth": True, "assoc": True, "authorized": True, "signal": -55, "aid": 1}
-            for mac in STATIONS.get(section, [])
+#: What the sample stations report (#170): hostapd ``get_clients`` fields and the
+#: ``iwinfo assoclist`` entry (rates in kbit/s, ``inactive`` in ms), by MAC.
+STATION_DETAILS: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
+    _mac(0x20, 1): (
+        {"signal": -55, "ht": True, "vht": True, "he": True, "mfp": True, "rrm": [113, 0, 0, 0, 0]},
+        {
+            "signal": -55,
+            "noise": -95,
+            "inactive": 120,
+            "connected_time": 7200,
+            "rx": {"rate": 573500, "he": True, "40mhz": False, "packets": 9000},
+            "tx": {"rate": 286700, "he": True, "packets": 8000, "retries": 400, "failed": 3},
         },
+    ),
+    _mac(0x20, 2): (
+        {"signal": -82, "ht": False, "vht": False, "he": False},
+        {
+            "signal": -82,
+            "noise": -95,
+            "inactive": 4000,
+            "connected_time": 300,
+            "rx": {"rate": 11000, "packets": 500},
+            "tx": {"rate": 11000, "packets": 400, "retries": 200, "failed": 40},
+        },
+    ),
+    _mac(0x20, 3): (
+        {"signal": -61, "ht": True, "vht": True, "he": False, "mfp": True},
+        {
+            "signal": -61,
+            "noise": -92,
+            "inactive": 50,
+            "connected_time": 86400,
+            "rx": {"rate": 866700, "vht": True, "80mhz": True, "packets": 90000},
+            "tx": {"rate": 780000, "vht": True, "packets": 80000, "retries": 800, "failed": 5},
+        },
+    ),
+}
+
+
+def clients(ifname: str, section: str) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for mac in STATIONS.get(section, []):
+        base = {"auth": True, "assoc": True, "authorized": True, "signal": -55, "aid": 1}
+        hostapd, info = STATION_DETAILS.get(mac, ({}, {}))
+        rate = {"rx": info["rx"]["rate"], "tx": info["tx"]["rate"]} if info else None
+        out[mac] = {**base, **hostapd, **({"rate": rate} if rate else {})}
+    return {"freq": 2437 if ifname.startswith("phy0") else 5180, "clients": out}
+
+
+def assoclist(ifname: str, section: str) -> dict[str, Any]:
+    """``iwinfo assoclist`` of an interface."""
+    return {
+        "results": [
+            {"mac": mac, **STATION_DETAILS[mac][1]}
+            for mac in STATIONS.get(section, [])
+            if mac in STATION_DETAILS
+        ]
     }
 
 
@@ -1719,6 +1777,9 @@ class OpenWrtSim:
             if radio is None:
                 return [INVALID_ARGUMENT]
             device = str(args.get("device", ""))
+            if method == "assoclist":
+                running = {i: sec for sec, _, i, mode in running_ifaces(self.state["wireless"])}
+                return [0, assoclist(device, running.get(device, ""))]
             if method == "scan":
                 band = 2 if str(radio.get("band", "2g")) == "2g" else 5
                 return [0, {"results": [n for n in self.neighbours if n["band"] == band]}]

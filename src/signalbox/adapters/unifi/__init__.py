@@ -57,6 +57,7 @@ from signalbox.adapters.portcounters import counters_of
 from signalbox.adapters.unifi import multiwan
 from signalbox.model import (
     Band,
+    BandSteering,
     Cipher,
     Client,
     Device,
@@ -92,6 +93,8 @@ from signalbox.model import (
     TemperatureSensor,
     Uplink,
     UplinkKind,
+    WifiStandard,
+    WirelessAssociation,
     Wlan,
     fdb_id,
     normalise_mac,
@@ -495,6 +498,84 @@ def uplink_of(row: dict[str, Any]) -> _Link | None:
         remote_idx=_int(info.get("uplink_remote_port")),
         speed=_int(info.get("speed")),
         mesh=_text(info.get("type")).lower() == "wireless",
+    )
+
+
+#: ``radio_proto`` / ``radio`` of a station (``ng``, ``na``, ``ac``, ``ax``, ``6e``, ``be``).
+_STATION_STANDARDS = {
+    "b": WifiStandard.B,
+    "a": WifiStandard.A,
+    "g": WifiStandard.G,
+    "ng": WifiStandard.N,
+    "na": WifiStandard.N,
+    "n": WifiStandard.N,
+    "ac": WifiStandard.AC,
+    "ax": WifiStandard.AX,
+    "6e": WifiStandard.AX,
+    "be": WifiStandard.BE,
+}
+_STATION_BANDS = {"ng": Band.GHZ_2_4, "na": Band.GHZ_5, "6e": Band.GHZ_6}
+
+
+def _roaming(conf: dict[str, Any]) -> dict[str, Any]:
+    """Roaming fields (#168) of a ``rest/wlanconf`` entry: ``fast_roaming_enabled`` (802.11r),
+    ``bss_transition`` (802.11v), ``mcastenhance_enabled``, ``dtim_mode``/``dtim_na``/
+    ``dtim_ng``, ``band_steering_mode`` *(guess: value spelling)*. Left out when absent."""
+    out: dict[str, Any] = {}
+    for key, name in (
+        ("fast_roaming_enabled", "roaming_80211r"),
+        ("bss_transition", "roaming_80211v"),
+        ("mcastenhance_enabled", "multicast_to_unicast"),
+    ):
+        value = _flag(conf.get(key), None)
+        if value is not None:
+            out[name] = value
+    if _text(conf.get("dtim_mode")) == "custom":
+        dtim = _int(conf.get("dtim_na")) or _int(conf.get("dtim_ng"))
+        if dtim is not None and 1 <= dtim <= 255:
+            out["dtim_period"] = dtim
+    steering = _text(conf.get("band_steering_mode")).lower()
+    mode = {
+        "off": BandSteering.OFF,
+        "prefer_5g": BandSteering.PREFER_5GHZ,
+        "equal": BandSteering.BALANCE,
+        "balanced": BandSteering.BALANCE,
+    }.get(steering)
+    if mode is not None:
+        out["band_steering"] = mode
+    return out
+
+
+def _association(row: dict[str, Any], wlan_id: str | None) -> WirelessAssociation:
+    """Wi-Fi details of a ``stat/sta`` row (#170): ``signal`` (dBm), ``noise``, ``tx_rate`` and
+    ``rx_rate`` (kbit/s), ``radio_proto``, ``channel_width`` *(guess)*, ``uptime`` and
+    ``idle_time`` (s), ``tx_retries`` and ``tx_packets``, ``powersave_enabled``."""
+    signal = _int(row.get("signal"))
+    noise = _int(row.get("noise"))
+    tx, rx = _num(row.get("tx_rate")), _num(row.get("rx_rate"))
+    proto = _text(row.get("radio_proto") or row.get("radio")).lower()
+    up, idle = _int(row.get("uptime")), _int(row.get("idle_time"))
+    packets, retries = _int(row.get("tx_packets")), _int(row.get("tx_retries"))
+    width = _int(row.get("channel_width"))
+    return WirelessAssociation(
+        wlan_id=wlan_id,
+        bssid=_mac(row.get("bssid")),
+        band=_STATION_BANDS.get(_text(row.get("radio")).lower()),
+        signal_dbm=signal if signal is not None and -120 <= signal < 0 else None,
+        noise_dbm=noise if noise is not None and -120 <= noise < 0 else None,
+        snr_db=signal - noise
+        if signal is not None and noise is not None and -120 <= noise < signal < 0
+        else None,
+        tx_rate_mbps=round(tx / 1000, 1) if tx is not None and tx >= 0 else None,
+        rx_rate_mbps=round(rx / 1000, 1) if rx is not None and rx >= 0 else None,
+        standard=_STATION_STANDARDS.get(proto),
+        width_mhz=width if width is not None and width > 0 else None,
+        connected_seconds=up if up is not None and up >= 0 else None,
+        inactive_seconds=idle if idle is not None and idle >= 0 else None,
+        retries_pct=round(100 * retries / packets, 1)
+        if packets and retries is not None and 0 <= retries <= packets
+        else None,
+        power_save=_flag(row.get("powersave_enabled"), None),
     )
 
 
@@ -1509,6 +1590,7 @@ class UnifiAdapter(_Adapter):
                         segment_id=seg,
                         hidden=bool(_flag(conf.get("hide_ssid"), False)),
                         client_isolation=_flag(conf.get("l2_isolation"), None),
+                        **_roaming(conf),
                         purpose=SegmentPurpose.GUEST if guest else None,
                         purpose_source=PurposeSource.REPORTED if guest else None,
                         bssid=_mac(vap.get("bssid")),
@@ -1583,6 +1665,7 @@ class UnifiAdapter(_Adapter):
                 )
             hostname = _text(row.get("hostname")) or _text(row.get("name"))
             clients[mac] = Client(
+                wireless=None if _flag(row.get("is_wired"), False) else _association(row, seen_on),
                 id=object_id(dev, "client", mac),
                 mac=mac,
                 addresses=[addr] if addr else [],

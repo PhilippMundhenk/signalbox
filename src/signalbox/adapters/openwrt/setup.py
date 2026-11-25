@@ -20,7 +20,7 @@ READ_ACL: dict[str, Any] = {
                 "network.wireless": ["status"],
                 "uci": ["get", "changes"],
                 "hostapd.*": ["get_clients", "get_status"],
-                "iwinfo": ["info", "freqlist", "txpowerlist", "survey", "scan"],
+                "iwinfo": ["info", "freqlist", "txpowerlist", "survey", "scan", "assoclist"],
                 "luci-rpc": ["getDHCPLeases", "getWirelessDevices", "getNetworkDevices"],
                 "dhcp": ["ipv6leases"],
                 "luci": ["getFeatures"],

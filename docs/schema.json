@@ -263,6 +263,16 @@
       "title": "Band",
       "type": "string"
     },
+    "BandSteering": {
+      "enum": [
+        "off",
+        "prefer-5ghz",
+        "prefer-6ghz",
+        "balance"
+      ],
+      "title": "BandSteering",
+      "type": "string"
+    },
     "Blocklist": {
       "additionalProperties": false,
       "description": "A list of blocked names a DNS service uses (Unbound DNSBL, AdGuard filter, Pi-hole list).\n\n``name`` is the list's name or the host of its URL: never the full URL, which can carry a\nsubscription token.",
@@ -715,6 +725,17 @@
           },
           "title": "Vendor Extra",
           "type": "object"
+        },
+        "wireless": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WirelessAssociation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -2838,6 +2859,63 @@
       "title": "Fan",
       "type": "object"
     },
+    "FastTransition": {
+      "additionalProperties": false,
+      "description": "802.11r details of a WLAN (#168); every value None where the device does not say.",
+      "properties": {
+        "key_holder": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FtKeyHolder"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mobility_domain": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{4}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mobility Domain"
+        },
+        "over_ds": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Over Ds"
+        },
+        "reassociation_deadline_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reassociation Deadline Ms"
+        }
+      },
+      "title": "FastTransition",
+      "type": "object"
+    },
     "FdbEntry": {
       "additionalProperties": false,
       "description": "One entry of a device's forwarding database (MAC address table, #160): ``mac`` is\nreachable through ``port_id``, as the device reports it, not merged into clients.\n\nRead with ``clients`` (or ``interfaces`` where an integration has no client read); no\nadapter API version needed. A controller reports the entries of the switches it manages\nunder their device ids. Personal data like clients: not in ``GET /api/network``, never in\nMQTT.",
@@ -3610,6 +3688,15 @@
         "untagged-only"
       ],
       "title": "FrameTypes",
+      "type": "string"
+    },
+    "FtKeyHolder": {
+      "description": "Where an 802.11r access point keeps the pairwise master keys (#168).",
+      "enum": [
+        "local",
+        "pmk-r1-push"
+      ],
+      "title": "FtKeyHolder",
       "type": "string"
     },
     "GatewayGroup": {
@@ -9655,9 +9742,292 @@
       "title": "WifiStandard",
       "type": "string"
     },
+    "WirelessAssociation": {
+      "additionalProperties": false,
+      "description": "What an access point knows of a client's Wi-Fi association (#170); None where the device\ndoes not say. A snapshot of one moment: rules want it with history, never judge one sample.\n\nPersonal data like the client itself (presence and movement): MQTT only counts clients and\nexporters never list them.",
+      "properties": {
+        "band": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Band"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "bssid": {
+          "anyOf": [
+            {
+              "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bssid"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "connected_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connected Seconds"
+        },
+        "inactive_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inactive Seconds"
+        },
+        "noise_dbm": {
+          "anyOf": [
+            {
+              "maximum": 0,
+              "minimum": -120,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Noise Dbm"
+        },
+        "power_save": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Power Save"
+        },
+        "radio_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Radio Id"
+        },
+        "retries_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retries Pct"
+        },
+        "rx_rate_mbps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rx Rate Mbps"
+        },
+        "signal_dbm": {
+          "anyOf": [
+            {
+              "maximum": 0,
+              "minimum": -120,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signal Dbm"
+        },
+        "snr_db": {
+          "anyOf": [
+            {
+              "maximum": 120,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snr Db"
+        },
+        "spatial_streams": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spatial Streams"
+        },
+        "standard": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WifiStandard"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tx_failed": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tx Failed"
+        },
+        "tx_rate_mbps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tx Rate Mbps"
+        },
+        "width_mhz": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width Mhz"
+        },
+        "wlan_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wlan Id"
+        }
+      },
+      "title": "WirelessAssociation",
+      "type": "object"
+    },
     "Wlan": {
       "additionalProperties": false,
       "properties": {
+        "airtime_fairness": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Airtime Fairness"
+        },
+        "assoc_rssi_dbm": {
+          "anyOf": [
+            {
+              "maximum": 0,
+              "minimum": -120,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assoc Rssi Dbm"
+        },
+        "band_steering": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BandSteering"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "beacon_interval_ms": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Beacon Interval Ms"
+        },
         "beacon_protection": {
           "anyOf": [
             {
@@ -9669,6 +10039,19 @@
           ],
           "default": null,
           "title": "Beacon Protection"
+        },
+        "bss_max_idle_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bss Max Idle Seconds"
         },
         "bssid": {
           "anyOf": [
@@ -9714,10 +10097,35 @@
           "title": "Device Id",
           "type": "string"
         },
+        "dtim_period": {
+          "anyOf": [
+            {
+              "maximum": 255,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dtim Period"
+        },
         "enabled": {
           "default": true,
           "title": "Enabled",
           "type": "boolean"
+        },
+        "ft": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FastTransition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "group_cipher": {
           "anyOf": [
@@ -9751,6 +10159,45 @@
           ],
           "default": null,
           "title": "Key Rotation Seconds"
+        },
+        "max_clients": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Clients"
+        },
+        "min_rssi_dbm": {
+          "anyOf": [
+            {
+              "maximum": 0,
+              "minimum": -120,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Rssi Dbm"
+        },
+        "multicast_to_unicast": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Multicast To Unicast"
         },
         "observed_at": {
           "anyOf": [

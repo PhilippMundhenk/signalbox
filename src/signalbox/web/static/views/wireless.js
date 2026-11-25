@@ -56,7 +56,12 @@ function details(w) {
 function roaming(w) {
   const on = [['802.11r', w.roaming_80211r], ['802.11k', w.roaming_80211k], ['802.11v', w.roaming_80211v]];
   if (on.every(([, v]) => v === null || v === undefined)) return null;
-  return on.map(([name, v]) => tag(v ? t('wireless.roaming.on', { name }) : v === false ? t('wireless.roaming.off', { name }) : t('wireless.roaming.unknown', { name }), v ? 'ok' : '')).flatMap((x, i) => (i ? [' ', x] : [x]));
+  const tags = on.map(([name, v]) => tag(v ? t('wireless.roaming.on', { name }) : v === false ? t('wireless.roaming.off', { name }) : t('wireless.roaming.unknown', { name }), v ? 'ok' : '')).flatMap((x, i) => (i ? [' ', x] : [x]));
+  // Mobility domain and minimum signal (#168): numbers and units, the same in every language.
+  const extra = [];
+  if (w.ft && w.ft.mobility_domain) extra.push(`MDID ${w.ft.mobility_domain}`);
+  if (w.min_rssi_dbm != null) extra.push(`min ${w.min_rssi_dbm} dBm`);
+  return extra.length ? [...tags, ' ', h('span', { class: 'mono muted small', 'data-testid': 'wlan-roaming-extra' }, extra.join(', '))] : tags;
 }
 
 export async function renderWireless(main, ctx, route = {}) {

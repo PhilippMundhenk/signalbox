@@ -12,8 +12,8 @@ Settings a device did not report are not judged.
   so 802.11r has nothing to roam to and keeps some older clients out; (2) 802.11k or 802.11v is
   reported as off on the same SSID, so clients still find the next access point late. A setting
   that was not reported (`None`) is never judged. Access points that set 802.11r differently
-  are reported by `wifi.ssid-consistent`. Not checked yet: mobility domain and FT mode
-  differing between access points (needs data the model does not hold, #90).
+  are reported by `wifi.ssid-consistent`. Mobility domains differing between access points:
+  `wifi.ft-mobility-domain-mismatch` (#168).
 - **Fix:** turn 802.11r off, or enable it on the other access points together with 802.11k
   and v; turn on the missing 802.11k/v.
 
