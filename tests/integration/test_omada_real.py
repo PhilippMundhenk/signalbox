@@ -69,6 +69,13 @@ def ctrl(target: Callable[[str], Target]) -> dict[str, str]:
     }
 
 
+def needs_lab(ctrl: dict[str, str]) -> None:
+    """Omada 5.14 refuses the interface network "Lab" on a site without gateway (-33515 "LAN
+    interfaces could not be none"; 5.15 and 6.3 take it, #501): what needs it is skipped."""
+    if "interface network with DHCP" in ctrl.get("REFUSED", ""):
+        pytest.skip(f"Omada {ctrl['VERSION']}: no interface network without a gateway")
+
+
 def adapter(
     ctrl: dict[str, str],
     write: bool = False,
@@ -205,6 +212,7 @@ async def test_site_services_shape(ctrl: dict[str, str]) -> None:
 
 
 async def test_mapping_of_the_test_site(ctrl: dict[str, str]) -> None:
+    needs_lab(ctrl)
     net = await network(ctrl)
     assert [d.id for d in net.devices] == [DEV]  # no managed devices
     assert net.ports == [] and net.radios == [] and net.wlans == [] and net.clients == []
@@ -263,10 +271,11 @@ async def test_ssids_and_port_profiles(ctrl: dict[str, str]) -> None:
     )
     assert PMF_MODES[iot["pmfMode"]] is Pmf.DISABLED
     assert (_security(guest), guest["vlanId"], "pmfMode" in guest) == (Security.OPEN, 30, False)
-    assert all(s["ssidEnable"] is True for s in rows.values())
+    # Omada 5.15 has no on/off switch for an SSID (no key in its answers, #501)
+    assert all(s.get("ssidEnable", True) is True for s in rows.values())
     assert profiles["IoT access"]["nativeNetworkId"] == nets[20]
     assert profiles["All"]["nativeNetworkId"] == nets[1]
-    assert set(profiles["All"]["tagNetworkIds"]) == {nets[20], nets[30], nets[40]}
+    assert set(profiles["All"]["tagNetworkIds"]) == {nets[v] for v in (20, 30, 40) if v in nets}
 
 
 async def test_refused_secret_is_auth_failed(ctrl: dict[str, str]) -> None:
@@ -291,6 +300,7 @@ async def test_unknown_site(ctrl: dict[str, str]) -> None:
 async def test_refused_token_is_renewed_once(ctrl: dict[str, str]) -> None:
     """The controller answers a token it does not know (expired or never issued) with
     -44112; the adapter asks for a new one and repeats the request."""
+    needs_lab(ctrl)
     a = adapter(ctrl)
     try:
         await a.read_system()
@@ -317,6 +327,7 @@ async def test_refused_token_is_renewed_once(ctrl: dict[str, str]) -> None:
 
 
 async def test_viewer_role_cannot_write(ctrl: dict[str, str]) -> None:
+    needs_lab(ctrl)
     net = await network(ctrl)
     old = next(s for s in net.subnets if s.segment_id == LAB)
     c = Change(
@@ -405,6 +416,7 @@ sites:
 
 
 async def test_new_network_with_dhcp_then_revert(svc: Services, ctrl: dict[str, str]) -> None:
+    needs_lab(ctrl)
     before = await networks(ctrl)
     d, cid = await deploy(svc, NEW_NETWORK, {ChangeKind.ROUTER, ChangeKind.DHCP})
     after = await networks(ctrl)
@@ -440,6 +452,7 @@ sites:
 async def test_change_native_router_and_dhcp_then_revert(
     svc: Services, ctrl: dict[str, str]
 ) -> None:
+    needs_lab(ctrl)
     before = await networks(ctrl)
     d, cid = await deploy(svc, CHANGE_EXISTING, {ChangeKind.ROUTER, ChangeKind.DHCP})
     after = await networks(ctrl)
@@ -468,6 +481,7 @@ async def test_vlan_only_network_gets_a_gateway_then_backup_restore(
 ) -> None:
     """VLAN only → interface; then the restore of the backup taken before (interface → VLAN
     only, the whole network in one PATCH)."""
+    needs_lab(ctrl)
     before = await networks(ctrl)
     _, cid = await deploy(svc, GUEST_ROUTER, {ChangeKind.ROUTER})
     after = await networks(ctrl)
@@ -491,11 +505,18 @@ async def test_refusal_of_the_controller_names_the_code(ctrl: dict[str, str]) ->
     try:
         await a.read_system()
         body = {"name": "Twice", "purpose": 0, "vlan": 20, "igmpSnoopEnable": False}
-        with pytest.raises(AdapterError, match="-34517: This VLAN ID is already used"):
+        with pytest.raises(
+            AdapterError,
+            match=r"-34517: This VLAN ID is already used|-33501: This VLAN already exists",
+        ):
             await Writer(a).send("POST", f"{a._site_path}/lan-networks", body)
     finally:
         await a.close()
-    assert set(await networks(ctrl)) == {1, 20, 30, 40}
+    assert set(await networks(ctrl)) == {1, 20, 30} | (
+        set()
+        if "Lab" in ctrl.get("REFUSED", "") or "interface network" in ctrl.get("REFUSED", "")
+        else {40}
+    )
 
 
 # --- SSIDs through the write module --------------------------------------------------------
@@ -578,10 +599,14 @@ async def test_ssid_create_change_disable_delete(ctrl: dict[str, str]) -> None:
     )
 
     off = changed.model_copy(update={"enabled": False, "passphrase_secret": None})
-    await apply(ctrl, [wlan("Lab", changed, off)], secrets)
-    lab = (await ssids(ctrl))["Lab"]
-    assert lab["ssidEnable"] is False
-    assert lab["pskSetting"]["securityKey"] == "another-lab-passphrase"  # kept
+    if "ssidEnable" in lab:
+        await apply(ctrl, [wlan("Lab", changed, off)], secrets)
+        lab = (await ssids(ctrl))["Lab"]
+        assert lab["ssidEnable"] is False
+        assert lab["pskSetting"]["securityKey"] == "another-lab-passphrase"  # kept
+    else:  # Omada 5.15: no switch in the Open API, a readable refusal instead of a 404 (#501)
+        with pytest.raises(AdapterError, match="cannot switch an SSID off"):
+            await apply(ctrl, [wlan("Lab", changed, off)], secrets)
 
     await apply(ctrl, [wlan("Lab", off, None)], secrets)
     assert set(await ssids(ctrl)) == {"Home", "IoT", "Guest"}

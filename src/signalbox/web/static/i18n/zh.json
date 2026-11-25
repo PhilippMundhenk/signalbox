@@ -3200,6 +3200,7 @@
  "msg.omada.secretMissing": "{subject}:未提供密钥 {name}",
  "msg.omada.passphraseLength": "{subject}:WPA 密码短语为 8 到 63 个字符",
  "msg.omada.passphraseNeeded": "{subject}:WPA SSID 需要密码短语 (期望状态中的 passphrase_secret)",
+ "msg.omada.ssidNoSwitch": "{subject}:此版本的控制器无法通过 Open API 关闭 SSID (Omada 5.x);请删除该 SSID 或在控制器中关闭",
  "msg.omada.restoreFormat": "无法恢复格式为 {format} 的备份",
  "msg.omada.restoreInvalid": "该备份不是 Omada 备份:{detail}",
  "msg.omada.restoreOther": "该备份属于另一个控制器或站点",

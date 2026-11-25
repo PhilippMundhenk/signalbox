@@ -1166,6 +1166,8 @@ class OmadaSimulator:
             row.pop("pmfMode", None)
         if not row.get("hidePwd"):
             row.pop("hidePwd", None)  # taken, answered only when set
+        if not row.get("greEnable"):
+            row.pop("greEnable", None)  # same (5.14 needs it in the request, #501)
         if row.get("vlanEnable"):
             vlan = row.get("vlanId")
             row["vlanSetting"] = {

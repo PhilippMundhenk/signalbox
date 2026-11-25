@@ -3200,6 +3200,7 @@
  "msg.omada.secretMissing": "{subject}: Das Geheimnis {name} wurde nicht angegeben",
  "msg.omada.passphraseLength": "{subject}: Eine WPA-Passphrase hat 8 bis 63 Zeichen",
  "msg.omada.passphraseNeeded": "{subject}: Eine WPA-SSID braucht eine Passphrase (passphrase_secret im Soll-Zustand)",
+ "msg.omada.ssidNoSwitch": "{subject}: Diese Controller-Version kann eine SSID über die Open API nicht ausschalten (Omada 5.x); SSID entfernen oder im Controller ausschalten",
  "msg.omada.restoreFormat": "Eine Sicherung im Format {format} kann nicht wiederhergestellt werden",
  "msg.omada.restoreInvalid": "Die Sicherung ist keine Omada-Sicherung: {detail}",
  "msg.omada.restoreOther": "Die Sicherung stammt von einem anderen Controller oder Standort",

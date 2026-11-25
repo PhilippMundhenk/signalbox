@@ -3200,6 +3200,7 @@
  "msg.omada.secretMissing": "{subject}: secret {name} tidak diberikan",
  "msg.omada.passphraseLength": "{subject}: passphrase WPA terdiri dari 8 sampai 63 karakter",
  "msg.omada.passphraseNeeded": "{subject}: SSID WPA memerlukan passphrase (passphrase_secret di desired state)",
+ "msg.omada.ssidNoSwitch": "{subject}: versi controller ini tidak dapat mematikan SSID lewat Open API (Omada 5.x); hapus SSID atau matikan di controller",
  "msg.omada.restoreFormat": "cadangan berformat {format} tidak dapat dipulihkan",
  "msg.omada.restoreInvalid": "cadangan bukan cadangan Omada: {detail}",
  "msg.omada.restoreOther": "cadangan milik controller atau site lain",

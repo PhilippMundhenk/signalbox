@@ -3200,6 +3200,7 @@
  "msg.omada.secretMissing": "{subject}: {name} sırrı verilmedi",
  "msg.omada.passphraseLength": "{subject}: WPA parolası 8 ile 63 karakter arasındadır",
  "msg.omada.passphraseNeeded": "{subject}: WPA SSID'si için parola gerekir (istenen durumda passphrase_secret)",
+ "msg.omada.ssidNoSwitch": "{subject}: bu denetleyici sürümü Open API ile bir SSID'yi kapatamaz (Omada 5.x); SSID'yi kaldırın veya denetleyicide kapatın",
  "msg.omada.restoreFormat": "{format} biçimindeki yedek geri yüklenemez",
  "msg.omada.restoreInvalid": "yedek bir Omada yedeği değil: {detail}",
  "msg.omada.restoreOther": "yedek başka bir denetleyiciye veya siteye ait",

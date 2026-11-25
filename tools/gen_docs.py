@@ -119,8 +119,9 @@ EMULATED = {
     "([details](adapters/mikrotik.md#integration-tests))",
     "linux": "Linux gateway: Debian 11, 12 and 13 in containers (sshd, iproute2, dnsmasq, chrony, "
     "WireGuard), read only ([details](adapters/linux.md#integration-tests))",
-    "omada": "TP-Link Omada: Software Controller 6.3.0.111, official Linux package in Docker, "
-    "without managed devices ([details](adapters/omada.md#integration-tests))",
+    "omada": "TP-Link Omada: Software Controller 6.3.0.111, 5.15.24.19 and 5.14.32.4, official "
+    "Linux package in Docker, without managed devices "
+    "([details](adapters/omada.md#integration-tests))",
     "unifi": "UniFi: Network application 8.6.9, 9.5.21 and 10.6.109 in Docker with MongoDB, "
     "without adopted devices ([details](adapters/unifi.md#integration-tests))",
     "edgeos": "VyOS: rolling 2026.11.25 (1.5 development), official ISO in QEMU, read only; "
