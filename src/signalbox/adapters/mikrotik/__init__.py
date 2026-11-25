@@ -2638,6 +2638,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 segment_of_address=lambda a: layout.containing(ip_address(a)),
                 cap_address_text=raw.get(cap.id, ""),
             )
+            member = member.model_copy(update={"controller_id": dev})
             port = layout.port(extra.get("capsman_port", ""))
             if port is None:  # a table row of an interface that is no port: not claimed
                 extra.pop("capsman_port", None)
