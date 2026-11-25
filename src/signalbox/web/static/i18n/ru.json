@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "потери {value} %",
  "device.multiwan.weight": "вес {value}",
  "device.multiwan.monitor": "пингует {targets}",
- "device.multiwan.failovers": "Активная линия менялась {count} раз за последние {days} дн."
+ "device.multiwan.failovers": "Активная линия менялась {count} раз за последние {days} дн.",
+ "device.overview.bootloaderAvailable": "Загрузчик в прошивке",
+ "rule.device.name-mismatch.title": "Заданное имя отличается от имени, сообщаемого устройством",
+ "rule.device.name-mismatch.explanation": "Имя в Signalbox и имя, которое устройство дает себе само (hostname), различаются. Журналы, записи DHCP и DNS и инструменты производителя показывают имя устройства; другое имя здесь затрудняет сопоставление результатов. Регистр и суффикс домена игнорируются (параметр strip_domain). Устройства, работающие на другом устройстве, и устройства с именем-адресом не сравниваются.",
+ "rule.device.bootloader-outdated.title": "Загрузчик старше того, что есть в прошивке",
+ "rule.device.bootloader-outdated.explanation": "Некоторые устройства обновляют загрузчик отдельно от прошивки: после обновления прошивки новый загрузчик лежит в пакете, но записывается только по запросу. RouterOS (RouterBOOT) сообщает обе версии; остальные проверяются, когда сообщат версию из своей прошивки. Сначала прочитайте заметки о выпуске.",
+ "msg.device.nameMismatch": "{name} называет себя {hostname}",
+ "msg.device.nameMismatch.fix": "Переименуйте устройство в Signalbox или на самом устройстве, чтобы имена совпадали. Игнорируйте, если различие намеренное.",
+ "msg.device.bootloaderOutdated": "{name} использует загрузчик {current}, доступен {available}",
+ "msg.device.bootloaderOutdated.fix": "Обновите загрузчик {name} до {available} в окно обслуживания (RouterOS: System > RouterBOARD > Upgrade, затем перезагрузка)."
 }

@@ -192,6 +192,53 @@
         }
       }
     },
+    "device.name-mismatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/device.name-mismatch"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/device.name-mismatch"
+              }
+            }
+          }
+        }
+      }
+    },
     "device.resources": {
       "type": "object",
       "additionalProperties": false,
@@ -1313,6 +1360,22 @@
         }
       },
       "title": "ddns.stale",
+      "type": "object"
+    },
+    "device.name-mismatch": {
+      "additionalProperties": false,
+      "properties": {
+        "strip_domain": {
+          "default": 1,
+          "description": "1: compare only the part before the first dot (nas and nas.example.lan are the same name); 0: compare the full names.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Strip Domain",
+          "type": "number",
+          "unit": "count"
+        }
+      },
+      "title": "device.name-mismatch",
       "type": "object"
     },
     "device.resources": {

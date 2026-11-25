@@ -1027,6 +1027,7 @@ async function overview(main, ctx, device, adapters, sites) {
           [t('device.overview.board'), observed && observed.board],
           [t('device.overview.architecture'), observed && observed.architecture],
           [t('device.overview.bootloader'), observed && observed.bootloader],
+          [t('device.overview.bootloaderAvailable'), observed && observed.bootloader_available && observed.bootloader_available !== observed.bootloader ? observed.bootloader_available : null],
           [t('device.overview.location'), observed && observed.location],
           [t('device.overview.contact'), observed && observed.contact],
           [t('device.overview.os'), observed && [observed.os, observed.os_version].filter(Boolean).join(' ')],

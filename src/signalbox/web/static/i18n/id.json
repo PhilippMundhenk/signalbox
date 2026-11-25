@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "kehilangan {value} %",
  "device.multiwan.weight": "bobot {value}",
  "device.multiwan.monitor": "mem-ping {targets}",
- "device.multiwan.failovers": "Jalur aktif berganti {count} kali dalam {days} hari terakhir"
+ "device.multiwan.failovers": "Jalur aktif berganti {count} kali dalam {days} hari terakhir",
+ "device.overview.bootloaderAvailable": "Boot loader dalam firmware",
+ "rule.device.name-mismatch.title": "Nama yang dikonfigurasi berbeda dari nama yang dilaporkan perangkat",
+ "rule.device.name-mismatch.explanation": "Nama di Signalbox dan nama yang diberikan perangkat pada dirinya sendiri (hostname) berbeda. Log, entri DHCP dan DNS, serta alat pabrikan menampilkan nama perangkat; nama yang berbeda di sini menyulitkan pencocokan temuan. Huruf besar/kecil dan akhiran domain diabaikan (parameter strip_domain). Perangkat yang berjalan di perangkat lain dan perangkat yang dinamai dengan alamatnya tidak dibandingkan.",
+ "rule.device.bootloader-outdated.title": "Boot loader lebih lama dari yang dibawa firmware",
+ "rule.device.bootloader-outdated.explanation": "Beberapa perangkat memperbarui boot loader terpisah dari firmware: setelah pembaruan firmware, boot loader baru ada di paket firmware tetapi baru ditulis atas permintaan. RouterOS (RouterBOOT) melaporkan kedua versi; yang lain diperiksa setelah melaporkan versi dari firmware-nya. Baca catatan rilis dahulu.",
+ "msg.device.nameMismatch": "{name} menyebut dirinya {hostname}",
+ "msg.device.nameMismatch.fix": "Ganti nama perangkat di Signalbox atau di perangkat agar keduanya sama. Abaikan temuan ini jika perbedaan disengaja.",
+ "msg.device.bootloaderOutdated": "{name} memakai boot loader {current}, {available} tersedia",
+ "msg.device.bootloaderOutdated.fix": "Perbarui boot loader {name} ke {available} pada jendela pemeliharaan (RouterOS: System > RouterBOARD > Upgrade, lalu mulai ulang)."
 }

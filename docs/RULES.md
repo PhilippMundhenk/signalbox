@@ -58,6 +58,11 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`config.pending`](rules/config_state.md#configpending)
 - [`backup.none`](rules/config_state.md#backupnone)
 
+## [Device identity](rules/device_identity.md)
+
+- [`device.name-mismatch`](rules/device_identity.md#devicename-mismatch)
+- [`device.bootloader-outdated`](rules/device_identity.md#devicebootloader-outdated)
+
 ## [DHCP and addressing](rules/dhcp.md)
 
 - [`dhcp.one-server`](rules/dhcp.md#dhcpone-server)
@@ -396,6 +401,12 @@ where each came from. The defaults are the values the rules used before they had
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
 | `days` | `30` | d | Days without an update of the name. |
+
+### `device.name-mismatch`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `strip_domain` | `1` | count | 1: compare only the part before the first dot (nas and nas.example.lan are the same name); 0: compare the full names. |
 
 ### `device.resources`
 

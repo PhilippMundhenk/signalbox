@@ -737,6 +737,9 @@ class Device(Observed):
     architecture: str | None = None
     #: Boot loader version (RouterBOOT, U-Boot) where it is a software of its own.
     bootloader: str | None = None
+    #: The boot loader version the installed firmware would write (#444): RouterBOOT
+    #: ``upgrade-firmware``. Differs from ``bootloader`` when the boot loader is outdated.
+    bootloader_available: str | None = None
     #: The name the device calls itself, which may differ from the inventory name.
     hostname: str | None = None
     #: SNMP sysLocation / sysContact style, where set.

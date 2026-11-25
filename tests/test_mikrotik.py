@@ -216,6 +216,17 @@ async def test_system(snap: Snapshot) -> None:
     assert (d.firmware.current, d.firmware.available) == ("7.15.3", "7.16")
 
 
+async def test_bootloader_versions(http_url: str, sim: MikrotikSimulator, snap: Snapshot) -> None:
+    """RouterBOOT: installed ``current-firmware`` and bundled ``upgrade-firmware`` (#444)."""
+    assert (snap.device.bootloader, snap.device.bootloader_available) == ("7.15.3", "7.15.3")
+    sim.data[ROUTERBOARD] = {**sim.data[ROUTERBOARD], "upgrade-firmware": "7.16"}
+    d = (await observe(adapter(http_url))).device
+    assert (d.bootloader, d.bootloader_available) == ("7.15.3", "7.16")
+    sim.data[ROUTERBOARD] = {"routerboard": "false"}  # CHR: no boot loader
+    d = (await observe(adapter(http_url))).device
+    assert d.bootloader is None and d.bootloader_available is None
+
+
 async def test_system_without_routerboard_and_update(http_url: str, sim: MikrotikSimulator) -> None:
     del sim.data[ROUTERBOARD]
     sim.fail = {PACKAGE_UPDATE: 403}

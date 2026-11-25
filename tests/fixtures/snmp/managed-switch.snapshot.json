@@ -35,6 +35,7 @@
   "board": null,
   "architecture": null,
   "bootloader": null,
+  "bootloader_available": null,
   "hostname": "switch-example",
   "location": "Rack 1, server room",
   "contact": "noc@example.net",

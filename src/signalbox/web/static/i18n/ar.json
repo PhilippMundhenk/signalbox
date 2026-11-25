@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "فقد {value} %",
  "device.multiwan.weight": "الوزن {value}",
  "device.multiwan.monitor": "يجري ping على {targets}",
- "device.multiwan.failovers": "تغيّر الخط النشط {count} مرة خلال آخر {days} يومًا"
+ "device.multiwan.failovers": "تغيّر الخط النشط {count} مرة خلال آخر {days} يومًا",
+ "device.overview.bootloaderAvailable": "مُحمِّل الإقلاع في البرنامج الثابت",
+ "rule.device.name-mismatch.title": "الاسم المُعدّ يختلف عن الاسم الذي يبلغ عنه الجهاز",
+ "rule.device.name-mismatch.explanation": "الاسم في Signalbox والاسم الذي يطلقه الجهاز على نفسه (اسم المضيف) مختلفان. تعرض السجلات وإدخالات DHCP وDNS وأدوات الشركة المصنّعة اسم الجهاز، لذا يصعب مطابقة النتائج عند اختلاف الاسم. يتم تجاهل حالة الأحرف ولاحقة النطاق (المعامل strip_domain). لا تُقارن الأجهزة العاملة على جهاز آخر ولا الأجهزة المسماة بعنوانها.",
+ "rule.device.bootloader-outdated.title": "مُحمِّل الإقلاع أقدم من الذي يحمله البرنامج الثابت",
+ "rule.device.bootloader-outdated.explanation": "تحدّث بعض الأجهزة مُحمِّل الإقلاع بشكل منفصل عن البرنامج الثابت: بعد تحديث البرنامج الثابت يكون المحمِّل الجديد في الحزمة لكنه لا يُكتب إلا عند طلبك. يبلغ RouterOS (RouterBOOT) عن الإصدارين، وتُفحص الأجهزة الأخرى عندما تبلغ عن إصدار برنامجها الثابت. اقرأ ملاحظات الإصدار أولاً.",
+ "msg.device.nameMismatch": "{name} يسمّي نفسه {hostname}",
+ "msg.device.nameMismatch.fix": "أعد تسمية الجهاز في Signalbox أو على الجهاز ليتطابق الاسمان. تجاهل هذه النتيجة إذا كان الاختلاف مقصوداً.",
+ "msg.device.bootloaderOutdated": "{name} يعمل بمُحمِّل الإقلاع {current}، والإصدار {available} متاح",
+ "msg.device.bootloaderOutdated.fix": "حدّث مُحمِّل الإقلاع في {name} إلى {available} في نافذة صيانة (RouterOS: System > RouterBOARD > Upgrade ثم أعد التشغيل)."
 }

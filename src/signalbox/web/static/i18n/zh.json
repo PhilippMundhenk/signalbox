@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "丢包 {value} %",
  "device.multiwan.weight": "权重 {value}",
  "device.multiwan.monitor": "ping {targets}",
- "device.multiwan.failovers": "最近 {days} 天内活动线路切换了 {count} 次"
+ "device.multiwan.failovers": "最近 {days} 天内活动线路切换了 {count} 次",
+ "device.overview.bootloaderAvailable": "固件内的引导程序",
+ "rule.device.name-mismatch.title": "配置的名称与设备报告的名称不同",
+ "rule.device.name-mismatch.explanation": "Signalbox 中的名称与设备自称的名称(主机名)不同。日志、DHCP 和 DNS 记录以及厂商工具都显示设备自己的名称,这里名称不同会让发现难以对应。大小写和域名后缀会被忽略(参数 strip_domain)。运行在其他设备上的设备和以地址命名的设备不做比较。",
+ "rule.device.bootloader-outdated.title": "引导程序比固件自带的旧",
+ "rule.device.bootloader-outdated.explanation": "部分设备的引导程序与固件分开更新:固件更新后,新引导程序在固件包中,但只有在你要求时才会写入。RouterOS(RouterBOOT)会报告两个版本;其他设备在报告其固件自带版本后才会被检查。请先阅读发行说明。",
+ "msg.device.nameMismatch": "{name} 自称 {hostname}",
+ "msg.device.nameMismatch.fix": "在 Signalbox 或设备上重命名,使两者名称一致。如果差异是有意的,请忽略。",
+ "msg.device.bootloaderOutdated": "{name} 运行引导程序 {current},可用版本为 {available}",
+ "msg.device.bootloaderOutdated.fix": "在维护窗口内将 {name} 的引导程序升级到 {available}(RouterOS:System > RouterBOARD > Upgrade,然后重启)。"
 }

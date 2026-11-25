@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "{value} % Verlust",
  "device.multiwan.weight": "Gewicht {value}",
  "device.multiwan.monitor": "pingt {targets}",
- "device.multiwan.failovers": "Aktive Leitung wechselte {count} Mal in den letzten {days} Tagen"
+ "device.multiwan.failovers": "Aktive Leitung wechselte {count} Mal in den letzten {days} Tagen",
+ "device.overview.bootloaderAvailable": "Bootloader in der Firmware",
+ "rule.device.name-mismatch.title": "Der eingetragene Name weicht vom gemeldeten Namen des Geräts ab",
+ "rule.device.name-mismatch.explanation": "Der Name in Signalbox und der Name, den das Gerät sich selbst gibt (Hostname), unterscheiden sich. Logs, DHCP-Einträge, DNS-Einträge und die Werkzeuge des Herstellers zeigen den Namen des Geräts; ein anderer Name hier erschwert es, Befunde zuzuordnen. Groß-/Kleinschreibung und ein Domänenzusatz werden ignoriert (Parameter strip_domain). Geräte, die auf einem anderen Gerät laufen, und nach ihrer Adresse benannte Geräte werden nicht verglichen.",
+ "rule.device.bootloader-outdated.title": "Bootloader älter als der in der Firmware enthaltene",
+ "rule.device.bootloader-outdated.explanation": "Manche Geräte aktualisieren den Bootloader getrennt von der Firmware: Nach einem Firmware-Update liegt der neue Bootloader im Firmware-Paket, wird aber erst auf Anforderung geschrieben. RouterOS (RouterBOOT) meldet beide Versionen; andere Geräte werden geprüft, sobald sie die Version ihrer Firmware melden. Lesen Sie zuerst die Release Notes.",
+ "msg.device.nameMismatch": "{name} nennt sich selbst {hostname}",
+ "msg.device.nameMismatch.fix": "Benennen Sie das Gerät in Signalbox oder auf dem Gerät um, sodass beide denselben Namen nutzen. Ignorieren Sie den Befund, wenn der Unterschied gewollt ist.",
+ "msg.device.bootloaderOutdated": "{name} nutzt den Bootloader {current}, {available} ist verfügbar",
+ "msg.device.bootloaderOutdated.fix": "Aktualisieren Sie den Bootloader von {name} in einem Wartungsfenster auf {available} (RouterOS: System > RouterBOARD > Upgrade, danach neu starten)."
 }

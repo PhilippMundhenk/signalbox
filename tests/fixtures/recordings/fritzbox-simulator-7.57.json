@@ -1050,6 +1050,7 @@
    "board": null,
    "architecture": null,
    "bootloader": null,
+   "bootloader_available": null,
    "hostname": null,
    "location": null,
    "contact": null,

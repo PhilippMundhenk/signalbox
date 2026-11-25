@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "{value} % de perda",
  "device.multiwan.weight": "peso {value}",
  "device.multiwan.monitor": "faz ping a {targets}",
- "device.multiwan.failovers": "A linha ativa mudou {count} vezes nos últimos {days} dias"
+ "device.multiwan.failovers": "A linha ativa mudou {count} vezes nos últimos {days} dias",
+ "device.overview.bootloaderAvailable": "Bootloader do firmware",
+ "rule.device.name-mismatch.title": "O nome configurado difere do nome informado pelo dispositivo",
+ "rule.device.name-mismatch.explanation": "O nome no Signalbox e o nome que o dispositivo dá a si mesmo (hostname) são diferentes. Logs, entradas DHCP e DNS e as ferramentas do fabricante mostram o nome do dispositivo; um nome diferente aqui dificulta relacionar os achados. Maiúsculas e o sufixo de domínio são ignorados (parâmetro strip_domain). Dispositivos executados em outro dispositivo e os nomeados pelo endereço não são comparados.",
+ "rule.device.bootloader-outdated.title": "Bootloader mais antigo que o do firmware",
+ "rule.device.bootloader-outdated.explanation": "Alguns dispositivos atualizam o bootloader separadamente do firmware: após uma atualização, o novo bootloader está no pacote do firmware, mas só é gravado quando solicitado. O RouterOS (RouterBOOT) informa as duas versões; os outros são verificados quando informarem a versão do firmware. Leia primeiro as notas de versão.",
+ "msg.device.nameMismatch": "{name} chama-se {hostname}",
+ "msg.device.nameMismatch.fix": "Renomeie o dispositivo no Signalbox ou no próprio dispositivo para que usem o mesmo nome. Ignore o achado se a diferença for intencional.",
+ "msg.device.bootloaderOutdated": "{name} usa o bootloader {current}, {available} está disponível",
+ "msg.device.bootloaderOutdated.fix": "Atualize o bootloader de {name} para {available} numa janela de manutenção (RouterOS: System > RouterBOARD > Upgrade e reinicie)."
 }
