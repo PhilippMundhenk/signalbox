@@ -2086,6 +2086,8 @@
  "segments.col.device": "Cihaz",
  "segments.col.taggedPorts": "Etiketli bağlantı noktaları",
  "segments.col.untaggedPorts": "Etiketsiz bağlantı noktaları",
+ "segments.declared": "bildirilen",
+ "segments.declaredTitle": "Bildirilen ad: istenen durum bu ağa {name} diyor; cihazlar {reported} bildiriyor.",
  "segments.gateway": "ağ geçidi",
  "segments.intro": "Segment, bir sitenin tek bir ağıdır (VLAN). Birkaç cihazdaki aynı VLAN tek bir segmenttir.",
  "segments.isolated": "Cihaz tarafından yalıtılmış (istemciler diğer ağlara ulaşamaz).",

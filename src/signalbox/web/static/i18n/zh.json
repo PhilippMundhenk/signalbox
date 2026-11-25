@@ -2086,6 +2086,8 @@
  "segments.col.device": "设备",
  "segments.col.taggedPorts": "打标签的端口",
  "segments.col.untaggedPorts": "不打标签的端口",
+ "segments.declared": "已声明",
+ "segments.declaredTitle": "声明的名称：期望状态将此网络命名为 {name}；设备报告的名称为 {reported}。",
  "segments.gateway": "网关",
  "segments.intro": "网段是站点的一个网络 (VLAN)。多台设备上的同一个 VLAN 属于同一个网段。",
  "segments.isolated": "由设备隔离 (客户端无法访问其他网络)。",

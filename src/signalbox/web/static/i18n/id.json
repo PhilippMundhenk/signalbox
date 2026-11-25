@@ -2086,6 +2086,8 @@
  "segments.col.device": "Perangkat",
  "segments.col.taggedPorts": "Port bertag",
  "segments.col.untaggedPorts": "Port tanpa tag",
+ "segments.declared": "dideklarasikan",
+ "segments.declaredTitle": "Nama yang dideklarasikan: status yang diinginkan menamai jaringan ini {name}; perangkat melaporkan {reported}.",
  "segments.gateway": "gateway",
  "segments.intro": "Segmen adalah satu jaringan (VLAN) di sebuah site. VLAN yang sama di beberapa perangkat adalah satu segmen.",
  "segments.isolated": "Diisolasi oleh perangkat (klien tidak dapat menjangkau jaringan lain).",

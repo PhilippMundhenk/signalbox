@@ -57,7 +57,8 @@ is too short, and on the desired or the predicted state of a plan (which have no
   or more in that week (they roam between networks by design), and moves seen while a device
   did not answer or did not report its clients (another device may know the client less well),
   and clients with an expected network (`clients.unexpected-network` covers those). A client
-  without a network from its devices gets the VLAN a switch learned it in (MAC address table);
+  without a merged network gets the one all devices that saw it agree on (`Client.sightings`),
+  else the VLAN a switch learned it in (MAC address table);
   the finding names the port it is behind.
 - **Fix:** if this was not intended, check the SSID it joined, or the switch port it is plugged
   into and that port's VLAN.

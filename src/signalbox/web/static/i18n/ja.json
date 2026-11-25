@@ -2086,6 +2086,8 @@
  "segments.col.device": "機器",
  "segments.col.taggedPorts": "タグ付きポート",
  "segments.col.untaggedPorts": "タグなしポート",
+ "segments.declared": "宣言済み",
+ "segments.declaredTitle": "宣言された名前: 目標状態ではこのネットワークは {name} です。機器の報告は {reported} です。",
  "segments.gateway": "ゲートウェイ",
  "segments.intro": "セグメントとは、サイトの 1 つのネットワーク (VLAN) のことです。複数の機器にまたがる同じ VLAN は、1 つのセグメントです。",
  "segments.isolated": "機器によって分離されています (クライアントは他のネットワークに到達できません)。",

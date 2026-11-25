@@ -16,7 +16,8 @@ def segment_name(net: Network, segment_id: str) -> str:
     if seg is None:
         return segment_id
     vlan = f"VLAN {seg.vlan}" if seg.vlan is not None else "untagged network"
-    return f"{seg.name} ({vlan})" if seg.name else vlan
+    shown = seg.shown_name
+    return f"{shown} ({vlan})" if shown else vlan
 
 
 def site_of_device(net: Network, device_id: str) -> str | None:

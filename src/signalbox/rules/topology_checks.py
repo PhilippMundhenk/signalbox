@@ -271,6 +271,15 @@ def _device_addresses(net: Network) -> set[str]:
     return out
 
 
+def _segments_behind(client: Client, device_id: str) -> set[str]:
+    """The networks the device that owns the port puts the client in (its own sighting, #511);
+    the merged network where that device did not say."""
+    own = {s.segment_id for s in client.sightings if s.device_id == device_id and s.segment_id}
+    if own:
+        return own
+    return {client.segment_id} if client.segment_id else set()
+
+
 @rule(
     "topology.hidden-device",
     "Unknown switch or access point behind a port",
@@ -300,7 +309,7 @@ def hidden_device(net: Network) -> Iterator[Result]:
             continue
         if any(c.mac in macs or {str(a) for a in c.addresses} & addresses for c in clients):
             continue  # a known device is behind the port
-        segments = {c.segment_id for c in clients if c.segment_id}
+        segments = {s for c in clients for s in _segments_behind(c, p.device_id)}
         if len(clients) <= HIDDEN_THRESHOLD and len(segments) < 2:
             continue
         several = f" in {len(segments)} networks" if len(segments) > 1 else ""

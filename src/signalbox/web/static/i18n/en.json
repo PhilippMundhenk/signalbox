@@ -2086,6 +2086,8 @@
  "segments.col.device": "Device",
  "segments.col.taggedPorts": "Tagged ports",
  "segments.col.untaggedPorts": "Untagged ports",
+ "segments.declared": "declared",
+ "segments.declaredTitle": "Declared name: the desired state names this network {name}; the devices report {reported}.",
  "segments.gateway": "gateway",
  "segments.intro": "A segment is one network (VLAN) of a site. The same VLAN on several devices is one segment.",
  "segments.isolated": "Isolated by the device (clients cannot reach the other networks).",

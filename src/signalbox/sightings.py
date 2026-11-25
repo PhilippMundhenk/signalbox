@@ -271,9 +271,13 @@ def weak_run(past: ValueHistory, min_dbm: int) -> list[WifiSpan]:
 
 
 def client_segment(net: Network, client: Client) -> str | None:
-    """A client's network: as reported, else the one its switches learned it in (#85)."""
+    """A client's network: as reported, else the one the devices that saw it agree on, else
+    the one its switches learned it in (#85, #511)."""
     if client.segment_id is not None:
         return client.segment_id
+    seen = {s.segment_id for s in client.sightings if s.segment_id is not None}
+    if len(seen) == 1:
+        return next(iter(seen))
     learned = {e.segment_id for e in net.fdb_of(client.mac) if e.segment_id is not None}
     return next(iter(learned)) if len(learned) == 1 else None
 

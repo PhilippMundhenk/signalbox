@@ -2086,6 +2086,8 @@
  "segments.col.device": "Gerät",
  "segments.col.taggedPorts": "Getaggte Ports",
  "segments.col.untaggedPorts": "Ungetaggte Ports",
+ "segments.declared": "festgelegt",
+ "segments.declaredTitle": "Festgelegter Name: Der Soll-Zustand nennt dieses Netz {name}; die Geräte melden {reported}.",
  "segments.gateway": "Gateway",
  "segments.intro": "Ein Segment ist ein Netzwerk (VLAN) eines Standorts. Dasselbe VLAN auf mehreren Geräten ist ein Segment.",
  "segments.isolated": "Vom Gerät isoliert (Clients erreichen die anderen Netzwerke nicht).",

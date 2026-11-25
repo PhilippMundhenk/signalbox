@@ -2138,6 +2138,8 @@
  "segments.col.device": "Appareil",
  "segments.col.taggedPorts": "Ports étiquetés",
  "segments.col.untaggedPorts": "Ports non étiquetés",
+ "segments.declared": "déclaré",
+ "segments.declaredTitle": "Nom déclaré : l'état souhaité nomme ce réseau {name} ; les appareils signalent {reported}.",
  "segments.gateway": "passerelle",
  "segments.intro": "Un segment est un réseau (VLAN) d'un site. Le même VLAN sur plusieurs appareils forme un seul segment.",
  "segments.isolated": "Isolé par l'appareil (les clients ne peuvent pas joindre les autres réseaux).",

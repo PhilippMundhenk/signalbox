@@ -322,6 +322,36 @@ def _name_natives(segments: list[Segment], snaps: list[Snapshot]) -> list[Segmen
     return out
 
 
+def _interface(snap: Snapshot, seg: Segment, own: list[PortMembership]) -> str | None:
+    """The device's interface for ``seg`` from what its adapter reported (#511).
+
+    Order: the one VLAN interface among the segment's members (``br-lan.10``), else the one
+    bridge, else the only VLAN interface of the device that is named after the VLAN
+    (``vlan10``, ``eth0.10``, ``br0.10``) without being a member (bridge VLAN names). Several
+    candidates at one level are ambiguous: no interface.
+    """
+    ports = {p.id: p for p in snap.ports}
+    members = [ports[m.port_id] for m in own if m.port_id in ports]
+    for role in (PortRole.VLAN, PortRole.BRIDGE):
+        names = sorted({p.name for p in members if p.role is role})
+        if len(names) == 1:
+            return names[0]
+        if names:
+            return None
+    if seg.vlan is None:
+        return None
+    vlan = str(seg.vlan)
+    named = sorted(
+        {
+            p.name
+            for p in snap.ports
+            if p.role is PortRole.VLAN
+            and (p.name.endswith(f".{vlan}") or p.name.lower() == f"vlan{vlan}")
+        }
+    )
+    return named[0] if len(named) == 1 else None
+
+
 def _view(snap: Snapshot, seg: Segment) -> SegmentView:
     """What the device of ``snap`` says about ``seg`` (#165)."""
     dev = snap.device
@@ -334,17 +364,12 @@ def _view(snap: Snapshot, seg: Segment) -> SegmentView:
         role = SegmentRole.TRUNK
     else:
         role = SegmentRole.ACCESS
-    ports = {p.id: p for p in snap.ports}
-    layered = sorted(
-        ports[m.port_id].name
-        for m in own
-        if m.port_id in ports and ports[m.port_id].role in (PortRole.VLAN, PortRole.BRIDGE)
-    )
+    interface = _interface(snap, seg, own)
     name = seg.name.strip() if seg.name and seg.name.strip() else None
     return SegmentView(
         device_id=dev.id,
         name=name,
-        interface=layered[0] if len(layered) == 1 else None,
+        interface=interface,
         role=role,
     )
 

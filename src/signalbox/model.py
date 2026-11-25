@@ -1387,7 +1387,8 @@ class Segment(Observed):
 
     ``name`` is the merged display name. Precedence: the name of a gateway's view (the router
     is where users name their networks), else the first name by device id. A name declared in
-    the desired state is not put here, so that drift can compare it with the reported ones.
+    the desired state is not put here, so that drift can compare it with the reported ones; it
+    is ``declared_name`` and :attr:`shown_name` puts it first (declared > gateway > first, #511).
     """
 
     site_id: str
@@ -1396,6 +1397,9 @@ class Segment(Observed):
     #: The name each device reports for this VLAN (device id -> name, devices without a name are
     #: left out). ``name`` is the first of them; the merge keeps all (#165, #111).
     names_by_device: dict[str, str] = Field(default_factory=dict)
+    #: The name the desired state gives the network (#511); set by ``apply_declared``, never
+    #: by adapters. ``name`` stays what the devices report.
+    declared_name: str | None = None
     #: What every device that reports the network says about it, by device id (#165). Adapters
     #: leave it empty; ``merge`` fills it.
     views: list[SegmentView] = Field(default_factory=list)
@@ -1407,6 +1411,11 @@ class Segment(Observed):
     #: True when the device isolates this network by itself, independent of firewall rules
     #: (a router's built-in guest network, a private VLAN). None: not known.
     isolated: bool | None = None
+
+    @property
+    def shown_name(self) -> str | None:
+        """The name to show: declared, else the gateway's, else the first reported (#511)."""
+        return self.declared_name or self.name
 
 
 class PrefixSource(StrEnum):

@@ -24,6 +24,8 @@
 - **Checks:** a cable port of a router, switch or access point with no known link, behind which
   more than 3 client devices, or client devices of at least two networks, are seen. Usually an
   unmanaged switch or a travel router is connected there, which Signalbox cannot see through.
+  The networks are counted from what the device that owns the port saw (its sighting), else
+  from the client's merged network.
 - **Stays quiet** when a device Signalbox knows (by MAC or address) is seen on that port: then
   the clients are behind that device. Signalbox keeps one place per client, so the count is a
   lower bound.

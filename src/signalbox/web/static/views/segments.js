@@ -50,7 +50,7 @@ function segmentCard(ix, seg) {
   return h(
     'section',
     { class: 'card', 'data-testid': 'segment', 'data-id': seg.id },
-    h('h3', {}, seg.vlan ? h('span', { class: 'vlan-id' }, t('segments.vlan', { vlan: seg.vlan })) : h('span', { class: 'vlan-id' }, t('segments.untagged')), seg.name ? ` ${seg.name}` : '', seg.purpose ? [' ', purposeTag(seg)] : null),
+    h('h3', {}, seg.vlan ? h('span', { class: 'vlan-id' }, t('segments.vlan', { vlan: seg.vlan })) : h('span', { class: 'vlan-id' }, t('segments.untagged')), (seg.declared_name || seg.name) ? ` ${seg.declared_name || seg.name}` : '', seg.declared_name ? [' ', h('span', { class: 'tag', 'data-testid': 'segment-declared', title: t('segments.declaredTitle', { name: seg.declared_name, reported: seg.name || t('segments.viewNoName') }) }, t('segments.declared'))] : null, seg.purpose ? [' ', purposeTag(seg)] : null),
     seg.isolated ? h('p', { class: 'muted small', 'data-testid': 'segment-isolated' }, t('segments.isolated')) : null,
     (seg.views || []).length > 1 || (seg.views || []).some((v) => v.interface)
       ? h(
