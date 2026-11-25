@@ -86,6 +86,48 @@ presented_host_keys: ContextVar[dict[str, str] | None] = ContextVar(
 )
 
 
+#: Where each presented host key came from during one plan (#535): ``SHA256:...`` -> host and
+#: port, so core can fetch the other key types the device offers there.
+presented_endpoints: ContextVar[dict[str, tuple[str, int]] | None] = ContextVar(
+    "presented_endpoints", default=None
+)
+
+#: One key exchange per host key type (#535), in the order of :data:`HOST_KEY_ALGS`.
+KEY_TYPES: dict[str, list[str]] = {
+    "ed25519": ["ssh-ed25519"],
+    "ecdsa": ["ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521"],
+    "rsa": ["rsa-sha2-512", "rsa-sha2-256", "ssh-rsa"],
+}
+
+
+async def offered_host_keys(host: str, port: int, timeout: float, skip: set[str]) -> dict[str, str]:
+    """The host keys of the other types the server offers (#535): ``SHA256:...`` -> algorithm.
+
+    One key exchange per type (no login is sent), skipping the types in ``skip``; a type the
+    server does not offer, or any failure, is left out."""
+    out: dict[str, str] = {}
+    for family, algs in KEY_TYPES.items():
+        if family in skip:
+            continue
+        options = asyncssh.SSHClientConnectionOptions(
+            config=None, known_hosts=None, gss_kex=False, gss_auth=False, connect_timeout=timeout
+        )
+        try:
+            # the algorithms and config as arguments: the function's defaults would replace
+            # those of the options
+            key = await asyncio.wait_for(
+                asyncssh.get_server_host_key(
+                    host, port, server_host_key_algs=algs, config=None, options=options
+                ),
+                timeout=timeout * 2,
+            )
+        except (TimeoutError, OSError, asyncssh.Error, ValueError):
+            continue
+        if key is not None:
+            out[host_key_fingerprint(key)] = key.get_algorithm()
+    return out
+
+
 _PEM = re.compile(r"-----BEGIN ([A-Z0-9 ]+)-----(.*?)-----END \1-----", re.S)
 
 
@@ -141,6 +183,9 @@ class _Pinned(asyncssh.SSHClient):
         seen = presented_host_keys.get()
         if seen is not None:
             seen[self.presented] = key.get_algorithm()
+        endpoints = presented_endpoints.get()
+        if endpoints is not None:
+            endpoints[self.presented] = (host, port)
         return same_fingerprint(self.presented, self.pin) or same_fingerprint(
             self.presented_hex, self.pin
         )

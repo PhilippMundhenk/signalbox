@@ -6,7 +6,7 @@ import { LAG_MODE, PORT_ROLE, clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, 
 import { busy, card, confirmDialog, empty, kv, manageLink, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
 import { fixPanel, remedyOf } from './devicefix.js';
-import { hostKeyCard } from './hostkey.js';
+import { certificateHistory, hostKeyCard } from './hostkey.js';
 import { readErrors, testResult, trustPanel } from './devicetest.js';
 import { notesCard } from '../annotations.js';
 import { sparkline } from '../sparkline.js';
@@ -706,7 +706,7 @@ function accountsCard(observed) {
 }
 
 // The certificate the device presents for HTTPS (#174); null: no HTTPS read.
-function certificateCard(observed) {
+function certificateCard(observed, device) {
   const c = observed.certificate;
   if (!c || typeof c !== 'object') return null;
   const day = (iso) => fmtDate(new Date(iso), { dateStyle: 'medium' });
@@ -723,7 +723,8 @@ function certificateCard(observed) {
   if (c.pinned_since) rows.push([t('device.cert.pinnedSince'), day(c.pinned_since)]);
   rows.push([t('device.cert.fingerprint'), h('code', {}, c.fingerprint_sha256)]);
   if (!c.trusted) rows.push([t('device.cert.untrusted'), '']);
-  return h('section', { class: 'card', 'data-testid': 'device-certificate' }, h('h2', {}, t('device.cert.title')), kv(rows));
+  // the pins a re-trust replaced (#535)
+  return h('section', { class: 'card', 'data-testid': 'device-certificate' }, h('h2', {}, t('device.cert.title')), kv(rows), certificateHistory(device));
 }
 
 // Certificates stored on the device (#330): VPN, RADIUS, web interface, authorities. Public
@@ -1352,7 +1353,7 @@ async function overview(main, ctx, device, adapters, sites) {
     routesCard(ix, device.id),
     observed ? managementCard(ix, observed) : null,
     observed ? loggingCard(observed) : null,
-    observed ? certificateCard(observed) : null,
+    observed ? certificateCard(observed, device) : null,
     device.ssh_host_key && !device.ssh_host_key.changed ? hostKeyCard(device, () => ctx.refresh()) : null,
     observed ? accountsCard(observed) : null,
     storedCertificatesCard(ix, device.id),

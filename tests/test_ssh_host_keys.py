@@ -89,7 +89,12 @@ def test_first_trust_is_stored_and_later_runs_need_no_prompt(
 ) -> None:
     port, fingerprint = ssh
     first = client.post("/api/devices/setup", json=identity(body(https_url, port))).json()
-    assert first["host_key"] == {"state": "new", "fingerprint": fingerprint}
+    assert first["host_key"] == {
+        "kind": "ssh",
+        "state": "new",
+        "fingerprint": fingerprint,
+        "offered": [],
+    }
     set_up(client, https_url, port, fingerprint)
     keys = services.store.ssh_host_keys("access-point")
     assert keys.pin is not None and keys.pin.fingerprint == fingerprint
@@ -133,6 +138,7 @@ def test_changed_key_stops_before_the_password_and_warns(
         scripts = len(device.scripts)
         plan = client.post("/api/devices/setup", json=identity(stored(https_url, port2))).json()
         assert plan["host_key"] == {
+            "kind": "ssh",
             "state": "changed",
             "fingerprint": fingerprint2,
             "pinned": fingerprint,
@@ -333,7 +339,7 @@ def test_migration_adds_the_tables_and_keeps_the_devices(tmp_path: Path) -> None
     db.close()
     store = Store(path, load_vault(tmp_path, env={}))
     try:
-        assert store._db.execute("PRAGMA user_version").fetchone()[0] == len(SCHEMA) == 10
+        assert store._db.execute("PRAGMA user_version").fetchone()[0] == len(SCHEMA) == 11
         rec = store.device("gw")
         assert rec is not None and rec.pinned_fingerprint == "a" * 64  # the certificate pin
         assert store.ssh_host_keys("gw").pin is None

@@ -6,7 +6,7 @@ import json
 import re
 import sqlite3
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from collections.abc import Set as AbstractSet
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -16,7 +16,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from signalbox.adapters import AdapterConfig, Backup
-from signalbox.adapters.provision import same_fingerprint
+from signalbox.adapters.provision import key_family, same_fingerprint
 from signalbox.counters import (
     CounterBucket,
     CounterRecord,
@@ -205,6 +205,20 @@ SCHEMA = [
         action TEXT NOT NULL
     );
     """,
+    # version 11 (#535, ADR 0031 addendum): the other SSH host key types a device offered when
+    # its key was confirmed (``offered``), and the certificate pins a re-trust replaced
+    """
+    ALTER TABLE ssh_host_keys ADD COLUMN offered INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE certificate_pins (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        pinned_since TEXT,
+        retired_at TEXT NOT NULL,
+        retired_by TEXT NOT NULL
+    );
+    CREATE INDEX certificate_pins_device ON certificate_pins (device_id);
+    """,
 ]
 
 
@@ -253,6 +267,20 @@ class SshHostKeyPin(BaseModel):
     retired_by: str | None = None
 
 
+class CertificatePin(BaseModel):
+    """A certificate pin of a device that a re-trust replaced (#535): the history."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The certificate's SHA-256 (hex).
+    fingerprint: str
+    #: When it was trusted; None: before Signalbox recorded it.
+    pinned_since: datetime | None = None
+    retired_at: datetime
+    #: What replaced it: ``trust`` (the device page, or the warning of a setup or Fix it).
+    retired_by: str
+
+
 class SshHostKeySeen(BaseModel):
     """A host key a device presented that differs from its pin, while not re-trusted."""
 
@@ -272,9 +300,17 @@ class SshHostKeys(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     pin: SshHostKeyPin | None = None
+    #: The other key types the device offered when ``pin`` was confirmed (#535), one per type
+    #: (Ed25519, ECDSA, RSA): a device that negotiates another type is not taken as changed.
+    also: list[SshHostKeyPin] = Field(default_factory=list)
     changed: SshHostKeySeen | None = None
     #: Earlier pins, newest first.
     history: list[SshHostKeyPin] = Field(default_factory=list)
+
+    def match(self, fingerprint: str | None) -> SshHostKeyPin | None:
+        """The pinned key (the confirmed one or another type confirmed with it), or None."""
+        pinned = [self.pin, *self.also] if self.pin is not None else []
+        return next((p for p in pinned if same_fingerprint(p.fingerprint, fingerprint)), None)
 
 
 class FindingRecord(BaseModel):
@@ -614,6 +650,7 @@ class Store:
             # its SSH host key pins and their history (#526)
             db.execute("DELETE FROM ssh_host_keys WHERE device_id = ?", (device_id,))
             db.execute("DELETE FROM ssh_host_key_changes WHERE device_id = ?", (device_id,))
+            db.execute("DELETE FROM certificate_pins WHERE device_id = ?", (device_id,))
             # its history, its ports' and that of the devices it manages (``<id>/...``)
             for table in ("sightings", "sighting_changes"):
                 db.execute(
@@ -644,10 +681,14 @@ class Store:
         rows = self._all(
             "SELECT * FROM ssh_host_keys WHERE device_id = ? ORDER BY seq DESC", (device_id,)
         )
-        pins = [self._pin(r) for r in rows]
+        pins = [(self._pin(r), bool(r["offered"])) for r in rows]
         seen = self._one("SELECT * FROM ssh_host_key_changes WHERE device_id = ?", (device_id,))
         return SshHostKeys(
-            pin=next((p for p in pins if p.retired_at is None), None),
+            pin=next((p for p, offered in pins if p.retired_at is None and not offered), None),
+            also=sorted(
+                (p for p, offered in pins if p.retired_at is None and offered),
+                key=lambda p: p.algorithm or "",
+            ),
             changed=None
             if seen is None
             else SshHostKeySeen(
@@ -656,7 +697,7 @@ class Store:
                 seen_at=datetime.fromisoformat(seen["seen_at"]),
                 action=seen["action"],
             ),
-            history=[p for p in pins if p.retired_at is not None],
+            history=[p for p, _ in pins if p.retired_at is not None],
         )
 
     def ssh_host_key_changes(self) -> dict[str, SshHostKeys]:
@@ -677,7 +718,8 @@ class Store:
             if not db.execute("SELECT 1 FROM devices WHERE id = ?", (device_id,)).fetchone():
                 raise StoreError(f"unknown device {device_id}")
             current = db.execute(
-                "SELECT * FROM ssh_host_keys WHERE device_id = ? AND retired_at IS NULL",
+                "SELECT * FROM ssh_host_keys WHERE device_id = ? AND retired_at IS NULL "
+                "AND offered = 0",
                 (device_id,),
             ).fetchone()
             db.execute("DELETE FROM ssh_host_key_changes WHERE device_id = ?", (device_id,))
@@ -702,10 +744,43 @@ class Store:
                 (device_id, fingerprint, algorithm, now, action),
             )
             row = db.execute(
-                "SELECT * FROM ssh_host_keys WHERE device_id = ? AND retired_at IS NULL",
+                "SELECT * FROM ssh_host_keys WHERE device_id = ? AND retired_at IS NULL "
+                "AND offered = 0",
                 (device_id,),
             ).fetchone()
             return self._pin(row)
+
+    def pin_offered_ssh_host_keys(
+        self, device_id: str, offered: Mapping[str, str], action: str
+    ) -> list[SshHostKeyPin]:
+        """Add the other key types the device offered with its confirmed key (#535).
+
+        ``offered``: ``SHA256:...`` -> algorithm. Only while a key is pinned, and one key per
+        type: a type that is pinned already (the confirmed key's own, or one added before)
+        keeps its key. Returns the other types now pinned.
+        """
+        now = datetime.now(UTC).isoformat()
+        with self._tx() as db:
+            rows = db.execute(
+                "SELECT * FROM ssh_host_keys WHERE device_id = ? AND retired_at IS NULL",
+                (device_id,),
+            ).fetchall()
+            if not any(not r["offered"] for r in rows):
+                return []
+            have = {key_family(r["algorithm"]) for r in rows if r["algorithm"]}
+            for fingerprint, algorithm in sorted(offered.items(), key=lambda kv: kv[1]):
+                family = key_family(algorithm)
+                if family in have or any(
+                    same_fingerprint(r["fingerprint"], fingerprint) for r in rows
+                ):
+                    continue
+                have.add(family)
+                db.execute(
+                    "INSERT INTO ssh_host_keys (device_id, fingerprint, algorithm, confirmed_at, "
+                    "action, offered) VALUES (?, ?, ?, ?, ?, 1)",
+                    (device_id, fingerprint, algorithm, now, action),
+                )
+        return self.ssh_host_keys(device_id).also
 
     def note_ssh_host_key_change(
         self, device_id: str, fingerprint: str, algorithm: str | None, action: str
@@ -716,7 +791,7 @@ class Store:
         pinned key). The first time a key was seen is kept while it is the same key.
         """
         keys = self.ssh_host_keys(device_id)
-        if keys.pin is None or same_fingerprint(keys.pin.fingerprint, fingerprint):
+        if keys.pin is None or keys.match(fingerprint) is not None:
             return False
         if keys.changed is not None and same_fingerprint(keys.changed.fingerprint, fingerprint):
             return True
@@ -759,18 +834,49 @@ class Store:
             )
 
     def trust_fingerprint(self, device_id: str, fingerprint: str) -> None:
-        """Pin the certificate the device presented. Only the pending one can be trusted."""
+        """Pin the certificate the device presented. Only the pending one can be trusted.
+
+        The pin it replaces goes to the history (#535)."""
         record = self.device(device_id)
         if record is None:
             raise StoreError(f"unknown device {device_id}")
         if record.pending_fingerprint != fingerprint:
             raise StoreError("this is not the certificate the device presented last")
         with self._tx() as db:
+            old = record.pinned_fingerprint
+            if old and old != fingerprint:
+                db.execute(
+                    "INSERT INTO certificate_pins (device_id, fingerprint, pinned_since, "
+                    "retired_at, retired_by) VALUES (?, ?, ?, ?, 'trust')",
+                    (
+                        device_id,
+                        old,
+                        record.pinned_since.isoformat() if record.pinned_since else None,
+                        datetime.now(UTC).isoformat(),
+                    ),
+                )
             db.execute(
                 "UPDATE devices SET pinned_fingerprint = ?, pending_fingerprint = NULL, "
                 "pinned_since = ? WHERE id = ?",
                 (fingerprint, datetime.now(UTC).isoformat(), device_id),
             )
+
+    def certificate_history(self, device_id: str) -> list[CertificatePin]:
+        """The certificate pins of a device that a re-trust replaced, newest first (#535)."""
+        rows = self._all(
+            "SELECT * FROM certificate_pins WHERE device_id = ? ORDER BY seq DESC", (device_id,)
+        )
+        return [
+            CertificatePin(
+                fingerprint=r["fingerprint"],
+                pinned_since=datetime.fromisoformat(r["pinned_since"])
+                if r["pinned_since"]
+                else None,
+                retired_at=datetime.fromisoformat(r["retired_at"]),
+                retired_by=r["retired_by"],
+            )
+            for r in rows
+        ]
 
     # links ------------------------------------------------------------------------------
 

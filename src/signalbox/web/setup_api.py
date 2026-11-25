@@ -34,8 +34,15 @@ from signalbox.adapters import (
     provisions,
 )
 from signalbox.adapters.provision import Redactor, progress_sink
-from signalbox.adapters.ssh import presented_host_keys
-from signalbox.hostkeys import changed_answer, refused, remember
+from signalbox.adapters.ssh import presented_endpoints, presented_host_keys
+from signalbox.hostkeys import (
+    certificate_state,
+    changed,
+    notice_certificate,
+    refused,
+    remember,
+    with_offered,
+)
 from signalbox.hostkeys import notice as notice_host_keys
 from signalbox.hostkeys import state as host_key_state
 from signalbox.secrets import SecretError
@@ -217,27 +224,51 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
     def changed_key(
         exc: AdapterError, device_id: str | None, name: str, seen: dict[str, str]
     ) -> JSONResponse | None:
-        """A refused handshake with another SSH host key than the device's pin (#526): the
-        change is recorded (finding ``ssh.host-key-changed``) and answered with both keys."""
-        if not isinstance(exc, UntrustedHostKey) or not device_id:
+        """A refused handshake with another SSH host key (#526) or certificate (#535) than the
+        device's pin: the change is recorded (a finding) and answered with both."""
+        answer = changed(store, device_id, name, exc, seen, "setup")
+        if answer is None:
             return None
-        if not notice_host_keys(store, device_id, [exc.fingerprint], seen, "setup"):
-            return None
-        runner.evaluate()
-        keys = store.ssh_host_keys(device_id)
-        return JSONResponse(changed_answer(name, keys, exc.fingerprint), status_code=409)
+        refresh(answer)
+        return JSONResponse(answer, status_code=409)
 
-    def with_host_keys(
-        out: dict[str, Any], plan: Any, device_id: str | None, seen: dict[str, str]
+    def refresh(answer: dict[str, Any]) -> None:
+        """The findings after a change: a changed certificate is read again (``read.untrusted``
+        and ``cert.renewed`` come from the reading), an SSH host key only re-evaluated."""
+        if answer.get("error") == "certificate_changed":
+            runner.trigger()
+        else:
+            runner.evaluate()
+
+    async def with_host_keys(
+        out: dict[str, Any],
+        plan: Any,
+        device_id: str | None,
+        seen: dict[str, str],
+        endpoints: dict[str, tuple[str, int]],
+        timeout: float,
     ) -> dict[str, Any]:
-        """A plan with how each presented SSH host key compares with the device's pin (#526):
-        a changed one is recorded at once (nothing was sent with it)."""
-        main = plan.fingerprint if plan.fingerprint_kind == "ssh-host-key" else None
+        """A plan with how each presented SSH host key (#526) or certificate (#535) compares
+        with the device's pin: a changed one is recorded at once (nothing was sent with it); a
+        new SSH host key comes with the other key types the device offers."""
+        if plan.fingerprint_kind == "certificate":
+            if notice_certificate(store, device_id, plan.fingerprint):
+                runner.trigger()
+            rec = store.device(device_id) if device_id else None
+            out["host_key"] = certificate_state(rec, plan.fingerprint)
+            main = None
+        else:
+            main = plan.fingerprint
         if notice_host_keys(store, device_id, [main, plan.ssh_fingerprint], seen, "setup"):
             runner.evaluate()
         keys = store.ssh_host_keys(device_id) if device_id else SshHostKeys()
-        out["host_key"] = host_key_state(keys, main)
-        out["ssh_host_key"] = host_key_state(keys, plan.ssh_fingerprint)
+        if main is not None:
+            out["host_key"] = await with_offered(
+                host_key_state(keys, main), seen, endpoints, timeout
+            )
+        out["ssh_host_key"] = await with_offered(
+            host_key_state(keys, plan.ssh_fingerprint), seen, endpoints, timeout
+        )
         return out
 
     def redactor(request: SetupRequest) -> Redactor:
@@ -259,7 +290,9 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             return ready
         cls, form, request = ready
         seen: dict[str, str] = {}
+        endpoints: dict[str, tuple[str, int]] = {}
         token = presented_host_keys.set(seen)
+        where = presented_endpoints.set(endpoints)
         try:
             result = await cls.plan_setup(request)
         except AdapterError as exc:
@@ -267,8 +300,10 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
                 exc, redactor(request)
             )
         finally:
+            presented_endpoints.reset(where)
             presented_host_keys.reset(token)
-        return with_host_keys(dict(result.model_dump(mode="json")), result, form.device_id, seen)
+        out = dict(result.model_dump(mode="json"))
+        return await with_host_keys(out, result, form.device_id, seen, endpoints, request.timeout)
 
     @api.post("/devices/setup/apply", response_model=None)
     async def apply(body: SetupBody) -> dict[str, Any] | JSONResponse:
@@ -323,7 +358,7 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             return checked
         form, request = ready[1], ready[2]
         stale = refused(store, form.device_id, form.name, [request.trust, request.ssh_trust])
-        if stale is not None:  # a changed SSH host key (#526): refused at once, nothing runs
+        if stale is not None:  # a changed SSH host key or certificate: refused, nothing runs
             return JSONResponse(stale, status_code=409)
         forget()
         if sum(1 for j in jobs.values() if not j.ended) >= _MAX_JOBS:
@@ -379,8 +414,8 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
     async def run_apply(
         body: SetupBody, cls: Any, form: DeviceTestBody, request: SetupRequest
     ) -> dict[str, Any] | JSONResponse:
-        # a confirmed SSH host key that is not the device's pin: refused before the adapter
-        # is called, so no password is sent (#526)
+        # a confirmed SSH host key or certificate that is not the device's pin: refused before
+        # the adapter is called, so no password is sent (#526, #535)
         stale = refused(store, form.device_id, form.name, [request.trust, request.ssh_trust])
         if stale is not None:
             return JSONResponse(stale, status_code=409)
@@ -417,7 +452,11 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             except AdapterError as exc:
                 return changed_key(exc, form.device_id, form.name, seen) or failure(exc, redact)
             if not planned.trusted:
-                untrusted = UntrustedHostKey(planned.fingerprint, None)
+                untrusted: AdapterError = (
+                    UntrustedCertificate(planned.fingerprint, None)
+                    if planned.fingerprint_kind == "certificate"
+                    else UntrustedHostKey(planned.fingerprint, None)
+                )
                 return changed_key(untrusted, form.device_id, form.name, seen) or failure(
                     untrusted, redact
                 )

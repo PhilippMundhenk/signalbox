@@ -8,7 +8,7 @@ import { apiFix, apiMessage, stepMessage, stepTitle } from '../texts.js';
 import { clear, groupHex, h, place } from '../util.js';
 import { busy, checkField, clearNotice, confirmDialog, field, notice, run, setNotice, slot, toast } from '../ui.js';
 import { adminStep, previewList, previewSteps } from './adminstep.js';
-import { hostKeyChanged, hostKeyKnown, isChanged, isKnown } from './hostkey.js';
+import { hostKeyChanged, hostKeyKnown, isChanged, isKnown, offeredKeys } from './hostkey.js';
 
 const STATE_KEY = { todo: 'setup.state.todo', unchanged: 'setup.state.unchanged', done: 'setup.state.done', failed: 'setup.state.failed', skipped: 'setup.state.skipped', running: 'setup.state.running', waiting: 'setup.state.waiting' };
 const stateText = (state) => (STATE_KEY[state] ? t(STATE_KEY[state]) : state);
@@ -160,30 +160,39 @@ export function autoSetup(a, collect, onDone, own = null) {
       const plan = await post('/devices/setup', body);
       const cert = plan.fingerprint_kind === 'certificate';
       const both = withSsh && plan.ssh_fingerprint;
-      // a changed SSH host key (#526): the warning, nothing else; nothing was sent
+      // a changed SSH host key (#526) or certificate (#535): the warning, nothing else;
+      // nothing was sent
       const changed = [plan.host_key, both ? plan.ssh_host_key : null].find(isChanged);
       if (changed) return place(clear(out), hostKeyChanged(changed, { id: device.device_id, name: device.name }, 'setup-host-key-changed', identity));
-      const mainKnown = !cert && isKnown(plan.host_key);
+      const mainKnown = isKnown(plan.host_key);
       const sshKnown = both && isKnown(plan.ssh_host_key);
       knownKeys = [mainKnown ? plan.host_key : null, sshKnown ? plan.ssh_host_key : null].filter(Boolean);
       const accept = () => { trusted = plan.fingerprint; confirmedFingerprint = mainKnown ? null : fingerprintText(plan); trustedSsh = both ? plan.ssh_fingerprint : null; };
-      // every key was confirmed before: no prompt, the step list says since when
-      if ((cert ? false : mainKnown) && (!both || sshKnown)) {
+      // everything was confirmed before: no prompt, the step list says since when
+      if (mainKnown && (!both || sshKnown)) {
         accept();
         return showFinal(null);
       }
       const askSsh = both && !sshKnown;
-      const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust' }, askSsh ? (cert ? t('setup.trust.certBoth') : t('setup.trust.sshBoth')) : cert ? t('setup.trust.cert') : t('setup.trust.ssh'));
+      const label = mainKnown ? t('setup.trust.ssh') : askSsh ? (cert ? t('setup.trust.certBoth') : t('setup.trust.sshBoth')) : cert ? t('setup.trust.cert') : t('setup.trust.ssh');
+      const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust' }, label);
       trust.addEventListener('click', () => { accept(); showFinal(null); });
       place(
         clear(out),
-        notice('warn', 'setup-untrusted', h('h3', {}, cert ? t('setup.presented.cert') : t('setup.presented.ssh')),
-          h('p', {}, t('setup.compare')),
-          h('p', { class: 'fingerprint mono', 'data-testid': 'setup-fingerprint' }, fingerprintText(plan)),
-          plan.compare ? h('p', { class: 'muted small' }, plan.compare) : null,
-          askSsh ? h('h3', {}, t('setup.andSshKey')) : null,
+        notice('warn', 'setup-untrusted',
+          mainKnown
+            ? [hostKeyKnown(plan.host_key, 'setup-host-key-known'), h('h3', {}, t('setup.presented.ssh')), h('p', {}, t('setup.compare'))]
+            : [
+                h('h3', {}, cert ? t('setup.presented.cert') : t('setup.presented.ssh')),
+                h('p', {}, t('setup.compare')),
+                h('p', { class: 'fingerprint mono', 'data-testid': 'setup-fingerprint' }, fingerprintText(plan)),
+                plan.compare ? h('p', { class: 'muted small' }, plan.compare) : null,
+                offeredKeys(plan.host_key, 'setup-offered'),
+              ],
+          askSsh && !mainKnown ? h('h3', {}, t('setup.andSshKey')) : null,
           askSsh ? h('p', { class: 'fingerprint mono', 'data-testid': 'setup-ssh-fingerprint' }, plan.ssh_fingerprint) : null,
           askSsh && plan.ssh_compare ? h('p', { class: 'muted small' }, plan.ssh_compare) : null,
+          askSsh ? offeredKeys(plan.ssh_host_key, 'setup-ssh-offered') : null,
           sshKnown ? hostKeyKnown(plan.ssh_host_key, 'setup-host-key-known') : null,
           trust,
         ),
@@ -299,9 +308,9 @@ export function autoSetup(a, collect, onDone, own = null) {
         ),
       );
     }
-    if (err.code === 'host_key_changed' && err.body && err.body.host_key) {
-      // the device presented another SSH host key than the confirmed one (#526): no password
-      // was sent; only the button that names the new key goes on
+    if ((err.code === 'host_key_changed' || err.code === 'certificate_changed') && err.body && err.body.host_key) {
+      // the device presented another SSH host key (#526) or certificate (#535) than the
+      // confirmed one: no password was sent; only the button that names the new one goes on
       trusted = null;
       trustedSsh = null;
       const form = collectOwn() || {};

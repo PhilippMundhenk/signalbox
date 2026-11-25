@@ -494,6 +494,10 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
             "last_ok": seen.last_ok.isoformat() if seen and seen.last_ok else None,
             # the confirmed SSH host key, a changed one and the old ones (#526); not secrets
             "ssh_host_key": host_key_view(store.ssh_host_keys(rec.id)),
+            # certificate pins a re-trust replaced (#535), newest first; not secrets
+            "certificate_history": [
+                p.model_dump(mode="json") for p in store.certificate_history(rec.id)[:10]
+            ],
         }
 
     def runner_status() -> dict[str, str]:
