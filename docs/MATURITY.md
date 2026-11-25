@@ -12,6 +12,7 @@ they are tested against the simulators.
 *Emulated*: verified against the real device software in CI, reads and writes
 ([TESTING.md](TESTING.md)):
 
+- VyOS: rolling 2026.11.25 (1.5 development), official ISO in QEMU, read only; EdgeOS itself is simulator-only ([details](adapters/edgeos.md#integration-tests))
 - Linux gateway: Debian 11, 12 and 13 in containers (sshd, iproute2, dnsmasq, chrony, WireGuard), read only ([details](adapters/linux.md#integration-tests))
 - MikroTik: RouterOS 7.25.1, official CHR image in QEMU, without Wi-Fi ([details](adapters/mikrotik.md#integration-tests))
 - TP-Link Omada: Software Controller 6.3.0.111, official Linux package in Docker, without managed devices ([details](adapters/omada.md#integration-tests))

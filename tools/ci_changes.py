@@ -16,7 +16,7 @@ import os
 import subprocess
 import sys
 
-ADAPTERS = ("opnsense", "openwrt", "mikrotik", "omada", "unifi", "linux")
+ADAPTERS = ("opnsense", "openwrt", "mikrotik", "omada", "unifi", "edgeos", "linux")
 
 # Shared code that every integration target depends on.
 INTEGRATION_SHARED = (

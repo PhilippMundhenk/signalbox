@@ -123,6 +123,8 @@ EMULATED = {
     "without managed devices ([details](adapters/omada.md#integration-tests))",
     "unifi": "UniFi: Network application 8.6.9, 9.5.21 and 10.6.109 in Docker with MongoDB, "
     "without adopted devices ([details](adapters/unifi.md#integration-tests))",
+    "edgeos": "VyOS: rolling 2026.11.25 (1.5 development), official ISO in QEMU, read only; "
+    "EdgeOS itself is simulator-only ([details](adapters/edgeos.md#integration-tests))",
     "openwrt": "OpenWrt: 23.05.6, 24.10.8 and 25.12.6, official x86-64 images in QEMU "
     "([details](adapters/openwrt.md#verified-against-the-real-openwrt))",
     "opnsense": "OPNsense: 26.7.9 and 25.1, official nano images in QEMU (25.1 read only) "

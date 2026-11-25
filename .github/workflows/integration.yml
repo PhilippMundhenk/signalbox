@@ -31,6 +31,7 @@ jobs:
       mikrotik: ${{ steps.sel.outputs.mikrotik }}
       omada: ${{ steps.sel.outputs.omada }}
       unifi: ${{ steps.sel.outputs.unifi }}
+      edgeos: ${{ steps.sel.outputs.edgeos }}
       linux: ${{ steps.sel.outputs.linux }}
     steps:
       - uses: actions/checkout@v7
@@ -569,6 +570,67 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  edgeos:
+    needs: changes
+    if: needs.changes.outputs.edgeos == 'true'
+    name: VyOS rolling (official ISO in QEMU, edgeos adapter over SSH)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      REQUIRE_INTEGRATION: "1"
+      VM_DIR: ${{ github.workspace }}/.vm/edgeos
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -e ".[dev,switches]"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install QEMU
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qemu-system-x86 qemu-utils
+      - name: Download and verify the official ISO
+        run: python3 tools/integration/edgeos/vm.py fetch "$VM_DIR"
+      - name: Boot VyOS, create the read user and a small lab
+        run: python3 tools/integration/edgeos/vm.py start "$VM_DIR"
+      - name: Integration tests
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_edgeos_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$VM_DIR/pytest.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest.log" | cut -c1-1500 | tail -n 60)
+              body=$(printf '%s\n--- last lines ---\n%s' "$summary" "$(tail -n 60 "$VM_DIR/pytest.log")")
+              body=${body//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=VyOS integration tests failed::$body"
+              exit $code
+            }
+      - name: Serial console on failure
+        if: failure()
+        run: |
+          body=$(tail -n 60 "$VM_DIR/serial.log" 2>/dev/null | tr -d '\r' | sed 's/\x1b\[[0-9;?]*[A-Za-z]//g')
+          body=${body//'%'/'%25'}
+          body=${body//$'\n'/'%0A'}
+          echo "::error title=VyOS serial console::$body"
+      - name: Power off
+        if: always()
+        run: python3 tools/integration/edgeos/vm.py stop "$VM_DIR" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: edgeos-logs
+          path: |
+            .vm/edgeos/*.log
+            .vm/edgeos/target.env
+          if-no-files-found: ignore
+          retention-days: 7
+
   linux:
     needs: changes
     if: needs.changes.outputs.linux == 'true'
@@ -689,7 +751,7 @@ jobs:
   integration-ok:
     name: Integration (all needed targets passed)
     if: always()
-    needs: [changes, opnsense, openwrt, mikrotik, omada, unifi, linux]
+    needs: [changes, opnsense, openwrt, mikrotik, omada, unifi, edgeos, linux]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
