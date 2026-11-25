@@ -2203,10 +2203,9 @@ async def test_mesh_peers_are_in_the_snapshot_and_pass_the_contract(
     sim: OpenWrtSim, adapter: OpenWrtAdapter
 ) -> None:
     sim.mesh = True
-    snap = await adapter.observe()
+    snap = await assert_contract(adapter)
     assert [p.peer_mac for p in snap.mesh_peers] == [openwrt_sim.MESH_PEER]
     assert snap.device.mesh is not None
-    assert_contract(adapter, snap)
 
 
 async def test_without_a_mesh_there_are_no_peers(adapter: OpenWrtAdapter) -> None:

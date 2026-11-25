@@ -124,6 +124,7 @@ async def test_every_call_of_the_adapter_is_described(
     """Read, every write, restore and the fallbacks: all calls against the SCPD."""
     sim, _ = box
     desc = tr064.load(sim.version)  # parsed again, independent of the simulator's copy
+    sim.mesh = True  # the mesh list (#171) is only called on a box that has a mesh
     assert (await adapter.observe()).status is DeviceStatus.OK
     backup = await adapter.backup()
     net = await _network(adapter)

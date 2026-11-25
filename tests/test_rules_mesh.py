@@ -188,7 +188,7 @@ def test_a_peer_is_found_by_the_bssid_of_an_ssid() -> None:
         "device_id": "gw",
         "ssid": "x",
         "radio_id": "gw/radio/r",
-        "security": "wpa2",
+        "security": "wpa2-psk",
         "bssid": "02:00:00:00:00:88",
         "port_id": ap_port.id,
     }

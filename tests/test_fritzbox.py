@@ -1007,8 +1007,7 @@ async def test_mesh_list_reports_repeaters_links_and_roles(
 ) -> None:
     """FRITZ!Mesh (#171): repeaters are devices the box manages, the wireless uplinks links."""
     sim.mesh = True
-    snap = await adapter.observe()
-    assert_contract(adapter, snap)
+    snap = await assert_contract(adapter)
     names = {d.id: d for d in snap.extra_devices}
     hall, garden = names["fb/node/n-rep1"], names["fb/node/n-rep2"]
     assert (hall.name, hall.model, hall.vendor) == ("Repeater Hall", "FRITZ!Repeater 3000", "AVM")

@@ -1682,6 +1682,7 @@ class OpenWrtAdapter(Adapter):
             if found.enabled and running:
                 fields = await self._radio_state(found, running, gaps, bssids, to_scan)
                 radios[name] = found.model_copy(update=fields)
+        peers, membership = await self._mesh_peers(uci, radios, ifnames)
         heard = await self._scan(to_scan, gaps, started) if to_scan else []
         wlans: list[Wlan] = []
         for name, s in _sections(uci, "wifi-iface"):
@@ -1733,7 +1734,6 @@ class OpenWrtAdapter(Adapter):
                     vendor_extra=_extra(s, "encryption", "network"),
                 )
             )
-        peers, membership = await self._mesh_peers(uci, radios, ifnames)
         return Observation(
             radios=list(radios.values()),
             wlans=wlans,

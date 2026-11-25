@@ -768,8 +768,8 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
                 out.append(f"{kind} id {obj.id} does not start with {own}")
     for kind in Snapshot.model_fields:
         value = getattr(snapshot, kind)
-        if not isinstance(value, list) or kind == "errors":
-            continue
+        if not isinstance(value, list) or kind in ("errors", "wireless_links"):
+            continue  # a Link carries no source: it is not an observed object
         for obj in value:
             src = getattr(obj, "source", None)
             if src is None or src.adapter != m.id or src.device_id != ctx.device_id:
