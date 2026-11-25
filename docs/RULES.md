@@ -170,6 +170,10 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 
 - [`poe.budget`](rules/poe_checks.md#poebudget)
 
+## [Port counters](rules/port_counters.md)
+
+- [`port.errors`](rules/port_counters.md#porterrors)
+
 ## [Ports](rules/ports.md)
 
 - [`vlan.single-untagged`](rules/ports.md#vlansingle-untagged)
