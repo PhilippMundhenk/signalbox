@@ -72,7 +72,14 @@ from signalbox.model import (
     Firmware,
     GatewayGroup,
     IPAddress,
+    Link,
+    LinkKind,
+    LinkOrigin,
     Membership,
+    MeshLinkKind,
+    MeshMembership,
+    MeshRole,
+    MeshUplink,
     Neighbour,
     Pmf,
     PoeMode,
@@ -95,6 +102,7 @@ from signalbox.model import (
     UplinkKind,
     WifiStandard,
     WirelessAssociation,
+    WirelessLinkInfo,
     Wlan,
     fdb_id,
     normalise_mac,
@@ -482,6 +490,37 @@ class _Link:
     remote_idx: int | None  # the parent's port
     speed: int | None
     mesh: bool
+    #: the ``uplink`` object itself (radio details of a wireless uplink)
+    info: dict[str, Any] = field(default_factory=dict, compare=False, hash=False)
+
+
+def mesh_info(link: _Link) -> WirelessLinkInfo:
+    """Radio details of a wireless uplink (#459) from the ``uplink`` object of the device:
+    ``radio`` (``ng``/``na``/``6e``), ``channel``, ``signal`` (dBm) and ``tx_rate``/``rx_rate``
+    (kbit/s, as the station rows; below 1000 read as Mbit/s), else ``speed`` (Mbit/s) for both
+    directions. Field names are *guesses* from the controller's JSON (#21); a value that is
+    missing or out of range stays ``None``."""
+    info = link.info
+    signal = _int(info.get("signal"))
+    channel = _int(info.get("channel"))
+
+    def rate(key: str) -> float | None:
+        value = info.get(key)
+        if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
+            return None
+        return round(value / 1000, 1) if value >= 1000 else float(value)
+
+    tx, rx = rate("tx_rate"), rate("rx_rate")
+    if tx is None and rx is None and link.speed:
+        tx = rx = float(link.speed)
+    return WirelessLinkInfo(
+        band=_STATION_BANDS.get(_text(info.get("radio")).lower()),
+        channel=channel if channel and channel > 0 else None,
+        signal_dbm=signal if signal is not None and -120 <= signal <= 0 else None,
+        tx_rate_mbps=tx,
+        rx_rate_mbps=rx,
+        kind=MeshLinkKind.MESH,
+    )
 
 
 def uplink_of(row: dict[str, Any]) -> _Link | None:
@@ -498,6 +537,7 @@ def uplink_of(row: dict[str, Any]) -> _Link | None:
         remote_idx=_int(info.get("uplink_remote_port")),
         speed=_int(info.get("speed")),
         mesh=_text(info.get("type")).lower() == "wireless",
+        info=info,
     )
 
 
@@ -1063,6 +1103,7 @@ class UnifiAdapter(_Adapter):
             ports.extend(self._device_ports(d, profiles, nets, default, members))
         ap_ports, _ = await self._ap_view(ports)
         ports.extend(ap_ports)
+        mesh_links, mesh_members = self._cache["ap-mesh"]
         segs = self._segments(nets, members)
         gateway = next((d for d in devices if d.kind == "gateway"), None)
         owner = self._prefix(gateway) if gateway else f"{dev}/gateway"
@@ -1092,6 +1133,8 @@ class UnifiAdapter(_Adapter):
             segments=segs,
             subnets=subnets,
             devices=managed,
+            wireless_links=mesh_links,
+            mesh=mesh_members,
             uplinks=uplinks,
             gateway_groups=wan_groups,
             ddns=wan_ddns,
@@ -1402,9 +1445,53 @@ class UnifiAdapter(_Adapter):
                     description=descr or None,
                     vendor_extra=d.extra(uplink="lldp"),
                 )
+        self._cache["ap-mesh"] = self._mesh_of(devices, links, meshed)
         result = (ports, list(neighbours.values()))
         self._cache["ap-view"] = result
         return result
+
+    def _mesh_of(
+        self, devices: list[_Managed], links: dict[str, _Link], meshed: set[str]
+    ) -> tuple[list[Link], dict[str, MeshMembership]]:
+        """Backhaul links and mesh membership of the access points in a wireless mesh (#459):
+        the hop count is the length of the chain of wireless uplinks to an access point that is
+        wired."""
+        by_mac = {d.mac: d for d in devices}
+        out: list[Link] = []
+        member: dict[str, MeshMembership] = {}
+        for d in devices:
+            if d.mac not in meshed:
+                continue
+            hops, cur, seen = 0, d.mac, {d.mac}
+            while (up := links.get(cur)) is not None and up.mesh and up.parent in by_mac:
+                if up.parent in seen:
+                    break
+                cur = up.parent
+                seen.add(cur)
+                hops += 1
+            link = links.get(d.mac)
+            wireless = link is not None and link.mesh
+            member[self._prefix(d)] = MeshMembership(
+                role=MeshRole.AGENT,
+                controller_id=self.context.device_id,
+                hop=hops,
+                uplink=MeshUplink.WIRELESS if wireless else MeshUplink.WIRED,
+            )
+            if link is None or not link.mesh or link.parent not in by_mac:
+                continue
+            a = f"{self._prefix(by_mac[link.parent])}/port/mesh"
+            b = f"{self._prefix(d)}/port/mesh"
+            out.append(
+                Link(
+                    id=f"mesh:{min(a, b)}~{max(a, b)}",
+                    a=a,
+                    b=b,
+                    kind=LinkKind.WIRELESS,
+                    origin=LinkOrigin.MESH,
+                    wireless=mesh_info(link),
+                )
+            )
+        return out, member
 
     async def read_neighbours(self) -> Observation:
         if self._mode == "integration":

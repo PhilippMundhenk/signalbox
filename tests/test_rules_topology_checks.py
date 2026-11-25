@@ -825,3 +825,15 @@ def test_unknown_neighbour_known_neighbour() -> None:
     assert f.objects == [port_id("sw", "10")]
     other = annotation("02:00:00:00:99:03", expected={"known_neighbour": True})
     assert len(run(annotated(nb_net(nb(chassis="attic-switch")), other), unknown_neighbour)) == 1
+
+
+def test_wireless_hop_is_marked_in_single_points() -> None:
+    """#459: a wireless backhaul hop is a link like a cable, and is named as Wi-Fi."""
+    net = tree(*CHAIN)
+    links = [
+        x.model_copy(update={"kind": LinkKind.WIRELESS}) if "to-sw2-1" in x.a + x.b else x
+        for x in net.links
+    ]
+    (f,) = run(net.model_copy(update={"links": links}), single_point)
+    assert "Core ↔ Desk (Wi-Fi): 2 AP, 1 SW" in f.message
+    assert "Core ↔ Router: 2 AP, 2 SW" in f.message  # the cable stays unmarked

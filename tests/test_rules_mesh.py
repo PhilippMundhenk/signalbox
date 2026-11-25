@@ -378,3 +378,20 @@ def test_backhaul_ssids_are_left_out_of_the_ssid_checks() -> None:
     assert len(run(ft_mobility_domain_mismatch, merge([SITE], both))) == 1
     skipped = [ft_ap("ap1", "a1b2", backhaul=True), ft_ap("ap2", "c3d4", backhaul=True)]
     assert run(ft_mobility_domain_mismatch, merge([SITE], skipped)) == []
+
+
+def test_topology_marks_weak_backhaul_with_the_rule_parameters() -> None:
+    """#459: the topology flags a link the rule would call weak, with the configured limit."""
+    from signalbox.topology import view
+
+    net = mesh_net(("gw", "r1"), signal_dbm=-78)
+    (edge,) = [e for e in view(net)["edges"] if e["origin"] == "mesh"]
+    assert edge["weak"] is True
+    ok = mesh_net(("gw", "r1"))
+    assert [e["weak"] for e in view(ok)["edges"] if e["origin"] == "mesh"] == [False]
+    # a lower limit for this site: the same -78 dBm is no longer weak
+    raw = {"mesh.weak-backhaul": {"params": {"signal_dbm": -85}}}
+    settings = {k: RuleSettings.model_validate(v) for k, v in raw.items()}
+    assert [e["weak"] for e in view(net, settings)["edges"] if e["origin"] == "mesh"] == [False]
+    off = {"mesh.weak-backhaul": RuleSettings.model_validate({"enabled": False})}
+    assert [e["weak"] for e in view(net, off)["edges"] if e["origin"] == "mesh"] == [False]

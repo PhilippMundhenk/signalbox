@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterator
 
-from signalbox.model import Band, Link, LinkKind, LinkOrigin, MeshUplink, Network
+from signalbox.model import Band, Link, LinkKind, LinkOrigin, MeshUplink, Network, WirelessLinkInfo
 from signalbox.rules import Result, RuleParams, Severity, ctx, found, param, rule
 from signalbox.rules._names import device_name
 
@@ -46,6 +46,14 @@ class ChainParams(RuleParams):
         le=20,
         description="Most wireless hops between a node and the wired network.",
     )
+
+
+def is_weak(w: WirelessLinkInfo, p: WeakBackhaulParams) -> bool:
+    """A backhaul reading below the thresholds (signal, or the lower of both rates); readings
+    the device did not report are not judged. Used by the rule and the topology colour (#459)."""
+    rates = [r for r in (w.tx_rate_mbps, w.rx_rate_mbps) if r is not None]
+    weak_signal = w.signal_dbm is not None and w.signal_dbm < p.signal_dbm
+    return weak_signal or (bool(rates) and min(rates) < p.rate_mbps)
 
 
 def _device(net: Network, port_id: str) -> str | None:
@@ -87,11 +95,9 @@ def weak_backhaul(net: Network) -> Iterator[Result]:
             continue
         up, node = ends
         p = ctx.params(WeakBackhaulParams, net.device(node))
-        rates = [r for r in (w.tx_rate_mbps, w.rx_rate_mbps) if r is not None]
-        weak_signal = w.signal_dbm is not None and w.signal_dbm < p.signal_dbm
-        slow = bool(rates) and min(rates) < p.rate_mbps
-        if not (weak_signal or slow):
+        if not is_weak(w, p):
             continue
+        rates = [r for r in (w.tx_rate_mbps, w.rx_rate_mbps) if r is not None]
         parts = []
         if w.signal_dbm is not None:
             parts.append(f"{w.signal_dbm} dBm")

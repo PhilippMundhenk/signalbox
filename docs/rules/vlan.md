@@ -94,7 +94,8 @@ VLAN on the uplink. Ports whose role the device does not report are compared as 
   100 Mbit/s) and check that both ports are set to auto-negotiation. For a link below the
   ports' maximum, use a cable rated for that speed (Cat 5e or better for 2.5 Gbit/s, Cat 6a for
   10 Gbit/s). If a device only has 100 Mbit/s ports and does not report it, turn the rule off or
-  accept the finding.
+  accept the finding. Wireless links are not judged here: the rate and signal of a wireless
+  backhaul are checked by `mesh.weak-backhaul` (#459).
 
 ## `vlan.name-consistent`
 

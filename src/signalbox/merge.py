@@ -25,7 +25,9 @@ from signalbox.model import (
     IPAddress,
     Link,
     Membership,
+    MeshMembership,
     Network,
+    Port,
     PortMembership,
     PrefixSource,
     Segment,
@@ -474,6 +476,78 @@ def prefix_sources(snaps: Iterable[Snapshot]) -> list[Subnet]:
     return out
 
 
+def _device_macs(dev: Device, ports: Iterable[Port]) -> set[str]:
+    return {m for m in (dev.mac, *(p.mac for p in ports if p.device_id == dev.id)) if m}
+
+
+def _merge_mesh_nodes(snaps: list[Snapshot]) -> list[Snapshot]:
+    """A mesh node a controller reports (``extra_devices``) that is also a device of its own
+    (its own snapshot) is one device (#459, a FRITZ!Box repeater set up in Signalbox): found by
+    a shared MAC address (device or port). The device's own record wins; the node adds
+    ``Device.mesh`` and its ports (the backhaul link ends), moved under the own device's id."""
+    own = {s.device.id: _device_macs(s.device, s.ports) for s in snaps}
+    remap: dict[str, str] = {}
+    for s in snaps:
+        for extra in s.extra_devices:
+            if extra.id in own:
+                continue
+            macs = _device_macs(extra, s.ports)
+            for did, other in sorted(own.items()):
+                if did != s.device.id and macs & other:
+                    remap[extra.id] = did
+                    break
+    if not remap:
+        return snaps
+
+    def fix(text: str) -> str:
+        for old, new in remap.items():
+            text = text.replace(f"{old}/port/", f"{new}/port/")
+        return text
+
+    def membership(m: MeshMembership | None) -> MeshMembership | None:
+        if m is not None and m.controller_id in remap:
+            return m.model_copy(update={"controller_id": remap[m.controller_id]})
+        return m
+
+    nodes = {remap[e.id]: e for s in snaps for e in s.extra_devices if e.id in remap}
+    out: list[Snapshot] = []
+    for s in snaps:
+        extras = [
+            e.model_copy(update={"mesh": membership(e.mesh)})
+            for e in s.extra_devices
+            if e.id not in remap
+        ]
+        dev = s.device
+        node = nodes.get(dev.id)
+        mesh = dev.mesh or (node.mesh if node else None)
+        dev = dev.model_copy(update={"mesh": membership(mesh)})
+        have = {p.id for p in s.ports}
+        ports: list[Port] = []
+        for p in s.ports:
+            if p.device_id in remap:
+                p = p.model_copy(update={"id": fix(p.id), "device_id": remap[p.device_id]})
+                if p.id in have:
+                    continue
+            ports.append(p)
+        links = [
+            x.model_copy(update={"id": fix(x.id), "a": fix(x.a), "b": fix(x.b)})
+            for x in s.wireless_links
+        ]
+        status = {k: v for k, v in s.extra_status.items() if k not in remap}
+        out.append(
+            s.model_copy(
+                update={
+                    "device": dev,
+                    "extra_devices": extras,
+                    "extra_status": status,
+                    "ports": ports,
+                    "wireless_links": links,
+                }
+            )
+        )
+    return out
+
+
 def _with_mesh_links(links: Iterable[Link], snaps: list[Snapshot]) -> list[Link]:
     """The known links plus the wireless backhaul links the devices report (#171); a manual
     link between the same two ports wins, then the first report."""
@@ -504,6 +578,7 @@ def merge(
     duplicates = sorted({i for i in ids if ids.count(i) > 1})
     if duplicates:
         raise ValueError(f"more than one snapshot for device(s) {', '.join(duplicates)}")
+    snaps = _merge_mesh_nodes(snaps)
     links = _with_mesh_links(links, snaps)
     native = _native_split(snaps, links)
     segments = []

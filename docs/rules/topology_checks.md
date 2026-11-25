@@ -88,6 +88,7 @@
 - **Checks:** at a site with a router and at least three network devices, the switches and
   access points whose failure, and the single links (not LAGs) whose failure, cut off at least
   two switches or access points from the router. One finding per site lists them all. Checked
-  only when every switch and access point of the site has a known path to the router.
+  only when every switch and access point of the site has a known path to the router. A wireless
+  hop (mesh backhaul, repeater, WDS) counts like a cable and is marked `(Wi-Fi)` in the list (#459).
 - **Fix:** add a second uplink (with LAG or spanning tree) for the devices named in the finding,
   or keep a spare switch.
