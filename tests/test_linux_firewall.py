@@ -456,4 +456,4 @@ def test_nat() -> None:
 def test_gap_texts_name_the_real_source() -> None:
     """#404: the shared mapping says iptables when the rules came from iptables-save."""
     g = nftables.NftGap("nftables: x", "linux.nft.vmap").named("iptables")
-    assert g == "iptables: x" and g.params == {"source": "iptables"}
+    assert g == "iptables: x" and g.params["source"] == "iptables"

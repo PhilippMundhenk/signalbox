@@ -184,7 +184,7 @@ class NftGap(str):
     def __new__(cls, message: str, message_id: str, **params: str) -> NftGap:
         gap = super().__new__(cls, message)
         gap.message_id = message_id
-        gap.params = params
+        gap.params = {"source": "nftables", **params}
         return gap
 
     def named(self, source: str) -> NftGap:
