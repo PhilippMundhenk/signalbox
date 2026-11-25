@@ -528,7 +528,7 @@ def _int(value: Any) -> int | None:
     return int(match.group()) if match else None
 
 
-_DURATION = re.compile(r"(\d+)([wdhms])")
+_AGE_PART = re.compile(r"(\d+)([wdhms])")
 _UNIT_S = {"w": 604800, "d": 86400, "h": 3600, "m": 60, "s": 1}
 
 
@@ -537,7 +537,7 @@ def _duration_s(value: Any) -> int | None:
     text = _text(value)
     if text.isdigit():
         return int(text)
-    parts = _DURATION.findall(text)
+    parts = _AGE_PART.findall(text)
     if not parts:
         return None
     return sum(int(n) * _UNIT_S[u] for n, u in parts)
