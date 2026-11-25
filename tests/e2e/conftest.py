@@ -212,7 +212,11 @@ def topology_state(page: Any) -> str:
     topo = api(page, "GET", "/topology")
     devices = {d["id"]: d.get("hosted_on") for d in net["devices"]}
     nodes = {n["id"]: [h["id"] for h in n.get("hosted", [])] for n in topo["nodes"]}
-    return f"network devices (hosted_on)={devices} topology nodes (hosted)={nodes}"
+    stored = {d["id"]: d.get("hosted_on") for d in api(page, "GET", "/devices")}
+    return (
+        f"/api/devices (hosted_on)={stored} /api/network devices (hosted_on)={devices} "
+        f"/api/topology nodes (hosted rows)={nodes}"
+    )
 
 
 def _all_read(page: Any) -> bool:
