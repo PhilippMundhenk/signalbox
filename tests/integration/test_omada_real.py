@@ -69,6 +69,13 @@ def ctrl(target: Callable[[str], Target]) -> dict[str, str]:
     }
 
 
+def needs_lab(ctrl: dict[str, str]) -> None:
+    """Omada 5.14 refuses the interface network "Lab" on a site without gateway (-33515 "LAN
+    interfaces could not be none"; 5.15 and 6.3 take it, #501): what needs it is skipped."""
+    if "interface network with DHCP" in ctrl.get("REFUSED", ""):
+        pytest.skip(f"Omada {ctrl['VERSION']}: no interface network without a gateway")
+
+
 def adapter(
     ctrl: dict[str, str],
     write: bool = False,
@@ -205,6 +212,7 @@ async def test_site_services_shape(ctrl: dict[str, str]) -> None:
 
 
 async def test_mapping_of_the_test_site(ctrl: dict[str, str]) -> None:
+    needs_lab(ctrl)
     net = await network(ctrl)
     assert [d.id for d in net.devices] == [DEV]  # no managed devices
     assert net.ports == [] and net.radios == [] and net.wlans == [] and net.clients == []
@@ -406,6 +414,7 @@ sites:
 
 
 async def test_new_network_with_dhcp_then_revert(svc: Services, ctrl: dict[str, str]) -> None:
+    needs_lab(ctrl)
     before = await networks(ctrl)
     d, cid = await deploy(svc, NEW_NETWORK, {ChangeKind.ROUTER, ChangeKind.DHCP})
     after = await networks(ctrl)
@@ -441,6 +450,7 @@ sites:
 async def test_change_native_router_and_dhcp_then_revert(
     svc: Services, ctrl: dict[str, str]
 ) -> None:
+    needs_lab(ctrl)
     before = await networks(ctrl)
     d, cid = await deploy(svc, CHANGE_EXISTING, {ChangeKind.ROUTER, ChangeKind.DHCP})
     after = await networks(ctrl)
@@ -469,6 +479,7 @@ async def test_vlan_only_network_gets_a_gateway_then_backup_restore(
 ) -> None:
     """VLAN only → interface; then the restore of the backup taken before (interface → VLAN
     only, the whole network in one PATCH)."""
+    needs_lab(ctrl)
     before = await networks(ctrl)
     _, cid = await deploy(svc, GUEST_ROUTER, {ChangeKind.ROUTER})
     after = await networks(ctrl)

@@ -274,6 +274,15 @@ def web_scripts(oid: str) -> str:
                 app_js = js
             for m in re.finditer(r"open-?api|client_?secret|platform.?integration", js, re.I):
                 found.add(js[max(0, m.start() - 40) : m.end() + 50].replace("\n", " "))
+            found.update(
+                f"path {p}"
+                for p in re.findall(
+                    r"""["'`]([\w/{}.$-]*(?:app|integr|platform|token|client)[\w/{}.$-]*)["'`]""",
+                    js,
+                    re.I,
+                )
+                if "/" in p and len(p) < 90
+            )
         else:
             out.append(f"{path}: HTTP {code} not text")
     # the app scripts load the screens lazily: follow the script names they mention
@@ -286,7 +295,7 @@ def web_scripts(oid: str) -> str:
         if code == 200 and isinstance(js, str) and not js.lstrip().startswith("<!"):
             for m in re.finditer(r"open-?api", js, re.I):
                 found.add(js[max(0, m.start() - 60) : m.end() + 60].replace("\n", " "))
-    return "\n".join(out[:3] + sorted(found)[:40])[:7000]
+    return (page[-1800:] + "\n" + "\n".join(out[:3] + sorted(found)[:120]))[:9000]
 
 
 def applications_path(oid: str, web: dict[str, str]) -> str:
