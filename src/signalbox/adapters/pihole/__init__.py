@@ -520,7 +520,7 @@ class PiholeAdapter(Adapter):
                     parts[3] if len(parts) > 3 and parts[3] else parts[1], []
                 ).append(parts[2])
         for domain, servers in reverse.items():
-            upstreams.domains.setdefault(domain, []).extend(servers)
+            upstreams.merge(dnsmap.parse_upstreams([f"[/{domain}/]{s}" for s in servers]))
         records: list[HostRecord] = []
         for line in dns.get("hosts") or []:
             fields = str(line).split("#", 1)[0].split()

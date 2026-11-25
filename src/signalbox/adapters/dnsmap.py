@@ -63,6 +63,14 @@ class Upstreams:
     #: domain -> the upstreams of that domain only that have no address, as text.
     domains: dict[str, list[str]] = field(default_factory=dict)
 
+    def merge(self, other: Upstreams) -> None:
+        """Add what ``other`` found (conditional forwarding of Pi-hole), without duplicates."""
+        self.forwarders += [f for f in other.forwarders if f not in self.forwarders]
+        self.named += [n for n in other.named if n not in self.named]
+        for domain, names in other.domains.items():
+            listed = self.domains.setdefault(domain, [])
+            listed += [n for n in names if n not in listed]
+
     def extra(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         if self.named:
