@@ -13,13 +13,30 @@ from signalbox.adapters.linux import parse
 from signalbox.adapters.opnsense import counters_by_interface
 from signalbox.adapters.portcounters import count, counters_of
 from signalbox.config import Config
-from signalbox.counters import CounterRecord, counter_delta, counter_value
+from signalbox.counters import CounterDelta, CounterRecord, counter_delta, counter_value
 from signalbox.merge import merge
-from signalbox.model import DeviceRole, Network, PortCounters, PortKind, PortRole
-from signalbox.rules import RuleScope, RuleSettings, ScopeMatch, Severity, evaluate
-from signalbox.rules.port_counters import port_errors
+from signalbox.model import (
+    DeviceRole,
+    FrameTypes,
+    Membership,
+    Network,
+    PortCounters,
+    PortKind,
+    PortMembership,
+    PortRole,
+    Segment,
+)
+from signalbox.rules import Rule, RuleScope, RuleSettings, ScopeMatch, Severity, evaluate
+from signalbox.rules.port_counters import (
+    port_collisions,
+    port_drops,
+    port_errors,
+    port_idle_trunk,
+    port_utilisation,
+    reboot_by_counters,
+)
 from signalbox.secrets import load_vault
-from signalbox.sightings import History
+from signalbox.sightings import History, ValueHistory
 from signalbox.store import Store
 
 STEP = timedelta(minutes=10)
@@ -333,3 +350,103 @@ def test_port_counters_api(tmp_path: Path) -> None:
             assert c.get("/api/devices/other/port-counters").json() == {}
     finally:
         svc.close()
+
+
+# --- follow-ups of #434 ---------------------------------------------------------------------
+
+
+def check_rule(rule: Rule, old: PortCounters, new: PortCounters, **port_kw: Any) -> list[Any]:
+    net = net_with(port("sw", "3", **({"up": True} | port_kw)))
+    return evaluate(net, [rule], None, history_of(net, old, new))
+
+
+def test_drops_found_and_quiet() -> None:
+    old = pc(0, rx_packets=0, tx_packets=0, rx_drops=0, tx_drops=0)
+    (f,) = check_rule(
+        port_drops, old, pc(1, rx_packets=5000, tx_packets=5000, rx_drops=10, tx_drops=190)
+    )
+    assert f.severity is Severity.INFO and f.message_id == "counters.portDrops"
+    assert f.params["count"] == 200 and f.params["share"] == "2.00%"
+    for new in (
+        pc(1, rx_packets=5000, tx_packets=5000, rx_drops=5, tx_drops=5),  # too few drops
+        pc(1, rx_packets=500_000, tx_packets=500_000, tx_drops=500),  # tiny share
+        pc(1, rx_packets=300, tx_packets=300, tx_drops=100),  # too few packets
+        pc(1, rx_packets=9000),  # no drop counters
+    ):
+        assert not check_rule(port_drops, old, new)
+    assert not check_rule(port_drops, old, pc(1, rx_packets=5000, tx_drops=900), up=False)
+
+
+def test_utilisation() -> None:
+    old = pc(0, rx_bytes=0, tx_bytes=0)
+    # 10 min = 600 s: 700 MB is 9.3 Mbit/s of a 10 Mbit/s link
+    (f,) = check_rule(port_utilisation, old, pc(1, rx_bytes=700_000_000, tx_bytes=0), speed_mbps=10)
+    assert f.message_id == "counters.portUtilisationRx" and f.params["percent"] == 93
+    (g,) = check_rule(
+        port_utilisation, old, pc(1, rx_bytes=0, tx_bytes=7_500_000_000), speed_mbps=100
+    )
+    assert g.message_id == "counters.portUtilisationTx" and g.params["rate"] == 100
+    assert not check_rule(port_utilisation, old, pc(1, rx_bytes=700_000_000), speed_mbps=1000)
+    assert not check_rule(port_utilisation, old, pc(1, rx_bytes=700_000_000))  # speed unknown
+    assert not check_rule(port_utilisation, old, pc(1, rx_packets=5), speed_mbps=10)
+
+
+def test_idle_trunk() -> None:
+    old = pc(0, rx_bytes=0, tx_bytes=0)
+    quiet = pc(1, rx_bytes=2000, tx_bytes=3000)
+    busy = pc(1, rx_bytes=50_000_000, tx_bytes=3000)
+    (f,) = check_rule(port_idle_trunk, old, quiet, frame_types=FrameTypes.TAGGED_ONLY)
+    assert f.message_id == "counters.idleTrunk" and f.objects == ["sw/port/3"]
+    assert not check_rule(port_idle_trunk, old, busy, frame_types=FrameTypes.TAGGED_ONLY)
+    assert not check_rule(port_idle_trunk, old, quiet)  # an access port may be quiet
+    assert not check_rule(port_idle_trunk, old, pc(1), frame_types=FrameTypes.TAGGED_ONLY)
+    assert not check_rule(port_idle_trunk, old, quiet, frame_types=FrameTypes.TAGGED_ONLY, up=False)
+
+
+def test_idle_trunk_from_a_tagged_membership() -> None:
+    net = net_with(port("sw", "3", up=True))
+    pid = net.ports[0].id
+    segment = Segment(
+        id="home/segment/v20",
+        site_id=SITE.id,
+        vlan=20,
+        members=[PortMembership(port_id=pid, mode=Membership.TAGGED)],
+    )
+    net = net.model_copy(update={"segments": [segment]})
+    old, new = pc(0, rx_bytes=0, tx_bytes=0), pc(1, rx_bytes=10, tx_bytes=10)
+    assert len(evaluate(net, [port_idle_trunk], None, history_of(net, old, new))) == 1
+
+
+def test_collisions() -> None:
+    old = pc(0, collisions=0)
+    (f,) = check_rule(port_collisions, old, pc(1, collisions=40), full_duplex=True)
+    assert f.severity is Severity.WARNING and f.params["count"] == 40
+    assert check_rule(port_collisions, old, pc(1, collisions=40), speed_mbps=1000)
+    assert not check_rule(port_collisions, old, pc(1, collisions=40), full_duplex=False)
+    assert not check_rule(port_collisions, old, pc(1, collisions=40))  # duplex unknown
+    assert not check_rule(port_collisions, old, pc(1, collisions=3), full_duplex=True)
+    assert not check_rule(port_collisions, old, pc(1, collisions=0), full_duplex=True)
+
+
+def _reset_history(net: Network, resets: list[bool]) -> History:
+    counters = {}
+    for p, reset in zip(net.ports, resets, strict=True):
+        delta = CounterDelta(seconds=600, reset=True) if reset else CounterDelta(seconds=600)
+        counters[p.id] = CounterRecord(last=pc(1, rx_bytes=1), delta=delta)
+    return History(now=T0 + STEP, since=T0, counters=counters)
+
+
+def test_reboot_by_counters() -> None:
+    net = net_with(*(port("sw", str(i), up=True) for i in range(1, 5)))
+    (f,) = evaluate(net, [reboot_by_counters], None, _reset_history(net, [True] * 4))
+    assert f.message_id == "counters.deviceReset" and f.params["count"] == 4
+    # one port that did not reset: someone cleared a single port
+    assert not evaluate(net, [reboot_by_counters], None, _reset_history(net, [True] * 3 + [False]))
+    small = net_with(port("sw", "1", up=True), port("sw", "2", up=True))
+    assert not evaluate(small, [reboot_by_counters], None, _reset_history(small, [True] * 2))
+    # a device with a known boot time is left to device.reboot
+    known = _reset_history(net, [True] * 4).model_copy(
+        update={"boots": {"sw": ValueHistory(first_seen=T0, last_seen=T0, value="x", since=T0)}}
+    )
+    assert not evaluate(net, [reboot_by_counters], None, known)
+    assert not evaluate(net, [reboot_by_counters], None, History.empty())

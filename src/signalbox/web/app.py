@@ -245,6 +245,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     )
 
     bridge = MqttBridge(config.mqtt, config.server.base_url, identity=config.exports.identity)
+    bridge.counters_source = lambda: runner.history().counters
     notifier = Notifier(config.notifications, store, config.server.base_url)
     runner.round_listeners.append(notifier.on_round)
     discovery = Discovery(store, runner, services.adapters, config.discovery)

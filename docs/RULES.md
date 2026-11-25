@@ -223,6 +223,11 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 ## [Port counters](rules/port_counters.md)
 
 - [`port.errors`](rules/port_counters.md#porterrors)
+- [`port.drops`](rules/port_counters.md#portdrops)
+- [`port.utilisation`](rules/port_counters.md#portutilisation)
+- [`port.idle-trunk`](rules/port_counters.md#portidle-trunk)
+- [`port.collisions`](rules/port_counters.md#portcollisions)
+- [`device.reboot-by-counters`](rules/port_counters.md#devicereboot-by-counters)
 
 ## [Ports](rules/ports.md)
 
@@ -420,6 +425,12 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `strip_domain` | `1` | count | 1: compare only the part before the first dot (nas and nas.example.lan are the same name); 0: compare the full names. |
 
+### `device.reboot-by-counters`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `min_ports` | `3` | count | A device counts as restarted when its counters restarted from zero on all its ports that report counters, and there are at least this many. |
+
 ### `device.resources`
 
 | Parameter | Default | Unit | Meaning |
@@ -503,6 +514,20 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `margin_w` | `0.5` | W | Watts the request may exceed the port's limit by before it is reported. |
 
+### `port.collisions`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `min_collisions` | `10` | count | Fewer collisions than this between two reads are never reported. |
+
+### `port.drops`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `drop_ratio` | `0.01` | ratio | Report a port when the packets dropped between two reads are at least this share of its packets (0.01: one in a hundred). |
+| `min_packets` | `1000` | count | Reads with fewer packets than this on a port are too small to judge. |
+| `min_drops` | `20` | count | Fewer drops than this between two reads are never reported. |
+
 ### `port.errors`
 
 | Parameter | Default | Unit | Meaning |
@@ -511,6 +536,20 @@ where each came from. The defaults are the values the rules used before they had
 | `crc_ratio` | `0.0001` | ratio | Warn when the CRC/FCS errors received between two reads are at least this share of the packets received (0.0001: one in ten thousand). |
 | `min_packets` | `1000` | count | Reads with fewer packets than this on a port are too small to judge. |
 | `min_errors` | `5` | count | Fewer errors than this between two reads are never reported (a single bad frame). |
+
+### `port.idle-trunk`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `idle_kbps` | `2` | kbit/s | A trunk that carries no more than this between two reads (in both directions together) counts as idle; spanning tree and LLDP frames alone are below a kilobit per second. |
+| `min_seconds` | `20` | s | Reads closer together than this are too short to judge. |
+
+### `port.utilisation`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `utilisation_pct` | `90` | % | Report a port when it carried at least this share of its link speed, in either direction, between the last two reads. |
+| `min_seconds` | `20` | s | Reads closer together than this are too short to judge a rate. |
 
 ### `security.certificate-expiry`
 
