@@ -97,8 +97,8 @@ changed per site, device or network, see [Parameters](../RULES.md#parameters)):
 - **Checks:** a device reports another serial number or another base MAC address than at an
   earlier observation round (recorded in the history, per device and per value). A value the
   device did not report in a round is not a change, and neither is a value reported for the
-  first time. Reported for 7 days after the change, with the end of the old and the new value
-  (the last four characters): findings reach notifications, and serial numbers and base MACs
-  are not shared unless `exports.identity` is set (#427).
+  first time. Reported for 7 days after the change, with the old and the new value: base MAC
+  addresses in full, serial numbers only by their last four characters, as findings reach
+  notifications and serial numbers are not shared unless `exports.identity` is set (#427).
 - **Fix:** if you replaced the device, nothing to do; otherwise check who swapped it. Acknowledge
   the finding once you have seen it.

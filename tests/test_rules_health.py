@@ -346,7 +346,7 @@ def test_replaced_serial_and_mac(store: Store) -> None:
             (
                 "info",
                 "ap-1 reports another base MAC address than before "
-                "(\u2026a:01 -> \u2026b:02): it was replaced",
+                f"({MAC_A} -> {MAC_B}): it was replaced",
             ),
         ]
     )
