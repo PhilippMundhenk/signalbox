@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import pytest
@@ -13,6 +14,22 @@ from .test_ui import go
 pytestmark = pytest.mark.e2e
 
 RULE = "health.storage-full"
+
+
+def scopes_of(app: Any) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = next(r for r in api(app, "GET", "/rules") if r["id"] == RULE)[
+        "parameters"
+    ]["scopes"]
+    return out
+
+
+def wait_scopes(app: Any, count: int) -> list[dict[str, Any]]:
+    for _ in range(100):
+        found = scopes_of(app)
+        if len(found) == count:
+            return found
+        time.sleep(0.1)
+    raise AssertionError(f"expected {count} scopes, found {scopes_of(app)}")
 
 
 def open_rule(app: Any) -> Any:
@@ -63,7 +80,7 @@ def test_add_a_scope_with_pickers_and_remove_it(app: Any) -> None:
     scope.locator('[data-testid="scope-param-input"][data-name="warn_pct"]').fill("97")
     rule.get_by_test_id("params-save").click()
     expect(rule.get_by_test_id("ui-scope")).to_have_count(1)
-    shown = next(r for r in api(app, "GET", "/rules") if r["id"] == RULE)["parameters"]["scopes"]
+    shown = wait_scopes(app, 1)
     assert shown[0]["source"] == "ui" and shown[0]["match"] == {"site": "lab"}
     assert shown[0]["values"]["warn_pct"] == 97
     # it survives a reload, with the picker on the saved value
@@ -74,4 +91,4 @@ def test_add_a_scope_with_pickers_and_remove_it(app: Any) -> None:
     rule.get_by_test_id("scope-remove").click()
     rule.get_by_test_id("params-save").click()
     expect(rule.get_by_test_id("ui-scope")).to_have_count(0)
-    assert not next(r for r in api(app, "GET", "/rules") if r["id"] == RULE)["parameters"]["scopes"]
+    wait_scopes(app, 0)
