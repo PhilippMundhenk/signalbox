@@ -61,9 +61,10 @@ READ_ONLY = (
     "rpcd",
     "mwan3",
     "ddns",
+    "https-dns-proxy",
 )
 #: Of those, the configs of optional packages (#180): only there when installed
-PACKAGES = ("snmpd", "luci_statistics", "softflowd", "mwan3", "ddns")
+PACKAGES = ("snmpd", "luci_statistics", "softflowd", "mwan3", "ddns", "https-dns-proxy")
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
     "/tmp/dhcp.leases",
@@ -1606,6 +1607,7 @@ class OpenWrtSim:
                 "rpcd": _sections(rpcd_config(self.username)),
                 "mwan3": _sections(mwan3_config()),
                 "ddns": _sections(ddns_config()),
+                "https-dns-proxy": {},
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
             }
         return self.configs

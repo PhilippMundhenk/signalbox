@@ -110,6 +110,7 @@ from signalbox.model import (
     DhcpServer,
     DnsForwarder,
     DnsService,
+    DnsTransport,
     DynamicDns,
     FdbEntry,
     FdbKind,
@@ -309,6 +310,65 @@ def _sections(uci: dict[str, Any], kind: str) -> list[tuple[str, dict[str, Any]]
         if isinstance(s, dict) and s.get(".type") == kind
     ]
     return sorted(found, key=lambda item: _int(item[1].get(".index")) or 0)
+
+
+def _domain_server(text: str) -> tuple[list[str | None], str]:
+    """``192.0.2.53`` -> ([None], server); ``/corp.example/192.0.2.53`` and
+    ``/a.example/b.example/192.0.2.53`` -> (the domains, server); ``/corp.example/`` -> ([], "")."""
+    if not text.startswith("/"):
+        return [None], text.strip()
+    *names, server = text.strip()[1:].split("/")
+    domains: list[str | None] = [n.lower() for n in names if n and n != "#"]
+    return (domains if server.strip() else []), server.strip()
+
+
+def proxy_upstreams(uci: dict[str, dict[str, Any]]) -> dict[tuple[str, int], dict[str, Any]]:
+    """The encrypted upstream behind each local port of https-dns-proxy and stubby (#182).
+
+    ``uci`` maps the package name to its UCI answer. dnsmasq forwards to ``127.0.0.1#5053``;
+    that port is the DNS over HTTPS server of the ``https-dns-proxy`` section (``resolver_url``,
+    older releases ``url_prefix``; ``listen_addr`` 127.0.0.1 and ``listen_port`` from 5053 on by
+    instance order when not set) or stubby's ``listen_address`` (``127.0.0.1@5453``) with the
+    ``tls_auth_name`` of its first ``resolver``. Value: the fields of the forwarder that change
+    (transport and server name). *Guess* for old releases and for the port numbering (#21).
+    """
+    out: dict[tuple[str, int], dict[str, Any]] = {}
+    values = uci.get("https-dns-proxy", {}).get("values")
+    if isinstance(values, dict):
+        sections = sorted(
+            (
+                s
+                for s in values.values()
+                if isinstance(s, dict) and s.get(".type") == "https-dns-proxy"
+            ),
+            key=lambda s: _int(s.get(".index")) or 0,
+        )
+        for n, sec in enumerate(sections):
+            url = str(sec.get("resolver_url") or sec.get("url_prefix") or "")
+            host = url.split("://", 1)[-1].split("/", 1)[0].split("@")[-1].split(":")[0]
+            port = _int(sec.get("listen_port")) or 5053 + n
+            addr = str(sec.get("listen_addr") or "127.0.0.1")
+            if host:
+                out[(addr, port)] = {"transport": DnsTransport.HTTPS, "tls_name": host}
+    values = uci.get("stubby", {}).get("values")
+    if isinstance(values, dict):
+        secs = [s for s in values.values() if isinstance(s, dict)]
+        name = next(
+            (
+                str(s["tls_auth_name"])
+                for s in secs
+                if s.get(".type") == "resolver" and s.get("tls_auth_name")
+            ),
+            None,
+        )
+        for sec in secs:
+            if sec.get(".type") != "stubby":
+                continue
+            for item in _list(sec.get("listen_address")):
+                host, _, number = item.partition("@")
+                if number.isdigit():
+                    out[(host, int(number))] = {"transport": DnsTransport.TLS, "tls_name": name}
+    return out
 
 
 def _addresses(text: str) -> list[IPAddress]:
@@ -2057,9 +2117,12 @@ class OpenWrtAdapter(Adapter):
 
         ``port`` 0 turns DNS off. ``server`` entries are forwarders (``192.0.2.53``,
         ``192.0.2.53#5353``, an ``@interface`` suffix is dropped); domain-specific ones
-        (``/corp.example/192.0.2.53``) are not counted. Without ``noresolv`` dnsmasq also
-        forwards to the servers of ``resolvfile`` (the WAN's), which are not read. ``domain``
-        sections are host records.
+        (``/corp.example/192.0.2.53``) are forwarders with ``domain`` (#182). Without
+        ``noresolv`` dnsmasq also forwards to the servers of ``resolvfile`` (the WAN's), which
+        are not read. ``domain`` sections are host records. ``rebind_protection`` (on by
+        default), ``rebind_domain``, ``cachesize`` (150 by default) and ``domain`` are read; a
+        forward to the local port of https-dns-proxy or stubby is shown as the encrypted
+        upstream behind it (:func:`proxy_upstreams`).
         """
         d = self.context.device_id
         uci = await self._uci("dhcp")
@@ -2076,23 +2139,31 @@ class OpenWrtAdapter(Adapter):
         instances = _sections(uci, "dnsmasq")
         # https-dns-proxy (DoH) or stubby (DoT) next to dnsmasq: dnsmasq then forwards to
         # 127.0.0.1#port, which the encryption check does not report (#80)
-        proxy: Any = {}
+        proxy: dict[str, dict[str, Any]] = {}
+        proxies: dict[str, dict[str, Any]] = {}
         for package in ("https-dns-proxy", "stubby"):
             with contextlib.suppress(AdapterError):
-                proxy = proxy or (await self._uci(package)).get("values")
+                proxies[package] = await self._uci(package)
+                proxy = proxy or proxies[package].get("values") or {}
         encrypted = True if proxy else None
+        behind = proxy_upstreams(proxies)
         for name, sec in instances:
             port = _int(sec.get("port", DNS_PORT))
             forwarders: list[DnsForwarder] = []
             for text in _list(sec.get("server")):
-                if text.startswith("/"):
-                    continue  # domain-specific
+                domains, text = _domain_server(text)
+                if not domains:
+                    continue  # /domain/ without a server: answered locally
                 try:
                     fwd = DnsForwarder.model_validate(text.split("@")[0])
                 except ValueError:
                     continue
-                if fwd not in forwarders:
-                    forwarders.append(fwd)
+                for domain in domains:
+                    one = fwd.model_copy(update={"domain": domain})
+                    if (via := behind.get((str(fwd.address), fwd.port))) is not None:
+                        one = one.model_copy(update=via)
+                    if one not in forwarders:
+                        forwarders.append(one)
             listen: list[IPAddress] = []
             for text in _list(sec.get("listen_address")):
                 with contextlib.suppress(ValueError):
@@ -2115,6 +2186,14 @@ class OpenWrtAdapter(Adapter):
                     # ``dnssec``: dnsmasq validates when set (and built with DNSSEC support)
                     dnssec=_flag(sec.get("dnssec")) if "dnssec" in sec else None,
                     supports_encrypted_dns=encrypted,
+                    recursive=False,
+                    # on by default since OpenWrt 8.09 (``stop-dns-rebind``)
+                    rebind_protection=_flag(sec.get("rebind_protection", "1")),
+                    rebind_allowed_domains=[d.lower() for d in _list(sec.get("rebind_domain"))],
+                    cache_size=_int(sec.get("cachesize", 150)),
+                    local_domain=str(sec["domain"]).strip(".").lower()
+                    if sec.get("domain")
+                    else None,
                     host_records=records if len(instances) == 1 else [],
                     vendor_extra=extra,
                 )

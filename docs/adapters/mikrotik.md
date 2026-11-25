@@ -1081,6 +1081,8 @@ flag names of older RouterOS 7 releases (#21).
 
 ## DNS transport and block lists (#182, #80)
 
+Static entries with `type=FWD` (`name` = the domain, `forward-to` = the server; a guess for the field names, #21) are forwarders with `domain` set; `/ip/dns` `cache-size` (kiB) is `cache_size`.
+
 `/ip/dns` `use-doh-server` (RouterOS 7.x; absent on older 7.x releases: plain DNS) marks the
 forwarders as `https` with the host of the URL as `tls_name`. `/ip/dns/adlist` (RouterOS 7.15
 and later; absent before: no block lists) gives the block lists by the host of their URL. Guess

@@ -596,9 +596,15 @@ def sample_data() -> dict[str, Any]:
                     "enabled": "1",
                     "port": "53",
                     "dnssec": "1",
+                    "regdhcpdomain": "lan.example",
                     "active_interface": _opt(
                         {"lan": ("LAN", True), "opt1": ("IoT", True), "opt2": ("Guest", False)}
                     ),
+                },
+                "advanced": {
+                    "msgcachesize": "8",
+                    "privateaddress": "10.0.0.0/8,172.16.0.0/12",
+                    "privatedomain": "corp.example",
                 },
                 "dnsbl": {
                     "enabled": "1",

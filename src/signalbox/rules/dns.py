@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import timedelta
 from ipaddress import ip_address, ip_network
 
 from signalbox.adapters import Capability
@@ -16,8 +17,27 @@ from signalbox.model import (
     IPAddress,
     Network,
 )
-from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
+from signalbox.rules import (
+    Result,
+    Rule,
+    RuleParams,
+    Severity,
+    ctx,
+    found,
+    history_rule,
+    incomplete,
+    param,
+    rule,
+)
 from signalbox.rules._names import device_name, segment_name, site_of_device
+from signalbox.sightings import History
+
+
+def _general(dns: DnsService) -> list[DnsForwarder]:
+    """The upstreams lookups in general go to: those without a domain (#182). An upstream for
+    one domain is where only that domain's names go (split DNS); it is no loop or single point
+    of failure of the resolver as a whole."""
+    return [f for f in dns.forwarders if f.domain is None]
 
 
 def _services(net: Network) -> list[DnsService]:
@@ -313,7 +333,7 @@ def host_record_dynamic(net: Network) -> Iterator[Result]:
 def _edges(idx: _Index) -> dict[str, list[tuple[DnsForwarder, str]]]:
     """Service id -> (forwarder, service id) for each forwarder that is a known DNS service."""
     return {
-        dns.id: [(fwd, t.id) for fwd in dns.forwarders for t in idx.reached(dns, fwd)[0]]
+        dns.id: [(fwd, t.id) for fwd in _general(dns) for t in idx.reached(dns, fwd)[0]]
         for dns in idx.services
     }
 
@@ -396,7 +416,7 @@ def forwarder_loop(net: Network) -> Iterator[Result]:
     for dns in sorted(idx.services, key=lambda d: d.id):
         if dns.id in in_loop or not dns.config_read:
             continue
-        for fwd in dns.forwarders:
+        for fwd in _general(dns):
             hits, unknown = idx.reached(dns, fwd)
             if not unknown:
                 continue
@@ -474,13 +494,14 @@ def forwarder_missing(net: Network) -> Iterator[Result]:
 def _redundant(net: Network, idx: _Index, dns: DnsService, seen: frozenset[str]) -> bool:
     """True if the resolver has more than one upstream, resolves itself or loops (reported
     elsewhere)."""
-    if not dns.config_read or not dns.forwarders or dns.id in seen:
+    general = _general(dns)
+    if not dns.config_read or not general or dns.id in seen:
         return True
-    targets = {idx.forward_target(dns, f) for f in dns.forwarders}
+    targets = {idx.forward_target(dns, f) for f in general}
     if len(targets) > 1:
         return True
     nxt: list[DnsService] = []
-    for f in dns.forwarders:
+    for f in general:
         hits, unknown = idx.reached(dns, f)
         if unknown:
             return True  # the next service's upstreams are not known
@@ -502,9 +523,10 @@ def single_forwarder(net: Network) -> Iterator[Result]:
     for dns in sorted(_services(net), key=lambda d: d.id):
         if _redundant(net, idx, dns, frozenset()):
             continue
-        addresses = ", ".join(str(f) for f in dns.forwarders)
-        target = idx.forward_target(dns, dns.forwarders[0])
-        dev = target if target != str(dns.forwarders[0].address) else None
+        general = _general(dns)
+        addresses = ", ".join(str(f) for f in general)
+        target = idx.forward_target(dns, general[0])
+        dev = target if target != str(general[0].address) else None
         upstream = f"{device_name(net, dev)} ({addresses})" if dev else addresses
         yield found(
             f"{device_name(net, dns.device_id)} forwards DNS only to {upstream}",
@@ -626,6 +648,109 @@ def conflicting_records(net: Network) -> Iterator[Result]:
             )
 
 
+@rule(
+    "dns.dnssec-off",
+    "DNS resolver does not validate DNSSEC",
+    Severity.INFO,
+    "A DNS service that is known not to validate DNSSEC accepts forged answers from an "
+    "upstream or from someone on the path. Validation can break lookups of badly signed zones "
+    "and needs an upstream that passes the signatures on, so this is a hint, not an error. "
+    "Services that were not read, and services where the setting is not known (it is not "
+    "readable on every release), are not reported.",
+)
+def dnssec_off(net: Network) -> Iterator[Result]:
+    for dns in sorted(_services(net), key=lambda d: d.id):
+        if not dns.config_read or dns.dnssec is not False:
+            continue
+        yield found(
+            f"{_label(net, dns)} does not validate DNSSEC",
+            [dns.id],
+            fix="Turn DNSSEC validation on in the resolver, if its upstream passes the "
+            "signatures on.",
+            mid="dns.dnssecOff",
+            fix_id="dns.dnssecOff.fix",
+            params={"device": _label(net, dns)},
+        )
+
+
+@rule(
+    "dns.rebind-protection-off",
+    "DNS rebinding protection is off",
+    Severity.INFO,
+    "A DNS service passes on answers from the internet that point to private addresses "
+    "(10.x, 192.168.x). A malicious website can then make a browser on your network talk to "
+    "devices inside it (DNS rebinding). Split DNS and some services need the protection off "
+    "for single domains: list them as exceptions instead of turning it off. Services where the "
+    "setting is not known are not reported.",
+)
+def rebind_protection_off(net: Network) -> Iterator[Result]:
+    for dns in sorted(_services(net), key=lambda d: d.id):
+        if not dns.config_read or dns.rebind_protection is not False:
+            continue
+        yield found(
+            f"{_label(net, dns)} does not protect against DNS rebinding",
+            [dns.id],
+            fix="Turn the rebinding protection on and list the domains that need private "
+            "answers as exceptions.",
+            mid="dns.rebindOff",
+            fix_id="dns.rebindOff.fix",
+            params={"device": _label(net, dns)},
+        )
+
+
+#: A block list that was not downloaded for this long is stale (#182).
+BLOCKLIST_STALE_DAYS = 14
+
+
+class BlocklistStaleParams(RuleParams):
+    days: int = param(
+        BLOCKLIST_STALE_DAYS,
+        unit="d",
+        ge=1,
+        le=3650,
+        description="Days since the block list was last downloaded.",
+    )
+
+
+@history_rule(
+    "dns.blocklist-stale",
+    "Block list was not updated for a long time",
+    Severity.INFO,
+    "An enabled block list of a DNS service (Pi-hole, AdGuard Home) was last downloaded longer "
+    f"ago than the parameter days ({BLOCKLIST_STALE_DAYS} by default). New ad and malware "
+    "domains are then not blocked, usually because the download fails (the list moved or was "
+    "taken down). Quiet when the service does not say when a list was updated, and without the "
+    "observation clock.",
+    params=BlocklistStaleParams,
+)
+def blocklist_stale(net: Network, history: History) -> Iterator[Result]:
+    now = history.now
+    if now is None:
+        return
+    for dns in sorted(_services(net), key=lambda d: d.id):
+        days = ctx.params(BlocklistStaleParams, dns).days
+        for lst in dns.blocklists:
+            if not lst.enabled or lst.updated is None or lst.updated > now - timedelta(days=days):
+                continue
+            age = (now - lst.updated).days
+            yield found(
+                f"The block list {lst.name} on {device_name(net, dns.device_id)} was not updated "
+                f"for {age} days",
+                [dns.id],
+                fix="Update the lists (Pi-hole: pihole -g; AdGuard Home: Update lists) and "
+                "check the error if the download fails; remove the list if it is gone.",
+                key=lst.name,
+                mid="dns.blocklistStale",
+                fix_id="dns.blocklistStale.fix",
+                params={
+                    "name": lst.name,
+                    "device": device_name(net, dns.device_id),
+                    "age": age,
+                    "days": days,
+                },
+            )
+
+
 RULES: list[Rule] = [
     host_record_reservation,
     host_record_stale,
@@ -635,4 +760,7 @@ RULES: list[Rule] = [
     single_forwarder,
     forwarder_encrypted,
     conflicting_records,
+    dnssec_off,
+    rebind_protection_off,
+    blocklist_stale,
 ]

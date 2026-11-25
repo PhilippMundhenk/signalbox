@@ -67,6 +67,19 @@ def _adguard_data() -> dict[str, Any]:
             "bootstrap_dns": ["203.0.113.9"],
             "upstream_mode": "load_balance",
             "protection_enabled": True,
+            "cache_size": 4194304,
+        },
+        "/control/filtering/status": {
+            "enabled": True,
+            "filters": [
+                {
+                    "name": "AdGuard DNS filter",
+                    "url": "https://lists.example.net/filter.txt?token=redacted",
+                    "enabled": True,
+                    "rules_count": 52000,
+                    "last_updated": "2030-01-01T04:00:00Z",
+                }
+            ],
         },
         "/control/dhcp/status": {
             "interface_name": "eth0",
@@ -176,6 +189,7 @@ def _pihole_data() -> dict[str, Any]:
                     "interface": "eth0",
                     "listeningMode": "LOCAL",
                     "port": 53,
+                    "cache": {"size": 10000},
                     "domain": {"name": "lan", "local": True},
                     "hosts": ["192.0.2.10 printer.lan printer", "192.0.2.11 cam.lan # camera"],
                     "revServers": ["true,192.0.2.0/24,192.0.2.1,lan", "false,198.51.100.0/24,x,y"],
@@ -194,6 +208,18 @@ def _pihole_data() -> dict[str, Any]:
                 "misc": {"dnsmasq_lines": ["dhcp-authoritative"]},
             },
             "took": 0.002,
+        },
+        "/api/lists": {
+            "lists": [
+                {
+                    "address": "https://lists.example.net/hosts.txt",
+                    "type": "block",
+                    "enabled": True,
+                    "number": 120000,
+                    "date_updated": 1893456000,
+                }
+            ],
+            "took": 0.001,
         },
         "/api/network/devices": {
             "devices": [
@@ -279,6 +305,12 @@ def _pihole_v5_data() -> dict[str, Any]:
             },
             "forwarded_queries": 100,
         },
+        "getAllQueries": {
+            "data": [
+                [str(1893490000 + i), "A", f"host{i}.example.net", "laptop", "2", "SECURE"]
+                for i in range(25)
+            ]
+        },
         "network": {
             "network": [
                 {
@@ -355,6 +387,8 @@ class PiholeSim:
             for key in ("versions", "status"):
                 if key in query:
                     return JSONResponse(copy.deepcopy(self.v5_data[key]))
+            if "getAllQueries" in query and authed:
+                return JSONResponse(copy.deepcopy(self.v5_data["getAllQueries"]))
             if "getForwardDestinations" in query and authed:
                 return JSONResponse(copy.deepcopy(self.v5_data["getForwardDestinations"]))
         if path == "/admin/api_db.php" and "network" in query and authed:

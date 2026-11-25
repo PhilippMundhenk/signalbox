@@ -66,8 +66,10 @@ Mapping to the model:
   `tcp://`, `quic://`, `h3://`) is a forwarder with its port. Upstreams given by **name** are
   listed in `vendor_extra.named_upstreams` as `scheme://host` (never the path, it can hold a
   token) and `sdns://` stamps as `sdns://`; Signalbox cannot match them with a device.
-  `[/example.lan/]192.0.2.1` (one domain only) is `vendor_extra.domain_forwards`, not a
-  forwarder. Whether filtering is on is `vendor_extra.filtering_enabled`.
+  `[/example.lan/]192.0.2.1` (one domain only) is a forwarder with `domain` set (#182), one per
+  domain; such an upstream given by name is `vendor_extra.named_domain_forwards`. Block lists
+  (`/control/filtering/status`) carry `last_updated` as `updated`; `cache_size` is `dns_info.cache_size`
+  (bytes). Whether filtering is on is `vendor_extra.filtering_enabled`.
 - **Host records**: DNS rewrites whose answer is an IP address (wildcards and CNAME answers
   are skipped).
 - **DHCP** (only when `enabled`): one server `<device>/dhcp/adguardhome` with the IPv4 range,

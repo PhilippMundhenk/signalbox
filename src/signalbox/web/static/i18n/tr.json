@@ -3267,5 +3267,17 @@
  "msg.poe.requestOff": "{where}: Cihaz {requested} W istiyor ancak portta PoE kapalı.",
  "msg.poe.requestOff.fix": "Portta PoE'yi açın veya cihazı başka bir yolla besleyin.",
  "msg.poe.requestLimit": "{where}: Cihaz {requested} W istiyor ancak port en fazla {limit} W veriyor.",
- "msg.poe.requestLimit.fix": "Portun PoE sınırını yükseltin veya cihazı daha yüksek PoE sınıfına sahip bir porta veya anahtara taşıyın."
+ "msg.poe.requestLimit.fix": "Portun PoE sınırını yükseltin veya cihazı daha yüksek PoE sınıfına sahip bir porta veya anahtara taşıyın.",
+ "msg.dns.dnssecOff": "{device} DNSSEC doğrulamıyor",
+ "msg.dns.dnssecOff.fix": "Üst sunucusu imzaları iletiyorsa çözümleyicide DNSSEC doğrulamasını açın.",
+ "msg.dns.rebindOff": "{device} DNS rebinding'e karşı korumuyor",
+ "msg.dns.rebindOff.fix": "Rebinding korumasını açın ve özel yanıt gerektiren alan adlarını istisna olarak listeleyin.",
+ "msg.dns.blocklistStale": "{device} üzerindeki {name} engelleme listesi {age} gündür güncellenmedi",
+ "msg.dns.blocklistStale.fix": "Listeleri güncelleyin (Pi-hole: pihole -g; AdGuard Home: Listeleri güncelle) ve indirme başarısızsa hatayı kontrol edin; liste artık yoksa kaldırın.",
+ "rule.dns.dnssec-off.title": "DNS çözümleyici DNSSEC doğrulamıyor",
+ "rule.dns.dnssec-off.explanation": "DNSSEC doğrulamadığı bilinen bir DNS hizmeti, üst sunucudan veya yoldaki birinden gelen sahte yanıtları kabul eder. Doğrulama kötü imzalanmış bölgelerin sorgularını bozabilir ve imzaları ileten bir üst sunucu gerektirir; bu yüzden bu bir ipucudur, hata değil. Okunmayan hizmetler ve ayarı bilinmeyen hizmetler (her sürümde okunamaz) bildirilmez.",
+ "rule.dns.rebind-protection-off.title": "DNS rebinding koruması kapalı",
+ "rule.dns.rebind-protection-off.explanation": "Bir DNS hizmeti, internetten gelen ve özel adreslere (10.x, 192.168.x) işaret eden yanıtları iletir. Kötü niyetli bir web sitesi ağınızdaki bir tarayıcının içerideki cihazlarla konuşmasını sağlayabilir (DNS rebinding). Bölünmüş DNS ve bazı hizmetler tek tek alan adları için korumanın kapalı olmasını gerektirir: korumayı kapatmak yerine bunları istisna olarak listeleyin. Ayarı bilinmeyen hizmetler bildirilmez.",
+ "rule.dns.blocklist-stale.title": "Engelleme listesi uzun süredir güncellenmedi",
+ "rule.dns.blocklist-stale.explanation": "Bir DNS hizmetinin (Pi-hole, AdGuard Home) etkin bir engelleme listesi en son days parametresinden (varsayılan 14) daha uzun süre önce indirildi. Yeni reklam ve zararlı yazılım alan adları engellenmez; genellikle indirme başarısız olduğu için (liste taşındı veya kaldırıldı). Hizmet bir listenin ne zaman güncellendiğini söylemiyorsa ve gözlem saati yoksa sessizdir."
 }

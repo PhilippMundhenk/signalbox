@@ -239,6 +239,53 @@
         }
       }
     },
+    "dns.blocklist-stale": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/dns.blocklist-stale"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/dns.blocklist-stale"
+              }
+            }
+          }
+        }
+      }
+    },
     "health.storage-full": {
       "type": "object",
       "additionalProperties": false,
@@ -863,6 +910,22 @@
         }
       },
       "title": "dhcp.pool-usage",
+      "type": "object"
+    },
+    "dns.blocklist-stale": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "default": 14,
+          "description": "Days since the block list was last downloaded.",
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Days",
+          "type": "integer",
+          "unit": "d"
+        }
+      },
+      "title": "dns.blocklist-stale",
       "type": "object"
     },
     "health.storage-full": {

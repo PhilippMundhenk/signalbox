@@ -413,6 +413,7 @@ def default_sections() -> dict[str, str]:
             }
         ),
         "resolv": _files({"/etc/resolv.conf": "nameserver 127.0.0.1\nsearch home.example\n"}),
+        "resolved": "",
         # rsyslog as Debian ships it, plus a forward to the collector in the LAN (#180)
         "syslog": _files(
             {

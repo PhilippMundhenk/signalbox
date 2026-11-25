@@ -3267,5 +3267,17 @@
  "msg.poe.requestOff": "{where}: Das Gerät fordert {requested} W an, aber PoE ist am Port ausgeschaltet.",
  "msg.poe.requestOff.fix": "Schalten Sie PoE am Port ein oder versorgen Sie das Gerät anders mit Strom.",
  "msg.poe.requestLimit": "{where}: Das Gerät fordert {requested} W an, der Port liefert aber höchstens {limit} W.",
- "msg.poe.requestLimit.fix": "Erhöhen Sie das PoE-Limit des Ports oder schließen Sie das Gerät an einen Port oder Switch mit höherer PoE-Klasse an."
+ "msg.poe.requestLimit.fix": "Erhöhen Sie das PoE-Limit des Ports oder schließen Sie das Gerät an einen Port oder Switch mit höherer PoE-Klasse an.",
+ "msg.dns.dnssecOff": "{device} prüft DNSSEC nicht",
+ "msg.dns.dnssecOff.fix": "Schalten Sie die DNSSEC-Prüfung im Resolver ein, wenn der Upstream die Signaturen weitergibt.",
+ "msg.dns.rebindOff": "{device} schützt nicht vor DNS-Rebinding",
+ "msg.dns.rebindOff.fix": "Schalten Sie den Rebinding-Schutz ein und tragen Sie die Domains, die private Antworten brauchen, als Ausnahmen ein.",
+ "msg.dns.blocklistStale": "Die Blockliste {name} auf {device} wurde seit {age} Tagen nicht aktualisiert",
+ "msg.dns.blocklistStale.fix": "Aktualisieren Sie die Listen (Pi-hole: pihole -g; AdGuard Home: Listen aktualisieren) und prüfen Sie den Fehler, wenn der Download scheitert; entfernen Sie die Liste, wenn es sie nicht mehr gibt.",
+ "rule.dns.dnssec-off.title": "DNS-Resolver prüft DNSSEC nicht",
+ "rule.dns.dnssec-off.explanation": "Ein DNS-Dienst, der bekanntermaßen DNSSEC nicht prüft, akzeptiert gefälschte Antworten eines Upstreams oder von jemandem auf dem Weg. Die Prüfung kann Abfragen schlecht signierter Zonen stören und braucht einen Upstream, der die Signaturen weitergibt; daher ist dies ein Hinweis, kein Fehler. Dienste, die nicht gelesen wurden, und Dienste, bei denen die Einstellung nicht bekannt ist (nicht in jeder Version lesbar), werden nicht gemeldet.",
+ "rule.dns.rebind-protection-off.title": "DNS-Rebinding-Schutz ist aus",
+ "rule.dns.rebind-protection-off.explanation": "Ein DNS-Dienst reicht Antworten aus dem Internet weiter, die auf private Adressen zeigen (10.x, 192.168.x). Eine bösartige Webseite kann dann einen Browser in Ihrem Netz mit Geräten darin sprechen lassen (DNS-Rebinding). Split-DNS und manche Dienste brauchen den Schutz aus für einzelne Domains: tragen Sie diese als Ausnahmen ein, statt ihn abzuschalten. Dienste, bei denen die Einstellung nicht bekannt ist, werden nicht gemeldet.",
+ "rule.dns.blocklist-stale.title": "Blockliste seit langer Zeit nicht aktualisiert",
+ "rule.dns.blocklist-stale.explanation": "Eine eingeschaltete Blockliste eines DNS-Dienstes (Pi-hole, AdGuard Home) wurde zuletzt vor mehr als dem Parameter days (standardmäßig 14) Tagen geladen. Neue Werbe- und Schadsoftware-Domains werden dann nicht blockiert, meist weil der Download scheitert (die Liste ist umgezogen oder abgeschaltet). Still, wenn der Dienst nicht sagt, wann eine Liste aktualisiert wurde, und ohne Beobachtungsuhr."
 }

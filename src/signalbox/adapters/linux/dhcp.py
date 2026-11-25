@@ -170,6 +170,15 @@ class Dnsmasq:
     no_resolv: bool = False
     hosts: list[HostRecord] = field(default_factory=list)
     authoritative: bool = False
+    #: ``server=/corp.example/192.0.2.53``: (domain, server) pairs (#182)
+    domain_servers: list[tuple[str, str]] = field(default_factory=list)
+    #: ``stop-dns-rebind`` (#182) and the ``rebind-domain-ok`` domains
+    stop_rebind: bool = False
+    rebind_ok: list[str] = field(default_factory=list)
+    #: ``cache-size`` (dnsmasq's own default is 150); None: not set
+    cache_size: int | None = None
+    #: ``domain=``: the local domain of the first (unscoped) line
+    domain: str | None = None
     #: some configuration at all (dnsmasq installed and configured)
     configured: bool = False
 
@@ -203,12 +212,26 @@ def parse_dnsmasq(files: dict[str, str]) -> Dnsmasq:
             out.interfaces += items
         elif key == "server" and value and not value.startswith("/"):
             out.servers.append(value.split("@")[0])
+        elif key == "server" and value.count("/") >= 2:
+            *names, server = value.strip()[1:].split("/")
+            if server.strip():
+                out.domain_servers += [
+                    (n.lower(), server.split("@")[0].strip()) for n in names if n and n != "#"
+                ]
+        elif key == "stop-dns-rebind":
+            out.stop_rebind = True
+        elif key == "rebind-domain-ok" and value:
+            out.rebind_ok += [d.strip("/").lower() for d in value.split(",") if d.strip("/")]
+        elif key == "cache-size" and value.isdigit():
+            out.cache_size = int(value)
         elif key == "no-resolv":
             out.no_resolv = True
         elif key == "dhcp-authoritative":
             out.authoritative = True
         elif key == "domain" and items:
             domain = items[0]
+            if out.domain is None and len(items) == 1:
+                out.domain = items[0].lower()
         elif key == "host-record" and items:
             names = [i for i in items if not _addresses([i])]
             for a in _addresses(items):

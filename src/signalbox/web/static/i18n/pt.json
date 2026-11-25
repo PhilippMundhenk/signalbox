@@ -3267,5 +3267,17 @@
  "msg.poe.requestOff": "{where}: o dispositivo pede {requested} W mas o PoE está desligado na porta.",
  "msg.poe.requestOff.fix": "Ligue o PoE na porta ou alimente o dispositivo de outra forma.",
  "msg.poe.requestLimit": "{where}: o dispositivo pede {requested} W mas a porta dá no máximo {limit} W.",
- "msg.poe.requestLimit.fix": "Aumente o limite PoE da porta ou mude o dispositivo para uma porta ou switch com classe PoE superior."
+ "msg.poe.requestLimit.fix": "Aumente o limite PoE da porta ou mude o dispositivo para uma porta ou switch com classe PoE superior.",
+ "msg.dns.dnssecOff": "{device} não valida DNSSEC",
+ "msg.dns.dnssecOff.fix": "Ative a validação DNSSEC no resolvedor, se o seu servidor superior repassar as assinaturas.",
+ "msg.dns.rebindOff": "{device} não protege contra DNS rebinding",
+ "msg.dns.rebindOff.fix": "Ative a proteção contra rebinding e liste como exceções os domínios que precisam de respostas privadas.",
+ "msg.dns.blocklistStale": "A lista de bloqueio {name} em {device} não é atualizada há {age} dias",
+ "msg.dns.blocklistStale.fix": "Atualize as listas (Pi-hole: pihole -g; AdGuard Home: Atualizar listas) e verifique o erro se o download falhar; remova a lista se ela não existir mais.",
+ "rule.dns.dnssec-off.title": "O resolvedor DNS não valida DNSSEC",
+ "rule.dns.dnssec-off.explanation": "Um serviço DNS que não valida DNSSEC aceita respostas forjadas de um servidor superior ou de alguém no caminho. A validação pode quebrar consultas de zonas mal assinadas e exige um servidor superior que repasse as assinaturas: é uma dica, não um erro. Serviços não lidos e serviços cuja configuração não é conhecida (não legível em todas as versões) não são relatados.",
+ "rule.dns.rebind-protection-off.title": "A proteção contra DNS rebinding está desativada",
+ "rule.dns.rebind-protection-off.explanation": "Um serviço DNS repassa respostas da internet que apontam para endereços privados (10.x, 192.168.x). Um site malicioso pode então fazer um navegador da sua rede falar com dispositivos internos (DNS rebinding). DNS dividido e alguns serviços precisam da proteção desativada para domínios específicos: liste-os como exceções em vez de desativá-la. Serviços cuja configuração não é conhecida não são relatados.",
+ "rule.dns.blocklist-stale.title": "Lista de bloqueio não atualizada há muito tempo",
+ "rule.dns.blocklist-stale.explanation": "Uma lista de bloqueio ativada de um serviço DNS (Pi-hole, AdGuard Home) foi baixada pela última vez há mais tempo que o parâmetro days (14 por padrão). Novos domínios de anúncios e malware não são bloqueados, geralmente porque o download falha (a lista mudou ou foi retirada). Silencioso se o serviço não informa quando uma lista foi atualizada e sem relógio de observação."
 }

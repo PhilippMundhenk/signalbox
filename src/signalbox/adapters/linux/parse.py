@@ -583,6 +583,28 @@ def resolvers(answer: Answer) -> list[IPAddress]:
     return out
 
 
+def resolved_conf(files: dict[str, str]) -> dict[str, str]:
+    """The ``[Resolve]`` settings of systemd-resolved (#182), keys in lower case.
+
+    ``resolved.conf`` first, then the drop-ins in the order given: a later assignment replaces
+    an earlier one, an empty one clears it. Other sections are ignored.
+    """
+    out: dict[str, str] = {}
+    for text in files.values():
+        section = ""
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith(("#", ";")):
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1].strip().lower()
+                continue
+            key, sep, value = line.partition("=")
+            if section == "resolve" and sep:
+                out[key.strip().lower()] = value.strip()
+    return out
+
+
 def network_of(addresses: list[IPInterface], address: IPAddress) -> IPInterface | None:
     """The interface address whose network contains *address*."""
     for a in addresses:

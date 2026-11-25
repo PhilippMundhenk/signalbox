@@ -47,6 +47,7 @@ UNITS = (
     "kea-dhcp4-server",
     "isc-dhcp-server",
     "systemd-networkd",
+    "systemd-resolved",
     "AdGuardHome",
     "pihole-FTL",
     "unbound",
@@ -136,6 +137,8 @@ for p in /opt/AdGuardHome /etc/pihole /etc/unbound/unbound.conf; do [ -e "$p" ] 
 echo @@listen; ss -Hltun 2>/dev/null
 echo @@sshd; show /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf
 echo @@resolv; show /etc/resolv.conf
+echo @@resolved; show /etc/systemd/resolved.conf /etc/systemd/resolved.conf.d/*.conf \
+  /run/systemd/resolved.conf.d/*.conf
 echo @@syslog; show /etc/rsyslog.conf /etc/rsyslog.d/*.conf \
   /etc/syslog-ng/syslog-ng.conf /etc/syslog-ng/conf.d/*.conf
 echo @@dnsmasq; show /etc/dnsmasq.conf /etc/dnsmasq.d/*.conf

@@ -638,6 +638,10 @@ def _dnsbl(root: dict[str, Any]) -> list[Blocklist]:
     return out
 
 
+def _csv(value: Any) -> list[str]:
+    return [x.strip() for x in re.split(r"[,\s]+", _text(value)) if x.strip()]
+
+
 def _addr(value: Any) -> IPAddress | None:
     text = _text(value).split("%")[0]
     try:
@@ -2157,7 +2161,6 @@ class OpnsenseAdapter(_Adapter):
         active = _selected(general.get("active_interface"))
         listen_on = [i for i in layout.ifaces if not active or i.identifier in active]
         forwarders: list[DnsForwarder] = []
-        domain_forwards: dict[str, str] = {}
         for _, f in _items(_sub(root, "dots").get("dot")):
             server = _addr(f.get("server"))
             if not _flag(f.get("enabled")) or server is None:
@@ -2171,11 +2174,9 @@ class OpnsenseAdapter(_Adapter):
                 transport=DnsTransport.TLS if tls else DnsTransport.UDP,
                 # ``verify``: the name the certificate is checked against (20.7 and later)
                 tls_name=(_text(f.get("verify")) or None) if tls else None,
+                domain=_text(f.get("domain")) or None,
             )
-            domain = _text(f.get("domain"))
-            if domain:
-                domain_forwards[domain] = str(fwd)
-            elif fwd not in forwarders:
+            if fwd not in forwarders:
                 forwarders.append(fwd)
         records, gaps, read = await self._unbound_records(root, general, layout)
         try:
@@ -2183,13 +2184,17 @@ class OpnsenseAdapter(_Adapter):
                 server, domain = _addr(row.get("server")), _text(row.get("domain"))
                 if server is not None and domain and _flag(row.get("enabled", "1")):
                     port = _port(row.get("port"))
-                    fwd = DnsForwarder(address=server, port=port or DNS_PORT)
-                    domain_forwards.setdefault(domain, str(fwd))
+                    fwd = DnsForwarder(address=server, port=port or DNS_PORT, domain=domain)
+                    # a domain already forwarded by a DoT entry keeps that entry
+                    if not any(f.domain == domain for f in forwarders):
+                        forwarders.append(fwd)
         except AdapterError as exc:
             # no such grid on this release (26.7 answers 200 with an empty body; the forwards are
             # in the general settings): optional extra, never a gap
             log.debug("%s: no domain override grid: %s", dev, exc)
-        extra: dict[str, Any] = {"domain_forwards": domain_forwards} if domain_forwards else {}
+        advanced = _sub(root, "advanced")
+        private = _text(advanced.get("privateaddress"))
+        regdhcp, regstatic = _flag(general.get("regdhcp")), _flag(general.get("regdhcpstatic"))
         services = [
             DnsService(
                 id=object_id(dev, "dns", "unbound"),
@@ -2204,7 +2209,21 @@ class OpnsenseAdapter(_Adapter):
                 dnssec=_flag(general.get("dnssec")) if "dnssec" in general else None,
                 blocklists=_dnsbl(root),
                 supports_encrypted_dns=True,
-                vendor_extra=extra,
+                # Unbound resolves itself unless something is forwarded; ``forwarding`` is the
+                # "use system nameservers" switch (guess for the setting name, #21)
+                recursive=not any(f.domain is None for f in forwarders)
+                and not _flag(general.get("forwarding")),
+                # the "Private Addresses" are the networks whose answers Unbound drops (guess
+                # for ``advanced.privateaddress`` / ``privatedomain`` / ``msgcachesize``, #21)
+                rebind_protection=True if private else None,
+                rebind_allowed_domains=_csv(advanced.get("privatedomain")) if private else [],
+                cache_size=_int(advanced.get("msgcachesize"))
+                if "msgcachesize" in advanced
+                else None,
+                register_dhcp=regdhcp if "regdhcp" in general else None,
+                dynamic_records=(regdhcp or regstatic) if "regdhcp" in general else None,
+                local_domain=_text(general.get("regdhcpdomain")) or None,
+                listen_segments=sorted({i.segment for i in listen_on if i.segment}),
             )
         ]
         if (dnsmasq := await self._dnsmasq(layout)) is not None:

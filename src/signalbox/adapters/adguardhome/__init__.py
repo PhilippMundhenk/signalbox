@@ -240,6 +240,7 @@ class AdGuardHomeAdapter(Adapter):
                             name=name,
                             entries=rules if isinstance(rules, int) else None,
                             enabled=bool(row.get("enabled", True)),
+                            updated=dnsmap.iso_time(row.get("last_updated")),
                         )
                     )
         except (Unreachable, AuthFailed):
@@ -269,6 +270,10 @@ class AdGuardHomeAdapter(Adapter):
             dnssec=dnssec,
             blocklists=blocklists,
             encrypted=True,
+            # ``cache_size`` in bytes (0 with ``cache_enabled`` false)
+            settings={"cache_size": cache}
+            if isinstance(cache := info.get("cache_size"), int) and not isinstance(cache, bool)
+            else None,
         )
         return Observation(dns_services=[service], incomplete=gaps)
 

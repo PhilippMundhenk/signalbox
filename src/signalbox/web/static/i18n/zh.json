@@ -3267,5 +3267,17 @@
  "msg.poe.requestOff": "{where}:设备请求 {requested} W,但端口上的 PoE 已关闭。",
  "msg.poe.requestOff.fix": "在端口上开启 PoE,或用其他方式给设备供电。",
  "msg.poe.requestLimit": "{where}:设备请求 {requested} W,但端口最多提供 {limit} W。",
- "msg.poe.requestLimit.fix": "提高端口的 PoE 限额,或将设备移到 PoE 等级更高的端口或交换机。"
+ "msg.poe.requestLimit.fix": "提高端口的 PoE 限额,或将设备移到 PoE 等级更高的端口或交换机。",
+ "msg.dns.dnssecOff": "{device} 不验证 DNSSEC",
+ "msg.dns.dnssecOff.fix": "如果上游会传递签名，请在解析器中开启 DNSSEC 验证。",
+ "msg.dns.rebindOff": "{device} 不防御 DNS 重绑定",
+ "msg.dns.rebindOff.fix": "开启重绑定防护，并把需要私有地址应答的域名列为例外。",
+ "msg.dns.blocklistStale": "{device} 上的屏蔽列表 {name} 已 {age} 天未更新",
+ "msg.dns.blocklistStale.fix": "更新列表（Pi-hole：pihole -g；AdGuard Home：更新列表），下载失败时检查错误；列表已不存在时请删除。",
+ "rule.dns.dnssec-off.title": "DNS 解析器不验证 DNSSEC",
+ "rule.dns.dnssec-off.explanation": "已知不验证 DNSSEC 的 DNS 服务会接受来自上游或路径上他人的伪造应答。验证可能使签名有问题的区域无法解析，并且需要传递签名的上游，所以这只是提示而非错误。未读取的服务以及设置未知的服务（并非所有版本都能读取）不会报告。",
+ "rule.dns.rebind-protection-off.title": "DNS 重绑定防护已关闭",
+ "rule.dns.rebind-protection-off.explanation": "DNS 服务会转发来自互联网、指向私有地址（10.x、192.168.x）的应答。恶意网站可借此让您网络中的浏览器访问内部设备（DNS 重绑定）。分流 DNS 和某些服务需要对个别域名关闭防护：请将它们列为例外，而不是整体关闭。设置未知的服务不会报告。",
+ "rule.dns.blocklist-stale.title": "屏蔽列表长时间未更新",
+ "rule.dns.blocklist-stale.explanation": "DNS 服务（Pi-hole、AdGuard Home）中已启用的屏蔽列表，上次下载距今超过参数 days（默认 14）。新的广告和恶意软件域名将不会被屏蔽，通常是因为下载失败（列表已迁移或下线）。服务未说明列表更新时间，或没有观测时钟时，不会报告。"
 }

@@ -1592,3 +1592,19 @@ async def test_config_state_and_backups(snap: Snapshot) -> None:
     assert d.local_backups.newest == datetime(2026, 11, 18, 9, 0, tzinfo=UTC)
     assert d.firmware is not None and d.firmware.channel is not None
     assert d.firmware.channel.value == "stable"
+
+
+async def test_dns_forward_entries_are_domain_upstreams(
+    http_url: str, sim: MikrotikSimulator
+) -> None:
+    """#182: static ``type=FWD`` entries send one domain to another server."""
+    sim.data[DNS_STATIC] += [
+        {"name": "Corp.Example", "type": "FWD", "forward-to": "192.0.2.53", "disabled": "false"},
+        {"name": "off.example", "type": "FWD", "forward-to": "192.0.2.54", "disabled": "true"},
+        {"name": "bad.example", "type": "FWD", "forward-to": "nonsense", "disabled": "false"},
+    ]
+    (dns,) = (await observe(adapter(http_url))).dns_services
+    (split,) = [f for f in dns.forwarders if f.domain is not None]
+    assert (split.domain, str(split.address)) == ("corp.example", "192.0.2.53")
+    assert [str(f) for f in dns.forwarders if f.domain is None] == ["192.0.2.53", "2001:db8:53::53"]
+    assert dns.cache_size == 2048 and dns.recursive is False

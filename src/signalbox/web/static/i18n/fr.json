@@ -3267,5 +3267,17 @@
  "msg.poe.requestOff": "{where} : l'appareil demande {requested} W mais le PoE est désactivé sur le port.",
  "msg.poe.requestOff.fix": "Activez le PoE sur le port ou alimentez l'appareil autrement.",
  "msg.poe.requestLimit": "{where} : l'appareil demande {requested} W mais le port fournit au plus {limit} W.",
- "msg.poe.requestLimit.fix": "Augmentez la limite PoE du port ou déplacez l'appareil vers un port ou un commutateur de classe PoE supérieure."
+ "msg.poe.requestLimit.fix": "Augmentez la limite PoE du port ou déplacez l'appareil vers un port ou un commutateur de classe PoE supérieure.",
+ "msg.dns.dnssecOff": "{device} ne valide pas DNSSEC",
+ "msg.dns.dnssecOff.fix": "Activez la validation DNSSEC dans le résolveur, si son amont transmet les signatures.",
+ "msg.dns.rebindOff": "{device} ne protège pas contre le DNS rebinding",
+ "msg.dns.rebindOff.fix": "Activez la protection contre le rebinding et listez comme exceptions les domaines qui ont besoin de réponses privées.",
+ "msg.dns.blocklistStale": "La liste de blocage {name} sur {device} n'a pas été mise à jour depuis {age} jours",
+ "msg.dns.blocklistStale.fix": "Mettez à jour les listes (Pi-hole : pihole -g ; AdGuard Home : Mettre à jour les listes) et vérifiez l'erreur si le téléchargement échoue ; supprimez la liste si elle n'existe plus.",
+ "rule.dns.dnssec-off.title": "Le résolveur DNS ne valide pas DNSSEC",
+ "rule.dns.dnssec-off.explanation": "Un service DNS connu pour ne pas valider DNSSEC accepte des réponses falsifiées d'un amont ou de quelqu'un sur le chemin. La validation peut casser la résolution de zones mal signées et exige un amont qui transmet les signatures : c'est une indication, pas une erreur. Les services non lus et ceux dont le réglage est inconnu (non lisible dans toutes les versions) ne sont pas signalés.",
+ "rule.dns.rebind-protection-off.title": "La protection contre le DNS rebinding est désactivée",
+ "rule.dns.rebind-protection-off.explanation": "Un service DNS transmet des réponses d'Internet qui pointent vers des adresses privées (10.x, 192.168.x). Un site malveillant peut alors faire dialoguer un navigateur de votre réseau avec des appareils internes (DNS rebinding). Le DNS séparé et certains services exigent la protection désactivée pour certains domaines : listez-les comme exceptions au lieu de la désactiver. Les services dont le réglage est inconnu ne sont pas signalés.",
+ "rule.dns.blocklist-stale.title": "Liste de blocage non mise à jour depuis longtemps",
+ "rule.dns.blocklist-stale.explanation": "Une liste de blocage activée d'un service DNS (Pi-hole, AdGuard Home) a été téléchargée pour la dernière fois il y a plus que le paramètre days (14 par défaut). Les nouveaux domaines de publicité et de logiciels malveillants ne sont alors pas bloqués, le plus souvent parce que le téléchargement échoue (liste déplacée ou retirée). Silencieux si le service n'indique pas la date de mise à jour et sans horloge d'observation."
 }

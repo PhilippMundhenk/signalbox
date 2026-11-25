@@ -41,6 +41,7 @@ from signalbox.adapters import (
     UntrustedCertificate,
     UntrustedHostKey,
     bonding,
+    dnsmap,
     known_interfaces,
 )
 from signalbox.adapters.linux import (
@@ -76,6 +77,7 @@ from signalbox.model import (
     DhcpServer,
     DnsForwarder,
     DnsService,
+    DnsTransport,
     FdbEntry,
     FdbKind,
     Firewall,
@@ -1026,6 +1028,11 @@ class LinuxAdapter(Adapter):
                     fwd = DnsForwarder.model_validate(text)
                     if fwd not in forwarders:
                         forwarders.append(fwd)
+            for domain, server in masq.domain_servers:
+                with contextlib.suppress(ValueError):
+                    fwd = DnsForwarder.model_validate(server).model_copy(update={"domain": domain})
+                    if fwd not in forwarders:
+                        forwarders.append(fwd)
             if not masq.no_resolv:
                 forwarders += [
                     DnsForwarder(address=x)
@@ -1042,8 +1049,14 @@ class LinuxAdapter(Adapter):
                     port=masq.port,
                     forwarders=forwarders,
                     host_records=masq.hosts,
+                    recursive=False,
+                    rebind_protection=masq.stop_rebind,
+                    rebind_allowed_domains=masq.rebind_ok,
+                    cache_size=masq.cache_size,
+                    local_domain=masq.domain,
                 )
             )
+        out += self._resolved(a, active)
         for name, unit, path in (
             ("adguardhome", "AdGuardHome", "/opt/AdGuardHome"),
             ("pihole", "pihole-FTL", "/etc/pihole"),
@@ -1060,6 +1073,63 @@ class LinuxAdapter(Adapter):
                     )
                 )
         return Observation(dns_services=out)
+
+    def _resolved(self, a: Answer, active: set[str]) -> list[DnsService]:
+        """systemd-resolved (#182): ``[Resolve]`` of ``resolved.conf`` and its drop-ins.
+
+        ``DNS=`` lists the global upstreams (``192.0.2.1``, ``192.0.2.1#dns.example`` with a
+        server name, ``192.0.2.1:853#name`` with a port; v246/v247 and later), ``DNSOverTLS=yes``
+        sends them over TLS (v239 and later; ``opportunistic`` tries and falls back to plain
+        text, so the upstream stays plain), ``DNSSEC=yes`` or ``allow-downgrade`` validates.
+        Upstreams that come from the links (DHCP, networkd) are not read: without ``DNS=`` the
+        service counts as not read. Quiet when resolved does not run.
+        """
+        if "systemd-resolved" not in active:
+            return []
+        conf = parse.resolved_conf(a.files("resolved"))
+        forwarders: list[DnsForwarder] = []
+        tls = conf.get("dnsovertls", "").lower() in ("yes", "true", "1", "on")
+        for item in conf.get("dns", "").split():
+            host, _, name = item.partition("#")
+            host, port = dnsmap.host_port(host)
+            try:
+                fwd = DnsForwarder(
+                    address=ip_address(host),
+                    port=port or (853 if tls else 53),
+                    transport=DnsTransport.TLS if tls else DnsTransport.UDP,
+                    tls_name=(name or None) if tls else None,
+                )
+            except ValueError:
+                continue
+            if fwd not in forwarders:
+                forwarders.append(fwd)
+        dnssec = conf.get("dnssec", "").lower()
+        extra: dict[str, Any] = {}
+        if conf.get("dnsovertls", "").lower() == "opportunistic":
+            extra["dns_over_tls"] = "opportunistic"
+        if dnssec == "allow-downgrade":
+            extra["dnssec"] = "allow-downgrade"
+        return [
+            DnsService(
+                id=object_id(self.context.device_id, "dns", "systemd-resolved"),
+                device_id=self.context.device_id,
+                name="systemd-resolved",
+                listen=[ip_address("127.0.0.53")],
+                forwarders=forwarders,
+                dnssec=True
+                if dnssec in ("yes", "true", "allow-downgrade")
+                else False
+                if dnssec in ("no", "false")
+                else None,
+                supports_encrypted_dns=True,
+                recursive=False,
+                local_domain=conf.get("domains", "").split()[0].lstrip("~").lower()
+                if conf.get("domains", "").split() and not conf["domains"].startswith("~")
+                else None,
+                config_read=bool(forwarders),
+                vendor_extra=extra,
+            )
+        ]
 
     # health and time ----------------------------------------------------------------------
 
