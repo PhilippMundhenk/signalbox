@@ -72,7 +72,7 @@ def test_mobility_domain_mismatch_is_found() -> None:
     assert f.severity is Severity.WARNING
     assert f.message_id == "wifi.ftDomainMismatch"
     assert f.params == {"ssid": "'Example'", "domains": "ap1: a1b2, ap2: c3d4"}
-    assert len(f.entities) == 2
+    assert len(f.objects) == 2
 
 
 def test_mobility_domain_quiet_when_equal_unknown_or_off() -> None:
@@ -132,7 +132,7 @@ def test_weak_client_signal_is_found() -> None:
     assert f.severity is Severity.INFO
     assert f.message_id == "wifi.clientWeakSignal"
     assert f.params == {"client": f"laptop ({MAC})", "dbm": -82, "ap": "ap1"}
-    assert set(f.entities) == {f"client/{MAC}", WLAN_ID}
+    assert set(f.objects) == {f"client/{MAC}", WLAN_ID}
 
 
 def test_weak_client_signal_quiet() -> None:
