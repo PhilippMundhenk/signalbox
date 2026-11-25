@@ -124,6 +124,7 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`health.ups-not-tested`](rules/health.md#healthups-not-tested)
 - [`health.uptime-very-long`](rules/health.md#healthuptime-very-long)
 - [`device.reboot`](rules/health.md#devicereboot)
+- [`device.replaced`](rules/health.md#devicereplaced)
 
 ## [History](rules/history_checks.md)
 

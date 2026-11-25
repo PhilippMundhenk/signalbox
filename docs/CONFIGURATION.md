@@ -47,6 +47,12 @@ Generated from the code by `tools/gen_docs.py`.
 | `mqtt.topic_prefix` | `SIGNALBOX_MQTT_TOPIC_PREFIX` | `signalbox` | Prefix of the state topics. |
 | `mqtt.discovery_prefix` | `SIGNALBOX_MQTT_DISCOVERY_PREFIX` | `homeassistant` | Home Assistant discovery prefix. |
 
+## `exports`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `exports.identity` | `SIGNALBOX_EXPORTS_IDENTITY` | false | Include device serial numbers and base MAC addresses in what leaves Signalbox (MQTT / Home Assistant discovery and exporter plugins). Off: they stay on the device page. |
+
 ## `deploy`
 
 | Setting | Environment variable | Default | Meaning |

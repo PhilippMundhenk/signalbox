@@ -1,9 +1,8 @@
 """PoE-out of RouterOS ethernet ports (#159).
 
 ``/interface/ethernet/poe`` lists the ports with PoE-out (``poe-out``: ``auto-on``,
-``forced-on``, ``off``; RouterOS 6 and 7). ``monitor once`` adds ``poe-out-status``,
-``poe-out-voltage``, ``poe-out-current`` (mA) and ``poe-out-power`` (W); RouterOS 6 versions
-before 6.46 have no power field (``power_w`` stays empty then). Numbers come as text with a
+``forced-on``, ``off``; RouterOS 7). ``monitor once`` adds ``poe-out-status``,
+``poe-out-voltage``, ``poe-out-current`` (mA) and ``poe-out-power`` (W). Numbers come as text with a
 unit (``48.3V``, ``120mA``, ``5.8W``).
 """
 

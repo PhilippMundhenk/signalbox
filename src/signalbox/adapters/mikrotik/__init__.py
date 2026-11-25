@@ -401,7 +401,7 @@ def _unexpected(endpoint: str, what: str) -> AdapterError:
 
 
 def _routeros6() -> AdapterError:
-    """RouterOS 6 has no REST API (/rest answers 404 or a web page, or the version says 6.x)."""
+    """The device says it runs RouterOS 6.x (which has no REST API)."""
     return AdapterError(
         f"RouterOS 6 is not supported: {RESOURCE} has no REST API (RouterOS 6 answers 404 or a "
         "web page there). Signalbox needs RouterOS 7.1 or newer",
@@ -410,6 +410,18 @@ def _routeros6() -> AdapterError:
         fix_id="mikrotik.ros6.fix",
         message_id="mikrotik.ros6",
         params={"endpoint": RESOURCE},
+    )
+
+
+def _no_rest() -> AdapterError:
+    """/rest answers 404 or a web page: RouterOS 6, REST disabled, or the wrong address (#425)."""
+    return AdapterError(
+        "no RouterOS REST API at this address (RouterOS 6, REST disabled, or wrong address/port)",
+        fix="Check the address and port, and that the REST API is enabled (RouterOS 7.1 or "
+        "newer, service www-ssl). RouterOS 6 has no REST API: update it, or read the device "
+        "through the generic SNMP integration.",
+        fix_id="mikrotik.noRest.fix",
+        message_id="mikrotik.noRest",
     )
 
 
@@ -1165,11 +1177,11 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         self._layout_cache = None
         try:
             resource = _object(await self._get(RESOURCE), RESOURCE)
-        except NotFound as exc:  # RouterOS 6 has no REST API
-            raise _routeros6() from exc
+        except NotFound as exc:  # RouterOS 6, REST disabled or another service: version unknown
+            raise _no_rest() from exc
         except AdapterError as exc:
-            if exc.message_id == "transport.notJson":  # its web page instead of JSON
-                raise _routeros6() from exc
+            if exc.message_id == "transport.notJson":  # a web page instead of JSON
+                raise _no_rest() from exc
             raise
         current = _text(resource.get("version")).split(" ")[0]
         if not current:
@@ -1569,11 +1581,10 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
 
     async def _poe(self) -> tuple[dict[str, PortPoe], list[Gap]]:
         """PoE-out of the ethernet ports (``/interface/ethernet/poe``: ``poe-out`` auto-on,
-        forced-on or off, ``poe-priority``; RouterOS 6 and 7 have the menu on boards with PoE
+        forced-on or off, ``poe-priority``; RouterOS 7 has the menu on boards with PoE
         out, elsewhere it is missing) with the state from its ``monitor once``
         (``poe-out-status``, ``poe-out-voltage``, ``poe-out-current`` in mA, ``poe-out-power``
-        in W; RouterOS 6 spells the status ``poe-out-status`` as well, the power field is
-        missing on older 6.x). The monitor is optional: without it only the settings are read."""
+        in W). The monitor is optional: without it only the settings are read."""
         rows = await self._optional_rows(ETHERNET_POE)
         if not rows:
             return {}, []

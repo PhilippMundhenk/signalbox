@@ -4039,6 +4039,15 @@ class Network(Model):
         devices = [d.model_copy(update={"accounts": None}) for d in self.devices]
         return self.model_copy(update={"devices": devices})
 
+    def without_identity(self) -> Network:
+        """This network without the devices' serial numbers and base MAC addresses (#427):
+        they identify the hardware, so they stay on the device page unless the user allows
+        ``exports.identity``."""
+        if all(d.serial is None and d.mac is None for d in self.devices):
+            return self
+        devices = [d.model_copy(update={"serial": None, "mac": None}) for d in self.devices]
+        return self.model_copy(update={"devices": devices})
+
     def device(self, device_id: str) -> Device | None:
         return next((d for d in self.devices if d.id == device_id), None)
 

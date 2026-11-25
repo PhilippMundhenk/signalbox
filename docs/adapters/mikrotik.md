@@ -7,7 +7,7 @@ transactions of [#38](https://github.com/PhilippMundhenk/signalbox/issues/38) wh
 "allow changes" setting is on and the user may write: see [Writing](#writing). Reading only ever
 sends `GET` requests.
 
-**Supported versions:** RouterOS 7.1 and newer (the REST API). RouterOS 6 has no REST API and is not supported: Signalbox reports "RouterOS 6 is not supported" (`/rest` answers 404 or a web page, or the version says 6.x). Update to 7.1+, or read the device through the generic SNMP integration ([#400](https://github.com/PhilippMundhenk/signalbox/issues/400)).
+**Supported versions:** RouterOS 7.1 and newer (the REST API). RouterOS 6 has no REST API and is not supported: Signalbox reports "RouterOS 6 is not supported" when the device says its version is 6.x. When `/rest` answers 404 or a web page and the version is unknown, it says "no RouterOS REST API at this address (RouterOS 6, REST disabled, or wrong address/port)" ([#425](https://github.com/PhilippMundhenk/signalbox/issues/425)). Update to 7.1+, or read the device through the generic SNMP integration ([#400](https://github.com/PhilippMundhenk/signalbox/issues/400)).
 
 | Capability | What is read |
 | --- | --- |
@@ -628,7 +628,7 @@ configurations) and `preshared-key` (peer). RouterOS shows them only to a user w
 anyway, so the adapter deletes `private-key` and turns `preshared-key` into a flag while
 parsing, and reads these two menus without its answer cache. `last-handshake` is how long ago
 (absent before the first handshake); `comment` names the peer (else `name`, which RouterOS fills with `peer1`, `peer2`, ... itself); addresses come
-from `/ip/address` and `/ipv6/address` of the interface. Without the menu (RouterOS 6, no
+from `/ip/address` and `/ipv6/address` of the interface. Without the menu (no
 `wireguard` package) there are no tunnels and no error. *Guess*: field names per 7.x release; CI
 (CHR) confirms the interface, the peer, the allowed addresses and the keepalive, not a handshake.
 
@@ -1021,8 +1021,7 @@ What that does not cover ([#21](https://github.com/PhilippMundhenk/signalbox/iss
 `GET /rest/interface/ethernet/poe` lists the ports with PoE-out (`poe-out`: `auto-on`, `forced-on`,
 `off`); boards without PoE-out answer 404 and report nothing. `POST /rest/interface/ethernet/poe/monitor`
 with `once` adds `poe-out-status` (`powered-on`, `waiting-for-load`, `overload`, `short-circuit`, ...),
-`poe-out-voltage`, `poe-out-current` (mA) and `poe-out-power` (W; RouterOS 6 before 6.46 lacks the
-power field, so only status and settings are read there). A group without the monitor policy keeps the
+`poe-out-voltage`, `poe-out-current` (mA) and `poe-out-power` (W). A group without the monitor policy keeps the
 settings and gets the optional gap `mikrotik.poeMonitor`. RouterOS has no total PoE budget: the
 budget stays empty (*guess: `/system/health` shows no PoE total on the boards we know of*).
 

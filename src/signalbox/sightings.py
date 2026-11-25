@@ -30,6 +30,9 @@ DEVICE, CLIENT, CLIENT_SEGMENT, PORT = "device", "client", "client-segment", "po
 #: Per device: its boot time rounded to the minute and the reboot reason (``BOOT``), and
 #: whether its CPU load was high (``CPU``, see :data:`CPU_HIGH_PCT`).
 BOOT, CPU = "boot", "cpu"
+#: Per device: its serial number and its base MAC address (``device.replaced``, #427). Recorded
+#: only in a round that reports them, so a read that lacks the field keeps the stored value.
+SERIAL, BASE_MAC = "serial", "base-mac"
 #: Per MAC address: the access port its device-table entries put it behind (``mac.flapping``,
 #: #298), as the id of the port.
 FDB = "fdb"
@@ -42,7 +45,7 @@ COUNTERS = "counters"
 #: How long such a sighting still counts after it was last seen.
 MAC_HOLD = timedelta(hours=24)
 #: Kinds whose key is a device id (deleted with the device).
-DEVICE_KINDS = (DEVICE, PORT, BOOT, CPU, MAC_PORT, COUNTERS)
+DEVICE_KINDS = (DEVICE, PORT, BOOT, CPU, SERIAL, BASE_MAC, MAC_PORT, COUNTERS)
 #: Kinds whose value changes with every round: the changes are not logged.
 UNLOGGED_KINDS = (COUNTERS,)
 #: CPU load (percent) from which an observation counts as high for ``device.resources``.
@@ -164,6 +167,9 @@ class History(Model):
     #: By device id: boot times (``boot_value``) and whether the CPU load was high.
     boots: dict[str, ValueHistory] = Field(default_factory=dict)
     cpu: dict[str, ValueHistory] = Field(default_factory=dict)
+    #: By device id: the serial number and the base MAC address it reported (#427).
+    serials: dict[str, ValueHistory] = Field(default_factory=dict)
+    base_macs: dict[str, ValueHistory] = Field(default_factory=dict)
     #: By MAC address: the access port its MAC address table entries put it behind.
     fdb: dict[str, ValueHistory] = Field(default_factory=dict)
     #: By port id: the last counters and the delta to the read before (#158).
@@ -227,6 +233,12 @@ def observed_values(net: Network) -> dict[tuple[str, str], str | None]:
     for port in net.ports:
         if port.counters is not None and port.counters.has_values():
             out[(COUNTERS, port.id)] = port.counters.model_dump_json(exclude_none=True)
+    for dev in net.devices:
+        if net.statuses.get(dev.id, DeviceStatus.OK) in ANSWERED:
+            if dev.serial:
+                out[(SERIAL, dev.id)] = dev.serial
+            if dev.mac:
+                out[(BASE_MAC, dev.id)] = dev.mac
     for dev in net.devices:
         h = dev.health
         if h is None or net.statuses.get(dev.id, DeviceStatus.OK) not in ANSWERED:

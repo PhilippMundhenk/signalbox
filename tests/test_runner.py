@@ -16,15 +16,17 @@ from signalbox.adapters import (
     SystemInfo,
     UntrustedCertificate,
 )
-from signalbox.config import Config, ObserveConfig
+from signalbox.config import Config, ExportsConfig, ObserveConfig
 from signalbox.model import (
     AccountPrivilege,
+    Device,
     DeviceAccount,
     DeviceRole,
     DeviceStatus,
     Link,
     LinkOrigin,
     Network,
+    Source,
     Subnet,
     segment_id,
 )
@@ -318,3 +320,35 @@ async def test_listeners_get_no_account_names_and_writes_need_a_write_login(
     (shared,) = seen
     assert all(d.accounts is None for d in shared.devices)
     assert "alice" not in shared.model_dump_json()
+
+
+# --- identity (#427) ---------------------------------------------------------------------------
+
+
+def identified_network() -> Network:
+    return Network(
+        devices=[
+            Device(
+                id="gw",
+                site_id="home",
+                name="gw",
+                role=DeviceRole.GATEWAY,
+                adapter="dev",
+                source=Source(adapter="dev", device_id="gw"),
+                serial="SN-SECRET-1",
+                mac="02:00:00:00:cc:01",
+            )
+        ]
+    )
+
+
+@pytest.mark.parametrize("allowed", [False, True])
+def test_listeners_get_serial_and_base_mac_only_when_allowed(store: Store, allowed: bool) -> None:
+    seen: list[Network] = []
+    r = runner(store, listeners=[lambda net, f: seen.append(net)])
+    r.config = r.config.model_copy(update={"exports": ExportsConfig(identity=allowed)})
+    r.network = identified_network  # type: ignore[method-assign]
+    r.evaluate(record=False)
+    (shared,) = seen
+    assert ("SN-SECRET-1" in shared.model_dump_json()) is allowed
+    assert (shared.devices[0].mac == "02:00:00:00:cc:01") is allowed

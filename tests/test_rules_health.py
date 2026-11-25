@@ -19,11 +19,13 @@ from signalbox.model import (
 )
 from signalbox.rules import evaluate
 from signalbox.rules.builtin import RULES as BUILTIN
-from signalbox.rules.health import RULES, reboot, resources
+from signalbox.rules.health import RULES, reboot, replaced, resources
 from signalbox.secrets import load_vault
 from signalbox.sightings import (
+    BASE_MAC,
     BOOT,
     CPU,
+    SERIAL,
     History,
     ValueChange,
     ValueHistory,
@@ -301,3 +303,73 @@ def test_device_deletion_forgets_boots(store: Store) -> None:
     store.delete_device("ap1")
     h = store.history(T0, 30)
     assert h.boots == {} and h.cpu == {}
+
+
+# Device replaced (#427) ---------------------------------------------------------------------
+
+
+def identified(
+    serial: str | None, mac: str | None, status: DeviceStatus = DeviceStatus.OK
+) -> Network:
+    return merge(
+        [SITE],
+        [
+            snapshot(
+                device("ap1", DeviceRole.AP, name="ap-1", serial=serial, mac=mac), status=status
+            )
+        ],
+    )
+
+
+def replaced_findings(store: Store, *nets: Network) -> list[tuple[str, str]]:
+    h = rounds(store, *nets)
+    return [(f.severity.value, f.message) for f in evaluate(nets[-1], [replaced], None, h)]
+
+
+MAC_A, MAC_B = "02:00:00:00:aa:01", "02:00:00:00:bb:02"
+
+
+def test_replaced_serial_and_mac(store: Store) -> None:
+    out = replaced_findings(
+        store,
+        identified("SN-1111", MAC_A),
+        identified("SN-1111", MAC_A),
+        identified("SN-2222", MAC_B),
+    )
+    assert sorted(out) == sorted(
+        [
+            (
+                "info",
+                "ap-1 reports another serial number than before "
+                "(\u20261111 -> \u20262222): it was replaced",
+            ),
+            (
+                "info",
+                "ap-1 reports another base MAC address than before "
+                "(\u2026a:01 -> \u2026b:02): it was replaced",
+            ),
+        ]
+    )
+    assert "SN-1111" not in "".join(m for _, m in out)
+
+
+def test_same_identity_and_first_report_are_quiet(store: Store) -> None:
+    assert replaced_findings(store, identified("SN-1", MAC_A), identified("SN-1", MAC_A)) == []
+    # reported for the first time: not a replacement
+    assert replaced_findings(store, identified(None, None), identified("SN-1", MAC_A)) == []
+
+
+def test_missing_value_does_not_hide_or_fake_a_replacement(store: Store) -> None:
+    out = replaced_findings(
+        store, identified("SN-1111", None), identified(None, None), identified("SN-2222", None)
+    )
+    assert len(out) == 1 and "serial number" in out[0][1]
+
+
+def test_unreachable_device_records_no_identity() -> None:
+    n = identified("SN-1", MAC_A, status=DeviceStatus.UNREACHABLE)
+    assert not any(kind in (SERIAL, BASE_MAC) for kind, _ in observed_values(n))
+
+
+def test_replaced_is_silent_without_history() -> None:
+    assert evaluate(identified("SN-1", MAC_A), [replaced], None, History.empty()) == []

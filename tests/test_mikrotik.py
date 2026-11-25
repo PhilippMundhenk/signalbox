@@ -828,10 +828,28 @@ ROS6_MESSAGE = (
 )
 
 
-async def test_routeros6_is_not_supported(http_url: str, sim: MikrotikSimulator) -> None:
+NO_REST_MESSAGE = (
+    "no RouterOS REST API at this address (RouterOS 6, REST disabled, or wrong address/port)"
+)
+
+
+async def test_routeros6_page_does_not_claim_version_6(
+    http_url: str, sim: MikrotikSimulator
+) -> None:
+    """A 404 web page may be RouterOS 6 or any other service: the message says so (#425)."""
     sim.routeros6 = True
     snap = await observe(adapter(http_url))
     assert snap.status is DeviceStatus.UNREACHABLE
+    assert errors(snap) == {"system": NO_REST_MESSAGE}
+    assert "RouterOS 6 is not supported" not in snap.errors[0].message
+    assert "SNMP" in (snap.errors[0].fix or "")
+
+
+async def test_routeros6_known_version_is_not_supported(
+    http_url: str, sim: MikrotikSimulator
+) -> None:
+    sim.data[RESOURCE]["version"] = "6.48.6 (stable)"
+    snap = await observe(adapter(http_url))
     assert errors(snap) == {"system": ROS6_MESSAGE}
     assert "7.1" in (snap.errors[0].fix or "") and "SNMP" in (snap.errors[0].fix or "")
 
@@ -846,7 +864,7 @@ async def test_rest_disabled(http_url: str, sim: MikrotikSimulator) -> None:
     sim.rest_enabled = False
     snap = await observe(adapter(http_url))
     assert snap.status is DeviceStatus.UNREACHABLE
-    assert errors(snap) == {"system": ROS6_MESSAGE}
+    assert errors(snap) == {"system": NO_REST_MESSAGE}
 
 
 async def test_malformed_json_is_partial(http_url: str, sim: MikrotikSimulator) -> None:

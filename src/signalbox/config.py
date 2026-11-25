@@ -63,6 +63,15 @@ class MqttConfig(Section):
     discovery_prefix: str = Field("homeassistant", description="Home Assistant discovery prefix.")
 
 
+class ExportsConfig(Section):
+    identity: bool = Field(
+        False,
+        description="Include device serial numbers and base MAC addresses in what leaves "
+        "Signalbox (MQTT / Home Assistant discovery and exporter plugins). Off: they stay on "
+        "the device page.",
+    )
+
+
 class DeployConfig(Section):
     enabled: bool = Field(
         False,
@@ -367,6 +376,7 @@ class Config(Section):
     auth: AuthConfig = AuthConfig()
     observe: ObserveConfig = ObserveConfig()
     mqtt: MqttConfig = MqttConfig()
+    exports: ExportsConfig = ExportsConfig()
     deploy: DeployConfig = DeployConfig()
     history: HistoryConfig = HistoryConfig()
     counters: CountersConfig = CountersConfig()
@@ -425,6 +435,11 @@ mqtt:
   tls: false
   topic_prefix: signalbox
   discovery_prefix: homeassistant
+
+exports:
+  # Serial numbers and base MAC addresses identify a device: they stay out of MQTT and exporter
+  # plugins unless you set this to true.
+  identity: false
 
 deploy:
   # Allow deploying changes to devices at all. Each device must also allow changes

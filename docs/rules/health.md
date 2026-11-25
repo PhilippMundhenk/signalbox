@@ -90,3 +90,15 @@ changed per site, device or network, see [Parameters](../RULES.md#parameters)):
   `user` or `upgrade` where the device says so.
 - **Fix:** if nobody restarted it, check its power supply or PoE budget, its temperature and
   memory use, and look for a firmware update if it crashes.
+
+## `device.replaced`
+
+- **Severity:** info
+- **Checks:** a device reports another serial number or another base MAC address than at an
+  earlier observation round (recorded in the history, per device and per value). A value the
+  device did not report in a round is not a change, and neither is a value reported for the
+  first time. Reported for 7 days after the change, with the end of the old and the new value
+  (the last four characters): findings reach notifications, and serial numbers and base MACs
+  are not shared unless `exports.identity` is set (#427).
+- **Fix:** if you replaced the device, nothing to do; otherwise check who swapped it. Acknowledge
+  the finding once you have seen it.
