@@ -40,27 +40,29 @@ export function offeredKeys(hk, testid) {
 // a button that names the new one. onTrusted() runs after the new one was stored.
 export function hostKeyChanged(hk, device, testid, onTrusted) {
   const cert = isCert(hk);
-  const key = cert ? 'hostkey.cert' : 'hostkey';
-  const retrust = h('button', { class: 'btn danger', type: 'button', 'data-testid': `${testid}-retrust` }, t(`${key}.retrust`, { fingerprint: shown(hk, hk.fingerprint) }));
+  const retrust = h('button', { class: 'btn danger', type: 'button', 'data-testid': `${testid}-retrust` }, cert ? t('hostkey.cert.retrust', { fingerprint: shown(hk, hk.fingerprint) }) : t('hostkey.retrust', { fingerprint: hk.fingerprint }));
   retrust.addEventListener('click', () =>
     run(retrust, async () => {
       // a certificate: the device's certificate pin, which also its readings use (ADR 0019)
       await post(cert ? `/devices/${enc(device.id)}/trust` : `/devices/${enc(device.id)}/ssh-host-key/trust`, { fingerprint: hk.fingerprint });
-      toast(t(`${key}.retrusted`, { name: device.name }));
+      toast(cert ? t('hostkey.cert.retrusted', { name: device.name }) : t('hostkey.retrusted', { name: device.name }));
       if (onTrusted) await onTrusted();
     }),
   );
-  const text = cert && !hk.confirmed_at ? t('hostkey.cert.changed.textUndated', { name: device.name }) : t(`${key}.changed.text`, { name: device.name, date: day(hk.confirmed_at) });
+  const date = day(hk.confirmed_at);
+  const text = !cert
+    ? t('hostkey.changed.text', { name: device.name, date })
+    : hk.confirmed_at ? t('hostkey.cert.changed.text', { name: device.name, date }) : t('hostkey.cert.changed.textUndated', { name: device.name });
   return notice(
     'error',
     testid,
-    h('h3', {}, t(`${key}.changed.title`, { name: device.name })),
+    h('h3', {}, cert ? t('hostkey.cert.changed.title', { name: device.name }) : t('hostkey.changed.title', { name: device.name })),
     h('p', {}, text),
     kv([
-      [t(`${key}.changed.old`), h('code', { 'data-testid': `${testid}-old` }, shown(hk, hk.pinned))],
-      [t(`${key}.changed.new`), h('code', { 'data-testid': `${testid}-new` }, shown(hk, hk.fingerprint))],
+      [cert ? t('hostkey.cert.changed.old') : t('hostkey.changed.old'), h('code', { 'data-testid': `${testid}-old` }, shown(hk, hk.pinned))],
+      [cert ? t('hostkey.cert.changed.new') : t('hostkey.changed.new'), h('code', { 'data-testid': `${testid}-new` }, shown(hk, hk.fingerprint))],
     ]),
-    h('p', {}, t(`${key}.changed.compare`)),
+    h('p', {}, cert ? t('hostkey.cert.changed.compare') : t('hostkey.changed.compare')),
     device.id ? h('div', { class: 'row' }, retrust) : null,
   );
 }
