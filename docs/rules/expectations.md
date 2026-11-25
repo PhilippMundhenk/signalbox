@@ -23,6 +23,18 @@ compare that with what is observed. Without an annotation they have nothing to s
   (guest and camera networks excepted), and clients whose category is `computer`, `phone`,
   `tablet` or `server` that are in the IoT network. One finding per network. Clients with an
   expected network are left to `clients.unexpected-network`. The category comes from the
-  annotation only; guessing it from the vendor of the MAC address needs a vendor database that
-  Signalbox does not ship yet (#84).
+  annotation only; the vendor of the MAC address is used by `clients.vendor-network` below.
 - **Fix:** move the device to the right Wi-Fi or port, or correct its category.
+
+## `clients.vendor-network`
+
+- **Severity:** info
+- **Checks:** a client in a network with the purpose `main` whose MAC address belongs to a
+  vendor that builds (almost) only IoT devices or cameras, in a site that has an IoT network
+  (declared or reported, not guessed). One finding per device, so that each can be acknowledged
+  on its own (annotations, #219). Silent for randomised (locally administered) MACs, which have
+  no vendor, for clients with an annotated category or expected network (see the two rules
+  above), and for vendors that also make computers, phones or routers.
+- **Vendor database and map:** see [OUI.md](../OUI.md).
+- **Fix:** move the device to the IoT Wi-Fi or port, set its category in its annotation, or
+  acknowledge the finding for a device you trust.

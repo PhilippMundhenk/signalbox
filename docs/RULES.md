@@ -77,6 +77,7 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 
 - [`clients.unexpected-network`](rules/expectations.md#clientsunexpected-network)
 - [`clients.category-network`](rules/expectations.md#clientscategory-network)
+- [`clients.vendor-network`](rules/expectations.md#clientsvendor-network)
 
 ## [MAC address tables](rules/fdb_checks.md)
 
