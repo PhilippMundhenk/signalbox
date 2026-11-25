@@ -68,6 +68,8 @@ READ_ACL: dict[str, Any] = {
                 "/var/run/ddns/*": ["read"],
                 "/etc/avahi/avahi-daemon.conf": ["read"],
                 "/var/run/miniupnpd.leases": ["read"],
+                "/var/run/openvpn.*.status": ["read"],
+                "/etc/swanctl/swanctl.conf": ["read"],
             },
         },
     }

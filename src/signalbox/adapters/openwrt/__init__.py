@@ -69,6 +69,7 @@ from signalbox.adapters.openwrt import (
     provision,
     routes,
     setup,
+    strongswan,
     vitals,
     wifi_assoc,
     wireguard,
@@ -3048,6 +3049,8 @@ class OpenWrtAdapter(Adapter):
         ``luci.wireguard getWgInstances`` (luci-proto-wireguard) where that is installed (#152)."""
         uci = await self._uci("network")
         more, gaps = await self._openvpn()
+        swan, swan_gaps = await self._strongswan()
+        more, gaps = [*more, *swan], [*gaps, *swan_gaps]
         if not wireguard.interfaces(uci):
             return Observation(tunnels=more, incomplete=gaps)
         runtime: dict[str, dict[str, Any]] = {}
@@ -3083,7 +3086,52 @@ class OpenWrtAdapter(Adapter):
                     params={**exc.params, "cause": str(exc)},
                 )
             ]
-        return openvpn.tunnels(uci, self.context.device_id), []
+        statuses: dict[str, openvpn.Status] = {}
+        denied: AccessDenied | None = None
+        paths: list[str] = []
+        for name, path in openvpn.status_paths(uci).items():
+            try:
+                answer = await self.ubus.call("file", "read", {"path": path})
+            except NotFound:
+                continue  # not started, or no status file configured
+            except AccessDenied as exc:
+                denied = exc
+                paths.append(path)
+                continue
+            data = answer.get("data") if isinstance(answer, dict) else None
+            status = openvpn.parse_status(data) if isinstance(data, str) else None
+            if status is not None:
+                statuses[name] = status
+        tunnels = openvpn.tunnels(uci, self.context.device_id, statuses, datetime.now(UTC))
+        return tunnels, ([self._vpn_file_gap(paths, denied)] if denied is not None else [])
+
+    async def _strongswan(self) -> tuple[list[Tunnel], list[Gap]]:
+        """IPsec connections of strongSwan's ``/etc/swanctl/swanctl.conf`` (#527); no file (no
+        strongSwan, or the legacy ipsec.conf): none; an ACL without the path: an optional gap.
+        Only the ``connections`` section is parsed; pre-shared keys are never held."""
+        try:
+            answer = await self.ubus.call("file", "read", {"path": strongswan.PATH})
+        except NotFound:
+            return [], []
+        except AccessDenied as exc:
+            return [], [self._vpn_file_gap([strongswan.PATH], exc)]
+        data = answer.get("data") if isinstance(answer, dict) else None
+        if not isinstance(data, str):
+            return [], []
+        return strongswan.tunnels(strongswan.parse(data), self.context.device_id), []
+
+    @staticmethod
+    def _vpn_file_gap(paths: list[str], exc: AccessDenied) -> Gap:
+        denied = ", ".join(paths)
+        return Gap(
+            message=f"VPN state files ({denied}): {exc}",
+            fix=exc.fix,
+            remedy=exc.remedy,
+            optional=True,
+            message_id="openwrt.vpnFileGap",
+            fix_id=exc.fix_id,
+            params={**exc.params, "denied": denied, "cause": str(exc)},
+        )
 
     # firewall -------------------------------------------------------------------------
 

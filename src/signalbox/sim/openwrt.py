@@ -102,6 +102,8 @@ FILES = (
     "/var/run/ddns/*",
     "/etc/avahi/avahi-daemon.conf",
     "/var/run/miniupnpd.leases",
+    "/var/run/openvpn.*.status",
+    "/etc/swanctl/swanctl.conf",
 )
 
 #: miniupnpd's lease file (#176)
@@ -1195,6 +1197,71 @@ def openvpn_config() -> dict[str, Any]:
     )
 
 
+def openvpn_status(now: float) -> str:
+    """The status file of the server (``status_version 2``, #527): one client, documentation
+    addresses; the client line carries epoch times."""
+    t = int(now)
+    return (
+        "TITLE,OpenVPN 2.6.8 x86_64-pc-linux-gnu\n"
+        f"TIME,sim-time,{t}\n"
+        "HEADER,CLIENT_LIST,Common Name,Real Address,Virtual Address,Virtual IPv6 Address,"
+        "Bytes Received,Bytes Sent,Connected Since,Connected Since (time_t),Username,"
+        "Client ID,Peer ID,Data Channel Cipher\n"
+        "CLIENT_LIST,alice-laptop,203.0.113.77:51000,198.18.77.6,,1234,5678,"
+        f"sim-time,{t - 3600},UNDEF,0,0,AES-256-GCM\n"
+        "END\n"
+    )
+
+
+#: a pre-shared key and a passphrase of the simulated strongSwan: tests assert they never leak
+SWANCTL_SECRET = "sim-ipsec-psk-do-not-leak"
+SWANCTL_CONF = f"""# documentation addresses only (#527)
+connections {{
+    site-b {{
+        version = 2
+        remote_addrs = 203.0.113.80
+        proposals = aes256-sha256-modp2048,aes128-sha1-modp1024
+        dpd_delay = 30s
+        local {{
+            auth = psk
+            id = gw.example.invalid
+        }}
+        remote {{
+            auth = psk
+        }}
+        children {{
+            lan {{
+                local_ts = 192.0.2.0/24
+                remote_ts = 198.51.100.0/24
+                esp_proposals = aes256gcm16-modp2048
+                rekey_time = 1h
+            }}
+        }}
+    }}
+    roadwarrior {{
+        version = 1
+        aggressive = yes
+        local {{
+            auth = pubkey
+            certs = gw.pem
+        }}
+        children {{
+            net {{
+                local_ts = 192.0.2.0/24
+                esp_proposals = 3des-md5
+            }}
+        }}
+    }}
+}}
+secrets {{
+    ike-site-b {{
+        id = gw.example.invalid
+        secret = "{SWANCTL_SECRET}"
+    }}
+}}
+"""
+
+
 def igmpproxy_config() -> dict[str, Any]:
     """``/etc/config/igmpproxy`` (#161): the uplink ``wan`` upstream, the main network down."""
     return _uci(
@@ -2162,7 +2229,9 @@ class OpenWrtSim:
             ]
         if obj == "file" and method == "read":
             path = str(args.get("path"))
-            if not any(fnmatchcase(path, allowed) for allowed in FILES):
+            if f"file:{path}" in self.denied or not any(
+                fnmatchcase(path, allowed) for allowed in FILES
+            ):
                 return [DENIED]
             if path.startswith("/sys/class/net/"):
                 if path.endswith("/brforward"):
@@ -2175,6 +2244,13 @@ class OpenWrtSim:
                 if "upnpd" not in self.packages:
                     return [NOT_FOUND]
                 return [0, {"data": upnp_leases(time.time())}]
+            if path.startswith("/var/run/openvpn.") and path.endswith(".status"):
+                server = path == "/var/run/openvpn.road_warrior.status"
+                if "openvpn" not in self.packages or not server:
+                    return [NOT_FOUND]
+                return [0, {"data": openvpn_status(time.time())}]
+            if path == "/etc/swanctl/swanctl.conf":
+                return [0, {"data": SWANCTL_CONF}] if "strongswan" in self.packages else [NOT_FOUND]
             if path == AVAHI_CONF:
                 return [0, {"data": AVAHI_TEXT}] if "avahi" in self.packages else [NOT_FOUND]
             if path.startswith("/var/run/ddns/"):

@@ -281,6 +281,80 @@ function peerTable(ix, tun) {
   );
 }
 
+// IPsec connections and OpenVPN instances (#527): how they authenticate and which algorithms
+// they use, never a key. The other gateway is the partner's address: shown on request.
+const AUTH_TEXT = { psk: 'device.tunnel.auth.psk', certificate: 'device.tunnel.auth.certificate', eap: 'device.tunnel.auth.eap' };
+const ROLE_KEY = { server: 'device.tunnel.role.server', client: 'device.tunnel.role.client' };
+const proposalText = (p) => [p.encryption, p.integrity, given(p.dh_group) ? `DH ${p.dh_group}` : null].filter(Boolean).join(' / ');
+
+function vpnRows(tun) {
+  if (tun.kind === 'ipsec') {
+    return [
+      [t('device.tunnel.ike'), opt(tun.ike_version, (v) => `IKEv${v}`)],
+      [t('device.tunnel.auth'), opt(tun.auth, (v) => (AUTH_TEXT[v] ? t(AUTH_TEXT[v]) : v))],
+      [t('device.tunnel.certificate'), opt(tun.certificate_subject, (v) => h('span', { class: 'mono' }, v))],
+      [t('device.tunnel.aggressive'), given(tun.aggressive) ? yesNo(tun.aggressive) : undefined],
+      [t('device.tunnel.dpd'), given(tun.dpd) ? yesNo(tun.dpd) : undefined],
+      [t('device.tunnel.proposals'), tun.proposals.length ? h('span', { class: 'mono', 'data-testid': 'tunnel-proposals' }, tun.proposals.map(proposalText).join('; ')) : undefined],
+      [
+        t('device.tunnel.remoteGateway'),
+        opt(tun.remote_gateway, (v) => h('details', { class: 'addresses', 'data-testid': 'tunnel-gateway' }, h('summary', {}, t('device.peer.show')), h('span', { class: 'mono' }, v))),
+      ],
+    ];
+  }
+  if (tun.kind === 'openvpn') {
+    return [
+      [t('device.tunnel.role'), opt(tun.role, (v) => (ROLE_KEY[v] ? t(ROLE_KEY[v]) : v))],
+      [t('device.tunnel.cipher'), opt(tun.cipher, (v) => h('span', { class: 'mono' }, v))],
+      [t('device.tunnel.tlsKey'), given(tun.tls_auth) ? yesNo(tun.tls_auth) : undefined],
+      [t('device.tunnel.network'), opt(tun.tunnel_network, (v) => h('span', { class: 'mono' }, v))],
+      [t('device.tunnel.pushed'), tun.pushed_routes.length ? h('span', { class: 'mono' }, tun.pushed_routes.join(', ')) : undefined],
+      [
+        t('device.tunnel.remoteGateway'),
+        opt(tun.remote_gateway, (v) => h('details', { class: 'addresses', 'data-testid': 'tunnel-gateway' }, h('summary', {}, t('device.peer.show')), h('span', { class: 'mono' }, v))),
+      ],
+    ];
+  }
+  return [];
+}
+
+function childState(c) {
+  if (!c.enabled) return t('device.off');
+  if (c.established === true) return t('device.child.established');
+  if (c.established === false) return t('device.child.notEstablished');
+  return t('device.state.unknown');
+}
+
+function childTable(tun) {
+  if (!tun.children.length) return null;
+  const nets = (list) => (list.length ? h('span', { class: 'mono' }, list.join(', ')) : null);
+  return table(
+    [
+      [t('device.child.name'), (c) => c.name],
+      [t('device.child.local'), (c) => nets(c.local_networks)],
+      [t('device.child.remote'), (c) => nets(c.remote_networks)],
+      [t('device.child.state'), (c) => h('span', { 'data-testid': 'child-state' }, childState(c))],
+      [t('device.child.rekey'), (c) => (c.rekey_seconds ? fmtDuration(c.rekey_seconds) : null)],
+    ],
+    tun.children,
+    { rowTestid: 'tunnel-child', compact: true },
+  );
+}
+
+function sessionTable(tun) {
+  if (tun.role === 'client' || !given(tun.sessions)) return null;
+  if (!tun.sessions.length) return h('p', { class: 'muted', 'data-testid': 'tunnel-no-sessions' }, t('device.session.none'));
+  return table(
+    [
+      [t('device.session.client'), (s) => s.common_name],
+      [t('device.session.address'), (s) => (s.virtual_address ? h('span', { class: 'mono' }, s.virtual_address) : null)],
+      [t('device.session.since'), (s) => (s.connected_since ? t('device.session.for', { duration: fmtDuration(Math.max(0, (Date.now() - new Date(s.connected_since).getTime()) / 1000)) }) : null)],
+    ],
+    tun.sessions,
+    { rowTestid: 'tunnel-session', compact: true },
+  );
+}
+
 function tunnelsCard(ix, deviceId) {
   const tunnels = (ix.net.tunnels || []).filter((t) => t.device_id === deviceId);
   if (!tunnels.length) return null;
@@ -299,8 +373,11 @@ function tunnelsCard(ix, deviceId) {
           [t('device.tunnel.listensOn'), opt(tun.listen_port, (v) => `${(tun.protocol || 'udp').toUpperCase()} ${v}`)],
           [t('device.tunnel.addresses'), tun.addresses.length ? tun.addresses.join(', ') : undefined],
           [t('device.tunnel.publicKey'), opt(tun.public_key, (v) => h('span', { class: 'mono' }, v))],
+          ...vpnRows(tun),
         ]),
-        peerTable(ix, tun),
+        tun.kind === 'wireguard' ? peerTable(ix, tun) : null,
+        tun.kind === 'ipsec' ? childTable(tun) : null,
+        tun.kind === 'openvpn' ? sessionTable(tun) : null,
       ),
     ),
   );
