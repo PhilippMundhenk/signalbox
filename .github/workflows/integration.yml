@@ -43,11 +43,18 @@ jobs:
   opnsense:
     needs: changes
     if: needs.changes.outputs.opnsense == 'true'
-    name: OPNsense 26.7 (official nano image in QEMU)
+    name: OPNsense ${{ matrix.version }} (official nano image in QEMU)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # the current release with the full tests, the one before it (25.1, what runs on real
+    # hardware) read only (#390); 24.7 has a simulator variant only, see docs/adapters/opnsense.md
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["26.7", "25.1"]
     env:
       REQUIRE_INTEGRATION: "1"
+      OPNSENSE_VERSION: ${{ matrix.version }}
       VM_DIR: ${{ github.workspace }}/.vm/opnsense
     steps:
       - uses: actions/checkout@v7
@@ -72,8 +79,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .vm/opnsense
-          # weekly: the preparation installs the newest 26.7.x packages
-          key: opnsense-26.7-${{ hashFiles('tools/integration/opnsense/vm.py', 'tools/integration/opnsense/preseed.py', 'tools/integration/opnsense/privileges.json') }}-${{ steps.week.outputs.week }}
+          # weekly: the preparation installs the newest packages of the release
+          key: opnsense-${{ matrix.version }}-${{ hashFiles('tools/integration/opnsense/vm.py', 'tools/integration/opnsense/preseed.py', 'tools/integration/opnsense/privileges.json') }}-${{ steps.week.outputs.week }}
       - name: Download and verify the official image
         if: steps.cache.outputs.cache-hit != 'true'
         run: python3 tools/integration/opnsense/vm.py fetch "$VM_DIR"
@@ -92,6 +99,7 @@ jobs:
         # first after the boot: a check run keeps only 50 annotations, and the recording
         # steps fill them; the result is checked at the end of the job
         id: setup
+        if: matrix.version == '26.7'
         continue-on-error: true
         run: |
           set -o pipefail
@@ -117,6 +125,7 @@ jobs:
       - name: Record the API answers (log and flow targets)
         run: python3 tools/integration/opnsense/dump.py "$VM_DIR" logging
       - name: Integration tests
+        if: matrix.version == '26.7'
         run: |
           set -o pipefail
           pytest tests/integration/test_opnsense_real.py -v -p no:cacheprovider 2>&1 \
@@ -127,6 +136,20 @@ jobs:
               body=${body//'%'/'%25'}
               body=${body//$'\n'/'%0A'}
               echo "::error title=OPNsense integration tests failed::$body"
+              exit $code
+            }
+      - name: Integration tests (older release, read only, #390)
+        if: matrix.version != '26.7'
+        run: |
+          set -o pipefail
+          pytest tests/integration/test_opnsense_versions_real.py -v -p no:cacheprovider 2>&1 \
+            | tee "$VM_DIR/pytest.log" || {
+              code=$?
+              summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$VM_DIR/pytest.log" | cut -c1-600 | tail -n 80)
+              body=$(printf '%s\n--- last lines ---\n%s' "$summary" "$(tail -n 60 "$VM_DIR/pytest.log")")
+              body=${body//'%'/'%25'}
+              body=${body//$'\n'/'%0A'}
+              echo "::error title=OPNsense ${{ matrix.version }} integration tests failed::$body"
               exit $code
             }
       - name: Serial console on failure
@@ -145,7 +168,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: opnsense-logs
+          name: opnsense-${{ matrix.version }}-logs
           path: |
             .vm/opnsense/*.log
             .vm/opnsense/api-*.json
@@ -161,7 +184,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ["24.10.8", "25.12.6"]
+        version: ["23.05.6", "24.10.8", "25.12.6"]
     env:
       REQUIRE_INTEGRATION: "1"
       # throwaway logins of the test VM, which is only reachable on 127.0.0.1
@@ -192,6 +215,20 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends qemu-system-x86 qemu-utils zstd \
             build-essential gawk gettext file rsync unzip wget
+          # the 23.05 image builder refuses uutils' install ("Please install GNU 'install'")
+          if ! install --version 2>&1 | grep -q GNU; then
+            sudo apt-get install -y -q --allow-remove-essential coreutils-from-gnu || true
+          fi
+          if ! install --version 2>&1 | grep -q GNU; then
+            # last resort: uutils' install is compatible, only its version string fails the check
+            mkdir -p "$HOME/shim"
+            printf '%s\n' '#!/bin/sh' \
+              '[ "$1" = --version ] && { echo "install (GNU coreutils) 9.5 (shim over uutils)"; exit 0; }' \
+              'exec /usr/bin/install "$@"' > "$HOME/shim/install"
+            chmod +x "$HOME/shim/install"
+            echo "$HOME/shim" >> "$GITHUB_PATH"
+          fi
+          echo "::notice title=install::$(command -v install) $(install --version 2>&1 | head -1) | $(. /etc/os-release; echo $PRETTY_NAME)"
       - name: Cache the image
         id: cache
         uses: actions/cache@v4
@@ -483,11 +520,17 @@ jobs:
   linux:
     needs: changes
     if: needs.changes.outputs.linux == 'true'
-    name: Linux gateway (Debian 12 container with sshd, dnsmasq, chrony, WireGuard)
+    name: Linux gateway Debian ${{ matrix.debian }} (container with sshd, dnsmasq, chrony, WireGuard)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # the current Debian and the two before it (#417, #389)
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: ["13", "12", "11"]
     env:
       REQUIRE_INTEGRATION: "1"
+      DEBIAN: ${{ matrix.debian }}
       TARGET_DIR: ${{ github.workspace }}/.target/linux
     steps:
       - uses: actions/checkout@v7
@@ -495,27 +538,67 @@ jobs:
         with: { python-version: "3.13", cache: pip }
       - run: pip install -e ".[dev,switches]"
       - name: Start the container, create the read user as documented
-        run: python3 tools/integration/linux/target.py start "$TARGET_DIR"
+        run: |
+          set -o pipefail
+          mkdir -p "$TARGET_DIR"
+          python3 tools/integration/linux/target.py start "$TARGET_DIR" 2>&1 | tee "$TARGET_DIR/start.log" || {
+            code=$?
+            body=$(tail -n 40 "$TARGET_DIR/start.log")
+            body=${body//'%'/'%25'}
+            body=${body//$'\n'/'%0A'}
+            echo "::error title=Linux (Debian ${DEBIAN}) container did not start::$body"
+            exit $code
+          }
       - name: Integration tests
         run: |
           set -o pipefail
-          pytest tests/integration/test_linux_real.py -v -p no:cacheprovider 2>&1 \
+          pytest tests/integration/test_linux_real.py -v -rs -p no:cacheprovider 2>&1 \
             | tee "$TARGET_DIR/pytest.log" || {
               code=$?
               summary=$(grep -E '^(FAILED|ERROR) |^E  ' "$TARGET_DIR/pytest.log" | cut -c1-600 | tail -n 60)
               body=$(printf '%s\n--- last lines ---\n%s' "$summary" "$(tail -n 40 "$TARGET_DIR/pytest.log")")
               body=${body//'%'/'%25'}
               body=${body//$'\n'/'%0A'}
-              echo "::error title=Linux integration tests failed::$body"
+              echo "::error title=Linux (Debian ${DEBIAN}) integration tests failed::$body"
               exit $code
             }
+      - name: Result and legacy iptables test in the job summary (#404, #417)
+        if: always()
+        run: |
+          {
+            echo "### Linux gateway on Debian ${DEBIAN}: integration tests"
+            echo
+            echo "Counts: $(grep -cE ' PASSED' "$TARGET_DIR/pytest.log" 2>/dev/null || true) passed, $(grep -cE ' (FAILED|ERROR)' "$TARGET_DIR/pytest.log" 2>/dev/null || true) failed, $(grep -cE ' SKIPPED' "$TARGET_DIR/pytest.log" 2>/dev/null || true) skipped"
+            echo
+            echo "#### Legacy iptables end-to-end test"
+            echo
+            line=$(grep -E 'test_legacy_iptables_is_read_with_iptables_save .*(PASSED|FAILED|ERROR|SKIPPED)' "$TARGET_DIR/pytest.log" 2>/dev/null | head -n 1)
+            if [ -z "$line" ]; then
+              echo "**Did not run** (no result in the log: the integration step failed or was skipped earlier)."
+            elif echo "$line" | grep -q PASSED; then
+              echo "**Ran and passed.**"
+            elif echo "$line" | grep -q SKIPPED; then
+              echo "**Skipped**, reason:"
+              echo '```'
+              grep -E '^SKIPPED .*legacy iptables' "$TARGET_DIR/pytest.log" | head -n 3
+              echo '```'
+            else
+              echo "**Ran and failed.**"
+            fi
+            echo
+            echo '```'
+            echo "$line"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: A second DHCP server and IPv6 router (dnsmasq in a network namespace, #184)
+        if: matrix.debian == '12'  # the probe runs on the runner, once is enough (#417)
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends dnsmasq-base
           bash tools/integration/probe/netns.sh start "$RUNNER_TEMP/probe"
           cat "$RUNNER_TEMP/probe/env" >> "$GITHUB_ENV"
       - name: Probe tests (DHCP as the CI user, the router solicitation as root)
+        if: matrix.debian == '12'  # the probe runs on the runner, once is enough (#417)
         run: |
           set -o pipefail
           {
@@ -528,7 +611,7 @@ jobs:
               body=$(printf '%s\n--- dnsmasq ---\n%s' "$summary" "$(tail -n 20 "$RUNNER_TEMP/probe/dnsmasq.log" 2>/dev/null)")
               body=${body//'%'/'%25'}
               body=${body//$'\n'/'%0A'}
-              echo "::error title=Probe integration tests failed::$body"
+              echo "::error title=Probe integration tests failed (Debian ${DEBIAN})::$body"
               exit $code
             }
       - name: Container log on failure
@@ -537,7 +620,7 @@ jobs:
           body=$(docker logs signalbox-linux 2>&1 | tail -n 40)
           body=${body//'%'/'%25'}
           body=${body//$'\n'/'%0A'}
-          echo "::error title=Linux container log::$body"
+          echo "::error title=Linux container log (Debian ${DEBIAN})::$body"
       - name: Stop
         if: always()
         run: |
@@ -546,7 +629,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: linux-logs
+          name: linux-logs-debian${{ matrix.debian }}
           path: .target/linux/*.log
           if-no-files-found: ignore
           retention-days: 7

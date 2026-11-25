@@ -25,6 +25,7 @@ Changes (LAN networks, DHCP, switch ports, SSIDs) go through the controller too;
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -238,6 +239,31 @@ def _client_mode_gap() -> Gap:
         optional=True,
         message_id="omada.accounts.client_mode",
         fix_id="omada.accounts.client_mode.fix",
+    )
+
+
+_VERSION = re.compile(r"(\d+)\.(\d+)")
+
+#: The Open API (``/openapi/v1``, client credentials) needs controller 5.9 or later (guess, #21:
+#: TP-Link's page names 6.4 for the current description and does not date its start).
+OPEN_API_FROM = (5, 9)
+
+
+def controller_release(version: str | None) -> tuple[int, int] | None:
+    """(major, minor) of ``controllerVer`` (``5.15.20.18`` is (5, 15)); None if not in that form."""
+    found = _VERSION.match((version or "").strip())
+    return (int(found.group(1)), int(found.group(2))) if found else None
+
+
+def _old_gap(what: str, release: tuple[int, int]) -> Gap:
+    """An optional gap for a read that a controller older than 6 may not offer (#415)."""
+    text = f"{release[0]}.{release[1]}"
+    return Gap(
+        message=f"{what}: controller {text} does not offer it through the Open API "
+        "(controller 6 does)",
+        optional=True,
+        message_id="omada.oldController",
+        params={"what": what, "release": text},
     )
 
 
@@ -756,6 +782,8 @@ class OmadaAdapter(_Adapter):
         self._users_need_auth_code = False  # -44118 seen: do not ask again (#354)
         self._site_zone: Any = None
         self._token: str | None = None
+        #: controller release as (major, minor) once read, for notes on what an older one lacks
+        self._release: tuple[int, int] | None = None
         self._cache: dict[str, Any] = {}
         self._wireless_cache: _Wireless | None = None
 
@@ -794,17 +822,35 @@ class OmadaAdapter(_Adapter):
 
     # --- requests -----------------------------------------------------------------------------
 
-    async def _authorise(self) -> None:
-        data = await self.http.request_json(
-            "POST",
-            TOKEN,
-            params={"grant_type": "client_credentials"},
-            json={
-                "omadacId": self._omadac_id,
-                "client_id": self.config.client_id,
-                "client_secret": self.config.client_secret.get_secret_value(),
-            },
+    def _no_open_api(self) -> AdapterError:
+        """The controller is too old for the Open API (no classic-API fallback, see the docs)."""
+        text = f"{self._release[0]}.{self._release[1]}" if self._release else "of this version"
+        need = f"{OPEN_API_FROM[0]}.{OPEN_API_FROM[1]}"
+        return AdapterError(
+            f"this controller ({text}) has no Open API: Signalbox needs Omada controller "
+            f"{need} or later",
+            fix="Update the controller (Omada Software Controller, OC200/OC300) to a release "
+            "with the Open API, or leave this controller out of Signalbox. The classic web "
+            "API of older controllers is not supported.",
+            message_id="omada.noOpenApi",
+            fix_id="omada.noOpenApi.fix",
+            params={"release": text, "need": need},
         )
+
+    async def _authorise(self) -> None:
+        try:
+            data = await self.http.request_json(
+                "POST",
+                TOKEN,
+                params={"grant_type": "client_credentials"},
+                json={
+                    "omadacId": self._omadac_id,
+                    "client_id": self.config.client_id,
+                    "client_secret": self.config.client_secret.get_secret_value(),
+                },
+            )
+        except NotFound as exc:  # Tomcat's 404: controller 5.8 or older has no Open API
+            raise self._no_open_api() from exc
         try:
             result = _check(data, TOKEN)
         except OmadaError as exc:
@@ -880,6 +926,9 @@ class OmadaAdapter(_Adapter):
         self._wireless_cache = None
         self._token = None
         info = _dict(_check(await self.http.get_json(INFO), INFO), INFO, "result")
+        self._release = controller_release(_text(info.get("controllerVer")))
+        if self._release is not None and self._release[0] < 5:
+            raise self._no_open_api()  # 4.x: classic web API only
         self._omadac_id = self.config.omadac_id or _text(info.get("omadacId"))
         if not self._omadac_id:
             raise _unexpected(INFO, "no omadacId (set the controller id in the settings)")
@@ -1189,8 +1238,9 @@ class OmadaAdapter(_Adapter):
         else:
             try:
                 users = await self._rows(f"/openapi/v1/{self._omadac_id}/users")
-            except NotFound:
-                pass  # this controller has no such endpoint: nothing to report
+            except NotFound:  # this controller has no such endpoint
+                if self._release is not None and self._release[0] < 6:
+                    out["incomplete"] = [_old_gap("accounts", self._release)]
             except OmadaError as exc:  # refused for this client (#349): not "no accounts"
                 if exc.code == _AUTH_CODE_ONLY:  # 6.3: a limit of client mode (#354)
                     self._users_need_auth_code = True
@@ -1263,26 +1313,32 @@ class OmadaAdapter(_Adapter):
                 rules = firewall.acl_rules(rows, names)
         except (NotFound, OmadaError) as exc:
             rules_complete = False
-            gaps.append(
-                Gap(
-                    message=f"firewall: the gateway ACLs are not read ({exc})",
-                    message_id="omada.aclsNotRead",
-                    params={"cause": str(exc)},
+            if isinstance(exc, NotFound) and self._release and self._release[0] < 6:
+                gaps.append(_old_gap("firewall ACLs", self._release))
+            else:
+                gaps.append(
+                    Gap(
+                        message=f"firewall: the gateway ACLs are not read ({exc})",
+                        message_id="omada.aclsNotRead",
+                        params={"cause": str(exc)},
+                    )
                 )
-            )
         forwards: list[PortForward] = []
         try:
             rows = await self._rows(f"{self._site_path}/nat/port-forwardings")
             forwards = firewall.port_forwards(rows)
         except (NotFound, OmadaError) as exc:
             port_forwards_complete = False
-            gaps.append(
-                Gap(
-                    message=f"firewall: the port forwarding is not read ({exc})",
-                    message_id="omada.forwardsNotRead",
-                    params={"cause": str(exc)},
+            if isinstance(exc, NotFound) and self._release and self._release[0] < 6:
+                gaps.append(_old_gap("port forwarding", self._release))
+            else:
+                gaps.append(
+                    Gap(
+                        message=f"firewall: the port forwarding is not read ({exc})",
+                        message_id="omada.forwardsNotRead",
+                        params={"cause": str(exc)},
+                    )
                 )
-            )
         return Observation(
             firewalls=[
                 Firewall(

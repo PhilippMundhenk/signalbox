@@ -14,6 +14,8 @@ gets **one message per round** (a digest) with the events it asked for:
 | `device` | A device cannot be reached, was only read in part, or is reachable again. |
 | `drift` | The network differs from the desired state, or matches it again. |
 | `deploy` | A change was applied, rolled back or failed. |
+| `certificate` | A certificate is about to expire or has expired (`security.certificate-expiry`, `cert.vpn-expiring`, `cert.ca-expiring`). Sent once, when the finding appears, not on every round. |
+| `rogue_ssid` | An access point that is not yours uses one of your Wi-Fi names (`wifi.rogue-ssid`). Sent once, when the finding appears. The message names only your own SSID and the device that heard it, never the foreign BSSID or SSID. |
 
 The first round after the first start is only a baseline, and so is the first round after the state
 was lost: nothing is sent for what already existed. The state is kept in the database, so a restart
@@ -49,7 +51,7 @@ notifications:
       url: https://ntfy.example.org
       topic: signalbox
       min_severity: warning
-      events: [finding, device, drift, deploy]
+      events: [finding, device, drift, deploy, certificate, rogue_ssid]
       quiet_start: "22:00"
       quiet_end: "07:00"
 ```
@@ -102,8 +104,45 @@ An optional `secret` is sent as `Authorization: Bearer …`. Any 2xx answer coun
 
 `kind: browser`. While the web interface is open in a browser tab, messages appear as notifications
 of that browser (Notification API). Press *Allow notifications* in Settings once: the browser asks
-for permission only then. Nothing is sent when no page is open; there is no Web Push service
-(a follow-up, see the issue tracker).
+for permission only then. Without Web Push (below) nothing is sent when no page is open.
+
+### Web Push (optional): notifications with no tab open
+
+With Web Push a browser also gets the messages of an enabled `browser` channel while Signalbox is
+closed (a service worker, `/sw.js`, shows them). It is off by default and opt-in at three levels:
+
+1. Install the extra: `pip install "signalbox-net[webpush]"` (it uses `pywebpush`; it is not in the
+   default image). Without it Settings says so and no key is made.
+2. Enable a channel of `kind: browser`.
+3. In Settings, press *Subscribe this browser* in each browser that should receive messages. The
+   browser asks for permission then; the service worker is registered only on that press.
+
+What to know first:
+
+- **HTTPS or localhost.** Browsers offer service workers and push only on `https://` pages or on
+  `localhost` / `127.0.0.1`. Open Signalbox over HTTPS (reverse proxy) for other hosts.
+- **A third party is involved.** The message travels through the push service of the browser vendor
+  (for example Google, Mozilla or Apple), encrypted for the browser (RFC 8291) and signed with this
+  server's VAPID key. The vendor sees that a message was sent, when, to which subscription and its
+  size, not the text. The browser must be able to reach that service, and Signalbox needs outbound
+  HTTPS to it (the proxy settings of the environment apply).
+- **Payloads** carry only the digest text (the same lines as the other channels, at most 600
+  characters) and a link back to the interface. No tokens, passwords or device credentials.
+- **Keys.** The VAPID key pair is made on first use. The private key is stored encrypted like other
+  secrets and is never shown, exported or logged; only the public key goes to the browser. The
+  endpoint of a subscription is a secret URL for that browser: the list is stored encrypted and
+  Settings shows only the host and the date. Subscriptions the push service reports as gone (404,
+  410) are deleted automatically. Changing the secret key makes the stored key and subscriptions
+  unusable; subscribe again.
+
+Turn it off:
+
+- one browser: press *Unsubscribe this browser* in Settings, or delete its entry from the list
+  (this also works from another browser);
+- everything: disable or delete the `browser` channel, or delete all subscriptions, or uninstall the
+  extra. Without a subscription nothing is sent to a push service;
+- in the browser: remove the notification permission for the site; unregister the service worker
+  under the browser's site settings if wanted.
 
 ## Apprise (optional)
 

@@ -19,6 +19,7 @@ adapter may change, and a restore sets them back.
 from __future__ import annotations
 
 import contextlib
+import re
 from collections.abc import Generator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -58,6 +59,7 @@ from signalbox.adapters.fritzbox.soap import (
     UPNP_PORT,
     SoapFault,
     Tr064,
+    login_page_version,
     login_user,
     security_port,
 )
@@ -145,6 +147,18 @@ GUEST = "guest"
 MAX_PORT_MAPPINGS = 512
 #: ``SpecifiedArrayIndexInvalid`` (713) ends the index loop; 714 is its other spelling in UPnP.
 END_OF_ARRAY = (713, 714)
+
+
+#: ``154.07.57`` (FRITZ!OS 7.57 of a 7590), ``6.83``, ``113.06.83-12345``: the release is the last
+#: two numbers (the leading one names the hardware family).
+_RELEASE = re.compile(r"(?:\d+\.)?(\d+)\.(\d+)(?:[-_ ].*)?")
+
+
+def fritzos_release(version: str | None) -> tuple[int, int] | None:
+    """(major, minor) of a ``NewSoftwareVersion``: ``154.07.57`` is (7, 57); None if it is not
+    in that form."""
+    found = _RELEASE.fullmatch((version or "").strip())
+    return (int(found.group(1)), int(found.group(2))) if found else None
 
 
 #: Web interface port of the box; its login page names the user in password-only mode (#373).
@@ -574,6 +588,10 @@ class FritzboxAdapter(Adapter):
         self._user_known = bool(cfg.username)
         #: The user name read from the box because the configured one is empty (#373).
         self._looked_up: str | None = None
+        #: the login page was the version 1 page, without a user list (FRITZ!OS before 7.24)
+        self._login_v1 = False
+        #: FRITZ!OS release as (major, minor) once read, for notes on what an older one lacks
+        self._release: tuple[int, int] | None = None
         self._host_cache: list[dict[str, str]] | None = None
 
     @classmethod
@@ -624,9 +642,17 @@ class FritzboxAdapter(Adapter):
             allow_insecure_http=self.config.allow_insecure_http,
         )
         try:
-            response = await web.request(
-                "GET", "/login_sid.lua", params={"version": "2"}, headers={"Accept": "text/xml"}
-            )
+            try:
+                response = await web.request(
+                    "GET", "/login_sid.lua", params={"version": "2"}, headers={"Accept": "text/xml"}
+                )
+            except NotFound:  # a box that refuses the parameter: the version 1 page
+                response = await web.request(
+                    "GET", "/login_sid.lua", headers={"Accept": "text/xml"}
+                )
+            # FRITZ!OS before 7.24 has only the version 1 page (a challenge, no user list):
+            # there is no user to take, the empty name stays and the error says why
+            self._login_v1 = login_page_version(response.content) == 1
             return login_user(response.content)
         except AdapterError:  # not found, a certificate that is not the pinned one, bad XML...
             return None
@@ -639,6 +665,18 @@ class FritzboxAdapter(Adapter):
             return exc
         host = self.http.host
         netloc = f"[{host}]" if ":" in host else host
+        if not self.config.username and not self._looked_up and self._login_v1:
+            return AuthFailed(
+                f"{exc}; the box needs a user name and its login page (FRITZ!OS before 7.24) "
+                "does not list the users",
+                fix="Enter the user name of a FRITZ!Box user (System > FRITZ!Box Users, "
+                "FRITZ!Box-Benutzer) with the right 'FRITZ!Box settings' (FRITZ!Box "
+                "Einstellungen) in the settings. A box of this age that has no users at all "
+                "often takes the name dslf-config with the box's password.",
+                message_id="fritzbox.noUserNameOld",
+                fix_id="fritzbox.noUserNameOld.fix",
+                params={"cause": str(exc)},
+            )
         if not self.config.username and not self._looked_up:
             return AuthFailed(
                 f"{exc}; the box needs a user name even when it asks only for a password",
@@ -667,6 +705,7 @@ class FritzboxAdapter(Adapter):
         self._host_cache = None
         self._user_known = bool(self.config.username)
         self._looked_up = None
+        self._login_v1 = False
         try:
             info = await self.tr064.call("DeviceInfo1", "GetInfo")
         except (NotFound, Unreachable) as exc:
@@ -674,6 +713,7 @@ class FritzboxAdapter(Adapter):
         except AuthFailed as exc:
             raise self._login_refused(exc) from exc
         version = info.get("NewSoftwareVersion")
+        self._release = fritzos_release(version)
         return SystemInfo(
             vendor=info.get("NewManufacturerName") or "AVM",
             model=info.get("NewModelName") or None,
@@ -907,9 +947,20 @@ class FritzboxAdapter(Adapter):
             out["signalbox_privilege"] = {d: rights}
         try:
             listed = await self.tr064.call("LANConfigSecurity1", "X_AVM-DE_GetUserList")
-        except NotFound:
-            return out  # this FRITZ!OS has no such action: nothing to report
-        except SoapFault as exc:
+        except (NotFound, SoapFault) as exc:
+            # this FRITZ!OS has no such action: nothing to report, on a 6.x box a gap names it
+            if isinstance(exc, NotFound) or exc.code == 401:
+                if self._release is not None and self._release < (7, 0):
+                    out["incomplete"] = [
+                        Gap(
+                            message=f"accounts: FRITZ!OS {self._release[0]}.{self._release[1]:02d} "
+                            "has no user list (FRITZ!OS 7 and later have it)",
+                            optional=True,
+                            message_id="fritzbox.accountsOld",
+                            params={"release": f"{self._release[0]}.{self._release[1]:02d}"},
+                        )
+                    ]
+                return out
             if exc.code == 606:  # refused for this user (#349): not "no accounts"
                 out["incomplete"] = [
                     Gap(

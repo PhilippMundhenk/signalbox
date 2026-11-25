@@ -380,8 +380,17 @@ class FritzboxSim:
     generated_user: str = "fritz0000"
     #: ``/login_sid.lua`` answers 404 (a FRITZ!OS without it, or the lookup blocked)
     no_login_page: bool = False
-    #: FRITZ!OS whose descriptions are served (a name from ``tr064.VERSIONS``)
+    #: FRITZ!OS whose descriptions are served (a directory name, ``tr064.VERSIONS`` or
+    #: ``tr064.OLDER``)
     version: str = tr064.VERSIONS[0]
+    #: The same by release (#413): ``"6.83"``, ``"7.29"``, ``"7.57"`` or ``"8.02"``; sets
+    #: ``version``. An older release serves the descriptions of that release, without the
+    #: actions and answer arguments it lacks, and the sample Wi-Fi it can have (no WPA3 before
+    #: 7.20); before 7.24 ``/login_sid.lua`` is the version 1 page without a user list.
+    release: str = ""
+    #: a box before 7.24 that answers ``/login_sid.lua?version=2`` with 404 instead of ignoring
+    #: the parameter (adapter fallback test)
+    strict_login_version: bool = False
     #: actions (``GetSecurityKeys``) the user has no right for: UPnP fault 606
     denied: set[str] = field(default_factory=set)
     #: ``action`` or ``service#action`` -> UPnP error code to answer with
@@ -461,6 +470,28 @@ class FritzboxSim:
     )
     users: list[str] = field(default_factory=lambda: ["fritz0000", "signalbox"])
 
+    def __post_init__(self) -> None:
+        if self.release:
+            if self.release not in tr064.RELEASES:
+                raise ValueError(f"unknown release {self.release!r}: {sorted(tr064.RELEASES)}")
+            self.version = tr064.RELEASES[self.release]
+        self._adapt()
+
+    def _adapt(self) -> None:
+        """The sample data a box of this release can have: no WPA3 before 7.20, and the older
+        radios are Wi-Fi 4/5."""
+        if self.fritzos < (7, 20):
+            for index, standard in ((1, "n"), (2, "ac"), (3, "n")):
+                self.wlans[index]["NewStandard"] = standard
+                if self.wlans[index]["NewBeaconType"] == "11iandWPA3":
+                    self.wlans[index]["NewBeaconType"] = "11i"
+
+    @property
+    def fritzos(self) -> tuple[int, int]:
+        """(major, minor) of the FRITZ!OS in the description: ``113.06.83`` is (6, 83)."""
+        parts = self.description.value("Display").split(".")
+        return int(parts[-2]), int(parts[-1])
+
     def behind(
         self,
         address: str,
@@ -489,8 +520,9 @@ class FritzboxSim:
     def reset(self) -> None:
         fresh = FritzboxSim()
         for name in self.__dataclass_fields__:
-            if name not in ("nonces", "sid", "version"):
+            if name not in ("nonces", "sid", "version", "release"):
                 setattr(self, name, getattr(fresh, name))
+        self._adapt()
 
     @property
     def description(self) -> Description:
@@ -517,7 +549,11 @@ class FritzboxSim:
 
     @property
     def offered_beacon_types(self) -> list[str]:
-        return [self.beacon_spelling(b) for b in OFFERED_BEACON_TYPES]
+        service = self.description.service_by_type("urn:dslforum-org:service:WLANConfiguration:1")
+        assert service is not None
+        [arg] = service.actions["SetBeaconType"].inputs
+        allowed = {a.lower() for a in arg.variable.allowed}
+        return [self.beacon_spelling(b) for b in OFFERED_BEACON_TYPES if b.lower() in allowed]
 
     # digest -------------------------------------------------------------------------
 
@@ -538,8 +574,20 @@ class FritzboxSim:
         """The user TR-064 accepts."""
         return self.generated_user if self.password_only else self.username
 
-    def login_page(self) -> str:
-        """``/login_sid.lua?version=2``: no login needed, lists the users (#373)."""
+    @property
+    def login_v2(self) -> bool:
+        """``/login_sid.lua?version=2`` (the user list) exists from FRITZ!OS 7.24 (#413)."""
+        return self.fritzos >= (7, 24)
+
+    def login_page(self, version: int = 2) -> str:
+        """``/login_sid.lua?version=2``: no login needed, lists the users (#373). Before 7.24
+        the parameter is ignored and the answer is the version 1 page (challenge, no users)."""
+        if version == 1 or not self.login_v2:
+            return (
+                '<?xml version="1.0" encoding="utf-8"?><SessionInfo><SID>0000000000000000</SID>'
+                "<Challenge>1234abcd</Challenge><BlockTime>0</BlockTime><Rights></Rights>"
+                "</SessionInfo>"
+            )
         names = [self.generated_user] if self.password_only else [self.username]
         users = "".join(
             f'<User last="{int(i == len(names) - 1)}">{escape(n)}</User>'
@@ -908,6 +956,9 @@ class FritzboxSim:
             return self._fault(501)
         if isinstance(data, int):
             return self._fault(data)
+        if self.version in tr064.OLDER:  # the sample answer has more than this release's box
+            wanted = {a.name for a in action.outputs}
+            data = {k: v for k, v in data.items() if k in wanted}
         action.check_outputs(data)
         return self._answer(service.service_type, action_name, data, action)
 
@@ -978,11 +1029,11 @@ def create_app(sim: FritzboxSim | None = None) -> FastAPI:
         )
 
     @app.get("/login_sid.lua")
-    async def login_sid() -> Response:
+    async def login_sid(version: int = 1) -> Response:
         state.requests += 1
-        if state.no_login_page:
+        if state.no_login_page or (state.strict_login_version and version == 2):
             return Response("<html>404 Not Found</html>", status_code=404)
-        return Response(state.login_page(), media_type="text/xml")
+        return Response(state.login_page(version), media_type="text/xml")
 
     @app.get(HOST_LIST)
     async def hosts(sid: str = "") -> Response:

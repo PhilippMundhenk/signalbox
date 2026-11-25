@@ -1019,6 +1019,36 @@ def sample_data() -> dict[str, Any]:
     return copy.deepcopy(data)
 
 
+#: The simulated releases (#390) and the firmware version each reports.
+RELEASES = {"26.7": "26.7.8_1", "25.1": "25.1.12_4", "24.7": "24.7.12_1"}
+
+
+def older_release(data: dict[str, Any], release: str) -> None:
+    """Make ``data`` what OPNsense ``release`` answers, from the public sources of the tags
+    24.7.12, 25.1.12 and 25.7.11 (docs/adapters/opnsense.md, "Versions"):
+
+    - all older than 26.7: no destination NAT API (26.1), no ntpd API (25.7), the disk table of
+      ``df -h`` without byte counts, no interface assignment API, ``search_rule`` as
+      :meth:`OpnsenseSimulator.old_filter_rows` answers it;
+    - 25.1 and 24.7 refuse a snake_case action with 403 (camelCase ACL patterns);
+    - 24.7: also no dnsmasq (25.1), no user manager (25.1), no ``interfacenot`` on rules.
+    """
+    if release not in RELEASES:
+        raise ValueError(f"unknown OPNsense release {release!r}: {', '.join(RELEASES)}")
+    if release == "26.7":
+        return
+    product = data["/api/core/firmware/status"]["product"]
+    product["product_version"] = RELEASES[release]
+    product["product_latest"] = RELEASES[release].split("_")[0]
+    for path in ("/api/firewall/d_nat/search_rule", "/api/ntpd/service/status"):
+        data.pop(path, None)
+    for row in data["/api/diagnostics/system/system_disk"]["devices"]:
+        for key in ("total", "total_bytes", "used_bytes", "available_bytes"):
+            row.pop(key, None)
+    if release == "24.7":
+        data.pop("/api/dnsmasq/settings/get", None)
+
+
 # --- writing ---------------------------------------------------------------------------------
 
 SYSTEM_TIME = "/api/diagnostics/system/system_time"
@@ -1218,6 +1248,8 @@ class _Writes:
     def write(self, path: str, body: Any) -> Any:
         match = _WRITE.match(path)
         if match is None or (path.startswith("/api/kea/") and KEA not in self.data):
+            return None
+        if path.startswith("/api/firewall/d_nat/") and DNAT not in self.data:
             return None
         area, action, arg, arg2 = match.groups()
         body = body if isinstance(body, dict) else {}
@@ -1780,8 +1812,14 @@ class OpnsenseSimulator(_Writes):
     camel_only: set[str] = field(default_factory=set)
     #: Rows per answer of the Unbound grids (0: as asked): a long list is paged (#386).
     page_limit: int = 0
-    #: "26.7.6": assignment rows with addresses; "26.7": only device, description, lock.
+    #: "26.7.6": assignment rows with addresses; "26.7": only device, description, lock;
+    #: "none": no assignment API (404, before 26.7).
     assignment_api: str = "26.7.6"
+    #: The simulated release (``RELEASES``); older ones answer as :func:`older_release` says.
+    release: str = "26.7"
+    #: False: only camelCase actions exist (``searchItem``), snake_case answers 404 (a guess for
+    #: releases before 24.7, whose router is not known to translate it).
+    snake_case: bool = True
     #: Assigned interfaces that are locked against removal.
     locked: set[str] = field(default_factory=set)
     #: Write requests received: (path, body).
@@ -1803,6 +1841,21 @@ class OpnsenseSimulator(_Writes):
     #: Traces received (the request bodies).
     traces: list[Any] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        older_release(self.data, self.release)
+        if self.release != "26.7":
+            self.assignment_api = "none"
+
+    @property
+    def acl_camel(self) -> bool:
+        """Releases before 25.7: the ACL patterns are camelCase (``systemTime``, ``getArp``)."""
+        return self.release in ("25.1", "24.7")
+
+    @property
+    def user_api(self) -> bool:
+        """The user manager API (``/api/auth/user``) exists from 25.1."""
+        return self.release != "24.7"
+
     def paged(self, grid: dict[str, Any], query: Any) -> dict[str, Any]:
         """A grid answer the way OPNsense pages it: ``rowCount`` rows of page ``current``
         (-1: all, but at most ``page_limit`` when that is set), ``total`` and ``rowCount``."""
@@ -1813,6 +1866,32 @@ class OpnsenseSimulator(_Writes):
             count = self.page_limit
         shown = rows if count < 0 else rows[(page - 1) * count : page * count]
         return {**grid, "rows": shown, "total": len(rows), "rowCount": len(shown), "current": page}
+
+    def old_filter_rows(self, show_all: bool, interface: str = "") -> dict[str, Any]:
+        """``filter/search_rule`` of 25.1 (all fields; the rules of the new model only the
+        floating ones, or those of ``interface``, and the legacy and automatic ones only with
+        ``show_all``, as read on a real 25.1) and 24.7 (four columns of the rules of the new
+        model)."""
+        rows = copy.deepcopy(self.data[FILTER]["rows"])
+        other = [r for r in rows if r.get("legacy") or r.get("is_automatic")]
+        mvc = [r for r in rows if r not in other]
+        if self.release == "24.7":
+            keep = ("uuid", "enabled", "sequence", "action", "description")
+            rows = [{k: r[k] for k in keep if k in r} for r in mvc]
+        else:
+            names = str(interface).split(",") if interface else []
+            mvc = [
+                {k: v for k, v in r.items() if k != "sort_order"}
+                for r in mvc
+                if not r.get("interface")
+                or (
+                    "," in str(r["interface"])
+                    if not names
+                    else bool(set(names) & set(str(r["interface"]).split(",")))
+                )
+            ]
+            rows = [*other, *mvc] if show_all else mvc
+        return {"total": len(rows), "rowCount": len(rows), "current": 1, "rows": rows}
 
     def traceroute(self, caller: str, body: Any) -> Response:
         """``diagnostics/traceroute/set``: as configd's traceroute.py answers (unanswered hops
@@ -1891,6 +1970,15 @@ class OpnsenseSimulator(_Writes):
         @app.api_route("/{path:path}", methods=["GET", "POST"])
         async def answer(path: str, request: Request) -> Response:
             # OPNsense routes camelCase and snake_case actions alike (snake_case is canonical)
+            if not self.snake_case and any("_" in part for part in path.split("/")[3:4]):
+                self.requests.append("/" + path)
+                return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
+            if self.acl_camel and any("_" in part for part in path.split("/")[3:4]):
+                # the privileges of 24.7 and 25.1 name camelCase actions: another spelling is
+                # refused (403) although the router would run it (seen on a real 25.1)
+                self.requests.append("/" + path)
+                if not path.startswith("api/auth/user/"):
+                    return JSONResponse({"status": 403, "message": "Forbidden"}, status_code=403)
             spelled = "/" + path
             path = "/" + "/".join(_snake(part) for part in path.split("/"))
             snake_request = spelled == path
@@ -1907,6 +1995,10 @@ class OpnsenseSimulator(_Writes):
                     status_code=401,
                     headers={"WWW-Authenticate": 'Basic realm="api"'},
                 )
+            if path.startswith(USERS) and not self.user_api:
+                return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
+            if path.startswith(ASSIGN) and self.assignment_api == "none":
+                return JSONResponse({"errorMessage": "Endpoint not found"}, status_code=404)
             if path.startswith(USERS) and not self.may_manage_users(caller):
                 return JSONResponse({"status": 403, "message": "Forbidden"}, status_code=403)
             if self.delay:
@@ -1948,6 +2040,11 @@ class OpnsenseSimulator(_Writes):
                 overview = copy.deepcopy(self.data[path])
                 overview["rows"] = [*overview.get("rows", []), *copy.deepcopy(self.leftovers)]
                 return JSONResponse(overview)
+            if path == FILTER and self.release in ("25.1", "24.7"):
+                query = request.query_params
+                return JSONResponse(
+                    self.old_filter_rows(bool(query.get("show_all")), query.get("interface", ""))
+                )
             if path in (KEA, *grids):
                 return JSONResponse(self._kea_answer(path))
             if path in UNBOUND_GRIDS and isinstance(self.data[path], dict):

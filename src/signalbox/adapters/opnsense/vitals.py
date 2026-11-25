@@ -25,7 +25,9 @@ from signalbox.model import (
     TemperatureSensor,
 )
 
-_UPTIME = re.compile(r"(?:(\d+)\s+days?,\s*)?(\d+):(\d\d):(\d\d)")
+# the word for "days" is translated with the web interface's language ("3 Tage, 04:05:06")
+_UPTIME = re.compile(r"(?:(\d+)\s+[^\d\s,:]+,\s*)?(\d+):(\d\d):(\d\d)")
+_SIZE = re.compile(r"(\d+(?:\.\d+)?)\s*([BKMGTP]?)i?B?", re.IGNORECASE)
 _THREADS = re.compile(r"\((\d+) cores?, (\d+) threads?\)")
 _LOCAL = "%a %b %d %H:%M:%S %Y"
 
@@ -70,12 +72,28 @@ def cpu_count(answer: Any) -> int | None:
     return int(m.group(2)) or None if m else None
 
 
+def size_bytes(value: Any) -> int | None:
+    """``28G``, ``1.2M``, ``0B`` or a plain number of bytes -> bytes (1024-based, as ``df -h``).
+
+    OPNsense before 26.7 answers the disk table of ``df -h``: the sizes are rounded for people."""
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return int(value) if value >= 0 else None
+    m = _SIZE.fullmatch(value.strip()) if isinstance(value, str) else None
+    if m is None:
+        return None
+    unit = "BKMGTP".index(m.group(2).upper() or "B")
+    return int(float(m.group(1)) * 1024**unit)
+
+
 def _storage(row: dict[str, Any]) -> StorageUsage | None:
     mount = str(row.get("mountpoint") or "").strip()
+    # 26.7: total_bytes and used_bytes; 24.7 to 26.1: blocks and used as ``df -h`` prints them
     total = _count(row.get("total_bytes"))
+    used = _count(row.get("used_bytes"))
+    if total is None and "blocks" in row:
+        total, used = size_bytes(row.get("blocks")), size_bytes(row.get("used"))
     if not mount or not total:
         return None
-    used = _count(row.get("used_bytes"))
     kind = str(row.get("type") or "")
     if mount == "/":
         what = StorageKind.SYSTEM

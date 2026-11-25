@@ -14,7 +14,7 @@ port forwards, the remote syslog target and switching the SNMP agent off ([Writi
 | Writes | `port`, `wlan`, `dhcp`, `reservation` (not `router`, see [Writing](#writing)) |
 | Simulator | `signalbox.sim.openwrt` (`uvicorn --factory signalbox.sim.openwrt:create_app`) |
 
-> Verified against OpenWrt 24.10.8 and 25.12.6 (x86-64 in QEMU) in CI: every call below, the read-only and
+> Verified against OpenWrt 23.05.6, 24.10.8 and 25.12.6 (x86-64 in QEMU) in CI: every call below, the read-only and
 > the write ACL of this page, and the write transaction including the rollback timer
 > ([TESTING.md](../TESTING.md), #137). What the real device showed differently from the first
 > version of the simulator is listed under
@@ -776,10 +776,20 @@ and `list write 'signalbox'` next to `list read 'signalbox'` in the login entry 
 not start the interface at all. Signalbox only checks the UCI values after a change, not that
 hostapd runs it.
 
+## Supported versions
+
+| Release | Package manager | CI (QEMU) | Simulator | Known differences |
+| --- | --- | --- | --- | --- |
+| 25.12 | apk | yes | `wireless_ucode = True` | `network.wireless status` through `luci-rpc` |
+| 24.10 | opkg | yes | `release = "24.10.8"` | none known |
+| 23.05 | opkg | yes (23.05.6) | `release = "23.05.6"` | `luci.lldpd` of `luci-app-lldpd` may be missing: LLDP is then an optional gap (*guess*, confirmed by CI only if the test shows it) |
+
+22.03 and older are not supported (fw3, swconfig targets, no `bridge-vlan` guarantee).
+
 ## Verified against the real OpenWrt
 
 The integration job (`.github/workflows/integration.yml`, [TESTING.md](../TESTING.md)) builds
-OpenWrt 24.10.8 and 25.12.6 x86-64 images with the official image builder, installs the ACL of this page
+OpenWrt 23.05.6, 24.10.8 and 25.12.6 x86-64 images with the official image builder, installs the ACL of this page
 verbatim and runs `tests/integration/test_openwrt_real.py`: contract and mapping of a lab
 configuration (bridge VLANs, hwsim radios, SSIDs, dnsmasq, a wireless station with a lease),
 certificate pinning, a refused login, `port`, `wlan`, `dhcp` and `reservation` through the
