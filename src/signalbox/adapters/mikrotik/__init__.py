@@ -77,6 +77,7 @@ from signalbox.adapters.mikrotik.certificates import USERS as CERT_USERS
 from signalbox.adapters.mikrotik.certificates import attach_users
 from signalbox.adapters.mikrotik.certificates import parse as parse_certificate
 from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
+from signalbox.adapters.portcounters import counters_of
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.factory_defaults import is_factory_default
 from signalbox.model import (
@@ -133,6 +134,7 @@ from signalbox.model import (
     NtpServer,
     Pmf,
     Port,
+    PortCounters,
     PortKind,
     PortMembership,
     PortRole,
@@ -315,6 +317,28 @@ _WIFI_PROFILES = {
 }
 _PMF = {"disabled": Pmf.DISABLED, "allowed": Pmf.OPTIONAL, "required": Pmf.REQUIRED}
 _AP_MODES = {"ap", "ap-bridge", "bridge"}
+
+
+#: ``/interface`` rows (RouterOS 7.1+, the REST API's minimum) carry the traffic counters;
+#: ``rx-fcs-error`` and ``tx-collision`` belong to the ethernet statistics (``/interface/ethernet``
+#: with stats, RouterOS 7.x; where the REST row lacks them they stay unset: a guess, #21).
+_COUNTER_KEYS = {
+    "rx_bytes": ("rx-byte", "rx-bytes"),
+    "tx_bytes": ("tx-byte", "tx-bytes"),
+    "rx_packets": ("rx-packet", "rx-packets"),
+    "tx_packets": ("tx-packet", "tx-packets"),
+    "rx_errors": ("rx-error", "rx-errors"),
+    "tx_errors": ("tx-error", "tx-errors"),
+    "rx_crc_errors": ("rx-fcs-error",),
+    "rx_drops": ("rx-drop", "rx-drops"),
+    "tx_drops": ("tx-drop", "tx-drops"),
+    "collisions": ("tx-collision",),
+    "link_downs": ("link-downs",),
+}
+
+
+def _counters(row: dict[str, Any], eth: dict[str, Any]) -> PortCounters | None:
+    return counters_of({**eth, **row}, _COUNTER_KEYS)
 
 
 class MikrotikConfig(AdapterConfig):
@@ -1236,6 +1260,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 advertised_speeds_mbps=advertised(eth.get("advertise")),
                 autoneg=_maybe(eth.get("auto-negotiation")),
                 flow_control=flow_control(eth),
+                counters=_counters(row, eth),
                 **vlan_details.get(name, {}),
                 role=PortRole.TUNNEL if kind in _TUNNEL_TYPES else _ROLES.get(kind),
                 vendor_extra=_extra(row, "type"),

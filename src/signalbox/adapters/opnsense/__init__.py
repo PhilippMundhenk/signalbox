@@ -73,6 +73,7 @@ from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import write as w
 from signalbox.adapters.opnsense.certificates import CA_PRIVILEGE, CERT_PRIVILEGE, issuer_names
 from signalbox.adapters.opnsense.certificates import parse as parse_certificates
+from signalbox.adapters.portcounters import counters_of
 from signalbox.adapters.ssh import PinnedSsh
 from signalbox.changes import FIREWALL_KINDS, Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
@@ -110,6 +111,7 @@ from signalbox.model import (
     ManagementService,
     Membership,
     Port,
+    PortCounters,
     PortKind,
     PortMedia,
     PortMembership,
@@ -172,6 +174,9 @@ MAX_GRID_PAGES = 500
 UNBOUND_PRIVILEGE = "Services: Unbound DNS (page-services-unbound)"
 DNSMASQ = "/api/dnsmasq/settings/get"
 ARP = "/api/diagnostics/interface/get_arp"
+#: Per interface: packets, errors, drops, bytes, collisions (``getInterfaceStatistics`` up to
+#: 25.1, the same action in snake_case later; a 404 retries the other spelling).
+INTERFACE_STATISTICS = "/api/diagnostics/interface/get_interface_statistics"
 NDP = "/api/diagnostics/interface/get_ndp"
 SYSTEM_TIME = "/api/diagnostics/system/system_time"
 SYSTEM_INFORMATION = "/api/diagnostics/system/system_information"
@@ -442,6 +447,37 @@ def _flag(value: Any) -> bool:
 
 def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+#: ``getInterfaceStatistics`` keys (netstat -i style, as the OPNsense diagnostics page shows
+#: them; a guess for the exact spelling of older releases, #21).
+_COUNTER_KEYS = {
+    "rx_bytes": ("received-bytes",),
+    "tx_bytes": ("sent-bytes",),
+    "rx_packets": ("received-packets",),
+    "tx_packets": ("sent-packets",),
+    "rx_errors": ("received-errors",),
+    "tx_errors": ("send-errors", "sent-errors"),
+    "rx_drops": ("dropped-packets",),
+    "collisions": ("collisions",),
+}
+
+
+def counters_by_interface(data: Any) -> dict[str, PortCounters]:
+    """The counters per device name from the answer of ``getInterfaceStatistics``: the rows
+    sit under ``statistics`` (a mapping of ``<name> / <MAC>`` labels to rows), each row names
+    its interface in ``name``."""
+    rows = data.get("statistics", data) if isinstance(data, dict) else data
+    items = list(rows.values()) if isinstance(rows, dict) else rows
+    out: dict[str, PortCounters] = {}
+    for row in items if isinstance(items, list) else []:
+        if not isinstance(row, dict):
+            continue
+        name = _text(row.get("name"))
+        counters = counters_of(row, _COUNTER_KEYS)
+        if name and counters is not None and name not in out:  # the first (link) row counts
+            out[name] = counters
+    return out
 
 
 def _privilege_gap(what: str, exc: AdapterError, privilege: str) -> Gap:
@@ -1239,6 +1275,7 @@ class OpnsenseAdapter(_Adapter):
         accounts, account_gaps = await self._accounts(self.context.device_id)
         layout = await self._layout()
         dev = self.context.device_id
+        layout.ports[:] = await self._with_counters(layout.ports)
         subnets = [
             Subnet(
                 id=object_id(dev, "subnet", f"{i.identifier}-{a.ip}"),
@@ -1276,6 +1313,19 @@ class OpnsenseAdapter(_Adapter):
             **accounts,
             incomplete=[*gaps, *account_gaps],
         )
+
+    async def _with_counters(self, ports: list[Port]) -> list[Port]:
+        """The ports with their counters (#158). The statistics are optional: an OPNsense or an
+        API user without the diagnostics privilege just has none."""
+        try:
+            data = await self._get(INTERFACE_STATISTICS)
+        except (NotFound, AdapterError):
+            return ports
+        by_name = counters_by_interface(data)
+        return [
+            p.model_copy(update={"counters": by_name[p.name]}) if p.name in by_name else p
+            for p in ports
+        ]
 
     async def _routes(self, uplink: Uplink | None) -> tuple[list[Route], list[Gap]]:
         """Static routes, the WAN default route and the gateway status (#149). A grid the API

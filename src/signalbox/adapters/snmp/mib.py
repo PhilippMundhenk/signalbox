@@ -26,10 +26,20 @@ IF_TABLE = "1.3.6.1.2.1.2.2.1"
 IF_DESCR, IF_TYPE, IF_MTU, IF_SPEED, IF_PHYS, IF_ADMIN, IF_OPER = 2, 3, 4, 5, 6, 7, 8
 IF_X_TABLE = "1.3.6.1.2.1.31.1.1.1"
 IF_NAME, IF_HIGH_SPEED, IF_ALIAS = 1, 15, 18
+# counters: ifTable (32 bit: octets, unicast packets, discards, errors; in then out) and ifXTable
+# (64 bit "HC" counters, multicast and broadcast packets)
+IF_IN_OCTETS, IF_IN_UCAST, IF_IN_DISCARDS, IF_IN_ERRORS = 10, 11, 13, 14
+IF_OUT_OCTETS, IF_OUT_UCAST, IF_OUT_DISCARDS, IF_OUT_ERRORS = 16, 17, 19, 20
+IF_IN_MCAST, IF_IN_BCAST, IF_OUT_MCAST, IF_OUT_BCAST = 2, 3, 12, 13
+IF_HC_IN_OCTETS, IF_HC_IN_UCAST, IF_HC_IN_MCAST, IF_HC_IN_BCAST = 6, 7, 8, 9
+IF_HC_OUT_OCTETS, IF_HC_OUT_UCAST, IF_HC_OUT_MCAST, IF_HC_OUT_BCAST = 10, 11, 12, 13
 IF_STACK_STATUS = "1.3.6.1.2.1.31.1.2.1.3"  # index: higher.lower
 
 # EtherLike-MIB dot3StatsDuplexStatus (index: ifIndex): 2 half, 3 full
 DOT3_DUPLEX = "1.3.6.1.2.1.10.7.2.1.19"
+
+# EtherLike-MIB dot3StatsFCSErrors (index: ifIndex): frames received with a bad checksum
+DOT3_FCS_ERRORS = "1.3.6.1.2.1.10.7.2.1.3"
 
 # BRIDGE-MIB
 BRIDGE_ADDRESS = "1.3.6.1.2.1.17.1.1.0"

@@ -129,7 +129,21 @@
     "root_guard": null,
     "loop_protect": null
    },
-   "counters": null
+   "counters": {
+    "rx_bytes": 5091220000,
+    "tx_bytes": 5017330000,
+    "rx_packets": 70300,
+    "tx_packets": 41000,
+    "rx_errors": 0,
+    "tx_errors": 0,
+    "rx_crc_errors": 0,
+    "rx_drops": 1,
+    "tx_drops": null,
+    "collisions": null,
+    "link_downs": null,
+    "last_link_change": null,
+    "counters_since": null
+   }
   },
   {
    "id": "switch/port/Gi2",
@@ -181,7 +195,21 @@
     "root_guard": null,
     "loop_protect": null
    },
-   "counters": null
+   "counters": {
+    "rx_bytes": 182440000,
+    "tx_bytes": 34660000,
+    "rx_packets": 140300,
+    "tx_packets": 82000,
+    "rx_errors": 2,
+    "tx_errors": 0,
+    "rx_crc_errors": 2,
+    "rx_drops": 1,
+    "tx_drops": null,
+    "collisions": null,
+    "link_downs": null,
+    "last_link_change": null,
+    "counters_since": null
+   }
   },
   {
    "id": "switch/port/Gi3",
@@ -233,7 +261,21 @@
     "root_guard": null,
     "loop_protect": null
    },
-   "counters": null
+   "counters": {
+    "rx_bytes": 273660000,
+    "tx_bytes": 51990000,
+    "rx_packets": 210300,
+    "tx_packets": 123000,
+    "rx_errors": 0,
+    "tx_errors": 0,
+    "rx_crc_errors": 0,
+    "rx_drops": 1,
+    "tx_drops": null,
+    "collisions": null,
+    "link_downs": null,
+    "last_link_change": null,
+    "counters_since": null
+   }
   },
   {
    "id": "switch/port/Gi4",
@@ -285,7 +327,21 @@
     "root_guard": null,
     "loop_protect": null
    },
-   "counters": null
+   "counters": {
+    "rx_bytes": 364880000,
+    "tx_bytes": 69320000,
+    "rx_packets": 280300,
+    "tx_packets": 164000,
+    "rx_errors": 0,
+    "tx_errors": 0,
+    "rx_crc_errors": 0,
+    "rx_drops": 1,
+    "tx_drops": null,
+    "collisions": null,
+    "link_downs": null,
+    "last_link_change": null,
+    "counters_since": null
+   }
   },
   {
    "id": "switch/port/Gi5",
@@ -337,7 +393,21 @@
     "root_guard": null,
     "loop_protect": null
    },
-   "counters": null
+   "counters": {
+    "rx_bytes": 5000,
+    "tx_bytes": null,
+    "rx_packets": null,
+    "tx_packets": null,
+    "rx_errors": null,
+    "tx_errors": null,
+    "rx_crc_errors": null,
+    "rx_drops": null,
+    "tx_drops": null,
+    "collisions": null,
+    "link_downs": null,
+    "last_link_change": null,
+    "counters_since": null
+   }
   },
   {
    "id": "switch/port/Gi6",
@@ -389,7 +459,21 @@
     "root_guard": null,
     "loop_protect": null
    },
-   "counters": null
+   "counters": {
+    "rx_bytes": 6000,
+    "tx_bytes": null,
+    "rx_packets": null,
+    "tx_packets": null,
+    "rx_errors": null,
+    "tx_errors": null,
+    "rx_crc_errors": null,
+    "rx_drops": null,
+    "tx_drops": null,
+    "collisions": null,
+    "link_downs": null,
+    "last_link_change": null,
+    "counters_since": null
+   }
   },
   {
    "id": "switch/port/Gi7",
@@ -447,7 +531,21 @@
     "root_guard": null,
     "loop_protect": null
    },
-   "counters": null
+   "counters": {
+    "rx_bytes": 638540000,
+    "tx_bytes": 121310000,
+    "rx_packets": 490300,
+    "tx_packets": 287000,
+    "rx_errors": 0,
+    "tx_errors": 0,
+    "rx_crc_errors": 0,
+    "rx_drops": 1,
+    "tx_drops": null,
+    "collisions": null,
+    "link_downs": null,
+    "last_link_change": null,
+    "counters_since": null
+   }
   },
   {
    "id": "switch/port/Gi8",
@@ -505,7 +603,21 @@
     "root_guard": null,
     "loop_protect": null
    },
-   "counters": null
+   "counters": {
+    "rx_bytes": 729760000,
+    "tx_bytes": 138640000,
+    "rx_packets": 560300,
+    "tx_packets": 328000,
+    "rx_errors": 0,
+    "tx_errors": 0,
+    "rx_crc_errors": 0,
+    "rx_drops": 1,
+    "tx_drops": null,
+    "collisions": null,
+    "link_downs": null,
+    "last_link_change": null,
+    "counters_since": null
+   }
   },
   {
    "id": "switch/port/Po1",
@@ -560,7 +672,21 @@
     "root_guard": null,
     "loop_protect": null
    },
-   "counters": null
+   "counters": {
+    "rx_bytes": 9000,
+    "tx_bytes": null,
+    "rx_packets": null,
+    "tx_packets": null,
+    "rx_errors": null,
+    "tx_errors": null,
+    "rx_crc_errors": null,
+    "rx_drops": null,
+    "tx_drops": null,
+    "collisions": null,
+    "link_downs": null,
+    "last_link_change": null,
+    "counters_since": null
+   }
   }
  ],
  "segments": [

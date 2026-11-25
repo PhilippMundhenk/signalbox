@@ -40,6 +40,7 @@ from signalbox.model import (
     Membership,
     Neighbour,
     Port,
+    PortCounters,
     PortKind,
     PortMembership,
     PortRole,
@@ -286,6 +287,80 @@ def _speed(up: bool | None, high: int | None, low: int | None) -> int | None:
     return None
 
 
+#: The columns of ifTable and ifXTable read for the counters (#158).
+IF_COUNTER_COLUMNS = (
+    mib.IF_IN_OCTETS,
+    mib.IF_IN_UCAST,
+    mib.IF_IN_DISCARDS,
+    mib.IF_IN_ERRORS,
+    mib.IF_OUT_OCTETS,
+    mib.IF_OUT_UCAST,
+    mib.IF_OUT_DISCARDS,
+    mib.IF_OUT_ERRORS,
+)
+IF_X_COUNTER_COLUMNS = (
+    mib.IF_IN_MCAST,
+    mib.IF_IN_BCAST,
+    mib.IF_OUT_MCAST,
+    mib.IF_OUT_BCAST,
+    mib.IF_HC_IN_OCTETS,
+    mib.IF_HC_IN_UCAST,
+    mib.IF_HC_IN_MCAST,
+    mib.IF_HC_IN_BCAST,
+    mib.IF_HC_OUT_OCTETS,
+    mib.IF_HC_OUT_UCAST,
+    mib.IF_HC_OUT_MCAST,
+    mib.IF_HC_OUT_BCAST,
+)
+
+
+def _counter(data: Mib, key: str, *columns: tuple[str, int]) -> int | None:
+    """The first of the columns the switch has for the interface (the 64-bit HC counter before
+    the 32-bit one, which wraps in about half a minute on a gigabit link)."""
+    for table, number in columns:
+        value = as_int(data.col(table, number).get(key))
+        if value is not None and value >= 0:
+            return value
+    return None
+
+
+def if_counters(data: Mib, key: str) -> PortCounters | None:
+    """IF-MIB counters of an interface: the HC octet and packet counters (unicast, multicast and
+    broadcast added), else the 32-bit ones, the error and discard counters, and EtherLike-MIB
+    ``dot3StatsFCSErrors`` for the CRC errors. None when the switch reports none."""
+    x, t = mib.IF_X_TABLE, mib.IF_TABLE
+
+    def packets(*kinds: tuple[int, tuple[str, int]]) -> int | None:
+        """Unicast, multicast and broadcast packets of one direction, each from its HC counter
+        (``kinds``: the HC column, the 32-bit column with its table)."""
+        parts = [_counter(data, key, (x, hc), plain) for hc, plain in kinds]
+        known = [p for p in parts if p is not None]
+        return sum(known) if known else None
+
+    crc = as_int(data.col(mib.DOT3_FCS_ERRORS).get(key))
+    values = {
+        "rx_bytes": _counter(data, key, (x, mib.IF_HC_IN_OCTETS), (t, mib.IF_IN_OCTETS)),
+        "tx_bytes": _counter(data, key, (x, mib.IF_HC_OUT_OCTETS), (t, mib.IF_OUT_OCTETS)),
+        "rx_packets": packets(
+            (mib.IF_HC_IN_UCAST, (t, mib.IF_IN_UCAST)),
+            (mib.IF_HC_IN_MCAST, (x, mib.IF_IN_MCAST)),
+            (mib.IF_HC_IN_BCAST, (x, mib.IF_IN_BCAST)),
+        ),
+        "tx_packets": packets(
+            (mib.IF_HC_OUT_UCAST, (t, mib.IF_OUT_UCAST)),
+            (mib.IF_HC_OUT_MCAST, (x, mib.IF_OUT_MCAST)),
+            (mib.IF_HC_OUT_BCAST, (x, mib.IF_OUT_BCAST)),
+        ),
+        "rx_errors": _counter(data, key, (t, mib.IF_IN_ERRORS)),
+        "tx_errors": _counter(data, key, (t, mib.IF_OUT_ERRORS)),
+        "rx_drops": _counter(data, key, (t, mib.IF_IN_DISCARDS)),
+        "tx_drops": _counter(data, key, (t, mib.IF_OUT_DISCARDS)),
+        "rx_crc_errors": crc if crc is not None and crc >= 0 else None,
+    }
+    present = {k: v for k, v in values.items() if v is not None}
+    return PortCounters(**present) if present else None
+
+
 def ports(device_id: str, data: Mib) -> tuple[PortMap, Lags]:
     """Ports with their link, speed, MTU, MAC, VLAN settings, spanning tree and aggregation."""
     types = data.col(mib.IF_TABLE, mib.IF_TYPE)
@@ -415,6 +490,7 @@ def ports(device_id: str, data: Mib) -> tuple[PortMap, Lags]:
                 if filtering is not None
                 else None,
                 stp=stp_ports.get(if_index),
+                counters=if_counters(data, key),
                 vendor_extra=extra,
                 **lag_kwargs,
             )
