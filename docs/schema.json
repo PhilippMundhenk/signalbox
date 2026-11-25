@@ -1523,6 +1523,17 @@
           ],
           "default": null
         },
+        "ssh_host_key_change": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SshHostKeyChange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "stp_bridges": {
           "anyOf": [
             {
@@ -9915,6 +9926,38 @@
         "device_id"
       ],
       "title": "Source",
+      "type": "object"
+    },
+    "SshHostKeyChange": {
+      "additionalProperties": false,
+      "description": "An SSH host key that differs from the confirmed one (#526). Fingerprints are public.",
+      "properties": {
+        "pinned": {
+          "title": "Pinned",
+          "type": "string"
+        },
+        "pinned_since": {
+          "format": "date-time",
+          "title": "Pinned Since",
+          "type": "string"
+        },
+        "presented": {
+          "title": "Presented",
+          "type": "string"
+        },
+        "seen_at": {
+          "format": "date-time",
+          "title": "Seen At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pinned",
+        "pinned_since",
+        "presented",
+        "seen_at"
+      ],
+      "title": "SshHostKeyChange",
       "type": "object"
     },
     "StorageKind": {

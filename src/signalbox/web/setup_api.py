@@ -34,9 +34,13 @@ from signalbox.adapters import (
     provisions,
 )
 from signalbox.adapters.provision import Redactor, progress_sink
+from signalbox.adapters.ssh import presented_host_keys
+from signalbox.hostkeys import changed_answer, refused, remember
+from signalbox.hostkeys import notice as notice_host_keys
+from signalbox.hostkeys import state as host_key_state
 from signalbox.secrets import SecretError
 from signalbox.service import Services
-from signalbox.store import DeviceRecord, StoreError, _secret_fields, slug
+from signalbox.store import DeviceRecord, SshHostKeys, StoreError, _secret_fields, slug
 from signalbox.web.app import DeviceTestBody, error, error_ids
 
 log = logging.getLogger(__name__)
@@ -210,6 +214,32 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             **error_ids(exc, redact),
         )
 
+    def changed_key(
+        exc: AdapterError, device_id: str | None, name: str, seen: dict[str, str]
+    ) -> JSONResponse | None:
+        """A refused handshake with another SSH host key than the device's pin (#526): the
+        change is recorded (finding ``ssh.host-key-changed``) and answered with both keys."""
+        if not isinstance(exc, UntrustedHostKey) or not device_id:
+            return None
+        if not notice_host_keys(store, device_id, [exc.fingerprint], seen, "setup"):
+            return None
+        runner.evaluate()
+        keys = store.ssh_host_keys(device_id)
+        return JSONResponse(changed_answer(name, keys, exc.fingerprint), status_code=409)
+
+    def with_host_keys(
+        out: dict[str, Any], plan: Any, device_id: str | None, seen: dict[str, str]
+    ) -> dict[str, Any]:
+        """A plan with how each presented SSH host key compares with the device's pin (#526):
+        a changed one is recorded at once (nothing was sent with it)."""
+        main = plan.fingerprint if plan.fingerprint_kind == "ssh-host-key" else None
+        if notice_host_keys(store, device_id, [main, plan.ssh_fingerprint], seen, "setup"):
+            runner.evaluate()
+        keys = store.ssh_host_keys(device_id) if device_id else SshHostKeys()
+        out["host_key"] = host_key_state(keys, main)
+        out["ssh_host_key"] = host_key_state(keys, plan.ssh_fingerprint)
+        return out
+
     def redactor(request: SetupRequest) -> Redactor:
         redact = Redactor()
         redact.add(request.admin_secret.get_secret_value())
@@ -227,12 +257,18 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
         ready = prepare(body)
         if isinstance(ready, JSONResponse):
             return ready
-        cls, _, request = ready
+        cls, form, request = ready
+        seen: dict[str, str] = {}
+        token = presented_host_keys.set(seen)
         try:
             result = await cls.plan_setup(request)
         except AdapterError as exc:
-            return failure(exc, redactor(request))
-        return dict(result.model_dump(mode="json"))
+            return changed_key(exc, form.device_id, form.name, seen) or failure(
+                exc, redactor(request)
+            )
+        finally:
+            presented_host_keys.reset(token)
+        return with_host_keys(dict(result.model_dump(mode="json")), result, form.device_id, seen)
 
     @api.post("/devices/setup/apply", response_model=None)
     async def apply(body: SetupBody) -> dict[str, Any] | JSONResponse:
@@ -285,6 +321,10 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
         checked = require_login(body, ready[2])
         if checked is not None:
             return checked
+        form, request = ready[1], ready[2]
+        stale = refused(store, form.device_id, form.name, [request.trust, request.ssh_trust])
+        if stale is not None:  # a changed SSH host key (#526): refused at once, nothing runs
+            return JSONResponse(stale, status_code=409)
         forget()
         if sum(1 for j in jobs.values() if not j.ended) >= _MAX_JOBS:
             return error(429, "busy", "Too many setups are running; wait for one to finish.")
@@ -339,6 +379,25 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
     async def run_apply(
         body: SetupBody, cls: Any, form: DeviceTestBody, request: SetupRequest
     ) -> dict[str, Any] | JSONResponse:
+        # a confirmed SSH host key that is not the device's pin: refused before the adapter
+        # is called, so no password is sent (#526)
+        stale = refused(store, form.device_id, form.name, [request.trust, request.ssh_trust])
+        if stale is not None:
+            return JSONResponse(stale, status_code=409)
+        seen: dict[str, str] = {}
+        token = presented_host_keys.set(seen)
+        try:
+            return await run_pinned(body, cls, form, request, seen)
+        finally:
+            presented_host_keys.reset(token)
+
+    async def run_pinned(
+        body: SetupBody,
+        cls: Any,
+        form: DeviceTestBody,
+        request: SetupRequest,
+        seen: dict[str, str],
+    ) -> dict[str, Any] | JSONResponse:
         device_id = form.device_id or slug(form.name, [d.id for d in store.devices()])
         secret_names = _secret_fields(cls.manifest.config)
         if not request.remove:
@@ -356,9 +415,18 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             try:
                 planned = await cls.plan_setup(request)
             except AdapterError as exc:
-                return failure(exc, redact)
+                return changed_key(exc, form.device_id, form.name, seen) or failure(exc, redact)
             if not planned.trusted:
-                return failure(UntrustedHostKey(planned.fingerprint, None), redact)
+                untrusted = UntrustedHostKey(planned.fingerprint, None)
+                return changed_key(untrusted, form.device_id, form.name, seen) or failure(
+                    untrusted, redact
+                )
+            if planned.ssh_trusted is False and planned.ssh_fingerprint:
+                answer = changed_key(
+                    UntrustedHostKey(planned.ssh_fingerprint, None), form.device_id, form.name, seen
+                )
+                if answer is not None:
+                    return answer
             if planned.ssh_trusted is False:
                 return error(
                     409,
@@ -376,10 +444,16 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
                     "and run it again; nothing was changed.",
                     plan=planned.model_dump(mode="json"),
                 )
+        trusts = [request.trust, request.ssh_trust]
         try:
             result: SetupResult = await cls.apply_setup(request)
         except AdapterError as exc:
             log.info("automatic setup of %s (%s) failed", device_id, cls.manifest.id)
+            answer = changed_key(exc, form.device_id, form.name, seen)
+            if answer is not None:
+                return answer
+            if form.device_id and not isinstance(exc, UntrustedHostKey | UntrustedCertificate):
+                remember(store, form.device_id, trusts, seen, "setup")
             return failure(exc, redact)
         log.info(
             "automatic %s of %s (%s): %s",
@@ -389,6 +463,8 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             "done" if result.ok else "failed",
         )
         steps = [s.model_dump(mode="json") for s in result.steps]
+        if form.device_id:  # the first trust of a stored device's SSH host key (#526)
+            remember(store, form.device_id, trusts, seen, "setup")
         if request.remove or not result.ok:
             return {"ok": result.ok, "steps": steps, "device": None}
         old = store.device(form.device_id) if form.device_id else None
@@ -415,6 +491,7 @@ def router(services: Services, device_json: Callable[[DeviceRecord], dict[str, A
             saved = store.put_device(rec, values, cls.manifest.config)
         except StoreError as exc:  # pragma: no cover - validated above
             return error(422, "invalid", redact(str(exc)), steps=steps)
+        remember(store, saved.id, trusts, seen, "setup")  # a new device: its first trust
         runner.trigger()
         return {"ok": True, "steps": steps, "device": device_json(saved)}
 

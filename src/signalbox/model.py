@@ -315,6 +315,17 @@ class ConfigState(Model):
     pending: bool | None = None
 
 
+class SshHostKeyChange(Model):
+    """An SSH host key that differs from the confirmed one (#526). Fingerprints are public."""
+
+    #: The confirmed key (``SHA256:<base64>``) and when it was confirmed.
+    pinned: str
+    pinned_since: datetime
+    #: The key the device presented instead, and when Signalbox first saw it.
+    presented: str
+    seen_at: datetime
+
+
 class LocalBackups(Model):
     """Backups the device keeps itself (#181)."""
 
@@ -1039,6 +1050,10 @@ class Device(Observed):
     #: When Signalbox itself took the newest backup of this device (a deployment, #181);
     #: filled by core from the store, ``None``: none taken.
     signalbox_backup_newest: datetime | None = None
+    #: The device presented another SSH host key than the one confirmed for it (#526,
+    #: ADR 0031); filled by core from the store until the user re-trusts or forgets the key.
+    #: ``None``: no change seen (or no SSH host key confirmed).
+    ssh_host_key_change: SshHostKeyChange | None = None
 
     def sends_to(self, kind: LogKind) -> list[LogTarget]:
         """The enabled targets of one kind (empty when not read)."""

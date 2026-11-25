@@ -24,6 +24,7 @@ import base64
 import contextlib
 import hashlib
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any
@@ -67,6 +68,22 @@ def sha256_hex(fingerprint: str) -> str | None:
     except ValueError:
         return None
     return raw.hex() if len(raw) == 32 else None
+
+
+def ssh_fingerprint(hex_digest: str) -> str | None:
+    """Hex SHA-256 (64 digits) as ``SHA256:<base64>``, or None when it is not one."""
+    text = hex_digest.strip().replace(":", "").lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", text):
+        return None
+    return "SHA256:" + base64.b64encode(bytes.fromhex(text)).decode().rstrip("=")
+
+
+#: The host keys presented during one setup or Fix it (#526): ``SHA256:...`` -> algorithm.
+#: Set by the web app around a run so the stored pin can name the negotiated algorithm; a
+#: mutable dict, so connections in tasks started by the run report into it too.
+presented_host_keys: ContextVar[dict[str, str] | None] = ContextVar(
+    "presented_host_keys", default=None
+)
 
 
 _PEM = re.compile(r"-----BEGIN ([A-Z0-9 ]+)-----(.*?)-----END \1-----", re.S)
@@ -121,6 +138,9 @@ class _Pinned(asyncssh.SSHClient):
     ) -> bool:
         self.presented = host_key_fingerprint(key)
         self.presented_hex = host_key_sha256(key)
+        seen = presented_host_keys.get()
+        if seen is not None:
+            seen[self.presented] = key.get_algorithm()
         return same_fingerprint(self.presented, self.pin) or same_fingerprint(
             self.presented_hex, self.pin
         )

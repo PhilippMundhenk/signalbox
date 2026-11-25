@@ -20,9 +20,11 @@ from pydantic import BaseModel, Field, SecretStr
 
 from signalbox import __version__, oui
 from signalbox.adapters import Adapter
+from signalbox.adapters.ssh import sha256_hex
 from signalbox.deploy import Deployer
 from signalbox.discovery.engine import Discovery
 from signalbox.firewall import service_from_internet
+from signalbox.hostkeys import view as host_key_view
 from signalbox.model import (
     DeviceRole,
     DeviceStatus,
@@ -123,6 +125,12 @@ class DeviceTestBody(DeviceBody):
 
 class TrustBody(BaseModel):
     fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class HostKeyTrustBody(BaseModel):
+    """The changed SSH host key to trust, named in full (#526): ``SHA256:<base64>``."""
+
+    fingerprint: str = Field(pattern=r"^SHA256:[A-Za-z0-9+/]{43}=?$")
 
 
 class LinkBody(BaseModel):
@@ -484,6 +492,8 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
             "first_seen": seen.first_seen.isoformat() if seen else None,
             "last_seen": seen.last_seen.isoformat() if seen else None,
             "last_ok": seen.last_ok.isoformat() if seen and seen.last_ok else None,
+            # the confirmed SSH host key, a changed one and the old ones (#526); not secrets
+            "ssh_host_key": host_key_view(store.ssh_host_keys(rec.id)),
         }
 
     def runner_status() -> dict[str, str]:
@@ -621,8 +631,40 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     def trust(device_id: str, body: TrustBody) -> dict[str, bool]:
         """Trust the certificate the device presented (pending fingerprint)."""
         store.trust_fingerprint(device_id, body.fingerprint)
+        # a read over SSH pins the host key as hex (#240): trusting the changed key there is
+        # the same explicit decision for the confirmed SSH host key (#526)
+        changed = store.ssh_host_keys(device_id).changed
+        if changed is not None and sha256_hex(changed.fingerprint) == body.fingerprint:
+            store.retrust_ssh_host_key(device_id, changed.fingerprint)
         runner.trigger()
         return {"trusted": True}
+
+    @api.post("/devices/{device_id}/ssh-host-key/trust", response_model=None)
+    def trust_host_key(device_id: str, body: HostKeyTrustBody) -> dict[str, Any] | JSONResponse:
+        """Trust the changed SSH host key the device presented (#526, ADR 0031).
+
+        Only the key the device presented last can be named; the old pin is kept in the
+        history and the finding ``ssh.host-key-changed`` ends. Nothing is sent to the device.
+        """
+        rec = store.device(device_id)
+        if rec is None:
+            return error(404, "not_found", "No such device.")
+        try:
+            store.retrust_ssh_host_key(device_id, body.fingerprint)
+        except StoreError as exc:
+            return error(409, "not_presented", str(exc))
+        runner.evaluate()
+        return {"ssh_host_key": host_key_view(store.ssh_host_keys(device_id))}
+
+    @api.delete("/devices/{device_id}/ssh-host-key", response_model=None)
+    def forget_host_key(device_id: str) -> dict[str, Any] | JSONResponse:
+        """Forget the confirmed SSH host key (#526): the next setup or Fix it shows the key the
+        device presents and asks again, as for a new device. The old pin stays in the history."""
+        if store.device(device_id) is None:
+            return error(404, "not_found", "No such device.")
+        store.forget_ssh_host_key(device_id)
+        runner.evaluate()
+        return {"ssh_host_key": host_key_view(store.ssh_host_keys(device_id))}
 
     @api.get("/devices/{device_id}/port-tree")
     def port_tree(device_id: str) -> list[dict[str, Any]]:
