@@ -128,6 +128,21 @@ def same_fingerprint(a: str | None, b: str | None) -> bool:
     return _norm(a) == _norm(b)
 
 
+def key_family(algorithm: str | None) -> str:
+    """The SSH host key type of an algorithm name (#535): ``ed25519``, ``ecdsa`` or ``rsa``.
+
+    ``rsa-sha2-512``, ``rsa-sha2-256`` and ``ssh-rsa`` sign with the same RSA key, the ECDSA
+    curves are one type each in OpenSSH but a device has one ECDSA key at most."""
+    alg = (algorithm or "").lower()
+    if alg == "ssh-ed25519":
+        return "ed25519"
+    if alg.startswith("ecdsa-"):
+        return "ecdsa"
+    if alg in ("ssh-rsa", "rsa-sha2-256", "rsa-sha2-512"):
+        return "rsa"
+    return alg
+
+
 def _norm(value: str) -> str:
     text = value.strip()
     if text.upper().startswith("SHA256:"):
