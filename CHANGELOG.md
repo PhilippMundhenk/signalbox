@@ -216,6 +216,7 @@ All notable changes to this project are documented here. The format follows
 
 - Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
+- Topology: one cable per jack and device (#545, PR #546): a one-port router whose WAN VLAN runs through a switch gets one link to the switch's access port, not also to the trunk and the WAN VLAN port; the port learning it untagged in its own VLAN wins, then the one with the fewest addresses
 - Topology remote sites (#541, PR #543): unmanaged remote sites behind a VPN tunnel are laid out one layer below the device that holds the tunnel, so lines from the Internet cloud to the gateways no longer cross their boxes; browser tests check that no cloud line runs through a remote box and the multi-WAN drawing (active solid, backup dashed)
 - OPNsense setup grants FreeRADIUS (#519, PR #540): the automatic setup and *Repair Signalbox's access* grant the read privilege `page-services-freeradius` where the firewall offers it (plugin `os-freeradius`), like `os-ddclient` and `os-lldpd`; left out otherwise, a 403 stays an optional gap
 - Topology: a FRITZ!Box host list no longer links every wired or mesh device to the box, and an ARP-only router is no longer linked to an access point beside it; link guesses use every device's own sighting of a client (#529, #532)
