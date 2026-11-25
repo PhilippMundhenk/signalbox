@@ -33,6 +33,9 @@ _ENTERPRISE = {
     Security.WPA3_ENTERPRISE_192,
 }
 _DEFAULT_AUTH_PORT = 1812
+_SECOND_SERVER = (
+    "Add a second RADIUS server on another machine to the settings of the network or switch."
+)
 #: Devices that usually have no 802.1X supplicant (the kinds a user can declare in an annotation).
 _NO_SUPPLICANT = frozenset(
     {ClientCategory.PRINTER, ClientCategory.IOT, ClientCategory.CAMERA, ClientCategory.MEDIA}
@@ -270,7 +273,7 @@ def radius_single(net: Network) -> Iterator[Result]:
             f"The Wi-Fi network {ssid} has a single RADIUS server ({address}): nobody can sign "
             "in while it is down",
             [w.id for w in sorted(wlans, key=lambda w: w.id)],
-            fix="Add a second RADIUS server on another machine to the network's settings.",
+            fix=_SECOND_SERVER,
             key=ssid,
             mid="radius.singleWifi",
             fix_id="radius.single.fix",
@@ -295,7 +298,7 @@ def radius_single(net: Network) -> Iterator[Result]:
             f"{device_name(net, d.id)} has a single RADIUS server for 802.1X ({address}): its "
             "ports stay closed while it is down",
             [d.id],
-            fix="Add a second RADIUS server on another machine to the switch's settings.",
+            fix=_SECOND_SERVER,
             key="dot1x",
             mid="radius.singleDot1x",
             fix_id="radius.single.fix",
