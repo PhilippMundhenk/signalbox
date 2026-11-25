@@ -462,9 +462,14 @@ def reboot(net: Network, history: History) -> Iterator[Result]:
 REPLACED_PERIOD = timedelta(days=7)
 
 
+def _full(value: str) -> str:
+    return value
+
+
 def _tail(value: str) -> str:
-    """The last four characters: enough to tell two values apart, without the identifier
-    itself (findings reach notifications and exporters, the serial number does not, #427)."""
+    """The last four characters of a serial number: enough to tell two values apart, without
+    the identifier itself (findings reach notifications and exporters, the serial number does
+    not, #427). Base MAC addresses are shown in full (owner's decision, 2026-11-25)."""
     return "\u2026" + value[-4:]
 
 
@@ -475,17 +480,17 @@ def _tail(value: str) -> str:
     "A device that reports another serial number or base MAC address than at the read before "
     "is other hardware behind the same entry: it was replaced (or swapped with a spare). "
     "Everything Signalbox knows from the old device, its history, firmware and expectations, "
-    "no longer applies. Reported for a week after the change; only the end of each value is "
-    "shown, as serial numbers identify the hardware.",
+    "no longer applies. Reported for a week after the change; the MAC address is shown in full, "
+    "the serial number only by its end, as it identifies the hardware.",
 )
 def replaced(net: Network, history: History) -> Iterator[Result]:
     if history.now is None:
         return
     since = history.now - REPLACED_PERIOD
     for dev in net.devices:
-        for source, what_id, label in (
-            (history.serials, "history.replacedSerial", "serial number"),
-            (history.base_macs, "history.replacedMac", "base MAC address"),
+        for source, what_id, label, show in (
+            (history.serials, "history.replacedSerial", "serial number", _tail),
+            (history.base_macs, "history.replacedMac", "base MAC address", _full),
         ):
             past = source.get(dev.id)
             changes = [c for c in past.changes if c.at >= since] if past else []
@@ -493,15 +498,15 @@ def replaced(net: Network, history: History) -> Iterator[Result]:
                 continue
             first, last = changes[0], changes[-1]
             yield found(
-                f"{dev.name} reports another {label} than before ({_tail(first.old)} -> "
-                f"{_tail(last.new)}): it was replaced",
+                f"{dev.name} reports another {label} than before ({show(first.old)} -> "
+                f"{show(last.new)}): it was replaced",
                 [dev.id],
                 fix="If you replaced the device, nothing to do; otherwise check who swapped it. "
                 "Acknowledge this finding once you have seen it.",
                 key=what_id,
                 mid=what_id,
                 fix_id="history.replaced.fix",
-                params={"name": dev.name, "old": _tail(first.old), "new": _tail(last.new)},
+                params={"name": dev.name, "old": show(first.old), "new": show(last.new)},
             )
 
 
