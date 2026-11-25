@@ -4,10 +4,10 @@ The same result as the commands of the setup guide (:mod:`signalbox.adapters.lin
 system user without password, sudo or groups; an ed25519 key generated here, of which only the
 public half is sent (``authorized_keys``); with WireGuard, nftables, iptables, ddclient or
 inadyn installed, the sudoers rule for the read commands
-(:func:`~signalbox.adapters.linux.setup.sudo_commands`), checked with ``visudo -c`` before it is put in place. A sudo user's password goes to
-``sudo -S`` on standard input, never on a command line; with ``NOPASSWD`` it is not sent at all. The host key confirmed for
-the admin login is pinned for reading,
-so the user confirms one fingerprint.
+(:func:`~signalbox.adapters.linux.setup.sudo_commands`), checked with ``visudo -c`` before it
+is put in place. A sudo user's password goes to ``sudo -S`` on standard input, never on a
+command line; with ``NOPASSWD`` it is not sent at all. The host key confirmed for the admin
+login is pinned for reading, so the user confirms one fingerprint.
 
 Removal deletes the sudoers rule and the user with its home directory.
 """
