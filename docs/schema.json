@@ -820,6 +820,13 @@
           "default": null,
           "title": "Segment Id"
         },
+        "sightings": {
+          "items": {
+            "$ref": "#/$defs/ClientSighting"
+          },
+          "title": "Sightings",
+          "type": "array"
+        },
         "source": {
           "anyOf": [
             {
@@ -873,6 +880,74 @@
       ],
       "title": "ClientCategory",
       "type": "string"
+    },
+    "ClientSighting": {
+      "additionalProperties": false,
+      "description": "Where one device saw a client (#165). Same privacy class as the client itself.",
+      "properties": {
+        "addresses": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4",
+                "type": "string"
+              },
+              {
+                "format": "ipv6",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Addresses",
+          "type": "array"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "seen_on": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seen On"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Id"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "title": "ClientSighting",
+      "type": "object"
     },
     "ConfigState": {
       "additionalProperties": false,
@@ -8351,7 +8426,7 @@
     },
     "Segment": {
       "additionalProperties": false,
-      "description": "A layer-2 network (VLAN) of a site.",
+      "description": "A layer-2 network (VLAN) of a site.\n\n``name`` is the merged display name. Precedence: the name of a gateway's view (the router\nis where users name their networks), else the first name by device id. A name declared in\nthe desired state is not put here, so that drift can compare it with the reported ones.",
       "properties": {
         "id": {
           "title": "Id",
@@ -8463,6 +8538,13 @@
           "title": "Vendor Extra",
           "type": "object"
         },
+        "views": {
+          "items": {
+            "$ref": "#/$defs/SegmentView"
+          },
+          "title": "Views",
+          "type": "array"
+        },
         "vlan": {
           "anyOf": [
             {
@@ -8501,6 +8583,60 @@
       ],
       "title": "SegmentPurpose",
       "type": "string"
+    },
+    "SegmentRole": {
+      "description": "What a device is to a network (#165): how it takes part in it.",
+      "enum": [
+        "gateway",
+        "trunk",
+        "access",
+        "wireless"
+      ],
+      "title": "SegmentRole",
+      "type": "string"
+    },
+    "SegmentView": {
+      "additionalProperties": false,
+      "description": "One device's view of a network (#165): what it calls it and how it takes part.",
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interface"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "role": {
+          "$ref": "#/$defs/SegmentRole"
+        }
+      },
+      "required": [
+        "device_id",
+        "role"
+      ],
+      "title": "SegmentView",
+      "type": "object"
     },
     "ServerKind": {
       "enum": [

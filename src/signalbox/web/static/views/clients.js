@@ -27,7 +27,7 @@ export async function renderClients(main, ctx) {
   // The same client can be reported by several devices: one row per MAC, every place it was seen.
   const rows = new Map();
   for (const c of clients) {
-    const row = rows.get(c.mac) || { mac: c.mac, addresses: new Set(), sources: {}, lease_expires: null, hostname: null, vendor: null, segment_id: null, seen: [], last_seen: null, wireless: null };
+    const row = rows.get(c.mac) || { mac: c.mac, addresses: new Set(), sources: {}, lease_expires: null, hostname: null, vendor: null, segment_id: null, seen: [], sightings: [], last_seen: null, wireless: null };
     c.addresses.forEach((a) => row.addresses.add(a));
     Object.assign(row.sources, c.sources || {});
     if (c.lease_expires && (!row.lease_expires || c.lease_expires > row.lease_expires)) row.lease_expires = c.lease_expires;
@@ -36,6 +36,7 @@ export async function renderClients(main, ctx) {
     row.segment_id = row.segment_id || c.segment_id;
     row.wireless = row.wireless || c.wireless || null;
     if (c.seen_on) row.seen.push(c.seen_on);
+    row.sightings.push(...(c.sightings || []));
     if (c.last_seen && (!row.last_seen || c.last_seen > row.last_seen)) row.last_seen = c.last_seen;
     rows.set(c.mac, row);
   }
@@ -109,16 +110,41 @@ function wifiSummary(w) {
 // Where the client is, and (collapsed) every port a MAC address table learned it on (#160).
 function seenOn(ix, row, entries) {
   const where = [...new Set(row.seen)].map((x) => ix.placeName(x)).join(', ');
-  if (!entries.length) return where || null;
+  const sightings = row.sightings.length > 1 ? row.sightings : [];
+  if (!entries.length && !sightings.length) return where || null;
   return h(
     'span',
     {},
-    where ? h('span', { 'data-testid': 'client-seen-on' }, t('clients.seenOnWhere', { where })) : null,
-    h(
-      'details',
-      { class: 'small', 'data-testid': 'client-learned' },
-      h('summary', {}, t('clients.learnedOn', { count: entries.length })),
-      h('ul', {}, entries.map((e) => h('li', { 'data-testid': 'client-learned-port' }, `${ix.placeName(e.port_id)} (${fdbText(e, fmtDuration)})`))),
-    ),
+    where ? h('span', { 'data-testid': 'client-seen-on' }, entries.length ? t('clients.seenOnWhere', { where }) : where) : null,
+    entries.length
+      ? h(
+          'details',
+          { class: 'small', 'data-testid': 'client-learned' },
+          h('summary', {}, t('clients.learnedOn', { count: entries.length })),
+          h('ul', {}, entries.map((e) => h('li', { 'data-testid': 'client-learned-port' }, `${ix.placeName(e.port_id)} (${fdbText(e, fmtDuration)})`))),
+        )
+      : null,
+    sightings.length
+      ? h(
+          'details',
+          { class: 'small', 'data-testid': 'client-sightings' },
+          h('summary', {}, t('clients.sightings', { count: sightings.length })),
+          h(
+            'ul',
+            {},
+            sightings.map((x) =>
+              h(
+                'li',
+                { 'data-testid': 'client-sighting' },
+                t('clients.sighting', {
+                  device: ix.deviceName(x.device_id),
+                  segment: x.segment_id ? ix.segmentName(x.segment_id) : t('clients.sightingNoSegment'),
+                  where: x.seen_on ? ix.placeName(x.seen_on) : t('clients.sightingNoPlace'),
+                }),
+              ),
+            ),
+          ),
+        )
+      : null,
   );
 }

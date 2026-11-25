@@ -1294,8 +1294,37 @@ class PurposeSource(StrEnum):
     HEURISTIC = "heuristic"
 
 
+class SegmentRole(StrEnum):
+    """What a device is to a network (#165): how it takes part in it."""
+
+    #: A router: the network's gateway.
+    GATEWAY = "gateway"
+    #: A switch (or other device) that carries the network tagged on a port.
+    TRUNK = "trunk"
+    #: A switch (or other device) that has the network only on untagged ports.
+    ACCESS = "access"
+    #: An access point that serves the network on an SSID.
+    WIRELESS = "wireless"
+
+
+class SegmentView(Model):
+    """One device's view of a network (#165): what it calls it and how it takes part."""
+
+    device_id: str
+    #: The name this device gives the network; None: it has none.
+    name: str | None = None
+    #: The device's interface for the network (VLAN interface or bridge); None: not known.
+    interface: str | None = None
+    role: SegmentRole
+
+
 class Segment(Observed):
-    """A layer-2 network (VLAN) of a site."""
+    """A layer-2 network (VLAN) of a site.
+
+    ``name`` is the merged display name. Precedence: the name of a gateway's view (the router
+    is where users name their networks), else the first name by device id. A name declared in
+    the desired state is not put here, so that drift can compare it with the reported ones.
+    """
 
     site_id: str
     vlan: int | None = Field(default=None, ge=1, le=4094)
@@ -1303,6 +1332,9 @@ class Segment(Observed):
     #: The name each device reports for this VLAN (device id -> name, devices without a name are
     #: left out). ``name`` is the first of them; the merge keeps all (#165, #111).
     names_by_device: dict[str, str] = Field(default_factory=dict)
+    #: What every device that reports the network says about it, by device id (#165). Adapters
+    #: leave it empty; ``merge`` fills it.
+    views: list[SegmentView] = Field(default_factory=list)
     members: list[PortMembership] = Field(default_factory=list)
     purpose: SegmentPurpose | None = None
     purpose_source: PurposeSource | None = None
@@ -3352,6 +3384,16 @@ class MeshPeer(Observed):
     wireless: WirelessLinkInfo
 
 
+class ClientSighting(Model):
+    """Where one device saw a client (#165). Same privacy class as the client itself."""
+
+    device_id: str
+    segment_id: str | None = None
+    seen_on: str | None = None
+    addresses: list[IPAddress] = Field(default_factory=list)
+    observed_at: datetime | None = None
+
+
 class Client(Observed):
     mac: Mac
     addresses: list[IPAddress] = Field(default_factory=list)
@@ -3365,6 +3407,9 @@ class Client(Observed):
     address_sources: dict[IPAddress, AddressSource] = Field(default_factory=dict)
     #: The Wi-Fi association the access point reports (#170); None: wired or not reported.
     wireless: WirelessAssociation | None = None
+    #: What each device that saw the client says (#165); ``segment_id`` and ``seen_on`` are the
+    #: merged best value of them. Adapters leave it empty; ``merge`` fills it.
+    sightings: list[ClientSighting] = Field(default_factory=list)
 
 
 #: Names other protocols and tools use for an LLDP system capability, as they are in ``Neighbour``.

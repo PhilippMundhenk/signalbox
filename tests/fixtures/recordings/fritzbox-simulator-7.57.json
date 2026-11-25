@@ -1254,6 +1254,7 @@
     "vlan": null,
     "name": "LAN",
     "names_by_device": {},
+    "views": [],
     "members": [
      {
       "port_id": "recorded/port/lan",
@@ -1278,6 +1279,7 @@
     "vlan": null,
     "name": "Guest network",
     "names_by_device": {},
+    "views": [],
     "members": [],
     "purpose": "guest",
     "purpose_source": "reported",
@@ -1997,7 +1999,8 @@
      "retries_pct": null,
      "tx_failed": null,
      "power_save": null
-    }
+    },
+    "sightings": []
    },
    {
     "id": "recorded/client/00:00:5e:00:53:04",
@@ -2034,7 +2037,8 @@
      "retries_pct": null,
      "tx_failed": null,
      "power_save": null
-    }
+    },
+    "sightings": []
    },
    {
     "id": "recorded/client/00:00:5e:00:53:05",
@@ -2056,7 +2060,8 @@
     "address_sources": {
      "192.0.2.50": "dhcp"
     },
-    "wireless": null
+    "wireless": null,
+    "sightings": []
    }
   ],
   "neighbours": [],

@@ -718,6 +718,7 @@
    "vlan": 1,
    "name": "default",
    "names_by_device": {},
+   "views": [],
    "members": [
     {
      "port_id": "switch/port/Gi1",
@@ -760,6 +761,7 @@
    "vlan": 10,
    "name": "office",
    "names_by_device": {},
+   "views": [],
    "members": [
     {
      "port_id": "switch/port/Gi1",
@@ -794,6 +796,7 @@
    "vlan": 20,
    "name": "iot",
    "names_by_device": {},
+   "views": [],
    "members": [
     {
      "port_id": "switch/port/Gi1",

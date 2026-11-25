@@ -275,6 +275,11 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`route.asymmetric`](rules/routing_checks.md#routeasymmetric)
 - [`route.vpn-return`](rules/routing_checks.md#routevpn-return)
 
+## [Per-device views of networks and clients](rules/segment_views.md)
+
+- [`clients.segment-disagreement`](rules/segment_views.md#clientssegment-disagreement)
+- [`segment.name-missing`](rules/segment_views.md#segmentname-missing)
+
 ## [Certificates stored on devices](rules/stored_certificates.md)
 
 - [`cert.vpn-expiring`](rules/stored_certificates.md#certvpn-expiring)
