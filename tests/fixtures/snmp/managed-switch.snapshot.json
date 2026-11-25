@@ -94,7 +94,8 @@
   "poe": null,
   "config_state": null,
   "local_backups": null,
-  "signalbox_backup_newest": null
+  "signalbox_backup_newest": null,
+  "ssh_host_key_change": null
  },
  "status": "ok",
  "ports": [

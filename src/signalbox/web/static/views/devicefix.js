@@ -10,6 +10,7 @@ import { clear, h, place } from '../util.js';
 import { clearNotice, confirmDialog, field, notice, run, setNotice, slot, toast } from '../ui.js';
 import { fingerprintText, stepList } from './devicesetup.js';
 import { adminStep, previewList } from './adminstep.js';
+import { hostKeyChanged, hostKeyKnown, isChanged, isKnown } from './hostkey.js';
 import { testResult } from './devicetest.js';
 
 // The remedy of an error or finding, when the integration offers it (setup.fixes on).
@@ -29,6 +30,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
   const planBtn = h('button', { class: 'btn', type: 'button', 'data-testid': 'fix-plan' }, t('fix.showPlan'));
   const url = `/devices/${enc(device.id)}/fix`;
   let trusted = null;
+  let known = null; // the SSH host key confirmed before (#526), shown in place of the prompt
   let step = null;
   let acked = (remedy.preview || []).map((s) => s.id);
 
@@ -61,6 +63,14 @@ export function fixPanel(device, adapter, remedy, onDone) {
       if (port && port.value) body.admin.port = Number(port.value);
       const plan = await post(url, body);
       const cert = plan.fingerprint_kind === 'certificate';
+      // a changed SSH host key (#526): the warning, nothing else; nothing was sent
+      if (isChanged(plan.host_key)) return place(clear(out), hostKeyChanged(plan.host_key, device, 'fix-host-key-changed', identity));
+      // the key confirmed before: no prompt, the step list says since when
+      known = isKnown(plan.host_key) ? plan.host_key : null;
+      if (known) {
+        trusted = plan.fingerprint;
+        return showFinal(null);
+      }
       const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'fix-trust' }, t(cert ? 'fix.trustCertificate' : 'fix.trustSshKey'));
       trust.addEventListener('click', () => { trusted = plan.fingerprint; showFinal(null); });
       place(
@@ -87,6 +97,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
       clear(out),
       extraNote,
       h('p', { class: 'muted small' }, t('fix.confirmed')),
+      known ? hostKeyKnown(known, 'fix-host-key-known') : null,
       step.el,
       clearNotice(missBox),
       h('div', { class: 'row' }, go),
@@ -134,6 +145,12 @@ export function fixPanel(device, adapter, remedy, onDone) {
 
   // a refusal: a changed plan goes back to the last step, with no password kept
   function failed(err) {
+    if (err.code === 'host_key_changed' && err.body && err.body.host_key) {
+      // another SSH host key than the confirmed one (#526): no password was sent
+      trusted = null;
+      known = null;
+      return place(clear(out), hostKeyChanged(err.body.host_key, device, 'fix-host-key-changed', identity));
+    }
     if (err.code === 'plan_changed' && err.body && err.body.plan) {
       acked = err.body.plan.steps.filter((s) => s.state === 'todo').map((s) => s.id);
       return showFinal(notice('warn', 'fix-plan-changed', h('p', {}, t('fix.planChanged')), stepList(err.body.plan.steps, 'fix-plan-steps')));

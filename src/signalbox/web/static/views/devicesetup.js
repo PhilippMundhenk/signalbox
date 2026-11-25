@@ -8,6 +8,7 @@ import { apiFix, apiMessage, stepMessage, stepTitle } from '../texts.js';
 import { clear, groupHex, h, place } from '../util.js';
 import { busy, checkField, clearNotice, confirmDialog, field, notice, run, setNotice, slot, toast } from '../ui.js';
 import { adminStep, previewList, previewSteps } from './adminstep.js';
+import { hostKeyChanged, hostKeyKnown, isChanged, isKnown } from './hostkey.js';
 
 const STATE_KEY = { todo: 'setup.state.todo', unchanged: 'setup.state.unchanged', done: 'setup.state.done', failed: 'setup.state.failed', skipped: 'setup.state.skipped', running: 'setup.state.running', waiting: 'setup.state.waiting' };
 const stateText = (state) => (STATE_KEY[state] ? t(STATE_KEY[state]) : state);
@@ -70,6 +71,7 @@ export function autoSetup(a, collect, onDone, own = null) {
   const login = a.admin_login;
   let previewed = []; // the steps the user saw in the preview, kept for the password step
   let confirmedFingerprint = null;
+  let knownKeys = []; // SSH host keys confirmed before (#526): shown in place of the prompt
   let adminUser = null; // what was typed last: kept when the login is refused
   const loginNote = h('div', { 'data-testid': 'setup-login-note', 'aria-live': 'polite' });
   const adminNames = () => new Set(['root', 'admin', login.user_default, step && step.user(), adminUser].filter(Boolean));
@@ -158,17 +160,31 @@ export function autoSetup(a, collect, onDone, own = null) {
       const plan = await post('/devices/setup', body);
       const cert = plan.fingerprint_kind === 'certificate';
       const both = withSsh && plan.ssh_fingerprint;
-      const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust' }, both ? (cert ? t('setup.trust.certBoth') : t('setup.trust.sshBoth')) : cert ? t('setup.trust.cert') : t('setup.trust.ssh'));
-      trust.addEventListener('click', () => { trusted = plan.fingerprint; confirmedFingerprint = fingerprintText(plan); trustedSsh = both ? plan.ssh_fingerprint : null; showFinal(null); });
+      // a changed SSH host key (#526): the warning, nothing else; nothing was sent
+      const changed = [plan.host_key, both ? plan.ssh_host_key : null].find(isChanged);
+      if (changed) return place(clear(out), hostKeyChanged(changed, { id: device.device_id, name: device.name }, 'setup-host-key-changed', identity));
+      const mainKnown = !cert && isKnown(plan.host_key);
+      const sshKnown = both && isKnown(plan.ssh_host_key);
+      knownKeys = [mainKnown ? plan.host_key : null, sshKnown ? plan.ssh_host_key : null].filter(Boolean);
+      const accept = () => { trusted = plan.fingerprint; confirmedFingerprint = mainKnown ? null : fingerprintText(plan); trustedSsh = both ? plan.ssh_fingerprint : null; };
+      // every key was confirmed before: no prompt, the step list says since when
+      if ((cert ? false : mainKnown) && (!both || sshKnown)) {
+        accept();
+        return showFinal(null);
+      }
+      const askSsh = both && !sshKnown;
+      const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'setup-trust' }, askSsh ? (cert ? t('setup.trust.certBoth') : t('setup.trust.sshBoth')) : cert ? t('setup.trust.cert') : t('setup.trust.ssh'));
+      trust.addEventListener('click', () => { accept(); showFinal(null); });
       place(
         clear(out),
         notice('warn', 'setup-untrusted', h('h3', {}, cert ? t('setup.presented.cert') : t('setup.presented.ssh')),
           h('p', {}, t('setup.compare')),
           h('p', { class: 'fingerprint mono', 'data-testid': 'setup-fingerprint' }, fingerprintText(plan)),
           plan.compare ? h('p', { class: 'muted small' }, plan.compare) : null,
-          both ? h('h3', {}, t('setup.andSshKey')) : null,
-          both ? h('p', { class: 'fingerprint mono', 'data-testid': 'setup-ssh-fingerprint' }, plan.ssh_fingerprint) : null,
-          both && plan.ssh_compare ? h('p', { class: 'muted small' }, plan.ssh_compare) : null,
+          askSsh ? h('h3', {}, t('setup.andSshKey')) : null,
+          askSsh ? h('p', { class: 'fingerprint mono', 'data-testid': 'setup-ssh-fingerprint' }, plan.ssh_fingerprint) : null,
+          askSsh && plan.ssh_compare ? h('p', { class: 'muted small' }, plan.ssh_compare) : null,
+          sshKnown ? hostKeyKnown(plan.ssh_host_key, 'setup-host-key-known') : null,
           trust,
         ),
       );
@@ -195,7 +211,7 @@ export function autoSetup(a, collect, onDone, own = null) {
       extraNote,
       h('p', { class: 'muted small' }, t('setup.confirmed')),
       // what was confirmed stays in view (also after a refused login)
-      h('div', { class: 'setup-kept', 'data-testid': 'setup-kept' }, previewed.length ? previewList(previewed, 'setup-kept-steps') : null, confirmedFingerprint ? h('p', { class: 'fingerprint mono small', 'data-testid': 'setup-kept-fingerprint' }, t('setup.confirmedIdentity', { fingerprint: confirmedFingerprint })) : null),
+      h('div', { class: 'setup-kept', 'data-testid': 'setup-kept' }, previewed.length ? previewList(previewed, 'setup-kept-steps') : null, confirmedFingerprint ? h('p', { class: 'fingerprint mono small', 'data-testid': 'setup-kept-fingerprint' }, t('setup.confirmedIdentity', { fingerprint: confirmedFingerprint })) : null, ...knownKeys.map((k) => hostKeyKnown(k, 'setup-host-key-known'))),
       step.el,
       clearNotice(missBox),
       h('div', { class: 'row' }, go),
@@ -282,6 +298,14 @@ export function autoSetup(a, collect, onDone, own = null) {
           trustSsh,
         ),
       );
+    }
+    if (err.code === 'host_key_changed' && err.body && err.body.host_key) {
+      // the device presented another SSH host key than the confirmed one (#526): no password
+      // was sent; only the button that names the new key goes on
+      trusted = null;
+      trustedSsh = null;
+      const form = collectOwn() || {};
+      return place(clear(out), hostKeyChanged(err.body.host_key, { id: form.device_id, name: form.name || err.body.params.device }, 'setup-host-key-changed', identity));
     }
     if (err.code === 'auth_failed') {
       // wrong admin login: back to the password step, preview and confirmed identity stay

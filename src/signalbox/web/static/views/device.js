@@ -6,6 +6,7 @@ import { LAG_MODE, PORT_ROLE, clear, fmtAgo, fmtBytes, fmtDuration, fmtTime, h, 
 import { busy, card, confirmDialog, empty, kv, manageLink, pageHead, run, statusBadge, table, tabs, toast } from '../ui.js';
 import { ROLE_TEXT, renderDeviceForm, testOnOpen } from './devices.js';
 import { fixPanel, remedyOf } from './devicefix.js';
+import { hostKeyCard } from './hostkey.js';
 import { readErrors, testResult, trustPanel } from './devicetest.js';
 import { notesCard } from '../annotations.js';
 import { sparkline } from '../sparkline.js';
@@ -1212,6 +1213,8 @@ async function overview(main, ctx, device, adapters, sites) {
       stateBox,
       fixBox,
     ),
+    // a changed SSH host key is shown right below the overview (#526), the confirmed one lower
+    device.ssh_host_key && device.ssh_host_key.changed ? hostKeyCard(device, () => ctx.refresh()) : null,
     notesCard(ix, device.id, 'device', t('device.notes', { name: device.name }), () => ctx.refresh()),
     internetCard(ix, device.id),
     multiwanCard(ix, device.id),
@@ -1233,6 +1236,7 @@ async function overview(main, ctx, device, adapters, sites) {
     observed ? managementCard(ix, observed) : null,
     observed ? loggingCard(observed) : null,
     observed ? certificateCard(observed) : null,
+    device.ssh_host_key && !device.ssh_host_key.changed ? hostKeyCard(device, () => ctx.refresh()) : null,
     observed ? accountsCard(observed) : null,
     storedCertificatesCard(ix, device.id),
     observed ? healthCard(observed.health) : null,

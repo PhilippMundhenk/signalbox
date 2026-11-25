@@ -35,6 +35,10 @@ from signalbox.adapters import (
     remedies,
 )
 from signalbox.adapters.provision import Redactor, progress_sink
+from signalbox.adapters.ssh import presented_host_keys
+from signalbox.hostkeys import changed_answer, refused, remember
+from signalbox.hostkeys import notice as notice_host_keys
+from signalbox.hostkeys import state as host_key_state
 from signalbox.model import Snapshot
 from signalbox.secrets import SecretError
 from signalbox.service import Services
@@ -180,6 +184,19 @@ def router(
         )
         return cls, request
 
+    def changed_key(
+        exc: AdapterError, device_id: str, seen: dict[str, str], action: str
+    ) -> JSONResponse | None:
+        """A refused handshake with another SSH host key than the device's pin (#526)."""
+        rec = store.device(device_id)
+        if not isinstance(exc, UntrustedHostKey) or rec is None:
+            return None
+        if not notice_host_keys(store, device_id, [exc.fingerprint], seen, action):
+            return None
+        runner.evaluate()
+        keys = store.ssh_host_keys(device_id)
+        return JSONResponse(changed_answer(rec.name, keys, exc.fingerprint), status_code=409)
+
     def redactor(request: RemedyRequest) -> Redactor:
         redact = Redactor()
         redact.add(request.admin_secret.get_secret_value())
@@ -220,12 +237,22 @@ def router(
         if isinstance(ready, JSONResponse):
             return ready
         cls, request = ready
+        action = f"fix:{body.remedy}"
+        seen: dict[str, str] = {}
+        token = presented_host_keys.set(seen)
         try:
             result = await cls.plan_remedy(request)
         except AdapterError as exc:
-            return failure(exc, redactor(request))
+            return changed_key(exc, device_id, seen, action) or failure(exc, redactor(request))
+        finally:
+            presented_host_keys.reset(token)
         remedy = remedies(cls)[body.remedy]
-        return {"remedy": remedy.model_dump(), **result.model_dump(mode="json")}
+        # how the presented SSH host key compares with the device's pin (#526)
+        main = result.fingerprint if result.fingerprint_kind == "ssh-host-key" else None
+        if notice_host_keys(store, device_id, [main], seen, action):
+            runner.evaluate()
+        known = host_key_state(store.ssh_host_keys(device_id), main)
+        return {"remedy": remedy.model_dump(), **result.model_dump(mode="json"), "host_key": known}
 
     @api.post("/devices/{device_id}/fix/apply", response_model=None)
     async def apply(device_id: str, body: FixBody) -> dict[str, Any] | JSONResponse:
@@ -246,14 +273,37 @@ def router(
             return error(422, "invalid", "give the admin password for this step")
         if not request.trust:
             return error(422, "invalid", "confirm the device's fingerprint first")
+        rec = store.device(device_id)
+        # a confirmed SSH host key that is not the device's pin: refused before the adapter
+        # is called, so no password is sent (#526)
+        stale = refused(store, device_id, rec.name if rec else device_id, [request.trust])
+        if stale is not None:
+            return JSONResponse(stale, status_code=409)
+        seen: dict[str, str] = {}
+        token = presented_host_keys.set(seen)
+        try:
+            return await run_pinned(device_id, body, cls, request, seen, reread_failed)
+        finally:
+            presented_host_keys.reset(token)
+
+    async def run_pinned(
+        device_id: str,
+        body: FixBody,
+        cls: Any,
+        request: RemedyRequest,
+        seen: dict[str, str],
+        reread_failed: bool,
+    ) -> dict[str, Any] | JSONResponse:
+        action = f"fix:{body.remedy}"
         redact = redactor(request)
         if body.plan_ids is not None:
             try:
                 planned = await cls.plan_remedy(request)
             except AdapterError as exc:
-                return failure(exc, redact)
+                return changed_key(exc, device_id, seen, action) or failure(exc, redact)
             if not planned.trusted:
-                return failure(UntrustedHostKey(planned.fingerprint, None), redact)
+                untrusted = UntrustedHostKey(planned.fingerprint, None)
+                return changed_key(untrusted, device_id, seen, action) or failure(untrusted, redact)
             new = [s.id for s in planned.steps if s.state is StepState.TODO]
             if set(new) - set(body.plan_ids):
                 return error(
@@ -267,7 +317,13 @@ def router(
             result = await cls.apply_remedy(request)
         except AdapterError as exc:
             log.info("fix %s of %s (%s) failed", body.remedy, device_id, cls.manifest.id)
+            answer = changed_key(exc, device_id, seen, action)
+            if answer is not None:
+                return answer
+            if not isinstance(exc, UntrustedHostKey | UntrustedCertificate):
+                remember(store, device_id, [request.trust], seen, action)
             return failure(exc, redact)
+        remember(store, device_id, [request.trust], seen, action)  # the first trust (#526)
         log.info(
             "fix %s of %s (%s): %s",
             body.remedy,
@@ -380,6 +436,10 @@ def router(
                 "code": data.get("error", "fix_failed"),
                 "message": data.get("message", ""),
                 "fix": data.get("fix"),
+                "message_id": data.get("message_id"),
+                "fix_id": data.get("fix_id"),
+                "params": data.get("params"),
+                "host_key": data.get("host_key"),
             }
             return
         item.steps = answer["steps"]
@@ -420,11 +480,16 @@ def router(
                 return error(422, "invalid", "give the admin password for every fix")
             if not ready[1].trust:
                 return error(422, "invalid", "confirm the device's fingerprint first")
+            rec = store.device(entry.device_id)
+            stale = refused(
+                store, entry.device_id, rec.name if rec else entry.device_id, [ready[1].trust]
+            )
+            if stale is not None:  # nothing runs: that device's key must be re-trusted first
+                return JSONResponse(stale, status_code=409)
             key = (entry.device_id, entry.body.remedy)
             if key in seen:
                 return error(422, "invalid", "the same fix is listed twice")
             seen.add(key)
-            rec = store.device(entry.device_id)
             prepared.append(
                 FixRunItem(
                     device_id=entry.device_id,

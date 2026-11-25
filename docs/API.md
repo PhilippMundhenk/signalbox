@@ -27,6 +27,8 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | DELETE | `/api/devices/{device_id}` | Remove a device and its last snapshot. |
 | POST | `/api/devices/{device_id}/test` | Read the device now and report status, errors and what was found. |
 | POST | `/api/devices/{device_id}/trust` | Trust the certificate the device presented (pending fingerprint). |
+| POST | `/api/devices/{device_id}/ssh-host-key/trust` | Trust the changed SSH host key the device presented (#526, ADR 0031). |
+| DELETE | `/api/devices/{device_id}/ssh-host-key` | Forget the confirmed SSH host key (#526): the next setup or Fix it shows the key the |
 | GET | `/api/devices/{device_id}/port-tree` | The internal structure of a device's ports (#252): CPU port with its switch ports, |
 | GET | `/api/devices/{device_id}/port-counters` | What the counters of a device's ports did between the last two reads (#158): the |
 | GET | `/api/devices/{device_id}/port-series` | The hourly traffic of a device's ports for the retention period (#471), oldest |

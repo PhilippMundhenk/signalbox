@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from signalbox.adapters import Adapter, AdapterConfig, AdapterContext
+from signalbox.adapters.ssh import sha256_hex, ssh_fingerprint
 from signalbox.annotate import apply as apply_annotations
 from signalbox.config import Config
 from signalbox.ddns_resolve import apply as apply_resolved
@@ -28,6 +29,7 @@ from signalbox.model import (
     ReadError,
     Snapshot,
     Source,
+    SshHostKeyChange,
 )
 from signalbox.rules import Finding, Rule, Severity, evaluate, found
 from signalbox.secrets import SecretError
@@ -94,12 +96,25 @@ class Runner:
                 snap, presented = await self.read_device(rec, cfg)
                 if presented != rec.pending_fingerprint:
                     self.store.set_pending_fingerprint(rec.id, presented)
+                if snap.status is DeviceStatus.UNTRUSTED and presented:
+                    self._note_read_host_key(rec, presented)
         snap = self._with_certificate_history(rec, snap)
         snap = self._with_write_login(rec, snap)
         snap = self._with_signalbox_backup(rec, snap)
         self.store.save_snapshot(snap)
         log.info("%s: %s", rec.id, snap.status.value)
         return snap
+
+    def _note_read_host_key(self, rec: DeviceRecord, presented: str) -> None:
+        """A read over SSH (Linux, EdgeOS) pins the confirmed host key as hex SHA-256: when that
+        pin is the confirmed SSH host key and the device presents another key, it is the same
+        change a setup or Fix it would see (#526)."""
+        pin = self.store.ssh_host_keys(rec.id).pin
+        if pin is None or sha256_hex(pin.fingerprint) != (rec.pinned_fingerprint or "").lower():
+            return
+        fingerprint = ssh_fingerprint(presented)
+        if fingerprint is not None:
+            self.store.note_ssh_host_key_change(rec.id, fingerprint, None, "read")
 
     @staticmethod
     def _with_write_login(rec: DeviceRecord, snap: Snapshot) -> Snapshot:
@@ -201,7 +216,27 @@ class Runner:
         # probe's answers only while probes are on
         probed = self.store.foreign_servers() if self.config.probes.enabled else []
         net = attach_foreign(net, probed)
-        return net
+        return self._with_ssh_host_key_changes(net)
+
+    def _with_ssh_host_key_changes(self, net: Network) -> Network:
+        """``Device.ssh_host_key_change`` from the store (#526): a device that presented another
+        SSH host key than the confirmed one, until it is re-trusted or forgotten."""
+        changes = self.store.ssh_host_key_changes()
+        if not changes:
+            return net
+        devices = []
+        for dev in net.devices:
+            keys = changes.get(dev.id)
+            if keys is not None and keys.pin is not None and keys.changed is not None:
+                change = SshHostKeyChange(
+                    pinned=keys.pin.fingerprint,
+                    pinned_since=keys.pin.confirmed_at,
+                    presented=keys.changed.fingerprint,
+                    seen_at=keys.changed.seen_at,
+                )
+                dev = dev.model_copy(update={"ssh_host_key_change": change})
+            devices.append(dev)
+        return net.model_copy(update={"devices": devices})
 
     def _declared(self) -> DesiredState | None:
         if self.desired_source is None:

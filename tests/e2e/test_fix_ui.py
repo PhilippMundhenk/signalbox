@@ -82,12 +82,12 @@ def test_fix_it_installs_lldp(app: Any, router: tuple[str, int, str, OpenWrtSsh]
     app.get_by_test_id("fix-plan").click()
     expect(app.get_by_test_id("fix-plan-steps")).to_contain_text("Install lldpd")
     expect(app.get_by_test_id("fix-admin-secret")).to_have_count(0)
-    # 2. the identity, still without a password
+    # 2. the identity, still without a password: the host key confirmed by the setup is
+    # known (#526), so there is nothing to compare and the step list says since when
     app.get_by_test_id("fix-continue").click()
-    expect(app.get_by_test_id("fix-fingerprint")).to_contain_text("SHA256:")
-    expect(app.get_by_test_id("fix-admin-secret")).to_have_count(0)
-    assert len(device.scripts) == scripts  # nothing sent before the host key is trusted
-    app.get_by_test_id("fix-trust").click()
+    expect(app.get_by_test_id("fix-host-key-known")).to_contain_text(key)
+    expect(app.get_by_test_id("fix-trust")).to_have_count(0)
+    assert len(device.scripts) == scripts  # nothing sent with the identity
     # 3. the temporary password, right before Run
     expect(app.get_by_test_id("fix-temporary-note")).to_contain_text("never saved")
     expect(app.get_by_test_id("fix-admin-user")).to_have_value("root")

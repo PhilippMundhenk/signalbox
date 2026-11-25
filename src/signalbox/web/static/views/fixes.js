@@ -11,6 +11,7 @@ import { clear, h, place, sleep } from '../util.js';
 import { busy, checkField, clearNotice, empty, field, modal, notice, pageHead, run, select, setNotice, slot, statusBadge, toast } from '../ui.js';
 import { adminStep, previewList } from './adminstep.js';
 import { fingerprintText, stepList } from './devicesetup.js';
+import { hostKeyChanged, hostKeyKnown, isChanged, isKnown } from './hostkey.js';
 import { linked } from './devicetest.js';
 
 const POLL_MS = 400;
@@ -192,32 +193,45 @@ function confirmRun(chosen, onClosed) {
         left.push({ ...r, problem: apiMessage(err) });
       }
     }
-    if (!found.length) {
-      place(clear(body), h('p', {}, t('fixes.identity.none')), ...left.map(leftOut), h('div', { class: 'modal-actions' }, closeBtn()));
+    // SSH host keys (#526): a device whose key changed is left out with the warning (its new
+    // key can be trusted right here, by name); one with the key confirmed before needs no
+    // comparing; the others are compared as before
+    const changed = found.filter((f) => isChanged(f.plan.host_key));
+    const usable = found.filter((f) => !isChanged(f.plan.host_key));
+    const ask = usable.filter((f) => !isKnown(f.plan.host_key));
+    const warnings = changed.map((f) => hostKeyChanged(f.plan.host_key, { id: f.device.device_id, name: f.device.name }, 'fixes-host-key-changed', identities));
+    if (!usable.length) {
+      place(clear(body), h('p', {}, t(changed.length ? 'fixes.identity.noneUsable' : 'fixes.identity.none')), ...warnings, ...left.map(leftOut), h('div', { class: 'modal-actions' }, closeBtn()));
       return;
     }
-    const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'fixes-trust' }, t('fixes.identity.trust'));
+    const trust = h('button', { class: 'btn primary', type: 'button', 'data-testid': 'fixes-trust' }, t(ask.length ? 'fixes.identity.trust' : 'fixes.identity.continue'));
     place(
       clear(body),
-      h('p', {}, t('fixes.identity.intro')),
+      h('p', {}, t(ask.length ? 'fixes.identity.intro' : 'fixes.identity.allKnown')),
       h(
         'ul',
         { class: 'fix-list', 'data-testid': 'fixes-identities' },
-        found.map((f) =>
+        usable.map((f) =>
           h(
             'li',
-            { class: 'fix-item', 'data-testid': 'fixes-identity', 'data-device': f.device.device_id },
+            { class: 'fix-item', 'data-testid': 'fixes-identity', 'data-device': f.device.device_id, 'data-host-key': f.plan.host_key ? f.plan.host_key.state : null },
             h('strong', {}, f.device.name),
-            h('p', { class: 'muted small' }, t(f.plan.fingerprint_kind === 'certificate' ? 'fix.presentedCertificate' : 'fix.presentedSshKey')),
-            h('p', { class: 'fingerprint mono', 'data-testid': 'fixes-fingerprint' }, fingerprintText(f.plan)),
-            f.plan.compare ? h('p', { class: 'muted small' }, f.plan.compare) : null,
+            isKnown(f.plan.host_key)
+              ? hostKeyKnown(f.plan.host_key, 'fixes-host-key-known')
+              : [
+                  h('p', { class: 'muted small' }, t(f.plan.fingerprint_kind === 'certificate' ? 'fix.presentedCertificate' : 'fix.presentedSshKey')),
+                  h('p', { class: 'fingerprint mono', 'data-testid': 'fixes-fingerprint' }, fingerprintText(f.plan)),
+                  f.plan.compare ? h('p', { class: 'muted small' }, f.plan.compare) : null,
+                ],
           ),
         ),
       ),
+      changed.length ? h('p', { class: 'muted small', 'data-testid': 'fixes-changed-left-out' }, t('fixes.identity.changedLeftOut')) : null,
+      ...warnings,
       ...left.map(leftOut),
       h('div', { class: 'modal-actions' }, closeBtn(), trust),
     );
-    trust.addEventListener('click', () => logins(found.map((f) => ({ ...f, trust: f.plan.fingerprint })), left));
+    trust.addEventListener('click', () => logins(usable.map((f) => ({ ...f, trust: f.plan.fingerprint })), left));
   }
   const leftOut = (r) => notice('warn', 'fixes-left-out', h('strong', {}, `${r.device.name}: `), t('fixes.identity.failed', { message: r.problem }));
 
@@ -316,7 +330,7 @@ function confirmRun(chosen, onClosed) {
           ' ',
           h('strong', {}, t('fixes.dialog.item', { title: i.title, name: i.name })),
           i.steps.length ? stepList(i.steps, 'fixes-run-steps') : null,
-          i.problem ? h('p', { class: 'error', 'data-testid': 'fixes-run-problem' }, i.problem.message, i.problem.fix ? h('span', { class: 'fix' }, ` ${t('fix.whatToDo')}${i.problem.fix}`) : null) : null,
+          i.problem ? h('p', { class: 'error', 'data-testid': 'fixes-run-problem' }, errorMessage(i.problem), i.problem.fix ? h('span', { class: 'fix' }, ` ${t('fix.whatToDo')}${i.problem.fix}`) : null) : null,
           i.reading ? h('p', { class: 'muted small', 'data-testid': 'fixes-run-reading' }, t('fixes.summary.read'), ' ', statusBadge(i.reading.status), ' ', t('fixes.summary.problems', { count: fmtNumber(i.reading.problems) })) : null,
         ),
       ),

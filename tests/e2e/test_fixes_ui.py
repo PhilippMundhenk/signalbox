@@ -111,9 +111,12 @@ def test_fix_several_devices_together(app: Any, routers: tuple[Router, Router]) 
 
     # identities first, no password field yet, nothing sent
     expect(dialog.get_by_test_id("fixes-identity")).to_have_count(1)
-    expect(dialog.get_by_test_id("fixes-fingerprint")).to_contain_text("SHA256:")
+    # the host key confirmed by the setup is known (#526): nothing to compare
+    expect(dialog.get_by_test_id("fixes-host-key-known")).to_contain_text(first[2])
+    expect(dialog.get_by_test_id("fixes-fingerprint")).to_have_count(0)
     expect(app.get_by_test_id("fixes-admin-secret")).to_have_count(0)
     assert (len(first[3].scripts), len(second[3].scripts)) == scripts
+    expect(dialog.get_by_test_id("fixes-trust")).to_have_text("Continue")
     dialog.get_by_test_id("fixes-trust").click()
 
     # the login last; a missing password is refused
@@ -136,3 +139,54 @@ def test_fix_several_devices_together(app: Any, routers: tuple[Router, Router]) 
     # the list shrank: only the left-out device is still offered
     expect(app.get_by_test_id("fixes-device")).to_have_count(1)
     expect(app.get_by_test_id("fixes-device")).to_contain_text("Router two")
+
+
+def test_fix_all_with_a_new_and_a_changed_ssh_host_key(
+    app: Any, routers: tuple[Router, Router]
+) -> None:
+    """Mixed SSH host keys (#526): one device's pin was forgotten (a first contact again, to be
+    compared), the other answers with a new key (left out with the warning, no password)."""
+    first, second = routers
+    add_site(app)
+    set_up(app, "Router one", first)
+    set_up(app, "Router two", second)
+    for slug in ("router-one", "router-two"):
+        api(app, "POST", f"/devices/{slug}/test")
+    api(app, "DELETE", "/devices/router-one/ssh-host-key")
+    with serve_ssh_in_thread(second[3]) as (port2, key2):
+        second[3].passwords.clear()
+        app.goto(app.server.url + "/#/fixes")
+        expect(app.get_by_test_id("fix-select")).to_have_count(2)
+        for box in app.get_by_test_id("fix-select").all():
+            box.check()
+        app.get_by_test_id("fixes-run").click()
+        dialog = app.get_by_test_id("fixes-dialog")
+        ports = {"router-one": first[1], "router-two": port2}
+        for item in dialog.get_by_test_id("fixes-review-item").all():
+            item.get_by_test_id("fixes-port").fill(str(ports[item.get_attribute("data-device")]))
+        dialog.get_by_test_id("fixes-continue").click()
+        # router one: a first contact again, compared as before
+        expect(dialog.get_by_test_id("fixes-identity")).to_have_count(1)
+        one = dialog.locator("[data-testid=fixes-identity][data-device=router-one]")
+        expect(one).to_have_attribute("data-host-key", "new")
+        expect(one.get_by_test_id("fixes-fingerprint")).to_have_text(first[2])
+        # router two: the distinct warning with both keys, left out of the run
+        warning = dialog.get_by_test_id("fixes-host-key-changed")
+        expect(warning).to_contain_text("The SSH host key of Router two has changed")
+        expect(warning.get_by_test_id("fixes-host-key-changed-old")).to_have_text(second[2])
+        expect(warning.get_by_test_id("fixes-host-key-changed-new")).to_have_text(key2)
+        expect(dialog.get_by_test_id("fixes-changed-left-out")).to_be_visible()
+        expect(dialog.get_by_test_id("fixes-trust")).to_have_text(
+            "Trust these identities and continue"
+        )
+        dialog.get_by_test_id("fixes-trust").click()
+        expect(dialog.get_by_test_id("fixes-login")).to_have_count(1)
+        dialog.get_by_test_id("fixes-admin-secret").fill(ROOT_PASSWORD)
+        dialog.get_by_test_id("fixes-apply").click()
+        expect(app.get_by_test_id("fixes-summary")).to_contain_text("1 done", timeout=30000)
+        assert first[3].installed >= LLDP_PACKAGES
+        assert second[3].passwords == [] and not second[3].installed >= LLDP_PACKAGES
+        # router one's key was confirmed by this run: stored again
+        keys = {d["id"]: d["ssh_host_key"] for d in api(app, "GET", "/devices")}
+        assert keys["router-one"]["pin"]["fingerprint"] == first[2]
+        assert keys["router-two"]["changed"]["fingerprint"] == key2

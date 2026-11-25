@@ -16,6 +16,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from signalbox.adapters import AdapterConfig, Backup
+from signalbox.adapters.provision import same_fingerprint
 from signalbox.counters import (
     CounterBucket,
     CounterRecord,
@@ -182,6 +183,28 @@ SCHEMA = [
         PRIMARY KEY (key, bucket)
     ) WITHOUT ROWID;
     """,
+    # version 10: the SSH host key confirmed per device and a changed one seen (#526, ADR 0031);
+    # apart from the HTTPS certificate pin (devices.pinned_fingerprint)
+    """
+    CREATE TABLE ssh_host_keys (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        algorithm TEXT,
+        confirmed_at TEXT NOT NULL,
+        action TEXT NOT NULL,
+        retired_at TEXT,
+        retired_by TEXT
+    );
+    CREATE INDEX ssh_host_keys_device ON ssh_host_keys (device_id);
+    CREATE TABLE ssh_host_key_changes (
+        device_id TEXT PRIMARY KEY,
+        fingerprint TEXT NOT NULL,
+        algorithm TEXT,
+        seen_at TEXT NOT NULL,
+        action TEXT NOT NULL
+    );
+    """,
 ]
 
 
@@ -211,6 +234,47 @@ class DeviceRecord(BaseModel):
     allow_writes: bool = False
     #: The device this one runs on, when the address does not show it (#387); None: derived.
     hosted_on: str | None = None
+
+
+class SshHostKeyPin(BaseModel):
+    """An SSH host key the user confirmed for a device (#526, ADR 0031). Not a secret."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: ``SHA256:<base64>``, as ``ssh-keygen -l`` shows it.
+    fingerprint: str
+    #: The negotiated host key algorithm (``ssh-ed25519``); None: not recorded.
+    algorithm: str | None = None
+    confirmed_at: datetime
+    #: What confirmed it: ``setup``, ``fix:<remedy>`` or ``retrust``.
+    action: str
+    #: Set on a pin of the history: when and by what it was replaced or forgotten.
+    retired_at: datetime | None = None
+    retired_by: str | None = None
+
+
+class SshHostKeySeen(BaseModel):
+    """A host key a device presented that differs from its pin, while not re-trusted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fingerprint: str
+    algorithm: str | None = None
+    #: When it was first seen (the same key seen again keeps the time).
+    seen_at: datetime
+    #: What saw it: ``setup``, ``fix:<remedy>`` or ``read``.
+    action: str
+
+
+class SshHostKeys(BaseModel):
+    """The SSH host key state of one device: the pin, a changed key seen, the old pins."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pin: SshHostKeyPin | None = None
+    changed: SshHostKeySeen | None = None
+    #: Earlier pins, newest first.
+    history: list[SshHostKeyPin] = Field(default_factory=list)
 
 
 class FindingRecord(BaseModel):
@@ -547,6 +611,9 @@ class Store:
             db.execute("DELETE FROM devices WHERE id = ?", (device_id,))
             db.execute("DELETE FROM snapshots WHERE device_id = ?", (device_id,))
             db.execute("DELETE FROM traces WHERE source = ?", (device_id,))
+            # its SSH host key pins and their history (#526)
+            db.execute("DELETE FROM ssh_host_keys WHERE device_id = ?", (device_id,))
+            db.execute("DELETE FROM ssh_host_key_changes WHERE device_id = ?", (device_id,))
             # its history, its ports' and that of the devices it manages (``<id>/...``)
             for table in ("sightings", "sighting_changes"):
                 db.execute(
@@ -558,6 +625,132 @@ class Store:
                 "DELETE FROM counter_series WHERE key = ? OR substr(key, 1, ?) = ?",
                 (device_id, len(device_id) + 1, f"{device_id}/"),
             )
+
+    # SSH host keys (#526, ADR 0031) -----------------------------------------------------
+
+    @staticmethod
+    def _pin(row: sqlite3.Row) -> SshHostKeyPin:
+        return SshHostKeyPin(
+            fingerprint=row["fingerprint"],
+            algorithm=row["algorithm"],
+            confirmed_at=datetime.fromisoformat(row["confirmed_at"]),
+            action=row["action"],
+            retired_at=datetime.fromisoformat(row["retired_at"]) if row["retired_at"] else None,
+            retired_by=row["retired_by"],
+        )
+
+    def ssh_host_keys(self, device_id: str) -> SshHostKeys:
+        """The pinned SSH host key of a device, a changed one it presented, and the history."""
+        rows = self._all(
+            "SELECT * FROM ssh_host_keys WHERE device_id = ? ORDER BY seq DESC", (device_id,)
+        )
+        pins = [self._pin(r) for r in rows]
+        seen = self._one("SELECT * FROM ssh_host_key_changes WHERE device_id = ?", (device_id,))
+        return SshHostKeys(
+            pin=next((p for p in pins if p.retired_at is None), None),
+            changed=None
+            if seen is None
+            else SshHostKeySeen(
+                fingerprint=seen["fingerprint"],
+                algorithm=seen["algorithm"],
+                seen_at=datetime.fromisoformat(seen["seen_at"]),
+                action=seen["action"],
+            ),
+            history=[p for p in pins if p.retired_at is not None],
+        )
+
+    def ssh_host_key_changes(self) -> dict[str, SshHostKeys]:
+        """Every device that presented another SSH host key than its pin (for the findings)."""
+        rows = self._all("SELECT device_id FROM ssh_host_key_changes ORDER BY device_id")
+        return {r["device_id"]: self.ssh_host_keys(r["device_id"]) for r in rows}
+
+    def pin_ssh_host_key(
+        self, device_id: str, fingerprint: str, algorithm: str | None, action: str
+    ) -> SshHostKeyPin:
+        """Store the SSH host key the user confirmed; the pin it replaces goes to the history.
+
+        The same key again keeps its pin (and the date it was confirmed). A changed key seen
+        before is cleared: this is the explicit decision about it.
+        """
+        now = datetime.now(UTC).isoformat()
+        with self._tx() as db:
+            if not db.execute("SELECT 1 FROM devices WHERE id = ?", (device_id,)).fetchone():
+                raise StoreError(f"unknown device {device_id}")
+            current = db.execute(
+                "SELECT * FROM ssh_host_keys WHERE device_id = ? AND retired_at IS NULL",
+                (device_id,),
+            ).fetchone()
+            db.execute("DELETE FROM ssh_host_key_changes WHERE device_id = ?", (device_id,))
+            if current is not None and same_fingerprint(current["fingerprint"], fingerprint):
+                if algorithm and not current["algorithm"]:
+                    db.execute(
+                        "UPDATE ssh_host_keys SET algorithm = ? WHERE seq = ?",
+                        (algorithm, current["seq"]),
+                    )
+                row = db.execute(
+                    "SELECT * FROM ssh_host_keys WHERE seq = ?", (current["seq"],)
+                ).fetchone()
+                return self._pin(row)
+            db.execute(
+                "UPDATE ssh_host_keys SET retired_at = ?, retired_by = ? "
+                "WHERE device_id = ? AND retired_at IS NULL",
+                (now, action, device_id),
+            )
+            db.execute(
+                "INSERT INTO ssh_host_keys (device_id, fingerprint, algorithm, confirmed_at, "
+                "action) VALUES (?, ?, ?, ?, ?)",
+                (device_id, fingerprint, algorithm, now, action),
+            )
+            row = db.execute(
+                "SELECT * FROM ssh_host_keys WHERE device_id = ? AND retired_at IS NULL",
+                (device_id,),
+            ).fetchone()
+            return self._pin(row)
+
+    def note_ssh_host_key_change(
+        self, device_id: str, fingerprint: str, algorithm: str | None, action: str
+    ) -> bool:
+        """Record that the device presented ``fingerprint`` while another key is pinned.
+
+        Returns whether it differs from the pin (nothing is recorded without a pin or for the
+        pinned key). The first time a key was seen is kept while it is the same key.
+        """
+        keys = self.ssh_host_keys(device_id)
+        if keys.pin is None or same_fingerprint(keys.pin.fingerprint, fingerprint):
+            return False
+        if keys.changed is not None and same_fingerprint(keys.changed.fingerprint, fingerprint):
+            return True
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO ssh_host_key_changes (device_id, fingerprint, algorithm, seen_at, "
+                "action) VALUES (?, ?, ?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET "
+                "fingerprint = excluded.fingerprint, algorithm = excluded.algorithm, "
+                "seen_at = excluded.seen_at, action = excluded.action",
+                (device_id, fingerprint, algorithm, datetime.now(UTC).isoformat(), action),
+            )
+        return True
+
+    def retrust_ssh_host_key(self, device_id: str, fingerprint: str) -> SshHostKeyPin:
+        """Trust the changed SSH host key the device presented. Only that key can be named."""
+        keys = self.ssh_host_keys(device_id)
+        if keys.changed is None or not same_fingerprint(keys.changed.fingerprint, fingerprint):
+            raise StoreError("this is not the changed SSH host key the device presented")
+        return self.pin_ssh_host_key(
+            device_id, keys.changed.fingerprint, keys.changed.algorithm, "retrust"
+        )
+
+    def forget_ssh_host_key(self, device_id: str) -> bool:
+        """Forget the pin (a deliberate reset): the next contact asks again. The old pin stays
+        in the history. Returns whether there was one."""
+        now = datetime.now(UTC).isoformat()
+        with self._tx() as db:
+            db.execute("DELETE FROM ssh_host_key_changes WHERE device_id = ?", (device_id,))
+            cur = db.execute(
+                "UPDATE ssh_host_keys SET retired_at = ?, retired_by = 'forget' "
+                "WHERE device_id = ? AND retired_at IS NULL",
+                (now, device_id),
+            )
+            return bool(cur.rowcount)
 
     def set_pending_fingerprint(self, device_id: str, fingerprint: str | None) -> None:
         with self._tx() as db:

@@ -70,6 +70,8 @@ class OpenWrtSsh:
     restarts: list[str] = field(default_factory=list)
     #: every script received (to check that no secret is sent in clear)
     scripts: list[str] = field(default_factory=list)
+    #: every password a client sent to log in (to check that none is sent to a changed key)
+    passwords: list[str] = field(default_factory=list)
     #: the HTTP side that gets the logins on an rpcd restart
     http: OpenWrtSim | None = None
     #: the web server certificate (DER), as px5g writes /etc/uhttpd.crt
@@ -250,6 +252,7 @@ class _Server(asyncssh.SSHServer):
         return True
 
     def validate_password(self, username: str, password: str) -> bool:
+        self.device.passwords.append(password)
         return username == "root" and password == self.device.root_password
 
 

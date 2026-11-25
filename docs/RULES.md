@@ -287,6 +287,10 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`clients.segment-disagreement`](rules/segment_views.md#clientssegment-disagreement)
 - [`segment.name-missing`](rules/segment_views.md#segmentname-missing)
 
+## [SSH host keys](rules/ssh_host_keys.md)
+
+- [`ssh.host-key-changed`](rules/ssh_host_keys.md#sshhost-key-changed)
+
 ## [Certificates stored on devices](rules/stored_certificates.md)
 
 - [`cert.vpn-expiring`](rules/stored_certificates.md#certvpn-expiring)
