@@ -51,8 +51,8 @@ def state(keys: SshHostKeys, presented: str | None) -> dict[str, Any] | None:
 
 
 def view(keys: SshHostKeys) -> dict[str, Any] | None:
-    """The device's SSH host key for the device page; None: none confirmed and none changed."""
-    if keys.pin is None and keys.changed is None:
+    """The device's SSH host key for the device page; None: none confirmed, changed or old."""
+    if keys.pin is None and keys.changed is None and not keys.history:
         return None
     return {
         "pin": keys.pin.model_dump(mode="json") if keys.pin else None,
@@ -97,9 +97,17 @@ def refused(
     if keys.pin is None:
         return None
     for trust in trusts:
-        if is_ssh(trust) and not same_fingerprint(trust, keys.pin.fingerprint):
-            presented = keys.changed.fingerprint if keys.changed else str(trust)
-            return changed_answer(name, keys, presented)
+        if not is_ssh(trust) or same_fingerprint(trust, keys.pin.fingerprint):
+            continue
+        if keys.changed is not None:
+            return changed_answer(name, keys, keys.changed.fingerprint)
+        # no other key was seen: the request names a key the device did not present
+        return {
+            "error": "untrusted",
+            "message": "The SSH host key in this request is not the one confirmed for the "
+            "device; nothing was sent. Fetch the device's identity again.",
+            "fingerprint": keys.pin.fingerprint,
+        }
     return None
 
 

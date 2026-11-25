@@ -156,6 +156,7 @@ def test_fix_all_with_a_new_and_a_changed_ssh_host_key(
     with serve_ssh_in_thread(second[3]) as (port2, key2):
         second[3].passwords.clear()
         app.goto(app.server.url + "/#/fixes")
+        expect(app.get_by_test_id("fix-select")).to_have_count(2)
         for box in app.get_by_test_id("fix-select").all():
             box.check()
         app.get_by_test_id("fixes-run").click()

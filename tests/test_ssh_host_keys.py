@@ -75,6 +75,8 @@ def set_up(client: TestClient, url: str, port: int, fingerprint: str) -> None:
         "/api/devices/setup/apply", json=body(url, port, trust=fingerprint, allow_writes=True)
     )
     assert done.status_code == 200 and done.json()["ok"], done.text
+    # a reading, so the device is part of the network the rules check
+    assert client.post("/api/devices/access-point/test").status_code == 200
 
 
 def open_findings(services: Services) -> list[str]:
@@ -241,7 +243,8 @@ def test_a_read_over_ssh_sees_the_change_and_trusting_it_there_retrusts(
 ) -> None:
     """Linux and EdgeOS pin the confirmed host key for reading as hex SHA-256 (#240)."""
     store = services.store
-    pin = "SHA256:" + "C" * 43
+    pin = ssh_fingerprint("ab" * 32)
+    assert pin is not None
     pin_hex = sha256_hex(pin)
     assert pin_hex is not None and ssh_fingerprint(pin_hex) == pin
     rec = DeviceRecord(

@@ -484,7 +484,7 @@ def test_schema_9_migration_adds_the_series_table(tmp_path: Path) -> None:
     db.close()
     s = Store(path, load_vault(tmp_path, env={}))
     try:
-        assert s._db.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert s._db.execute("PRAGMA user_version").fetchone()[0] == len(SCHEMA)
         assert s.sites() == [SITE]
         assert s.history(T0, 30).series == {}
         _record_traffic(s, 1, 1000)

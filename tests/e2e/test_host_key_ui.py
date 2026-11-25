@@ -56,6 +56,8 @@ def set_up(app: Any, url: str, port: int, key: str) -> None:
 def to_identity(app: Any, port: int) -> None:
     """The stored device's setup box, up to the identity (no password asked yet)."""
     app.goto(app.server.url + "/#/device/access-point/settings")
+    app.reload()  # the same address again renders the page afresh
+    expect(app.get_by_test_id("auto-setup")).to_be_visible()
     app.get_by_test_id("auto-setup").locator("summary").click()
     app.get_by_test_id("setup-admin-port").fill(str(port))
     app.get_by_test_id("setup-plan").click()
