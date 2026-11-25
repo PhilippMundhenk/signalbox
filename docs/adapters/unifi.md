@@ -129,9 +129,28 @@ state, SFP data and more; they are not read yet. Firewall, VPN and routes are no
 
 ## Integration tests
 
-A self-hosted Network application in Docker would be the natural CI target (the issue names
-`linuxserver/unifi-network-application` with MongoDB). See the section at the end of this page
-for what the CI job does, or why there is none.
+`tools/integration/unifi/controller.py` runs on the GitHub Actions runner only (job
+`Integration / UniFi`, one run per major version), never locally;
+tests/integration/test_unifi_real.py skips without `IT_UNIFI_URL` (and fails in CI,
+`REQUIRE_INTEGRATION`).
+
+- **The application**: `linuxserver/unifi-network-application` 10.6.109, 9.5.21 and 8.6.9
+  (the newest release of each major version), pinned by digest, with `mongo:7.0.48` and a
+  database user created by an init script. Network 8, 9 and 10 are covered; there is no
+  adopted device (no gateway, switch or access point can run in CI), so ports, radios, uplinks
+  and clients stay simulator-only.
+- **Setup** through the controller's own API: the first-run administrator
+  (`POST /api/cmd/sitemgr`, `add-default-admin`), the login, a local account with the
+  `readonly` role (`cmd/sitemgr`, `create-admin`, else `invite-admin`), and the networks IoT
+  (VLAN 20) and Guest (VLAN 30) with DHCP on documentation prefixes. Passwords are generated
+  for each run and masked.
+- **Tests** run the adapter with the read-only account: contract, version, site by internal
+  name and description, segments and DHCP of the networks, health and clock, wrong password and
+  wrong pinned certificate.
+- The raw answers of the classic and Integration API are recorded as notices and in the
+  artifact `unifi-logs-<major>`.
+- The setup calls were written from the web UI's behaviour without a first run; what the real
+  application showed differently is listed here once the job has run.
 
 ## WAN failover and dynamic DNS (#150, #154)
 
