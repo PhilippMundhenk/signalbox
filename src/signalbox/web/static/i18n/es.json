@@ -3308,7 +3308,6 @@
  "msg.edgeos.rangeNoNetwork": "{server}: la subred DHCP {range} no está en ninguna red del router",
  "msg.edgeos.lldpOff": "LLDP está desactivado en el router, por lo que no se leen vecinos",
  "msg.edgeos.lldpOff.fix": "Opcional: actívelo (configure, set service lldp interface all, commit, save).",
- "msg.edgeos.firewallUnsupported": "firewall: {what} no se lee, por lo que faltan las reglas de la política de zonas",
  "msg.edgeos.ruleSetMissing": "firewall: {interface} usa el conjunto de reglas {name}, que no está definido",
  "msg.edgeos.natSkipped": "NAT: se omitió una regla sin una dirección de traducción utilizable",
  "device.poe.title": "Alimentación por Ethernet",

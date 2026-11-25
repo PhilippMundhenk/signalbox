@@ -1125,6 +1125,14 @@ out. Not installed (404): no neighbours, no gap; no privilege (403): an optional
 privilege, repaired by "Repair Signalbox's access" where the firewall offers it. The plugin
 has had this endpoint since its first release, so every release covered has it; the text layout
 is that of lldpd 1.0.x *(guess, #21)*. CDP data is only present if lldpd is started with `-c`.
+lldpd stores the native VLAN of a CDP frame as the port VLAN, so it arrives as `VLAN: n, pvid: yes`
+and fills `port_vlan` like an LLDP PVID; the VTP domain and the duplex of CDP are not decoded by
+lldpd (`src/daemon/protocols/cdp.c` handles the native VLAN TLV and none of them), so no adapter
+can show them (#494). The same holds for every adapter that reads lldpd (OpenWrt `lldpcli -f json0`,
+EdgeOS/VyOS `show lldp neighbors detail`): the age lldpd prints (`Time:`, JSON `age`) is the
+time since the entry last *changed* (`p_lastchange`), not since the last frame, so `last_seen`
+stays empty for lldpd and only `age_seconds` is set (RouterOS' `age` is the only one that counts
+from the last update).
 
 ### Captive portal (#460)
 

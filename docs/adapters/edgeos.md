@@ -176,9 +176,32 @@ rule of that interface, so the order across interfaces stays right. The model ev
 connections only, so rules that only accept `established`/`related` connections or drop
 `invalid` ones are not rules for new connections and are left out. Conditions the model has no
 field for (address groups, TCP flags, a rate `limit`, `recent`, time of day, `!protocol`) make a
-rule *inexact*: it can only ever "maybe" match. `exclude`d and load-balanced NAT rules, zone-based
-policies (`zone-policy` on EdgeOS 2.0 and VyOS 1.3, `firewall zone` on 1.4 and newer) are not read, and a
-finding says so (`rules_complete = false`).
+rule *inexact*: it can only ever "maybe" match. `exclude`d and load-balanced NAT rules are inexact too.
+
+### Zone-based firewall (#504)
+
+`zone-policy zone X` (EdgeOS 1.10/2.x, VyOS 1.3) and `firewall zone X` (VyOS 1.4 and newer) are
+read into the same zone and policy model as OPNsense and MikroTik. The two trees differ only in
+how members are written (`interface eth0` against `member interface eth0`); `from`,
+`default-action`, `local-zone` and the rule-sets are the same. A rule-set is `firewall name N` /
+`ipv6-name N` (EdgeOS, VyOS 1.3) or `firewall ipv4 name N` / `ipv6 name N` (1.4 and newer; the
+reference in the zone is still `firewall name N` / `ipv6-name N`).
+
+| Configuration | Model |
+| --- | --- |
+| `zone X interface eth0` / `member interface eth0` | zone `X` with the port, segment, uplink or tunnel of that interface; a wildcard (`eth+`) or a `member vrf` makes the zone incomplete |
+| `zone X from Y firewall name N` | the rules of `N` in the forward chain, source zone `Y`, destination zone `X`, closed by the default action of `N` (`drop` if none) |
+| `zone LOCAL local-zone`, `zone LOCAL from Y ...` | traffic to the router: input chain, source zone `Y` |
+| `zone Y from LOCAL ...` | traffic from the router: output chain, destination zone `Y` |
+| a pair of zones without `from` | a zone policy with the `default-action` of the target zone (`drop` if none) |
+| traffic inside one zone | policy `accept`; `intra-zone-filtering action drop` makes it `drop`, `intra-zone-filtering firewall name N` reads the rules of `N` |
+
+Interfaces that are in no zone are not filtered by the zones. A rule-set a zone names that does
+not exist, a `return` and a rule-set whose default action is not accept/drop/reject give
+`rules_complete = false` and a finding. `zone X from LOCAL` has rules but no pair policy (the
+model has no policy for the output chain). VyOS 1.4's `firewall zone` is covered by the CI lab on
+a real VyOS; `zone-policy` of EdgeOS and VyOS 1.3 is read from the documented syntax only
+*(guess, #21)*.
 
 NAT: `masquerade` and source NAT with an outside address; port forwards from destination NAT
 rules (`service nat rule N type destination`, `nat destination rule`) and from the EdgeOS
@@ -199,7 +222,6 @@ pre-shared keys therefore show as "not known". Nothing is read from `/config/aut
 | the device refused the login | wrong user or key, or the user does not exist at the level operator |
 | did not answer the read commands completely | the login shell is not the default (`vbash`), or the user lacks the level |
 | show configuration commands printed nothing | no operator level, or the wrapper is missing |
-| zone-policy is not read | zone-based firewalls are not mapped yet |
 | LLDP is off (optional) | enable it with `set service lldp interface all` for the neighbours |
 | the DHCP subnet is on no network of the router | a `subnet` without an interface address in it |
 

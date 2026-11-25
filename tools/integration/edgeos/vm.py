@@ -18,8 +18,9 @@ VM (the SSH login of the router is the key-only user ``signalbox`` created here,
 where the version has levels). Network, in PCI order: eth0 is the management port and uplink
 (QEMU user networking, DHCP client; the runner reaches SSH at 127.0.0.1:8022), eth1 the LAN
 (192.0.2.1/24, DHCP server), eth2 carries VLAN 20 (203.0.113.1/24) and an LLDP daemon. The
-lab firewall (forward and input chains, a named chain entered by a jump, IPv6) uses the syntax of
-VyOS 1.4 and newer (``firewall ipv4 ...``) and is skipped on versions that refuse it.
+lab firewall (forward and input chains, a named chain entered by a jump, IPv6) and a zone-based
+firewall (``firewall zone``, #504) use the syntax of VyOS 1.4 and newer (``firewall ipv4 ...``)
+and are skipped on versions that refuse it.
 
 The live ``vyos`` login is also handed to the tests (IT_EDGEOS_ADMIN_USER/_PASSWORD): they run
 the automatic setup with it for a second login.
@@ -400,6 +401,20 @@ FIREWALL = [
     "set firewall ipv6 forward filter rule 10 state related",
 ]
 
+#: A zone-based firewall (``firewall zone``, #504) on the LAN (eth1) and IoT (eth2.20) interfaces.
+#: No local zone: the zone default of a local zone would also apply to the runner's SSH on eth0.
+ZONES = [
+    "set firewall ipv4 name LAN_IOT default-action drop",
+    "set firewall ipv4 name LAN_IOT rule 10 action accept",
+    "set firewall ipv4 name LAN_IOT rule 10 description 'DNS from the LAN to IoT'",
+    "set firewall ipv4 name LAN_IOT rule 10 destination port 53",
+    "set firewall ipv4 name LAN_IOT rule 10 protocol udp",
+    "set firewall zone LAN member interface eth1",
+    "set firewall zone IOT member interface eth2.20",
+    "set firewall zone IOT default-action drop",
+    "set firewall zone IOT from LAN firewall name LAN_IOT",
+]
+
 
 def start(d: Path) -> None:
     iso = fetch(d)
@@ -483,6 +498,7 @@ def start(d: Path) -> None:
         required=False,
     )
     configure(con, "firewall", FIREWALL, required=False)
+    configure(con, "zones", ZONES, required=False)
     pin = host_key_pin(d)
     env = {
         "IT_EDGEOS_ADMIN_USER": LIVE_USER,

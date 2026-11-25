@@ -3308,7 +3308,6 @@
  "msg.edgeos.rangeNoNetwork": "{server}: DHCP সাবনেট {range} রাউটারের কোনো নেটওয়ার্কে নেই",
  "msg.edgeos.lldpOff": "রাউটারে LLDP বন্ধ, তাই প্রতিবেশী পড়া হয়নি",
  "msg.edgeos.lldpOff.fix": "ঐচ্ছিক: এটি চালু করুন (configure, set service lldp interface all, commit, save)।",
- "msg.edgeos.firewallUnsupported": "ফায়ারওয়াল: {what} পড়া হয়নি, তাই জোন নীতির নিয়ম নেই",
  "msg.edgeos.ruleSetMissing": "ফায়ারওয়াল: {interface} অসংজ্ঞায়িত নিয়ম-সেট {name} ব্যবহার করে",
  "msg.edgeos.natSkipped": "NAT: ব্যবহারযোগ্য অনুবাদ ঠিকানা ছাড়া একটি নিয়ম বাদ দেওয়া হয়েছে",
  "device.poe.title": "পাওয়ার ওভার ইথারনেট",

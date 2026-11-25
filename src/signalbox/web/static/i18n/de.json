@@ -3308,7 +3308,6 @@
  "msg.edgeos.rangeNoNetwork": "{server}: das DHCP-Subnetz {range} liegt in keinem Netz des Routers",
  "msg.edgeos.lldpOff": "LLDP ist auf dem Router ausgeschaltet, daher werden keine Nachbarn gelesen",
  "msg.edgeos.lldpOff.fix": "Optional: Schalten Sie es ein (configure, set service lldp interface all, commit, save).",
- "msg.edgeos.firewallUnsupported": "Firewall: {what} wird nicht gelesen, daher fehlen die Regeln der Zonenrichtlinie",
  "msg.edgeos.ruleSetMissing": "Firewall: {interface} verwendet den Regelsatz {name}, der nicht definiert ist",
  "msg.edgeos.natSkipped": "NAT: eine Regel ohne verwendbare Übersetzungsadresse wurde ausgelassen",
  "device.poe.title": "Power over Ethernet",

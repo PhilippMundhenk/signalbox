@@ -3308,7 +3308,6 @@
  "msg.edgeos.rangeNoNetwork": "{server}: شبكة DHCP الفرعية {range} ليست على أي شبكة في الموجّه",
  "msg.edgeos.lldpOff": "LLDP متوقف على الموجّه، لذا لا تُقرأ الجيران",
  "msg.edgeos.lldpOff.fix": "اختياري: فعّله (configure وset service lldp interface all وcommit وsave).",
- "msg.edgeos.firewallUnsupported": "جدار الحماية: لا تُقرأ {what}، لذا قواعد سياسة المناطق مفقودة",
  "msg.edgeos.ruleSetMissing": "جدار الحماية: تستخدم {interface} مجموعة القواعد {name} وهي غير معرّفة",
  "msg.edgeos.natSkipped": "NAT: تم تجاهل قاعدة بلا عنوان ترجمة صالح",
  "device.poe.title": "الطاقة عبر الإيثرنت",

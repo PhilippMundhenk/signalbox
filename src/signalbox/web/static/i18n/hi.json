@@ -3308,7 +3308,6 @@
  "msg.edgeos.rangeNoNetwork": "{server}: DHCP सबनेट {range} राउटर के किसी भी नेटवर्क पर नहीं है",
  "msg.edgeos.lldpOff": "राउटर पर LLDP बंद है, इसलिए पड़ोसी नहीं पढ़े गए",
  "msg.edgeos.lldpOff.fix": "वैकल्पिक: इसे चालू करें (configure, set service lldp interface all, commit, save)।",
- "msg.edgeos.firewallUnsupported": "फ़ायरवॉल: {what} नहीं पढ़ा गया, इसलिए ज़ोन नीति के नियम नहीं हैं",
  "msg.edgeos.ruleSetMissing": "फ़ायरवॉल: {interface} अपरिभाषित नियम-समूह {name} का उपयोग करता है",
  "msg.edgeos.natSkipped": "NAT: बिना उपयोगी अनुवाद पते वाला एक नियम छोड़ दिया गया",
  "device.poe.title": "पावर ओवर ईथरनेट",

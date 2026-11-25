@@ -3308,7 +3308,6 @@
  "msg.edgeos.rangeNoNetwork": "{server}: DHCP سب نیٹ {range} راؤٹر کے کسی نیٹ ورک پر نہیں ہے",
  "msg.edgeos.lldpOff": "راؤٹر پر LLDP بند ہے، اس لیے پڑوسی نہیں پڑھے گئے",
  "msg.edgeos.lldpOff.fix": "اختیاری: اسے آن کریں (configure, set service lldp interface all, commit, save)۔",
- "msg.edgeos.firewallUnsupported": "فائر وال: {what} نہیں پڑھا گیا، اس لیے زون پالیسی کے اصول موجود نہیں",
  "msg.edgeos.ruleSetMissing": "فائر وال: {interface} غیر متعین اصول سیٹ {name} استعمال کرتا ہے",
  "msg.edgeos.natSkipped": "NAT: قابلِ استعمال ترجمہ ایڈریس کے بغیر ایک اصول چھوڑ دیا گیا",
  "device.poe.title": "پاور اوور ایتھرنیٹ",

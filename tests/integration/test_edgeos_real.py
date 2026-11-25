@@ -4,8 +4,9 @@ tools/integration/edgeos/vm.py boots the official live ISO, creates the key-only
 ``signalbox`` (level operator where the version has levels) and a small lab: eth1 LAN
 192.0.2.1/24 with a DHCP server and DNS forwarding, VLAN 20 on eth2 (203.0.113.1/24), LLDP,
 source NAT and a firewall (``firewall ipv4`` forward and input chains, a named chain entered by a
-jump, IPv6). The reads change nothing; the router has no neighbours, leases or tunnels. One test
-runs the automatic setup with the live ``vyos`` login for a second user (#495).
+jump, IPv6) and a zone-based firewall (``firewall zone``). The reads change nothing; the router
+has no neighbours, leases or tunnels. One test runs the automatic setup with the live ``vyos``
+login for a second user (#495).
 
     IT_EDGEOS_URL        ssh://127.0.0.1:<port>
     IT_EDGEOS_USER       the read user, IT_EDGEOS_KEY_FILE its private key
@@ -147,6 +148,29 @@ async def test_firewall_of_the_lab(vy: Target) -> None:
     assert "ipv4 forward 10" not in by_name and "ipv6 forward 10" not in by_name
     # NAT is read next to it
     assert any(n.masquerade for n in fw.nat)
+
+
+async def test_zone_based_firewall_of_the_lab(vy: Target) -> None:
+    """``firewall zone`` (VyOS 1.4 and newer, #504) is read into zones, the rules of the rule-set
+    between two zones and the default policies of the zones; it is no longer a finding."""
+    snap = await observe(context(vy), False)
+    (fw,) = snap.firewalls
+    assert not [e for e in snap.errors if e.message_id == "edgeos.firewallUnsupported"]
+    assert fw.rules_complete is True, snap.errors
+    zones = {z.name: z for z in fw.zones}
+    assert zones["LAN"].ports or zones["LAN"].segments, zones["LAN"]
+    assert zones["IOT"].segments or zones["IOT"].ports, zones["IOT"]
+    assert zones["LAN"].complete and zones["IOT"].complete
+    by_name = {r.name: r for r in fw.rules}
+    dns = by_name["DNS from the LAN to IoT"]
+    assert dns.chain is FirewallChain.FORWARD and dns.action is FirewallAction.ACCEPT
+    assert dns.source.zones == ["LAN"] and dns.destination.zones == ["IOT"]
+    assert [p.start for p in dns.destination.ports] == [53]
+    closing = by_name["LAN_IOT default"]
+    assert closing.action is FirewallAction.DROP and closing.destination.zones == ["IOT"]
+    # no rule-set from IoT to the LAN: the default action of the LAN zone (VyOS: drop)
+    assert fw.policy("IOT", "LAN") is FirewallAction.DROP
+    assert fw.policy("LAN", "LAN") is FirewallAction.ACCEPT
 
 
 async def test_automatic_setup_names_the_rights_of_the_user(vy: Target) -> None:
