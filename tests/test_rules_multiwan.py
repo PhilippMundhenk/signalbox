@@ -24,10 +24,14 @@ from signalbox.rules import Finding, Rule, RuleSettings, Severity, evaluate
 from signalbox.rules.builtin import RULES as BUILTIN
 from signalbox.rules.multiwan import (
     RULES,
+    degraded,
+    failover_same_path,
     last_member,
     member_down,
     mismatch,
     monitor_local,
+    monitor_missing,
+    on_backup,
     plain_http,
     private_address,
     stale,
@@ -74,7 +78,7 @@ def ddns(**kw: Any) -> DynamicDns:
 
 def test_registered_with_the_builtin_rules() -> None:
     assert {r.id for r in RULES} <= {r.id for r in BUILTIN}
-    assert len(RULES) == 9
+    assert len(RULES) == 13
 
 
 def test_member_down_with_two_left() -> None:
@@ -298,3 +302,144 @@ def test_stale_days_are_a_parameter() -> None:
     entry = ddns(last_update=NOW - timedelta(days=45))
     settings = {"ddns.stale": RuleSettings(params={"days": 60})}
     assert run_stale(network(ddns=[entry]), settings) == []
+
+
+# --- wan.on-backup, wan.failover-same-path, wan.monitor-missing, wan.degraded (#150) ------------
+
+
+def failover(*members: GatewayGroupMember, active: str | None) -> GatewayGroup:
+    return group(*members).model_copy(update={"active": active})
+
+
+def test_on_backup() -> None:
+    first, backup = member("cable", tier=1), member("lte", tier=2)
+    [f] = run(on_backup, network(gateway_groups=[failover(first, backup, active="lte")]))
+    assert f.severity is Severity.WARNING and f.message_id == "wan.onBackup"
+    assert "runs over its backup line lte; cable is the first choice" in f.message
+    for quiet in (
+        failover(first, backup, active="cable"),
+        failover(first, backup, active=None),  # not said
+        failover(first, backup, active="other"),  # not a member
+        failover(member("a"), member("b"), active="b"),  # same tier
+        failover(first, backup, active="lte").model_copy(update={"mode": GroupMode.BALANCE}),
+    ):
+        assert run(on_backup, network(gateway_groups=[quiet])) == []
+
+
+def test_failover_same_path() -> None:
+    a = uplink("gw", "wan", port="eth0")
+    b = uplink("gw", "wan2", port="eth0", upstream_gateway=ip("203.0.113.1"))
+    members = [member("a", uplink_id=a.id, tier=1), member("b", uplink_id=b.id, tier=2)]
+    [f] = run(failover_same_path, network(uplinks=[a, b], gateway_groups=[group(*members)]))
+    assert f.message_id == "wan.failoverSamePath"
+    assert "a, b of the gateway group failover on Router use the same path (port" in f.message
+    # the same public next hop, on two ports
+    c = uplink("gw", "wan", port="eth0")
+    d = uplink("gw", "wan2", port="eth1")
+    shared = [member("c", uplink_id=c.id, tier=1), member("d", uplink_id=d.id, tier=2)]
+    [g] = run(failover_same_path, network(uplinks=[c, d], gateway_groups=[group(*shared)]))
+    assert "(198.51.100.1)" in g.message
+
+
+def test_failover_same_path_quiet() -> None:
+    a = uplink("gw", "wan", port="eth0", upstream_gateway=ip("192.168.100.1"))
+    b = uplink("gw", "wan2", port="eth1", upstream_gateway=ip("192.168.100.1"))  # private
+    c = uplink("gw", "wan3", port="eth2", upstream_gateway=ip("fe80::1"))
+    d = uplink("gw", "wan4", port="eth3", upstream_gateway=ip("fe80::1"))  # link-local
+    e = uplink("gw", "wan5", upstream_gateway=None)  # nothing said
+    f = uplink("gw", "wan6", upstream_gateway=None)
+    for x, y in [(a, b), (c, d), (e, f)]:
+        m = [member("x", uplink_id=x.id, tier=1), member("y", uplink_id=y.id, tier=2)]
+        assert run(failover_same_path, network(uplinks=[x, y], gateway_groups=[group(*m)])) == []
+    # one tier only (load balancing): sharing is not the failover's problem
+    p = uplink("gw", "p", port="eth0")
+    q = uplink("gw", "q", port="eth0")
+    balance = group(member("p", uplink_id=p.id), member("q", uplink_id=q.id)).model_copy(
+        update={"mode": GroupMode.BALANCE}
+    )
+    assert run(failover_same_path, network(uplinks=[p, q], gateway_groups=[balance])) == []
+    assert run(failover_same_path, network(gateway_groups=[group(member("a"))])) == []
+
+
+def test_monitor_missing() -> None:
+    watched = member("a", monitor_targets=[ip("203.0.113.53")])
+    bare = member("b")
+    [f] = run(monitor_missing, network(gateway_groups=[group(watched, bare)]))
+    assert f.message_id == "wan.monitorMissing"
+    assert "b of the gateway group failover on Router is not monitored" in f.message
+    # the monitor of the uplink counts
+    up = uplink("gw", "wan").model_copy(update={"monitor": Monitor(targets=[ip("203.0.113.53")])})
+    via_uplink = member("b", uplink_id=up.id)
+    net = network(uplinks=[up], gateway_groups=[group(watched, via_uplink)])
+    assert run(monitor_missing, net) == []
+
+
+def test_monitor_missing_quiet() -> None:
+    assert run(monitor_missing, network(gateway_groups=[group(member("a"), member("b"))])) == []
+    assert run(monitor_missing, network(gateway_groups=[group(member("a"))])) == []
+
+
+def with_health(up: Any, **kw: Any) -> Any:
+    return up.model_copy(update={"health": UplinkHealth(**kw)})
+
+
+def test_degraded_by_state_loss_and_latency() -> None:
+    base = uplink("gw", "wan")
+    ok = with_health(base, state=UplinkState.ONLINE, latency_ms=20, loss_pct=0)
+    assert run(degraded, network(uplinks=[ok])) == []
+    [f] = run(degraded, network(uplinks=[with_health(base, state=UplinkState.DEGRADED)]))
+    assert f.message_id == "wan.degraded" and f.severity is Severity.WARNING
+    assert "(latency ?, loss ?)" in f.message
+    lossy = with_health(base, state=UplinkState.ONLINE, latency_ms=20, loss_pct=7.5)
+    [g] = run(degraded, network(uplinks=[lossy]))
+    assert "latency 20 ms, loss 7.5 %" in g.message
+    slow = with_health(base, state=UplinkState.ONLINE, latency_ms=450, loss_pct=0)
+    assert len(run(degraded, network(uplinks=[slow]))) == 1
+
+
+def test_degraded_thresholds_are_parameters() -> None:
+    lossy = with_health(uplink("gw", "wan"), state=UplinkState.ONLINE, latency_ms=20, loss_pct=7.5)
+    net = network(uplinks=[lossy])
+    assert evaluate(net, [degraded], {"wan.degraded": RuleSettings(params={"loss_pct": 10})}) == []
+    strict = {"wan.degraded": RuleSettings(params={"latency_ms": 10})}
+    assert len(evaluate(net, [degraded], strict)) == 1
+
+
+def test_degraded_quiet_for_down_and_unknown() -> None:
+    down = with_health(uplink("gw", "wan", up=False), state=UplinkState.DOWN, loss_pct=100)
+    assert run(degraded, network(uplinks=[down])) == []
+    assert run(degraded, network(uplinks=[uplink("gw", "wan")])) == []  # nothing reported
+
+
+def test_degraded_group_member_without_uplink() -> None:
+    slow = member("lte", latency_ms=900.0, loss_pct=0.0)
+    [f] = run(degraded, network(gateway_groups=[group(member("a"), slow)]))
+    assert "lte on Router is degraded (latency 900 ms, loss 0 %)" in f.message
+    gone = member("lte", UplinkState.DOWN, latency_ms=900.0)
+    assert run(degraded, network(gateway_groups=[group(gone)])) == []
+
+
+# --- failovers in the history (#150) -----------------------------------------------------------
+
+
+def test_failovers_are_counted_in_the_history(tmp_path: Any) -> None:
+    from signalbox.secrets import load_vault
+    from signalbox.store import Store
+
+    first, backup = member("cable", tier=1), member("lte", tier=2)
+    store = Store(tmp_path / "db.sqlite", load_vault(tmp_path, env={}))
+    try:
+        store.put_site(SITE)
+        start = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+        for i, active in enumerate(["cable", "cable", "lte", "lte", None, "cable"]):
+            net = network(gateway_groups=[failover(first, backup, active=active)])
+            store.record_history(net, start + timedelta(minutes=5 * i))
+        h = store.history(start + timedelta(hours=1), 30)
+    finally:
+        store.close()
+    gid = object_id("gw", "gateway-group", "failover")
+    assert h.gateway_actives[gid].value == "cable"  # an unknown round keeps the value
+    assert h.failovers(gid, start) == 2  # away from the cable and back
+    assert h.failovers(gid, start + timedelta(minutes=12)) == 1
+    assert h.failovers("gw/gateway-group/other", start) == 0
+    assert History().failovers(gid, start) == 0

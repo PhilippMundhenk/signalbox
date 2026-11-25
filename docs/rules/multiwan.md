@@ -31,6 +31,45 @@ address is not known.
 - **Stays quiet** when the target or the member's gateway is not known.
 - **Fix:** ping an address on the internet through that line instead.
 
+## `wan.on-backup`
+
+- **Severity:** warning
+- **Checks:** a failover group whose active member is on a later tier than its first choice:
+  the traffic runs over the backup line (often slower, metered or behind carrier-grade NAT).
+- **Stays quiet** when the gateway does not say which member is active, for load balancing
+  groups, and when the active member is on the first tier.
+- **Fix:** find out why the first choice was left; the group goes back by itself.
+
+## `wan.failover-same-path`
+
+- **Severity:** warning
+- **Checks:** two members of a failover group on different tiers that use the same port of the
+  gateway or the same public next hop: one cable, modem or provider failure takes both down.
+- **Stays quiet** for private, shared (carrier-grade NAT) and link-local next hops (modems
+  often share such an address), for load balancing groups, and where the port and the next
+  hop are not known.
+- **Fix:** connect the backup through another port, modem and, if possible, provider or
+  technology.
+
+## `wan.monitor-missing`
+
+- **Severity:** warning
+- **Checks:** a member of a group that has no monitor address while another member of the same
+  group has one: its failure is never noticed, so the group does not switch.
+- **Stays quiet** when no member has a monitor (the gateway may not report it) and for groups with one member.
+- **Fix:** let the gateway ping an address on the internet through that line.
+
+## `wan.degraded`
+
+- **Severity:** warning
+- **Checks:** an uplink (or a group member without an uplink) that the gateway's monitor calls
+  degraded, or whose packet loss or latency reaches the parameters `loss_pct` (5 % by default)
+  and `latency_ms` (300 ms by default; set per site or device in the rule's scopes).
+- **Stays quiet** for lines that are down (`wan.down` reports those) and when the gateway
+  reports neither a state nor figures. OpenWrt (mwan3), OPNsense and Omada report latency and
+  loss; UniFi and MikroTik only the state.
+- **Fix:** check the line, modem and signal; raise the parameters if the line is always like that.
+
 ## `ddns.mismatch`
 
 - **Severity:** warning

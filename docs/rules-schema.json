@@ -991,6 +991,53 @@
         }
       }
     },
+    "wan.degraded": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/wan.degraded"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/wan.degraded"
+              }
+            }
+          }
+        }
+      }
+    },
     "wifi.channel-busy": {
       "type": "object",
       "additionalProperties": false,
@@ -1614,6 +1661,31 @@
         }
       },
       "title": "vpn.handshake-stale",
+      "type": "object"
+    },
+    "wan.degraded": {
+      "additionalProperties": false,
+      "properties": {
+        "loss_pct": {
+          "default": 5.0,
+          "description": "Packet loss from which a line is degraded.",
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Loss Pct",
+          "type": "number",
+          "unit": "%"
+        },
+        "latency_ms": {
+          "default": 300.0,
+          "description": "Latency from which a line is degraded.",
+          "maximum": 60000,
+          "minimum": 1,
+          "title": "Latency Ms",
+          "type": "number",
+          "unit": "ms"
+        }
+      },
+      "title": "wan.degraded",
       "type": "object"
     },
     "wifi.channel-busy": {

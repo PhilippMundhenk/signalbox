@@ -22,7 +22,8 @@
     "page-system-certmanager",
     "page-system-camanager",
     "page-system-staticroutes",
-    "page-system-gateways"
+    "page-system-gateways",
+    "page-system-gatewaygroups"
   ],
   "signalbox-write": [
     "page-system-firmware-manualupdate",
@@ -48,6 +49,7 @@
     "page-system-camanager",
     "page-system-staticroutes",
     "page-system-gateways",
+    "page-system-gatewaygroups",
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory"
   ]

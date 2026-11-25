@@ -78,6 +78,9 @@ function uplinkValue(ix, u) {
     u.upstream_device ? t('device.uplink.behind', { name: ix.deviceName(u.upstream_device) }) : NAT_TEXT[u.nat_class] ? t(NAT_TEXT[u.nat_class]) : undefined,
     pd,
     u.downstream_kbps && u.upstream_kbps ? t('device.uplink.speed', { down: kbps(u.downstream_kbps), up: kbps(u.upstream_kbps) }) : null,
+    u.health && u.health.state === 'degraded' ? t('device.multiwan.state.degraded') : null,
+    u.health && given(u.health.latency_ms) ? t('device.multiwan.latency', { value: Math.round(u.health.latency_ms * 10) / 10 }) : null,
+    u.health && given(u.health.loss_pct) ? t('device.multiwan.loss', { value: Math.round(u.health.loss_pct * 10) / 10 }) : null,
   ].filter(Boolean);
   const details = [
     ...u.addresses,
@@ -94,6 +97,38 @@ function uplinkValue(ix, u) {
       ? h('details', { class: 'addresses', 'data-testid': 'uplink-addresses' }, h('summary', {}, t('device.uplink.showAddresses')), h('ul', { class: 'mono' }, details.map((a) => h('li', {}, a))))
       : null,
   );
+}
+
+// Multi-WAN (#150): one row per gateway group with its lines (tier, state, latency, loss, the
+// one that carries the traffic) and how often the active line changed in the retained history.
+const HEALTH_STATE = { online: 'device.multiwan.state.online', degraded: 'device.multiwan.state.degraded', down: 'device.multiwan.state.down', standby: 'device.multiwan.state.standby' };
+function multiwanMember(g, m) {
+  const parts = [
+    g.mode === 'failover' ? (m.tier > 1 ? t('device.multiwan.tier.backup', { tier: m.tier }) : t('device.multiwan.tier.first')) : null,
+    HEALTH_STATE[m.state] ? t(HEALTH_STATE[m.state]) : null,
+    g.active === m.name ? t('device.multiwan.active') : null,
+    given(m.latency_ms) ? t('device.multiwan.latency', { value: Math.round(m.latency_ms * 10) / 10 }) : null,
+    given(m.loss_pct) ? t('device.multiwan.loss', { value: Math.round(m.loss_pct * 10) / 10 }) : null,
+    given(m.weight) && g.mode === 'balance' ? t('device.multiwan.weight', { value: m.weight }) : null,
+    m.monitor_targets.length ? t('device.multiwan.monitor', { targets: m.monitor_targets.join(', ') }) : null,
+  ].filter(Boolean);
+  return h('li', { 'data-testid': 'multiwan-member' }, h('strong', {}, m.name), parts.length ? ` · ${parts.join(' · ')}` : '');
+}
+
+function multiwanCard(ix, deviceId) {
+  const groups = (ix.net.gateway_groups || []).filter((g) => g.device_id === deviceId);
+  if (!groups.length) return null;
+  const rows = groups.map((g) => [
+    g.name,
+    h(
+      'div',
+      { 'data-testid': 'multiwan-group' },
+      h('span', {}, g.mode === 'balance' ? t('device.multiwan.balance') : t('device.multiwan.failover')),
+      h('ul', {}, g.members.map((m) => multiwanMember(g, m))),
+      given(g.failovers) ? h('span', { class: 'muted small', 'data-testid': 'multiwan-failovers' }, t('device.multiwan.failovers', { count: g.failovers, days: g.failover_days })) : null,
+    ),
+  ]);
+  return h('section', { class: 'card', 'data-testid': 'device-multiwan' }, h('h2', {}, t('device.multiwan.title')), kv(rows));
 }
 
 function internetCard(ix, deviceId) {
@@ -1007,6 +1042,7 @@ async function overview(main, ctx, device, adapters, sites) {
     ),
     notesCard(ix, device.id, 'device', t('device.notes', { name: device.name }), () => ctx.refresh()),
     internetCard(ix, device.id),
+    multiwanCard(ix, device.id),
     ddnsCard(ix, device.id),
     inferredCard(ix, device.id),
     portsCard(ix, tree, deltas),
