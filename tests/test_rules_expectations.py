@@ -162,7 +162,8 @@ def test_vendor_network_flags_iot_and_camera_vendors() -> None:
 
 
 def test_vendor_network_can_be_acknowledged() -> None:
-    net = main_net(client(ESP, LAN), client(HIK, LAN))
+    merged = Client(id=f"client/{ESP}", mac=ESP, segment_id=LAN)  # as the merge names clients
+    net = main_net(merged, client(HIK, LAN))
     ack = Acknowledgement(id="a1", rule_id="clients.vendor-network", target=f"client/{ESP}")
     done = run(net.model_copy(update={"acknowledgements": [ack]}), vendor_network)
     by_mac = {ESP in f.message: f.acknowledged is not None for f in done}
