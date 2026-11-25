@@ -260,7 +260,7 @@ def application(oid: str, web: dict[str, str], name: str, role: str) -> dict[str
         fail("Omada setup: no such role", f"{role!r} not in {names}")
     body = {"name": name, "mode": 1, "permission": {"roleId": match, "sitePrivilege": 0}}
     base = f"/{oid}/api/v2/open-api/applications"
-    ok("POST", base, body, headers=web)
+    created = ok("POST", base, body, headers=web)
     listed = ok("GET", f"{base}?currentPage=1&currentPageSize=100", headers=web)
     rows = listed.get("data", listed) if isinstance(listed, dict) else listed
     app = next((r for r in rows if r.get("name") == name), None)
@@ -268,7 +268,16 @@ def application(oid: str, web: dict[str, str], name: str, role: str) -> dict[str
         fail("Omada setup: application not listed", json.dumps(listed)[:2000])
     shown = {k: v for k, v in app.items() if k not in ("clientSecret",)}
     log(f"application {name}: {json.dumps(shown)[:800]}")
-    return {"client_id": app["clientId"], "client_secret": app["clientSecret"], "role": role}
+    # 5.12 shows the secret only in the answer to the creation (the list holds a masked or
+    # different one, #515); newer releases return it in both
+    made = created if isinstance(created, dict) else {}
+    log(f"application {name}: creation answer keys {sorted(made)}")
+    secret = made.get("clientSecret") or app["clientSecret"]
+    return {
+        "client_id": made.get("clientId") or app["clientId"],
+        "client_secret": secret,
+        "role": role,
+    }
 
 
 class OpenApi:
