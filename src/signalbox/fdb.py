@@ -32,6 +32,12 @@ keeps them; everything here is derived on the merged :class:`~signalbox.model.Ne
   (#529). When several devices learned on one port are told apart by nothing and one of them
   lacks a per-port table, the one holding their default next hop (the gateway) is the nearest:
   a LAN is taken as a star around its gateway.
+- One jack has at most one cable to a given device (#545): of several ports of one device
+  linked to the same jack (a VLAN that runs through a switch makes a router's MAC appear behind
+  its trunk too), the one kept is where a table learns the other device untagged in the VLAN of
+  its own subnet, else untagged at all, then the one that learns the fewest addresses (an
+  access port over a trunk). A port that learns an address only in VLANs tagged on it, while
+  another port of the same table learns it untagged, is not where that address is cabled.
 """
 
 from __future__ import annotations
@@ -43,6 +49,7 @@ from signalbox.model import (
     Client,
     DeviceRole,
     EvidenceSource,
+    FdbEntry,
     FdbKind,
     LinkEvidence,
     LinkKind,
@@ -53,6 +60,7 @@ from signalbox.model import (
     Port,
     PortKind,
     PortRole,
+    segment_id,
 )
 
 
@@ -87,6 +95,11 @@ class Index:
     reporting: set[str] = field(default_factory=set)
     #: Coarse ports (``Port.coarse``, #529): their sightings are no per-port table.
     coarse: set[str] = field(default_factory=set)
+    #: (device, port, MAC) -> (segment, membership of the port in it) of its table entries,
+    #: where the VLAN and the port's membership are known (#545).
+    modes: dict[tuple[str, str, str], set[tuple[str, Membership]]] = field(default_factory=dict)
+    #: Port id -> (segment, membership) of the port.
+    members: dict[str, frozenset[tuple[str, Membership]]] = field(default_factory=dict)
 
     def count(self, port_id: str) -> int:
         return len(self.learned.get(port_id, ()))
@@ -140,8 +153,11 @@ def index(net: Network, held: bool = False) -> Index:
         if h.source is EvidenceSource.FDB and (hp := ports.get(h.port_id)) is not None
     }
     sightings: dict[Sighting, None] = {}
+    members = _memberships(net)
+    modes = _entry_modes(net, members)
+    untagged = _untagged_ports(modes)
     for e in net.fdb:
-        if e.kind is not FdbKind.SELF and usable(e.port_id):
+        if e.kind is not FdbKind.SELF and usable(e.port_id) and not _reflected(modes, untagged, e):
             sightings[Sighting(e.device_id, e.port_id, e.mac)] = None
     for c in net.clients:
         # every device's own sighting (#165), not only the merged ``seen_on``: a client two
@@ -166,6 +182,8 @@ def index(net: Network, held: bool = False) -> Index:
         by_address=by_address,
         reporting=with_table,
         coarse=coarse,
+        modes=modes,
+        members=members,
     )
     for s in ix.sightings:
         ix.learned.setdefault(s.port_id, set()).add(s.mac)
@@ -178,6 +196,56 @@ def index(net: Network, held: bool = False) -> Index:
         if link.kind is not LinkKind.VPN:
             ix.uplinks |= {link.a, link.b}
     return ix
+
+
+def _entry_modes(
+    net: Network, members: dict[str, frozenset[tuple[str, Membership]]]
+) -> dict[tuple[str, str, str], set[tuple[str, Membership]]]:
+    """(device, port, MAC) -> (segment, membership) of each table entry whose VLAN is known
+    and whose port is a known member of it (or has it as PVID: untagged)."""
+    ports = {p.id: p for p in net.ports}
+    sites = {d.id: d.site_id for d in net.devices}
+    out: dict[tuple[str, str, str], set[tuple[str, Membership]]] = {}
+    for e in net.fdb:
+        if e.kind is FdbKind.SELF:
+            continue
+        seg = e.segment_id
+        if seg is None and e.vlan is not None and e.device_id in sites:
+            seg = segment_id(sites[e.device_id], e.vlan)
+        if seg is None:
+            continue
+        held = {mode for s, mode in members.get(e.port_id, ()) if s == seg}
+        port = ports.get(e.port_id)
+        if e.vlan is not None and port is not None and port.pvid == e.vlan:
+            held.add(Membership.UNTAGGED)
+        mode = Membership.UNTAGGED if Membership.UNTAGGED in held else next(iter(held), None)
+        if mode is not None:
+            out.setdefault((e.device_id, e.port_id, e.mac), set()).add((seg, mode))
+    return out
+
+
+def _untagged_ports(
+    modes: dict[tuple[str, str, str], set[tuple[str, Membership]]],
+) -> dict[tuple[str, str], set[str]]:
+    """(device, MAC) -> the ports where its table learns the MAC untagged."""
+    out: dict[tuple[str, str], set[str]] = {}
+    for (dev, port, mac), found in modes.items():
+        if any(mode is Membership.UNTAGGED for _, mode in found):
+            out.setdefault((dev, mac), set()).add(port)
+    return out
+
+
+def _reflected(
+    modes: dict[tuple[str, str, str], set[tuple[str, Membership]]],
+    untagged: dict[tuple[str, str], set[str]],
+    e: FdbEntry,
+) -> bool:
+    """The table learns the address only in VLANs tagged on this port, and untagged on
+    another port (#545): a VLAN that runs through the switch, not the address's cable."""
+    here = modes.get((e.device_id, e.port_id, e.mac))
+    if not here or any(mode is Membership.UNTAGGED for _, mode in here):
+        return False
+    return bool(untagged.get((e.device_id, e.mac), set()) - {e.port_id})
 
 
 def _wireless(net: Network, seen_on: str | None) -> bool:
@@ -335,6 +403,7 @@ def adjacencies(net: Network) -> list[Adjacent]:
     hops = _next_hops(net)
     port_segments = _segments_of_ports(net)
     device_segments = _segments_of_devices(net)
+    own = _own_segments(net)
     learned: dict[str, set[str]] = {}
     for port_id, macs in ix.learned.items():
         learned.setdefault(_jack(net, port_id), set()).update(macs)
@@ -397,7 +466,7 @@ def adjacencies(net: Network) -> list[Adjacent]:
             if dev == gateway:
                 evidence += (LinkEvidence(port_id=port_id, source=EvidenceSource.GATEWAY),)
             inferred = unsure or dev == gateway or (coarse and dev not in ix.reporting)
-            remote, choices = _far_port(net, ix, here, dev, seen[dev])
+            remote, choices = _far_port(net, ix, port_id, dev, seen[dev], own)
             if remote is None:
                 if choices:
                     open_ends.append((port_id, dev, choices, evidence))
@@ -412,7 +481,84 @@ def adjacencies(net: Network) -> list[Adjacent]:
         port = net.port(local)
         wireless = port is not None and port.kind is PortKind.WIRELESS
         out.setdefault((local, remote), Adjacent(local, remote, wireless, True, evidence))
-    return list(out.values())
+    return _one_cable_per_jack(net, ix, own, learned, list(out.values()))
+
+
+def _own_segments(net: Network) -> dict[str, set[str]]:
+    """Device -> the segments of its own address (#545): those of its subnets that hold its
+    management address, else its untagged network."""
+    out: dict[str, set[str]] = {}
+    for d in net.devices:
+        if d.management_address:
+            out[d.id] = {
+                sub.segment_id
+                for sub in net.subnets
+                if sub.device_id == d.id and str(sub.interface.ip) == d.management_address
+            }
+        if not out.get(d.id) and (native := net.native_segment(d.id)) is not None:
+            out[d.id] = {native}
+    return out
+
+
+def _rank(ix: Index, own: dict[str, set[str]], dev: str, port_id: str, other: str) -> int:
+    """How likely a port of ``dev`` is ``other``'s cable by VLANs (#545), lower is better:
+    0 the table learns ``other`` untagged in the VLAN of its own address; 1 no VLAN in the
+    table, the port is an untagged member of that VLAN; 2 learned untagged in another VLAN;
+    3 nothing known; 4 the port carries that VLAN only tagged or not at all; 5 learned only in
+    VLANs tagged on the port."""
+    mine = own.get(other, set())
+    found = {
+        m for mac in ix.macs.get(other, set()) for m in ix.modes.get((dev, port_id, mac), set())
+    }
+    if found:
+        untagged = {seg for seg, mode in found if mode is Membership.UNTAGGED}
+        return 0 if untagged & mine else 2 if untagged else 5
+    members = ix.members.get(port_id)
+    if not members or not mine:
+        return 3
+    return 1 if any(seg in mine and mode is Membership.UNTAGGED for seg, mode in members) else 4
+
+
+def _one_cable_per_jack(
+    net: Network,
+    ix: Index,
+    own: dict[str, set[str]],
+    learned: dict[str, set[str]],
+    found: list[Adjacent],
+) -> list[Adjacent]:
+    """At most one cable between a jack and a given other device (#545): of several ports of
+    one device linked to the same jack, the one whose table learns the other end untagged in
+    its own VLAN, then the one learning the fewest addresses (an access port over a trunk).
+    Links that are not inferred go first. Separate cables (LAG members) have separate jacks
+    on both ends and all stay."""
+
+    def device(port_id: str) -> str:
+        port = net.port(port_id)
+        return port.device_id if port is not None else port_id
+
+    def side(port_id: str, other: str) -> tuple[int, int]:
+        return _rank(ix, own, device(port_id), port_id, other), len(learned.get(port_id, ()))
+
+    pairs: dict[frozenset[str], list[Adjacent]] = {}
+    for adj in found:
+        pairs.setdefault(frozenset((adj.local, adj.remote)), []).append(adj)
+
+    def score(pair: frozenset[str]) -> tuple[int, int, int, list[str]]:
+        a, b = sorted(pair)
+        (ra, na), (rb, nb) = side(a, device(b)), side(b, device(a))
+        inferred = all(adj.inferred for adj in pairs[pair])
+        return int(inferred), ra + rb, na + nb, [a, b]
+
+    taken: set[tuple[str, str]] = set()
+    kept: set[frozenset[str]] = set()
+    for pair in sorted(pairs, key=score):
+        a, b = sorted(pair)
+        ends = {(a, device(b)), (b, device(a))}
+        if ends & taken:
+            continue
+        taken |= ends
+        kept.add(pair)
+    return [adj for adj in found if frozenset((adj.local, adj.remote)) in kept]
 
 
 def _switch_first(ix: Index, roles: dict[str, DeviceRole], dev: str, other: str) -> bool:
@@ -534,13 +680,24 @@ def _gateway(ix: Index, hops: dict[str, set[str]], here: str, nearest: list[str]
 
 
 def _far_port(
-    net: Network, ix: Index, here: str, far: str, mac: str
+    net: Network, ix: Index, local: str, far: str, mac: str, own: dict[str, set[str]]
 ) -> tuple[str | None, list[str]]:
     """The far end, else the ports to guess it from: the far device's table where it learns
-    this device, else the jack that owns the learned address."""
+    this device (#545: untagged in its own VLAN first, then where it learns the MAC of this
+    very jack, then the most of its addresses, then the fewest addresses), else the jack that
+    owns the learned address."""
+    port = net.port(local)
+    here = port.device_id if port is not None else local
     toward = ix.ports_learning(far, ix.macs.get(here, set()))
     if toward:
-        return min(toward, key=lambda p: (-toward[p], p)), []
+        table = ix.tables.get(far, {})
+        jack_mac = port.mac if port is not None else None
+
+        def key(p: str) -> tuple[int, int, int, int, str]:
+            rank = _rank(ix, own, far, p, here)
+            return rank, -int(jack_mac in table.get(p, ())), -toward[p], ix.count(p), p
+
+        return min(toward, key=key), []
     owners = [p.id for p in net.ports if p.device_id == far and p.mac == mac]
     if not owners and (entry := ix.port_of_mac.get(mac)) is not None:
         owners = [entry]  # the device's own entry in its table
