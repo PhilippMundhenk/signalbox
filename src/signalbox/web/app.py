@@ -411,7 +411,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
 
     @api.get("/rules")
     def rules() -> list[dict[str, Any]]:
-        """All rules with severity, enabled state and parameters (schema, defaults, scopes, #441)."""
+        """All rules with severity, enabled state and parameters (schema, defaults, scopes)."""
         out = []
         for r in [*ENGINE_RULES, *services.rules]:
             s = config.rules.get(r.id)
