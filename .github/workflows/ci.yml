@@ -120,10 +120,7 @@ jobs:
         with: { python-version: "3.13", cache: pip }
       - run: pip install -e ".[dev,switches]"
       - run: python -m playwright install --with-deps chromium
-      - run: |
-          pytest -m e2e tests/e2e --tb=short -q 2>&1 | tee e2e.log; rc=${PIPESTATUS[0]}
-          if [ $rc -ne 0 ]; then body=$(grep -E "^(E |FAILED|tests/)" e2e.log | cut -c1-300 | head -25 | sed ':a;N;$!ba;s/\n/%0A/g'); echo "::error title=e2e-debug::$body"; fi
-          exit $rc
+      - run: pytest -m e2e tests/e2e
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
