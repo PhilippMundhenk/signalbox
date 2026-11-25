@@ -650,3 +650,130 @@ async def test_mikrotik_server_sightings(
     assert by[("client-lease", "192.0.2.8")].offered.address is None
     assert by[("device-alert", "None")].server_mac == "02:00:00:00:00:99"
     assert len(by) == 3
+
+
+# --- gateway health (#150) and dynamic DNS (#154) on OPNsense ----------------------------------
+
+
+async def test_opnsense_gateway_health_and_ddns(
+    opnsense_sim: tuple[opnsense.OpnsenseSimulator, str],
+) -> None:
+    adapter = _opnsense(opnsense_sim[1])
+    try:
+        snap = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    [up] = snap.uplinks
+    assert up.monitor is not None and up.monitor.targets == [ip_address("100.64.20.1")]
+    assert up.health is not None and up.health.state.value == "online"
+    assert (up.health.latency_ms, up.health.loss_pct) == (4.2, 0.0)
+    [dd] = snap.ddns
+    assert (dd.provider, dd.hostname, dd.enabled, dd.uplink_id) == (
+        "dyndns2",
+        "fw.example.dyndns.invalid",
+        True,
+        up.id,
+    )
+    assert dd.last_result.value == "unknown" and dd.published_address is None
+    assert "sim-secret-token" not in snap.model_dump_json()
+
+
+async def test_opnsense_gateway_states_and_missing_ddns(
+    opnsense_sim: tuple[opnsense.OpnsenseSimulator, str],
+) -> None:
+    sim, url = opnsense_sim
+    for status, state in (("down", "down"), ("loss", "degraded"), ("force_down", "down")):
+        sim.data["/api/routes/gateway/status"]["items"][0]["status"] = status
+        adapter = _opnsense(url)
+        try:
+            snap = await assert_contract(adapter)
+        finally:
+            await adapter.close()
+        assert snap.uplinks[0].health is not None
+        assert snap.uplinks[0].health.state.value == state
+    del sim.data["/api/dyndns/accounts/search_item"]  # os-ddclient not installed: 404
+    adapter = _opnsense(url)
+    try:
+        snap = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    assert snap.ddns == []
+
+
+# --- default routes as a gateway group (#150) and MikroTik Cloud (#154) --------------------------
+
+
+async def test_mikrotik_cloud_name_is_a_ddns_client(
+    mikrotik_sim: tuple[mikrotik.MikrotikSimulator, str],
+) -> None:
+    sim, url = mikrotik_sim
+    adapter = _mikrotik(url)
+    try:
+        snap = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    [dd] = snap.ddns
+    assert (dd.provider, dd.hostname, dd.last_result.value) == (
+        "mikrotik-cloud",
+        "abc123def456.sn.mynetname.invalid",
+        "ok",
+    )
+    assert dd.published_address == ip_address("203.0.113.2") and dd.enabled
+    assert dd.uplink_id is not None and snap.gateway_groups == []  # one default route
+    sim.data["/rest/ip/cloud"]["status"] = "error: no internet"
+    sim.data["/rest/ip/cloud"]["ddns-enabled"] = "no"
+    adapter = _mikrotik(url)
+    try:
+        snap = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    assert snap.ddns[0].last_result.value == "error" and not snap.ddns[0].enabled
+    del sim.data["/rest/ip/cloud"]["dns-name"]
+    adapter = _mikrotik(url)
+    try:
+        snap = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    assert snap.ddns == []
+
+
+async def test_mikrotik_two_default_routes_are_a_failover_group(
+    mikrotik_sim: tuple[mikrotik.MikrotikSimulator, str],
+) -> None:
+    sim, url = mikrotik_sim
+    primary = next(r for r in sim.data["/rest/ip/route"] if r["dst-address"] == "0.0.0.0/0")
+    primary.update({"check-gateway": "ping", "gateway-status": "203.0.113.1 reachable via ether1"})
+    sim.data["/rest/ip/route"].append(
+        {
+            ".id": "*FF",
+            "dst-address": "0.0.0.0/0",
+            "gateway": "198.51.100.1",
+            "distance": "5",
+            "comment": "lte",
+            "routing-table": "main",
+            "static": "true",
+            "active": "false",
+            "disabled": "false",
+            "check-gateway": "ping",
+            "gateway-status": "198.51.100.1 unreachable",
+        }
+    )
+    sim.data["/rest/tool/netwatch"] = [
+        {".id": "*1", "host": "203.0.113.53", "status": "up", "comment": "lte", "disabled": "false"}
+    ]
+    adapter = _mikrotik(url)
+    try:
+        snap = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    [group] = snap.gateway_groups
+    assert (group.name, group.mode.value) == ("default", "failover")
+    first, lte = sorted(group.members, key=lambda m: m.tier)
+    assert (first.tier, first.state.value if first.state else None) == (1, "online")
+    assert first.monitor_targets == [ip_address("203.0.113.1")]  # the gateway pings itself
+    assert group.active == first.name
+    assert (lte.name, lte.tier, lte.gateway) == ("lte", 2, ip_address("198.51.100.1"))
+    assert lte.state is not None and lte.state.value == "down"
+    assert ip_address("203.0.113.53") in lte.monitor_targets
+    [up] = snap.uplinks
+    assert up.monitor is not None and up.health is not None

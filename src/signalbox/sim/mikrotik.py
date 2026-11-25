@@ -910,6 +910,7 @@ def sample_data() -> dict[str, Any]:
         "/rest/ip/traffic-flow/target": [],
         "/rest/ip/cloud": {  # after a cloud update (CHR in CI without one: no public-address)
             "ddns-enabled": "auto",
+            "dns-name": "abc123def456.sn.mynetname.invalid",
             "ddns-update-interval": "none",
             "update-time": "false",
             "public-address": "203.0.113.2",

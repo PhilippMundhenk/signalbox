@@ -276,6 +276,22 @@ def firewall_data() -> dict[str, Any]:
     ]
     return {
         "/api/firewall/filter/search_rule": _rows_of(rules),
+        # os-ddclient (#154): the rows also hold the account, which the adapter never reads
+        "/api/dyndns/accounts/search_item": _rows_of(
+            [
+                {
+                    "uuid": "d1",
+                    "enabled": "1",
+                    "service": "dyndns2",
+                    "protocol": "dyndns2",
+                    "hostnames": "fw.example.dyndns.invalid",
+                    "interface": "wan",
+                    "username": "sim-user",
+                    "password": "sim-secret-token",
+                    "description": "home",
+                }
+            ]
+        ),
         "/api/firewall/alias/search_item": _rows_of(
             [
                 {
@@ -983,7 +999,15 @@ def sample_data() -> dict[str, Any]:
         },
         "/api/routes/gateway/status": {
             "items": [
-                {"name": "WAN_DHCP", "address": "100.64.20.1", "status": "none"},
+                {
+                    "name": "WAN_DHCP",
+                    "address": "100.64.20.1",
+                    "status": "none",
+                    "monitor": "100.64.20.1",
+                    "delay": "4.2 ms",
+                    "stddev": "0.3 ms",
+                    "loss": "0.0 %",
+                },
                 {"name": "LAB_GW", "address": "192.0.2.254", "status": "online"},
             ],
             "status": "ok",

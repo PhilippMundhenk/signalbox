@@ -66,6 +66,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.opnsense import compat, provision, vitals
+from signalbox.adapters.opnsense import ddns as ddns_reader
 from signalbox.adapters.opnsense import discovery as _discovery
 from signalbox.adapters.opnsense import firewall as fw
 from signalbox.adapters.opnsense import routes as route_reader
@@ -102,6 +103,7 @@ from signalbox.model import (
     DnsForwarder,
     DnsService,
     DnsTransport,
+    DynamicDns,
     Firmware,
     HostRecord,
     IPAddress,
@@ -1307,14 +1309,17 @@ class OpnsenseAdapter(_Adapter):
         )
         uplinks = [] if wan is None or row is None else [wan_uplink(row, dev, wan.port)]
         certificates, cert_gaps = await self._certificates()
-        route_list, route_gaps = await self._routes(uplinks[0] if uplinks else None)
-        gaps = [*gaps, *cert_gaps, *route_gaps]
+        route_list, route_gaps, gateway_rows = await self._routes(uplinks[0] if uplinks else None)
+        uplinks = [route_reader.with_health(u, gateway_rows) for u in uplinks]
+        ddns_list, ddns_gaps = await self._ddns(uplinks[0].id if uplinks else None)
+        gaps = [*gaps, *cert_gaps, *route_gaps, *ddns_gaps]
         return Observation(
             routes=route_list,
             ports=layout.ports,
             segments=list(layout.segments.values()),
             subnets=subnets,
             uplinks=uplinks,
+            ddns=ddns_list,
             services=await self._services(),
             certificates=certificates,
             log_targets={} if targets is None else {dev: targets},
@@ -1335,17 +1340,32 @@ class OpnsenseAdapter(_Adapter):
             for p in ports
         ]
 
-    async def _routes(self, uplink: Uplink | None) -> tuple[list[Route], list[Gap]]:
+    async def _ddns(self, wan: str | None) -> tuple[list[DynamicDns], list[Gap]]:
+        """Dynamic DNS accounts of os-ddclient (#154); not installed: nothing to report."""
+        try:
+            data = await self._optional(ddns_reader.ACCOUNTS, grid=True)
+        except AdapterError:  # 403 without the privilege, as for a plugin that is not there
+            return [], []
+        if data is None:
+            return [], []
+        rows = _rows(data, ddns_reader.ACCOUNTS)
+        return ddns_reader.clients(self.context.device_id, rows, wan), []
+
+    async def _routes(
+        self, uplink: Uplink | None
+    ) -> tuple[list[Route], list[Gap], list[dict[str, Any]]]:
         """Static routes, the WAN default route and the gateway status (#149). A grid the API
         user may not read is an optional gap naming its privilege. Policy routing (firewall rules
         with a gateway) is not read: documented, not a gap on every read."""
         dev = self.context.device_id
         gaps: list[Gap] = []
         known: dict[str, tuple[IPAddress | None, bool | None]] = {}
+        status_rows: list[dict[str, Any]] = []
         try:
             data = await self._get(route_reader.GATEWAY_STATUS)
             items = data.get("items", []) if isinstance(data, dict) else data
-            known = route_reader.gateways(_rows(items, route_reader.GATEWAY_STATUS))
+            status_rows = _rows(items, route_reader.GATEWAY_STATUS)
+            known = route_reader.gateways(status_rows)
         except NotFound:
             pass
         except AdapterError as exc:
@@ -1356,10 +1376,10 @@ class OpnsenseAdapter(_Adapter):
             rows = []
         except AdapterError as exc:
             gaps.append(_privilege_gap("static routes", exc, route_reader.ROUTES_PRIVILEGE))
-            return [], gaps
+            return [], gaps, status_rows
         found = route_reader.static_routes(dev, rows, known)
         default = route_reader.default_route(dev, uplink)
-        return ([default] if default else []) + found, gaps
+        return ([default] if default else []) + found, gaps, status_rows
 
     async def _accounts(self, dev: str) -> tuple[dict[str, Any], list[Gap]]:
         """Local users (#175) through the user manager API, with the user of Signalbox's key

@@ -71,6 +71,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
+from signalbox.adapters.mikrotik import multiwan
 from signalbox.adapters.mikrotik import poe as mikrotik_poe
 from signalbox.adapters.mikrotik import routes as route_reader
 from signalbox.adapters.mikrotik import stp as _stp
@@ -114,6 +115,7 @@ from signalbox.model import (
     DnsForwarder,
     DnsService,
     DnsTransport,
+    DynamicDns,
     Fan,
     FdbEntry,
     FdbKind,
@@ -1497,6 +1499,11 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 ),
             ]
         routes = [r for rows in route_rows if rows for r in route_reader.read_routes(dev, rows)]
+        uplinks = await self._uplinks(layout)
+        wan_groups = multiwan.groups(
+            dev, route_rows[0] or [], uplinks, await self._readable(multiwan.NETWATCH) or []
+        )
+        uplinks = multiwan.with_members(uplinks, wan_groups)
         return Observation(
             routes=known_interfaces(routes, [p.id for p in layout.ports.values()])
             if None not in route_rows
@@ -1505,7 +1512,9 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             ports=ports,
             segments=list(layout.segments.values()),
             subnets=subnets,
-            uplinks=await self._uplinks(layout),
+            uplinks=uplinks,
+            gateway_groups=wan_groups,
+            ddns=await self._cloud_ddns(uplinks),
             services=await self._services(layout),
             certificates=await self._certificates(),
             log_targets={} if targets is None else {dev: targets},
@@ -2052,6 +2061,15 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 )
             )
         return await self._public_address(out)
+
+    async def _cloud_ddns(self, uplinks: list[Uplink]) -> list[DynamicDns]:
+        """The MikroTik Cloud name (``/ip/cloud``, #154); a router without it has none."""
+        try:
+            cloud = _object(await self._get(CLOUD), CLOUD)
+        except AdapterError:
+            return []
+        own = next((u for u in uplinks if u.public_ipv4), next((u for u in uplinks if u.up), None))
+        return multiwan.cloud_ddns(self.context.device_id, cloud, own)
 
     async def _public_address(self, uplinks: list[Uplink]) -> list[Uplink]:
         """``/ip/cloud`` ``public-address`` on the first connected uplink, if not its own."""

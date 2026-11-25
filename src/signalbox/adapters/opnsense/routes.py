@@ -20,10 +20,13 @@ from typing import Any
 
 from signalbox.model import (
     IPAddress,
+    Monitor,
     Route,
     RouteOrigin,
     Uplink,
+    UplinkHealth,
     UplinkKind,
+    UplinkState,
     route_id,
 )
 
@@ -66,6 +69,55 @@ def gateways(items: list[dict[str, Any]]) -> dict[str, tuple[IPAddress | None, b
             usable = True
         out[name] = (_address(row.get("address")), usable)
     return out
+
+
+def _number(value: Any) -> float | None:
+    """``"4.2 ms"`` and ``"0.0 %"`` -> the number; ``"~"`` and anything else -> None."""
+    text = _text(value).split(" ")[0] if _text(value) else ""
+    try:
+        return max(float(text), 0.0)
+    except ValueError:
+        return None
+
+
+def with_health(uplink: Uplink, rows: list[dict[str, Any]]) -> Uplink:
+    """The uplink with the monitor and health of the gateway status row that has the uplink's
+    next hop as its address (#150): ``status`` (``none`` = nothing wrong, ``loss``, ``delay``,
+    ``down``, ``force_down``), ``delay`` and ``loss`` as ``"4.2 ms"`` and ``"0.0 %"``,
+    ``monitor`` the address pinged (*guess*: the fields of the status answer of 24.7 to 26.1, #21).
+    A status the answer does not name leaves the uplink as it is."""
+    row = next(
+        (
+            r
+            for r in rows
+            if uplink.upstream_gateway is not None
+            and _address(r.get("address")) == uplink.upstream_gateway
+        ),
+        None,
+    )
+    if row is None:
+        return uplink
+    status = _text(row.get("status")).lower()
+    state: UplinkState | None = None
+    if "down" in status:
+        state = UplinkState.DOWN
+    elif status in ("loss", "delay") or "loss" in status or "delay" in status:
+        state = UplinkState.DEGRADED
+    elif status in ("none", "online", "up"):
+        state = UplinkState.ONLINE
+    update: dict[str, Any] = {}
+    target = _address(row.get("monitor"))
+    if target is not None:
+        update["monitor"] = Monitor(targets=[target])
+    if state is not None:
+        update["health"] = UplinkHealth(
+            state=state,
+            latency_ms=_number(row.get("delay")),
+            loss_pct=min(_number(row.get("loss")) or 0.0, 100.0)
+            if _number(row.get("loss")) is not None
+            else None,
+        )
+    return uplink.model_copy(update=update)
 
 
 def static_routes(
