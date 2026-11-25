@@ -75,6 +75,7 @@ from signalbox.model import (
     Cipher,
     DeviceRole,
     DeviceStatus,
+    Dhcp6Mode,
     FrameTypes,
     LeaseState,
     Membership,
@@ -83,6 +84,7 @@ from signalbox.model import (
     Pmf,
     PortKind,
     PortRole,
+    RaMode,
     SaePwe,
     Security,
     Snapshot,
@@ -1531,3 +1533,19 @@ def test_standards_of(text: str, expected: list[WifiStandard]) -> None:
 def test_channels_of() -> None:
     assert channels_of("2412,5180,x", Band.GHZ_2_4) == [1]
     assert channels_of("", Band.GHZ_5) is None
+
+
+async def test_ipv6_router_advertisements_and_dhcpv6(snap: Snapshot) -> None:
+    """``/ipv6/nd`` (``all`` as the default), ``nd/prefix``, ``dhcp-server`` and ``pool`` (#151):
+    RouterOS' DHCPv6 server only delegates prefixes, so it is a stateless server with a pool."""
+    assert snap.router_adverts
+    for ra in snap.router_adverts:
+        assert ra.mode is RaMode.STATELESS and ra.managed is False and ra.other is True
+        assert [str(x) for x in ra.rdnss] == ["2001:db8:1::1"] and ra.router_lifetime == 1800
+    prefixes = {str(p.prefix) for ra in snap.router_adverts for p in ra.prefixes}
+    assert prefixes == {"2001:db8:1::/64"}
+    [server] = snap.dhcp6_servers
+    assert server.id == "rt/dhcp6/dhcp6-lan" and server.mode is Dhcp6Mode.STATELESS
+    assert server.lease_seconds == 3 * 86400 and server.pools == []
+    [pool] = server.prefix_pools
+    assert (str(pool.prefix), pool.length) == ("2001:db8:2::/48", 56)

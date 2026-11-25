@@ -14,7 +14,7 @@ of the setup guide) to the WireGuard tunnels and the firewall (#135). Nothing ne
 from __future__ import annotations
 
 import contextlib
-from ipaddress import IPv4Address, ip_address
+from ipaddress import IPv4Address, IPv6Address, ip_address
 from typing import Any
 
 import asyncssh
@@ -48,6 +48,7 @@ from signalbox.adapters.linux import (
     collect,
     dhcp,
     distro,
+    ipv6,
     nftables,
     parse,
     provision,
@@ -68,6 +69,8 @@ from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     DeviceHealth,
     DeviceRole,
+    Dhcp6Mode,
+    Dhcp6Server,
     DhcpLease,
     DhcpPool,
     DhcpServer,
@@ -86,6 +89,8 @@ from signalbox.model import (
     Port,
     PortMembership,
     PortRole,
+    RaPrefix,
+    RouterAdvert,
     Segment,
     ServiceKind,
     Subnet,
@@ -867,7 +872,75 @@ class LinuxAdapter(Adapter):
             gaps,
             False,
         )
-        return Observation(dhcp_servers=servers, incomplete=gaps)
+        adverts, servers6 = self._ipv6(lay, active, masq_files=a.files("dnsmasq"))
+        return Observation(
+            dhcp_servers=servers, router_adverts=adverts, dhcp6_servers=servers6, incomplete=gaps
+        )
+
+    def _ipv6(
+        self, lay: _Layout, active: set[str], masq_files: dict[str, str]
+    ) -> tuple[list[RouterAdvert], list[Dhcp6Server]]:
+        """Router advertisements and DHCPv6 from ``/etc/radvd.conf`` and dnsmasq (#151);
+        see :mod:`~signalbox.adapters.linux.ipv6`."""
+        d = self.context.device_id
+        adverts: list[RouterAdvert] = []
+        servers: list[Dhcp6Server] = []
+
+        def place(block: ipv6.RaInterface) -> str | None:
+            if block.name is not None:
+                return lay.networks[block.name][0] if block.name in lay.networks else None
+            for _, (seg, addrs) in sorted(lay.networks.items()):
+                if block.network is not None and any(
+                    isinstance(x.ip, IPv6Address) and x.ip in block.network for x in addrs
+                ):
+                    return seg
+            return None
+
+        text = self.answer.files("radvd").get("/etc/radvd.conf")
+        blocks = [(b, "radvd" in active) for b in ipv6.parse_radvd(text)] if text else []
+        if masq_files and "dnsmasq" in active:
+            blocks += [(b, True) for b in ipv6.parse_dnsmasq6(masq_files)]
+        for block, running in blocks:
+            seg = place(block)
+            if seg is None:
+                continue
+            key = seg.rsplit("/", 1)[-1]
+            key = "lan" if key == "native" else key
+            if running and not any(x.id.endswith(f"/ra/{key}") for x in adverts):
+                adverts.append(
+                    RouterAdvert(
+                        id=object_id(d, "ra", key),
+                        device_id=d,
+                        segment_id=seg,
+                        mode=ipv6.mode_of(block),
+                        managed=block.managed if block.send else None,
+                        other=block.other if block.send else None,
+                        prefixes=[
+                            RaPrefix(prefix=p, on_link=on_link, autonomous=auto)
+                            for p, on_link, auto in block.prefixes
+                        ],
+                        rdnss=block.rdnss,
+                        dnssl=block.dnssl,
+                        router_lifetime=block.lifetime,
+                    )
+                )
+            if block.dhcpv6:
+                servers.append(
+                    Dhcp6Server(
+                        id=object_id(d, "dhcp6", f"dnsmasq-{key}"),
+                        device_id=d,
+                        segment_id=seg,
+                        enabled=running,
+                        mode=Dhcp6Mode.STATEFUL if block.dhcpv6_stateful else Dhcp6Mode.STATELESS,
+                        pools=[DhcpPool(start=block.pool[0], end=block.pool[1])]
+                        if block.pool
+                        else [],
+                        lease_seconds=block.lease_seconds,
+                        dns_servers=block.rdnss,
+                        search_domains=block.dnssl,
+                    )
+                )
+        return adverts, servers
 
     def _servers(
         self,

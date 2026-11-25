@@ -224,6 +224,24 @@ host-record=nas.home.example,192.0.2.20
 address=/router.home.example/192.0.2.1
 """
 
+RADVD_CONF = """# Signalbox simulator: router advertisements of the LAN
+interface br0 {
+    AdvSendAdvert on;
+    AdvManagedFlag off;
+    AdvOtherConfigFlag on;
+    AdvDefaultLifetime 1800;
+    prefix 2001:db8:1::/64 {
+        AdvOnLink on;
+        AdvAutonomous on;
+    };
+    RDNSS 2001:db8:1::1 {
+        AdvRDNSSLifetime 600;
+    };
+    DNSSL home.example {
+    };
+};
+"""
+
 DNSMASQ_LEASES = f"""{NOW + 3600} 02:00:00:00:00:10 192.0.2.10 printer 01:02:00:00:00:00:10
 {NOW + 7200} 02:00:00:00:00:21 192.0.2.61 laptop *
 {NOW + 600} 02:00:00:00:00:31 192.0.2.141 sensor *
@@ -375,8 +393,9 @@ def default_sections() -> dict[str, str]:
         "tmpfs          tmpfs   844304384     6291456   838012928      1% /run\n"
         "/dev/mmcblk0p1 vfat    535805952    66060288   469745664     13% /boot/firmware\n",
         "thermal": "cpu-thermal 48250\n",
-        "units": "ssh active enabled\nsshd  \ndnsmasq active enabled\nkea-dhcp4-server inactive "
-        "not-found\nisc-dhcp-server inactive not-found\nsystemd-networkd inactive disabled\n"
+        "units": "ssh active enabled\nsshd  \ndnsmasq active enabled\nradvd active enabled\n"
+        "kea-dhcp4-server inactive not-found\nisc-dhcp-server inactive not-found\n"
+        "systemd-networkd inactive disabled\n"
         "AdGuardHome inactive not-found\npihole-FTL inactive not-found\nunbound inactive "
         "not-found\nchrony active enabled\nchronyd active alias\nsystemd-timesyncd inactive "
         "not-found\n",
@@ -405,6 +424,7 @@ def default_sections() -> dict[str, str]:
         ),
         "dnsmasq": _files({"/etc/dnsmasq.conf": DNSMASQ_CONF}),
         "dnsmasq-leases": _files({"/var/lib/misc/dnsmasq.leases": DNSMASQ_LEASES}),
+        "radvd": _files({"/etc/radvd.conf": RADVD_CONF}),
         "kea": "",
         "kea-leases": "",
         "isc": "",

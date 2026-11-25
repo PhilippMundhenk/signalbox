@@ -34,6 +34,7 @@ from ipaddress import (
     IPv4Address,
     IPv4Interface,
     IPv4Network,
+    IPv6Address,
     IPv6Network,
     ip_address,
     ip_interface,
@@ -99,6 +100,9 @@ from signalbox.model import (
     DeviceHealth,
     DeviceRole,
     DeviceTime,
+    Dhcp6Mode,
+    Dhcp6PrefixPool,
+    Dhcp6Server,
     DhcpBoot,
     DhcpLease,
     DhcpOption,
@@ -140,7 +144,10 @@ from signalbox.model import (
     PortRole,
     PowerSupply,
     Radio,
+    RaMode,
+    RaPrefix,
     Reservation,
+    RouterAdvert,
     SaePwe,
     SaeSettings,
     Security,
@@ -195,6 +202,10 @@ ETHERNET_SWITCH_PORT = "/rest/interface/ethernet/switch/port"
 LIST_MEMBER = "/rest/interface/list/member"
 DHCP_CLIENT = "/rest/ip/dhcp-client"
 IPV6_DHCP_CLIENT = "/rest/ipv6/dhcp-client"
+IPV6_ND = "/rest/ipv6/nd"
+IPV6_ND_PREFIX = "/rest/ipv6/nd/prefix"
+IPV6_DHCP_SERVER = "/rest/ipv6/dhcp-server"
+IPV6_POOL = "/rest/ipv6/pool"
 PPPOE_CLIENT = "/rest/interface/pppoe-client"
 WIREGUARD = "/rest/interface/wireguard"
 WIREGUARD_PEERS = "/rest/interface/wireguard/peers"
@@ -2114,11 +2125,105 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     | ({"network": str(net)} if net else {}),
                 )
             )
+        adverts, servers6 = await self._ipv6(layout)
         return Observation(
             dhcp_servers=servers,
             dhcp_relays=await self._relays(layout),
             server_sightings=await self._sightings(layout),
+            router_adverts=adverts,
+            dhcp6_servers=servers6,
         )
+
+    async def _ipv6(self, layout: Any) -> tuple[list[RouterAdvert], list[Dhcp6Server]]:
+        """Router advertisements (``/ipv6/nd``, with ``/ipv6/nd/prefix``) and DHCPv6 servers
+        (``/ipv6/dhcp-server``, prefix delegation from ``/ipv6/pool``) (#151). Without the
+        ``ipv6`` package the menus are missing and nothing is reported. RouterOS' DHCPv6 server
+        only delegates prefixes (it hands out no addresses): it is reported as a stateless
+        server with prefix pools. ``/ipv6/nd`` ``interface=all`` is the default for every
+        interface without a row of its own."""
+        dev = self.context.device_id
+        nd_rows = await self._optional_rows(IPV6_ND)
+        nd = {_text(r.get("interface")): r for r in nd_rows if not _flag(r.get("dynamic"))}
+        prefix_rows = await self._optional_rows(IPV6_ND_PREFIX)
+        adverts: list[RouterAdvert] = []
+        for iface, seg in sorted(layout.l3.items()):
+            row = nd.get(iface) or nd.get("all")
+            if row is None or iface in layout.wan or any(a.segment_id == seg for a in adverts):
+                continue
+            off = _flag(row.get("disabled"))
+            managed = _flag(row.get("managed-address-configuration"))
+            other = _flag(row.get("other-configuration"))
+            mode = (
+                RaMode.OFF
+                if off
+                else RaMode.STATEFUL
+                if managed
+                else RaMode.STATELESS
+                if other
+                else RaMode.SLAAC
+            )
+            prefixes = []
+            for prow in prefix_rows:
+                if _text(prow.get("interface")) not in (iface, "all") or _flag(
+                    prow.get("disabled")
+                ):
+                    continue
+                try:
+                    pnet = IPv6Network(_text(prow.get("prefix")).split(",")[0], strict=False)
+                except ValueError:
+                    continue
+                prefixes.append(
+                    RaPrefix(
+                        prefix=pnet,
+                        autonomous=_maybe(prow.get("autonomous")),
+                        on_link=_maybe(prow.get("on-link")),
+                    )
+                )
+            dns = [a for a in _addrs(row.get("dns")) if isinstance(a, IPv6Address)]
+            adverts.append(
+                RouterAdvert(
+                    id=object_id(dev, "ra", _segment_key(seg)),
+                    device_id=dev,
+                    segment_id=seg,
+                    mode=mode,
+                    managed=None if off else managed,
+                    other=None if off else other,
+                    prefixes=prefixes,
+                    rdnss=dns if _flag(row.get("advertise-dns"), True) else [],
+                    router_lifetime=duration(row.get("ra-lifetime")),
+                    vendor_extra=_extra(row, "interface"),
+                )
+            )
+        pools = {_text(r.get("name")): r for r in await self._optional_rows(IPV6_POOL)}
+        servers: list[Dhcp6Server] = []
+        for row in await self._optional_rows(IPV6_DHCP_SERVER):
+            sname, seg = _text(row.get("name")), layout.l3.get(_text(row.get("interface")))
+            if not sname or seg is None:
+                continue
+            pool = pools.get(_text(row.get("address-pool")))
+            length = _int(pool.get("prefix-length")) if pool else None
+            prefix_pools = []
+            if pool is not None and length:
+                with contextlib.suppress(ValueError):
+                    prefix_pools.append(
+                        Dhcp6PrefixPool(
+                            prefix=IPv6Network(_text(pool.get("prefix")), strict=False),
+                            length=length,
+                        )
+                    )
+            servers.append(
+                Dhcp6Server(
+                    id=object_id(dev, "dhcp6", sname),
+                    device_id=dev,
+                    segment_id=seg,
+                    enabled=_active(row),
+                    mode=Dhcp6Mode.STATELESS,
+                    prefix_pools=prefix_pools,
+                    lease_seconds=duration(row.get("lease-time")),
+                    vendor_extra=_extra(row, "interface", "address-pool"),
+                )
+            )
+        return adverts, servers
 
     async def _sightings(self, layout: Any) -> list[ServerSighting]:
         """DHCP servers the router saw answer (#184): the server of its own DHCP client on a

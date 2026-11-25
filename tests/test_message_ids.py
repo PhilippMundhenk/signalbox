@@ -146,7 +146,7 @@ def test_rule_catalogue_keys_name_existing_rules(key: str) -> None:
 #: to a user: their texts stay English. Every other error (reading, planning, applying,
 #: restoring, provisioning) needs ``message_id=``.
 APPLY_FUNCTIONS = {
-    "opnsense/__init__.py": {"_isc_settings"},  # logged, not shown
+    "opnsense/__init__.py": {"_run_isc_script"},  # logged, not shown
     "plusswitch/__init__.py": {"read_interfaces"},  # internal check
 }
 CHECKED_ERRORS = {"AdapterError", "AuthFailed", "Unreachable"}

@@ -593,6 +593,50 @@ def sample_data() -> dict[str, Any]:
                 "invalid": "false",
             }
         ),
+        "/rest/ipv6/nd": _ids(
+            {
+                "interface": "all",
+                "managed-address-configuration": "false",
+                "other-configuration": "true",
+                "advertise-dns": "true",
+                "dns": "2001:db8:1::1",
+                "ra-lifetime": "30m",
+                "ra-interval": "3m20s-10m",
+                "disabled": "false",
+                "dynamic": "false",
+                "invalid": "false",
+            }
+        ),
+        "/rest/ipv6/nd/prefix": _ids(
+            {
+                "interface": "bridge",
+                "prefix": "2001:db8:1::/64",
+                "autonomous": "true",
+                "on-link": "true",
+                "disabled": "false",
+                "dynamic": "true",
+                "invalid": "false",
+            }
+        ),
+        "/rest/ipv6/dhcp-server": _ids(
+            {
+                "name": "dhcp6-lan",
+                "interface": "bridge",
+                "address-pool": "pd-pool",
+                "lease-time": "3d",
+                "disabled": "false",
+                "dynamic": "false",
+                "invalid": "false",
+            }
+        ),
+        "/rest/ipv6/pool": _ids(
+            {
+                "name": "pd-pool",
+                "prefix": "2001:db8:2::/48",
+                "prefix-length": "56",
+                "dynamic": "false",
+            }
+        ),
         "/rest/interface/pppoe-client": [],
         # as RouterOS 7.25.1 (CHR) answers: ``available-from``, dynamic rows for the resolver and
         # open connections, a ``reverse-proxy`` row that is no service of the adapter's list

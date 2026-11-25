@@ -1066,3 +1066,22 @@ flag names of older RouterOS 7 releases (#21).
 forwarders as `https` with the host of the URL as `tls_name`. `/ip/dns/adlist` (RouterOS 7.15
 and later; absent before: no block lists) gives the block lists by the host of their URL. Guess
 for #21: `match-count` as the number of entries. RouterOS 6 has no REST API (see #389).
+
+## IPv6 router advertisements and DHCPv6 (#151)
+
+Read with `dhcp`; all four menus are *(optional)*: without the `ipv6` package they are missing
+and nothing is reported.
+
+- `/rest/ipv6/nd`: per `interface` (`all` is the default of every interface without a row):
+  `managed-address-configuration` (M), `other-configuration` (O), `advertise-dns` and `dns` (RDNSS),
+  `ra-lifetime`, `disabled`. M gives mode `stateful`, O `stateless`, neither `slaac`, `disabled`
+  `off`. The WAN interface is skipped.
+- `/rest/ipv6/nd/prefix`: `prefix`, `interface`, `autonomous` (A flag), `on-link`, `disabled`.
+- `/rest/ipv6/dhcp-server`: `name`, `interface`, `address-pool`, `lease-time`, `disabled`. RouterOS'
+  DHCPv6 server only delegates prefixes (no addresses), so it is reported as `stateless` with
+  `prefix_pools`.
+- `/rest/ipv6/pool`: `name`, `prefix`, `prefix-length` of the pool the server names.
+
+*(guess: the field names of RouterOS 7 `nd` and `dhcp-server`; the DNS servers of the DHCPv6 server
+(option 23) and the bindings `/ipv6/dhcp-server/binding` are not read.)* The simulator answers all
+four menus. RouterOS 6 has no REST API (see #389).

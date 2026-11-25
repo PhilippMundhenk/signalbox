@@ -618,6 +618,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "hostapd.*": ["get_clients", "get_status"],
         "iwinfo": ["info", "freqlist", "txpowerlist", "survey", "scan"],
         "luci-rpc": ["getDHCPLeases", "getWirelessDevices", "getNetworkDevices"],
+        "dhcp": ["ipv6leases"],
         "luci": ["getFeatures"],
         "rpc-sys": ["packagelist"],
         "file": ["read"],
@@ -735,6 +736,7 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "hostapd.*": ["get_clients", "get_status"],
         "iwinfo": ["info", "freqlist", "txpowerlist", "survey", "scan"],
         "luci-rpc": ["getDHCPLeases", "getWirelessDevices", "getNetworkDevices"],
+        "dhcp": ["ipv6leases"],
         "luci": ["getFeatures"],
         "rpc-sys": ["packagelist"],
         "file": ["read"],
@@ -949,3 +951,26 @@ dnsmasq's `dnssec` option becomes `dnssec`. If `/etc/config/https-dns-proxy` or
 to `127.0.0.1#port`, a local forwarder). The proxy instances' resolvers are not read yet.
 Domain-specific `server=/domain/addr` lines are still skipped. 23.05, 24.10 and 25.12 use the
 same UCI options (guess for 23.05, #21).
+
+## IPv6 router advertisements and DHCPv6 (#151)
+
+Read with `dhcp` from the `dhcp` UCI config (odhcpd), one `RouterAdvert` and one `Dhcp6Server`
+per `config dhcp` section of a network Signalbox knows (the `wan` section is skipped):
+
+| UCI option | Meaning |
+|---|---|
+| `ra` | `server` or `hybrid`: router advertisements are sent (`RaMode`), anything else (also unset): `off` |
+| `ra_flags` (list) | `managed-config` is the M flag, `other-config` the O flag (OpenWrt 21.02 and later: 23.05, 24.10, 25.12) |
+| `ra_management` | before `ra_flags` (18.06, 19.07): `0` O only, `1` M and O, `2` M only *(guess: the mapping of the old values)* |
+| neither of the two | O only (odhcpd's default) |
+| `ra_slaac` | `0` clears the A flag of the interface's prefixes (reported as `RaPrefix(autonomous=False)`), else the prefix list stays empty (odhcpd announces the interface's prefixes) |
+| `ra_lifetime` | router lifetime, default 1800 s |
+| `dns` (list, IPv6 only) | RDNSS of the advertisements and DNS of DHCPv6. A resolver odhcpd adds on its own (its own address) is not read |
+| `domain` (list) | DNSSL and DHCPv6 search list |
+| `dhcpv6` | `server` or `hybrid`: a `Dhcp6Server` (stateful when the M flag is set, else stateless); `relay` and `disabled`: none. odhcpd has no address range option, so `pools` stay empty |
+| `leasetime` | lease time |
+
+Leases: `ubus call dhcp ipv6leases` (odhcpd; `device` -> name -> `leases` with `duid`, `hostname`,
+`ipv6-addr` `address` / `valid-lifetime`; the MAC address of a DUID-LL or DUID-LLT is taken from
+it), in the read-only ACL as `"dhcp": ["ipv6leases"]` (an older ACL is refused: the DHCPv6 leases
+of `luci-rpc getDHCPLeases` are used instead). Not tested against a real device (#21).

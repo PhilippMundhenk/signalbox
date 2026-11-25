@@ -836,6 +836,8 @@
  "certificates": [],
  "dhcp_servers": [],
  "dhcp_relays": [],
+ "dhcp6_servers": [],
+ "router_adverts": [],
  "dns_services": [],
  "radios": [],
  "wlans": [],

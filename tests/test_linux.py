@@ -32,6 +32,7 @@ from signalbox.model import (
     Membership,
     PortKind,
     PortRole,
+    RaMode,
     StorageKind,
     UplinkKind,
 )
@@ -916,3 +917,52 @@ def test_rsyslog_and_syslog_ng_forms() -> None:
         ("d_sys", "192.0.2.7:514", "tcp", False),
         ("d_udp", "192.0.2.8:1514", "udp", True),
     ]
+
+
+async def test_radvd_conf_is_read_as_router_advertisements() -> None:
+    box = device()
+    async with adapter_for(box) as adapter:
+        await adapter.read_system()
+        obs = await adapter.read_dhcp()
+    [ra] = obs.router_adverts
+    assert ra.mode is RaMode.STATELESS and ra.managed is False and ra.other is True
+    assert ra.router_lifetime == 1800 and ra.dnssl == ["home.example"]
+    assert [str(x) for x in ra.rdnss] == ["2001:db8:1::1"]
+    [prefix] = ra.prefixes
+    assert str(prefix.prefix) == "2001:db8:1::/64" and prefix.autonomous and prefix.on_link
+    assert obs.dhcp6_servers == []
+
+
+def test_radvd_and_dnsmasq_parsers() -> None:
+    from signalbox.adapters.linux import ipv6
+
+    [off] = ipv6.parse_radvd("interface eth0 { AdvSendAdvert off; };  # nothing\ninterface bad;\n")
+    assert off.name == "eth0" and ipv6.mode_of(off) is RaMode.OFF
+    [managed] = ipv6.parse_radvd(
+        "interface eth1 {AdvSendAdvert on; AdvManagedFlag on; AdvOtherConfigFlag on;"
+        " prefix 2001:db8:5::/64 { AdvAutonomous off; }; RDNSS 2001:db8:5::1 2001:db8:5::2 {};"
+        " DNSSL a.example b.example {}; };"
+    )
+    assert ipv6.mode_of(managed) is RaMode.STATEFUL
+    assert [(str(p), a, o) for p, o, a in managed.prefixes] == [("2001:db8:5::/64", False, True)]
+    assert len(managed.rdnss) == 2 and managed.dnssl == ["a.example", "b.example"]
+    conf = {
+        "/etc/dnsmasq.conf": "enable-ra\n"
+        "dhcp-range=::,constructor:eth0,ra-stateless,64,12h\n"
+        "dhcp-range=2001:db8:6::100,2001:db8:6::1ff,64,1h\n"
+        "dhcp-range=::,constructor:eth2,ra-only\n"
+        "dhcp-option=option6:dns-server,[2001:db8:6::1]\n"
+        "dhcp-range=192.0.2.50,192.0.2.100,12h\n"
+    }
+    stateless, stateful, only = ipv6.parse_dnsmasq6(conf)
+    assert stateless.name == "eth0" and stateless.dhcpv6 and not stateless.dhcpv6_stateful
+    assert ipv6.mode_of(stateless) is RaMode.STATELESS and stateless.lease_seconds == 43200
+    assert stateful.name is None and str(stateful.network) == "2001:db8:6::/64"
+    assert stateful.dhcpv6_stateful and stateful.pool is not None
+    assert ipv6.mode_of(stateful) is RaMode.STATEFUL
+    assert only.name == "eth2" and not only.dhcpv6 and ipv6.mode_of(only) is RaMode.SLAAC
+    assert [str(a) for a in only.rdnss] == ["2001:db8:6::1"]
+    [quiet] = ipv6.parse_dnsmasq6(
+        {"/etc/dnsmasq.conf": "dhcp-range=::,constructor:eth0,ra-stateless"}
+    )
+    assert not quiet.send and ipv6.mode_of(quiet) is RaMode.OFF
