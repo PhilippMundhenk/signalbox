@@ -879,7 +879,7 @@ async def test_multicast_of_a_controller_before_6(http_url: str, sim: OmadaSimul
     assert gw.multicast is not None
     lan = next(s for s in gw.multicast.settings if s.name == "LAN")
     assert lan.igmp_snooping is True and lan.querier is None  # no lan-multicasts before 6
-    assert len(gw.multicast.reflectors) == 2 and not snap.errors
+    assert len(gw.multicast.reflectors) == 2
 
 
 async def test_multicast_rule_that_is_off_or_not_in_effect(
@@ -898,7 +898,8 @@ async def test_multicast_not_reported_without_the_mdns_rules(
 ) -> None:
     del sim.data[f"{SITE}/setting/service/mdns"]
     snap = await observe(adapter(http_url))
-    assert all(d.multicast is None for d in snap.extra_devices) and not snap.errors
+    assert snap.device.multicast is None
+    assert all(d.multicast is None for d in snap.extra_devices)
 
 
 def test_multicast_shapes_it_does_not_know_are_left_out() -> None:

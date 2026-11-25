@@ -339,9 +339,11 @@ def test_concept_views_show_the_network(app: Any) -> None:
     lan1_node = app.get_by_test_id("port-node").filter(has_text="Desk").first
     expect(lan1_node).to_contain_text("designated port · forwarding · edge port")
 
-    # multicast (#508): snooping and querier of the bridge, as the device reports them
+    # multicast (#508): the controller reports snooping per network and the mDNS reflection
+    go(app, "#/device/omada")
     mcast = app.get_by_test_id("device-multicast")
     expect(mcast.get_by_test_id("multicast-setting").first).to_contain_text("IGMP snooping on")
+    expect(mcast.get_by_test_id("multicast-reflector").first).to_contain_text("between")
 
     go(app, "#/device/router/advanced")
     expect(app.get_by_test_id("raw-services")).to_contain_text("services (6)")
