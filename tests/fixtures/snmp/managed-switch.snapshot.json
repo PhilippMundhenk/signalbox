@@ -873,7 +873,22 @@
     "router"
    ],
    "description": "Example router OS 1.0",
-   "wireless": false
+   "wireless": false,
+   "protocol": "lldp",
+   "chassis_id_kind": "mac",
+   "port_description": null,
+   "port_vlan": 1,
+   "vlans": [
+    1,
+    20
+   ],
+   "max_frame_size": 1522,
+   "poe_requested_w": null,
+   "poe_allocated_w": null,
+   "poe_class": null,
+   "med_device_class": "network-connectivity",
+   "ttl_seconds": null,
+   "age_seconds": null
   },
   {
    "id": "switch/neighbour/Gi3-02:00:00:00:00:a1",
@@ -892,7 +907,21 @@
     "wlan-access-point"
    ],
    "description": "Example access point",
-   "wireless": false
+   "wireless": false,
+   "protocol": "lldp",
+   "chassis_id_kind": "mac",
+   "port_description": null,
+   "port_vlan": 10,
+   "vlans": [
+    10
+   ],
+   "max_frame_size": 1522,
+   "poe_requested_w": 15.4,
+   "poe_allocated_w": null,
+   "poe_class": 4,
+   "med_device_class": "endpoint-3",
+   "ttl_seconds": null,
+   "age_seconds": null
   },
   {
    "id": "switch/neighbour/Gi7-02:00:00:00:00:02",
@@ -910,7 +939,21 @@
     "bridge"
    ],
    "description": "Example peer switch",
-   "wireless": false
+   "wireless": false,
+   "protocol": "lldp",
+   "chassis_id_kind": "mac",
+   "port_description": null,
+   "port_vlan": 1,
+   "vlans": [
+    1
+   ],
+   "max_frame_size": 9216,
+   "poe_requested_w": null,
+   "poe_allocated_w": null,
+   "poe_class": null,
+   "med_device_class": "network-connectivity",
+   "ttl_seconds": null,
+   "age_seconds": null
   }
  ],
  "fdb": [

@@ -1367,6 +1367,7 @@ def lldp_neighbours() -> dict[str, Any]:
                     {
                         "name": "lan1",
                         "via": "LLDP",
+                        "age": "0 day, 03:12:44",
                         "chassis": [
                             {
                                 "id": [{"type": "mac", "value": _mac(0x30, 1)}],
@@ -1381,7 +1382,27 @@ def lldp_neighbours() -> dict[str, Any]:
                                 ],
                             }
                         ],
-                        "port": [{"id": [{"type": "ifname", "value": "port 8"}]}],
+                        "port": [
+                            {
+                                "id": [{"type": "ifname", "value": "port 8"}],
+                                "descr": [{"value": "uplink to router"}],
+                                "ttl": [{"value": "120"}],
+                                "mfs": [{"value": "1522"}],
+                                "vlan": [
+                                    {"vlan-id": "1", "pvid": True, "value": "default"},
+                                    {"vlan-id": "20", "pvid": False, "value": "iot"},
+                                ],
+                                "power": [
+                                    {
+                                        "device-type": "PSE",
+                                        "class": "class 4",
+                                        "requested": "15400",
+                                        "allocated": "15400",
+                                    }
+                                ],
+                            }
+                        ],
+                        "lldp-med": [{"device-type": [{"value": "Network Connectivity Device"}]}],
                     },
                     {"name": "lan2", "chassis": [{"name": [{"value": "no id"}]}]},
                 ]

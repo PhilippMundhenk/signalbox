@@ -3230,5 +3230,19 @@
  "msg.firmware.betaChannel": "{name} sigue el canal {channel}",
  "msg.firmware.betaChannel.fix": "Cámbielo al canal estable o de soporte largo, salvo que pruebe a propósito.",
  "msg.firmware.updateUnnamed": "{name} tiene una actualización de firmware disponible",
- "msg.firmware.updateUnnamed.fix": "Actualice {name}."
+ "msg.firmware.updateUnnamed.fix": "Actualice {name}.",
+ "rule.link.pvid-mismatch.title": "La VLAN nativa difiere entre los extremos de un enlace",
+ "rule.link.pvid-mismatch.explanation": "El vecino anuncia la VLAN en la que coloca las tramas sin etiquetar (LLDP) y el puerto local usa otra. El tráfico sin etiquetar pasa entonces de una VLAN a otra. Ambos extremos de un trunk deben usar la misma VLAN nativa. Donde Signalbox lee ambos extremos, vlan.native-mismatch los compara.",
+ "msg.link.pvidMismatch": "{where}: la VLAN nativa es {local} aquí pero {remote} en el otro extremo.",
+ "msg.link.pvidMismatch.fix": "Configure la misma VLAN nativa (sin etiquetar) en ambos extremos del cable.",
+ "rule.link.mtu-mismatch.title": "El otro extremo acepta tramas más pequeñas de las que envía este puerto",
+ "rule.link.mtu-mismatch.explanation": "El vecino anuncia la trama más grande que acepta su puerto (LLDP) y la MTU local necesita tramas mayores. Los paquetes grandes se descartan y los pequeños funcionan: las conexiones se cuelgan tras el saludo. Donde Signalbox lee ambos extremos, link.mtu los compara.",
+ "msg.link.mtuMismatch": "{where}: la MTU es {mtu} aquí pero el otro extremo solo acepta tramas de {frame} bytes.",
+ "msg.link.mtuMismatch.fix": "Reduzca la MTU de este puerto o aumente el tamaño de trama (tramas jumbo) en el otro extremo y en el camino.",
+ "rule.poe.request-unmet.title": "Un dispositivo pide más potencia PoE de la que da su puerto",
+ "rule.poe.request-unmet.explanation": "Un vecino anuncia cuánta potencia PoE solicita (LLDP) y el puerto del switch tiene PoE apagado o un límite menor. El dispositivo funciona entonces con funciones reducidas o no arranca.",
+ "msg.poe.requestOff": "{where}: el dispositivo pide {requested} W pero el PoE está apagado en el puerto.",
+ "msg.poe.requestOff.fix": "Active el PoE en el puerto o alimente el dispositivo de otra forma.",
+ "msg.poe.requestLimit": "{where}: el dispositivo pide {requested} W pero el puerto da como máximo {limit} W.",
+ "msg.poe.requestLimit.fix": "Aumente el límite PoE del puerto o mueva el dispositivo a un puerto o switch con mayor clase PoE."
 }

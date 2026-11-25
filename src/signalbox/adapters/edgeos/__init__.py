@@ -43,6 +43,7 @@ from signalbox.adapters.linux import UntrustedSshHostKey
 from signalbox.adapters.linux import parse as linux_parse
 from signalbox.adapters.linux.collect import split
 from signalbox.adapters.ssh import PinnedSsh, load_private_key
+from signalbox.lldp import med_class, protocol_of
 from signalbox.model import (
     DeviceHealth,
     DeviceRole,
@@ -654,6 +655,15 @@ class EdgeosAdapter(Adapter):
                 management_address=n.management,
                 capabilities=n.capabilities,
                 description=n.description,
+                protocol=protocol_of(n.via),
+                chassis_id_kind=n.chassis_kind,
+                port_description=n.port_description,
+                ttl_seconds=n.ttl,
+                age_seconds=n.age,
+                max_frame_size=n.max_frame_size,
+                port_vlan=n.port_vlan,
+                vlans=n.vlans,
+                med_device_class=med_class(n.med_device_type),
             )
         return Observation(neighbours=list(out.values()), incomplete=gaps)
 

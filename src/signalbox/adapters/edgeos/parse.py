@@ -22,7 +22,15 @@ from ipaddress import (
 )
 
 from signalbox.adapters.edgeos.collect import Answer
-from signalbox.model import DhcpLease, IPAddress, IPInterface, IPNetwork, LeaseState
+from signalbox.lldp import age_seconds, int_of
+from signalbox.model import (
+    DhcpLease,
+    IPAddress,
+    IPInterface,
+    IPNetwork,
+    LeaseState,
+    normalise_id_kind,
+)
 
 
 def _int(text: str | None) -> int | None:
@@ -310,6 +318,15 @@ class LldpNeighbour:
     management: str | None = None
     port: str | None = None
     capabilities: list[str] = field(default_factory=list)
+    via: str | None = None
+    chassis_kind: str | None = None
+    port_description: str | None = None
+    ttl: int | None = None
+    age: int | None = None
+    max_frame_size: int | None = None
+    port_vlan: int | None = None
+    vlans: list[int] = field(default_factory=list)
+    med_device_type: str | None = None
 
 
 _CAPS = {
@@ -334,6 +351,12 @@ def lldp(answer: Answer) -> list[LldpNeighbour]:
         if line.startswith("Interface:"):
             name = line[len("Interface:") :].split(",")[0].strip()
             current = LldpNeighbour(interface=name)
+            for part in line.split(",")[1:]:
+                label, _, text = part.partition(":")
+                if label.strip() == "via":
+                    current.via = text.strip()
+            age_text = line.partition("Time:")[2].strip()
+            current.age = age_seconds(age_text) if age_text else None
             out.append(current)
             last = None
             continue
@@ -349,6 +372,7 @@ def lldp(answer: Answer) -> list[LldpNeighbour]:
         if key == "ChassisID":
             kind, _, rest = value.partition(" ")
             current.chassis = rest.strip().lower() if kind == "mac" else (rest or value).strip()
+            current.chassis_kind = normalise_id_kind(kind)
         elif key == "SysName":
             current.system_name = value or None
         elif key == "SysDescr":
@@ -360,8 +384,23 @@ def lldp(answer: Answer) -> list[LldpNeighbour]:
             current.port = (rest or value).strip() or None
             if kind == "mac" and current.port:
                 current.port = current.port.lower()
-        elif key == "PortDescr" and value and current.port is None:
-            current.port = value
+        elif key == "PortDescr" and value:
+            current.port_description = value
+            if current.port is None:
+                current.port = value
+        elif key == "TTL":
+            current.ttl = int_of(value)
+        elif key == "MFS":
+            current.max_frame_size = int_of(value)
+        elif key == "VLAN":
+            vid = int_of(value)
+            if vid is not None and 1 <= vid <= 4094:
+                if vid not in current.vlans:
+                    current.vlans.append(vid)
+                if "pvid: yes" in value.lower():
+                    current.port_vlan = vid
+        elif key == "Device Type":
+            current.med_device_type = value
         elif key == "Capability":
             name, _, state = value.rpartition(",")
             word = name.split()[0].lower() if name.split() else ""

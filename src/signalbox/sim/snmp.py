@@ -259,6 +259,13 @@ def typical_switch() -> str:
             "192.0.2.2",
         ),
     )
+    # local port -> PVID, announced VLANs, max frame size, 802.3 power class (1: class 0),
+    # LLDP-MED device class (3: endpoint 3, 4: network connectivity), power request in 0.1 W
+    details = {
+        1: (1, (1, 20), 1522, None, 4, 0),
+        3: (10, (10,), 1522, 5, 3, 154),
+        7: (1, (1,), 9216, None, 4, 0),
+    }
     for local, chassis, sub, port_hex, name, descr, caps, address in neighbours:
         i = f"0.{local}.1"
         w.integer(f"{rem}.4.{i}", 4)
@@ -269,6 +276,18 @@ def typical_switch() -> str:
         w.text(f"{rem}.10.{i}", descr)
         w.hexa(f"{rem}.11.{i}", f"{caps:02x}")
         w.hexa(f"{rem}.12.{i}", f"{caps:02x}")
+        extra = details.get(local)
+        if extra is not None:
+            port_pvid, vlan_ids, frame, power_class, med, req = extra
+            w.integer(f"1.0.8802.1.1.2.1.5.32962.1.3.1.1.1.{i}", port_pvid)
+            for vid in vlan_ids:
+                w.text(f"1.0.8802.1.1.2.1.5.32962.1.3.3.1.2.{i}.{vid}", f"vlan{vid}")
+            w.integer(f"1.0.8802.1.1.2.1.5.4623.1.3.4.1.1.{i}", frame)
+            if power_class is not None:
+                w.integer(f"1.0.8802.1.1.2.1.5.4623.1.3.2.1.6.{i}", power_class)
+            w.integer(f"1.0.8802.1.1.2.1.5.4795.1.3.1.1.3.{i}", med)
+            if req:
+                w.integer(f"1.0.8802.1.1.2.1.5.4795.1.3.7.1.1.{i}", req)
         octets = ".".join(address.split("."))
         w.integer(f"1.0.8802.1.1.2.1.4.2.1.3.{i}.1.4.{octets}", 2)
     # IEEE8023-LAG-MIB: the aggregation 9 (LACP, active, fast) with ports 7 and 8

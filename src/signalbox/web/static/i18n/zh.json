@@ -3230,5 +3230,19 @@
  "msg.firmware.betaChannel": "{name} 使用 {channel} 通道",
  "msg.firmware.betaChannel.fix": "除非有意测试,否则请切换到稳定或长期支持通道。",
  "msg.firmware.updateUnnamed": "{name} 有可用的固件更新",
- "msg.firmware.updateUnnamed.fix": "请更新 {name}。"
+ "msg.firmware.updateUnnamed.fix": "请更新 {name}。",
+ "rule.link.pvid-mismatch.title": "链路两端的原生 VLAN 不一致",
+ "rule.link.pvid-mismatch.explanation": "邻居通告了它放置无标签帧的 VLAN(LLDP),而本地端口使用另一个。无标签流量会从一个 VLAN 泄漏到另一个。中继链路的两端应使用相同的原生 VLAN。Signalbox 能读取两端时,由 vlan.native-mismatch 比较。",
+ "msg.link.pvidMismatch": "{where}:本端的原生 VLAN 为 {local},对端为 {remote}。",
+ "msg.link.pvidMismatch.fix": "在线缆两端设置相同的原生(无标签)VLAN。",
+ "rule.link.mtu-mismatch.title": "对端接受的帧比此端口发送的更小",
+ "rule.link.mtu-mismatch.explanation": "邻居通告其端口接受的最大帧(LLDP),而本地 MTU 需要更大的帧。大包被丢弃而小包正常,连接在握手后卡住。Signalbox 能读取两端时,由 link.mtu 比较。",
+ "msg.link.mtuMismatch": "{where}:本端 MTU 为 {mtu},但对端只接受 {frame} 字节的帧。",
+ "msg.link.mtuMismatch.fix": "降低此端口的 MTU,或在对端及中间设备上增大帧大小(巨型帧)。",
+ "rule.poe.request-unmet.title": "设备请求的 PoE 功率超过其端口提供的功率",
+ "rule.poe.request-unmet.explanation": "邻居通告其请求的 PoE 功率(LLDP),而交换机端口关闭了 PoE 或限额更低。设备会以受限功能运行或无法启动。",
+ "msg.poe.requestOff": "{where}:设备请求 {requested} W,但端口上的 PoE 已关闭。",
+ "msg.poe.requestOff.fix": "在端口上开启 PoE,或用其他方式给设备供电。",
+ "msg.poe.requestLimit": "{where}:设备请求 {requested} W,但端口最多提供 {limit} W。",
+ "msg.poe.requestLimit.fix": "提高端口的 PoE 限额,或将设备移到 PoE 等级更高的端口或交换机。"
 }

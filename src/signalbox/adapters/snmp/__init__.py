@@ -166,6 +166,12 @@ _LLDP_COLUMNS = (
         )
     ),
     mib.LLDP_REM_MAN_ADDR,
+    mib.LLDP_X_DOT1_PVID,
+    mib.LLDP_X_DOT1_VLAN_NAME,
+    mib.LLDP_X_DOT3_POWER_CLASS,
+    mib.LLDP_X_DOT3_MAX_FRAME,
+    mib.LLDP_X_MED_DEVICE_CLASS,
+    mib.LLDP_X_MED_PD_POWER_REQ,
 )
 
 

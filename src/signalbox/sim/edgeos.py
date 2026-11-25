@@ -292,6 +292,12 @@ Interface:    eth1, via: LLDP, RID: 1, Time: 0 day, 03:12:44
   Port:
     PortID:       ifname 0/1
     PortDescr:    0/1
+    TTL:          120
+    MFS:          1522
+    VLAN:         1, pvid: yes
+    VLAN:         20, pvid: no
+  LLDP-MED:
+    Device Type:  Network Connectivity Device
 -------------------------------------------------------------------------------
 Interface:    eth2, via: LLDP, RID: 2, Time: 0 day, 03:12:50
   Chassis:

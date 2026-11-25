@@ -3230,5 +3230,19 @@
  "msg.firmware.betaChannel": "{name} {channel} चैनल पर है",
  "msg.firmware.betaChannel.fix": "जब तक आप जानबूझकर टेस्ट नहीं कर रहे, इसे स्टेबल या लॉन्ग-टर्म चैनल पर ले जाएँ।",
  "msg.firmware.updateUnnamed": "{name} के लिए फ़र्मवेयर अपडेट उपलब्ध है",
- "msg.firmware.updateUnnamed.fix": "{name} को अपडेट करें।"
+ "msg.firmware.updateUnnamed.fix": "{name} को अपडेट करें।",
+ "rule.link.pvid-mismatch.title": "लिंक के दोनों सिरों पर नेटिव VLAN अलग है",
+ "rule.link.pvid-mismatch.explanation": "पड़ोसी उस VLAN की सूचना देता है जिसमें वह बिना टैग वाले फ्रेम रखता है (LLDP) और स्थानीय पोर्ट कोई दूसरा VLAN इस्तेमाल करता है। तब बिना टैग वाला ट्रैफ़िक एक VLAN से दूसरे में रिस जाता है। ट्रंक के दोनों सिरों पर एक ही नेटिव VLAN होना चाहिए। जहाँ Signalbox दोनों सिरे पढ़ता है, वहाँ vlan.native-mismatch उनकी तुलना करता है।",
+ "msg.link.pvidMismatch": "{where}: नेटिव VLAN यहाँ {local} है लेकिन दूसरे सिरे पर {remote}।",
+ "msg.link.pvidMismatch.fix": "केबल के दोनों सिरों पर एक ही नेटिव (बिना टैग) VLAN सेट करें।",
+ "rule.link.mtu-mismatch.title": "दूसरा सिरा इस पोर्ट के भेजे फ्रेम से छोटे फ्रेम ही स्वीकार करता है",
+ "rule.link.mtu-mismatch.explanation": "पड़ोसी अपने पोर्ट द्वारा स्वीकार किए जाने वाले सबसे बड़े फ्रेम की सूचना देता है (LLDP) और स्थानीय MTU को बड़े फ्रेम चाहिए। बड़े पैकेट गिरा दिए जाते हैं और छोटे चलते हैं: हैंडशेक के बाद कनेक्शन अटक जाते हैं। जहाँ Signalbox दोनों सिरे पढ़ता है, वहाँ link.mtu उनकी तुलना करता है।",
+ "msg.link.mtuMismatch": "{where}: MTU यहाँ {mtu} है लेकिन दूसरा सिरा केवल {frame} बाइट तक के फ्रेम स्वीकार करता है।",
+ "msg.link.mtuMismatch.fix": "इस पोर्ट का MTU घटाएँ, या दूसरे सिरे पर और बीच में फ्रेम आकार (जंबो फ्रेम) बढ़ाएँ।",
+ "rule.poe.request-unmet.title": "डिवाइस अपने पोर्ट से मिलने वाली बिजली से अधिक PoE पावर माँगता है",
+ "rule.poe.request-unmet.explanation": "पड़ोसी अपनी माँगी गई PoE पावर की सूचना देता है (LLDP) और स्विच पोर्ट पर PoE बंद है या सीमा कम है। तब डिवाइस सीमित सुविधाओं के साथ चलता है या शुरू ही नहीं होता।",
+ "msg.poe.requestOff": "{where}: डिवाइस {requested} W माँगता है लेकिन पोर्ट पर PoE बंद है।",
+ "msg.poe.requestOff.fix": "पोर्ट पर PoE चालू करें या डिवाइस को किसी और तरीके से बिजली दें।",
+ "msg.poe.requestLimit": "{where}: डिवाइस {requested} W माँगता है लेकिन पोर्ट अधिकतम {limit} W देता है।",
+ "msg.poe.requestLimit.fix": "पोर्ट की PoE सीमा बढ़ाएँ या डिवाइस को ऊँची PoE श्रेणी वाले पोर्ट या स्विच पर ले जाएँ।"
 }

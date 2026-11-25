@@ -3230,5 +3230,19 @@
  "msg.firmware.betaChannel": "{name} folgt dem Kanal {channel}",
  "msg.firmware.betaChannel.fix": "Stellen Sie ihn auf den Stable- oder Long-Term-Kanal um, sofern Sie nicht absichtlich testen.",
  "msg.firmware.updateUnnamed": "Für {name} ist ein Firmware-Update verfügbar",
- "msg.firmware.updateUnnamed.fix": "Aktualisieren Sie {name}."
+ "msg.firmware.updateUnnamed.fix": "Aktualisieren Sie {name}.",
+ "rule.link.pvid-mismatch.title": "Natives VLAN unterscheidet sich zwischen den Enden einer Verbindung",
+ "rule.link.pvid-mismatch.explanation": "Der Nachbar meldet das VLAN, in das er unmarkierte Frames legt (Port-VLAN-ID, LLDP), und der lokale Port nutzt ein anderes. Dann gelangt unmarkierter Verkehr von einem VLAN ins andere. Beide Enden eines Trunks sollten dasselbe native VLAN nutzen. Wo Signalbox beide Enden liest, vergleicht vlan.native-mismatch sie; diese Prüfung deckt einen Nachbarn ab, den es nur über LLDP sieht.",
+ "msg.link.pvidMismatch": "{where}: Das native VLAN ist hier {local}, am anderen Ende aber {remote}.",
+ "msg.link.pvidMismatch.fix": "Stellen Sie an beiden Enden des Kabels dasselbe native (untagged) VLAN ein.",
+ "rule.link.mtu-mismatch.title": "Die Gegenseite akzeptiert kleinere Frames, als dieser Port sendet",
+ "rule.link.mtu-mismatch.explanation": "Der Nachbar meldet die größte Framegröße, die sein Port akzeptiert (LLDP), und die lokale MTU braucht größere Frames. Große Pakete werden verworfen, kleine funktionieren; Verbindungen hängen nach dem Handshake. Wo Signalbox beide Enden liest, vergleicht link.mtu sie.",
+ "msg.link.mtuMismatch": "{where}: Die MTU ist hier {mtu}, das andere Ende akzeptiert aber nur Frames von {frame} Byte.",
+ "msg.link.mtuMismatch.fix": "Senken Sie die MTU dieses Ports oder erhöhen Sie die Framegröße (Jumbo Frames) am anderen Ende und dazwischen.",
+ "rule.poe.request-unmet.title": "Ein Gerät fordert mehr PoE-Leistung an, als sein Port liefert",
+ "rule.poe.request-unmet.explanation": "Ein Nachbar meldet, wie viel PoE-Leistung er anfordert (LLDP), und am Switch-Port ist PoE aus oder das Limit niedriger. Das Gerät läuft dann mit eingeschränkten Funktionen oder startet nicht.",
+ "msg.poe.requestOff": "{where}: Das Gerät fordert {requested} W an, aber PoE ist am Port ausgeschaltet.",
+ "msg.poe.requestOff.fix": "Schalten Sie PoE am Port ein oder versorgen Sie das Gerät anders mit Strom.",
+ "msg.poe.requestLimit": "{where}: Das Gerät fordert {requested} W an, der Port liefert aber höchstens {limit} W.",
+ "msg.poe.requestLimit.fix": "Erhöhen Sie das PoE-Limit des Ports oder schließen Sie das Gerät an einen Port oder Switch mit höherer PoE-Klasse an."
 }

@@ -4575,6 +4575,17 @@
       "title": "ManagementService",
       "type": "object"
     },
+    "MedDeviceClass": {
+      "description": "LLDP-MED device class a neighbour announces (ANSI/TIA-1057, #163).",
+      "enum": [
+        "endpoint-1",
+        "endpoint-2",
+        "endpoint-3",
+        "network-connectivity"
+      ],
+      "title": "MedDeviceClass",
+      "type": "string"
+    },
     "Membership": {
       "enum": [
         "untagged",
@@ -4726,6 +4737,19 @@
       "additionalProperties": false,
       "description": "A device seen on a port by LLDP (or a similar protocol).",
       "properties": {
+        "age_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Age Seconds"
+        },
         "capabilities": {
           "items": {
             "type": "string"
@@ -4736,6 +4760,18 @@
         "chassis_id": {
           "title": "Chassis Id",
           "type": "string"
+        },
+        "chassis_id_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chassis Id Kind"
         },
         "description": {
           "anyOf": [
@@ -4769,6 +4805,31 @@
           "default": null,
           "title": "Management Address"
         },
+        "max_frame_size": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 64,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Frame Size"
+        },
+        "med_device_class": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MedDeviceClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "observed_at": {
           "anyOf": [
             {
@@ -4781,6 +4842,83 @@
           ],
           "default": null,
           "title": "Observed At"
+        },
+        "poe_allocated_w": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Poe Allocated W"
+        },
+        "poe_class": {
+          "anyOf": [
+            {
+              "maximum": 8,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Poe Class"
+        },
+        "poe_requested_w": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Poe Requested W"
+        },
+        "port_description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port Description"
+        },
+        "port_vlan": {
+          "anyOf": [
+            {
+              "maximum": 4094,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port Vlan"
+        },
+        "protocol": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NeighbourProtocol"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "remote_port": {
           "anyOf": [
@@ -4817,12 +4955,34 @@
           "default": null,
           "title": "System Name"
         },
+        "ttl_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ttl Seconds"
+        },
         "vendor_extra": {
           "additionalProperties": {
             "$ref": "#/$defs/JsonValue"
           },
           "title": "Vendor Extra",
           "type": "object"
+        },
+        "vlans": {
+          "items": {
+            "maximum": 4094,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": "Vlans",
+          "type": "array"
         },
         "wireless": {
           "default": false,
@@ -4837,6 +4997,19 @@
       ],
       "title": "Neighbour",
       "type": "object"
+    },
+    "NeighbourProtocol": {
+      "description": "The discovery protocol a neighbour was learned by (#163).",
+      "enum": [
+        "lldp",
+        "cdp",
+        "mndp",
+        "edp",
+        "fdp",
+        "other"
+      ],
+      "title": "NeighbourProtocol",
+      "type": "string"
     },
     "Network": {
       "additionalProperties": false,

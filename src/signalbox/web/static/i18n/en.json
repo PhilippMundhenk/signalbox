@@ -3230,5 +3230,19 @@
  "msg.firmware.betaChannel": "{name} follows the {channel} channel",
  "msg.firmware.betaChannel.fix": "Switch it to the stable or long-term channel unless you test on purpose.",
  "msg.firmware.updateUnnamed": "{name} has a firmware update available",
- "msg.firmware.updateUnnamed.fix": "Update {name}."
+ "msg.firmware.updateUnnamed.fix": "Update {name}.",
+ "rule.link.pvid-mismatch.title": "Native VLAN differs between the two ends of a link",
+ "rule.link.pvid-mismatch.explanation": "The neighbour announces the VLAN it puts untagged frames into (port VLAN id, LLDP) and the local port uses another one. Untagged traffic then moves from one VLAN into the other (VLAN leaking) and spanning tree and DHCP replies end up in the wrong network. Both ends of a trunk should use the same native VLAN. Where both ends of the cable are read by Signalbox, vlan.native-mismatch compares them; this check covers a neighbour it only sees through LLDP.",
+ "msg.link.pvidMismatch": "{where}: the native VLAN is {local} here but {remote} on the other end.",
+ "msg.link.pvidMismatch.fix": "Set the same native (untagged) VLAN on both ends of the cable.",
+ "rule.link.mtu-mismatch.title": "The other end of a link accepts smaller frames than this port sends",
+ "rule.link.mtu-mismatch.explanation": "The neighbour announces the largest frame its port accepts (LLDP maximum frame size) and the local port is set to an MTU that needs bigger frames. Large packets (jumbo frames, tunnels) are dropped by the other end while small ones work, which looks like connections that hang after the handshake. The check allows the Ethernet header, one VLAN tag and the checksum on top of the MTU and the parameter tolerance_bytes extra. Where both ends of the cable are read by Signalbox, link.mtu compares them; this check covers a neighbour it only sees through LLDP.",
+ "msg.link.mtuMismatch": "{where}: the MTU is {mtu} here but the other end accepts frames of only {frame} bytes.",
+ "msg.link.mtuMismatch.fix": "Lower the MTU of this port, or raise the frame size (jumbo frames) on the other end and everything between.",
+ "rule.poe.request-unmet.title": "A powered device asks for more PoE power than its port gives",
+ "rule.poe.request-unmet.explanation": "A neighbour announces how much power it requests (LLDP power TLV) and the switch port it is plugged into has PoE switched off or a lower limit. The device then runs with reduced functions (a camera without infrared, an access point with fewer radios) or does not start. Needs a switch that reports the PoE limit of its ports; the parameter margin_w is the tolerance.",
+ "msg.poe.requestOff": "{where}: the device asks for {requested} W but PoE is off on the port.",
+ "msg.poe.requestOff.fix": "Turn PoE on for the port, or power the device another way.",
+ "msg.poe.requestLimit": "{where}: the device asks for {requested} W but the port gives at most {limit} W.",
+ "msg.poe.requestLimit.fix": "Raise the PoE limit of the port or move the device to a port or switch with a higher PoE class."
 }

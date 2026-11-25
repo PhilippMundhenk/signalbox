@@ -3230,5 +3230,19 @@
  "msg.firmware.betaChannel": "{name} mengikuti kanal {channel}",
  "msg.firmware.betaChannel.fix": "Pindahkan ke kanal stabil atau jangka panjang kecuali Anda sengaja menguji.",
  "msg.firmware.updateUnnamed": "{name} memiliki pembaruan firmware",
- "msg.firmware.updateUnnamed.fix": "Perbarui {name}."
+ "msg.firmware.updateUnnamed.fix": "Perbarui {name}.",
+ "rule.link.pvid-mismatch.title": "VLAN native berbeda di kedua ujung tautan",
+ "rule.link.pvid-mismatch.explanation": "Perangkat tetangga mengumumkan VLAN tempat ia menaruh frame tanpa tag (LLDP) dan port lokal memakai VLAN lain. Lalu lintas tanpa tag lalu bocor dari satu VLAN ke VLAN lain. Kedua ujung trunk harus memakai VLAN native yang sama. Jika Signalbox membaca kedua ujung, vlan.native-mismatch membandingkannya.",
+ "msg.link.pvidMismatch": "{where}: VLAN native di sini {local} tetapi di ujung lain {remote}.",
+ "msg.link.pvidMismatch.fix": "Atur VLAN native (tanpa tag) yang sama di kedua ujung kabel.",
+ "rule.link.mtu-mismatch.title": "Ujung lain menerima frame lebih kecil dari yang dikirim port ini",
+ "rule.link.mtu-mismatch.explanation": "Perangkat tetangga mengumumkan frame terbesar yang diterima port-nya (LLDP) dan MTU lokal membutuhkan frame lebih besar. Paket besar dibuang sedangkan yang kecil berjalan: koneksi macet setelah handshake. Jika Signalbox membaca kedua ujung, link.mtu membandingkannya.",
+ "msg.link.mtuMismatch": "{where}: MTU di sini {mtu} tetapi ujung lain hanya menerima frame {frame} byte.",
+ "msg.link.mtuMismatch.fix": "Turunkan MTU port ini, atau naikkan ukuran frame (jumbo frame) di ujung lain dan di antaranya.",
+ "rule.poe.request-unmet.title": "Perangkat meminta daya PoE lebih besar daripada yang diberikan portnya",
+ "rule.poe.request-unmet.explanation": "Perangkat tetangga mengumumkan daya PoE yang diminta (LLDP) dan port switch mematikan PoE atau batasnya lebih rendah. Perangkat lalu berjalan dengan fungsi terbatas atau tidak menyala.",
+ "msg.poe.requestOff": "{where}: perangkat meminta {requested} W tetapi PoE mati di port.",
+ "msg.poe.requestOff.fix": "Aktifkan PoE di port atau beri daya perangkat dengan cara lain.",
+ "msg.poe.requestLimit": "{where}: perangkat meminta {requested} W tetapi port memberi paling banyak {limit} W.",
+ "msg.poe.requestLimit.fix": "Naikkan batas PoE port atau pindahkan perangkat ke port atau switch dengan kelas PoE lebih tinggi."
 }

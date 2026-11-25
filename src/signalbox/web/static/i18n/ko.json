@@ -3230,5 +3230,19 @@
  "msg.firmware.betaChannel": "{name}은(는) {channel} 채널을 따릅니다",
  "msg.firmware.betaChannel.fix": "의도적으로 테스트하는 경우가 아니면 안정 또는 장기 지원 채널로 전환하세요.",
  "msg.firmware.updateUnnamed": "{name}에 펌웨어 업데이트가 있습니다",
- "msg.firmware.updateUnnamed.fix": "{name}을(를) 업데이트하세요."
+ "msg.firmware.updateUnnamed.fix": "{name}을(를) 업데이트하세요.",
+ "rule.link.pvid-mismatch.title": "링크 양 끝의 네이티브 VLAN이 다름",
+ "rule.link.pvid-mismatch.explanation": "이웃 장치가 태그 없는 프레임을 넣는 VLAN(LLDP)을 알리는데 로컬 포트는 다른 VLAN을 사용합니다. 그러면 태그 없는 트래픽이 한 VLAN에서 다른 VLAN으로 새어 나갑니다. 트렁크 양 끝은 같은 네이티브 VLAN을 써야 합니다. Signalbox가 양 끝을 읽을 수 있으면 vlan.native-mismatch가 비교합니다.",
+ "msg.link.pvidMismatch": "{where}: 네이티브 VLAN이 이쪽은 {local}, 반대쪽은 {remote}입니다.",
+ "msg.link.pvidMismatch.fix": "케이블 양 끝에 같은 네이티브(태그 없는) VLAN을 설정하세요.",
+ "rule.link.mtu-mismatch.title": "상대 쪽이 이 포트가 보내는 것보다 작은 프레임만 받음",
+ "rule.link.mtu-mismatch.explanation": "이웃 장치가 자기 포트가 받는 최대 프레임(LLDP)을 알리는데 로컬 MTU는 더 큰 프레임이 필요합니다. 큰 패킷은 버려지고 작은 패킷만 통과해 핸드셰이크 후 연결이 멈춥니다. 양 끝을 읽을 수 있으면 link.mtu가 비교합니다.",
+ "msg.link.mtuMismatch": "{where}: 이쪽 MTU는 {mtu}인데 반대쪽은 {frame}바이트 프레임만 받습니다.",
+ "msg.link.mtuMismatch.fix": "이 포트의 MTU를 낮추거나 반대쪽과 그 사이 장비의 프레임 크기(점보 프레임)를 늘리세요.",
+ "rule.poe.request-unmet.title": "장치가 포트가 제공하는 것보다 많은 PoE 전력을 요청함",
+ "rule.poe.request-unmet.explanation": "이웃 장치가 요청하는 PoE 전력(LLDP)을 알리는데 스위치 포트는 PoE가 꺼져 있거나 한도가 낮습니다. 장치는 기능이 제한되어 동작하거나 시작되지 않습니다.",
+ "msg.poe.requestOff": "{where}: 장치가 {requested} W를 요청하지만 포트의 PoE가 꺼져 있습니다.",
+ "msg.poe.requestOff.fix": "포트에서 PoE를 켜거나 다른 방법으로 장치에 전원을 공급하세요.",
+ "msg.poe.requestLimit": "{where}: 장치가 {requested} W를 요청하지만 포트는 최대 {limit} W만 제공합니다.",
+ "msg.poe.requestLimit.fix": "포트의 PoE 한도를 높이거나 PoE 등급이 더 높은 포트나 스위치로 장치를 옮기세요."
 }

@@ -3230,5 +3230,19 @@
  "msg.firmware.betaChannel": "{name} {channel} kanalını izliyor",
  "msg.firmware.betaChannel.fix": "Bilerek test etmiyorsanız kararlı veya uzun süreli kanala geçirin.",
  "msg.firmware.updateUnnamed": "{name} için yazılım güncellemesi var",
- "msg.firmware.updateUnnamed.fix": "{name} cihazını güncelleyin."
+ "msg.firmware.updateUnnamed.fix": "{name} cihazını güncelleyin.",
+ "rule.link.pvid-mismatch.title": "Yerel (native) VLAN bağlantının iki ucunda farklı",
+ "rule.link.pvid-mismatch.explanation": "Komşu, etiketsiz çerçeveleri koyduğu VLAN'ı duyurur (LLDP) ve yerel port başka birini kullanır. Etiketsiz trafik bir VLAN'dan diğerine sızar. Bir trunk'ın iki ucu da aynı native VLAN'ı kullanmalıdır. Signalbox iki ucu da okuyorsa vlan.native-mismatch onları karşılaştırır.",
+ "msg.link.pvidMismatch": "{where}: Native VLAN burada {local}, diğer uçta ise {remote}.",
+ "msg.link.pvidMismatch.fix": "Kablonun iki ucunda da aynı native (etiketsiz) VLAN'ı ayarlayın.",
+ "rule.link.mtu-mismatch.title": "Karşı uç, bu portun gönderdiğinden daha küçük çerçeveleri kabul ediyor",
+ "rule.link.mtu-mismatch.explanation": "Komşu, portunun kabul ettiği en büyük çerçeveyi duyurur (LLDP) ve yerel MTU daha büyük çerçeve gerektirir. Büyük paketler atılır, küçükler çalışır: bağlantılar el sıkışmadan sonra takılır. Signalbox iki ucu da okuyorsa link.mtu onları karşılaştırır.",
+ "msg.link.mtuMismatch": "{where}: MTU burada {mtu}, ancak diğer uç yalnızca {frame} baytlık çerçeveleri kabul ediyor.",
+ "msg.link.mtuMismatch.fix": "Bu portun MTU değerini düşürün veya diğer uçta ve aradaki her yerde çerçeve boyutunu (jumbo çerçeve) artırın.",
+ "rule.poe.request-unmet.title": "Bir cihaz portunun verdiğinden fazla PoE gücü istiyor",
+ "rule.poe.request-unmet.explanation": "Bir komşu istediği PoE gücünü duyurur (LLDP) ve anahtar portunda PoE kapalıdır veya limit daha düşüktür. Cihaz kısıtlı işlevlerle çalışır veya hiç açılmaz.",
+ "msg.poe.requestOff": "{where}: Cihaz {requested} W istiyor ancak portta PoE kapalı.",
+ "msg.poe.requestOff.fix": "Portta PoE'yi açın veya cihazı başka bir yolla besleyin.",
+ "msg.poe.requestLimit": "{where}: Cihaz {requested} W istiyor ancak port en fazla {limit} W veriyor.",
+ "msg.poe.requestLimit.fix": "Portun PoE sınırını yükseltin veya cihazı daha yüksek PoE sınıfına sahip bir porta veya anahtara taşıyın."
 }

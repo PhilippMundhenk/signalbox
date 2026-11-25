@@ -3230,5 +3230,19 @@
  "msg.firmware.betaChannel": "{name} {channel} چینل پر ہے",
  "msg.firmware.betaChannel.fix": "جب تک آپ جان بوجھ کر ٹیسٹ نہیں کر رہے، اسے اسٹیبل یا لانگ ٹرم چینل پر لے جائیں۔",
  "msg.firmware.updateUnnamed": "{name} کے لیے فرم ویئر اپ ڈیٹ دستیاب ہے",
- "msg.firmware.updateUnnamed.fix": "{name} کو اپ ڈیٹ کریں۔"
+ "msg.firmware.updateUnnamed.fix": "{name} کو اپ ڈیٹ کریں۔",
+ "rule.link.pvid-mismatch.title": "لنک کے دونوں سروں پر نیٹو VLAN مختلف ہے",
+ "rule.link.pvid-mismatch.explanation": "پڑوسی اس VLAN کا اعلان کرتا ہے جس میں وہ بغیر ٹیگ والے فریم رکھتا ہے (LLDP) اور مقامی پورٹ کوئی دوسرا استعمال کرتا ہے۔ تب بغیر ٹیگ ٹریفک ایک VLAN سے دوسرے میں رِس جاتی ہے۔ ٹرنک کے دونوں سروں پر ایک ہی نیٹو VLAN ہونا چاہیے۔ جہاں Signalbox دونوں سرے پڑھتا ہے وہاں vlan.native-mismatch ان کا موازنہ کرتا ہے۔",
+ "msg.link.pvidMismatch": "{where}: نیٹو VLAN یہاں {local} ہے لیکن دوسرے سرے پر {remote}۔",
+ "msg.link.pvidMismatch.fix": "کیبل کے دونوں سروں پر ایک ہی نیٹو (بغیر ٹیگ) VLAN سیٹ کریں۔",
+ "rule.link.mtu-mismatch.title": "دوسرا سرا اس پورٹ کے بھیجے فریم سے چھوٹے فریم ہی قبول کرتا ہے",
+ "rule.link.mtu-mismatch.explanation": "پڑوسی اپنے پورٹ کا سب سے بڑا قبول کردہ فریم بتاتا ہے (LLDP) اور مقامی MTU کو بڑے فریم درکار ہیں۔ بڑے پیکٹ گرا دیے جاتے ہیں اور چھوٹے چلتے ہیں: ہینڈشیک کے بعد کنکشن اٹک جاتے ہیں۔ جہاں Signalbox دونوں سرے پڑھتا ہے وہاں link.mtu ان کا موازنہ کرتا ہے۔",
+ "msg.link.mtuMismatch": "{where}: MTU یہاں {mtu} ہے لیکن دوسرا سرا صرف {frame} بائٹ کے فریم قبول کرتا ہے۔",
+ "msg.link.mtuMismatch.fix": "اس پورٹ کا MTU کم کریں، یا دوسرے سرے پر اور درمیان میں فریم کا سائز (جمبو فریم) بڑھائیں۔",
+ "rule.poe.request-unmet.title": "ڈیوائس پورٹ کی دی ہوئی بجلی سے زیادہ PoE پاور مانگتی ہے",
+ "rule.poe.request-unmet.explanation": "پڑوسی بتاتا ہے کہ وہ کتنی PoE پاور مانگتا ہے (LLDP) اور سوئچ پورٹ پر PoE بند ہے یا حد کم ہے۔ تب ڈیوائس محدود خصوصیات کے ساتھ چلتی ہے یا شروع ہی نہیں ہوتی۔",
+ "msg.poe.requestOff": "{where}: ڈیوائس {requested} W مانگتی ہے لیکن پورٹ پر PoE بند ہے۔",
+ "msg.poe.requestOff.fix": "پورٹ پر PoE چالو کریں یا ڈیوائس کو کسی اور طریقے سے بجلی دیں۔",
+ "msg.poe.requestLimit": "{where}: ڈیوائس {requested} W مانگتی ہے لیکن پورٹ زیادہ سے زیادہ {limit} W دیتا ہے۔",
+ "msg.poe.requestLimit.fix": "پورٹ کی PoE حد بڑھائیں یا ڈیوائس کو اونچی PoE کلاس والے پورٹ یا سوئچ پر منتقل کریں۔"
 }

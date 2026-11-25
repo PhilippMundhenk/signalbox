@@ -87,6 +87,7 @@ from signalbox.adapters.portcounters import counters_of
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.factory_defaults import is_factory_default
+from signalbox.lldp import age_seconds, int_of, med_class, protocol_of
 from signalbox.model import (
     DNS_PORT,
     SERVICE_PORTS,
@@ -120,6 +121,7 @@ from signalbox.model import (
     LeaseState,
     LogTarget,
     ManagementService,
+    MedDeviceClass,
     Membership,
     Neighbour,
     Pmf,
@@ -151,6 +153,7 @@ from signalbox.model import (
     WpsMethod,
     fdb_id,
     normalise_capabilities,
+    normalise_id_kind,
     normalise_mac,
     object_id,
     passphrase_digest,
@@ -2791,6 +2794,16 @@ class OpenWrtAdapter(Adapter):
                         management_address=_first(chassis.get("mgmt-ip")),
                         capabilities=_capabilities(chassis.get("capability")),
                         description=_first(chassis.get("descr")),
+                        protocol=protocol_of(iface.get("via")),
+                        chassis_id_kind=normalise_id_kind(_kind(chassis.get("id"))),
+                        port_description=_first(port.get("descr")),
+                        ttl_seconds=int_of(_first(port.get("ttl"))),
+                        age_seconds=age_seconds(iface.get("age")),
+                        max_frame_size=int_of(_first(port.get("mfs"))),
+                        port_vlan=_pvid(port.get("vlan")),
+                        vlans=_vlans(port.get("vlan")),
+                        med_device_class=_med_class(iface.get("lldp-med")),
+                        **_power(port.get("power")),
                     )
                 )
         return Observation(neighbours=neighbours)
@@ -2823,6 +2836,63 @@ def _capabilities(values: Any) -> list[str]:
     return normalise_capabilities(
         str(v["type"]) for v in values if isinstance(v, dict) and v.get("enabled") and v.get("type")
     )
+
+
+def _kind(values: Any) -> str | None:
+    """The ``type`` of an lldpcli id (``mac``, ``ip``, ``ifname``, ``local``)."""
+    if isinstance(values, list) and values and isinstance(values[0], dict):
+        kind = values[0].get("type")
+        return str(kind) if kind is not None else None
+    return None
+
+
+def _vlan_entries(values: Any) -> list[tuple[int, bool]]:
+    """``(vlan id, is pvid)`` of the ``vlan`` entries of an lldpcli port (a lone object is
+    accepted too); entries without a valid id are left out."""
+    if isinstance(values, dict):
+        values = [values]
+    out: list[tuple[int, bool]] = []
+    for v in values if isinstance(values, list) else []:
+        vid = int_of(v.get("vlan-id")) if isinstance(v, dict) else None
+        if vid is not None and 1 <= vid <= 4094:
+            out.append((vid, v.get("pvid") in (True, "yes", "true")))
+    return out
+
+
+def _pvid(values: Any) -> int | None:
+    return next((vid for vid, pvid in _vlan_entries(values) if pvid), None)
+
+
+def _vlans(values: Any) -> list[int]:
+    return sorted({vid for vid, _ in _vlan_entries(values)})
+
+
+def _power(values: Any) -> dict[str, Any]:
+    """PoE fields of the ``power`` entry of an lldpcli port (802.3 and LLDP-MED): requested
+    and allocated milliwatts as watts, the PD class (``class 4``)."""
+    if isinstance(values, list) and values:
+        values = values[0]
+    if not isinstance(values, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for name, key in (("poe_requested_w", "requested"), ("poe_allocated_w", "allocated")):
+        mw = int_of(values.get(key))
+        if mw is not None:
+            out[name] = mw / 1000
+    cls = int_of(str(values.get("class") or "").lower().replace("class", ""))
+    if cls is not None and 0 <= cls <= 8:
+        out["poe_class"] = cls
+    return out
+
+
+def _med_class(values: Any) -> MedDeviceClass | None:
+    """The LLDP-MED device class of the interface's ``lldp-med`` entry."""
+    if isinstance(values, list) and values:
+        values = values[0]
+    if not isinstance(values, dict):
+        return None
+    kind = values.get("device-type")
+    return med_class(_first(kind) if isinstance(kind, list) else kind)
 
 
 def _first(values: Any) -> str | None:

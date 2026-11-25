@@ -592,6 +592,14 @@ def test_lease_parser() -> None:
     assert empty == []
 
 
+def test_lldp_details() -> None:
+    first, second = parse.lldp(split("@@lldp\n" + sim.EDGEOS_LLDP + "@@end\n"))
+    assert (first.via, first.chassis_kind, first.age) == ("LLDP", "mac", 11564)
+    assert (first.ttl, first.max_frame_size, first.port_vlan) == (120, 1522, 1)
+    assert first.vlans == [1, 20] and first.port_description == "0/1"
+    assert first.med_device_type and second.ttl is None and second.vlans == []
+
+
 def test_lldp_parser_skips_neighbours_without_chassis() -> None:
     neighbours = parse.lldp(
         split(
