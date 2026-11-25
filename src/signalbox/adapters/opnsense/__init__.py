@@ -76,6 +76,7 @@ from signalbox.adapters.opnsense import radius as radius_reader
 from signalbox.adapters.opnsense import routes as route_reader
 from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import upnp as upnp_reader
+from signalbox.adapters.opnsense import vpn as vpn_reader
 from signalbox.adapters.opnsense import write as w
 from signalbox.adapters.opnsense.certificates import CA_PRIVILEGE, CERT_PRIVILEGE, issuer_names
 from signalbox.adapters.opnsense.certificates import parse as parse_certificates
@@ -2662,7 +2663,62 @@ class OpnsenseAdapter(_Adapter):
             overview = []
         interfaces = {_text(r.get("device")): r for r in overview if _text(r.get("device"))}
         tunnels = wireguard_tunnels(rows, self.context.device_id, interfaces)
-        return Observation(tunnels=tunnels)
+        more, gaps = await self._ipsec_openvpn()
+        return Observation(tunnels=[*tunnels, *more], incomplete=gaps)
+
+    async def _vpn_rows(
+        self, endpoint: str, what: str, privilege: str, gaps: list[Gap]
+    ) -> list[dict[str, Any]] | None:
+        """Rows of a VPN grid (#153); None: not there (404, not installed or an old release) or
+        refused (403: an optional gap naming the privilege)."""
+        try:
+            data = await self._optional(endpoint, grid=True)
+        except AdapterError as exc:
+            gaps.append(_privilege_gap(what, exc, privilege))
+            return None
+        return None if data is None else _rows(data, endpoint)
+
+    async def _ipsec_openvpn(self) -> tuple[list[Tunnel], list[Gap]]:
+        """IPsec connections with their child SAs and OpenVPN instances with their sessions
+        (#153), see :mod:`vpn`. Pre-shared keys, static keys and certificates are not asked for."""
+        d = self.context.device_id
+        gaps: list[Gap] = []
+        now = datetime.now(UTC)
+        out: list[Tunnel] = []
+        connections = await self._vpn_rows(
+            vpn_reader.CONNECTIONS, "IPsec connections", vpn_reader.IPSEC_PRIVILEGE, gaps
+        )
+        if connections is not None:
+            children = await self._vpn_rows(
+                vpn_reader.CHILDREN, "IPsec child SAs", vpn_reader.IPSEC_PRIVILEGE, gaps
+            )
+            locals_ = await self._vpn_rows(
+                vpn_reader.LOCALS, "IPsec authentication", vpn_reader.IPSEC_PRIVILEGE, gaps
+            )
+            phase1 = await self._vpn_rows(
+                vpn_reader.PHASE1, "IPsec status", vpn_reader.IPSEC_PRIVILEGE, gaps
+            )
+            phase2 = await self._vpn_rows(
+                vpn_reader.PHASE2, "IPsec status", vpn_reader.IPSEC_PRIVILEGE, gaps
+            )
+            out += vpn_reader.ipsec_tunnels(
+                d,
+                connections,
+                children or [],
+                locals_ or [],
+                phase1,
+                phase2 if phase1 is not None else None,
+                now,
+            )
+        instances = await self._vpn_rows(
+            vpn_reader.OVPN_INSTANCES, "OpenVPN instances", vpn_reader.OPENVPN_PRIVILEGE, gaps
+        )
+        if instances is not None:
+            sessions = await self._vpn_rows(
+                vpn_reader.OVPN_SESSIONS, "OpenVPN sessions", vpn_reader.OPENVPN_PRIVILEGE, gaps
+            )
+            out += vpn_reader.openvpn_tunnels(d, instances, sessions, now)
+        return out, list({g.message: g for g in gaps}.values())
 
     async def trace(self, target: Any, max_hops: int, wait: float) -> TraceAnswer:
         """Traceroute through Diagnostics: Traceroute (#253); the firewall waits 2 s per hop

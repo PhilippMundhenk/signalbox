@@ -277,6 +277,110 @@ def firewall_data() -> dict[str, Any]:
     }
 
 
+#: shared secret and password of the simulated VPN (#153): tests assert they never leak
+IPSEC_SECRET = "sim-vpn-secret-do-not-leak"
+
+
+def vpn_data() -> dict[str, Any]:
+    """IPsec and OpenVPN of a router (#153): opt-in (``sim.data.update(vpn_data())``). The
+    menus show the secrets, as a group with the sensitive policy would see them."""
+    return {
+        "/rest/ip/ipsec/identity": _ids(
+            {
+                "peer": "site-b",
+                "auth-method": "digital-signature",
+                "certificate": "vpn-gateway",
+                "disabled": "false",
+            },
+            {
+                "peer": "site-c",
+                "auth-method": "pre-shared-key",
+                "secret": IPSEC_SECRET,
+                "disabled": "false",
+            },
+        ),
+        "/rest/ip/ipsec/peer": _ids(
+            {
+                "name": "site-c",
+                "address": "203.0.113.50/32",
+                "profile": "site-profile",
+                "exchange-mode": "ike2",
+                "passive": "false",
+                "disabled": "false",
+                "comment": "site C",
+            }
+        ),
+        "/rest/ip/ipsec/profile": _ids(
+            {
+                "name": "site-profile",
+                "hash-algorithm": "sha256",
+                "enc-algorithm": "aes-256",
+                "dh-group": "modp2048",
+                "dpd-interval": "8s",
+            }
+        ),
+        "/rest/ip/ipsec/proposal": _ids(
+            {
+                "name": "site-proposal",
+                "auth-algorithms": "sha256",
+                "enc-algorithms": "aes-256-cbc",
+                "pfs-group": "modp2048",
+                "lifetime": "30m",
+            }
+        ),
+        "/rest/ip/ipsec/policy": _ids(
+            {
+                "peer": "site-c",
+                "src-address": "192.0.2.0/24",
+                "dst-address": "198.18.88.0/24",
+                "proposal": "site-proposal",
+                "tunnel": "true",
+                "ph2-state": "established",
+                "disabled": "false",
+                "dynamic": "false",
+            }
+        ),
+        "/rest/ip/ipsec/active-peers": _ids(
+            {
+                "remote-address": "203.0.113.50",
+                "local-address": "203.0.113.1",
+                "state": "established",
+                "uptime": "1h2m3s",
+            }
+        ),
+        "/rest/interface/ovpn-server/server": _ids(
+            {
+                "enabled": "true",
+                "port": "1194",
+                "protocol": "tcp",
+                "cipher": "aes256-cbc,aes256-gcm",
+                "certificate": "vpn-gateway",
+            }
+        ),
+        "/rest/interface/ovpn-server": _ids(
+            {
+                "name": "<ovpn-laptop>",
+                "user": "laptop",
+                "client-address": "198.18.77.2",
+                "uptime": "5m",
+            }
+        ),
+        "/rest/interface/ovpn-client": _ids(
+            {
+                "name": "ovpn-out1",
+                "connect-to": "203.0.113.60",
+                "port": "1194",
+                "protocol": "tcp",
+                "cipher": "aes256-gcm",
+                "user": "sim-user",
+                "password": IPSEC_SECRET,
+                "running": "true",
+                "disabled": "false",
+            }
+        ),
+    }
+
+
 def sample_data() -> dict[str, Any]:
     """Answers by path (a fresh copy every call)."""
     bridge_mac = _mac(1, 0)

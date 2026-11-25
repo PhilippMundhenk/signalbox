@@ -79,6 +79,7 @@ from signalbox.adapters.mikrotik import routes as route_reader
 from signalbox.adapters.mikrotik import stp as _stp
 from signalbox.adapters.mikrotik import trace as _trace
 from signalbox.adapters.mikrotik import upnp as _upnp
+from signalbox.adapters.mikrotik import vpn as vpn_reader
 from signalbox.adapters.mikrotik.certificates import USERS as CERT_USERS
 from signalbox.adapters.mikrotik.certificates import attach_users
 from signalbox.adapters.mikrotik.certificates import parse as parse_certificate
@@ -3409,7 +3410,8 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         try:
             interfaces = wireguard_rows(await get_menu(self.http, WIREGUARD), WIREGUARD)
         except NotFound:  # no wireguard package / RouterOS 6
-            return Observation(tunnels=[])
+            more, gaps = await self._ipsec_openvpn()
+            return Observation(tunnels=more, incomplete=gaps)
         peers = wireguard_rows(await get_menu(self.http, WIREGUARD_PEERS), WIREGUARD_PEERS)
         addresses: dict[str, list[IPInterface]] = {}
         for endpoint in (IP_ADDRESS, IPV6_ADDRESS):
@@ -3449,7 +3451,60 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     ),
                 )
             )
-        return Observation(tunnels=tunnels)
+        more, gaps = await self._ipsec_openvpn()
+        return Observation(tunnels=[*tunnels, *more], incomplete=gaps)
+
+    async def _vpn_menu(
+        self, endpoint: str, gaps: list[Gap], optional: bool = True
+    ) -> list[dict[str, Any]] | None:
+        """A VPN menu without anything that can hold a secret (:func:`vpn_reader.clean`); read
+        without the cache so that none is kept. None: the menu does not exist (404; package or
+        version) or the group may not read it (an optional gap, #153)."""
+        try:
+            data = await get_menu(self.http, endpoint)
+            if isinstance(data, dict):
+                data = [data]
+            return vpn_reader.clean(_rows(data, endpoint))
+        except NotFound:
+            return None
+        except AdapterError as exc:
+            gaps.append(
+                Gap(
+                    message=f"VPN ({endpoint}): {exc}",
+                    fix="Give the API user's group the read policy, or ignore: IPsec and "
+                    "OpenVPN are then not checked.",
+                    optional=optional,
+                    message_id="mikrotik.vpnGap",
+                    fix_id="mikrotik.vpnGap.fix",
+                    params={"path": endpoint, "cause": str(exc)},
+                )
+            )
+            return None
+
+    async def _ipsec_openvpn(self) -> tuple[list[Tunnel], list[Gap]]:
+        """IPsec peers (identity, profile, proposals, policies, active peers) and the OpenVPN
+        server and clients (#153), see :mod:`vpn`."""
+        d = self.context.device_id
+        gaps: list[Gap] = []
+        out: list[Tunnel] = []
+        peers = await self._vpn_menu(vpn_reader.PEERS, gaps)
+        if peers is not None:
+            identities = await self._vpn_menu(vpn_reader.IDENTITIES, gaps) or []
+            profiles = await self._vpn_menu(vpn_reader.PROFILES, gaps) or []
+            proposals = await self._vpn_menu(vpn_reader.PROPOSALS, gaps) or []
+            policies = await self._vpn_menu(vpn_reader.POLICIES, gaps) or []
+            active = await self._vpn_menu(vpn_reader.ACTIVE, gaps)
+            out += vpn_reader.ipsec_tunnels(
+                d, peers, identities, profiles, proposals, policies, active, datetime.now(UTC)
+            )
+        server = await self._vpn_menu(vpn_reader.OVPN_SERVER, gaps)
+        clients = await self._vpn_menu(vpn_reader.OVPN_CLIENTS, gaps)
+        if server or clients:
+            sessions = await self._vpn_menu(vpn_reader.OVPN_SESSIONS, gaps) or []
+            out += vpn_reader.openvpn_tunnels(
+                d, server[0] if server else None, sessions, clients or []
+            )
+        return out, list({g.message: g for g in gaps}.values())
 
     async def trace(self, target: Any, max_hops: int, wait: float) -> TraceAnswer:
         """``/tool/traceroute`` once (#253); needs the group policy ``test``."""

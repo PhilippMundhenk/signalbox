@@ -293,9 +293,9 @@ function tunnelsCard(ix, deviceId) {
         { 'data-testid': 'tunnel', 'data-id': tun.id },
         h('h3', {}, `${tun.name}${tun.description ? ` (${tun.description})` : ''}`),
         kv([
-          [t('device.tunnel.kind'), tun.kind === 'wireguard' ? 'WireGuard' : tun.kind],
+          [t('device.tunnel.kind'), { wireguard: 'WireGuard', ipsec: 'IPsec', openvpn: 'OpenVPN' }[tun.kind] || tun.kind],
           [t('device.tunnel.state'), tun.up === true ? t('device.state.up') : tun.up === false ? t('device.state.down') : t('device.state.unknown')],
-          [t('device.tunnel.listensOn'), opt(tun.listen_port, (v) => `UDP ${v}`)],
+          [t('device.tunnel.listensOn'), opt(tun.listen_port, (v) => `${(tun.protocol || 'udp').toUpperCase()} ${v}`)],
           [t('device.tunnel.addresses'), tun.addresses.length ? tun.addresses.join(', ') : undefined],
           [t('device.tunnel.publicKey'), opt(tun.public_key, (v) => h('span', { class: 'mono' }, v))],
         ]),

@@ -276,6 +276,27 @@ Verified in CI (tests/integration/test_opnsense_real.py): the VM has an instance
 2001:db8:20::/64, an endpoint that never answers, keepalive 25), and the read user gets 403 on
 both configuration grids.
 
+## IPsec and OpenVPN (#153)
+
+Read with the same `vpn` capability, read only; each kind that is not installed (404) is
+skipped, a refused one (403) is an optional gap naming the privilege. Covered: 24.7, 25.1,
+25.7 and 26.1 (swanctl "Connections" and OpenVPN "Instances"; both spellings of the actions
+are tried). The legacy IPsec tunnels and the legacy OpenVPN pages of releases before 23.7 have
+no API and are not read. The column names are a *guess* from the public models (#21).
+
+- `GET /api/ipsec/connections/search_connection`: `uuid`, `enabled`, `description`, `version`
+  (`IKEv1`/`IKEv2`/`0`), `aggressive`, `remote_addrs`, `proposals`, `dpd_delay`: a `Tunnel`
+  of kind `ipsec` named `ipsec-<uuid start>`; `search_child` (`local_ts`, `remote_ts`,
+  `esp_proposals`, `rekey_time`): `TunnelChild`; `search_local` (`auth`: `psk`, `pubkey`,
+  `eap-*`): `auth`. Privilege *VPN: IPsec* (`api/ipsec/*`).
+- `GET /api/ipsec/sessions/search_phase1` and `search_phase2`: the running IKE and child SAs,
+  giving `up`, `established` and `last_rekey` (`install-time`). Without them these stay unknown.
+- `GET /api/openvpn/instances/search`: `role`, `proto`, `port`, `server` (tunnel network),
+  `route`, `tls_key` (only whether one is chosen), `data-ciphers`/`cipher`; and
+  `GET /api/openvpn/service/search_sessions` for the connected clients and a client's state.
+- Never read: the pre-shared key list (`/api/ipsec/pre_shared_keys/*`), the key stores, the
+  static key and certificate data. Nothing of them is requested or kept.
+
 ## Path traces (optional, #253)
 
 Only while `traces.enabled` is on ([TRACES.md](../TRACES.md)): *Trace now* calls

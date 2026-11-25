@@ -822,6 +822,17 @@ async def read_vpn(self) -> Observation:  # Capability.VPN, ReadsVpn
 - `endpoint_host` is the configured endpoint or, once a handshake happened, where the peer was
   last seen; `None` when the peer connects to us. `latest_handshake` is absolute (timezone-aware).
 
+IPsec and OpenVPN (#153) use the same `Tunnel` with `kind=TunnelKind.IPSEC` or `OPENVPN` and
+no peers: IPsec fills `ike_version`, `aggressive`, `remote_gateway` (None for a roadwarrior
+server), `auth` (`psk`, `certificate`, `eap`: only how, never the secret), `proposals`
+(`CryptoProposal`: encryption, integrity, DH group number; `weaknesses()` derives the weak
+parts, so rules never parse names) and `children` (`TunnelChild`: local and remote networks,
+`established`, `rekey_seconds`, `last_rekey`); OpenVPN fills `role`, `protocol`, `cipher`,
+`tls_auth` (a static key is configured; never the key), `tunnel_network`, `pushed_routes` and
+`sessions` (connected clients: common name, virtual address, since when). `up` is the
+established state; leave it `None` where the device does not report it. See
+`signalbox.adapters.ipsec` for the proposal parsers shared by the readers.
+
 What each integration can fill (*(guess)*: not checked against a device or the vendor's
 source):
 

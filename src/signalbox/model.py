@@ -1821,6 +1821,93 @@ WireGuardKey = Annotated[str, Field(pattern=WIREGUARD_KEY)]
 
 class TunnelKind(StrEnum):
     WIREGUARD = "wireguard"
+    IPSEC = "ipsec"
+    OPENVPN = "openvpn"
+
+
+class TunnelAuth(StrEnum):
+    """How an IPsec connection authenticates (#153); never the secret itself."""
+
+    PSK = "psk"
+    CERTIFICATE = "certificate"
+    EAP = "eap"
+
+
+class TunnelRole(StrEnum):
+    SERVER = "server"
+    CLIENT = "client"
+
+
+#: Encryption algorithms that are broken or obsolete (lower case, key size and mode removed).
+WEAK_ENCRYPTION = frozenset({"des", "3des", "des3", "rc4", "null", "blowfish", "bf"})
+#: Integrity (hash) algorithms that are broken or obsolete.
+WEAK_INTEGRITY = frozenset({"md5", "sha1", "sha"})
+#: Diffie-Hellman groups below this number (1, 2, 5: 768 to 1536 bit MODP) are weak.
+WEAK_DH_BELOW = 14
+
+
+def _algorithm(name: str | None) -> str:
+    """The bare lower-case algorithm: ``HMAC-SHA1-96`` is ``sha1``, ``3des-cbc`` is ``3des``,
+    ``aes256`` stays."""
+    text = (name or "").strip().lower().replace("_", "-").removeprefix("hmac-")
+    text = text.removesuffix("-96").removesuffix("-128")
+    return text.removesuffix("-cbc")
+
+
+class CryptoProposal(Model):
+    """One algorithm combination of an IPsec proposal (#153). Names as the device gives them
+    in lower case (``aes256``, ``3des``, ``sha1``, ``sha256``); ``dh_group`` is the number of
+    the Diffie-Hellman group (2, 14, 19). None: not known."""
+
+    encryption: str | None = None
+    integrity: str | None = None
+    dh_group: Annotated[int, Field(ge=0, le=64)] | None = None
+
+    def weaknesses(self, min_dh_group: int = WEAK_DH_BELOW) -> list[str]:
+        """The weak parts, in a stable order: ``encryption:3des``, ``integrity:md5``,
+        ``dh:2``. Derived here so that rules do not parse algorithm names."""
+        out: list[str] = []
+        enc = _algorithm(self.encryption)
+        if enc.split("-")[0] in WEAK_ENCRYPTION:
+            out.append(f"encryption:{enc}")
+        integrity = _algorithm(self.integrity)
+        if integrity in WEAK_INTEGRITY:
+            out.append(f"integrity:{integrity}")
+        if self.dh_group is not None and 0 < self.dh_group < min_dh_group:
+            out.append(f"dh:{self.dh_group}")
+        return out
+
+
+class TunnelChild(Model):
+    """A child SA / phase 2 / traffic selector pair of an IPsec connection (#153)."""
+
+    name: str
+    local_networks: list[IPNetwork] = Field(default_factory=list)
+    remote_networks: list[IPNetwork] = Field(default_factory=list)
+    #: The security association is installed. None: not known (configuration only).
+    established: bool | None = None
+    rekey_seconds: Annotated[int, Field(ge=0)] | None = None
+    #: When the SA was (re)keyed last; None: not known.
+    last_rekey: datetime | None = None
+    enabled: bool = True
+
+    @field_validator("last_rekey")
+    @classmethod
+    def _aware(cls, value: datetime | None) -> datetime | None:
+        return _utc(value)
+
+
+class TunnelSession(Model):
+    """A client connected to an OpenVPN server (#153). No password, no key."""
+
+    common_name: str | None = None
+    virtual_address: IPv4Address | IPv6Address | None = None
+    connected_since: datetime | None = None
+
+    @field_validator("connected_since")
+    @classmethod
+    def _aware(cls, value: datetime | None) -> datetime | None:
+        return _utc(value)
 
 
 class TunnelPeer(Model):
@@ -1889,6 +1976,39 @@ class Tunnel(Observed):
     #: integration does not know (routes set by scripts are not seen either).
     routes: list[IPNetwork] | None = None
     peers: list[TunnelPeer] = Field(default_factory=list)
+    # --- IPsec (#153); secrets never: ``auth`` only says how, the key is not stored.
+    ike_version: Literal[1, 2] | None = None
+    #: IKEv1 aggressive mode (identity sent before the key exchange is protected).
+    aggressive: bool | None = None
+    #: The other gateway as configured (an address or a name): partner data, never exported.
+    remote_gateway: str | None = None
+    auth: TunnelAuth | None = None
+    #: Subject of the device's own certificate of this connection (no private part).
+    certificate_subject: str | None = None
+    proposals: list[CryptoProposal] = Field(default_factory=list)
+    #: Dead peer detection is on.
+    dpd: bool | None = None
+    children: list[TunnelChild] = Field(default_factory=list)
+    # --- OpenVPN (#153)
+    role: TunnelRole | None = None
+    protocol: Literal["udp", "tcp"] | None = None
+    #: Data cipher(s) as configured, for example ``AES-256-GCM`` or ``BF-CBC``.
+    cipher: str | None = None
+    #: tls-auth or tls-crypt is configured (the static key itself is never read). None: unknown.
+    tls_auth: bool | None = None
+    #: The virtual network of the server.
+    tunnel_network: IPNetwork | None = None
+    pushed_routes: list[IPNetwork] = Field(default_factory=list)
+    #: Connected clients of a server; None: not read.
+    sessions: list[TunnelSession] | None = None
+
+    def all_remote_networks(self) -> list[IPNetwork]:
+        """Remote networks of IPsec children and routes of an OpenVPN client."""
+        out: list[IPNetwork] = []
+        for n in [*(n for c in self.children for n in c.remote_networks), *self.pushed_routes]:
+            if n not in out:
+                out.append(n)
+        return out
 
     def peer(self, public_key: str) -> TunnelPeer | None:
         return next((p for p in self.peers if p.public_key == public_key), None)
