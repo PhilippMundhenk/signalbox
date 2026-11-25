@@ -101,6 +101,7 @@ from signalbox.model import (
     Cipher,
     Client,
     ConfigState,
+    Device,
     DeviceAccount,
     DeviceHealth,
     DeviceRole,
@@ -2619,9 +2620,152 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         )
         if not caps:
             return obs
-        mesh = {c.id: capsman.cap_membership(dev) for c in caps} | obs.mesh
+        obs = await self._cap_radios(obs, await self._cap_owners(caps))
+        layout = await self._layout()
+        raw = {capsman.cap_id(r, dev): _text(r.get("address")) for r in rows}
+        arp = await self._optional_rows(ARP)
+        hosts = await self._optional_rows(BRIDGE_HOST)
+        wireless = {n for n, p in layout.ports.items() if p.kind is PortKind.WIRELESS}
+        mesh: dict[str, MeshMembership] = {}
+        found: list[Device] = []
+        for cap in caps:
+            extra, member = capsman.uplink_of(
+                cap,
+                arp=arp,
+                hosts=hosts,
+                wireless_ports=wireless,
+                segment_of_interface=layout.l3,
+                segment_of_address=lambda a: layout.containing(ip_address(a)),
+                cap_address_text=raw.get(cap.id, ""),
+            )
+            port = layout.port(extra.get("capsman_port", ""))
+            if port is None:  # a table row of an interface that is no port: not claimed
+                extra.pop("capsman_port", None)
+                member = member.model_copy(update={"uplink": None})
+            else:
+                extra["capsman_port"] = port
+            found.append(cap.model_copy(update={"vendor_extra": {**cap.vendor_extra, **extra}}))
+            mesh[cap.id] = member
+        mesh = mesh | obs.mesh
         mesh.setdefault(dev, capsman.controller_membership())
-        return obs.model_copy(update={"devices": [*obs.devices, *caps], "mesh": mesh})
+        return obs.model_copy(update={"devices": [*obs.devices, *found], "mesh": mesh})
+
+    async def _cap_owners(self, caps: list[Device] | None = None) -> dict[str, str]:
+        """Interface name -> id of the CAP it runs on (#481); empty without CAPs."""
+        if caps is None:
+            rows = [
+                *(await self._readable(capsman.REMOTE_CAP_V7) or []),
+                *(await self._readable(capsman.REMOTE_CAP_LEGACY) or []),
+            ]
+            caps = capsman.cap_devices(
+                rows,
+                controller_id=self.context.device_id,
+                site_id=self.context.site_id,
+                adapter_id=self.manifest.id,
+            )
+        if not caps:
+            return {}
+        radios = [
+            *(await self._readable(capsman.CAP_RADIO_V7) or []),
+            *(await self._readable(capsman.CAP_RADIO_LEGACY) or []),
+        ]
+        interfaces = [
+            *(await self._readable(WIFI) or []),
+            *(await self._readable(capsman.CAP_INTERFACE_LEGACY) or []),
+        ]
+        return capsman.interface_owners(caps, radios, interfaces)
+
+    async def _cap_radios(self, obs: Observation, owners: dict[str, str]) -> Observation:
+        """Radios and SSIDs of the CAPs (#481) as those of the CAP device. ``wifi``: the
+        controller's own ``/interface/wifi`` list holds the CAP interfaces; what was read for
+        them moves to the CAP. ``/caps-man/interface`` (legacy) is read here: band and channel
+        from ``current-channel`` (``5180/20-eeCe/ac``) or the channel settings, SSID and VLAN
+        from the configuration, the client count from the registration table *(guess, #21:
+        the dotted column names of the REST API)*."""
+        if not owners:
+            return obs
+        layout = await self._layout()
+        moved = {r.id: r for r in obs.radios if r.name in owners}
+        radios: list[Radio] = [r for r in obs.radios if r.id not in moved]
+        wlans: list[Wlan] = []
+        new_radio: dict[str, str] = {}
+        for old in moved.values():
+            cap = owners[old.name]
+            fresh = old.model_copy(
+                update={"id": object_id(cap, "radio", old.name), "device_id": cap}
+            )
+            new_radio[old.id] = fresh.id
+            radios.append(fresh)
+        for w in obs.wlans:
+            name = w.id.rsplit("/", 1)[-1]
+            if name in owners or w.radio_id in moved:
+                cap = owners.get(name) or owners[moved[w.radio_id].name]
+                w = w.model_copy(
+                    update={
+                        "id": object_id(cap, "wlan", name),
+                        "device_id": cap,
+                        "radio_id": new_radio.get(w.radio_id, w.radio_id),
+                        "port_id": None,
+                    }
+                )
+            wlans.append(w)
+        by_name = {
+            _text(r.get("name")): r
+            for r in await self._readable(capsman.CAP_INTERFACE_LEGACY) or []
+            if _text(r.get("name")) in owners
+        }
+        counts: dict[str, int] = {}
+        for row in await self._readable(capsman.CAP_REGISTRATION_LEGACY) or []:
+            iface = _text(row.get("interface"))
+            master = _text(by_name.get(iface, {}).get("master-interface"))
+            key = master if master not in ("", "none") else iface
+            counts[key] = counts.get(key, 0) + 1
+        masters: dict[str, Radio] = {}
+        for name, row in by_name.items():
+            if _text(row.get("master-interface")) not in ("", "none"):
+                continue
+            channel = capsman.current_channel(row)
+            fc = frequency_channel(channel[0]) if channel else None
+            band = band_of(row.get("channel.band")) or (fc[0] if fc else None)
+            if band is None:
+                continue
+            cap = owners[name]
+            masters[name] = Radio(
+                id=object_id(cap, "radio", name),
+                device_id=cap,
+                name=name,
+                band=band,
+                channel=fc[1] if fc else None,
+                width_mhz=(channel[1] if channel else None) or width_of(row.get("channel.width")),
+                enabled=_active(row),
+                standard=standard_of(row.get("channel.band")),
+                channel_auto=not _text(row.get("channel.frequency")),
+                client_count=counts.get(name, 0),
+                vendor_extra=_extra(row, "channel.band", "current-channel"),
+            )
+        radios.extend(masters.values())
+        for name, row in by_name.items():
+            master = _text(row.get("master-interface"))
+            radio = masters.get(name if master in ("", "none") else master)
+            ssid = _text(row.get("configuration.ssid")) or _text(row.get("ssid"))
+            if radio is None or not ssid:
+                continue
+            vid = _int(row.get("datapath.vlan-id")) if _text(row.get("datapath.vlan-id")) else None
+            wlans.append(
+                Wlan(
+                    id=object_id(owners[name], "wlan", name),
+                    device_id=owners[name],
+                    ssid=ssid,
+                    radio_id=radio.id,
+                    bssid=_mac(row.get("mac-address")),
+                    enabled=radio.enabled and _active(row),
+                    security=security_of(row.get("security.authentication-types")),
+                    segment_id=self._wlan_segment(layout, name, vid),
+                    hidden=_flag(row.get("configuration.hide-ssid")),
+                    vendor_extra=_extra(row, "configuration", "security"),
+                )
+            )
+        return obs.model_copy(update={"radios": radios, "wlans": wlans})
 
     def _wlan_segment(self, layout: _Layout, name: str, vid: int | None) -> str | None:
         if name in layout.port_segment:
@@ -3072,17 +3216,29 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 )
             if not _flag(row.get("local")):
                 add(mac, seen_on=port, segment=seg)
-        for endpoint in (WIFI_REGISTRATION, WIRELESS_REGISTRATION):
+        owners = await self._cap_owners()  # CAPsMAN: clients of a CAP's interface (#481)
+        masters = {
+            _text(r.get("name")): _text(r.get("master-interface"))
+            for r in [
+                *(await self._readable(WIFI) or []),
+                *(await self._readable(capsman.CAP_INTERFACE_LEGACY) or []),
+            ]
+            if _text(r.get("master-interface")) not in ("", "none")
+        }
+        for endpoint in (WIFI_REGISTRATION, WIRELESS_REGISTRATION, capsman.CAP_REGISTRATION_LEGACY):
             for row in await self._optional_rows(endpoint):
                 iface = _text(row.get("interface"))
                 mac = _mac(row.get("mac-address"))
                 if mac is not None and mac not in own and iface:
-                    add(mac, segment=layout.port_segment.get(iface))
-                    seen[mac]["seen_on"] = object_id(dev, "wlan", iface)
+                    ap = owners.get(iface, dev)
+                    add(mac, segment=layout.port_segment.get(iface) if ap == dev else None)
+                    seen[mac]["seen_on"] = object_id(ap, "wlan", iface)
                     seen[mac]["wireless"] = wifi_assoc.association(
                         row,
-                        radio_id=None,
-                        wlan_id=object_id(dev, "wlan", iface),
+                        radio_id=(
+                            object_id(ap, "radio", masters.get(iface, iface)) if ap != dev else None
+                        ),
+                        wlan_id=object_id(ap, "wlan", iface),
                         band=band_of(row.get("band")),
                         standard=standard_of(row.get("band")),
                     )

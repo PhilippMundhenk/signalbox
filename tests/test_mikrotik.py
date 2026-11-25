@@ -1806,3 +1806,176 @@ async def test_capsman_remote_caps_are_managed_access_points(
 
 async def test_no_capsman_no_managed_devices(snap: Snapshot) -> None:
     assert not any("/cap/" in d.id for d in snap.extra_devices)
+
+
+_CAP_ROW = {
+    "identity": "cap-hall",
+    "address": "192.0.2.50:5246",
+    "base-mac": "02:00:00:00:00:51",
+    "model": "cAP ax",
+    "version": "7.15.1 (stable)",
+    "state": "connected",
+}
+
+
+def _cap_uplink(sim: MikrotikSimulator, port: str = "ether2") -> None:
+    sim.data["/rest/ip/arp"].append(
+        {
+            ".id": "*A1",
+            "address": "192.0.2.50",
+            "mac-address": "02:00:00:00:00:52",
+            "interface": "bridge",
+            "status": "reachable",
+        }
+    )
+    sim.data["/rest/interface/bridge/host"].append(
+        {
+            ".id": "*A2",
+            "mac-address": "02:00:00:00:00:52",
+            "on-interface": port,
+            "bridge": "bridge",
+            "vid": "1",
+            "local": "false",
+            "dynamic": "true",
+        }
+    )
+
+
+async def test_capsman_legacy_radios_clients_and_uplink(
+    http_url: str, sim: MikrotikSimulator
+) -> None:
+    """Legacy CAPsMAN: the CAP's interfaces are its radios and SSIDs, the controller's
+    registration table gives its clients, the bridge table its uplink port (#481)."""
+    sim.data["/rest/caps-man/remote-cap"] = [{".id": "*1", **_CAP_ROW}]
+    sim.data["/rest/caps-man/radio"] = [
+        {
+            ".id": "*1",
+            "interface": "cap1",
+            "radio-mac": "02:00:00:00:00:53",
+            "remote-cap-identity": "cap-hall",
+        }
+    ]
+    sim.data["/rest/caps-man/interface"] = [
+        {
+            ".id": "*1",
+            "name": "cap1",
+            "radio-mac": "02:00:00:00:00:53",
+            "mac-address": "02:00:00:00:00:53",
+            "master-interface": "none",
+            "current-channel": "5180/20-eeCe/ac",
+            "channel.band": "5ghz-a/n/ac",
+            "configuration.ssid": "Example-CAP",
+            "security.authentication-types": "wpa2-psk",
+            "datapath.vlan-id": "1",
+            "disabled": "false",
+        },
+        {
+            ".id": "*2",
+            "name": "cap1-guest",
+            "radio-mac": "02:00:00:00:00:53",
+            "master-interface": "cap1",
+            "configuration.ssid": "Example-CAP-Guest",
+            "disabled": "false",
+        },
+    ]
+    sim.data["/rest/caps-man/registration-table"] = [
+        {
+            ".id": "*1",
+            "interface": "cap1",
+            "mac-address": "02:00:00:00:00:60",
+            "rx-signal": "-58",
+            "tx-rate": "300Mbps",
+            "uptime": "1h",
+        }
+    ]
+    _cap_uplink(sim)
+    snap = await observe(adapter(http_url))
+    cap_id = "rt/cap/02:00:00:00:00:51"
+    (radio,) = [r for r in snap.radios if r.device_id == cap_id]
+    assert (radio.band, radio.channel, radio.width_mhz, radio.client_count) == (
+        Band.GHZ_5,
+        36,
+        20,
+        1,
+    )
+    wlans = {w.ssid: w for w in snap.wlans if w.device_id == cap_id}
+    assert set(wlans) == {"Example-CAP", "Example-CAP-Guest"}
+    assert wlans["Example-CAP"].radio_id == radio.id
+    client = next(c for c in snap.clients if c.mac == "02:00:00:00:00:60")
+    assert client.seen_on == f"{cap_id}/wlan/cap1"
+    assert client.wireless is not None and client.wireless.signal_dbm == -58
+    assert client.wireless.radio_id == radio.id
+    (cap,) = [d for d in snap.extra_devices if d.id == cap_id]
+    assert cap.vendor_extra["capsman_port"] == "rt/port/ether2"
+    assert cap.vendor_extra["capsman_path"] == "layer2"
+    assert cap.vendor_extra["capsman_segment"]
+    assert cap.mesh is not None and cap.mesh.uplink is not None
+    assert cap.mesh.uplink.value == "wired" and cap.mesh.hop == 1
+
+
+async def test_capsman_wifi_interfaces_move_to_the_cap(
+    http_url: str, sim: MikrotikSimulator
+) -> None:
+    """RouterOS 7: the CAP's interface listed in ``/interface/wifi`` is the CAP's radio and
+    SSID, not the controller's; its clients are attributed to the CAP (#481)."""
+    sim.data["/rest/interface/wifi/capsman/remote-cap"] = [{".id": "*1", **_CAP_ROW}]
+    sim.data["/rest/interface/wifi/radio"] = [
+        {".id": "*1", "interface": "cap-wifi1", "remote-cap-mac": "02:00:00:00:00:51"}
+    ]
+    sim.data["/rest/interface/wifi"].append(
+        {
+            ".id": "*C1",
+            "name": "cap-wifi1",
+            "mac-address": "02:00:00:00:00:54",
+            "configuration.mode": "ap",
+            "configuration.ssid": "Example-CAP",
+            "channel.band": "5ghz-ax",
+            "channel.frequency": "5500",
+            "channel.width": "20/40/80mhz",
+            "disabled": "false",
+            "running": "true",
+        }
+    )
+    sim.data["/rest/interface/wifi/registration-table"].append(
+        {
+            ".id": "*C2",
+            "interface": "cap-wifi1",
+            "mac-address": "02:00:00:00:00:61",
+            "signal": "-50",
+        }
+    )
+    snap = await observe(adapter(http_url))
+    cap_id = "rt/cap/02:00:00:00:00:51"
+    assert not any(r.name == "cap-wifi1" and r.device_id == "rt" for r in snap.radios)
+    (radio,) = [r for r in snap.radios if r.device_id == cap_id]
+    assert (radio.name, radio.channel, radio.client_count) == ("cap-wifi1", 100, 1)
+    (wlan,) = [w for w in snap.wlans if w.device_id == cap_id]
+    assert wlan.radio_id == radio.id and wlan.ssid == "Example-CAP"
+    client = next(c for c in snap.clients if c.mac == "02:00:00:00:00:61")
+    assert client.seen_on == wlan.id
+    (cap,) = [d for d in snap.extra_devices if d.id == cap_id]
+    assert cap.mesh is not None and cap.mesh.uplink is None  # not seen in any table
+    assert "capsman_port" not in cap.vendor_extra
+
+
+async def test_capsman_cap_behind_a_router_is_layer3(http_url: str, sim: MikrotikSimulator) -> None:
+    sim.data["/rest/caps-man/remote-cap"] = [
+        {".id": "*1", **_CAP_ROW, "address": "203.0.113.50/5246"}
+    ]
+    snap = await observe(adapter(http_url))
+    (cap,) = [d for d in snap.extra_devices if d.id == "rt/cap/02:00:00:00:00:51"]
+    assert cap.vendor_extra["capsman_path"] == "layer3"
+    assert "capsman_segment" not in cap.vendor_extra
+
+
+async def test_capsman_l2_address_is_the_cap_mac(http_url: str, sim: MikrotikSimulator) -> None:
+    """A layer-2 CAPsMAN lists the CAP's MAC address as its address: found in the bridge
+    table, on an Ethernet port it is a cable uplink."""
+    sim.data["/rest/caps-man/remote-cap"] = [
+        {".id": "*1", **_CAP_ROW, "address": "02:00:00:00:00:52"}
+    ]
+    _cap_uplink(sim, port="ether3")
+    snap = await observe(adapter(http_url))
+    (cap,) = [d for d in snap.extra_devices if d.id == "rt/cap/02:00:00:00:00:51"]
+    assert cap.vendor_extra["capsman_path"] == "layer2"
+    assert cap.vendor_extra["capsman_port"] == "rt/port/ether3"

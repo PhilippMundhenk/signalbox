@@ -125,7 +125,7 @@ def association(
         radio_id=radio_id,
         wlan_id=wlan_id,
         band=band,
-        signal_dbm=signal(row.get("signal", row.get("signal-strength"))),
+        signal_dbm=signal(row.get("signal", row.get("signal-strength", row.get("rx-signal")))),
         tx_rate_mbps=tx,
         rx_rate_mbps=rx,
         standard=standard,

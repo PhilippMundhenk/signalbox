@@ -1158,7 +1158,20 @@ role access point, `managed_by` the controller): `/interface/wifi/capsman/remote
 `wifi` package from 7.13, `wifiwave2` from 7.6) and `/caps-man/remote-cap` (RouterOS 6, and 7 with
 the `wireless` package) with `identity`, `address` (a port suffix is dropped), `base-mac`, `model`
 or `board`, `version`, `serial` and `state` (kept in `vendor_extra`). The controller has
-`Device.mesh` role `controller`, each CAP `agent`; neither says how a CAP is connected, so there is
-no uplink. Not read: the clients and radios of the CAPs. Both menus need only the policy `read`:
-the group of the setup guide and *Repair Signalbox's access* are unchanged. *Guess (#21): the
-column names are from the RouterOS manual.*
+`Device.mesh` role `controller`, each CAP `agent` (hop 1). Radios and SSIDs of a CAP are
+`Radio`/`Wlan` of the CAP device (#481): the interfaces of `/caps-man/interface` (band and channel
+from `current-channel`, `channel.band`; SSID `configuration.ssid`; client count from
+`/caps-man/registration-table`), or, on RouterOS 7 `wifi`, the controller's own `/interface/wifi`
+rows that `/interface/wifi/radio` (or `/caps-man/radio`) assigns to a CAP (`remote-cap-identity`,
+`remote-cap-mac` or `remote-cap-address`); they leave the controller's own radios. Clients of those
+interfaces (the controller's registration table, `rx-signal` for the legacy one) are `Client`s with
+`seen_on` and `wireless.wlan_id` on the CAP. Uplink: `capsman_segment` (the segment its address lies
+in, or of the interface that answers ARP for it), `capsman_path` (`layer2` when the controller sees
+the CAP in ARP or in an own network, `layer3` when a router lies between), `capsman_port` (the
+controller port whose bridge table holds the CAP, from ARP and `base-mac`, or the MAC address an L2
+CAPsMAN lists as `address`) in `vendor_extra`, and `mesh.uplink` `wired` or `wireless` (a Wi-Fi
+port) only when that port is known. Everything is read-only with the policy `read`: the group of
+the setup guide and *Repair Signalbox's access* are unchanged. *Guess (#21): the column names are
+from the RouterOS manual, in particular the `remote-cap-*` columns of the radio tables and the
+dotted `channel.*`/`configuration.*` columns of `/caps-man/interface` in REST; the CAP's
+bridge-table MAC is assumed to be its `base-mac` or ARP MAC.*
