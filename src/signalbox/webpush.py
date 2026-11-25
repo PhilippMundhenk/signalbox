@@ -38,7 +38,8 @@ PUBLIC_KEY = "webpush:vapid-public"  # base64url, the "application server key"
 SUBSCRIPTIONS_KEY = "webpush:subscriptions"  # encrypted JSON
 MAX_SUBSCRIPTIONS = 50
 MAX_BODY = 600  # characters; a push message holds about 4 KB
-PROJECT_URL = "https://github.com/PhilippMundhenk/signalbox"
+# The VAPID "sub" claim: a mailto: or an https origin (no path), checked by py_vapid.
+PROJECT_URL = "https://github.com"
 
 
 class SubscriptionKeys(BaseModel):
@@ -141,7 +142,10 @@ class WebPush:
         return Vapid01.from_pem(self.store.vault.decrypt(stored).encode())
 
     def _contact(self) -> str:
-        return self.base_url if self.base_url.startswith("https://") else PROJECT_URL
+        parts = urlsplit(self.base_url)
+        if parts.scheme == "https" and parts.hostname and "." in parts.hostname:
+            return f"https://{parts.hostname}"
+        return PROJECT_URL
 
     # subscriptions ------------------------------------------------------------------------
 
