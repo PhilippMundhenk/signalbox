@@ -168,6 +168,19 @@ class CertificatesConfig(Section):
     )
 
 
+class DdnsConfig(Section):
+    resolve: bool = Field(
+        False,
+        description="Resolve the host names of dynamic DNS clients and compare the answer with "
+        "the public address of the internet connection (ddns.mismatch, #450). Off by default: "
+        "this sends a DNS query for each name from the host Signalbox runs on, to the resolver "
+        "that host uses, which then sees your names. Nothing is sent while this is false.",
+    )
+    timeout_seconds: float = Field(
+        3, gt=0, le=30, description="How long one lookup may take, in seconds."
+    )
+
+
 class DiscoveryConfig(Section):
     enabled: bool = Field(
         True,
@@ -396,6 +409,7 @@ class Config(Section):
     history: HistoryConfig = HistoryConfig()
     counters: CountersConfig = CountersConfig()
     certificates: CertificatesConfig = CertificatesConfig()
+    ddns: DdnsConfig = DdnsConfig()
     discovery: DiscoveryConfig = DiscoveryConfig()
     setup: SetupConfig = SetupConfig()
     traces: TracesConfig = TracesConfig()

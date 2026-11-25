@@ -84,6 +84,13 @@ Generated from the code by `tools/gen_docs.py`.
 | `certificates.warn_days` | `SIGNALBOX_CERTIFICATES_WARN_DAYS` | `30` | Deprecated, use rules.<id>.params.warn_days of security.certificate-expiry, cert.vpn-expiring and cert.ca-expiring (#441). Days before a certificate expires when Signalbox warns. |
 | `certificates.urgent_days` | `SIGNALBOX_CERTIFICATES_URGENT_DAYS` | `7` | Deprecated, use rules.<id>.params.urgent_days of the same rules. Days before it expires when the warning becomes an error (an expired certificate is always an error). |
 
+## `ddns`
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `ddns.resolve` | `SIGNALBOX_DDNS_RESOLVE` | false | Resolve the host names of dynamic DNS clients and compare the answer with the public address of the internet connection (ddns.mismatch, #450). Off by default: this sends a DNS query for each name from the host Signalbox runs on, to the resolver that host uses, which then sees your names. Nothing is sent while this is false. |
+| `ddns.timeout_seconds` | `SIGNALBOX_DDNS_TIMEOUT_SECONDS` | `3` | How long one lookup may take, in seconds. |
+
 ## `discovery`
 
 | Setting | Environment variable | Default | Meaning |

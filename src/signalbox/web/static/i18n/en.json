@@ -1038,6 +1038,8 @@
  "msg.linux.ip6tablesDenied": "firewall: ip6tables-save is not allowed for this user, the IPv6 rules are not read",
  "msg.linux.staleDatabase": "The package lists on the device are out of date. Installing a single package needs a full system update first (sudo pacman -Syu), which can take long on an old device. Signalbox reads legacy iptables without nftables.",
  "msg.linux.keaError": "Kea: {cause}",
+ "msg.linux.ddnsUnreadable": "dynamic DNS: {files} not readable, so the client's names or last update are not known",
+ "msg.linux.ddnsUnreadable.fix": "Run Set up automatically or Repair Signalbox's access again (it adds a read-only rule for the configuration file), or accept that the dynamic DNS client is not read.",
  "msg.linux.logUnreadable": "log targets: {files} not readable for {user}",
  "msg.linux.logUnreadable.fix": "Give the user read access to these files, or accept that the remote syslog targets are not read.",
  "msg.linux.nft.chainJump": "{source}: {kind} to chain {chain} cannot be followed (unknown chain or a loop)",

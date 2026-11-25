@@ -542,7 +542,9 @@ the checks (`wan.group-member-down`, `wan.group-last-member`, `wan.monitor-local
 | MikroTik | two or more enabled default routes: tier by `distance`, `check-gateway` (the monitor is the gateway itself), `gateway-status`; `/rest/tool/netwatch` entries with the comment of a route | `/rest/ip/cloud`: `dns-name`, `public-address`, `status`, `ddns-enabled` |
 | Fritz!Box | none (the mobile fallback is not in TR-064) | TR-064 `X_AVM-DE_RemoteAccess:1 GetDDNSInfo` (provider, domain, mode, status) and `X_AVM-DE_MyFritz:1 GetInfo` (the MyFRITZ! name) |
 | UniFi | the WAN networks' `wan_failover_priority`, `wan_load_balance_type` and `wan_load_balance_weight`, with `up`, `latency` and `is_uplink` of the gateway's `wan1`/`wan2` | `rest/dynamicdns` (host name, service, interface) |
-| Omada, Linux, EdgeOS, SNMP, switches | not read | not read |
+| Linux | not read | `ddclient` and `inadyn`: config and cache files, never the account (see [Linux](adapters/linux.md#dynamic-dns-ddclient-and-inadyn-450)) |
+| Omada | not read | not available: no read in the controller's Open API (#450) |
+| EdgeOS, SNMP, switches | not read | not read |
 
 ## Management services
 

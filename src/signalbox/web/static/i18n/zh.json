@@ -1038,6 +1038,8 @@
  "msg.linux.ip6tablesDenied": "防火墙：不允许该用户运行 ip6tables-save，因此不会读取 IPv6 规则",
  "msg.linux.staleDatabase": "设备上的软件包列表已过期。安装单个软件包前需要先进行完整的系统更新（sudo pacman -Syu），在旧设备上可能耗时很长。没有 nftables 时，Signalbox 也能读取旧版 iptables。",
  "msg.linux.keaError": "Kea:{cause}",
+ "msg.linux.ddnsUnreadable": "动态 DNS：无法读取 {files}，因此不知道客户端的名称或最近一次更新",
+ "msg.linux.ddnsUnreadable.fix": "请再次运行自动设置或修复 Signalbox 的访问权限（会为该配置文件添加只读规则），或接受不读取动态 DNS 客户端。",
  "msg.linux.logUnreadable": "日志目标:{files} 对 {user} 不可读",
  "msg.linux.logUnreadable.fix": "请授予该用户这些文件的读取权限,或接受不读取远程 syslog 目标。",
  "msg.linux.nft.chainJump": "{source}:无法跟踪指向链 {chain} 的 {kind} (未知链或存在循环)",

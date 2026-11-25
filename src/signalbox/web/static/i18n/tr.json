@@ -1038,6 +1038,8 @@
  "msg.linux.ip6tablesDenied": "güvenlik duvarı: bu kullanıcı için ip6tables-save'e izin verilmiyor, IPv6 kuralları okunmuyor",
  "msg.linux.staleDatabase": "Cihazdaki paket listeleri güncel değil. Tek bir paketi kurmak için önce tam sistem güncellemesi (sudo pacman -Syu) gerekir; eski bir cihazda bu uzun sürebilir. Signalbox eski iptables'ı nftables olmadan da okur.",
  "msg.linux.keaError": "Kea: {cause}",
+ "msg.linux.ddnsUnreadable": "Dinamik DNS: {files} okunamıyor, bu yüzden istemcinin adları veya son güncellemesi bilinmiyor",
+ "msg.linux.ddnsUnreadable.fix": "Otomatik kurulumu veya Signalbox erişimini onarmayı yeniden çalıştırın (yapılandırma dosyası için salt okunur bir kural ekler) veya dinamik DNS istemcisinin okunmamasını kabul edin.",
  "msg.linux.logUnreadable": "günlük hedefleri: {files}, {user} için okunamıyor",
  "msg.linux.logUnreadable.fix": "Kullanıcıya bu dosyalara okuma erişimi verin veya uzak syslog hedeflerinin okunmadığını kabul edin.",
  "msg.linux.nft.chainJump": "{source}: {chain} zincirine {kind} izlenemiyor (bilinmeyen zincir veya döngü)",

@@ -35,6 +35,18 @@ NFT_ARGS = "-j list ruleset"
 #: so the rule allows the empty argument list only).
 IPTABLES_SAVE = "/usr/sbin/iptables-save"
 IP6TABLES_SAVE = "/usr/sbin/ip6tables-save"
+#: Dynamic DNS client configuration files (#450) that the sudoers rule may read, each through
+#: ``sudo -n /bin/cat <file>`` with exactly this one argument. Their credential lines are removed
+#: on the device by :data:`DDNS_CLEAN` before the text is sent.
+CAT = "/bin/cat"
+DDNS_SUDO_FILES = ("/etc/ddclient.conf", "/etc/inadyn.conf")
+#: The filter every dynamic DNS file goes through on the device: from a ``key =`` whose key names a
+#: credential (password, token, secret, key, login, user, auth) to the end of the line is removed.
+#: The same rule as ``ddns.SECRET``; no quote characters, so it sits in a shell string as it is.
+DDNS_CLEAN = (
+    "sed -E 's/[A-Za-z_-]*(pass|token|secret|key|login|user|auth|cred)[A-Za-z_-]*"
+    "[[:space:]]*=.*$/\\1=/I'"
+)
 #: Words that must never appear in a command sent to the device (checked by the tests).
 FORBIDDEN = ("dump", "private-key", "preshared-key", "/etc/wireguard", "showconf")
 
@@ -109,6 +121,28 @@ if command -v dnf >/dev/null 2>&1; then
   timeout 30 dnf -C -q updateinfo list --security 2>/dev/null
 fi
 """
+
+# Dynamic DNS (#450): the configuration files, cleaned on the device (DDNS_CLEAN) before they are
+# sent; a file that is not readable only through ``sudo -n /bin/cat <file>``, which the sudoers
+# rule allows for the files of DDNS_SUDO_FILES and nothing else. The clients' caches are read
+# as the login (no sudo); inadyn's file times are the time of the last update.
+_DDNS = (
+    "ddns_conf() {\n"
+    "  for f in /etc/ddclient.conf /etc/ddclient/ddclient.conf /etc/inadyn.conf"
+    " /etc/inadyn/inadyn.conf; do\n"
+    '    [ -f "$f" ] || continue\n'
+    '    if [ -r "$f" ]; then echo "@@@ $f"; head -c 65536 "$f" | ' + DDNS_CLEAN + "; echo\n"
+    '    elif case "$f" in /etc/ddclient.conf|/etc/inadyn.conf) true;; *) false;; esac &&'
+    "\n      T=$(sudo -n " + CAT + ' "$f" 2>/dev/null); then\n'
+    '      echo "@@@ $f"; printf \'%s\\n\' "$T" | ' + DDNS_CLEAN + "\n"
+    '    else echo "@@! $f"; fi\n'
+    "  done\n"
+    "}\n"
+    "echo @@ddns-conf; ddns_conf\n"
+    "echo @@ddns-cache; show /var/cache/ddclient/ddclient.cache /var/lib/ddclient/ddclient.cache"
+    " /var/run/ddclient.cache /run/ddclient.cache /var/cache/inadyn/*.cache\n"
+    "echo @@ddns-mtime; stat -c '%Y %n' /var/cache/inadyn/*.cache 2>/dev/null\n"
+)
 
 READ = (
     "# signalbox-read\n"
@@ -193,6 +227,7 @@ echo @@nft-tool; echo "${N:-none}"
 echo @@nft; printf '%s\\n' "$J"
 echo @@iptables; iptables -V 2>/dev/null
 """
+    + _DDNS
     + _UPDATES
     + _IPT
     + _WG

@@ -110,8 +110,10 @@ sudo chown signalbox: ~signalbox/.ssh/authorized_keys && sudo chmod 600 ~signalb
 # 3. optional, only with WireGuard, nftables or iptables: the read-only commands without a password
 sudo tee /etc/sudoers.d/signalbox >/dev/null <<'END'
 # Signalbox: read the WireGuard status (public keys only), the nftables ruleset and the
-# legacy iptables rules (iptables-save without arguments).
-signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive, /usr/sbin/nft -j list ruleset, /usr/sbin/iptables-save "", /usr/sbin/ip6tables-save ""
+# legacy iptables rules (iptables-save without arguments), and the dynamic DNS
+# configuration files of ddclient and inadyn (read through a filter that drops the
+# password and token lines on the device).
+signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive, /usr/sbin/nft -j list ruleset, /usr/sbin/iptables-save "", /usr/sbin/ip6tables-save "", /bin/cat /etc/ddclient.conf, /bin/cat /etc/inadyn.conf
 END
 sudo chmod 440 /etc/sudoers.d/signalbox && sudo visudo -cf /etc/sudoers.d/signalbox
 ```
@@ -129,8 +131,10 @@ sudo chmod 440 /etc/sudoers.d/signalbox && sudo visudo -cf /etc/sudoers.d/signal
 
    ```text
 # Signalbox: read the WireGuard status (public keys only), the nftables ruleset and the
-# legacy iptables rules (iptables-save without arguments).
-signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive, /usr/sbin/nft -j list ruleset, /usr/sbin/iptables-save "", /usr/sbin/ip6tables-save ""
+# legacy iptables rules (iptables-save without arguments), and the dynamic DNS
+# configuration files of ddclient and inadyn (read through a filter that drops the
+# password and token lines on the device).
+signalbox ALL=(root) NOPASSWD: /usr/bin/wg show all public-key, /usr/bin/wg show all listen-port, /usr/bin/wg show all peers, /usr/bin/wg show all endpoints, /usr/bin/wg show all allowed-ips, /usr/bin/wg show all latest-handshakes, /usr/bin/wg show all transfer, /usr/bin/wg show all persistent-keepalive, /usr/sbin/nft -j list ruleset, /usr/sbin/iptables-save "", /usr/sbin/ip6tables-save "", /bin/cat /etc/ddclient.conf, /bin/cat /etc/inadyn.conf
    ```
 
 4. In the device form: the address, user `signalbox` and the key. *Test connection* shows the
@@ -207,6 +211,38 @@ when a `log` statement names it. No file: nothing is forwarded (journald alone).
 user may not read leaves the targets unread with an optional gap. *Guess:* targets in templates,
 includes outside those directories (#21).
 
+### Dynamic DNS: ddclient and inadyn (#450)
+
+Read with `interfaces` into `DynamicDns` (`gw/ddns/ddclient-<host>`, `gw/ddns/inadyn-<host>`):
+provider, host name, address family, `tls`, last update, last result and the address announced.
+Versions: ddclient 3.9, 3.10 and 3.11 (Debian 11, 12 and 13; `use=` for IPv4 and `usev4`/`usev6` from
+3.10 are both read) and inadyn 2.x (`provider` and `custom` blocks).
+
+- *Files.* `/etc/ddclient.conf` (and `/etc/ddclient/ddclient.conf`), `/etc/inadyn.conf` (and
+  `/etc/inadyn/inadyn.conf`). ddclient: `protocol`, `use`/`usev4`/`usev6`, `if`, `ssl` and the
+  bare host names; settings stay valid for the names after them. inadyn: `provider` (or `custom`)
+  blocks with `hostname` (one name or a `{ "a", "b" }` list) and `ssl`; a built-in provider counts
+  as HTTPS unless `ssl = false` (*guess*, #21), a `custom` one only when it says so.
+- *State.* ddclient: `ddclient.cache` (`mtime` is the last update, `status` `good`/`nochg` is ok,
+  anything else an error, `ip` the address announced). inadyn: `/var/cache/inadyn/<host>.cache`
+  (the address) and the file's time as the last update (*guess* for 2.x, #21). A cache the login
+  may not open is left out (no sudo rule for it): the names are still reported.
+- *Secrets are never read.* The files hold the account name, password or token. The read script
+  removes every `key = value` whose key names a credential (`pass`, `token`, `secret`, `key`,
+  `login`, `user`, `auth`) to the end of the line **on the device**, before the text is sent;
+  Signalbox removes the same parts again before it parses, and keeps only an allow-list of keys
+  (protocol, use, if, ssl, hostname, provider). A test feeds a raw file full of secrets and checks
+  the model, the log and the API output. The cost: a host name on the same line after a
+  `password=` is lost (put host names on a line of their own, as ddclient's own examples do).
+- *Permission.* The files are usually `root:root 0600`. The sudoers rule above allows exactly
+  `/bin/cat /etc/ddclient.conf` and `/bin/cat /etc/inadyn.conf`, and the read script pipes the
+  output through the filter on the device. No other file, no wildcard. Without the rule an optional
+  gap says what to add (*Set up automatically* or *Repair Signalbox's access* again).
+- *Name resolution* (optional): `ddns.resolve`, see [CONFIGURATION](../CONFIGURATION.md): off by
+  default, sends a DNS query for each name from Signalbox's host.
+- Guesses to confirm on real systems (#21): cache file names and formats of inadyn 2.x, the ddclient
+  cache location on 3.11 (`/var/cache/ddclient` is read, and `/var/lib/ddclient`), HTTPS defaults.
+
 ## Automatic setup
 
 With *Set up automatically* in the device form ([ADR 0009](../adr/0009-automatic-setup-with-an-admin-login.md)),
@@ -220,7 +256,7 @@ first and sends nothing before. Then, over that pinned connection (a sudo user's
 2. generates an ed25519 key in Signalbox and writes only the public key (comment
    `signalbox-read`) to the user's `authorized_keys`, replacing what was there; the private key
    is stored encrypted in Signalbox;
-3. with `wg` or `nft` installed, writes the sudoers rule above to `/etc/sudoers.d/<login>` after
+3. with `wg`, `nft`, `iptables-save`, `ddclient` or `inadyn` installed, writes the sudoers rule above to `/etc/sudoers.d/<login>` after
    `visudo -c` accepted it;
 4. pins the confirmed host key for reading, so one fingerprint is confirmed, not two.
 

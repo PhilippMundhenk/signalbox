@@ -77,6 +77,10 @@ address is not known.
   public IPv4 address of its internet connection.
 - **Stays quiet** when the address announced is not known, when the line is down or has no
   public address of its own (carrier-grade NAT, double NAT), and for IPv6.
+- **Name resolution (optional, #450):** with `ddns.resolve: true` in the configuration, Signalbox
+  resolves the host name itself and compares what the name answers today with the connection's
+  address, also when the device does not say what it announced. Off by default: it sends a DNS
+  query for each name from the host Signalbox runs on, to the resolver that host uses.
 - **Fix:** run an update and check the client uses this connection.
 
 ## `ddns.update-failed`

@@ -1038,6 +1038,8 @@
  "msg.linux.ip6tablesDenied": "جدار الحماية: لا يُسمح لهذا المستخدم بتشغيل ip6tables-save، ولذلك لا تُقرأ قواعد IPv6",
  "msg.linux.staleDatabase": "قوائم الحزم على الجهاز قديمة. يتطلب تثبيت حزمة واحدة تحديثًا كاملًا للنظام أولًا (sudo pacman -Syu)، وقد يستغرق ذلك وقتًا طويلًا على جهاز قديم. يقرأ Signalbox قواعد iptables القديمة دون nftables.",
  "msg.linux.keaError": "Kea: {cause}",
+ "msg.linux.ddnsUnreadable": "DNS الديناميكي: تعذّرت قراءة {files}، لذلك أسماء العميل أو آخر تحديث له غير معروفة",
+ "msg.linux.ddnsUnreadable.fix": "شغّل الإعداد التلقائي أو إصلاح وصول Signalbox مرة أخرى (يضيف قاعدة للقراءة فقط لملف الإعدادات)، أو اقبل أن عميل DNS الديناميكي لا يُقرأ.",
  "msg.linux.logUnreadable": "وجهات السجلات: لا يمكن للمستخدم {user} قراءة {files}",
  "msg.linux.logUnreadable.fix": "امنح المستخدم صلاحية قراءة هذه الملفات، أو اقبل أن وجهات syslog البعيدة لا تُقرأ.",
  "msg.linux.nft.chainJump": "{source}: لا يمكن تتبع {kind} إلى السلسلة {chain} (سلسلة غير معروفة أو حلقة)",

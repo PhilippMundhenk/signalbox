@@ -47,6 +47,7 @@ from signalbox.adapters import (
 from signalbox.adapters.linux import (
     clock,
     collect,
+    ddns,
     dhcp,
     distro,
     ipv6,
@@ -455,9 +456,12 @@ class LinuxAdapter(Adapter):
             p.model_copy(update={"stp": port_stp[n]}) if n in port_stp else p
             for n, p in lay.ports.items()
         ]
+        ddns_clients, ddns_gaps = ddns.read(self.context.device_id, self.answer, lay.uplinks)
+        gaps += ddns_gaps
         return Observation(
             incomplete=gaps,
             ports=ports,
+            ddns=ddns_clients,
             stp_bridges={self.context.device_id: bridges} if lay.links else {},
             segments=lay.segments(),
             subnets=lay.subnets,

@@ -62,6 +62,8 @@ class DeviceState:
     nft: bool = False
     #: ``iptables-save`` is installed (legacy iptables, read with the sudoers rule, #394)
     iptables: bool = False
+    #: ddclient or inadyn is installed (their configuration is read with the sudoers rule, #450)
+    ddns: bool = False
     #: ``/etc/os-release`` as parsed, and the tools found (``nft``, ``wg``, ``tracepath``,
     #: ``bridge``, ``ip-json``: ``ip -j`` works) (#302)
     os_release: dict[str, str] = field(default_factory=dict)
@@ -193,6 +195,7 @@ class LinuxSetup:
             "echo @@wg; command -v wg\n"
             "echo @@nft; command -v nft\n"
             "echo @@ipt; command -v iptables-save\n"
+            "echo @@ddns; command -v ddclient inadyn\n"
             "echo @@os; cat /etc/os-release 2>/dev/null\n"
             "echo @@markers\n"
             "for f in /etc/debian_version /etc/arch-release /etc/alpine-release "
@@ -229,6 +232,7 @@ class LinuxSetup:
             wg=bool([x for x in parts.get("wg", []) if x.strip()]),
             nft=bool([x for x in parts.get("nft", []) if x.strip()]),
             iptables=bool([x for x in parts.get("ipt", []) if x.strip()]),
+            ddns=bool([x for x in parts.get("ddns", []) if x.strip()]),
             os_release=_os_release(parts.get("os", [])),
             have={x.strip() for x in parts.get("have", []) if x.strip()},
             markers={x.strip() for x in parts.get("markers", []) if x.strip()},
@@ -357,7 +361,14 @@ class LinuxSetup:
         ]
         ticked = [t for t in EXTRA_TOOLS if t in self.request.extras]
         steps[2:2] = [self.install_step(ssh, state, t) for t in ticked]
-        if state.wg or state.nft or state.iptables or "wireguard" in ticked or "nftables" in ticked:
+        if (
+            state.wg
+            or state.nft
+            or state.iptables
+            or state.ddns
+            or "wireguard" in ticked
+            or "nftables" in ticked
+        ):
             steps.append(
                 Step(
                     "sudoers",
