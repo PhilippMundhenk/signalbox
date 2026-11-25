@@ -1041,6 +1041,18 @@ POE_CLASS_PSE_W: dict[int, float] = {
 }
 
 
+def poe_reserved_by_class(ports: Iterable[PortPoe]) -> float | None:
+    """The power a switch that allocates by class (IEEE 802.3at/bt) holds back for the ports
+    that deliver power: the class maximum of ``POE_CLASS_PSE_W`` per delivering port with a
+    known class. ``None`` when no such port reports a class (nothing to derive from)."""
+    held = [
+        POE_CLASS_PSE_W[p.power_class]
+        for p in ports
+        if p.status is PoeStatus.DELIVERING and p.power_class is not None
+    ]
+    return sum(held) if held else None
+
+
 class PortPoe(Model):
     """PoE state of one port of a power sourcing switch (#159). ``None`` fields: not reported."""
 

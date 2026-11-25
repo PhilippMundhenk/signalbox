@@ -3366,6 +3366,8 @@
  "msg.config.pending.fix": "Terapkan perubahan yang disiapkan di {name}, atau batalkan.",
  "msg.config.changedOutside": "Konfigurasi {name} diubah dalam {days} hari terakhir, dan bukan lewat Signalbox",
  "msg.config.changedOutside.fix": "Jika Anda membuat perubahan itu di antarmuka perangkat sendiri, tidak ada yang perlu dilakukan. Jika tidak, periksa siapa yang punya akses ke perangkat (halaman perangkat menampilkan pengguna yang dicatat).",
+ "msg.config.changedOutsideBy": "Konfigurasi {name} diubah dalam {days} hari terakhir oleh {user}, dan bukan melalui Signalbox",
+ "msg.config.changedOutsideBy.fix": "Jika Anda atau seseorang yang Anda kenal membuat perubahan itu di antarmuka perangkat sendiri, tidak ada yang perlu dilakukan. Jika bukan, periksa siapa yang memiliki akses ke perangkat dan siapa pengguna tersebut.",
  "msg.backup.none": "{name} tidak punya cadangan konfigurasi, dan Signalbox juga tidak",
  "msg.backup.none.fix": "Unduh cadangan dari perangkat, atau terapkan perubahan lewat Signalbox yang membuatnya lebih dulu, lalu simpan di tempat aman.",
  "msg.backup.stale": "{name} tidak punya cadangan yang lebih baru dari {days} hari dan sudah berubah sejak itu; Signalbox juga tidak punya",

@@ -23,5 +23,5 @@
 ## `config.changed-outside`
 
 - **Severity:** info
-- **Checks:** a device whose own record says its configuration changed in the last days (parameter `days`, default 7) and where the change does not follow a backup Signalbox took within `minutes` (default 30) before it; Signalbox takes a backup before every change it deploys, so a change without one is somebody else's. Only for devices that record the time of the last change (MikroTik, OPNsense); the user the device logs is shown on the device page, not in the finding. Silent while there is no history.
+- **Checks:** a device whose own record says its configuration changed in the last days (parameter `days`, default 7) and where the change does not follow a backup Signalbox took within `minutes` (default 30) before it; Signalbox takes a backup before every change it deploys, so a change without one is somebody else's. Only for devices that record the time of the last change (MikroTik, OPNsense); the finding names the user the device logged for the change when it says one (also shown on the device page). Silent while there is no history.
 - **Fix:** nothing to do if you made the change in the device's own interface; otherwise check who has access.

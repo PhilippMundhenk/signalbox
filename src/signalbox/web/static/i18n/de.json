@@ -3366,6 +3366,8 @@
  "msg.config.pending.fix": "Wenden Sie die vorgemerkten Änderungen auf {name} an oder verwerfen Sie sie.",
  "msg.config.changedOutside": "Die Konfiguration von {name} wurde in den letzten {days} Tagen geändert, und nicht über Signalbox",
  "msg.config.changedOutside.fix": "Wenn Sie die Änderung in der Oberfläche des Geräts selbst vorgenommen haben, ist nichts zu tun. Wenn nicht, prüfen Sie, wer Zugriff auf das Gerät hat (die Geräteseite zeigt den protokollierten Benutzer).",
+ "msg.config.changedOutsideBy": "Die Konfiguration von {name} wurde in den letzten {days} Tagen von {user} geändert, und nicht über Signalbox",
+ "msg.config.changedOutsideBy.fix": "Wenn Sie oder jemand, den Sie kennen, die Änderung in der Oberfläche des Geräts vorgenommen hat, ist nichts zu tun. Wenn nicht, prüfen Sie, wer Zugriff auf das Gerät hat und wer dieser Benutzer ist.",
  "msg.backup.none": "{name} hat kein Backup seiner Konfiguration, und Signalbox hat auch keines",
  "msg.backup.none.fix": "Laden Sie ein Backup vom Gerät herunter oder rollen Sie eine Änderung über Signalbox aus, das zuvor eines anlegt, und bewahren Sie es sicher auf.",
  "msg.backup.stale": "{name} hat kein Backup, das jünger als {days} Tage ist, und wurde seitdem geändert; Signalbox hat auch keines",

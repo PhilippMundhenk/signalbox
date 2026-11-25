@@ -3366,6 +3366,8 @@
  "msg.config.pending.fix": "{name} üzerindeki hazırlanmış değişiklikleri uygulayın veya geri alın.",
  "msg.config.changedOutside": "{name} yapılandırması son {days} günde değiştirildi ve bu Signalbox üzerinden yapılmadı",
  "msg.config.changedOutside.fix": "Değişikliği cihazın kendi arayüzünde siz yaptıysanız yapılacak bir şey yok. Yapmadıysanız cihaza kimin eriştiğini kontrol edin (cihaz sayfası kaydedilen kullanıcıyı gösterir).",
+ "msg.config.changedOutsideBy": "{name} yapılandırması son {days} gün içinde {user} tarafından değiştirildi ve Signalbox üzerinden değil",
+ "msg.config.changedOutsideBy.fix": "Değişikliği siz veya tanıdığınız biri cihazın kendi arayüzünde yaptıysa yapılacak bir şey yok. Aksi halde cihaza kimin eriştiğini ve bu kullanıcının kim olduğunu kontrol edin.",
  "msg.backup.none": "{name} cihazının yapılandırma yedeği yok, Signalbox'ta da yok",
  "msg.backup.none.fix": "Cihazdan bir yedek indirin veya önce yedek alan Signalbox ile bir değişiklik uygulayın ve yedeği güvenli bir yerde saklayın.",
  "msg.backup.stale": "{name} cihazının {days} günden yeni yedeği yok ve o zamandan beri değişti; Signalbox'ta da yok",

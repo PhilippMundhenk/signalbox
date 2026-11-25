@@ -220,3 +220,16 @@ def test_normalise_capabilities() -> None:
     ]
     assert normalise_capabilities(["Docsis", "Two port"]) == ["docsis-cable-device", "two-port"]
     assert Neighbour(id="n", local_port_id="p", chassis_id="c").capabilities == []
+
+
+def test_poe_reserved_by_class_counts_delivering_ports_with_a_class() -> None:
+    from signalbox.model import PoeStatus, PortPoe, poe_reserved_by_class
+
+    ports = [
+        PortPoe(status=PoeStatus.DELIVERING, power_class=4),
+        PortPoe(status=PoeStatus.DELIVERING, power_class=1),
+        PortPoe(status=PoeStatus.SEARCHING, power_class=3),
+        PortPoe(status=PoeStatus.DELIVERING),
+    ]
+    assert poe_reserved_by_class(ports) == 34.0
+    assert poe_reserved_by_class(ports[2:]) is None

@@ -3366,6 +3366,8 @@
  "msg.config.pending.fix": "{name}에서 준비된 변경을 적용하거나 되돌리세요.",
  "msg.config.changedOutside": "{name}의 구성이 최근 {days}일 안에 변경되었으며 Signalbox를 통한 것이 아닙니다",
  "msg.config.changedOutside.fix": "장치 자체 화면에서 변경하셨다면 할 일이 없습니다. 아니라면 누가 장치에 접근할 수 있는지 확인하세요(장치 페이지에 기록된 사용자가 표시됩니다).",
+ "msg.config.changedOutsideBy": "{name}의 구성이 최근 {days}일 안에 {user}에 의해 변경되었으며, Signalbox를 통한 변경이 아닙니다",
+ "msg.config.changedOutsideBy.fix": "본인이나 아는 사람이 장치 자체 화면에서 변경했다면 할 일이 없습니다. 그렇지 않다면 장치에 접근할 수 있는 사람과 해당 사용자를 확인하세요.",
  "msg.backup.none": "{name}에는 구성 백업이 없고 Signalbox에도 없습니다",
  "msg.backup.none.fix": "장치에서 백업을 다운로드하거나 먼저 백업하는 Signalbox로 변경을 배포하고, 백업을 안전한 곳에 보관하세요.",
  "msg.backup.stale": "{name}에는 {days}일 이내 백업이 없고 그 후 변경되었습니다. Signalbox에도 없습니다",

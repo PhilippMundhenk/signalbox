@@ -3366,6 +3366,8 @@
  "msg.config.pending.fix": "{name} の準備済みの変更を適用するか、元に戻してください。",
  "msg.config.changedOutside": "{name} の設定は過去 {days} 日以内に変更され、Signalbox 経由ではありません",
  "msg.config.changedOutside.fix": "機器自身の画面で変更したのであれば、対応は不要です。そうでなければ、誰が機器にアクセスできるかを確認してください（機器ページに記録されたユーザーが表示されます）。",
+ "msg.config.changedOutsideBy": "{name} の設定が過去 {days} 日以内に {user} によって変更されました（Signalbox 経由ではありません）",
+ "msg.config.changedOutsideBy.fix": "ご自身または知人が機器自身の画面で変更した場合は、何もする必要はありません。そうでなければ、機器にアクセスできる人とそのユーザーを確認してください。",
  "msg.backup.none": "{name} には設定のバックアップがなく、Signalboxにもありません",
  "msg.backup.none.fix": "デバイスからバックアップをダウンロードするか、先にバックアップを取るSignalbox経由で変更を展開し、安全な場所に保管してください。",
  "msg.backup.stale": "{name} には{days}日以内のバックアップがなく、その後に変更されています。Signalboxにもありません",

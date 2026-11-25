@@ -61,6 +61,7 @@ from signalbox.model import (
     normalise_mac,
     object_id,
     parse_stp_bridge_id,
+    poe_reserved_by_class,
     port_id,
     segment_id,
     stp_bridge_id,
@@ -867,7 +868,9 @@ def poe(pmap: PortMap, data: Mib) -> tuple[PoeSupply | None, dict[str, PortPoe]]
     """PoE of POWER-ETHERNET-MIB: the budget (``pethMainPsePower`` and the consumption of
     group 1) and per port the admin state, detection status, class
     (``pethPsePortPowerClassifications`` 1..5 is class 0..4) and priority. RFC 3621 has no
-    per-port power, so ``power_w`` stays empty.
+    per-port power, so ``power_w`` stays empty and the MIB has no allocation either: the
+    reserved power is derived from the classes of the delivering ports (802.3 class maximum,
+    a guess for what the switch holds back, #21).
     The port number of the table (``group.port``) is read as the bridge port or ifIndex of
     group 1 (a guess: the MIB does not say; stacked groups above 1 are skipped). Empty: no PoE."""
     ports: dict[str, PortPoe] = {}
@@ -894,7 +897,7 @@ def poe(pmap: PortMap, data: Mib) -> tuple[PoeSupply | None, dict[str, PortPoe]]
     used = data.col(mib.PETH_MAIN, mib.PETH_MAIN_CONSUMPTION).get("1")
     budget, drawn = as_int(main), as_int(used)
     supply = (
-        PoeSupply(budget_w=budget, used_w=drawn)
+        PoeSupply(budget_w=budget, used_w=drawn, reserved_w=poe_reserved_by_class(ports.values()))
         if budget is not None or drawn is not None
         else None
     )
