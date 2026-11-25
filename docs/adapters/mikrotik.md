@@ -1201,3 +1201,11 @@ out. RouterOS answers UPnP IGD only: no NAT-PMP or PCP, no secure mode, no permi
 no lease time. When the NAT rules cannot be read the list is marked not complete. *(Guess, #21:
 the comment of dynamic rows, matched by the word `upnp`.)* Covered: RouterOS 6.49 (REST needs 7,
 so only 7.x is read), 7.x.
+## Access control: RADIUS, 802.1X, MAC filters (interfaces and wifi, #162)
+
+- `/radius` (service wireless, dot1x, ppp, hotspot, login; ports; whether a secret is set, never
+  the secret), `/interface/dot1x/server` (RouterOS 7.1 and later; guest and reject VLAN),
+  bridge ports with `learn=no` (reported as static MACs) and `/interface/wifi/access-list`
+  (an entry without MAC and `action=reject` makes the list an allow-list; only counted). A
+  `/radius` this login may not read is an optional gap. *Guess for a real device (#21):* the
+  allow/deny reading of the access list and which interfaces an entry applies to.

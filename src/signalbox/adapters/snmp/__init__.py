@@ -137,6 +137,9 @@ _POE_COLUMNS = (
     ),
     *(f"{mib.PETH_MAIN}.{n}" for n in (mib.PETH_MAIN_POWER, mib.PETH_MAIN_CONSUMPTION)),
 )
+_PAE_COLUMNS = tuple(
+    f"{mib.PAE_AUTH}.{n}" for n in (mib.PAE_AUTH_PORT_STATUS, mib.PAE_AUTH_PORT_CONTROL)
+)
 _STP_SCALARS = (
     mib.STP_PROTOCOL,
     mib.STP_PRIORITY,
@@ -416,8 +419,12 @@ class SnmpAdapter(Adapter):
             gaps.append(self._gap("a MAC address table (Q-BRIDGE-MIB, BRIDGE-MIB)"))
         await self._walks("poe", _POE_COLUMNS)
         supply, port_poe = mapping.poe(pmap, self._mib)
+        await self._walks("pae", _PAE_COLUMNS)
+        access = mapping.access_control(pmap, self._mib)
         ports = [
-            p.model_copy(update={"poe": port_poe[p.id]}) if p.id in port_poe else p
+            p.model_copy(update={"poe": port_poe[p.id]} if p.id in port_poe else {}).model_copy(
+                update={"access_control": access[p.id]} if p.id in access else {}
+            )
             for p in pmap.ports
         ]
         bridge = mapping.stp_bridge(pmap, self._mib, self._bridge_mac)

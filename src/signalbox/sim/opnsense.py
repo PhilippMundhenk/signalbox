@@ -61,6 +61,8 @@ UNBOUND_GRIDS = (
     "/api/unbound/settings/search_domain_override",
 )
 SECRET = "sim-secret"
+#: shared secret of the simulated RADIUS server: tests assert that it is never read (#162)
+RADIUS_SECRET = "sim-radius-secret-do-not-leak"
 USERS = "/api/auth/user/"
 TRACEROUTE = "/api/diagnostics/traceroute/set"
 TRACE_PRIVILEGE = "page-diagnostics-traceroute"
@@ -383,6 +385,21 @@ def firewall_data() -> dict[str, Any]:
             }
         },
         "/api/miniupnpd/service/status": {"status": "running"},
+        # RADIUS server of the user manager (guess: endpoint and fields); the secret is never read
+        "/api/auth/server/search": _rows_of(
+            [
+                {
+                    "uuid": "s1",
+                    "name": "Office RADIUS",
+                    "type": "radius",
+                    "host": "192.0.2.53",
+                    "radius_auth_port": "1812",
+                    "radius_acct_port": "1813",
+                    "radius_secret": RADIUS_SECRET,
+                },
+                {"uuid": "s2", "name": "Directory", "type": "ldap", "host": "192.0.2.54"},
+            ]
+        ),
         "/api/firewall/alias/search_item": _rows_of(
             [
                 {

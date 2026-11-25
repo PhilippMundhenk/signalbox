@@ -69,6 +69,7 @@ from signalbox.adapters import (
     unexpected_answer,
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
+from signalbox.adapters.mikrotik import access as _access
 from signalbox.adapters.mikrotik import capsman, hotspot, multiwan, wifi_assoc
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
@@ -158,6 +159,7 @@ from signalbox.model import (
     NtpServer,
     Pmf,
     Port,
+    PortAccessControl,
     PortCounters,
     PortKind,
     PortMembership,
@@ -165,6 +167,7 @@ from signalbox.model import (
     PortRole,
     PowerSupply,
     Radio,
+    RadiusServer,
     RaMode,
     RaPrefix,
     Reservation,
@@ -1595,10 +1598,11 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         if upnp and services:  # services are not read when /ip/service is refused
             services.append(upnp[0])
         port_poe, poe_gaps = await self._poe()
+        control, radius, radius_gaps = await self._access_control()
         ports = [
-            p.model_copy(update={"stp": port_stp[n]} if n in port_stp else {}).model_copy(
-                update={"poe": port_poe[n]} if n in port_poe else {}
-            )
+            p.model_copy(update={"stp": port_stp[n]} if n in port_stp else {})
+            .model_copy(update={"poe": port_poe[n]} if n in port_poe else {})
+            .model_copy(update={"access_control": control[n]} if n in control else {})
             for n, p in layout.ports.items()
         ]
         route_rows = [
@@ -1642,10 +1646,38 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             stp_bridges={dev: bridges},
             multicast={dev: multicast},
             upnp={dev: upnp[1]} if upnp else {},
+            radius_servers={} if radius is None else {dev: radius},
             default_credentials={dev: default},
             signalbox_privilege={} if privilege is None else {dev: privilege},
-            incomplete=gaps + account_gaps + stp_gaps + poe_gaps + multicast_gaps,
+            incomplete=gaps + account_gaps + stp_gaps + poe_gaps + multicast_gaps + radius_gaps,
         )
+
+    async def _radius_rows(self) -> list[dict[str, Any]] | None:
+        return await self._readable(_access.RADIUS)
+
+    async def _access_control(
+        self,
+    ) -> tuple[dict[str, PortAccessControl], list[RadiusServer] | None, list[Gap]]:
+        """802.1X servers per interface, ports that do not learn addresses (#162) and the
+        ``/radius`` entries (never the secrets: only whether one is set). ``/radius`` that this
+        login may not read is an optional gap; the 802.1X menu exists from RouterOS 7.1."""
+        control: dict[str, PortAccessControl] = {}
+        for row in await self._rows(BRIDGE_PORT):
+            found = _access.learning_off(row) if _active(row) else None
+            if found is not None:
+                control[_text(row.get("interface"))] = found
+        control.update(_access.dot1x_ports(await self._readable(_access.DOT1X_SERVER) or []))
+        rows = await self._radius_rows()
+        if rows is None:
+            gap = Gap(
+                message="RADIUS servers: not readable with this login",
+                fix="Give Signalbox's group on the router the policies of the setup guide.",
+                optional=True,
+                message_id="mikrotik.radius",
+                fix_id="mikrotik.radius.fix",
+            )
+            return control, None, [gap]
+        return control, _access.radius_servers(rows), []
 
     async def _portals(self, layout: _Layout) -> list[CaptivePortal]:
         """``/ip/hotspot`` servers (#460). A menu that is missing (no hotspot, older package) or
@@ -2834,6 +2866,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             return profiles[section].get(_text(row.get(section)), {}).get(key)
 
         access_list = await self._optional_rows(WIFI_ACCESS_LIST)
+        radius = _access.radius_servers(await self._readable(_access.RADIUS) or [])
         by_name = {_text(r.get("name")): r for r in rows if _text(r.get("name"))}
         radios: dict[str, Radio] = {}
         for name, row in by_name.items():
@@ -2914,6 +2947,8 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     roaming_80211k=_maybe(prop(row, "steering", "rrm")),
                     roaming_80211v=_maybe(prop(row, "steering", "wnm")),
                     **self._roaming(row, prop, access_list, name),
+                    mac_filter=_access.mac_filter(access_list, name),
+                    radius=_access.wlan_radius(radius) if "enterprise" in sec.value else None,
                     vendor_extra={
                         "authentication-types": _text(prop(row, "security", "authentication-types"))
                     },

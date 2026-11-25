@@ -70,6 +70,7 @@ from signalbox.model import (
     PoeSupply,
     Port,
     Radio,
+    RadiusServer,
     ReadError,
     Route,
     RouterAdvert,
@@ -756,6 +757,9 @@ class Observation(BaseModel):
     #: UPnP, NAT-PMP and PCP state and dynamic mappings per device id (#176, ADR 0029), read
     #: with ``interfaces``. Leave a device out when it could not be read.
     upnp: dict[str, DeviceUpnp] = Field(default_factory=dict)
+    #: RADIUS servers per device id (#162, ADR 0030), read with ``interfaces``. Never the shared
+    #: secrets: only ``RadiusServer.secret_set``. Leave a device out when it could not be read.
+    radius_servers: dict[str, list[RadiusServer]] = Field(default_factory=dict)
     #: Mesh membership per device id (#171): the observed device or one of ``devices``. Leave a
     #: device out when it is not known to be part of a mesh.
     mesh: dict[str, MeshMembership] = Field(default_factory=dict)
@@ -1045,6 +1049,7 @@ class Adapter(ABC):
         poe: dict[str, PoeSupply] = {}
         multicast: dict[str, DeviceMulticast] = {}
         upnp: dict[str, DeviceUpnp] = {}
+        radius: dict[str, list[RadiusServer]] = {}
         defaults: dict[str, bool] = {}
         privileges: dict[str, AccountPrivilege] = {}
         meshes: dict[str, MeshMembership] = {}
@@ -1100,6 +1105,7 @@ class Adapter(ABC):
                 poe.update(result.poe)
                 multicast.update(result.multicast)
                 upnp.update(result.upnp)
+                radius.update(result.radius_servers)
                 for key, flag in result.default_credentials.items():
                     defaults[key] = defaults.get(key, False) or flag
                 privileges.update(result.signalbox_privilege)
@@ -1127,6 +1133,7 @@ class Adapter(ABC):
             poe=poe.get(ctx.device_id),
             multicast=multicast.get(ctx.device_id),
             upnp=upnp.get(ctx.device_id),
+            radius_servers=radius.get(ctx.device_id),
             default_credentials=defaults.get(ctx.device_id),
             signalbox_account_privilege=privileges.get(ctx.device_id),
             signalbox_account_needed=self.manifest.least_privilege,
@@ -1144,6 +1151,7 @@ class Adapter(ABC):
             "poe",
             "multicast",
             "upnp",
+            "radius_servers",
             "default_credentials",
             "signalbox_privilege",
             "incomplete",
@@ -1172,6 +1180,7 @@ class Adapter(ABC):
                             "poe": poe.get(d.id, d.poe),
                             "multicast": multicast.get(d.id, d.multicast),
                             "upnp": upnp.get(d.id, d.upnp),
+                            "radius_servers": radius.get(d.id, d.radius_servers),
                             "default_credentials": defaults.get(d.id, d.default_credentials),
                             "signalbox_account_privilege": privileges.get(
                                 d.id, d.signalbox_account_privilege

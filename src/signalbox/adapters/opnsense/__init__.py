@@ -72,6 +72,7 @@ from signalbox.adapters.opnsense import firewall as fw
 from signalbox.adapters.opnsense import lldpd as lldpd_reader
 from signalbox.adapters.opnsense import multicast as multicast_reader
 from signalbox.adapters.opnsense import portal as portal_reader
+from signalbox.adapters.opnsense import radius as radius_reader
 from signalbox.adapters.opnsense import routes as route_reader
 from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import upnp as upnp_reader
@@ -132,6 +133,7 @@ from signalbox.model import (
     PortMedia,
     PortMembership,
     PortRole,
+    RadiusServer,
     RaMode,
     RaPrefix,
     ReflectorKind,
@@ -1408,13 +1410,14 @@ class OpnsenseAdapter(_Adapter):
         ddns_list, ddns_gaps = await self._ddns(uplinks[0].id if uplinks else None)
         portal_list, portal_gaps = await self._portals(layout)
         multicast, multicast_gaps = await self._multicast(layout)
+        radius, radius_gaps = await self._radius()
         upnp_state, upnp_gaps = await self._upnp(layout)
         services = await self._services()
         if upnp_state is not None:
             services.append(upnp_state[0])
         gaps = [
             *gaps, *cert_gaps, *route_gaps, *group_gaps, *ddns_gaps, *portal_gaps, *multicast_gaps,
-            *upnp_gaps,
+            *upnp_gaps, *radius_gaps,
         ]  # fmt: skip
         return Observation(
             routes=route_list,
@@ -1430,6 +1433,7 @@ class OpnsenseAdapter(_Adapter):
             log_targets={} if targets is None else {dev: targets},
             multicast={dev: multicast},
             upnp={} if upnp_state is None else {dev: upnp_state[1]},
+            radius_servers={dev: radius} if radius is not None else {},
             **accounts,
             incomplete=[*gaps, *account_gaps],
         )
@@ -1529,6 +1533,17 @@ class OpnsenseAdapter(_Adapter):
         except AdapterError:
             status = None  # the state of the service is a bonus
         return upnp_reader.state(self.context.device_id, data, status, segment_of), []
+
+    async def _radius(self) -> tuple[list[RadiusServer] | None, list[Gap]]:
+        """The RADIUS servers of the user manager (#162); no such API (404): not reported, a
+        refused read (403) is an optional gap naming the privilege. Never the secrets."""
+        try:
+            data = await self._optional(radius_reader.SERVERS, grid=True)
+        except AdapterError as exc:
+            return None, [_privilege_gap("RADIUS servers", exc, radius_reader.PRIVILEGE)]
+        if data is None:
+            return None, []
+        return radius_reader.servers(_rows(data, radius_reader.SERVERS)), []
 
     async def _portals(self, layout: _Layout) -> tuple[list[CaptivePortal], list[Gap]]:
         """Captive portal zones (#460); no captive portal API (404): nothing to report; a

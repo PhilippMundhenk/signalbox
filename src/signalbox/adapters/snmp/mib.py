@@ -100,6 +100,10 @@ PETH_PORT_ADMIN, PETH_PORT_DETECTION, PETH_PORT_PRIORITY, PETH_PORT_CLASS = 3, 6
 PETH_MAIN = "1.3.6.1.2.1.105.1.3.1.1"  # index: group
 PETH_MAIN_POWER, PETH_MAIN_CONSUMPTION = 2, 4  # watts
 
+# IEEE8021-PAE-MIB (802.1X authenticator): dot1xAuthConfigEntry, index: ifIndex (#162)
+PAE_AUTH = "1.0.8802.1.1.1.1.2.1.1"
+PAE_AUTH_PORT_STATUS, PAE_AUTH_PORT_CONTROL = 5, 6  # authorized(1)/unauthorized(2); force-/auto
+
 #: enterprise numbers (under 1.3.6.1.4.1) of common switch vendors: the vendor name when the
 #: device does not say it in ENTITY-MIB
 ENTERPRISES = {

@@ -1142,6 +1142,7 @@
     "mappings": [],
     "mappings_complete": false
    },
+   "radius_servers": null,
    "poe": null,
    "config_state": null,
    "local_backups": null,
@@ -1193,7 +1194,8 @@
     "lacp_rate": null,
     "lag_member_state": null,
     "stp": null,
-    "counters": null
+    "counters": null,
+    "access_control": null
    },
    {
     "id": "recorded/port/wan",
@@ -1248,7 +1250,8 @@
      "link_downs": null,
      "last_link_change": null,
      "counters_since": null
-    }
+    },
+    "access_control": null
    }
   ],
   "segments": [
@@ -1862,7 +1865,10 @@
     "beacon_protection": null,
     "port_id": null,
     "bssid": "00:00:5e:00:53:00",
-    "backhaul": false
+    "backhaul": false,
+    "mac_filter": null,
+    "radius": null,
+    "dynamic_vlan": null
    },
    {
     "id": "recorded/wlan/2",
@@ -1915,7 +1921,10 @@
     "beacon_protection": null,
     "port_id": null,
     "bssid": "00:00:5e:00:53:01",
-    "backhaul": false
+    "backhaul": false,
+    "mac_filter": null,
+    "radius": null,
+    "dynamic_vlan": null
    },
    {
     "id": "recorded/wlan/3",
@@ -1967,7 +1976,10 @@
     "beacon_protection": null,
     "port_id": null,
     "bssid": "00:00:5e:00:53:02",
-    "backhaul": false
+    "backhaul": false,
+    "mac_filter": null,
+    "radius": null,
+    "dynamic_vlan": null
    }
   ],
   "clients": [

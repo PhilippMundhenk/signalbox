@@ -1,5 +1,17 @@
 {
   "$defs": {
+    "AccessControlMode": {
+      "description": "How a port decides who may use it (#162).",
+      "enum": [
+        "open",
+        "dot1x",
+        "mac-auth",
+        "dot1x-or-mac",
+        "static-macs"
+      ],
+      "title": "AccessControlMode",
+      "type": "string"
+    },
     "AccountPrivilege": {
       "description": "What a local account of a device may do (#175).",
       "enum": [
@@ -1384,6 +1396,21 @@
             }
           ],
           "default": null
+        },
+        "radius_servers": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/RadiusServer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Radius Servers"
         },
         "role": {
           "$ref": "#/$defs/DeviceRole"
@@ -4884,6 +4911,34 @@
       "title": "LogTransport",
       "type": "string"
     },
+    "MacFilter": {
+      "additionalProperties": false,
+      "description": "MAC address filter of an SSID (#162). Only the mode and the number of entries are read:\nthe addresses of the people who use the network stay on the device.",
+      "properties": {
+        "count": {
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "mode": {
+          "$ref": "#/$defs/MacFilterMode"
+        }
+      },
+      "required": [
+        "mode",
+        "count"
+      ],
+      "title": "MacFilter",
+      "type": "object"
+    },
+    "MacFilterMode": {
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "title": "MacFilterMode",
+      "type": "string"
+    },
     "MacSighting": {
       "additionalProperties": false,
       "description": "A managed device's MAC address seen on a port in an earlier round (#378): kept for\n:data:`~signalbox.sightings.MAC_HOLD` so that links do not come and go as ARP and MAC\ntable entries age out between reads.",
@@ -6504,6 +6559,17 @@
       "additionalProperties": false,
       "description": "A port of a device.\n\n``up`` is the link state. The configuration details below (from ``description`` on) are\nfilled only where the device reports them, as part of the ``interfaces`` capability;\n``None`` (or an empty list) means \"not reported\", never \"off\".",
       "properties": {
+        "access_control": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortAccessControl"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "admin_up": {
           "anyOf": [
             {
@@ -6910,6 +6976,115 @@
       ],
       "title": "Port",
       "type": "object"
+    },
+    "PortAccessControl": {
+      "additionalProperties": false,
+      "description": "802.1X, MAC authentication and port security of a port (#162); ``None`` fields: not\nreported. Read with ``interfaces``.",
+      "properties": {
+        "auth_fail_vlan": {
+          "anyOf": [
+            {
+              "maximum": 4094,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Fail Vlan"
+        },
+        "dynamic_vlan": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dynamic Vlan"
+        },
+        "guest_vlan": {
+          "anyOf": [
+            {
+              "maximum": 4094,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guest Vlan"
+        },
+        "max_macs": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Macs"
+        },
+        "mode": {
+          "$ref": "#/$defs/AccessControlMode"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortAuthState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sticky": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sticky"
+        },
+        "violation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortViolation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "PortAccessControl",
+      "type": "object"
+    },
+    "PortAuthState": {
+      "enum": [
+        "authorised",
+        "unauthorised"
+      ],
+      "title": "PortAuthState",
+      "type": "string"
     },
     "PortCounters": {
       "additionalProperties": false,
@@ -7457,6 +7632,15 @@
       "title": "PortRole",
       "type": "string"
     },
+    "PortViolation": {
+      "enum": [
+        "shutdown",
+        "restrict",
+        "protect"
+      ],
+      "title": "PortViolation",
+      "type": "string"
+    },
     "PortalAuth": {
       "description": "How a captive portal lets a guest in (#460), in the device's own terms.",
       "enum": [
@@ -7934,6 +8118,154 @@
         "band"
       ],
       "title": "Radio",
+      "type": "object"
+    },
+    "RadiusEndpoint": {
+      "additionalProperties": false,
+      "description": "One RADIUS server an SSID uses: address (or host name) and port as configured.",
+      "properties": {
+        "address": {
+          "maxLength": 253,
+          "title": "Address",
+          "type": "string"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Port"
+        }
+      },
+      "required": [
+        "address"
+      ],
+      "title": "RadiusEndpoint",
+      "type": "object"
+    },
+    "RadiusPurpose": {
+      "description": "What a RADIUS server of a device is used for (#162).",
+      "enum": [
+        "wlan",
+        "dot1x",
+        "vpn",
+        "login"
+      ],
+      "title": "RadiusPurpose",
+      "type": "string"
+    },
+    "RadiusRef": {
+      "additionalProperties": false,
+      "description": "The RADIUS servers an enterprise SSID uses (#162). No secret, only whether it is set.",
+      "properties": {
+        "acct": {
+          "items": {
+            "$ref": "#/$defs/RadiusEndpoint"
+          },
+          "title": "Acct",
+          "type": "array"
+        },
+        "auth": {
+          "items": {
+            "$ref": "#/$defs/RadiusEndpoint"
+          },
+          "title": "Auth",
+          "type": "array"
+        },
+        "secret_set": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secret Set"
+        }
+      },
+      "title": "RadiusRef",
+      "type": "object"
+    },
+    "RadiusServer": {
+      "additionalProperties": false,
+      "description": "A RADIUS server a device knows or runs (#162, ADR 0030).\n\nThe shared secret is never read into the model: ``secret_set`` only says whether one is\nconfigured. ``None`` everywhere: the device does not say.",
+      "properties": {
+        "acct_port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Acct Port"
+        },
+        "address": {
+          "maxLength": 253,
+          "title": "Address",
+          "type": "string"
+        },
+        "auth_port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Port"
+        },
+        "local": {
+          "default": false,
+          "title": "Local",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "purposes": {
+          "items": {
+            "$ref": "#/$defs/RadiusPurpose"
+          },
+          "title": "Purposes",
+          "type": "array"
+        },
+        "secret_set": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secret Set"
+        }
+      },
+      "required": [
+        "name",
+        "address"
+      ],
+      "title": "RadiusServer",
       "type": "object"
     },
     "ReadError": {
@@ -11508,6 +11840,18 @@
           "default": null,
           "title": "Dtim Period"
         },
+        "dynamic_vlan": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dynamic Vlan"
+        },
         "enabled": {
           "default": true,
           "title": "Enabled",
@@ -11556,6 +11900,17 @@
           ],
           "default": null,
           "title": "Key Rotation Seconds"
+        },
+        "mac_filter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MacFilter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "max_clients": {
           "anyOf": [
@@ -11682,6 +12037,17 @@
         "radio_id": {
           "title": "Radio Id",
           "type": "string"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RadiusRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "reported_purpose": {
           "anyOf": [

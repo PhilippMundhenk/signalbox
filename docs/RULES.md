@@ -11,6 +11,13 @@ Each group is documented next to the others in [rules/](rules/), one file per ru
 (`docs/rules/<module>.md` for `src/signalbox/rules/<module>.py`), so that new rules do not
 touch a shared file. This index is generated (`python tools/gen_docs.py`).
 
+## [Access control](rules/access_control.md)
+
+- [`radius.unreachable`](rules/access_control.md#radiusunreachable)
+- [`port.dot1x-trunk`](rules/access_control.md#portdot1x-trunk)
+- [`wifi.mac-filter-as-security`](rules/access_control.md#wifimac-filter-as-security)
+- [`wifi.enterprise-consistent`](rules/access_control.md#wifienterprise-consistent)
+
 ## [Device accounts and factory passwords](rules/account_checks.md)
 
 - [`security.default-password`](rules/account_checks.md#securitydefault-password)
