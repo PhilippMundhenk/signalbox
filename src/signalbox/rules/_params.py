@@ -445,6 +445,37 @@ def check_settings(
     return errors
 
 
+def describe(model: type[RuleParams] | None, settings: RuleSettings | None) -> dict[str, Any]:
+    """What ``GET /api/rules`` tells about a rule's parameters (#441): the parameters' JSON
+    Schema (``schema``, with ``unit`` per property), ``defaults``, the effective rule-wide
+    ``values`` (``rules.<id>.params`` over the defaults) and per scope its ``match``, its
+    ``enabled``/``severity``, the ``params`` it sets and the effective ``values`` for the
+    objects it matches (the scope alone on top of the rule-wide values; where several scopes
+    match one object, the more specific wins, see ADR 0027). A rule without parameters has
+    empty ``schema``, ``defaults`` and ``values`` and still lists its scopes."""
+    scopes: list[dict[str, Any]] = []
+    for sc in settings.scopes if settings else []:
+        entry: dict[str, Any] = {
+            "match": sc.match.selectors(),
+            "enabled": sc.enabled,
+            "severity": sc.severity.value if sc.severity else None,
+            "params": sc.params,
+        }
+        if model is not None:
+            entry["values"] = model.model_validate(
+                {**(settings.params if settings else {}), **sc.params}
+            ).model_dump()
+        scopes.append(entry)
+    if model is None:
+        return {"schema": None, "defaults": {}, "values": {}, "scopes": scopes}
+    return {
+        "schema": model.model_json_schema(),
+        "defaults": model().model_dump(),
+        "values": merged(model, settings, NO_FACTS)[0].model_dump(),
+        "scopes": scopes,
+    }
+
+
 def params_schema(models: Mapping[str, type[RuleParams]]) -> dict[str, Any]:
     """JSON Schema of the ``rules:`` section with every rule's parameter model."""
     defs: dict[str, Any] = {}

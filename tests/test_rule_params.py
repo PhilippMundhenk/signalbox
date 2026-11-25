@@ -291,3 +291,59 @@ def test_schema_lists_every_parameter() -> None:
     assert storage_schema["properties"]["warn_pct"]["unit"] == "%"
     assert storage_schema["properties"]["warn_pct"]["default"] == 90.0
     assert "ScopeMatch" in schema["$defs"]
+
+
+def _unread_net() -> Network:
+    from signalbox.model import DeviceStatus, ReadError
+
+    snaps = [
+        snapshot(
+            device(i, DeviceRole.SWITCH, site_id=site),
+            status=DeviceStatus.UNREACHABLE,
+            errors=[ReadError(device_id=i, capability="system", message="no answer")],
+        )
+        for i, site in (("a", "home"), ("b", "lab"))
+    ]
+    return merge([SITE, LAB], snaps)
+
+
+def test_engine_rules_honour_scopes() -> None:
+    """signalbox.read and ack.expired take enabled and severity per scope (#441, ADR 0027)."""
+    n = _unread_net()
+
+    def read(raw: dict[str, Any]) -> dict[str, str]:
+        found = evaluate(n, [], settings(raw), History(now=T0, since=T0, observations=1))
+        return {f.objects[0]: f.severity.value for f in found if f.rule_id == "signalbox.read"}
+
+    assert read({}) == {"a": "warning", "b": "warning"}
+    lab_off = {"signalbox.read": {"scopes": [{"match": {"site": "lab"}, "enabled": False}]}}
+    assert read(lab_off) == {"a": "warning"}
+    lab_error = {"signalbox.read": {"scopes": [{"match": {"site": "lab"}, "severity": "error"}]}}
+    assert read(lab_error) == {"a": "warning", "b": "error"}
+    # off rule-wide, on for one site
+    only_lab = {
+        "signalbox.read": {
+            "enabled": False,
+            "scopes": [{"match": {"site": "lab"}, "enabled": True}],
+        }
+    }
+    assert read(only_lab) == {"b": "warning"}
+
+
+def test_describe_lists_schema_defaults_values_and_scopes() -> None:
+    from signalbox.rules import describe
+
+    raw = RuleSettings.model_validate(
+        {
+            "params": {"warn_pct": 80},
+            "scopes": [{"match": {"site": "lab"}, "params": {"warn_pct": 95}}],
+        }
+    )
+    d = describe(storage_full.params, raw)
+    assert d["schema"]["properties"]["warn_pct"]["unit"] == "%"
+    assert d["defaults"]["warn_pct"] == 90.0 and d["values"]["warn_pct"] == 80
+    (scope,) = d["scopes"]
+    assert scope["match"] == {"site": "lab"} and scope["values"]["warn_pct"] == 95
+    assert scope["enabled"] is None and scope["severity"] is None
+    none = describe(None, RuleSettings.model_validate({"scopes": [{"match": {"site": "x"}}]}))
+    assert none["schema"] is None and none["values"] == {} and len(none["scopes"]) == 1

@@ -13,7 +13,8 @@ from datetime import datetime
 
 from signalbox.certificates import weak_signature
 from signalbox.model import Device, KeyType, Network
-from signalbox.rules import Result, Rule, Severity, found, history_rule, rule
+from signalbox.rules import Result, Rule, Severity, ctx, found, history_rule, rule
+from signalbox.rules._certificate_params import HttpsExpiryParams
 from signalbox.sightings import History
 
 #: RSA keys shorter than this are weak.
@@ -39,8 +40,9 @@ def _certified(net: Network) -> Iterator[Device]:
     "Signalbox pins the certificate of a device and ignores its dates, but browsers, apps and "
     "controllers do not: when it expires the web interface and everything that talks to the "
     "device over HTTPS stops working. A warning is reported 30 days before the expiry date, an "
-    "error 7 days before and after it (both configurable under `certificates` in the "
-    "configuration). Devices without HTTPS and certificates that are not trusted yet are left out.",
+    "error 7 days before and after it (the parameters warn_days and urgent_days). Devices "
+    "without HTTPS and certificates that are not trusted yet are left out.",
+    params=HttpsExpiryParams,
 )
 def certificate_expiry(net: Network, history: History) -> Iterator[Result]:
     if history.now is None:
@@ -63,13 +65,14 @@ def certificate_expiry(net: Network, history: History) -> Iterator[Result]:
             )
             continue
         days = left.days
-        if days > net.certificate_warn_days:
+        limits = ctx.params(HttpsExpiryParams, dev)
+        if days > limits.warn_days:
             continue
         yield found(
             f"The HTTPS certificate of {dev.name} expires on {date} (in {days} days)",
             [dev.id],
             fix=_RENEW_FIX,
-            severity=Severity.ERROR if days <= net.certificate_urgent_days else Severity.WARNING,
+            severity=Severity.ERROR if days <= limits.urgent_days else Severity.WARNING,
             mid="certificate.expiring",
             fix_id="certificate.renew.fix",
             params={**params, "days": days},

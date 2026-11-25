@@ -15,7 +15,7 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | POST | `/api/logout` | End the session. |
 | POST | `/api/password` | Change the web interface password (ends all sessions). |
 | GET | `/api/adapters` | Installed adapters with their settings form (JSON Schema). |
-| GET | `/api/rules` | All rules with explanation, severity and whether they are enabled. |
+| GET | `/api/rules` | All rules with severity, enabled state and parameters (schema, defaults, scopes). |
 | GET | `/api/sites` | List sites. |
 | POST | `/api/sites` | Add a site. |
 | PUT | `/api/sites/{site_id}` | Rename a site. |

@@ -258,6 +258,37 @@ def test_rules_show_settings(tmp_path: Path) -> None:
         svc.close()
 
 
+def test_rules_expose_parameters(tmp_path: Path) -> None:
+    from signalbox.rules.health import storage_full
+
+    (tmp_path / "signalbox.yaml").write_text(
+        "rules:\n"
+        "  health.storage-full:\n"
+        "    params: {warn_pct: 80}\n"
+        "    scopes: [{match: {site: lab}, params: {warn_pct: 95}}]\n"
+        "  signalbox.read:\n"
+        "    scopes: [{match: {site: lab}, enabled: false}]\n"
+    )
+    svc = build(
+        tmp_path, env={"SIGNALBOX_AUTH_PASSWORD": PW}, adapters={}, rules=[per_device, storage_full]
+    )
+    try:
+        with TestClient(create_app(svc, run_background=False)) as c:
+            c.post("/api/login", json={"password": PW})
+            rules = {r["id"]: r for r in c.get("/api/rules").json()}
+            plain = rules["test.per-device"]["parameters"]
+            assert plain == {"schema": None, "defaults": {}, "values": {}, "scopes": []}
+            p = rules["health.storage-full"]["parameters"]
+            assert p["schema"]["properties"]["warn_pct"]["unit"] == "%"
+            assert p["defaults"]["warn_pct"] == 90 and p["values"]["warn_pct"] == 80
+            (scope,) = p["scopes"]
+            assert scope["match"] == {"site": "lab"} and scope["values"]["warn_pct"] == 95
+            (engine,) = rules["signalbox.read"]["parameters"]["scopes"]
+            assert engine["enabled"] is False and engine["params"] == {}
+    finally:
+        svc.close()
+
+
 def test_links(logged_in: TestClient) -> None:
     r = logged_in.post("/api/links", json={"a": "gw/port/lan", "b": "ap/port/lan"})
     assert r.status_code == 201

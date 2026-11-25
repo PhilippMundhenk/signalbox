@@ -195,12 +195,7 @@ class Runner:
         # probe's answers only while probes are on
         probed = self.store.foreign_servers() if self.config.probes.enabled else []
         net = attach_foreign(net, probed)
-        return net.model_copy(
-            update={
-                "certificate_warn_days": self.config.certificates.warn_days,
-                "certificate_urgent_days": self.config.certificates.urgent_days,
-            }
-        )
+        return net
 
     def _declared(self) -> DesiredState | None:
         if self.desired_source is None:
@@ -254,9 +249,7 @@ class Runner:
 
     def history(self, now: datetime | None = None) -> History:
         """The observation history (read-only) as of ``now``."""
-        return self.store.history(
-            now or datetime.now(UTC), self.config.history.days, self.config.counters.limits()
-        )
+        return self.store.history(now or datetime.now(UTC), self.config.history.days)
 
     def evaluate(self, record: bool = False) -> tuple[Network, list[Finding]]:
         """Check the network. ``record``: this is a new observation round, add it to the history."""

@@ -38,7 +38,7 @@ from signalbox.mqtt import MqttBridge
 from signalbox.neighbours import radio_neighbours, scan_rows
 from signalbox.notifications import Notifier
 from signalbox.prober import Prober
-from signalbox.rules import ENGINE_RULES, rule_enabled
+from signalbox.rules import ENGINE_RULES, describe, rule_enabled
 from signalbox.secrets import SecretError
 from signalbox.service import Services
 from signalbox.sightings import History
@@ -411,7 +411,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
 
     @api.get("/rules")
     def rules() -> list[dict[str, Any]]:
-        """All rules with explanation, severity and whether they are enabled."""
+        """All rules with severity, enabled state and parameters (schema, defaults, scopes)."""
         out = []
         for r in [*ENGINE_RULES, *services.rules]:
             s = config.rules.get(r.id)
@@ -422,6 +422,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
                     "explanation": r.explanation,
                     "severity": (s.severity if s and s.severity else r.severity).value,
                     "enabled": rule_enabled(r, config.rules),
+                    "parameters": describe(r.params, s),
                 }
             )
         return out

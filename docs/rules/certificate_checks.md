@@ -9,8 +9,10 @@ has pinned; a certificate that is not trusted yet is only reported by `cert.rene
 
 ## `security.certificate-expiry`
 
-- **Severity:** warning up to `certificates.warn_days` (default 30) before the expiry date,
-  error up to `certificates.urgent_days` (default 7) before it and after it
+- **Severity:** warning up to `warn_days` (default 30) before the expiry date, error up to
+  `urgent_days` (default 7) before it and after it. Both are rule parameters (per device or
+  site with `scopes`); the old `certificates.warn_days` / `urgent_days` settings are deprecated
+  aliases that set the three expiry rules and log a warning.
 - **Checks:** the pinned certificate has not expired and does not expire soon. Signalbox
   ignores the dates when it connects, but browsers, apps and controllers do not. Needs the
   observation history clock; silent without it.

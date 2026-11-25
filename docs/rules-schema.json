@@ -51,6 +51,100 @@
         }
       }
     },
+    "cert.ca-expiring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/cert.ca-expiring"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/cert.ca-expiring"
+              }
+            }
+          }
+        }
+      }
+    },
+    "cert.vpn-expiring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/cert.vpn-expiring"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/cert.vpn-expiring"
+              }
+            }
+          }
+        }
+      }
+    },
     "ddns.stale": {
       "type": "object",
       "additionalProperties": false,
@@ -568,6 +662,100 @@
         }
       }
     },
+    "port.errors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/port.errors"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/port.errors"
+              }
+            }
+          }
+        }
+      }
+    },
+    "security.certificate-expiry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/security.certificate-expiry"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/security.certificate-expiry"
+              }
+            }
+          }
+        }
+      }
+    },
     "time.offset": {
       "type": "object",
       "additionalProperties": false,
@@ -755,6 +943,100 @@
           }
         }
       }
+    },
+    "wifi.client-weak-signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/wifi.client-weak-signal"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/wifi.client-weak-signal"
+              }
+            }
+          }
+        }
+      }
+    },
+    "wifi.min-rssi-too-high": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/wifi.min-rssi-too-high"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/wifi.min-rssi-too-high"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "additionalProperties": {
@@ -775,6 +1057,58 @@
         }
       },
       "title": "account.stale",
+      "type": "object"
+    },
+    "cert.ca-expiring": {
+      "additionalProperties": false,
+      "description": "``cert.ca-expiring``.",
+      "properties": {
+        "warn_days": {
+          "default": 30,
+          "description": "Days before the expiry date from which a warning is reported.",
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Warn Days",
+          "type": "integer",
+          "unit": "d"
+        },
+        "urgent_days": {
+          "default": 7,
+          "description": "Days before the expiry date from which the warning is an error (an expired certificate is always an error).",
+          "maximum": 3650,
+          "minimum": 0,
+          "title": "Urgent Days",
+          "type": "integer",
+          "unit": "d"
+        }
+      },
+      "title": "cert.ca-expiring",
+      "type": "object"
+    },
+    "cert.vpn-expiring": {
+      "additionalProperties": false,
+      "description": "``cert.vpn-expiring``.",
+      "properties": {
+        "warn_days": {
+          "default": 30,
+          "description": "Days before the expiry date from which a warning is reported.",
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Warn Days",
+          "type": "integer",
+          "unit": "d"
+        },
+        "urgent_days": {
+          "default": 7,
+          "description": "Days before the expiry date from which the warning is an error (an expired certificate is always an error).",
+          "maximum": 3650,
+          "minimum": 0,
+          "title": "Urgent Days",
+          "type": "integer",
+          "unit": "d"
+        }
+      },
+      "title": "cert.vpn-expiring",
       "type": "object"
     },
     "ddns.stale": {
@@ -986,6 +1320,73 @@
       "title": "poe.request-unmet",
       "type": "object"
     },
+    "port.errors": {
+      "additionalProperties": false,
+      "properties": {
+        "error_ratio": {
+          "default": 0.001,
+          "description": "Report a port (information) when the errors between two reads are at least this share of its packets (0.001: one in a thousand).",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Error Ratio",
+          "type": "number",
+          "unit": "ratio"
+        },
+        "crc_ratio": {
+          "default": 0.0001,
+          "description": "Warn when the CRC/FCS errors received between two reads are at least this share of the packets received (0.0001: one in ten thousand).",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Crc Ratio",
+          "type": "number",
+          "unit": "ratio"
+        },
+        "min_packets": {
+          "default": 1000,
+          "description": "Reads with fewer packets than this on a port are too small to judge.",
+          "minimum": 1,
+          "title": "Min Packets",
+          "type": "integer",
+          "unit": "count"
+        },
+        "min_errors": {
+          "default": 5,
+          "description": "Fewer errors than this between two reads are never reported (a single bad frame).",
+          "minimum": 1,
+          "title": "Min Errors",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "port.errors",
+      "type": "object"
+    },
+    "security.certificate-expiry": {
+      "additionalProperties": false,
+      "description": "``security.certificate-expiry``.",
+      "properties": {
+        "warn_days": {
+          "default": 30,
+          "description": "Days before the expiry date from which a warning is reported.",
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Warn Days",
+          "type": "integer",
+          "unit": "d"
+        },
+        "urgent_days": {
+          "default": 7,
+          "description": "Days before the expiry date from which the warning is an error (an expired certificate is always an error).",
+          "maximum": 3650,
+          "minimum": 0,
+          "title": "Urgent Days",
+          "type": "integer",
+          "unit": "d"
+        }
+      },
+      "title": "security.certificate-expiry",
+      "type": "object"
+    },
     "time.offset": {
       "additionalProperties": false,
       "properties": {
@@ -1065,6 +1466,38 @@
         }
       },
       "title": "wifi.channel-crowded",
+      "type": "object"
+    },
+    "wifi.client-weak-signal": {
+      "additionalProperties": false,
+      "properties": {
+        "min_dbm": {
+          "default": -75,
+          "description": "A client below this signal is slow and drops packets (#170).",
+          "maximum": 0,
+          "minimum": -120,
+          "title": "Min Dbm",
+          "type": "integer",
+          "unit": "dBm"
+        }
+      },
+      "title": "wifi.client-weak-signal",
+      "type": "object"
+    },
+    "wifi.min-rssi-too-high": {
+      "additionalProperties": false,
+      "properties": {
+        "max_dbm": {
+          "default": -70,
+          "description": "A minimum signal above this kicks clients that are still usable (#168). The fix suggests 5 dBm below it.",
+          "maximum": 0,
+          "minimum": -120,
+          "title": "Max Dbm",
+          "type": "integer",
+          "unit": "dBm"
+        }
+      },
+      "title": "wifi.min-rssi-too-high",
       "type": "object"
     },
     "ScopeMatch": {

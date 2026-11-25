@@ -11,9 +11,41 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from signalbox.model import Network, PortKind
-from signalbox.rules import Result, Rule, Severity, found, history_rule
+from signalbox.rules import Result, Rule, RuleParams, Severity, ctx, found, history_rule, param
 from signalbox.rules._names import device_name
 from signalbox.sightings import History
+
+
+class PortErrorParams(RuleParams):
+    error_ratio: float = param(
+        0.001,
+        unit="ratio",
+        ge=0,
+        le=1,
+        description="Report a port (information) when the errors between two reads are at "
+        "least this share of its packets (0.001: one in a thousand).",
+    )
+    crc_ratio: float = param(
+        0.0001,
+        unit="ratio",
+        ge=0,
+        le=1,
+        description="Warn when the CRC/FCS errors received between two reads are at least this "
+        "share of the packets received (0.0001: one in ten thousand).",
+    )
+    min_packets: int = param(
+        1000,
+        unit="count",
+        ge=1,
+        description="Reads with fewer packets than this on a port are too small to judge.",
+    )
+    min_errors: int = param(
+        5,
+        unit="count",
+        ge=1,
+        description="Fewer errors than this between two reads are never reported (a single "
+        "bad frame).",
+    )
 
 
 @history_rule(
@@ -24,12 +56,13 @@ from signalbox.sightings import History
     "connector, a duplex or speed mismatch, or a failing port, long before the link drops. "
     "Judged on what happened between the last two reads relative to the packets in that time, "
     "not on lifetime totals: a warning when the CRC errors received exceed a small share of the "
-    "packets (counters.crc_ratio), information for other errors above counters.error_ratio. "
+    "packets (parameter crc_ratio), information for other errors above error_ratio. "
     "Ports that are down, reads with few packets or errors, and counters that were reset by a "
-    "reboot are ignored. The thresholds are in the configuration under counters.",
+    "reboot are ignored. The thresholds are the rule's parameters (they replace the "
+    "deprecated counters section of the configuration).",
+    params=PortErrorParams,
 )
 def port_errors(net: Network, history: History) -> Iterator[Result]:
-    limits = history.counter_limits
     for port in net.ports:
         if port.kind not in (PortKind.ETHERNET, PortKind.LAG) or port.up is False:
             continue
@@ -41,6 +74,7 @@ def port_errors(net: Network, history: History) -> Iterator[Result]:
             continue
         packets = delta.packets
         errors = delta.errors
+        limits = ctx.params(PortErrorParams, port)
         if not packets or packets < limits.min_packets or not errors:
             continue
         crc = delta.rx_crc_errors or 0

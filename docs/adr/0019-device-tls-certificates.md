@@ -25,8 +25,9 @@ should not each parse certificates.
   copies the previously pinned certificate's fingerprint and expiry from the stored snapshot into
   `previous_*` (and keeps them while the status stays untrusted). Trusting the new one clears them.
   No extra table: the snapshot of the failed read already exists.
-- **Thresholds.** `certificates.warn_days` / `urgent_days` (30 / 7) reach the rules through the
-  network (`Network.certificate_warn_days`), because rules take only the network.
+- **Thresholds.** `warn_days` / `urgent_days` (30 / 7) are parameters of the expiry rules
+  (ADR 0027, #441); they first reached the rules through `Network.certificate_*_days`
+  (removed), and `certificates.*` in the configuration is a deprecated alias.
 - **Recordings** do not contain the certificate: the replay generates its own.
 
 ## Consequences

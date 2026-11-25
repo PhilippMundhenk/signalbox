@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import json
 
-from pydantic import Field
-
 from signalbox.model import COUNTER_FIELDS, Model, PortCounters
 
 WRAP_32 = 2**32
@@ -123,16 +121,3 @@ def _load(value: str | None) -> CounterRecord | None:
 def counter_record(value: str | None) -> CounterRecord | None:
     """The record in a stored value."""
     return _load(value)
-
-
-class CounterLimits(Model):
-    """Thresholds of ``port.errors`` (``counters:`` in the configuration)."""
-
-    #: Errors per packet from which a port is reported (0.001: one in a thousand).
-    error_ratio: float = Field(0.001, ge=0)
-    #: CRC/FCS errors per packet from which the warning is raised on its own.
-    crc_ratio: float = Field(0.0001, ge=0)
-    #: A read with fewer packets than this is too small to judge a ratio.
-    min_packets: int = Field(1000, ge=1)
-    #: ... and with fewer errors than this is never reported (a single bad frame).
-    min_errors: int = Field(5, ge=1)

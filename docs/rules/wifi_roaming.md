@@ -4,8 +4,8 @@
 
 Checks on the roaming settings of SSIDs across access points (#168) and on how well Wi-Fi
 clients are connected (#170). Settings or readings a device did not report are never judged.
-The thresholds are constants of the module for now (`MIN_RSSI_HIGH_DBM`,
-`WEAK_CLIENT_SIGNAL_DBM`) and become rule parameters with #187. Client readings are one sample
+The thresholds are rule parameters (`max_dbm` of `wifi.min-rssi-too-high`, `min_dbm` of
+`wifi.client-weak-signal`; #441), so they can be set per site or access point. Client readings are one sample
 of one moment, not a trend; they are personal data (who is where) and stay on the server.
 
 ## `wifi.ft-mobility-domain-mismatch`
@@ -22,9 +22,9 @@ of one moment, not a trend; they are personal data (who is where) and stay on th
 - **Severity:** warning
 - **Checks:** an SSID whose minimum signal (`min_rssi_dbm`, MikroTik access list
   `signal-range`) or minimum association signal (`assoc_rssi_dbm`, OpenWrt
-  `rssi_reject_assoc_rssi`) is above -70 dBm. Such a limit kicks clients that still have a usable
+  `rssi_reject_assoc_rssi`) is above `max_dbm` (default -70 dBm). Such a limit kicks clients that still have a usable
   connection, and they reconnect in a loop.
-- **Fix:** lower the limit to -75 dBm or weaker, or turn it off.
+- **Fix:** lower the limit to 5 dBm below `max_dbm` (-75 dBm) or weaker, or turn it off.
 
 ## `wifi.min-rssi-inconsistent`
 
@@ -36,9 +36,9 @@ of one moment, not a trend; they are personal data (who is where) and stay on th
 ## `wifi.client-weak-signal`
 
 - **Severity:** info
-- **Checks:** a wireless client whose reported signal is weaker than -75 dBm on the access
-  point it is associated with. One reading only: sustained weakness needs the history (to do
-  with #187).
+- **Checks:** a wireless client whose reported signal is weaker than `min_dbm` (default -75 dBm)
+  on the access point it is associated with (scopes match that access point). One reading only:
+  sustained weakness needs the history.
 - **Fix:** move the device or an access point closer together, or add an access point.
 
 ## `wifi.legacy-client`

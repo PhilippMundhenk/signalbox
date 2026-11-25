@@ -11,11 +11,11 @@ from signalbox.model import (
     WifiStandard,
     WirelessAssociation,
 )
-from signalbox.rules import Finding, Rule, Severity, evaluate
+from signalbox.rules import Finding, Rule, RuleSettings, Severity, evaluate
 from signalbox.rules.wifi_roaming import (
-    MIN_RSSI_HIGH_DBM,
     RULES,
-    WEAK_CLIENT_SIGNAL_DBM,
+    MinRssiHighParams,
+    WeakSignalParams,
     client_weak_signal,
     ft_mobility_domain_mismatch,
     legacy_client,
@@ -28,9 +28,10 @@ WLAN_ID = "ap1/wlan/Example/radio0"
 MAC = "02:00:00:00:00:51"
 
 
-def run(r: Rule, *snaps: Snapshot) -> list[Finding]:
+def run(r: Rule, *snaps: Snapshot, **params: int) -> list[Finding]:
     net = merge([SITE], snaps)
-    return [f for f in evaluate(net, [r]) if f.rule_id == r.id]
+    settings = {r.id: RuleSettings(params=params)} if params else None
+    return [f for f in evaluate(net, [r], settings) if f.rule_id == r.id]
 
 
 def with_clients(*clients: Client) -> Snapshot:
@@ -95,7 +96,7 @@ def test_min_rssi_too_high_is_found() -> None:
 
 
 def test_min_rssi_too_high_quiet() -> None:
-    assert MIN_RSSI_HIGH_DBM == -70
+    assert MinRssiHighParams().max_dbm == -70
     for kw in (
         {"min_rssi_dbm": -70},
         {"min_rssi_dbm": -80},
@@ -124,7 +125,21 @@ def test_min_rssi_inconsistent_quiet() -> None:
     assert run(min_rssi_inconsistent, limit_ap("ap1", -75)) == []
 
 
+def test_min_rssi_limit_is_a_parameter() -> None:
+    wl = ap("ap1", wlans=[wlan("ap1", min_rssi_dbm=-65)])
+    assert run(min_rssi_too_high, wl, max_dbm=-60) == []
+    (f,) = run(min_rssi_too_high, wl, max_dbm=-80)
+    assert f.params["suggested"] == -85
+    assert [(x.name, x.value) for x in f.parameters] == [("max_dbm", -80)]
+
+
 # wifi.client-weak-signal ----------------------------------------------------------------------
+
+
+def test_weak_signal_limit_is_a_parameter() -> None:
+    reading = with_clients(station(signal_dbm=-82))
+    assert run(client_weak_signal, reading, min_dbm=-85) == []
+    assert len(run(client_weak_signal, reading, min_dbm=-80)) == 1
 
 
 def test_weak_client_signal_is_found() -> None:
@@ -136,7 +151,7 @@ def test_weak_client_signal_is_found() -> None:
 
 
 def test_weak_client_signal_quiet() -> None:
-    assert WEAK_CLIENT_SIGNAL_DBM == -75
+    assert WeakSignalParams().min_dbm == -75
     assert run(client_weak_signal, with_clients(station(signal_dbm=-75))) == []
     assert run(client_weak_signal, with_clients(station(signal_dbm=-50))) == []
     assert run(client_weak_signal, with_clients(station())) == []  # no reading

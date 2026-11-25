@@ -4120,10 +4120,6 @@ class Network(Model):
     annotations: list[Annotation] = Field(default_factory=list)
     #: Acknowledged findings (#186); :func:`signalbox.rules.evaluate` applies them.
     acknowledgements: list[Acknowledgement] = Field(default_factory=list)
-    #: Days before a device certificate expires when ``security.certificate-expiry`` warns and
-    #: when it reports an error (``certificates`` in the configuration), set by the runner.
-    certificate_warn_days: int = 30
-    certificate_urgent_days: int = 7
     #: Path traces (#253): the latest per source and target, set by the runner while
     #: ``traces.enabled`` is on, hops matched to the devices of this network. Active
     #: observations, not snapshots: empty in the desired and predicted states.

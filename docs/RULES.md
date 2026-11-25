@@ -362,6 +362,20 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `days` | `90` | d | Days without a login. |
 
+### `cert.ca-expiring`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `warn_days` | `30` | d | Days before the expiry date from which a warning is reported. |
+| `urgent_days` | `7` | d | Days before the expiry date from which the warning is an error (an expired certificate is always an error). |
+
+### `cert.vpn-expiring`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `warn_days` | `30` | d | Days before the expiry date from which a warning is reported. |
+| `urgent_days` | `7` | d | Days before the expiry date from which the warning is an error (an expired certificate is always an error). |
+
 ### `ddns.stale`
 
 | Parameter | Default | Unit | Meaning |
@@ -432,6 +446,22 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `margin_w` | `0.5` | W | Watts the request may exceed the port's limit by before it is reported. |
 
+### `port.errors`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `error_ratio` | `0.001` | ratio | Report a port (information) when the errors between two reads are at least this share of its packets (0.001: one in a thousand). |
+| `crc_ratio` | `0.0001` | ratio | Warn when the CRC/FCS errors received between two reads are at least this share of the packets received (0.0001: one in ten thousand). |
+| `min_packets` | `1000` | count | Reads with fewer packets than this on a port are too small to judge. |
+| `min_errors` | `5` | count | Fewer errors than this between two reads are never reported (a single bad frame). |
+
+### `security.certificate-expiry`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `warn_days` | `30` | d | Days before the expiry date from which a warning is reported. |
+| `urgent_days` | `7` | d | Days before the expiry date from which the warning is an error (an expired certificate is always an error). |
+
 ### `time.offset`
 
 | Parameter | Default | Unit | Meaning |
@@ -457,3 +487,15 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `dbm` | `-80` | dBm | Neighbours weaker than this are not counted. |
 | `count` | `3` | count | Neighbours from which it is reported. |
+
+### `wifi.client-weak-signal`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `min_dbm` | `-75` | dBm | A client below this signal is slow and drops packets (#170). |
+
+### `wifi.min-rssi-too-high`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `max_dbm` | `-70` | dBm | A minimum signal above this kicks clients that are still usable (#168). The fix suggests 5 dBm below it. |

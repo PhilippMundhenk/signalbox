@@ -71,17 +71,17 @@ Generated from the code by `tools/gen_docs.py`.
 
 | Setting | Environment variable | Default | Meaning |
 | --- | --- | --- | --- |
-| `counters.error_ratio` | `SIGNALBOX_COUNTERS_ERROR_RATIO` | `0.001` | Port error check (port.errors): report a port when the errors between two reads are at least this share of its packets (0.001: one in a thousand). |
-| `counters.crc_ratio` | `SIGNALBOX_COUNTERS_CRC_RATIO` | `0.0001` | Report a warning when the CRC/FCS errors received between two reads are at least this share of the packets received (0.0001: one in ten thousand). |
-| `counters.min_packets` | `SIGNALBOX_COUNTERS_MIN_PACKETS` | `1000` | Reads with fewer packets than this on a port are too small to judge. |
-| `counters.min_errors` | `SIGNALBOX_COUNTERS_MIN_ERRORS` | `5` | Fewer errors than this between two reads are never reported (a single bad frame). |
+| `counters.error_ratio` | `SIGNALBOX_COUNTERS_ERROR_RATIO` | `0.001` | Deprecated, use rules.port.errors.params.error_ratio (#441). Port error check (port.errors): report a port when the errors between two reads are at least this share of its packets (0.001: one in a thousand). |
+| `counters.crc_ratio` | `SIGNALBOX_COUNTERS_CRC_RATIO` | `0.0001` | Deprecated, use rules.port.errors.params.crc_ratio. Report a warning when the CRC/FCS errors received between two reads are at least this share of the packets received (0.0001: one in ten thousand). |
+| `counters.min_packets` | `SIGNALBOX_COUNTERS_MIN_PACKETS` | `1000` | Deprecated, use rules.port.errors.params.min_packets. Reads with fewer packets than this on a port are too small to judge. |
+| `counters.min_errors` | `SIGNALBOX_COUNTERS_MIN_ERRORS` | `5` | Deprecated, use rules.port.errors.params.min_errors. Fewer errors than this between two reads are never reported (a single bad frame). |
 
 ## `certificates`
 
 | Setting | Environment variable | Default | Meaning |
 | --- | --- | --- | --- |
-| `certificates.warn_days` | `SIGNALBOX_CERTIFICATES_WARN_DAYS` | `30` | Days before a device's HTTPS certificate expires when Signalbox warns. |
-| `certificates.urgent_days` | `SIGNALBOX_CERTIFICATES_URGENT_DAYS` | `7` | Days before it expires when the warning becomes an error (an expired certificate is always an error). |
+| `certificates.warn_days` | `SIGNALBOX_CERTIFICATES_WARN_DAYS` | `30` | Deprecated, use rules.<id>.params.warn_days of security.certificate-expiry, cert.vpn-expiring and cert.ca-expiring (#441). Days before a certificate expires when Signalbox warns. |
+| `certificates.urgent_days` | `SIGNALBOX_CERTIFICATES_URGENT_DAYS` | `7` | Deprecated, use rules.<id>.params.urgent_days of the same rules. Days before it expires when the warning becomes an error (an expired certificate is always an error). |
 
 ## `discovery`
 

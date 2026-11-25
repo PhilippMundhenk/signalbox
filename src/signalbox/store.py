@@ -16,7 +16,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from signalbox.adapters import AdapterConfig, Backup
-from signalbox.counters import CounterLimits, CounterRecord, counter_record, counter_value
+from signalbox.counters import CounterRecord, counter_record, counter_value
 from signalbox.history import BackupInfo, ChangeEvent, ChangeRecord
 from signalbox.model import (
     Acknowledgement,
@@ -972,7 +972,7 @@ class Store:
             db.execute("DELETE FROM sighting_changes WHERE at < ?", (stamp,))
             return int(gone)
 
-    def history(self, now: datetime, days: int, limits: CounterLimits | None = None) -> History:
+    def history(self, now: datetime, days: int) -> History:
         """The recorded history as rules and the UI see it."""
         changes: dict[tuple[str, str], list[sqlite3.Row]] = {}
         for r in self._all("SELECT * FROM sighting_changes ORDER BY seq"):
@@ -1053,5 +1053,4 @@ class Store:
             serials=values[SERIAL],
             base_macs=values[BASE_MAC],
             counters=counters,
-            counter_limits=limits or CounterLimits(),
         )
