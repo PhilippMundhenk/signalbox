@@ -343,6 +343,52 @@ def firewall_data() -> dict[str, Any]:
                 }
             ]
         ),
+        # traffic shaper (#166, guess: row fields): FQ-CoDel pipes on the WAN, 90 down, 18 up
+        "/api/trafficshaper/settings/search_pipes": _rows_of(
+            [
+                {
+                    "uuid": "p1",
+                    "number": "10000",
+                    "enabled": "1",
+                    "bandwidth": "90",
+                    "bandwidthMetric": "Mbit",
+                    "scheduler": "fq_codel",
+                    "description": "Download",
+                },
+                {
+                    "uuid": "p2",
+                    "number": "10001",
+                    "enabled": "1",
+                    "bandwidth": "18",
+                    "bandwidthMetric": "Mbit",
+                    "scheduler": "fq_codel",
+                    "description": "Upload",
+                },
+            ]
+        ),
+        "/api/trafficshaper/settings/search_queues": _rows_of(
+            [{"uuid": "q1", "pipe": "p1", "weight": "100", "description": "Download queue"}]
+        ),
+        "/api/trafficshaper/settings/search_rules": _rows_of(
+            [
+                {
+                    "uuid": "r1",
+                    "enabled": "1",
+                    "interface": "wan",
+                    "direction": "in",
+                    "target": "q1",
+                    "dscp": "",
+                },
+                {
+                    "uuid": "r2",
+                    "enabled": "1",
+                    "interface": "wan",
+                    "direction": "out",
+                    "target": "p2",
+                    "dscp": "",
+                },
+            ]
+        ),
         # captive portal (#460): one zone on the guest network, accepting the terms only
         "/api/captiveportal/settings/search_zones": _rows_of(
             [

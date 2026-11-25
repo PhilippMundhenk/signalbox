@@ -6190,6 +6190,13 @@
           "title": "Services",
           "type": "array"
         },
+        "shapers": {
+          "items": {
+            "$ref": "#/$defs/Shaper"
+          },
+          "title": "Shapers",
+          "type": "array"
+        },
         "sites": {
           "items": {
             "$ref": "#/$defs/Site"
@@ -9592,6 +9599,176 @@
       "title": "ServiceTransport",
       "type": "string"
     },
+    "Shaper": {
+      "additionalProperties": false,
+      "description": "A traffic shaper or smart queue of a device (#166), ``object_id(device, \"shaper\", <name>)``.\n\nRead with ``interfaces``; read-only. ``download_kbps`` and ``upload_kbps`` are the rates the\nshaper limits to, seen from the LAN (download: towards the clients); ``None``: that direction\nis not limited or not known. ``uplink_id`` names the internet connection it shapes where the\ndevice says; ``interface`` is the device's own name of what it sits on. A shaper that limits\none client or network (``addresses``, ``segment_id``) shows which household devices exist:\nshown behind the device page only, never exported.",
+      "properties": {
+        "addresses": {
+          "items": {
+            "anyOf": [
+              {
+                "format": "ipv4network",
+                "type": "string"
+              },
+              {
+                "format": "ipv6network",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Addresses",
+          "type": "array"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "download_kbps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Download Kbps"
+        },
+        "dscp": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dscp"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interface"
+        },
+        "kind": {
+          "$ref": "#/$defs/ShaperKind",
+          "default": "other"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Id"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "uplink_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uplink Id"
+        },
+        "upload_kbps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Upload Kbps"
+        },
+        "vendor_extra": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Vendor Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "device_id",
+        "name"
+      ],
+      "title": "Shaper",
+      "type": "object"
+    },
+    "ShaperKind": {
+      "description": "The queueing discipline or mechanism of a shaper (#166).",
+      "enum": [
+        "sqm",
+        "cake",
+        "fq-codel",
+        "htb",
+        "hfsc",
+        "simple-queue",
+        "priority",
+        "other"
+      ],
+      "title": "ShaperKind",
+      "type": "string"
+    },
     "SightingSource": {
       "enum": [
         "probe",
@@ -9798,6 +9975,13 @@
             "$ref": "#/$defs/ManagementService"
           },
           "title": "Services",
+          "type": "array"
+        },
+        "shapers": {
+          "items": {
+            "$ref": "#/$defs/Shaper"
+          },
+          "title": "Shapers",
           "type": "array"
         },
         "status": {

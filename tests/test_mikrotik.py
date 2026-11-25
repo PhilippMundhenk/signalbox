@@ -1979,3 +1979,35 @@ async def test_capsman_l2_address_is_the_cap_mac(http_url: str, sim: MikrotikSim
     (cap,) = [d for d in snap.extra_devices if d.id == "rt/cap/02:00:00:00:00:51"]
     assert cap.vendor_extra["capsman_path"] == "layer2"
     assert cap.vendor_extra["capsman_port"] == "rt/port/ether3"
+
+
+async def test_queues_are_shapers(snap: Snapshot) -> None:
+    """A queue tree on the WAN interface is the upload; a simple queue on a network limits it
+    from the client's side (#166)."""
+    by_name = {s.name: s for s in snap.shapers}
+    tree, simple = by_name["wan-up"], by_name["guests"]
+    assert (tree.upload_kbps, tree.download_kbps, tree.kind.value) == (18_000, None, "cake")
+    assert tree.uplink_id is not None and tree.uplink_id.endswith("/uplink/ether1")
+    assert (simple.upload_kbps, simple.download_kbps) == (5_000, 20_000)
+    assert simple.kind.value == "simple-queue"
+    assert [str(a) for a in simple.addresses] == ["198.51.100.0/24"]
+
+
+def test_queue_edge_cases() -> None:
+    from signalbox.adapters.mikrotik import queues
+
+    simple = [
+        {"name": "dyn", "dynamic": "true", "target": "198.51.100.5", "max-limit": "1M/1M"},
+        {"name": "wan", "target": "ether1", "max-limit": "2M/30M", "queue": "x/x"},
+        {"name": "off", "target": "198.51.100.0/24", "max-limit": "0/0", "disabled": "true"},
+    ]
+    tree = [
+        {"name": "root", "parent": "global", "max-limit": "1G"},
+        {"name": "lan-down", "parent": "bridge", "max-limit": "100M", "queue": "hfsc"},
+        {"name": "child", "parent": "lan-down"},
+    ]
+    types = [{"name": "x", "kind": "fq-codel"}]
+    a, b, c = queues.shapers("rt", types, simple, tree, [], {"ether1"})
+    assert (a.upload_kbps, a.download_kbps, a.kind.value) == (30_000, 2_000, "fq-codel")
+    assert not b.enabled and (b.upload_kbps, b.download_kbps) == (None, None)
+    assert (c.download_kbps, c.upload_kbps, c.kind.value) == (100_000, None, "hfsc")

@@ -1118,6 +1118,31 @@ def sample_data() -> dict[str, Any]:
                 "invalid": "false",
             }
         ),
+        # queues (#166, guess: field names): cake on the WAN through a queue tree, one simple
+        # queue limiting a network, and the types
+        "/rest/queue/type": _ids(
+            {"name": "cake-default", "kind": "cake"},
+            {"name": "default-small", "kind": "pfifo"},
+        ),
+        "/rest/queue/simple": _ids(
+            {
+                "name": "guests",
+                "target": "198.51.100.0/24",
+                "max-limit": "5M/20M",
+                "queue": "default-small/default-small",
+                "disabled": "false",
+                "dynamic": "false",
+            }
+        ),
+        "/rest/queue/tree": _ids(
+            {
+                "name": "wan-up",
+                "parent": "ether1",
+                "max-limit": "18M",
+                "queue": "cake-default",
+                "disabled": "false",
+            }
+        ),
         # hotspot (#460): click-through (trial login) on the main network
         "/rest/ip/hotspot": _ids(
             {

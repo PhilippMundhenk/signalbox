@@ -69,6 +69,7 @@ READ_ONLY = (
     "igmpproxy",
     "upnpd",
     "openvpn",
+    "sqm",
 )
 #: Of those, the configs of optional packages (#180): only there when installed
 PACKAGES = (
@@ -85,6 +86,7 @@ PACKAGES = (
     "igmpproxy",
     "upnpd",
     "openvpn",
+    "sqm",
 )
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
@@ -1262,6 +1264,24 @@ secrets {{
 """
 
 
+def sqm_config() -> dict[str, Any]:
+    """``/etc/config/sqm`` (#166, guess: option names): cake on the WAN, 90 and 18 Mbit/s."""
+    return _uci(
+        (
+            "queue",
+            "wan",
+            {
+                "enabled": "1",
+                "interface": "wan",
+                "download": "90000",
+                "upload": "18000",
+                "qdisc": "cake",
+                "script": "piece_of_cake.qos",
+            },
+        ),
+    )
+
+
 def igmpproxy_config() -> dict[str, Any]:
     """``/etc/config/igmpproxy`` (#161): the uplink ``wan`` upstream, the main network down."""
     return _uci(
@@ -1939,6 +1959,7 @@ class OpenWrtSim:
                 "igmpproxy": _sections(igmpproxy_config()),
                 "upnpd": _sections(upnpd_config()),
                 "openvpn": _sections(openvpn_config()),
+                "sqm": _sections(sqm_config()),
                 "https-dns-proxy": {},
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
             }

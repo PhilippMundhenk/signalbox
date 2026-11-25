@@ -70,7 +70,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import access as _access
-from signalbox.adapters.mikrotik import capsman, hotspot, multiwan, wifi_assoc
+from signalbox.adapters.mikrotik import capsman, hotspot, multiwan, queues, wifi_assoc
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
 from signalbox.adapters.mikrotik import multicast as _multicast
@@ -181,6 +181,7 @@ from signalbox.model import (
     ServerOffer,
     ServerSighting,
     ServiceKind,
+    Shaper,
     SightingSource,
     SnmpSettings,
     SnmpVersion,
@@ -1641,6 +1642,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             gateway_groups=wan_groups,
             ddns=await self._cloud_ddns(uplinks),
             portals=await self._portals(layout),
+            shapers=await self._shapers(layout, uplinks),
             services=services,
             certificates=await self._certificates(),
             log_targets={} if targets is None else {dev: targets},
@@ -1680,6 +1682,16 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             )
             return control, None, [gap]
         return control, _access.radius_servers(rows), []
+
+    async def _shapers(self, layout: _Layout, uplinks: list[Uplink]) -> list[Shaper]:
+        """``/queue`` simple queues, queue trees and their types (#166). A menu that is
+        refused to this user (the read policy covers it) or missing reports nothing."""
+        simple = await self._readable(queues.SIMPLE) or []
+        tree = await self._readable(queues.TREE) or []
+        if not simple and not tree:
+            return []
+        types = await self._readable(queues.TYPES) or []
+        return queues.shapers(self.context.device_id, types, simple, tree, uplinks, set(layout.wan))
 
     async def _portals(self, layout: _Layout) -> list[CaptivePortal]:
         """``/ip/hotspot`` servers (#460). A menu that is missing (no hotspot, older package) or

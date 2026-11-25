@@ -1320,6 +1320,100 @@
         }
       }
     },
+    "qos.shaper-above-line": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/qos.shaper-above-line"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/qos.shaper-above-line"
+              }
+            }
+          }
+        }
+      }
+    },
+    "qos.shaper-far-below-line": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/qos.shaper-far-below-line"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/qos.shaper-far-below-line"
+              }
+            }
+          }
+        }
+      }
+    },
     "radius.single": {
       "type": "object",
       "additionalProperties": false,
@@ -2646,6 +2740,38 @@
         }
       },
       "title": "port.utilisation",
+      "type": "object"
+    },
+    "qos.shaper-above-line": {
+      "additionalProperties": false,
+      "properties": {
+        "tolerance_pct": {
+          "default": 5,
+          "description": "How far the shaper rate may exceed the line rate before it is reported.",
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Tolerance Pct",
+          "type": "number",
+          "unit": "%"
+        }
+      },
+      "title": "qos.shaper-above-line",
+      "type": "object"
+    },
+    "qos.shaper-far-below-line": {
+      "additionalProperties": false,
+      "properties": {
+        "below_pct": {
+          "default": 50,
+          "description": "Shaper rate below this share of the line rate is reported as wasteful.",
+          "maximum": 99,
+          "minimum": 1,
+          "title": "Below Pct",
+          "type": "number",
+          "unit": "%"
+        }
+      },
+      "title": "qos.shaper-far-below-line",
       "type": "object"
     },
     "radius.single": {

@@ -69,6 +69,7 @@ from signalbox.adapters.openwrt import (
     provision,
     routes,
     setup,
+    sqm,
     strongswan,
     vitals,
     wifi_assoc,
@@ -160,6 +161,7 @@ from signalbox.model import (
     Security,
     Segment,
     ServiceKind,
+    Shaper,
     StpBridge,
     Subnet,
     TemperatureSensor,
@@ -1195,6 +1197,7 @@ class OpenWrtAdapter(Adapter):
         if router:
             uplinks, wan_groups, ddns_list, wan_gaps = await self._multiwan(uplinks)
             gaps += wan_gaps
+        shaper_list = await self._shapers(view, uplinks)
         try:
             services = await self._services(view, ports, {s.id for s in segments})
         except AccessDenied as exc:  # set up with an older ACL: the rest is read
@@ -1268,6 +1271,7 @@ class OpenWrtAdapter(Adapter):
             uplinks=uplinks,
             gateway_groups=wan_groups,
             portals=portal_list,
+            shapers=shaper_list,
             ddns=ddns_list,
             services=services,
             log_targets={} if targets is None else {d: targets},
@@ -1494,6 +1498,16 @@ class OpenWrtAdapter(Adapter):
         if not cfg.probe_empty_root_password or cfg.username == "root":
             return False
         return await self.ubus.try_login("root", "")
+
+    async def _shapers(self, view: NetworkView, uplinks: list[Uplink]) -> list[Shaper]:
+        """sqm-scripts (#166), an optional package: no config, nothing to report; an ACL from
+        before #166 does not list the config and reads as none."""
+        with contextlib.suppress(AdapterError):
+            uci = await self._uci("sqm")
+            return sqm.shapers(
+                self.context.device_id, _sections(uci, "queue"), uplinks, view.devices
+            )
+        return []
 
     async def _portals(self, view: NetworkView) -> list[CaptivePortal]:
         """openNDS and nodogsplash (#460), optional packages: no config, nothing to report;

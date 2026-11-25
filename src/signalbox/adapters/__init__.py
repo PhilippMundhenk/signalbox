@@ -77,6 +77,7 @@ from signalbox.model import (
     RoutingRule,
     Segment,
     ServerSighting,
+    Shaper,
     Snapshot,
     Source,
     StpBridge,
@@ -666,6 +667,9 @@ class Observation(BaseModel):
     #: an account name, password or token of a DDNS provider, also not in ``vendor_extra``.
     gateway_groups: list[GatewayGroup] = Field(default_factory=list)
     ddns: list[DynamicDns] = Field(default_factory=list)
+    #: Traffic shapers and smart queues (#166), read with ``interfaces``; no API version needed.
+    #: Report every shaper the device has, disabled ones too, or none (not read).
+    shapers: list[Shaper] = Field(default_factory=list)
     #: Captive portals (#460), read with ``interfaces``; no API version needed. Report every
     #: portal the device has, disabled ones too, or none (not read). Never a voucher, shared
     #: password, RADIUS secret or API key, also not in ``vendor_extra``.

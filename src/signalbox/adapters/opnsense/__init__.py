@@ -75,6 +75,7 @@ from signalbox.adapters.opnsense import multicast as multicast_reader
 from signalbox.adapters.opnsense import portal as portal_reader
 from signalbox.adapters.opnsense import radius as radius_reader
 from signalbox.adapters.opnsense import routes as route_reader
+from signalbox.adapters.opnsense import shaper as shaper_reader
 from signalbox.adapters.opnsense import trace as _trace
 from signalbox.adapters.opnsense import upnp as upnp_reader
 from signalbox.adapters.opnsense import vpn as vpn_reader
@@ -145,6 +146,7 @@ from signalbox.model import (
     Segment,
     ServiceKind,
     ServiceReflector,
+    Shaper,
     SnmpSettings,
     SnmpVersion,
     Subnet,
@@ -1412,6 +1414,7 @@ class OpnsenseAdapter(_Adapter):
         group_list, group_gaps = await self._gateway_groups(uplinks, gateway_rows)
         ddns_list, ddns_gaps = await self._ddns(uplinks[0].id if uplinks else None)
         portal_list, portal_gaps = await self._portals(layout)
+        shaper_list, shaper_gaps = await self._shapers(uplinks)
         multicast, multicast_gaps = await self._multicast(layout)
         radius, radius_gaps = await self._radius()
         upnp_state, upnp_gaps = await self._upnp(layout)
@@ -1419,8 +1422,8 @@ class OpnsenseAdapter(_Adapter):
         if upnp_state is not None:
             services.append(upnp_state[0])
         gaps = [
-            *gaps, *cert_gaps, *route_gaps, *group_gaps, *ddns_gaps, *portal_gaps, *multicast_gaps,
-            *upnp_gaps, *radius_gaps,
+            *gaps, *cert_gaps, *route_gaps, *group_gaps, *ddns_gaps, *portal_gaps, *shaper_gaps,
+            *multicast_gaps, *upnp_gaps, *radius_gaps,
         ]  # fmt: skip
         return Observation(
             routes=route_list,
@@ -1431,6 +1434,7 @@ class OpnsenseAdapter(_Adapter):
             gateway_groups=group_list,
             ddns=ddns_list,
             portals=portal_list,
+            shapers=shaper_list,
             services=services,
             certificates=certificates,
             log_targets={} if targets is None else {dev: targets},
@@ -1575,6 +1579,28 @@ class OpnsenseAdapter(_Adapter):
         except AdapterError:
             rows = None
         return freeradius_reader.server(general, status, rows, self.http.host)
+
+    async def _shapers(self, uplinks: list[Uplink]) -> tuple[list[Shaper], list[Gap]]:
+        """Traffic shaper pipes (#166); no traffic shaper API (404): nothing to report; a
+        refused read (403) is an optional gap naming the privilege."""
+        try:
+            pipes = await self._optional(shaper_reader.PIPES, grid=True)
+            if pipes is None:
+                return [], []
+            queues = await self._optional(shaper_reader.QUEUES, grid=True)
+            rules = await self._optional(shaper_reader.RULES, grid=True)
+        except AdapterError as exc:
+            return [], [_privilege_gap("traffic shaper", exc, shaper_reader.PRIVILEGE)]
+        return (
+            shaper_reader.shapers(
+                self.context.device_id,
+                _rows(pipes, shaper_reader.PIPES),
+                [] if queues is None else _rows(queues, shaper_reader.QUEUES),
+                [] if rules is None else _rows(rules, shaper_reader.RULES),
+                uplinks,
+            ),
+            [],
+        )
 
     async def _portals(self, layout: _Layout) -> tuple[list[CaptivePortal], list[Gap]]:
         """Captive portal zones (#460); no captive portal API (404): nothing to report; a

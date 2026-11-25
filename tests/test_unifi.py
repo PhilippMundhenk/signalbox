@@ -674,3 +674,12 @@ def test_multicast_fields_of_a_network() -> None:
     assert proxy.kind is ReflectorKind.IGMP_PROXY and proxy.upstream_segment_id == "s/native"
     assert proxy.upstream_interface == "Main" and proxy.segments == ["s/30", "s/native"]
     assert umc.multicast([]).settings == []
+
+
+async def test_smart_queues_of_the_wan(snaps: dict[str, Snapshot]) -> None:
+    """The WAN network's Smart Queues fields are an fq_codel shaper, in every version (#166)."""
+    for snap in snaps.values():
+        (shaper,) = snap.shapers
+        assert shaper.kind.value == "fq-codel" and shaper.enabled
+        assert (shaper.download_kbps, shaper.upload_kbps) == (90_000, 18_000)
+        assert shaper.uplink_id is not None and shaper.uplink_id.endswith("/uplink/wan1")

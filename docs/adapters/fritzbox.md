@@ -604,6 +604,12 @@ therefore reports no `RouterAdvert` or `Dhcp6Server` for a Fritz!Box and `ipv6.r
 silent for its network unless another device reports one (*guess: FRITZ!OS 7.5x and 8 have no such
 action; not checked on a device*).
 
+## Traffic shaping and prioritisation (#166)
+
+Not available: the FRITZ!Box "Priorisierung" (traffic classes, per-device priority and the
+upload/download limits of the internet connection) is in the web interface only; no TR-064 service
+documents it. Nothing is read, and `qos.no-shaper` does not judge FRITZ!Box gateways.
+
 ## Dynamic DNS (#154)
 
 `X_AVM-DE_RemoteAccess:1 GetDDNSInfo` (in the descriptions of FRITZ!OS 6.83, 7.29, 7.57 and

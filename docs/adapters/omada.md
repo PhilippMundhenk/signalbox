@@ -266,6 +266,12 @@ not answer it, or a gateway with fewer than two WAN ports in it, leaves the grou
 with two or more WAN ports, an optional gap says that the WAN mode is not read. The monitor
 addresses (online detection) are not read either, so `wan.monitor-missing` stays quiet.
 
+### Gateway QoS and bandwidth control (#166)
+
+Not read: the Open API documents no gateway QoS or bandwidth control endpoint that is known to
+Signalbox, so Omada gateways report no shapers (and `qos.no-shaper` does not judge them). To be
+revisited when the endpoints are documented.
+
 ### `GET …/sites/{siteId}/portals` (optional) *(guess: path and fields)*
 
 Captive portals (#460, `CaptivePortal`, read with `interfaces`; fallback path `…/hotspot/portals`).

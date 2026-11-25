@@ -266,6 +266,13 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`port.autoneg-mismatch`](rules/ports.md#portautoneg-mismatch)
 - [`port.description-mismatch`](rules/ports.md#portdescription-mismatch)
 
+## [Traffic shaping and smart queues](rules/qos.md)
+
+- [`qos.shaper-above-line`](rules/qos.md#qosshaper-above-line)
+- [`qos.shaper-far-below-line`](rules/qos.md#qosshaper-far-below-line)
+- [`qos.shaper-on-down-uplink`](rules/qos.md#qosshaper-on-down-uplink)
+- [`qos.no-shaper`](rules/qos.md#qosno-shaper)
+
 ## [IPv6 router advertisements and DHCPv6](rules/ra_consistency.md)
 
 - [`ipv6.ra-consistent`](rules/ra_consistency.md#ipv6ra-consistent)
@@ -635,6 +642,18 @@ where each came from. The defaults are the values the rules used before they had
 | `window_hours` | `6` | h | Judge the traffic of the last this many hours (hourly averages of the recorded series) instead of the last read interval. 0: only the last interval. Falls back to the last interval while the series covers too little of the window. |
 | `percentile` | `90` | % | Which hourly rate of the window is compared with utilisation_pct: 90 means the rate that 90 % of the hours stay below (100: the busiest hour). |
 | `min_coverage_pct` | `50` | % | The series must cover at least this share of the window, else the last read interval is judged. |
+
+### `qos.shaper-above-line`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `tolerance_pct` | `5` | % | How far the shaper rate may exceed the line rate before it is reported. |
+
+### `qos.shaper-far-below-line`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `below_pct` | `50` | % | Shaper rate below this share of the line rate is reported as wasteful. |
 
 ### `radius.single`
 
