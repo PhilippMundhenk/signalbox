@@ -230,6 +230,7 @@ remedy, the fix adds exactly that privilege and the same key reads the firewall 
    | Services: Captive Portal | `/api/captiveportal/settings/search_zones`, `/api/captiveportal/voucher/list_providers` (captive portal zones, #460; `page-services-captiveportal`, *guess*; granted by the setup only where the firewall offers it) |
    | Services: Dynamic DNS | `/api/dyndns/accounts/search_item` (dynamic DNS accounts of `os-ddclient`, #154; `page-services-dyndns`, *guess*) |
    | Services: Lldpd | `/api/lldpd/service/neighbor` (LLDP neighbours of `os-lldpd`, #470; `page-services-lldpd`, ACL pattern `api/lldpd/*`; granted only where the firewall offers it) |
+   | Services: FreeRADIUS | `/api/freeradius/*` (FreeRADIUS of `os-freeradius`, #519; `page-services-freeradius`, *guess* (#21); granted only where the firewall offers it) |
 
    ISC DHCP is a plugin since OPNsense 26.1 (`os-isc-dhcp`); without it its endpoints answer 404
    and are skipped. With the plugin, add its DHCP server and lease pages.
@@ -1211,7 +1212,7 @@ names.)* Covered: 24.7, 25.1, 25.7 and 26.1 as far as the plugin exists there.
 - FreeRADIUS (plugin `os-freeradius`, #519), read only: `/api/freeradius/general/get` (`enabled`),
   `/api/freeradius/service/status` and the NAS clients `/api/freeradius/client/search_client`
   (privilege *Services: FreeRADIUS*, `page-services-freeradius`, *guess* (#21): endpoints, fields
-  and privilege; the setup does not grant it, add it by hand where the plugin is installed). An
+  and privilege; the automatic setup and *Repair Signalbox's access* grant it only where the firewall offers it, i.e. where the plugin is installed; a 403 stays an optional gap). An
   enabled, not stopped server is reported as the firewall's own RADIUS server (port 1812/1813,
   Wi-Fi and 802.1X when NAS clients are enabled). The client secrets are only tested for presence;
   users and passwords are not read. No plugin (404): nothing; 403: an optional gap naming the
