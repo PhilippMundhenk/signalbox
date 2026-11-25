@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "{value} % de perte",
  "device.multiwan.weight": "poids {value}",
  "device.multiwan.monitor": "pingue {targets}",
- "device.multiwan.failovers": "La ligne active a changé {count} fois au cours des {days} derniers jours"
+ "device.multiwan.failovers": "La ligne active a changé {count} fois au cours des {days} derniers jours",
+ "device.overview.bootloaderAvailable": "Chargeur d'amorçage du firmware",
+ "rule.device.name-mismatch.title": "Le nom configuré diffère du nom signalé par l'appareil",
+ "rule.device.name-mismatch.explanation": "Le nom dans Signalbox et le nom que l'appareil se donne (son nom d'hôte) diffèrent. Les journaux, les entrées DHCP et DNS et les outils du fabricant affichent le nom de l'appareil ; un nom différent ici complique le rapprochement des constats. La casse et un suffixe de domaine sont ignorés (paramètre strip_domain). Les appareils hébergés sur un autre appareil et ceux nommés par leur adresse ne sont pas comparés.",
+ "rule.device.bootloader-outdated.title": "Chargeur d'amorçage plus ancien que celui du firmware",
+ "rule.device.bootloader-outdated.explanation": "Certains appareils mettent à jour leur chargeur d'amorçage séparément du firmware : après une mise à jour, le nouveau chargeur se trouve dans le paquet du firmware mais n'est écrit que sur demande. RouterOS (RouterBOOT) signale les deux versions ; les autres sont vérifiés dès qu'ils signalent la version de leur firmware. Lisez d'abord les notes de version.",
+ "msg.device.nameMismatch": "{name} se nomme lui-même {hostname}",
+ "msg.device.nameMismatch.fix": "Renommez l'appareil dans Signalbox ou sur l'appareil pour que les deux noms concordent. Ignorez ce constat si la différence est voulue.",
+ "msg.device.bootloaderOutdated": "{name} utilise le chargeur {current}, {available} est disponible",
+ "msg.device.bootloaderOutdated.fix": "Mettez à jour le chargeur de {name} vers {available} pendant une fenêtre de maintenance (RouterOS : System > RouterBOARD > Upgrade, puis redémarrage)."
 }

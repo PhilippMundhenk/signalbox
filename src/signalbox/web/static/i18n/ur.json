@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "{value} % نقصان",
  "device.multiwan.weight": "وزن {value}",
  "device.multiwan.monitor": "{targets} کو پنگ کرتا ہے",
- "device.multiwan.failovers": "فعال لائن پچھلے {days} دنوں میں {count} بار بدلی"
+ "device.multiwan.failovers": "فعال لائن پچھلے {days} دنوں میں {count} بار بدلی",
+ "device.overview.bootloaderAvailable": "فرم ویئر میں بوٹ لوڈر",
+ "rule.device.name-mismatch.title": "ترتیب دیا گیا نام ڈیوائس کے بتائے گئے نام سے مختلف ہے",
+ "rule.device.name-mismatch.explanation": "Signalbox میں نام اور وہ نام جو ڈیوائس خود کو دیتی ہے (ہوسٹ نام) مختلف ہیں۔ لاگ، DHCP اور DNS اندراجات اور بنانے والے کے ٹولز ڈیوائس کا نام دکھاتے ہیں؛ یہاں مختلف نام ہونے سے نتائج ملانا مشکل ہو جاتا ہے۔ حروف کی بڑی چھوٹی شکل اور ڈومین لاحقہ نظرانداز کیے جاتے ہیں (پیرامیٹر strip_domain)۔ کسی دوسری ڈیوائس پر چلنے والی اور پتے سے نام پانے والی ڈیوائسز کا موازنہ نہیں ہوتا۔",
+ "rule.device.bootloader-outdated.title": "بوٹ لوڈر فرم ویئر میں موجود سے پرانا ہے",
+ "rule.device.bootloader-outdated.explanation": "کچھ ڈیوائسز بوٹ لوڈر کو فرم ویئر سے الگ اپ ڈیٹ کرتی ہیں: فرم ویئر اپ ڈیٹ کے بعد نیا بوٹ لوڈر پیکیج میں ہوتا ہے مگر کہنے پر ہی لکھا جاتا ہے۔ RouterOS (RouterBOOT) دونوں ورژن بتاتا ہے؛ دوسروں کو تب جانچا جاتا ہے جب وہ اپنے فرم ویئر کا ورژن بتائیں۔ پہلے ریلیز نوٹس پڑھیں۔",
+ "msg.device.nameMismatch": "{name} خود کو {hostname} کہتا ہے",
+ "msg.device.nameMismatch.fix": "Signalbox میں یا ڈیوائس پر نام بدلیں تاکہ دونوں ایک ہی نام استعمال کریں۔ اگر فرق جان بوجھ کر ہے تو اسے نظرانداز کریں۔",
+ "msg.device.bootloaderOutdated": "{name} بوٹ لوڈر {current} چلا رہا ہے، {available} دستیاب ہے",
+ "msg.device.bootloaderOutdated.fix": "دیکھ بھال کی کھڑکی میں {name} کا بوٹ لوڈر {available} پر اپ گریڈ کریں (RouterOS: System > RouterBOARD > Upgrade، پھر ری سٹارٹ)۔"
 }

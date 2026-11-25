@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "{value} % ক্ষতি",
  "device.multiwan.weight": "ওজন {value}",
  "device.multiwan.monitor": "{targets} পিং করে",
- "device.multiwan.failovers": "সক্রিয় লাইন গত {days} দিনে {count} বার বদলেছে"
+ "device.multiwan.failovers": "সক্রিয় লাইন গত {days} দিনে {count} বার বদলেছে",
+ "device.overview.bootloaderAvailable": "ফার্মওয়্যারের বুট লোডার",
+ "rule.device.name-mismatch.title": "কনফিগার করা নাম ডিভাইসের জানানো নামের থেকে আলাদা",
+ "rule.device.name-mismatch.explanation": "Signalbox-এর নাম এবং ডিভাইস নিজেকে যে নাম দেয় (হোস্টনেম) আলাদা। লগ, DHCP ও DNS এন্ট্রি এবং প্রস্তুতকারকের টুল ডিভাইসের নাম দেখায়; এখানে আলাদা নাম থাকলে ফলাফল মেলানো কঠিন হয়। অক্ষরের ছোট-বড় রূপ ও ডোমেইন প্রত্যয় উপেক্ষা করা হয় (প্যারামিটার strip_domain)। অন্য ডিভাইসে চলা ডিভাইস এবং ঠিকানা দিয়ে নামকরণ করা ডিভাইস তুলনা করা হয় না।",
+ "rule.device.bootloader-outdated.title": "বুট লোডার ফার্মওয়্যারে থাকা সংস্করণের চেয়ে পুরনো",
+ "rule.device.bootloader-outdated.explanation": "কিছু ডিভাইস বুট লোডার ফার্মওয়্যার থেকে আলাদাভাবে হালনাগাদ করে: ফার্মওয়্যার হালনাগাদের পর নতুন বুট লোডার প্যাকেজে থাকে, কিন্তু চাইলে তবেই লেখা হয়। RouterOS (RouterBOOT) দুটি সংস্করণই জানায়; অন্যগুলো ফার্মওয়্যারের সংস্করণ জানালে পরীক্ষা করা হয়। আগে রিলিজ নোট পড়ুন।",
+ "msg.device.nameMismatch": "{name} নিজেকে {hostname} বলে",
+ "msg.device.nameMismatch.fix": "Signalbox-এ বা ডিভাইসে নাম বদলান যাতে দুটি একই হয়। পার্থক্য ইচ্ছাকৃত হলে এটি উপেক্ষা করুন।",
+ "msg.device.bootloaderOutdated": "{name} বুট লোডার {current} চালাচ্ছে, {available} পাওয়া যাচ্ছে",
+ "msg.device.bootloaderOutdated.fix": "রক্ষণাবেক্ষণের সময় {name}-এর বুট লোডার {available}-এ আপগ্রেড করুন (RouterOS: System > RouterBOARD > Upgrade, তারপর রিস্টার্ট)।"
 }

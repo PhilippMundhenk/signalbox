@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "{value} % हानि",
  "device.multiwan.weight": "भार {value}",
  "device.multiwan.monitor": "{targets} को पिंग करता है",
- "device.multiwan.failovers": "पिछले {days} दिनों में सक्रिय लाइन {count} बार बदली"
+ "device.multiwan.failovers": "पिछले {days} दिनों में सक्रिय लाइन {count} बार बदली",
+ "device.overview.bootloaderAvailable": "फ़र्मवेयर में बूट लोडर",
+ "rule.device.name-mismatch.title": "कॉन्फ़िगर किया गया नाम डिवाइस के बताए नाम से अलग है",
+ "rule.device.name-mismatch.explanation": "Signalbox में नाम और डिवाइस अपने लिए जो नाम (होस्टनाम) बताता है, अलग हैं। लॉग, DHCP और DNS प्रविष्टियाँ और निर्माता के टूल डिवाइस का नाम दिखाते हैं; यहाँ अलग नाम होने से निष्कर्षों का मिलान कठिन हो जाता है। अक्षर-रूप और डोमेन प्रत्यय अनदेखे किए जाते हैं (पैरामीटर strip_domain)। दूसरे डिवाइस पर चलने वाले और पते से नामित डिवाइस की तुलना नहीं होती।",
+ "rule.device.bootloader-outdated.title": "बूट लोडर फ़र्मवेयर में मौजूद से पुराना है",
+ "rule.device.bootloader-outdated.explanation": "कुछ डिवाइस बूट लोडर को फ़र्मवेयर से अलग अपडेट करते हैं: फ़र्मवेयर अपडेट के बाद नया बूट लोडर पैकेज में रहता है, पर माँगने पर ही लिखा जाता है। RouterOS (RouterBOOT) दोनों संस्करण बताता है; अन्य डिवाइस तब जाँचे जाते हैं जब वे अपने फ़र्मवेयर का संस्करण बताएँ। पहले रिलीज़ नोट्स पढ़ें।",
+ "msg.device.nameMismatch": "{name} खुद को {hostname} कहता है",
+ "msg.device.nameMismatch.fix": "Signalbox में या डिवाइस पर नाम बदलें ताकि दोनों एक ही नाम इस्तेमाल करें। अंतर जानबूझकर है तो इसे अनदेखा करें।",
+ "msg.device.bootloaderOutdated": "{name} बूट लोडर {current} चला रहा है, {available} उपलब्ध है",
+ "msg.device.bootloaderOutdated.fix": "रखरखाव विंडो में {name} का बूट लोडर {available} पर अपग्रेड करें (RouterOS: System > RouterBOARD > Upgrade, फिर रीस्टार्ट)।"
 }

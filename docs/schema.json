@@ -911,6 +911,18 @@
           "default": null,
           "title": "Bootloader"
         },
+        "bootloader_available": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bootloader Available"
+        },
         "capabilities": {
           "items": {
             "type": "string"

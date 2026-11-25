@@ -1287,6 +1287,12 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             architecture=_text(resource.get("architecture-name")) or None,
             # The boot loader: RouterBOOT version as installed (``current-firmware``).
             bootloader=(_text(board.get("current-firmware")) or None) if is_board else None,
+            # ``upgrade-firmware`` is the RouterBOOT version bundled with the installed RouterOS
+            # (#444); it differs from ``current-firmware`` until ``/system routerboard upgrade``
+            # ran and the router restarted. Same fields on RouterOS 6.4x and 7.
+            bootloader_available=(
+                (_text(board.get("upgrade-firmware")) or None) if is_board else None
+            ),
             hostname=_text(identity.get("name")) or None,
             os="RouterOS",
             os_version=current,

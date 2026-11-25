@@ -601,6 +601,8 @@ class SystemInfo(BaseModel):
     board: str | None = None
     architecture: str | None = None
     bootloader: str | None = None
+    #: The boot loader version the installed firmware carries (#444), where the device says.
+    bootloader_available: str | None = None
     hostname: str | None = None
     location: str | None = None
     contact: str | None = None

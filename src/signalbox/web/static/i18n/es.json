@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "{value} % de pérdida",
  "device.multiwan.weight": "peso {value}",
  "device.multiwan.monitor": "hace ping a {targets}",
- "device.multiwan.failovers": "La línea activa cambió {count} veces en los últimos {days} días"
+ "device.multiwan.failovers": "La línea activa cambió {count} veces en los últimos {days} días",
+ "device.overview.bootloaderAvailable": "Cargador de arranque del firmware",
+ "rule.device.name-mismatch.title": "El nombre configurado difiere del nombre que informa el dispositivo",
+ "rule.device.name-mismatch.explanation": "El nombre en Signalbox y el nombre que el dispositivo se da a sí mismo (su hostname) difieren. Los registros, las entradas DHCP y DNS y las herramientas del fabricante muestran el nombre del dispositivo; un nombre distinto aquí dificulta relacionar los hallazgos. Se ignoran las mayúsculas y el sufijo de dominio (parámetro strip_domain). No se comparan los dispositivos que se ejecutan en otro dispositivo ni los nombrados por su dirección.",
+ "rule.device.bootloader-outdated.title": "Cargador de arranque más antiguo que el del firmware",
+ "rule.device.bootloader-outdated.explanation": "Algunos dispositivos actualizan el cargador de arranque por separado del firmware: tras actualizar el firmware, el nuevo cargador está en el paquete pero solo se escribe cuando se solicita. RouterOS (RouterBOOT) informa de ambas versiones; los demás se comprueban cuando informen de la versión de su firmware. Lea antes las notas de la versión.",
+ "msg.device.nameMismatch": "{name} se llama a sí mismo {hostname}",
+ "msg.device.nameMismatch.fix": "Cambie el nombre en Signalbox o en el dispositivo para que ambos coincidan. Ignore el hallazgo si la diferencia es intencionada.",
+ "msg.device.bootloaderOutdated": "{name} usa el cargador {current}, hay {available} disponible",
+ "msg.device.bootloaderOutdated.fix": "Actualice el cargador de {name} a {available} en una ventana de mantenimiento (RouterOS: System > RouterBOARD > Upgrade y reinicie)."
 }

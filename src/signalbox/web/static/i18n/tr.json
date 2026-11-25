@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "%{value} kayıp",
  "device.multiwan.weight": "ağırlık {value}",
  "device.multiwan.monitor": "{targets} adresine ping atıyor",
- "device.multiwan.failovers": "Etkin hat son {days} günde {count} kez değişti"
+ "device.multiwan.failovers": "Etkin hat son {days} günde {count} kez değişti",
+ "device.overview.bootloaderAvailable": "Ürün yazılımındaki önyükleyici",
+ "rule.device.name-mismatch.title": "Yapılandırılan ad, cihazın bildirdiği addan farklı",
+ "rule.device.name-mismatch.explanation": "Signalbox'taki ad ile cihazın kendine verdiği ad (ana makine adı) farklı. Günlükler, DHCP ve DNS kayıtları ve üreticinin araçları cihazın adını gösterir; burada farklı bir ad bulguları eşleştirmeyi zorlaştırır. Büyük/küçük harf ve alan adı eki yok sayılır (strip_domain parametresi). Başka bir cihazda çalışan ve adresiyle adlandırılan cihazlar karşılaştırılmaz.",
+ "rule.device.bootloader-outdated.title": "Önyükleyici, ürün yazılımındakinden eski",
+ "rule.device.bootloader-outdated.explanation": "Bazı cihazlar önyükleyiciyi ürün yazılımından ayrı günceller: yazılım güncellemesinden sonra yeni önyükleyici pakette durur ama yalnızca istendiğinde yazılır. RouterOS (RouterBOOT) iki sürümü de bildirir; diğerleri yazılımlarının sürümünü bildirdiğinde denetlenir. Önce sürüm notlarını okuyun.",
+ "msg.device.nameMismatch": "{name} kendine {hostname} diyor",
+ "msg.device.nameMismatch.fix": "Cihazı Signalbox'ta veya cihazın üzerinde yeniden adlandırın, böylece ikisi de aynı adı kullansın. Fark bilerek yapıldıysa bulguyu yok sayın.",
+ "msg.device.bootloaderOutdated": "{name} {current} önyükleyicisini çalıştırıyor, {available} mevcut",
+ "msg.device.bootloaderOutdated.fix": "{name} önyükleyicisini bakım penceresinde {available} sürümüne yükseltin (RouterOS: System > RouterBOARD > Upgrade, sonra yeniden başlatın)."
 }

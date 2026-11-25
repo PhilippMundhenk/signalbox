@@ -3363,5 +3363,14 @@
  "device.multiwan.loss": "{value} % loss",
  "device.multiwan.weight": "weight {value}",
  "device.multiwan.monitor": "pings {targets}",
- "device.multiwan.failovers": "Active line changed {count} times in the last {days} days"
+ "device.multiwan.failovers": "Active line changed {count} times in the last {days} days",
+ "device.overview.bootloaderAvailable": "Boot loader in the firmware",
+ "rule.device.name-mismatch.title": "Configured name differs from the name the device reports",
+ "rule.device.name-mismatch.explanation": "The name in Signalbox and the name the device calls itself (its hostname) differ. Logs, DHCP entries, DNS records and the vendor's own tools show the device's name, so a different name here makes findings hard to match to what you see elsewhere. Case and a domain suffix are ignored (parameter strip_domain). Devices that run on another device and devices named by their address are not compared.",
+ "rule.device.bootloader-outdated.title": "Boot loader older than the firmware carries",
+ "rule.device.bootloader-outdated.explanation": "Some devices update their boot loader separately from the firmware: after a firmware update the new boot loader sits in the firmware package but is only written when you ask for it. RouterOS (RouterBOOT) reports both versions; others are checked once they report the version their firmware carries. Read the release notes first.",
+ "msg.device.nameMismatch": "{name} calls itself {hostname}",
+ "msg.device.nameMismatch.fix": "Rename it in Signalbox, or on the device, so that both use the same name. Ignore this if the difference is on purpose.",
+ "msg.device.bootloaderOutdated": "{name} runs boot loader {current}, {available} is available",
+ "msg.device.bootloaderOutdated.fix": "Upgrade the boot loader of {name} to {available} in a maintenance window (RouterOS: System > RouterBOARD > Upgrade, then restart)."
 }
