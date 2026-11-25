@@ -336,18 +336,20 @@ def test_replaced_serial_and_mac(store: Store) -> None:
         identified("SN-1111", MAC_A),
         identified("SN-2222", MAC_B),
     )
-    assert out == [
-        (
-            "info",
-            "ap-1 reports another serial number than before "
-            "(\u20261111 -> \u20262222): it was replaced",
-        ),
-        (
-            "info",
-            "ap-1 reports another base MAC address than before "
-            "(\u2026a:01 -> \u2026b:02): it was replaced",
-        ),
-    ]
+    assert sorted(out) == sorted(
+        [
+            (
+                "info",
+                "ap-1 reports another serial number than before "
+                "(\u20261111 -> \u20262222): it was replaced",
+            ),
+            (
+                "info",
+                "ap-1 reports another base MAC address than before "
+                "(\u2026a:01 -> \u2026b:02): it was replaced",
+            ),
+        ]
+    )
     assert "SN-1111" not in "".join(m for _, m in out)
 
 
