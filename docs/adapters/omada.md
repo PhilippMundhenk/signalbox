@@ -449,6 +449,55 @@ is no confirm timer: a change that does not read back as planned is undone from 
   passphrase included, and `enable`), created or deleted, networks created since deleted last.
   Port profiles, reservations and everything else are not touched.
 
+## Controller versions (#415, part of #389)
+
+Supported: the current major version (6.x) and the two before it (5.x, 4.x), as far as each
+has an API Signalbox can read. The adapter reads the controller version from `/api/info`
+(`controllerVer`). `OmadaSimulator(release="6.3" | "5.15" | "5.9" | "5.8" | "4.4")` plays each
+row; contract tests run it for 6.3, 5.15 and 5.9 and check the errors for 5.8 and 4.4.
+
+| Controller | Open API | CI | What Signalbox does |
+| --- | --- | --- | --- |
+| 6.x (6.3.0.111) | yes, `/openapi/v1`, client credentials | real controller, official package in Docker | everything above |
+| 5.9 to 5.15 | yes *(guess: from 5.9)* | simulator, contract tests | same calls; where the controller answers 404 for the user list, the gateway ACLs or the port forwarding, an **optional gap** names the version ("accounts: controller 5.15 does not offer it through the Open API (controller 6 does)"); the rest is read as on 6.x |
+| 5.0 to 5.8 | no (the token endpoint answers 404) | simulator | **gap, not read**: "this controller (5.8) has no Open API: Signalbox needs Omada controller 5.9 or later" |
+| 4.x (4.4.8) | no (and no `omadacId` in `/api/info`) | simulator | **gap, not read**, same message naming 4.x; nothing is sent to the controller except `/api/info` |
+
+### Decision: no classic web API fallback
+
+Controllers without the Open API only offer the classic web API of the controller's own web
+UI: a cookie login (`/api/v2/login`) with a CSRF token, a path layout that differs between 4.x
+(`/api/v2/sites/...`) and 5.x (`/{omadacId}/api/v2/sites/...`), undocumented and changed without
+notice between releases (the integration setup in tools/integration/omada/ shows how fragile it
+is: it reads the web UI's own scripts). It would mean a second adapter with its own
+simulator for software that is two major versions old and whose users can update the controller
+for free, so the adapter reports a clear, versioned gap instead (`omada.noOpenApi`). The Open API
+application (client credentials) is also the only login that needs no user password in
+Signalbox.
+
+### CI
+
+Only 6.3 runs against a real controller. A 5.x entry next to it
+(`mbentley/omada-controller:5.15`, also TP-Link's official package) was **not** added: the
+first-start wizard, role names and Open API application calls of `controller.py` are those of the
+6.3 web UI, a 5.x controller's differ and cannot be tried outside CI, and an image digest cannot
+be pinned without having seen it run (the 6.3 job pins one). It stays a follow-up; 5.9 and 5.15
+would need `controller.py` to take the version and its wizard variant as a parameter, and the job
+to become a matrix (read only, selective as in #249).
+
+### Guesses to confirm on real controllers (#21)
+
+- That the Open API (`/openapi/authorize/token`, `/openapi/v1/...`) starts with 5.9: TP-Link's
+  page names 6.4 as the requirement for its current description and does not date the start. On
+  5.0 to 5.8 the token request is expected to answer Tomcat's 404; any 404 there is taken as
+  "no Open API".
+- That 4.x answers `/api/info` with `controllerVer` and without `omadacId`.
+- That 5.x has no user list (`/users`, `/all-users`, `/roles/available`) and 5.9 no gateway ACLs
+  or port forwarding in the Open API; each missing endpoint (404) becomes the optional gap, an
+  endpoint that exists is read as on 6.x.
+- That field names of the 5.x answers equal the 6.x ones (parsing is tolerant: a missing field
+  stays empty).
+
 ## Integration tests
 
 `tools/integration/omada/controller.py` runs on the GitHub Actions runner only (job

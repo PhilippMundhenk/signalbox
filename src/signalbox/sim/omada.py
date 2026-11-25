@@ -765,8 +765,28 @@ def _missing(body: dict[str, Any], keys: tuple[str, ...]) -> str | None:
     return "".join(f"Parameter [{k}] should not be null.\n" for k in gone) or None
 
 
+#: Controller releases the simulator can play (#415): ``controllerVer``. Only 6.3 is real
+#: (integration tests); the others are guesses from TP-Link's release notes (#21).
+RELEASES: dict[str, str] = {
+    "6.3": "6.3.0.111",
+    "5.15": "5.15.20.18",
+    "5.9": "5.9.31",
+    "5.8": "5.8.4",
+    "4.4": "4.4.8",
+}
+#: path parts a release does not serve (404): 5.15 has no user list, 5.9 no ACLs and no
+#: port forwarding
+_NOT_SERVED: dict[str, tuple[str, ...]] = {
+    "5.15": ("/users", "/all-users", "/roles/available"),
+    "5.9": ("/users", "/all-users", "/roles/available", "/acls/", "/nat/port-forwardings"),
+}
+
+
 @dataclass
 class OmadaSimulator:
+    #: ``"6.3"`` (default), ``"5.15"``, ``"5.9"``, ``"5.8"`` (no Open API) or ``"4.4"`` (no Open
+    #: API, no omadacId in ``/api/info``): see ``RELEASES``.
+    release: str = "6.3"
     omadac_id: str = OMADAC_ID
     client_id: str = CLIENT_ID
     client_secret: str = CLIENT_SECRET
@@ -878,6 +898,15 @@ class OmadaSimulator:
             self.requests.append(path)
             if self.delay:
                 await asyncio.sleep(self.delay)
+            if path == "/api/info" and self.release != "6.3":
+                info = {**self.data[path], "controllerVer": RELEASES[self.release]}
+                if self.release == "4.4":
+                    info.pop("omadacId", None)
+                return JSONResponse({"errorCode": 0, "msg": "Success.", "result": info})
+            if path.startswith("/openapi/") and self.release in ("5.8", "4.4"):
+                return _html(404, "Not Found")
+            if any(part in path for part in _NOT_SERVED.get(self.release, ())):
+                return _html(404, "Not Found")
             if path == "/openapi/authorize/token" and request.method == "POST":
                 if request.query_params.get("grant_type") != "client_credentials":
                     return _wrap(None, -44111, "The grant type is Invalid.")
