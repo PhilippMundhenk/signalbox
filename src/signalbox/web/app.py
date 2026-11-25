@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
 
-from signalbox import __version__
+from signalbox import __version__, oui
 from signalbox.adapters import Adapter
 from signalbox.deploy import Deployer
 from signalbox.discovery.engine import Discovery
@@ -136,7 +136,8 @@ def public_network(net: Network) -> dict[str, Any]:
     #148), management services the segments that can reach them (``reach_segments``) and
     whether the internet can (``internet``, ``null``: the firewall decides, #173), clients the
     source of each address (``sources``, from leases where the client does not say) and the
-    end of their active leases (``lease_expires``, #183), ports whether a cable can end there
+    end of their active leases (``lease_expires``, #183), the vendor of the MAC address
+    (``vendor``, offline IEEE registry, #84), ports whether a cable can end there
     (``external``, #252), tunnel peers the networks they route (``networks``), the read tunnel
     at their other end (``other_end``) and the handshake age at the reading (``handshake_age``,
     #239), firewalls the action per zone pair (``matrix``: one row per source zone, the
@@ -167,6 +168,7 @@ def public_network(net: Network) -> dict[str, Any]:
     for client, raw in zip(net.clients, data["clients"], strict=True):
         sources = {str(a): net.address_source(client, a) for a in client.addresses}
         raw["sources"] = {a: s.value for a, s in sources.items() if s is not None}
+        raw["vendor"] = oui.vendor(client.mac)
         ends = [
             lease.expires
             for srv in net.dhcp_servers

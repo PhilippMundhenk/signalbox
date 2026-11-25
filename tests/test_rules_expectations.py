@@ -4,6 +4,7 @@ from typing import Any
 
 from factories import SITE, annotated, annotation
 from signalbox.model import (
+    Acknowledgement,
     Client,
     Network,
     PurposeSource,
@@ -12,7 +13,12 @@ from signalbox.model import (
     segment_id,
 )
 from signalbox.rules import Finding, Rule, evaluate
-from signalbox.rules.expectations import RULES, category_network, unexpected_network
+from signalbox.rules.expectations import (
+    RULES,
+    category_network,
+    unexpected_network,
+    vendor_network,
+)
 
 LAN = segment_id(SITE.id, 10)
 IOT = segment_id(SITE.id, 20)
@@ -47,7 +53,11 @@ def run(net: Network, r: Rule) -> list[Finding]:
 
 
 def test_registered() -> None:
-    assert {r.id for r in RULES} == {"clients.unexpected-network", "clients.category-network"}
+    assert {r.id for r in RULES} == {
+        "clients.unexpected-network",
+        "clients.category-network",
+        "clients.vendor-network",
+    }
 
 
 def test_unexpected_network() -> None:
@@ -123,3 +133,59 @@ def test_category_network_stays_quiet() -> None:
     assert run(annotated(net_of(client(CAM, IOT)), other), category_network) == []
     pc = annotation(PC, expected={"category": "computer"})
     assert run(annotated(net_of(client(PC, LAN)), pc), category_network) == []
+
+
+# Prefixes from the public IEEE registry: Espressif (IoT), Hikvision (camera), Apple (unmapped).
+ESP = "d4:8a:fc:00:00:01"
+HIK = "0c:75:d2:00:00:02"
+APPLE = "3c:22:fb:00:00:03"
+RANDOM = "d6:8a:fc:00:00:04"
+
+
+def main_net(*clients: Client) -> Network:
+    net = net_of(*clients)
+    segments = [
+        s.model_copy(update={"purpose": SegmentPurpose.MAIN}) if s.id == LAN else s
+        for s in net.segments
+    ]
+    return net.model_copy(update={"segments": segments})
+
+
+def test_vendor_network_flags_iot_and_camera_vendors() -> None:
+    net = main_net(client(ESP, LAN, hostname="plug"), client(HIK, LAN))
+    found = run(net, vendor_network)
+    assert len(found) == 2
+    assert all(f.severity == "info" and "IoT (VLAN 20)" in f.message for f in found)
+    assert any("vendor Espressif" in f.message and "plug" in f.message for f in found)
+    assert any("Hikvision" in f.message for f in found)
+    assert "acknowledge" in (found[0].fix or "")
+
+
+def test_vendor_network_can_be_acknowledged() -> None:
+    merged = Client(id=f"client/{ESP}", mac=ESP, segment_id=LAN)  # as the merge names clients
+    net = main_net(merged, client(HIK, LAN))
+    ack = Acknowledgement(id="a1", rule_id="clients.vendor-network", target=f"client/{ESP}")
+    done = run(net.model_copy(update={"acknowledgements": [ack]}), vendor_network)
+    by_mac = {ESP in f.message: f.acknowledged is not None for f in done}
+    assert by_mac == {True: True, False: False}
+
+
+def test_vendor_network_stays_quiet() -> None:
+    # unknown vendor mapping, randomised address, already in the IoT network
+    assert (
+        run(main_net(client(APPLE, LAN), client(RANDOM, LAN), client(ESP, IOT)), vendor_network)
+        == []
+    )
+    # no purpose known for the network, or only a guessed IoT network, or none
+    assert run(net_of(client(ESP, LAN)), vendor_network) == []
+    guessed = main_net(client(ESP, LAN)).model_copy(update={})
+    segs = [
+        s.model_copy(update={"purpose_source": PurposeSource.HEURISTIC}) for s in guessed.segments
+    ]
+    assert run(guessed.model_copy(update={"segments": segs}), vendor_network) == []
+    # a declared category or expected network belongs to the other two rules
+    cat = annotation(ESP, expected={"category": "computer"})
+    assert run(annotated(main_net(client(ESP, LAN)), cat), vendor_network) == []
+    seg = annotation(HIK, expected={"segment": LAN})
+    assert run(annotated(main_net(client(HIK, LAN)), seg), vendor_network) == []
+    assert run(main_net(client(ESP, None)), vendor_network) == []

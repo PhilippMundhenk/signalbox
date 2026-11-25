@@ -27,11 +27,12 @@ export async function renderClients(main, ctx) {
   // The same client can be reported by several devices: one row per MAC, every place it was seen.
   const rows = new Map();
   for (const c of clients) {
-    const row = rows.get(c.mac) || { mac: c.mac, addresses: new Set(), sources: {}, lease_expires: null, hostname: null, segment_id: null, seen: [], last_seen: null };
+    const row = rows.get(c.mac) || { mac: c.mac, addresses: new Set(), sources: {}, lease_expires: null, hostname: null, vendor: null, segment_id: null, seen: [], last_seen: null };
     c.addresses.forEach((a) => row.addresses.add(a));
     Object.assign(row.sources, c.sources || {});
     if (c.lease_expires && (!row.lease_expires || c.lease_expires > row.lease_expires)) row.lease_expires = c.lease_expires;
     row.hostname = row.hostname || c.hostname;
+    row.vendor = row.vendor || c.vendor;
     row.segment_id = row.segment_id || c.segment_id;
     if (c.seen_on) row.seen.push(c.seen_on);
     if (c.last_seen && (!row.last_seen || c.last_seen > row.last_seen)) row.last_seen = c.last_seen;
@@ -70,6 +71,7 @@ export async function renderClients(main, ctx) {
         [
           [t('clients.col.name'), name],
           [t('clients.col.mac'), (r) => h('span', { class: 'mono' }, r.mac)],
+          [t('clients.col.vendor'), (r) => r.vendor || null],
           [t('clients.col.addresses'), (r) => [...r.addresses].flatMap((a, i) => [i ? ', ' : null, ltr(a), r.sources[a] && r.sources[a] !== 'unknown' ? ` (${sourceLabel(r.sources[a])})` : null])],
           [t('clients.col.lease'), (r) => (r.lease_expires ? h('span', { title: fmtTime(r.lease_expires), 'data-testid': 'client-lease' }, fmtTime(r.lease_expires)) : null)],
           [t('clients.col.segment'), (r) => (r.segment_id ? ix.segmentName(r.segment_id) : null)],

@@ -1,8 +1,8 @@
 """Checks of what the user said a client should be (#84, #85; expectations of #186).
 
 A client's annotation can name the network it belongs in (``expected.segment``) and what kind of
-thing it is (``expected.category``). The vendor database that would guess a category from the
-MAC address does not exist yet, so only declared categories are used.
+thing it is (``expected.category``). ``clients.vendor-network`` adds a guess from the vendor of
+the MAC address (:mod:`signalbox.oui`) for clients without a declared category.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterator
 
+from signalbox import oui
 from signalbox.model import (
     Client,
     ClientCategory,
@@ -141,4 +142,49 @@ def category_network(net: Network) -> Iterator[Result]:
         )
 
 
-RULES: list[Rule] = [unexpected_network, category_network]
+@rule(
+    "clients.vendor-network",
+    "Device of an IoT or camera vendor in the main network",
+    Severity.INFO,
+    "Some vendors build almost only smart-home devices or cameras (Espressif, Tuya, Shelly, "
+    "Sonos, Ring, Hikvision, ...). The vendor comes from the first three bytes of the MAC "
+    "address (IEEE registry, offline). A device of such a vendor in the main network, while "
+    "an IoT network exists, can reach your computers and the NAS. It is only a hint from the "
+    "vendor: acknowledge it for a device that really is yours to trust. Randomised (private) "
+    "addresses have no vendor and are never checked, nor are devices with a category or an "
+    "expected network in their annotation (clients.category-network and "
+    "clients.unexpected-network check those). Needs an IoT network whose purpose is declared "
+    "or reported, not guessed.",
+)
+def vendor_network(net: Network) -> Iterator[Result]:
+    iot = _iot_networks(net)
+    for client in sorted(net.clients, key=lambda c: c.mac):
+        seg = net.segment(client.segment_id) if client.segment_id else None
+        if seg is None or seg.purpose is not SegmentPurpose.MAIN or not iot.get(seg.site_id):
+            continue
+        exp = net.expected(client_target(client.mac))
+        if exp.category is not None or exp.segment is not None:
+            continue
+        name = oui.vendor(client.mac)
+        if name is None or oui.vendor_category(name) is None:
+            continue
+        target = segment_name(net, sorted(iot[seg.site_id])[0])
+        yield found(
+            f"{_name(client)} is on {segment_name(net, seg.id)} and looks like an IoT device "
+            f"or camera (vendor {name}) although {target} exists",
+            [client.id, seg.id],
+            fix=f"Move it to the IoT Wi-Fi or port ({target}). If it is not an IoT device or "
+            "camera, set its category in its annotation, or acknowledge this finding.",
+            key=client.mac,
+            mid="clients.vendorNetwork",
+            fix_id="clients.vendorNetwork.fix",
+            params={
+                "client": _name(client),
+                "segment": segment_name(net, seg.id),
+                "vendor": name,
+                "target": target,
+            },
+        )
+
+
+RULES: list[Rule] = [unexpected_network, category_network, vendor_network]
