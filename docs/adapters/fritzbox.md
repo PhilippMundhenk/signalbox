@@ -465,6 +465,11 @@ new passphrase stays (restore the backup to get the old one back).
 - **Neighbours (LLDP)**: FRITZ!OS does not speak LLDP.
 - **DHCP reservations, lease time, VLANs, per-port LAN state**: not in TR-064 (see above).
 - **IPv6 and DS-Lite of the uplink**: only over the IGD services (see the uplink above).
+- **VPN (IPsec LAN-to-LAN, user VPN, WireGuard of FRITZ!OS 7.50 and later)** (#527): AVM
+  publishes no TR-064 service that lists them. The only VPN mention is `X_AVM-DE_AppSetup`
+  (configuring a VPN for the app), which writes; `X_AVM-DE_RemoteAccess` is MyFRITZ access.
+  The connections are in the settings export, which carries their keys, so Signalbox does not
+  read them: no `vpn` capability.
 - **Filter rules, IPv6 port sharing, exposed host (DMZ)**: not in TR-064 *(guess)*, see
   [Firewall](#firewall-135).
 

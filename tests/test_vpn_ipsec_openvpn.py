@@ -15,6 +15,7 @@ from signalbox.adapters.mikrotik import MikrotikAdapter, MikrotikConfig
 from signalbox.adapters.mikrotik import vpn as mikrotik_vpn
 from signalbox.adapters.openwrt import OpenWrtAdapter, OpenWrtConfig
 from signalbox.adapters.openwrt import openvpn as openwrt_openvpn
+from signalbox.adapters.openwrt import strongswan as openwrt_strongswan
 from signalbox.adapters.opnsense import OpnsenseAdapter, OpnsenseConfig
 from signalbox.adapters.opnsense import vpn as opnsense_vpn
 from signalbox.model import (
@@ -29,7 +30,13 @@ from signalbox.sim.mikrotik import IPSEC_SECRET as MK_SECRET
 from signalbox.sim.mikrotik import PASSWORD as MK_PASSWORD
 from signalbox.sim.mikrotik import MikrotikSimulator
 from signalbox.sim.mikrotik import vpn_data as mikrotik_data
-from signalbox.sim.openwrt import OPENVPN_SECRET, OpenWrtSim, create_app
+from signalbox.sim.openwrt import (
+    OPENVPN_SECRET,
+    SWANCTL_CONF,
+    SWANCTL_SECRET,
+    OpenWrtSim,
+    create_app,
+)
 from signalbox.sim.opnsense import IPSEC_PSK, KEY, SECRET, OpnsenseSimulator
 from signalbox.sim.server import TlsFiles, self_signed_certificate, serve
 from signalbox.testing import SIM_SECRET_MARKER, assert_contract
@@ -427,7 +434,7 @@ async def test_openwrt_openvpn_from_uci(wrt: OpenWrtSim, wrt_adapter: OpenWrtAda
     assert server.tls_auth is True and str(server.tunnel_network) == "198.18.77.0/24"
     assert server.cipher == "AES-256-GCM,AES-128-GCM"
     assert [str(n) for n in server.pushed_routes] == ["192.0.2.0/24"]
-    assert server.up is None and server.sessions is None
+    assert server.up is True and server.sessions is not None  # the status file (#527)
     client = ts["to_provider"]
     assert (client.role, client.protocol, client.listen_port) == (TunnelRole.CLIENT, "tcp", None)
     assert (client.remote_gateway, client.cipher) == ("203.0.113.60", "BF-CBC")
@@ -495,3 +502,100 @@ def test_openwrt_server_without_tls_crypt_and_unknown_role() -> None:
     odd, s = openwrt_openvpn.tunnels(uci, "gw")
     assert (odd.name, odd.enabled, odd.up, odd.role) == ("openvpn-odd_name_", False, False, None)
     assert (s.tls_auth, s.listen_port, str(s.tunnel_network)) == (False, 1195, "10.8.0.0/24")
+
+
+# --- OpenWrt: status file and strongSwan (#527) ----------------------------------------------
+
+
+async def test_openwrt_openvpn_status_gives_up_and_clients(
+    wrt: OpenWrtSim, wrt_adapter: OpenWrtAdapter
+) -> None:
+    wrt.packages = {"openvpn"}
+    obs = await wrt_adapter.read_vpn()
+    ts = {t.description: t for t in obs.tunnels}
+    server = ts["road_warrior"]
+    assert server.up is True and server.sessions is not None
+    (s,) = server.sessions
+    assert (s.common_name, str(s.virtual_address)) == ("alice-laptop", "198.18.77.6")
+    assert s.connected_since is not None
+    client = ts["to_provider"]  # no status file: unknown, no sessions
+    assert client.up is None and client.sessions is None
+    assert not obs.incomplete
+
+
+async def test_openwrt_openvpn_status_acl_gap(wrt: OpenWrtSim, wrt_adapter: OpenWrtAdapter) -> None:
+    wrt.packages = {"openvpn"}
+    wrt.denied = {"file:/var/run/openvpn.road_warrior.status"}
+    obs = await wrt_adapter.read_vpn()
+    (gap,) = obs.incomplete
+    assert gap.optional and gap.message_id == "openwrt.vpnFileGap"
+    assert {t.description: t.up for t in obs.tunnels}["road_warrior"] is None
+
+
+def test_openvpn_status_formats() -> None:
+    now = datetime(2026, 11, 25, 12, 0, tzinfo=UTC)
+    stamp = int(now.timestamp())
+    v3 = (
+        f"TITLE\tOpenVPN 2.5\nTIME\tx\t{stamp - 10}\n"
+        f"CLIENT_LIST\tbob\t203.0.113.5:1\t\t2001:db8::6\t1\t2\tx\t{stamp - 60}\tUNDEF\n"
+    )
+    status = openwrt_openvpn.parse_status(v3)
+    assert status is not None and status.up(now) is True
+    assert str(status.sessions[0].virtual_address) == "2001:db8::6"
+    stale = openwrt_openvpn.parse_status(v3.replace(str(stamp - 10), str(stamp - 7200)))
+    assert stale is not None and stale.up(now) is False
+    v1 = (
+        "OpenVPN CLIENT LIST\nUpdated,Wed Nov 25 12:00:00 2026\n"
+        "Common Name,Real Address,Bytes Received,Bytes Sent,Connected Since\n"
+        "carol,203.0.113.6:1,1,2,Wed Nov 25 11:00:00 2026\nROUTING TABLE\nEND\n"
+    )
+    old = openwrt_openvpn.parse_status(v1)
+    assert old is not None and old.up(now) is None
+    assert [(s.common_name, s.connected_since) for s in old.sessions] == [("carol", None)]
+    assert openwrt_openvpn.parse_status("garbage\n") is None
+    assert openwrt_openvpn.status_path("a", {"status": "/tmp/x.status 10"}) == "/tmp/x.status"
+
+
+async def test_openwrt_strongswan_connections(wrt: OpenWrtSim, wrt_adapter: OpenWrtAdapter) -> None:
+    wrt.packages = {"strongswan"}
+    obs = await wrt_adapter.read_vpn()
+    ts = {t.description: t for t in obs.tunnels}
+    site = ts["site-b"]
+    assert (site.kind, site.ike_version, site.auth, site.dpd) == (
+        TunnelKind.IPSEC,
+        2,
+        TunnelAuth.PSK,
+        True,
+    )
+    assert site.remote_gateway == "203.0.113.80" and site.up is None
+    assert [(p.encryption, p.dh_group) for p in site.proposals][:2] == [
+        ("aes256", 14),
+        ("aes128", 2),
+    ]
+    (child,) = site.children
+    assert child.rekey_seconds == 3600 and child.established is None
+    assert [str(n) for n in child.remote_networks] == ["198.51.100.0/24"]
+    rw = ts["roadwarrior"]
+    assert (rw.ike_version, rw.aggressive, rw.auth) == (1, True, TunnelAuth.CERTIFICATE)
+    assert any(p.weaknesses() for p in rw.proposals)
+    assert SWANCTL_SECRET not in obs.model_dump_json()
+    assert SIM_SECRET_MARKER in SWANCTL_SECRET
+
+
+async def test_openwrt_strongswan_acl_gap_and_absence(
+    wrt: OpenWrtSim, wrt_adapter: OpenWrtAdapter
+) -> None:
+    obs = await wrt_adapter.read_vpn()  # no strongSwan: nothing, no gap
+    assert not [t for t in obs.tunnels if t.kind is TunnelKind.IPSEC] and not obs.incomplete
+    wrt.packages = {"strongswan"}
+    wrt.denied = {"file:/etc/swanctl/swanctl.conf"}
+    (gap,) = (await wrt_adapter.read_vpn()).incomplete
+    assert gap.optional and gap.message_id == "openwrt.vpnFileGap"
+
+
+def test_swanctl_parser_skips_secrets() -> None:
+    conf = openwrt_strongswan.parse(SWANCTL_CONF)
+    assert list(conf) == ["connections"]
+    assert SWANCTL_SECRET not in str(conf)
+    assert openwrt_strongswan.parse("") == {}
+    assert openwrt_strongswan.tunnels({"connections": {"x": "bad"}}, "gw") == []

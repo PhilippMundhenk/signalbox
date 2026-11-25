@@ -529,11 +529,30 @@ Every `config openvpn '<name>'` section is a tunnel (`openvpn-<name>`): a client
 `push`/`route` lines (routes) and whether `tls_auth`, `tls_crypt` or `tls_crypt_v2` is set. The
 static key (`secret`), the key files, `askpass` and `auth_user_pass` are dropped when the
 answer arrives; only the flags remain. A static-key tunnel counts as no TLS (no finding about
-`tls-auth`). The runtime (status file, connected clients) is not in the read-only ACL: `up`
-and the sessions stay unknown. No package: no tunnels; an ACL without `openvpn` (set up before
-#153): an optional gap, fixed by adding `"openvpn"` to the `uci` list. Covered: OpenWrt 21.02,
-22.03, 23.05 and 24.10 (the section type is `openvpn` in all). strongSwan (`ipsec` UCI,
-`swanctl`) is not read: there is no rpcd call for it.
+`tls-auth`). The runtime is the status file, `/var/run/openvpn.<section>.status` or the
+section's `status` option, through `file read` (#527): format 2 and 3 (`status_version '2'`
+or `'3'`) carry epoch times, so a `TIME` line not older than 15 minutes gives `up` and the
+`CLIENT_LIST` rows give the sessions (common name, virtual address, connected since); format 1
+(the default) gives the client names only and `up` stays unknown (its times are local text
+without zone). *Guess (#21): layouts from the OpenVPN 2.4 to 2.6 manual; OpenWrt's update
+interval of the file is not assumed.* No package: no tunnels. An ACL without `openvpn` or
+without the status path (set up before #153 or #527): an optional gap, fixed by adding the
+entries of the ACL above. Covered: OpenWrt 21.02, 22.03, 23.05 and 24.10 (the section type is
+`openvpn` in all).
+
+### strongSwan: `file read` of `/etc/swanctl/swanctl.conf` *(optional)* (vpn, #527)
+
+Every connection of the `connections` section is an IPsec tunnel (`ipsec-<name>`): IKE
+`version`, `aggressive`, `remote_addrs`, how the device authenticates (`local` `auth`: `psk`,
+`pubkey`, `eap-*`), `proposals` and the children's `esp_proposals`, `local_ts`/`remote_ts` and
+`rekey_time`, and whether `dpd_delay` is set. The `secrets` section (pre-shared keys,
+passphrases, EAP passwords) is skipped while the text is parsed and never stored; certificate
+and key file names are not read, so the certificate subject stays unknown. The state of the
+security associations is not reachable through rpcd (vici is a local socket): `up` and
+`established` stay unknown. No file or the legacy `ipsec.conf` (strongSwan 5.x
+`strongswan-ipsec`): no tunnels; `include` lines are not followed. ACL entry:
+`"/etc/swanctl/swanctl.conf": ["read"]`; an older ACL: an optional gap. *Guess (#21): the
+file layout of strongSwan 5.9 and 6.0 on OpenWrt 22.03 to 24.10.*
 
 ### Captive portals: `uci get` of `opennds` and `nodogsplash` *(optional)* (interfaces)
 
@@ -696,7 +715,9 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "/sys/devices/*/net/*/brport/*": ["read"],
         "/var/run/ddns/*": ["read"],
         "/etc/avahi/avahi-daemon.conf": ["read"],
-        "/var/run/miniupnpd.leases": ["read"]
+        "/var/run/miniupnpd.leases": ["read"],
+        "/var/run/openvpn.*.status": ["read"],
+        "/etc/swanctl/swanctl.conf": ["read"]
       }
     }
   }
@@ -818,7 +839,9 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "/sys/devices/*/net/*/brport/*": ["read"],
         "/var/run/ddns/*": ["read"],
         "/etc/avahi/avahi-daemon.conf": ["read"],
-        "/var/run/miniupnpd.leases": ["read"]
+        "/var/run/miniupnpd.leases": ["read"],
+        "/var/run/openvpn.*.status": ["read"],
+        "/etc/swanctl/swanctl.conf": ["read"]
       }
     },
     "write": {

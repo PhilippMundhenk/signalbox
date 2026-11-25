@@ -315,6 +315,21 @@ async def test_health_and_time(snaps: dict[str, Snapshot]) -> None:
     assert roles[SW] is DeviceRole.SWITCH and roles[AP_1] is DeviceRole.AP
 
 
+async def test_site_to_site_vpn_without_secrets(snaps: dict[str, Snapshot]) -> None:
+    """Site-to-site IPsec and the OpenVPN server of the gateway (#527); the key is never kept."""
+    snap = snaps["10.0.26"]
+    by_name = {t.name: t for t in snap.tunnels}
+    ipsec = by_name["ipsec-Office_B"]
+    assert (ipsec.kind.value, ipsec.ike_version, ipsec.auth.value) == ("ipsec", 1, "psk")  # type: ignore[union-attr]
+    assert ipsec.id.startswith(f"{GW}/tunnel/") and ipsec.remote_gateway == "203.0.113.90"
+    assert [(p.encryption, p.dh_group) for p in ipsec.proposals] == [("3des", 2), ("aes256", 14)]
+    assert [str(n) for n in ipsec.children[0].remote_networks] == ["198.51.100.0/25"]
+    server = by_name["openvpn-Road_warriors"]
+    assert server.role is not None and server.role.value == "server"
+    assert str(server.tunnel_network) == "198.18.88.0/24" and server.up is None
+    assert "do-not-leak" not in snap.model_dump_json()
+
+
 # --- logins, sites and failures --------------------------------------------------------------
 
 

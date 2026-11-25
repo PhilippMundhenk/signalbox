@@ -57,6 +57,7 @@ from signalbox.adapters.portcounters import counters_of
 from signalbox.adapters.unifi import access as _access
 from signalbox.adapters.unifi import multicast as _multicast
 from signalbox.adapters.unifi import multiwan
+from signalbox.adapters.unifi import vpn as _vpn
 from signalbox.model import (
     Band,
     BandSteering,
@@ -663,6 +664,7 @@ class UnifiAdapter(_Adapter):
                 Capability.NEIGHBOURS,
                 Capability.HEALTH,
                 Capability.TIME,
+                Capability.VPN,
             }
         ),
         config=UnifiConfig,
@@ -1564,6 +1566,17 @@ class UnifiAdapter(_Adapter):
         return out
 
     # --- DHCP ---------------------------------------------------------------------------------
+
+    async def read_vpn(self) -> Observation:
+        """Site-to-site IPsec and OpenVPN of the gateway (#527), from the VPN networks of
+        ``rest/networkconf`` (classic API; the integration API has no VPN list). No secret."""
+        if self._mode == "integration":
+            return Observation()
+        gateway = next((d for d in await self._devices() if d.kind == "gateway"), None)
+        if gateway is None:
+            return Observation()
+        rows = await self._optional_quiet("rest/networkconf")
+        return Observation(tunnels=_vpn.tunnels(rows, self._prefix(gateway)))
 
     async def read_dhcp(self) -> Observation:
         if self._mode == "integration":

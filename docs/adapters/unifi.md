@@ -116,6 +116,19 @@ state, SFP data and more; they are not read yet. Firewall, VPN and routes are no
 | is version N; Signalbox is written for ... | a version outside 8 to 10; optional |
 | port profiles / networks / Wi-Fi networks: not read | an endpoint the role or version does not answer; optional |
 
+## Site-to-site VPN (#527, `vpn`)
+
+The VPN networks of `rest/networkconf` (`purpose` `site-vpn` or `remote-user-vpn`; classic API
+only, the integration API has no VPN list) become tunnels of the gateway: `vpn_type`
+`ipsec-vpn` (IKE version, other gateway, IKE and ESP algorithms, the other site's networks,
+`auth` psk when a pre-shared key is set) and `openvpn-server` / `openvpn-client` (role, server
+network). The pre-shared key and OpenVPN keys are never kept; whether a key is set is the only
+thing used. State is not in the network row: `up` and `established` are unknown. L2TP, PPTP and
+WireGuard entries are not read. All field names (`ipsec_peer_ip`, `ipsec_key_exchange`,
+`ipsec_encryption`, `ipsec_hash`, `ipsec_dh_group`, `ipsec_esp_*`, `remote_vpn_subnets`) are
+*guesses (#21)* from the classic API of Network 7 and 8; a row without them gives a tunnel
+with the fields missing.
+
 ## Guesses that need a real device (#21)
 
 - `/integration/v1` without `/proxy/network` on a self-hosted controller, and that an API key is
