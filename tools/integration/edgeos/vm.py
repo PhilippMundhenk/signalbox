@@ -181,6 +181,7 @@ class Console:
         self.d = d
         self.buf = ""
         self.pos = 0
+        self.closed = ""
         self.lock = threading.Lock()
         deadline = time.time() + 30
         while True:
@@ -199,8 +200,10 @@ class Console:
             try:
                 data = self.sock.recv(4096)
             except OSError:
+                self.closed = "socket error"
                 return
             if not data:
+                self.closed = "socket closed by QEMU"
                 return
             text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", data.decode("utf-8", "replace"))
             with self.lock:
@@ -222,7 +225,13 @@ class Console:
             time.sleep(0.2)
         if soft:
             return None
-        fail(f"serial console: timeout waiting for {what}", f"patterns {patterns}", self.d)
+        with self.lock:
+            seen = repr(self.buf[self.pos :][-600:])
+        fail(
+            f"serial console: timeout waiting for {what}",
+            f"patterns {patterns}; reader: {self.closed or 'alive'}; unread buffer {seen}",
+            self.d,
+        )
         raise AssertionError  # unreachable
 
     def send(self, text: str) -> None:
@@ -282,7 +291,13 @@ def configure(con: Console, name: str, commands: list[str], required: bool) -> b
     path = f"/tmp/sb-{name}.sh"
     con.run(f"cat > {path} <<'SB_EOF'\n{body}\nSB_EOF")
     t0 = time.time()
-    out = con.run(f"vbash {path} </dev/null >{path}.out 2>&1; cat {path}.out", 900)
+    # in the background and polled: a long command keeps the console silent
+    con.run(f"(vbash {path} </dev/null >{path}.out 2>&1; touch {path}.done) &")
+    while "yes" not in con.run(f"test -e {path}.done && echo yes", 60).split():
+        if time.time() - t0 > 900:
+            fail("VyOS setup", f"configuration step {name} did not finish", con.d)
+        time.sleep(3)
+    out = con.run(f"cat {path}.out", 60)
     log(f"{name}: {time.time() - t0:.0f} s")
     log(f"{name}:\n{out[-1500:]}")
     bad = CONFIG_ERROR.search(out) is not None
