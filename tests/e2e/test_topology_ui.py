@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import add_lab, add_site, add_switch, api, observe
+from .conftest import add_lab, add_site, add_switch, api, observe, topology_state
 
 pytestmark = pytest.mark.e2e
 
@@ -284,5 +284,8 @@ def test_the_host_of_a_service_is_set_in_the_device_settings(app: Any) -> None:
     expect(app.get_by_test_id("device-title")).to_have_text("Resolver")
     assert api(app, "GET", "/devices/resolver")["hosted_on"] == "router"
     go(app, "#/topology")
-    expect(app.get_by_test_id("topo-hosted")).to_have_count(1)
+    try:
+        expect(app.get_by_test_id("topo-hosted")).to_have_count(1)
+    except AssertionError as exc:
+        raise AssertionError(f"{exc}\n{topology_state(app)}") from exc
     expect(app.get_by_test_id("topo-uncabled")).to_have_count(0)
