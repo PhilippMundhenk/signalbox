@@ -206,7 +206,8 @@ def uplink_of(
     when the controller answers ARP for the CAP or holds its address in an own network,
     ``layer3`` when it does not: a router lies between) and the mesh membership with the
     uplink kind (cable, or radio when the port is a Wi-Fi interface).
-    Nothing is claimed that the tables do not show. ``cap_address_text`` is the raw ``address`` column: an L2 CAPsMAN lists the CAP's MAC address there."""
+    Nothing is claimed that the tables do not show. ``cap_address_text`` is the raw
+    ``address`` column: an L2 CAPsMAN lists the CAP's MAC address there."""
     macs: list[str] = []
     interface = ""
     if cap.management_address:
