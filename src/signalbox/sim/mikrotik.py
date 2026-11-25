@@ -1563,6 +1563,10 @@ class MikrotikSimulator:
     traces: list[dict[str, Any]] = field(default_factory=list)
     #: passwords of the users in ``/rest/user`` other than ``username`` (set through REST)
     logins: dict[str, str] = field(default_factory=dict)
+    #: A login set through REST is refused with 401 this many times first (RouterOS applies a new
+    #: user or password a moment later, #520); ``refusals`` counts what is left per user.
+    login_lag: int = 0
+    refusals: dict[str, int] = field(default_factory=dict)
     #: Errors of the scripts the scheduler ran (a line RouterOS would have refused).
     script_errors: list[str] = field(default_factory=list)
 
@@ -1574,6 +1578,9 @@ class MikrotikSimulator:
         except (binascii.Error, UnicodeDecodeError):
             return False
         if user in self.logins and secrets.compare_digest(password, self.logins[user]):
+            if self.refusals.get(user, 0) > 0:
+                self.refusals[user] -= 1
+                return False
             return True
         return secrets.compare_digest(user, self.username) and secrets.compare_digest(
             password, self.password
@@ -1816,6 +1823,7 @@ class MikrotikSimulator:
                 rows.append(row)
             if password is not None:
                 self.logins[row["name"]] = password
+                self.refusals[row["name"]] = self.login_lag
             self._settle(menu, row)
             return JSONResponse(row, status_code=201)
         found: dict[str, Any] | None = next((r for r in rows if r.get(".id") == ref), None)
@@ -1844,6 +1852,7 @@ class MikrotikSimulator:
         row.update(changed)
         if password is not None:
             self.logins[row["name"]] = password
+            self.refusals[row["name"]] = self.login_lag
         self._settle(menu, row)
         return JSONResponse(row if method == "PATCH" else [])
 

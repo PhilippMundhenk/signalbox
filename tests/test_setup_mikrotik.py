@@ -151,3 +151,40 @@ async def test_refusals(url: str, tls: TlsFiles, sim: MikrotikSimulator) -> None
     sim.data["/rest/user"] = {"not": "a list"}
     with pytest.raises(AdapterError, match="unexpected answer"):
         await MikrotikAdapter.plan_setup(request(url, tls.fingerprint))
+
+
+async def test_setup_waits_until_the_new_login_works(
+    url: str, tls: TlsFiles, sim: MikrotikSimulator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """RouterOS answers 401 for a moment after the user is created (#520): setup waits for it,
+    so the first call with the new login (a trace, say) succeeds."""
+    monkeypatch.setattr("signalbox.adapters.mikrotik.provision.LOGIN_POLL", 0.0)
+    sim.login_lag = 3
+    result = await MikrotikAdapter.apply_setup(request(url, tls.fingerprint, traces=True))
+    assert result.ok, result.steps
+    assert sim.refusals["signalbox"] == 0
+    adapter = MikrotikAdapter(
+        AdapterContext(
+            site_id="home",
+            device_id="r",
+            device_name="r",
+            role=DeviceRole.GATEWAY,
+            config=MikrotikConfig(url=url, password=result.secrets["password"]),
+            pinned_fingerprint=result.certificate,
+        )
+    )
+    try:
+        assert (await adapter.observe()).status in (DeviceStatus.OK, DeviceStatus.PARTIAL)
+    finally:
+        await adapter.close()
+
+
+async def test_setup_fails_when_the_new_login_stays_refused(
+    url: str, tls: TlsFiles, sim: MikrotikSimulator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("signalbox.adapters.mikrotik.provision.LOGIN_POLL", 0.0)
+    monkeypatch.setattr("signalbox.adapters.mikrotik.provision.LOGIN_WAIT", 0.05)
+    sim.login_lag = 10**6
+    result = await MikrotikAdapter.apply_setup(request(url, tls.fingerprint))
+    assert not result.ok
+    assert result.steps[1].state is StepState.FAILED and "still refuses" in result.steps[1].message

@@ -73,6 +73,7 @@ clear text and is only meant for the simulator.
 *Set up automatically* in the device form (#231, [ADR 0009](../adr/0009-automatic-setup-with-an-admin-login.md))
 creates the group and the user below through the REST API as admin, once HTTPS is set up as
 above.
+After creating or changing the user the setup waits (up to 20 s) until RouterOS accepts the new login, because RouterOS applies a new user a moment later and the first request would otherwise get HTTP 401 (#520).
 It is optional: the manual setup below is the same result and always works. Nothing is
 changed on the device unless you start it for that device and confirm the plan (never from
 *Find devices*, a read or in the background), and `setup.enabled: false` in the

@@ -16,7 +16,9 @@ its ``address`` list when the list excludes it. Network settings are never touch
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 from collections.abc import Awaitable, Callable
 from ipaddress import ip_address, ip_network
 from typing import Any
@@ -26,6 +28,7 @@ from pydantic import SecretStr
 
 from signalbox.adapters import (
     AdapterError,
+    AuthFailed,
     RemedyRequest,
     SetupPlan,
     SetupRequest,
@@ -37,6 +40,11 @@ from signalbox.adapters.https import DeviceHttp, device_url
 from signalbox.adapters.mikrotik import REMEDIES, get_menu, ros_error
 from signalbox.adapters.provision import Redactor, Step, new_password, plan_steps, run_steps
 from signalbox.adapters.ssh import PinnedSsh
+
+#: After creating or changing the user RouterOS applies it a moment later (#520): the first
+#: login with it can answer 401. Setup waits up to this long (seconds) for the new login.
+LOGIN_WAIT = 20.0
+LOGIN_POLL = 0.5
 
 #: The policies of the two groups, exactly as docs/adapters/mikrotik.md lists them.
 READ_POLICY = (
@@ -118,6 +126,36 @@ class MikrotikSetup:
             [g for g in groups if isinstance(g, dict)],
         )
 
+    def _applied(self, http: DeviceHttp, call: Callable[[], Awaitable[str | None]]) -> Any:
+        """``call``, then wait until the new login works (bounded retry on 401 with the password
+        just set, nothing else: another status or an unreachable router ends the wait at once)."""
+
+        async def run() -> str | None:
+            await call()
+            fresh = DeviceHttp(
+                self.url,
+                pinned_fingerprint=http.fingerprint or self.request.trust,
+                timeout=self.request.timeout,
+                auth=(self.login, self.password),
+            )
+            deadline = time.monotonic() + LOGIN_WAIT
+            try:
+                while True:
+                    try:
+                        await fresh.request("GET", "/rest/system/identity")
+                        return None
+                    except AuthFailed:
+                        if time.monotonic() >= deadline:
+                            raise AdapterError(
+                                f"the router still refuses the new user {self.login} after "
+                                f"{LOGIN_WAIT:g} s (HTTP 401)"
+                            ) from None
+                        await asyncio.sleep(LOGIN_POLL)
+            finally:
+                await fresh.close()
+
+        return run
+
     def _call(
         self, http: DeviceHttp, method: str, path: str, body: dict[str, Any] | None = None
     ) -> Callable[[], Awaitable[str | None]]:
@@ -170,8 +208,11 @@ class MikrotikSetup:
                 "user",
                 f"Create the user {self.login} in {self.group} with a generated password",
                 f"PUT /rest/user name={self.login} group={self.group} password=***",
-                action=self._call(
-                    http, "PUT", "/rest/user", {"name": self.login, "comment": COMMENT, **body}
+                action=self._applied(
+                    http,
+                    self._call(
+                        http, "PUT", "/rest/user", {"name": self.login, "comment": COMMENT, **body}
+                    ),
                 ),
                 note="the password is stored encrypted in Signalbox and never shown",
             )
@@ -181,7 +222,7 @@ class MikrotikSetup:
                 "user",
                 f"Update the user {self.login}: group {self.group}, a new generated password",
                 f"PATCH /rest/user/{user.get('.id')} group={self.group} password=***",
-                action=self._call(http, "PATCH", f"/rest/user/{uid}", body),
+                action=self._applied(http, self._call(http, "PATCH", f"/rest/user/{uid}", body)),
                 note="the password is stored encrypted in Signalbox and never shown",
             )
         return [group_step, user_step]
