@@ -4,7 +4,14 @@
 # host's dummy, 8021q, bridge, wireguard and nf_tables modules) and runs the daemons.
 ARG DEBIAN=12
 FROM debian:${DEBIAN}-slim
-RUN apt-get update -q \
+ARG DEBIAN
+# Debian 11 left the main mirrors with the end of its long-term support (2026): its packages
+# are on archive.debian.org (no -updates suite there, and the Release files have expired)
+RUN if [ "$DEBIAN" = 11 ]; then \
+      sed -i -e '/bullseye-updates/d' -e 's|deb.debian.org|archive.debian.org|; s|security.debian.org|archive.debian.org|' /etc/apt/sources.list \
+      && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99archive; \
+    fi \
+ && apt-get update -q \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
       openssh-server iproute2 dnsmasq chrony wireguard-tools nftables iptables sudo \
       passwd procps iputils-tracepath \
