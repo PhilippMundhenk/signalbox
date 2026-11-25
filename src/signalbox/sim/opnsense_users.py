@@ -110,7 +110,10 @@ class Users:
         user = next((u for u in self.users if u["uuid"] == arg), None)
         if action == "get":
             if user is None:
-                return {}
+                if arg:
+                    return {}
+                # no uuid: the blank form (the options a new user can be given)
+                return {"user": {"priv": _options(PRIVILEGES, []), "group_memberships": {}}}
             return {
                 "user": {
                     "name": user["name"],

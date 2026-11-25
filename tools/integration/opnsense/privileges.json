@@ -22,8 +22,7 @@
     "page-system-certmanager",
     "page-system-camanager",
     "page-system-staticroutes",
-    "page-system-gateways",
-    "page-services-dyndns"
+    "page-system-gateways"
   ],
   "signalbox-write": [
     "page-system-firmware-manualupdate",
@@ -49,7 +48,6 @@
     "page-system-camanager",
     "page-system-staticroutes",
     "page-system-gateways",
-    "page-services-dyndns",
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory"
   ]

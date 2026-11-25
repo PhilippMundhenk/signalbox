@@ -74,6 +74,10 @@ READ_PRIVILEGES: tuple[str, ...] = (
     "page-system-gateways",
     "page-services-dyndns",
 )
+#: Privileges that exist only with an optional plugin (os-ddclient adds *Services: Dynamic DNS*):
+#: the setup grants them when the firewall offers them, and leaves them out otherwise, since
+#: the user manager refuses a privilege it does not know (#440).
+PLUGIN_PRIVILEGES: frozenset[str] = frozenset({"page-services-dyndns"})
 #: Added while path traces are on (#253, docs: "Path traces").
 TRACE_PRIVILEGES: tuple[str, ...] = ("page-diagnostics-traceroute",)
 #: Optional extra "accounts" (#349): lets Signalbox list the local users. The user manager has no
@@ -257,6 +261,8 @@ class OpnsenseSetup:
                 *(ACCOUNTS_PRIVILEGES if "accounts" in request.extras else ()),
             }
         )
+        #: The privileges the firewall offers (None: not known), read in :meth:`inspect`.
+        self.offered: set[str] | None = None
         self.key: dict[str, str] = {}
         self.ssh_step = request.ssh_step
         self.host = urlsplit(self.url).hostname or ""
@@ -284,6 +290,21 @@ class OpnsenseSetup:
             auth=(self.request.admin_user, self.request.admin_secret.get_secret_value()),
         )
 
+    async def _offer(self, http: DeviceHttp, user: dict[str, Any] | None) -> None:
+        """Remember which privileges the firewall offers and drop the plugin ones it lacks."""
+        options = user.get("priv") if user else None
+        if not isinstance(options, dict):
+            try:
+                answer = await http.get_json("/api/auth/user/get")
+            except AdapterError:
+                answer = None
+            blank = answer.get("user") if isinstance(answer, dict) else None
+            options = blank.get("priv") if isinstance(blank, dict) else None
+        if isinstance(options, dict) and options:
+            self.offered = {str(k) for k in options}
+            gone = PLUGIN_PRIVILEGES - self.offered
+            self.privileges = [p for p in self.privileges if p not in gone]
+
     async def inspect(self, http: DeviceHttp) -> tuple[str | None, dict[str, Any]]:
         """The uuid and settings of the user ``signalbox`` (None, {}: there is none)."""
         await http.get_json("/api/core/firmware/status")
@@ -298,7 +319,9 @@ class OpnsenseSetup:
                         message_id="opnsense.userAnswer",
                         params={"path": f"/api/auth/user/get/{uuid}"},
                     )
+                await self._offer(http, user)
                 return uuid, user
+        await self._offer(http, None)
         return None, {}
 
     def steps(self, http: DeviceHttp, uuid: str | None, user: dict[str, Any]) -> list[Step]:
@@ -685,6 +708,7 @@ class OpnsenseFix(OpnsenseSetup):
                         message_id="opnsense.userAnswer",
                         params={"path": f"/api/auth/user/get/{uuid}"},
                     )
+                await self._offer(http, user)
                 return uuid, {**user, "name": user.get("name") or owner}
         raise AdapterError(
             f"the firewall lists no user {owner!r}",

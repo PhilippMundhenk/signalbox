@@ -19,7 +19,12 @@ from signalbox.adapters import (
     UntrustedCertificate,
 )
 from signalbox.adapters.opnsense import OpnsenseAdapter, OpnsenseConfig
-from signalbox.adapters.opnsense.provision import READ_PRIVILEGES, WRITE_PRIVILEGES, _saved
+from signalbox.adapters.opnsense.provision import (
+    PLUGIN_PRIVILEGES,
+    READ_PRIVILEGES,
+    WRITE_PRIVILEGES,
+    _saved,
+)
 from signalbox.model import DeviceRole, DeviceStatus
 from signalbox.sim.opnsense import KEY, SECRET, OpnsenseSimulator
 from signalbox.sim.server import TlsFiles, self_signed_certificate, serve
@@ -58,8 +63,10 @@ def request(url: str, trust: str | None, **kw: Any) -> SetupRequest:
 
 def test_privileges_are_those_of_the_integration_test_image() -> None:
     tested = json.loads((ROOT / "tools/integration/opnsense/privileges.json").read_text())
-    assert list(READ_PRIVILEGES) == tested["signalbox-read"]
-    assert list(WRITE_PRIVILEGES) == tested["signalbox-write"]
+    # the image has no plugins: privileges of a plugin are granted only where offered (#440)
+    base = [p for p in READ_PRIVILEGES if p not in PLUGIN_PRIVILEGES]
+    assert base == tested["signalbox-read"]
+    assert [p for p in WRITE_PRIVILEGES if p not in PLUGIN_PRIVILEGES] == tested["signalbox-write"]
 
 
 async def test_accounts_extra_adds_the_user_manager_privilege(
@@ -222,3 +229,20 @@ async def test_failed_steps(url: str, tls: TlsFiles, sim: OpnsenseSimulator) -> 
     sim.accounts.answer = lambda path, body: None  # type: ignore[method-assign]
     with pytest.raises(AdapterError, match="404"):
         await OpnsenseAdapter.plan_setup(request(url, tls.fingerprint))
+
+
+async def test_plugin_privilege_is_left_out_where_the_firewall_does_not_offer_it(
+    url: str, tls: TlsFiles, sim: OpnsenseSimulator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """os-ddclient not installed: the user manager refuses page-services-dyndns (#440)."""
+    from signalbox.sim import opnsense_users
+
+    monkeypatch.setattr(
+        opnsense_users,
+        "PRIVILEGES",
+        tuple(p for p in opnsense_users.PRIVILEGES if p not in PLUGIN_PRIVILEGES),
+    )
+    result = await OpnsenseAdapter.apply_setup(request(url, tls.fingerprint))
+    assert result.ok, result.steps
+    user = next(u for u in sim.accounts.users if u["name"] == "signalbox")
+    assert sorted(user["priv"]) == sorted(set(READ_PRIVILEGES) - PLUGIN_PRIVILEGES)

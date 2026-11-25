@@ -1090,7 +1090,7 @@ spelling on 24.7 and 25.x (compared with the sources, not recorded).
   rows hold `username` and `password`; they are never read. Not installed (404): nothing is
   reported, without a gap on every read. No privilege (403, *Services: Dynamic DNS*,
   `page-services-dyndns`, *guess*): an optional gap naming the privilege, never "no dynamic DNS";
-  automatic setup and "Repair Signalbox's access" grant it (#440). The plugin has no API for the last update or the address announced.
+  automatic setup and "Repair Signalbox's access" grant it where the firewall offers it (the privilege exists only with the plugin; without it the user manager refuses it, so it is left out) (#440). The plugin has no API for the last update or the address announced.
 
 ### Configuration state, backups and channel (#181)
 

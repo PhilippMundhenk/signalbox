@@ -29,7 +29,11 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp
 from signalbox.adapters.opnsense import OpnsenseAdapter, OpnsenseConfig
-from signalbox.adapters.opnsense.provision import READ_PRIVILEGES, WRITE_PRIVILEGES
+from signalbox.adapters.opnsense.provision import (
+    PLUGIN_PRIVILEGES,
+    READ_PRIVILEGES,
+    WRITE_PRIVILEGES,
+)
 from signalbox.model import DeviceRole, DeviceStatus
 from signalbox.testing import assert_contract
 
@@ -167,7 +171,7 @@ async def test_setup_read_write_remove(fw: Target, clean: None) -> None:
     # as documented: exactly these privileges, no groups; again: nothing but a new key
     same = await OpnsenseAdapter.plan_setup(request(fw, fw.pin))
     assert same.steps[0].state is StepState.UNCHANGED, (same.steps[0], await root_answers(fw))
-    assert same.steps[1].detail.splitlines() == sorted(READ_PRIVILEGES)
+    assert same.steps[1].detail.splitlines() == sorted(set(READ_PRIVILEGES) - PLUGIN_PRIVILEGES)
 
     write = await OpnsenseAdapter.apply_setup(request(fw, fw.pin, allow_writes=True))
     check(write, await root_answers(fw))
@@ -178,7 +182,7 @@ async def test_setup_read_write_remove(fw: Target, clean: None) -> None:
     assert old.status is DeviceStatus.AUTH_FAILED, "the old key still works"
     again = await OpnsenseAdapter.plan_setup(request(fw, fw.pin, allow_writes=True))
     assert again.steps[0].state is StepState.UNCHANGED
-    assert again.steps[1].detail.splitlines() == sorted(WRITE_PRIVILEGES)
+    assert again.steps[1].detail.splitlines() == sorted(set(WRITE_PRIVILEGES) - PLUGIN_PRIVILEGES)
 
     gone = await OpnsenseAdapter.apply_setup(request(fw, fw.pin, remove=True))
     check(gone, await root_answers(fw))
@@ -244,7 +248,9 @@ async def test_fix_adds_a_missing_privilege(fw: Target, clean: None) -> None:
             "/api/auth/user/search", {"current": 1, "rowCount": -1, "searchPhrase": ""}
         )
         uuid = next(r["uuid"] for r in users["rows"] if r.get("name") == "signalbox")
-        fewer = [p for p in READ_PRIVILEGES if p != "page-status-ntp"]
+        fewer = [
+            p for p in READ_PRIVILEGES if p != "page-status-ntp" and p not in PLUGIN_PRIVILEGES
+        ]
         body = {
             "user": {
                 "name": "signalbox",
