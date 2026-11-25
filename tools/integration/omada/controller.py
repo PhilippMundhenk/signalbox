@@ -438,7 +438,7 @@ def probe(oid: str, web: dict[str, str], app: dict[str, str]) -> None:
     rows = listed.get("result", {}).get("data", []) if isinstance(listed, dict) else []
     first = rows[0] if rows else {}
     out["list-keys"] = (status, sorted(first))
-    notice("Omada probe", json.dumps(out)[:3500])
+    gh_error("Omada probe", json.dumps(out)[:3500])
 
 
 def setup(d: Path) -> None:
@@ -454,7 +454,10 @@ def setup(d: Path) -> None:
     }
     for app in apps.values():
         print(f"::add-mask::{app['client_secret']}", flush=True)
-    probe(oid, web, apps["admin"])
+    try:
+        probe(oid, web, apps["admin"])
+    except Exception as exc:  # diagnostics only
+        gh_error("Omada probe failed", repr(exc)[:500])
     data = site_data(OpenApi(oid, apps["admin"]))
     if data["refused"]:
         notice("Omada setup: refused by the controller", json.dumps(data["refused"]))
