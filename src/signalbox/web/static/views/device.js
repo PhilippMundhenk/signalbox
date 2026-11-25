@@ -481,6 +481,45 @@ function upnpCard(ix, observed) {
   );
 }
 
+// Multicast of a device (#508, #161): IGMP/MLD snooping and querier per bridge or network, and the
+// services that reflect discovery or streams between networks. Names come from the devices: text
+// nodes only.
+const REFLECTOR_KIND = { mdns: 'mDNS', ssdp: 'SSDP', 'igmp-proxy': 'IGMP proxy', 'udp-broadcast-relay': 'UDP broadcast relay' };
+
+function multicastFacts(s) {
+  return [
+    given(s.igmp_snooping) ? t(s.igmp_snooping ? 'device.multicast.igmpOn' : 'device.multicast.igmpOff') : null,
+    given(s.mld_snooping) ? t(s.mld_snooping ? 'device.multicast.mldOn' : 'device.multicast.mldOff') : null,
+    s.querier ? t('device.multicast.querier') : null,
+    s.observed_querier ? t('device.multicast.observedQuerier', { address: s.observed_querier }) : null,
+    s.fast_leave ? t('device.multicast.fastLeave') : null,
+    s.unknown_multicast === 'flood' ? t('device.multicast.unknownFlood') : null,
+    s.unknown_multicast === 'drop' ? t('device.multicast.unknownDrop') : null,
+  ].filter(Boolean);
+}
+
+function multicastCard(ix, observed) {
+  const m = observed.multicast;
+  if (!m || (!m.settings.length && !m.reflectors.length)) return null;
+  const settings = m.settings.map((s) => [
+    s.segment_id ? `${s.name} (${ix.segmentName(s.segment_id)})` : s.name,
+    h('span', { 'data-testid': 'multicast-setting', 'data-name': s.name }, multicastFacts(s).join(' · ')),
+  ]);
+  const reflectors = m.reflectors.map((r) => {
+    const networks = r.segments.length ? r.segments.map((id) => ix.segmentName(id)).join(', ') : r.interfaces.length ? r.interfaces.join(', ') : t('device.multicast.noNetworks');
+    const upstream = r.upstream_segment_id ? ix.segmentName(r.upstream_segment_id) : r.upstream_interface;
+    const text = [t('device.multicast.reflectorBetween', { kind: REFLECTOR_KIND[r.kind] || r.kind, networks }), upstream ? t('device.multicast.upstream', { name: upstream }) : null, r.enabled ? null : t('device.multicast.reflectorOff')].filter(Boolean).join(' · ');
+    return h('p', { 'data-testid': 'multicast-reflector', 'data-kind': r.kind }, text);
+  });
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-multicast' },
+    h('h2', {}, t('device.multicast.title')),
+    settings.length ? kv(settings) : null,
+    reflectors.length ? h('div', {}, h('h3', {}, t('device.multicast.reflectors')), ...reflectors) : null,
+  );
+}
+
 // Everything reachable from the internet through this gateway (#513): static port forwards of the
 // firewall (#135) together with the ports devices opened themselves. Names and descriptions are
 // text nodes only.
@@ -1220,6 +1259,7 @@ async function overview(main, ctx, device, adapters, sites) {
     inferredCard(ix, device.id),
     portsCard(ix, tree, deltas, series),
     observed ? stpCard(ix, observed) : null,
+    observed ? multicastCard(ix, observed) : null,
     observed ? upnpCard(ix, observed) : null,
     observed ? exposedCard(ix, observed) : null,
     poeCard(ix, observed, device.id),

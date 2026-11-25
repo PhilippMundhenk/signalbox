@@ -339,6 +339,10 @@ def test_concept_views_show_the_network(app: Any) -> None:
     lan1_node = app.get_by_test_id("port-node").filter(has_text="Desk").first
     expect(lan1_node).to_contain_text("designated port · forwarding · edge port")
 
+    # multicast (#508): snooping and querier of the bridge, as the device reports them
+    mcast = app.get_by_test_id("device-multicast")
+    expect(mcast.get_by_test_id("multicast-setting").first).to_contain_text("IGMP snooping on")
+
     go(app, "#/device/router/advanced")
     expect(app.get_by_test_id("raw-services")).to_contain_text("services (6)")
     expect(app.get_by_test_id("raw-uplinks")).to_contain_text("uplinks (1)")
