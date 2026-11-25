@@ -453,11 +453,11 @@ jobs:
     name: Omada Software Controller ${{ matrix.version }} (official package in Docker)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # 6.3 (current), 5.15 and 5.14 (5.x, #501)
+    # 6.3 (current), 5.15, 5.14 (5.x, #501) and 5.12 (first with the Open API, #515)
     strategy:
       fail-fast: false
       matrix:
-        version: ["6.3", "5.15", "5.14"]
+        version: ["6.3", "5.15", "5.14", "5.12"]
     env:
       REQUIRE_INTEGRATION: "1"
       CTRL_DIR: ${{ github.workspace }}/.ctrl/omada${{ matrix.version }}
