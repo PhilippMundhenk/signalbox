@@ -54,6 +54,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.portcounters import counters_of
+from signalbox.adapters.unifi import multiwan
 from signalbox.model import (
     Band,
     Cipher,
@@ -64,9 +65,11 @@ from signalbox.model import (
     DeviceTime,
     DhcpPool,
     DhcpServer,
+    DynamicDns,
     FdbEntry,
     FdbKind,
     Firmware,
+    GatewayGroup,
     IPAddress,
     Membership,
     Neighbour,
@@ -990,12 +993,19 @@ class UnifiAdapter(_Adapter):
                     vendor_extra=gateway.extra(network=n.name) if gateway else {"network": n.name},
                 )
             )
+        uplinks: list[Uplink] = []
+        wan_groups: list[GatewayGroup] = []
+        wan_ddns: list[DynamicDns] = []
+        if gateway is not None:
+            uplinks, wan_groups, wan_ddns = await self._wan(gateway)
         return Observation(
             ports=ports,
             segments=segs,
             subnets=subnets,
             devices=managed,
-            uplinks=await self._uplinks(gateway) if gateway is not None else [],
+            uplinks=uplinks,
+            gateway_groups=wan_groups,
+            ddns=wan_ddns,
             incomplete=self._take_gaps(),
         )
 
@@ -1124,7 +1134,17 @@ class UnifiAdapter(_Adapter):
             p.model_copy(update={"lag": None}) if p.lag and p.id not in grouped else p for p in out
         ]
 
-    async def _uplinks(self, gateway: _Managed) -> list[Uplink]:
+    async def _wan(
+        self, gateway: _Managed
+    ) -> tuple[list[Uplink], list[GatewayGroup], list[DynamicDns]]:
+        """The WAN connections with their failover priority, the group they form (#150) and the
+        dynamic DNS entries of the site (#154; quiet where the controller has no such list)."""
+        uplinks, groups = await self._uplinks(gateway)
+        prefix = self._prefix(gateway)
+        rows = await self._optional_quiet("rest/dynamicdns")
+        return uplinks, groups, multiwan.ddns_clients(prefix, rows)
+
+    async def _uplinks(self, gateway: _Managed) -> tuple[list[Uplink], list[GatewayGroup]]:
         """The gateway's WAN connections: ``wan1``, ``wan2`` of the device (address, gateway,
         DNS, state) with the WAN network's ``wan_type`` (DHCP, static, PPPoE)."""
         wans = {
@@ -1133,6 +1153,8 @@ class UnifiAdapter(_Adapter):
             if _text(n.get("purpose")).lower() == "wan"
         }
         out: list[Uplink] = []
+        confs: dict[str, dict[str, Any]] = {}
+        infos: dict[str, dict[str, Any]] = {}
         for key in ("wan1", "wan2", "wan3"):
             info = _sub(gateway.row, key)
             if not info:
@@ -1147,6 +1169,8 @@ class UnifiAdapter(_Adapter):
                 except ValueError:
                     addresses.append(ip_interface(ip))
             up = _flag(info.get("up"), None)
+            confs[key], infos[key] = conf, info
+            priority, weight = multiwan.priority_weight(conf)
             out.append(
                 Uplink(
                     id=f"{self._prefix(gateway)}/uplink/{key}",
@@ -1157,10 +1181,14 @@ class UnifiAdapter(_Adapter):
                     addresses=addresses,
                     upstream_gateway=_addr(info.get("gateway")),
                     dns_servers=dns,
+                    priority=priority,
+                    weight=weight,
+                    health=multiwan.health(info, up),
                     vendor_extra=gateway.extra(),
                 )
             )
-        return out
+        groups = multiwan.group(self._prefix(gateway), out, confs, infos)
+        return out, groups
 
     # --- access points and uplinks (#336 pattern) ---------------------------------------------
 

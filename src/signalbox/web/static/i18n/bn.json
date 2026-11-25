@@ -1122,6 +1122,7 @@
  "msg.openwrt.loginRefused": "{login} হিসেবে লগইন প্রত্যাখ্যাত",
  "msg.openwrt.loginRefused.fix": "ব্যবহারকারীর নাম ও পাসওয়ার্ড দেখুন। root ছাড়া অন্য লগইনের জন্য /etc/config/rpcd-এ uhttpd -m দিয়ে hash করা পাসওয়ার্ডসহ একটি config login অংশ লাগে ({setup}#read-only-user-on-the-device দেখুন), তারপর service rpcd restart চালান।",
  "msg.openwrt.monitoringGap": "SNMP ও মনিটরিং target ({denied}): {cause}",
+ "msg.openwrt.multiwanGap": "মাল্টি-WAN ও ডায়নামিক DNS ({denied}): {cause}",
  "msg.openwrt.noLogin": "router-এ rpcd লগইন {login} নেই",
  "msg.openwrt.noLogin.fix": "ডিভাইসটি আবার সেট আপ করুন (ডিভাইস সেটিংস: স্বয়ংক্রিয়ভাবে সেট আপ করুন, অথবা সেটআপ গাইড): ঠিক করুন শুধু বিদ্যমান লগইনের অনুমতি মেরামত করে।",
  "msg.openwrt.noNetworkConfig": "router-এর কোনো পড়ার যোগ্য নেটওয়ার্ক কনফিগারেশন নেই (/etc/config/network)",

@@ -1122,6 +1122,7 @@
  "msg.openwrt.loginRefused": "{login} olarak giriş reddedildi",
  "msg.openwrt.loginRefused.fix": "Kullanıcı adını ve parolayı kontrol edin. root dışındaki bir giriş için /etc/config/rpcd içinde uhttpd -m ile karmalanmış parolalı bir config login bölümü gerekir (bkz. {setup}#read-only-user-on-the-device), ardından service rpcd restart.",
  "msg.openwrt.monitoringGap": "SNMP ve izleme hedefleri ({denied}): {cause}",
+ "msg.openwrt.multiwanGap": "çoklu WAN ve dinamik DNS ({denied}): {cause}",
  "msg.openwrt.noLogin": "yönlendiricide {login} rpcd girişi yok",
  "msg.openwrt.noLogin.fix": "Cihazı yeniden kurun (cihaz ayarları: Otomatik kur veya kurulum kılavuzu): Düzelt yalnızca var olan bir girişin izinlerini onarır.",
  "msg.openwrt.noNetworkConfig": "yönlendiricinin okunabilir bir ağ yapılandırması yok (/etc/config/network)",

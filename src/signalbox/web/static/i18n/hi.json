@@ -1122,6 +1122,7 @@
  "msg.openwrt.loginRefused": "{login} के रूप में लॉगिन अस्वीकृत",
  "msg.openwrt.loginRefused.fix": "उपयोगकर्ता नाम और पासवर्ड जाँचें। root के अलावा किसी लॉगिन के लिए /etc/config/rpcd में config login अनुभाग और uhttpd -m से हैश किया पासवर्ड चाहिए ({setup}#read-only-user-on-the-device देखें), फिर service rpcd restart।",
  "msg.openwrt.monitoringGap": "SNMP और मॉनिटरिंग लक्ष्य ({denied}): {cause}",
+ "msg.openwrt.multiwanGap": "मल्टी-WAN और डायनेमिक DNS ({denied}): {cause}",
  "msg.openwrt.noLogin": "router पर rpcd लॉगिन {login} नहीं है",
  "msg.openwrt.noLogin.fix": "डिवाइस को फिर से सेट करें (डिवाइस सेटिंग: Set up automatically, या सेटअप गाइड): ठीक करें केवल मौजूदा लॉगिन की अनुमतियाँ सुधारता है।",
  "msg.openwrt.noNetworkConfig": "router में पढ़ने योग्य नेटवर्क कॉन्फ़िगरेशन नहीं है (/etc/config/network)",

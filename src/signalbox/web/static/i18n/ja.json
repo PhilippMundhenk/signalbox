@@ -1122,6 +1122,7 @@
  "msg.openwrt.loginRefused": "{login} としてのログインが拒否されました",
  "msg.openwrt.loginRefused.fix": "ユーザー名とパスワードを確認してください。root 以外のログインには、/etc/config/rpcd に、uhttpd -m でハッシュ化したパスワードを持つ config login セクションが必要です ({setup}#read-only-user-on-the-device を参照)。その後、service rpcd restart を実行してください。",
  "msg.openwrt.monitoringGap": "SNMP と監視の送信先 ({denied}): {cause}",
+ "msg.openwrt.multiwanGap": "マルチ WAN とダイナミック DNS ({denied}): {cause}",
  "msg.openwrt.noLogin": "ルーターに rpcd のログイン {login} がありません",
  "msg.openwrt.noLogin.fix": "機器を再度セットアップしてください (機器の設定:「自動セットアップ」またはセットアップガイド)。「修正する」は、既存ログインの権限を修復するだけです。",
  "msg.openwrt.noNetworkConfig": "ルーターに読み取り可能なネットワーク設定 (/etc/config/network) がありません",

@@ -1122,6 +1122,7 @@
  "msg.openwrt.loginRefused": "{login} 로그인이 거부되었습니다",
  "msg.openwrt.loginRefused.fix": "사용자 이름과 비밀번호를 확인하십시오. root가 아닌 로그인은 /etc/config/rpcd에 uhttpd -m으로 해시한 비밀번호가 있는 config login 섹션이 필요하며 ({setup}#read-only-user-on-the-device 참조), 이후 service rpcd restart를 실행하십시오.",
  "msg.openwrt.monitoringGap": "SNMP 및 모니터링 대상 ({denied}): {cause}",
+ "msg.openwrt.multiwanGap": "멀티 WAN 및 동적 DNS ({denied}): {cause}",
  "msg.openwrt.noLogin": "라우터에 rpcd 로그인 {login}이(가) 없습니다",
  "msg.openwrt.noLogin.fix": "장치를 다시 설정하십시오 (장치 설정: 자동 설정 또는 설정 안내). 해결 기능은 기존 로그인의 권한만 복구합니다.",
  "msg.openwrt.noNetworkConfig": "라우터에 읽을 수 있는 네트워크 설정이 없습니다 (/etc/config/network)",

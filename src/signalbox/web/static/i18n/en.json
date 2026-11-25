@@ -1122,6 +1122,7 @@
  "msg.openwrt.loginRefused": "login as {login} refused",
  "msg.openwrt.loginRefused.fix": "Check the user name and password. A login other than root needs a config login section in /etc/config/rpcd with a password hashed by uhttpd -m (see {setup}#read-only-user-on-the-device), then service rpcd restart.",
  "msg.openwrt.monitoringGap": "SNMP and monitoring targets ({denied}): {cause}",
+ "msg.openwrt.multiwanGap": "multi-WAN and dynamic DNS ({denied}): {cause}",
  "msg.openwrt.noLogin": "there is no rpcd login {login} on the router",
  "msg.openwrt.noLogin.fix": "Set the device up again (device settings: Set up automatically, or the setup guide): Fix it only repairs the permissions of an existing login.",
  "msg.openwrt.noNetworkConfig": "the router has no readable network configuration (/etc/config/network)",

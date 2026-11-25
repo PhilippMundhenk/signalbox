@@ -512,6 +512,38 @@ The IGD services of the Fritz!Box (`/igdupnp/control/...`) spell AVM's actions w
 TR-064 ones with `-`. Recordings replace public and private WAN addresses with documentation
 addresses, so a recorded uplink classifies as `public` whatever the line was.
 
+## Gateway groups, uplink monitoring and dynamic DNS (#150, #154)
+
+Both are read with `interfaces` (no API version needed) and reported next to the uplinks.
+
+- `Uplink` gets `priority`, `weight`, `monitor` (`targets`, `interval_seconds`, thresholds) and
+  `health` (`state` `online`/`degraded`/`down`/`standby`, `latency_ms`, `loss_pct`,
+  `last_change`): what the gateway's monitor currently sees. Health changes on every read: it is
+  a current value, not drift.
+- `GatewayGroup` (`object_id(device, "gateway-group", <name>)`): `mode` (`failover` or
+  `balance`), `members` (`name`, `uplink_id` where the member is an uplink the model has, `tier`
+  1 first, `weight`, `gateway`, `monitor_targets`, `state`, `latency_ms`, `loss_pct`) and
+  `active` (the member that carries the traffic, unset for a balancing group or when unknown).
+- `DynamicDns` (`object_id(device, "ddns", <name>)`): `provider` (`dyndns2`, `cloudflare`,
+  `duckdns`, `noip`, `myfritz`, `mikrotik-cloud`, `other`), `hostname`, `uplink_id`, `families`,
+  `enabled`, `last_update`, `last_result` (`ok`, `error`, `unknown`), `published_address` (the
+  address the provider was told). **Never** an account name, password, token or update URL, also
+  not in `vendor_extra`: the adapters do not read those fields. The hostname identifies the
+  household and is not exported.
+
+Report only what the device says: a missing monitor, state or announced address stays empty and
+the checks (`wan.group-member-down`, `wan.group-last-member`, `wan.monitor-local`,
+`ddns.mismatch`, `ddns.update-failed`) stay quiet.
+
+| Integration | Gateway groups, monitor, health | Dynamic DNS |
+| --- | --- | --- |
+| OPNsense | health and monitor address of the WAN uplink from `/api/routes/gateway/status` (`status`, `delay`, `loss`, `monitor`); **gateway groups are not read**: they live in the configuration only and the API has no list of them *(guess, #21)* | `os-ddclient` accounts, `/api/dyndns/accounts/search_item` (provider, hostnames, interface, enabled); no address or result (the plugin has no API for them) |
+| OpenWrt (role `gateway`) | `mwan3`: `uci get mwan3` (`interface` with `track_ip`, `member`, `policy`) and `ubus call mwan3 status` (state, latency, loss) | `ddns-scripts`: `uci get ddns` (`service`), last update and address from `/var/run/ddns/<section>.update` and `.ip` *(guess)* |
+| MikroTik | two or more enabled default routes: tier by `distance`, `check-gateway` (the monitor is the gateway itself), `gateway-status`; `/rest/tool/netwatch` entries with the comment of a route | `/rest/ip/cloud`: `dns-name`, `public-address`, `status`, `ddns-enabled` |
+| Fritz!Box | none (the mobile fallback is not in TR-064) | TR-064 `X_AVM-DE_RemoteAccess:1 GetDDNSInfo` (provider, domain, mode, status) and `X_AVM-DE_MyFritz:1 GetInfo` (the MyFRITZ! name) |
+| UniFi | the WAN networks' `wan_failover_priority`, `wan_load_balance_type` and `wan_load_balance_weight`, with `up`, `latency` and `is_uplink` of the gateway's `wan1`/`wan2` | `rest/dynamicdns` (host name, service, interface) |
+| Omada, Linux, EdgeOS, SNMP, switches | not read | not read |
+
 ## Management services
 
 A device reports each way to manage it as a `ManagementService` in `Observation.services`

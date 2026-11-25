@@ -1122,6 +1122,7 @@
  "msg.openwrt.loginRefused": "login sebagai {login} ditolak",
  "msg.openwrt.loginRefused.fix": "Periksa nama pengguna dan kata sandi. Login selain root memerlukan bagian config login di /etc/config/rpcd dengan kata sandi yang di-hash oleh uhttpd -m (lihat {setup}#read-only-user-on-the-device), lalu service rpcd restart.",
  "msg.openwrt.monitoringGap": "target SNMP dan pemantauan ({denied}): {cause}",
+ "msg.openwrt.multiwanGap": "multi-WAN dan DNS dinamis ({denied}): {cause}",
  "msg.openwrt.noLogin": "tidak ada login rpcd {login} di router",
  "msg.openwrt.noLogin.fix": "Siapkan perangkat lagi (pengaturan perangkat: Siapkan otomatis, atau panduan penyiapan): Perbaiki hanya memperbaiki izin dari login yang sudah ada.",
  "msg.openwrt.noNetworkConfig": "router tidak memiliki konfigurasi jaringan yang dapat dibaca (/etc/config/network)",

@@ -1122,6 +1122,7 @@
  "msg.openwrt.loginRefused.fix": "صارف نام اور پاس ورڈ جانچیں۔ root کے علاوہ لاگ اِن کے لیے /etc/config/rpcd میں config login سیکشن درکار ہے جس میں پاس ورڈ uhttpd -m سے ہیش کیا گیا ہو ({setup}#read-only-user-on-the-device دیکھیں)، پھر service rpcd restart۔",
  "msg.openwrt.logTargets": "لاگ اہداف: {cause}",
  "msg.openwrt.monitoringGap": "SNMP اور مانیٹرنگ اہداف ({denied}): {cause}",
+ "msg.openwrt.multiwanGap": "ملٹی WAN اور ڈائنامک DNS ({denied}): {cause}",
  "msg.openwrt.noLogin": "router پر rpcd لاگ اِن {login} موجود نہیں",
  "msg.openwrt.noLogin.fix": "آلے کو دوبارہ سیٹ اپ کریں (آلے کی ترتیبات: خودکار سیٹ اپ، یا سیٹ اپ گائیڈ): “درست کریں” صرف موجود لاگ اِن کی اجازتیں مرمت کرتا ہے۔",
  "msg.openwrt.noNetworkConfig": "router کی کوئی قابلِ مطالعہ نیٹ ورک کنفیگریشن نہیں (/etc/config/network)",

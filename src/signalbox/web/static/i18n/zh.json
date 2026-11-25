@@ -1122,6 +1122,7 @@
  "msg.openwrt.loginRefused": "以 {login} 登录被拒绝",
  "msg.openwrt.loginRefused.fix": "请检查用户名和密码。root 以外的登录需要在 /etc/config/rpcd 中有 config login 段,并使用 uhttpd -m 哈希的密码 (参见 {setup}#read-only-user-on-the-device),然后运行 service rpcd restart。",
  "msg.openwrt.monitoringGap": "SNMP 和监控目标 ({denied}):{cause}",
+ "msg.openwrt.multiwanGap": "多 WAN 和动态 DNS ({denied}):{cause}",
  "msg.openwrt.noLogin": "路由器上没有 rpcd 登录 {login}",
  "msg.openwrt.noLogin.fix": "请重新设置设备 (设备设置:自动设置,或设置指南):“修复”只会修复现有登录的权限。",
  "msg.openwrt.noNetworkConfig": "路由器没有可读取的网络配置 (/etc/config/network)",

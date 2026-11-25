@@ -1122,6 +1122,7 @@
  "msg.openwrt.loginRefused.fix": "افحص اسم المستخدم وكلمة المرور. يحتاج حساب دخول غير root إلى قسم config login في /etc/config/rpcd بكلمة مرور مُجزّأة بـ uhttpd -m (راجع {setup}#read-only-user-on-the-device)، ثم service rpcd restart.",
  "msg.openwrt.logTargets": "وجهات السجلات: {cause}",
  "msg.openwrt.monitoringGap": "وجهات SNMP والمراقبة ({denied}): {cause}",
+ "msg.openwrt.multiwanGap": "تعدد WAN وDNS الديناميكي ({denied}): {cause}",
  "msg.openwrt.noLogin": "لا يوجد حساب دخول rpcd باسم {login} على الراوتر",
  "msg.openwrt.noLogin.fix": "أعد إعداد الجهاز (إعدادات الجهاز: الإعداد التلقائي، أو دليل الإعداد): أصلحه لا يُصلح إلا أذونات حساب دخول موجود.",
  "msg.openwrt.noNetworkConfig": "لا يملك الراوتر إعداد شبكة قابلًا للقراءة (/etc/config/network)",

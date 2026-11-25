@@ -1122,6 +1122,7 @@
  "msg.openwrt.loginRefused": "вход как {login} отклонён",
  "msg.openwrt.loginRefused.fix": "Проверьте имя пользователя и пароль. Для входа не под root нужен раздел config login в /etc/config/rpcd с паролем, хешированным через uhttpd -m (см. {setup}#read-only-user-on-the-device), затем service rpcd restart.",
  "msg.openwrt.monitoringGap": "цели SNMP и мониторинга ({denied}): {cause}",
+ "msg.openwrt.multiwanGap": "несколько WAN и динамический DNS ({denied}): {cause}",
  "msg.openwrt.noLogin": "на маршрутизаторе нет логина rpcd {login}",
  "msg.openwrt.noLogin.fix": "Настройте устройство заново (настройки устройства: «Настроить автоматически» или руководство по настройке): «Исправить» восстанавливает только разрешения существующего логина.",
  "msg.openwrt.noNetworkConfig": "на маршрутизаторе нет читаемой конфигурации сети (/etc/config/network)",

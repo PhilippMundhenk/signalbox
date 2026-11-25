@@ -509,3 +509,53 @@ def test_time_of() -> None:
     assert value.clock is not None and value.timezone == "Europe/Berlin"
     assert time_of("nonsense", None, start, start).clock is None
     assert time_of(None, 5, start, start).timezone is None
+
+
+# --- WAN failover (#150) and dynamic DNS (#154) ---------------------------------------------------
+
+
+async def test_dynamic_dns_and_wan_health(snaps: dict[str, Snapshot]) -> None:
+    for snap in snaps.values():
+        [up] = snap.uplinks
+        assert up.priority == 1 and up.health is not None
+        assert (up.health.state.value, up.health.latency_ms) == ("online", 9)
+        [dd] = snap.ddns
+        assert (dd.provider, dd.hostname, dd.uplink_id, dd.last_result.value) == (
+            "dyndns2",
+            "home.example.dyndns.invalid",
+            up.id,
+            "unknown",
+        )
+        assert snap.gateway_groups == []  # one WAN: no group
+        assert "sim-secret-token" not in snap.model_dump_json()
+
+
+async def test_two_wans_are_a_failover_group() -> None:
+    with running(version="10.0.26") as (sim, url):
+        gateway = next(d for d in sim.data["stat/device"] if d.get("type") == "udm")
+        gateway["wan2"] = {
+            "name": "WAN2",
+            "ip": "198.51.100.45",
+            "netmask": "255.255.255.0",
+            "gateway": "198.51.100.1",
+            "up": False,
+        }
+        sim.data["rest/networkconf"].append(
+            {
+                "_id": "net-wan2",
+                "name": "Backup",
+                "purpose": "wan",
+                "wan_type": "dhcp",
+                "wan_networkgroup": "WAN2",
+                "wan_failover_priority": 2,
+                "wan_load_balance_type": "failover-only",
+                "enabled": True,
+            }
+        )
+        snap = await contract(adapter(url))
+    [group] = snap.gateway_groups
+    assert (group.name, group.mode.value, group.active) == ("WAN", "failover", "WAN")
+    first, backup = group.members
+    assert (first.tier, first.state.value if first.state else None) == (1, "online")
+    assert (backup.tier, backup.state.value if backup.state else None) == (2, "down")
+    assert all(m.uplink_id in {u.id for u in snap.uplinks} for m in group.members)
