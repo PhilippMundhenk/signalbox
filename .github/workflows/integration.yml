@@ -596,9 +596,9 @@ jobs:
           sudo apt-get install -y -q --no-install-recommends qemu-system-x86 qemu-utils
       - name: Download and verify the official ISO
         run: python3 tools/integration/edgeos/vm.py fetch "$VM_DIR"
-      - name: Boot VyOS, create the read user and a small lab
+      - name: Boot VyOS, create the read user, a small lab and its firewall
         run: python3 tools/integration/edgeos/vm.py start "$VM_DIR"
-      - name: Integration tests
+      - name: Integration tests (reads, lab firewall, automatic setup)
         run: |
           set -o pipefail
           pytest tests/integration/test_edgeos_real.py -v -p no:cacheprovider 2>&1 \

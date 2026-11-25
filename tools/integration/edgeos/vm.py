@@ -6,7 +6,8 @@ development sandbox. Standard library only.
 
     vm.py fetch DIR    download the pinned rolling ISO from the public release page and verify
                        its SHA-256 (the page keeps about 30 builds: when the pinned one is gone,
-                       the newest build is used with a warning that shows its hash)
+                       the newest build is used, and the job summary shows a warning with the
+                       new tag, its SHA-256 and how to re-pin, #495)
     vm.py start DIR    boot the ISO (live system, nothing is installed), log in on the serial
                        console, create the read user and a small lab configuration, print the
                        IT_EDGEOS_* variables for $GITHUB_ENV
@@ -16,7 +17,16 @@ The live system answers on the serial console as vyos/vyos; that password never 
 VM (the SSH login of the router is the key-only user ``signalbox`` created here, level operator
 where the version has levels). Network, in PCI order: eth0 is the management port and uplink
 (QEMU user networking, DHCP client; the runner reaches SSH at 127.0.0.1:8022), eth1 the LAN
-(192.0.2.1/24, DHCP server), eth2 carries VLAN 20 (203.0.113.1/24) and an LLDP daemon.
+(192.0.2.1/24, DHCP server), eth2 carries VLAN 20 (203.0.113.1/24) and an LLDP daemon. The
+lab firewall (forward and input chains, a named chain entered by a jump, IPv6) uses the syntax of
+VyOS 1.4 and newer (``firewall ipv4 ...``) and is skipped on versions that refuse it.
+
+The live ``vyos`` login is also handed to the tests (IT_EDGEOS_ADMIN_USER/_PASSWORD): they run
+the automatic setup with it for a second login.
+
+How to re-pin when the job summary says "pinned build gone": put the tag of the summary into
+TAG and its SHA-256 into PINNED_SHA256 below (VyOS publishes no checksum file; the hash is the one
+the job computed on its own download), and update the date in the comment.
 """
 
 from __future__ import annotations
@@ -74,6 +84,14 @@ def tail(path: Path, lines: int = 60) -> str:
     return "\n".join(text.splitlines()[-lines:])
 
 
+def summary(markdown: str) -> None:
+    """Add text to the job summary of the workflow run (no-op outside GitHub Actions)."""
+    target = os.environ.get("GITHUB_STEP_SUMMARY")
+    if target:
+        with open(target, "a", encoding="utf-8") as f:
+            f.write(markdown.rstrip() + "\n\n")
+
+
 def gh_error(title: str, body: str, level: str = "error") -> None:
     body = body.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
     print(f"::{level} title={title}::{body}", flush=True)
@@ -119,6 +137,7 @@ def fetch(d: Path) -> Path:
     if done.exists():
         return d / json.loads(done.read_text())["file"]
     tag, pinned = TAG, PINNED_SHA256
+    fell_back = ("", "")
     iso = d / f"vyos-{tag}.iso"
     try:
         download(RELEASES.format(tag=tag), iso)
@@ -128,17 +147,34 @@ def fetch(d: Path) -> Path:
         gh_error(
             "VyOS pinned build gone",
             f"{TAG} is no longer published ({exc}); using the newest rolling build {tag}. "
-            "Pin it in tools/integration/edgeos/vm.py.",
+            "See the job summary for how to re-pin.",
             "warning",
         )
         iso = d / f"vyos-{tag}.iso"
         download(RELEASES.format(tag=tag), iso)
+        fell_back = (tag, sha256(iso))
     got = sha256(iso)
+    if fell_back[0]:
+        summary(
+            "### :warning: VyOS pinned build gone, testing the newest rolling build\n\n"
+            f"The pinned build `{TAG}` is no longer on the release page of "
+            "github.com/vyos/vyos-nightly-build (it keeps about 30 builds), so this run used "
+            f"`{fell_back[0]}`. The tests still ran, but against an unpinned image.\n\n"
+            "To re-pin, change two lines in `tools/integration/edgeos/vm.py`:\n\n"
+            "```python\n"
+            f'TAG = "{fell_back[0]}"\n'
+            f'PINNED_SHA256 = "{fell_back[1]}"\n'
+            "```\n\n"
+            "(update the date in the comment next to `TAG` too; see docs/adapters/edgeos.md, "
+            "Integration tests)."
+        )
     if pinned and got != pinned:
         iso.unlink()
         fail("VyOS ISO checksum", f"SHA-256 {got} != pinned {pinned}")
     level = "notice" if pinned else "warning"
     gh_error("VyOS ISO", f"{tag} SHA-256 {got} ({'pinned' if pinned else 'NOT pinned'})", level)
+    if pinned:
+        summary(f"VyOS image: `{tag}` (pinned, SHA-256 verified)")
     done.write_text(json.dumps({"file": iso.name, "tag": tag, "sha256": got}))
     return iso
 
@@ -337,6 +373,34 @@ def host_key_pin(d: Path) -> str:
     raise AssertionError
 
 
+#: The lab firewall (VyOS 1.4 and newer syntax, documentation prefixes only). The input filter
+#: accepts by default (the runner reaches SSH on eth0); the rules name the LAN, eth1.
+FIREWALL = [
+    "set firewall ipv4 forward filter default-action drop",
+    "set firewall ipv4 forward filter rule 10 action accept",
+    "set firewall ipv4 forward filter rule 10 state established",
+    "set firewall ipv4 forward filter rule 10 state related",
+    "set firewall ipv4 forward filter rule 20 action jump",
+    "set firewall ipv4 forward filter rule 20 inbound-interface name eth1",
+    "set firewall ipv4 forward filter rule 20 jump-target LAN_OUT",
+    "set firewall ipv4 name LAN_OUT default-action drop",
+    "set firewall ipv4 name LAN_OUT rule 10 action accept",
+    "set firewall ipv4 name LAN_OUT rule 10 description 'Web from the LAN'",
+    "set firewall ipv4 name LAN_OUT rule 10 destination port 80,443",
+    "set firewall ipv4 name LAN_OUT rule 10 protocol tcp",
+    "set firewall ipv4 input filter default-action accept",
+    "set firewall ipv4 input filter rule 10 action accept",
+    "set firewall ipv4 input filter rule 10 description 'SSH from the LAN'",
+    "set firewall ipv4 input filter rule 10 destination port 22",
+    "set firewall ipv4 input filter rule 10 inbound-interface name eth1",
+    "set firewall ipv4 input filter rule 10 protocol tcp",
+    "set firewall ipv6 forward filter default-action drop",
+    "set firewall ipv6 forward filter rule 10 action accept",
+    "set firewall ipv6 forward filter rule 10 state established",
+    "set firewall ipv6 forward filter rule 10 state related",
+]
+
+
 def start(d: Path) -> None:
     iso = fetch(d)
     tag = json.loads((d / "iso.json").read_text())["tag"]
@@ -418,8 +482,11 @@ def start(d: Path) -> None:
         ],
         required=False,
     )
+    configure(con, "firewall", FIREWALL, required=False)
     pin = host_key_pin(d)
     env = {
+        "IT_EDGEOS_ADMIN_USER": LIVE_USER,
+        "IT_EDGEOS_ADMIN_PASSWORD": LIVE_PASSWORD,
         "IT_EDGEOS_URL": f"ssh://127.0.0.1:{SSH_PORT}",
         "IT_EDGEOS_USER": "signalbox",
         "IT_EDGEOS_KEY_FILE": str(key),

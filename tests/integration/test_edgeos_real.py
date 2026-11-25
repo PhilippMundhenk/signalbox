@@ -3,11 +3,15 @@
 tools/integration/edgeos/vm.py boots the official live ISO, creates the key-only read user
 ``signalbox`` (level operator where the version has levels) and a small lab: eth1 LAN
 192.0.2.1/24 with a DHCP server and DNS forwarding, VLAN 20 on eth2 (203.0.113.1/24), LLDP,
-source NAT. Only reads; the router has no neighbours, leases or tunnels.
+source NAT and a firewall (``firewall ipv4`` forward and input chains, a named chain entered by a
+jump, IPv6). The reads change nothing; the router has no neighbours, leases or tunnels. One test
+runs the automatic setup with the live ``vyos`` login for a second user (#495).
 
     IT_EDGEOS_URL        ssh://127.0.0.1:<port>
     IT_EDGEOS_USER       the read user, IT_EDGEOS_KEY_FILE its private key
     IT_EDGEOS_HOST_KEY   SHA-256 of the ed25519 host key (hex), IT_EDGEOS_HOSTNAME its name
+    IT_EDGEOS_LEVEL      operator | none: whether the router accepted the user level
+    IT_EDGEOS_ADMIN_USER / _PASSWORD   the login of the live system, for the automatic setup
 """
 
 from __future__ import annotations
@@ -18,10 +22,18 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import SecretStr
 
-from signalbox.adapters import AdapterContext
+from signalbox.adapters import AdapterContext, SetupRequest, StepState
 from signalbox.adapters.edgeos import EdgeosAdapter, EdgeosConfig
-from signalbox.model import DeviceRole, DeviceStatus, Snapshot
+from signalbox.adapters.ssh import sha256_hex
+from signalbox.model import (
+    DeviceRole,
+    DeviceStatus,
+    FirewallAction,
+    FirewallChain,
+    Snapshot,
+)
 from signalbox.testing import problems
 
 from .conftest import Target
@@ -56,17 +68,14 @@ def context(t: Target, **cfg: Any) -> AdapterContext:
 
 
 async def observe(ctx: AdapterContext, contract: bool = True) -> Snapshot:
-    """Observe once; with ``contract`` the adapter contract must hold except for the one known
-    gap: the rule-sets of VyOS 1.4 and newer (firewall ipv4/ipv6) are not read, so the
-    status is partial and the gap says so."""
+    """Observe once; with ``contract`` the adapter contract must hold."""
     adapter = EdgeosAdapter(ctx)
     try:
         snap = await adapter.observe()
         if contract:
-            found = [p for p in problems(adapter, snap) if "firewall" not in p]
-            found = [p for p in found if not p.startswith("status partial")]
+            found = problems(adapter, snap)
             assert not found, found
-            assert {e.capability for e in snap.errors} <= {"firewall"}, snap.errors
+            assert not snap.errors, snap.errors
         return snap
     finally:
         await adapter.close()
@@ -113,3 +122,77 @@ async def test_nat_routes_health_and_time(vy: Target) -> None:
 async def test_wrong_pin(vy: Target) -> None:
     snap = await observe(dataclasses.replace(context(vy), pinned_fingerprint="00" * 32), False)
     assert snap.status is DeviceStatus.UNTRUSTED
+
+
+async def test_firewall_of_the_lab(vy: Target) -> None:
+    """VyOS 1.4 and newer name the rule-sets ``firewall ipv4`` / ``ipv6`` (#495): the base
+    chains, the jump into the named chain and the IPv6 chain are read."""
+    snap = await observe(context(vy), False)
+    (fw,) = snap.firewalls
+    assert fw.rules_complete is True, snap.errors
+    by_name = {r.name: r for r in fw.rules}
+    web = by_name["Web from the LAN"]  # unrolled from the jump rule of eth1
+    assert web.chain is FirewallChain.FORWARD and web.action is FirewallAction.ACCEPT
+    assert web.source.zones == ["eth1"] and web.family == 4
+    assert sorted(p.start for p in web.destination.ports) == [80, 443]
+    closing = by_name["LAN_OUT default"]
+    assert closing.action is FirewallAction.DROP and closing.source.zones == ["eth1"]
+    ssh = by_name["SSH from the LAN"]
+    assert ssh.chain is FirewallChain.INPUT and ssh.source.zones == ["eth1"]
+    assert [p.start for p in ssh.destination.ports] == [22]
+    assert by_name["ipv4 forward default"].action is FirewallAction.DROP
+    assert by_name["ipv4 input default"].action is FirewallAction.ACCEPT
+    assert by_name["ipv6 forward default"].family == 6
+    # the state-only rules are no rules for new connections
+    assert "ipv4 forward 10" not in by_name and "ipv6 forward 10" not in by_name
+    # NAT is read next to it
+    assert any(n.masquerade for n in fw.nat)
+
+
+async def test_automatic_setup_names_the_rights_of_the_user(vy: Target) -> None:
+    """The version is read before the plan: the level where the router has it, else a plan that
+    says the user has full rights. The setup creates a second user, Signalbox reads as that user,
+    a second run changes nothing, the removal deletes it (#495)."""
+    for key in ("ADMIN_USER", "ADMIN_PASSWORD", "LEVEL"):
+        assert vy.extra.get(key), f"IT_EDGEOS_{key}"
+    login = "sbauto"
+
+    def request(trust: str | None, **kw: Any) -> SetupRequest:
+        return SetupRequest(
+            config={"host": "127.0.0.1", "username": login},
+            admin_user=vy.extra["ADMIN_USER"],
+            admin_secret=SecretStr(vy.extra["ADMIN_PASSWORD"]),
+            port=vy.port,
+            trust=trust,
+            timeout=60,
+            **kw,
+        )
+
+    first = await EdgeosAdapter.plan_setup(request(None))
+    assert not first.trusted and sha256_hex(first.fingerprint) == vy.extra["HOST_KEY"]
+    fp = first.fingerprint
+    plan = await EdgeosAdapter.plan_setup(request(fp))
+    ids = [s.id for s in plan.steps]
+    has_level = vy.extra["LEVEL"] == "operator"
+    assert ids == (
+        ["user", "key", "host-key"] if has_level else ["user", "key", "full-rights", "host-key"]
+    ), plan.steps
+    assert ("level operator" in plan.steps[0].detail) is has_level
+    if not has_level:
+        assert "full rights" in plan.steps[2].title
+    result = await EdgeosAdapter.apply_setup(request(fp))
+    assert result.ok, result.steps
+    assert result.settings["username"] == login and result.certificate == vy.extra["HOST_KEY"]
+    key = result.secrets["private_key"].get_secret_value()
+    snap = await observe(
+        dataclasses.replace(
+            context(vy, username=login, private_key=key), pinned_fingerprint=result.certificate
+        )
+    )
+    assert snap.device.hostname == vy.extra["HOSTNAME"]
+    again = await EdgeosAdapter.apply_setup(request(fp))
+    assert again.ok, again.steps
+    removed = await EdgeosAdapter.apply_setup(request(fp, remove=True))
+    assert removed.ok, removed.steps
+    nothing = await EdgeosAdapter.plan_setup(request(fp, remove=True))
+    assert {s.state for s in nothing.steps} == {StepState.UNCHANGED}

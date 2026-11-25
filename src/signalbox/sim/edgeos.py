@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import re
+import shlex
 import threading
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
@@ -495,6 +496,29 @@ VYOS_14_CONFIG = (
     + """set firewall ipv4 forward filter default-action 'drop'
 set firewall ipv4 forward filter rule 10 action 'accept'
 set firewall ipv4 forward filter rule 10 state 'established'
+set firewall ipv4 forward filter rule 10 state 'related'
+set firewall ipv4 forward filter rule 20 action 'jump'
+set firewall ipv4 forward filter rule 20 inbound-interface name 'eth0'
+set firewall ipv4 forward filter rule 20 jump-target 'WAN_IN'
+set firewall ipv4 forward filter rule 30 action 'accept'
+set firewall ipv4 forward filter rule 30 description 'LAN out'
+set firewall ipv4 forward filter rule 30 inbound-interface name 'br0'
+set firewall ipv4 forward filter rule 30 outbound-interface name 'eth0'
+set firewall ipv4 input filter default-action 'drop'
+set firewall ipv4 input filter rule 10 action 'accept'
+set firewall ipv4 input filter rule 10 destination port '22'
+set firewall ipv4 input filter rule 10 inbound-interface name 'br0'
+set firewall ipv4 input filter rule 10 protocol 'tcp'
+set firewall ipv4 name WAN_IN default-action 'drop'
+set firewall ipv4 name WAN_IN rule 10 action 'accept'
+set firewall ipv4 name WAN_IN rule 10 description 'Web server'
+set firewall ipv4 name WAN_IN rule 10 destination address '192.0.2.50'
+set firewall ipv4 name WAN_IN rule 10 destination port '443'
+set firewall ipv4 name WAN_IN rule 10 protocol 'tcp'
+set firewall ipv6 forward filter default-action 'drop'
+set firewall ipv6 forward filter rule 10 action 'accept'
+set firewall ipv6 forward filter rule 10 state 'established'
+set firewall ipv6 forward filter rule 10 state 'related'
 set nat destination rule 10 description 'Web'
 set nat destination rule 10 destination port '8443'
 set nat destination rule 10 inbound-interface name 'eth0'
@@ -593,6 +617,59 @@ class EdgeosSim:
     #: Every script received.
     scripts: list[str] = field(default_factory=list)
     commands: list[tuple[str, str]] = field(default_factory=list)
+    #: The administrator of the automatic setup (login, password); None: no admin login.
+    admin: tuple[str, str] | None = None
+    #: Local users made by the setup: login -> level (None: no level set).
+    users: dict[str, str | None] = field(default_factory=dict)
+    #: The option ``level`` exists: EdgeOS and VyOS up to 1.3 yes; None: by profile (the
+    #: VyOS 1.4 profile has none, like the rolling release).
+    levels: bool | None = None
+    #: The configuration commands received by the setup, in order.
+    applied: list[str] = field(default_factory=list)
+
+    @property
+    def has_levels(self) -> bool:
+        return self.levels if self.levels is not None else self.profile != "vyos-1.4"
+
+    def setup(self, script: str) -> tuple[int, bytes, str]:
+        """The two scripts of the automatic setup (``edgeos.provision``)."""
+        if script.startswith("# signalbox-setup: inspect"):
+            login = re.search(r"^U='([^']*)'", script, re.M)
+            who = login.group(1) if login else ""
+            level = self.users.get(who)
+            parts = [
+                f"@@version\n{self.data()['version']}",
+                "@@level\n" + ("yes\n" if self.has_levels else ""),
+                "@@user\n" + (f"set system login user {who} level '{level}'\n" if level else ""),
+                f"@@exists\n{1 if who in self.users else 0}\n",
+                "@@end\n",
+            ]
+            return 0, "".join(parts).encode(), ""
+        body = re.search(r"<<'SIGNALBOX'\n(.*?)\nSIGNALBOX\n", script, re.S)
+        if body is None:
+            return 127, b"", "sh: unknown script"
+        out = ""
+        for line in body.group(1).splitlines():
+            words = shlex.split(line)
+            if words[:4] == ["set", "system", "login", "user"]:
+                self.applied.append(line)
+                who = words[4]
+                if words[5:] == ["level", "operator"]:
+                    if not self.has_levels:
+                        out += f"Set failed\n  [ system login user {who} level ] is not valid\n"
+                        continue
+                    self.users[who] = "operator"
+                else:
+                    self.users.setdefault(who, None)
+                if words[5:8] == ["authentication", "public-keys", "signalbox"] and (
+                    words[8] == "key"
+                ):
+                    self.keys = [f"ssh-ed25519 {words[9]}"]
+            elif words[:4] == ["delete", "system", "login", "user"]:
+                self.applied.append(line)
+                self.users.pop(words[4], None)
+                self.keys = []
+        return 0, out.encode(), ""
 
     def data(self) -> dict[str, str]:
         p = self.profile
@@ -668,6 +745,8 @@ class EdgeosSim:
             return 127, b"", f"sh: {command}: not found"
         script = stdin.decode()
         self.scripts.append(script)
+        if script.startswith("# signalbox-setup"):
+            return self.setup(script)
         if not script.startswith(("# signalbox-read", "# signalbox-time")):
             return 127, b"", "sh: unknown script"
         data = self.data()
@@ -692,9 +771,11 @@ class _Server(asyncssh.SSHServer):
         return True
 
     def password_auth_supported(self) -> bool:
-        return self.device.password is not None
+        return self.device.password is not None or self.device.admin is not None
 
     def validate_password(self, username: str, password: str) -> bool:
+        if self.device.admin is not None and (username, password) == self.device.admin:
+            return True
         return username == USER and password == self.device.password
 
     def public_key_auth_supported(self) -> bool:
