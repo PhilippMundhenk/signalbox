@@ -277,7 +277,13 @@ def test_rules_expose_parameters(tmp_path: Path) -> None:
             c.post("/api/login", json={"password": PW})
             rules = {r["id"]: r for r in c.get("/api/rules").json()}
             plain = rules["test.per-device"]["parameters"]
-            assert plain == {"schema": None, "defaults": {}, "values": {}, "scopes": []}
+            assert plain == {
+                "schema": None,
+                "defaults": {},
+                "values": {},
+                "scopes": [],
+                "sources": {},
+            }
             p = rules["health.storage-full"]["parameters"]
             assert p["schema"]["properties"]["warn_pct"]["unit"] == "%"
             assert p["defaults"]["warn_pct"] == 90 and p["values"]["warn_pct"] == 80

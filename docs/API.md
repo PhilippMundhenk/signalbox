@@ -15,7 +15,6 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | POST | `/api/logout` | End the session. |
 | POST | `/api/password` | Change the web interface password (ends all sessions). |
 | GET | `/api/adapters` | Installed adapters with their settings form (JSON Schema). |
-| GET | `/api/rules` | All rules with severity, enabled state and parameters (schema, defaults, scopes). |
 | GET | `/api/sites` | List sites. |
 | POST | `/api/sites` | Add a site. |
 | PUT | `/api/sites/{site_id}` | Rename a site. |
@@ -48,6 +47,10 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | GET | `/api/secrets` | Names of stored secrets (values are never returned). |
 | PUT | `/api/secrets/{name}` | Store a secret (encrypted), e.g. a Wi-Fi passphrase named in the desired state. |
 | DELETE | `/api/secrets/{name}` | Delete a secret. |
+| GET | `/api/rules` | All rules with severity, enabled state and parameters (schema, defaults, values with |
+| GET | `/api/rules/scope-options` | What the scope pickers offer, from the inventory (ids and names are untrusted text). |
+| PUT | `/api/rules/{rule_id}/settings` | Replace the parameters and scopes the UI sets for a rule. |
+| DELETE | `/api/rules/{rule_id}/settings` | Remove what the UI set for a rule (back to the file's or the defaults). |
 | GET | `/api/notifications` | State |
 | PUT | `/api/notifications/channels/{name}` | Put |
 | DELETE | `/api/notifications/channels/{name}` | Delete |

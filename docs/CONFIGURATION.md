@@ -147,8 +147,8 @@ Generated from the code by `tools/gen_docs.py`.
 
 Per rule (ids in [RULES.md](RULES.md)): `enabled` (true/false), `severity`
 (info/warning/error), `params` (the rule's parameters, listed with default and unit in
-[RULES.md](RULES.md#parameters)) and `scopes`: settings for some objects only. Only in
-the file:
+[RULES.md](RULES.md#parameters)) and `scopes`: settings for some objects only. `enabled`
+and `severity` are set in the file; `params` and `scopes` also on the settings page:
 
 ```yaml
 rules:
@@ -173,3 +173,10 @@ Parameters are checked at start: an unknown name or a value out of range stops
 Signalbox with the setting's path. The JSON Schema of the whole section is
 [rules-schema.json](rules-schema.json)
 ([ADR 0027](adr/0027-rule-parameters-and-scopes.md)).
+
+The settings page edits `params` and `scopes` too (an admin, after login). They are saved
+in the data store, not in `signalbox.yaml`, and apply at once without a restart. The
+layers are: defaults, then the page, then the file, then the environment. A parameter the
+file or the environment sets is shown with its source and cannot be changed on the page;
+scopes of the file stay as they are and the page's scopes are listed after them. Reset to
+default removes the page's value.

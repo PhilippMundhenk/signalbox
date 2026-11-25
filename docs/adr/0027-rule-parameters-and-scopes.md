@@ -71,7 +71,7 @@ too. Annotations (#186, ADR 0007) already give objects tags.
 - *Parameters per site in the desired state rather than the global configuration?* No: they
   stay in `signalbox.yaml` with the other rule settings. The desired state describes the
   network that should exist, not how strictly Signalbox judges it; per-site values are a
-  `site` scope. The configuration is still a file only (the UI shows it read-only), so a UI editor is a later step.
+  `site` scope. The UI editor (#454) is described in the addendum below.
 
 ## Consequences
 
@@ -90,8 +90,31 @@ too. Annotations (#186, ADR 0007) already give objects tags.
 - `GET /api/rules` lists per rule `parameters`: `schema` (JSON Schema of the parameters, `unit`
   per property), `defaults`, the effective rule-wide `values`, and `scopes` with `match`,
   `enabled`, `severity`, the `params` it sets and its effective `values`. The settings page shows
-  them read-only; an editable form is still a follow-up.
+  them and edits them (addendum, #454).
 - A rule must pass the same object to `ctx.params` that it lists first in the finding,
   otherwise the recorded parameters could differ from those it used; the migrated rules do.
 - A device-reported limit still wins over the generic one where the model has it (temperature
   sensors with their own limit).
+
+## Addendum: editing in the UI (#454)
+
+Nothing in the UI wrote `signalbox.yaml` (the UI keeps its settings in the store; the file stays
+the operator's). Rule settings follow that rule: the settings page saves `params` and `scopes`
+of a rule in the store (setting `rule-overlay`), and the file is never rewritten, so comments,
+git and read-only mounts keep working.
+
+- **Layers**: defaults < UI < `signalbox.yaml` < environment. Per rule and parameter name the
+  file wins; a parameter the file or the environment sets is read-only in the UI and the write
+  API answers 409. Scopes of the file are read-only as a whole; the UI's scopes are listed after
+  them, so the order rule above applies to the combined list. `enabled` and `severity` of a rule
+  stay file-only.
+- **API**: `GET /api/rules` adds `parameters.sources` (`default`, `file` or `ui` per parameter)
+  and `source` per scope; `GET /api/rules/scope-options` lists sites, devices, networks and tags
+  for the pickers; `PUT /api/rules/{id}/settings` replaces the UI's `params` and `scopes` of a
+  rule, `DELETE` resets them. Writes need the logged-in session and the same-origin check of every
+  other write. Validation uses the parameter models; errors name the path
+  (`rules.<id>.params.<name>`, `rules.<id>.scopes[<n>].params.<name>`); unknown rules and
+  parameters, wrong types, values out of range, more than 50 parameters or scopes and texts over
+  200 characters are refused.
+- **Apply**: the saved change replaces the live `rules:` mapping the runner reads and the rules
+  are evaluated again at once; no restart.
