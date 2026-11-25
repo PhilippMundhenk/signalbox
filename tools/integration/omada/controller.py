@@ -13,7 +13,7 @@ only.
 
 The image is mbentley/omada-controller, a maintained community image that installs TP-Link's
 official Linux package (the .deb) unchanged; it is pinned by version tag and digest. Versions:
-6.3 (current), 5.15 (the newest 5.x) and 5.9 (the oldest 5.x the adapter supports, #416); the
+6.3 (current), 5.15 (the newest 5.x), 5.14 and 5.9 (the oldest 5.x the adapter supports, #416); the
 tag of 5.9 is the maintainer's floating "5.9" line, pinned by its digest (#501).
 
 The setup uses the calls of the controller's own web UI (read from its scripts): the
@@ -47,6 +47,8 @@ IMAGES = {
     "@sha256:d5d688dc39c8c6d17926d2a090d2ce806e221e00a037e3a43ff8cbc2d61f269b",
     "5.15": "mbentley/omada-controller:5.15.24.19"
     "@sha256:908a4e38ff273b0be77db5525237cf039f724c169f33d3be8b32f3acf34bbe2b",
+    "5.14": "mbentley/omada-controller:5.14.32.4"
+    "@sha256:879ec82534c76284ba8fabd3ccda5d27eda25b6cb69812466ac8b695d642c5f7",
     "5.9": "mbentley/omada-controller:5.9"
     "@sha256:06aa6851b743083fd35aa6672c5bfd849cf4c8b3f1c1a6d195b83eb302abe763",
 }
@@ -263,16 +265,28 @@ def web_scripts(oid: str) -> str:
     srcs = re.findall(r"""src=["']([^"']+\.js[^"']*)["']""", page)
     out = [f"index page HTTP {status}, {len(page)} bytes, {len(srcs)} scripts"]
     found: set[str] = set()
+    app_js = ""
     for src in srcs[:40]:
         path = src if src.startswith("/") else f"/{src}"
         code, js = request("GET", path)
         if isinstance(js, str):
-            out.append(f"{path}: {len(js)} bytes")
+            if "/js/app/" in path:
+                app_js = js
             for m in re.finditer(r"open-?api|client_?secret|platform.?integration", js, re.I):
                 found.add(js[max(0, m.start() - 40) : m.end() + 50].replace("\n", " "))
         else:
             out.append(f"{path}: HTTP {code} not text")
-    return "\n".join(out + sorted(found)[:40])[:7000]
+    # the app scripts load the screens lazily: follow the script names they mention
+    names = {
+        m for m in re.findall(r"""["']((?:/?js/)?[\w./-]+\.js)["']""", app_js) if m not in srcs
+    }
+    out.append(f"{len(names)} lazily loaded scripts")
+    for name in sorted(names)[:300]:
+        code, js = request("GET", name if name.startswith("/") else f"/{name}")
+        if code == 200 and isinstance(js, str) and not js.lstrip().startswith("<!"):
+            for m in re.finditer(r"open-?api", js, re.I):
+                found.add(js[max(0, m.start() - 60) : m.end() + 60].replace("\n", " "))
+    return "\n".join(out[:3] + sorted(found)[:40])[:7000]
 
 
 def applications_path(oid: str, web: dict[str, str]) -> str:
