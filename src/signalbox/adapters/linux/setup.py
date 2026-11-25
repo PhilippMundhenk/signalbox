@@ -29,20 +29,29 @@ def sudoers_path(user: str = "signalbox") -> str:
 KEY_COMMENT = "signalbox-read"
 
 
+def sudo_commands() -> list[str]:
+    """Every command the sudoers rule allows: the one list that builds the rule and the texts of
+    the setup steps (#499), so that they cannot drift apart."""
+    return [
+        *(f"{WG} show all {f}" for f in WG_FIELDS),
+        f"{NFT} {NFT_ARGS}",
+        f'{IPTABLES_SAVE} ""',
+        f'{IP6TABLES_SAVE} ""',
+        *(f"{CAT} {path}" for path in DDNS_SUDO_FILES),
+    ]
+
+
+#: The tools whose presence makes the setup write the rule (wg, nft, iptables-save, ddclient or
+#: inadyn), for the step that says why there is none.
+SUDO_TOOLS = "wg, nft, iptables-save, ddclient, inadyn"
+
+
 def sudoers(user: str = "signalbox") -> str:
     """The sudoers rule: exactly the read commands (``wg show all <field>``, nft, and
     ``iptables-save`` / ``ip6tables-save`` with an empty argument list, and ``cat`` of the two
     dynamic DNS configuration files, whose credential lines the read script removes on the
     device, #450), no password."""
-    commands = ", ".join(
-        [
-            *(f"{WG} show all {f}" for f in WG_FIELDS),
-            f"{NFT} {NFT_ARGS}",
-            f'{IPTABLES_SAVE} ""',
-            f'{IP6TABLES_SAVE} ""',
-            *(f"{CAT} {path}" for path in DDNS_SUDO_FILES),
-        ]
-    )
+    commands = ", ".join(sudo_commands())
     return (
         "# Signalbox: read the WireGuard status (public keys only), the nftables ruleset and the\n"
         "# legacy iptables rules (iptables-save without arguments), and the dynamic DNS\n"

@@ -167,8 +167,8 @@ class UntrustedSshHostKey(UntrustedCertificate):
 LINUX_STEPS = (
     "Create a user signalbox without sudo and give it a login key (commands below). Or let "
     "Signalbox do it: Set up automatically, with root or a sudo user.",
-    "Only with WireGuard or nftables: add the sudoers rule of the commands; it allows "
-    "exactly the read-only wg show commands and nft -j list ruleset.",
+    "Only with WireGuard, nftables, iptables, ddclient or inadyn: add the sudoers rule of the "
+    "commands; it allows exactly the read-only commands listed in it.",
     "Below: the address, user signalbox and the private key. Then Test connection and trust "
     "the SSH host key (compare it with ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub).",
 )
@@ -198,7 +198,8 @@ class LinuxAdapter(Adapter):
             "Reads a Linux gateway (Debian, Raspberry Pi OS, Ubuntu, Arch Linux ARM; Fedora and "
             "Alpine less tested) over SSH with a user "
             "of its own: ip, /proc, sshd, dnsmasq/Kea/ISC/networkd DHCP, chrony/timesyncd, "
-            "WireGuard and nftables through a sudoers rule for wg show and nft -j list ruleset."
+            "WireGuard, nftables, iptables and DDNS configuration files through a sudoers rule "
+            "of read-only commands."
         ),
         setup_steps=LINUX_STEPS,
         setup_commands=setup.commands(),
@@ -210,7 +211,8 @@ class LinuxAdapter(Adapter):
             port_default=22,
             note="A login that may use sudo (Raspberry Pi OS: the first user) or root, with "
             "a password over SSH. Signalbox creates the user signalbox with a key of its own, "
-            "and the sudoers rule for wg show and nft if they are installed.",
+            "and the sudoers rule of read-only commands if wg, nft, iptables-save, ddclient or "
+            "inadyn is installed.",
             preview=[
                 PreviewStep(
                     id="user",
@@ -224,7 +226,9 @@ class LinuxAdapter(Adapter):
                 ),
                 PreviewStep(
                     id="sudoers",
-                    title="Allow it the read-only wg show and nft list commands",
+                    title=(
+                        "Allow it the read-only commands of the sudoers rule (listed in the plan)"
+                    ),
                     title_id="setup.linux.previewSudoers",
                 ),
                 PreviewStep(
