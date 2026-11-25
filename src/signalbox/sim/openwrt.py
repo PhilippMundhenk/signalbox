@@ -1054,14 +1054,14 @@ def dawn_config() -> dict[str, Any]:
 
 
 def opennds_config() -> dict[str, Any]:
-    """``/etc/config/opennds`` (#460, guess: option names): the built-in splash page on br-lan."""
+    """``/etc/config/opennds`` (#460, guess: option names): the built-in splash page on br-lan.1."""
     return _uci(
         (
             "opennds",
             "opennds",
             {
                 "enabled": "1",
-                "gatewayinterface": "br-lan",
+                "gatewayinterface": "br-lan.1",
                 "gatewayname": "Example",
                 "sessiontimeout": "480",
             },
@@ -1075,7 +1075,7 @@ def nodogsplash_config() -> dict[str, Any]:
         (
             "nodogsplash",
             "cfg020f15",
-            {"enabled": "1", "gatewayinterface": "br-lan", "fasremoteip": "192.0.2.80"},
+            {"enabled": "1", "gatewayinterface": "br-lan.1", "fasremoteip": "192.0.2.80"},
         )
     )
 
