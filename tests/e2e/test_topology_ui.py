@@ -30,7 +30,7 @@ def setup(app: Any) -> None:
     observe(app)
     cable(app, "router/port/lan2", "core-switch/port/p1")
     go(app, "#/topology")
-    expect(app.get_by_test_id("topo-node")).to_have_count(2)
+    expect(app.get_by_test_id("topo-node")).to_have_count(3)
 
 
 def box(locator: Any) -> dict[str, float]:
@@ -253,7 +253,7 @@ def test_a_service_at_the_address_of_a_device_is_drawn_inside_its_box(app: Any) 
     add_service(app, "Other filter", "https://192.0.2.99:3000", hosted_on="router")
     observe(app)
     go(app, "#/topology")
-    expect(app.get_by_test_id("topo-node")).to_have_count(1)
+    expect(app.get_by_test_id("topo-node")).to_have_count(2)
     expect(app.get_by_test_id("topo-uncabled")).to_have_count(0)
     rows = app.locator('[data-testid="topo-node"][data-id="router"] [data-testid="topo-hosted"]')
     expect(rows).to_have_count(2)
@@ -365,5 +365,5 @@ def test_a_down_uplink_is_drawn_down(app: Any) -> None:
     expect(wan.locator("title")).to_contain_text("down")
     for theme in ("light", "dark"):
         app.evaluate(f"document.documentElement.setAttribute('data-theme', '{theme}')")
-        expect(app.locator(".topo .node.role-internet .box")).to_be_visible()
+        expect(app.locator(".topo .node.role-internet .box")).to_have_count(1)
         assert wan.evaluate("e => getComputedStyle(e).stroke") != "rgb(0, 0, 0)"

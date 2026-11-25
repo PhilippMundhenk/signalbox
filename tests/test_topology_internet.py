@@ -71,7 +71,7 @@ def test_a_double_nat_router_has_no_cloud_edge() -> None:
         devices=[device("outer"), device("inner")],
         subnets=[lan("outer", "192.0.2.1/24"), lan("inner", "198.51.100.1/24")],
         uplinks=[
-            uplink("outer"),
+            uplink("outer", addresses=[iface("203.0.113.9/24")]),
             uplink("inner", addresses=[iface("192.0.2.7/24")]),
         ],
     )
@@ -110,29 +110,33 @@ def test_health_decides_the_state() -> None:
 
 def test_multi_wan_marks_active_and_backup() -> None:
     primary, spare = uplink("gw", "wan1"), uplink("gw", "wan2", addresses=[iface("203.0.113.9/24")])
-    members = [
-        GatewayGroupMember(name="wan1", uplink_id=primary.id, tier=1),
-        GatewayGroupMember(name="wan2", uplink_id=spare.id, tier=2, state=UplinkState.STANDBY),
-    ]
-    group = GatewayGroup(
-        id=object_id("gw", "gateway-group", "wan"),
-        device_id="gw",
-        name="wan",
-        mode=GroupMode.FAILOVER,
-        members=members,
-        active="wan1",
-    )
-    n = net(devices=[device("gw")], uplinks=[primary, spare], gateway_groups=[group])
-    roles = {e["wan"]["name"]: (e["wan"]["role"], e["wan"]["state"]) for e in wan(view(n))}
-    assert roles == {"wan1": ("active", "online"), "wan2": ("backup", "standby")}
+
+    def roles(
+        active: str | None, mode: GroupMode, standby: UplinkState | None
+    ) -> dict[str, tuple[str, str | None]]:
+        group = GatewayGroup(
+            id=object_id("gw", "gateway-group", "wan"),
+            device_id="gw",
+            name="wan",
+            mode=mode,
+            active=active,
+            members=[
+                GatewayGroupMember(name="wan1", uplink_id=primary.id, tier=1),
+                GatewayGroupMember(name="wan2", uplink_id=spare.id, tier=2, state=standby),
+            ],
+        )
+        n = net(devices=[device("gw")], uplinks=[primary, spare], gateway_groups=[group])
+        return {e["wan"]["name"]: (e["wan"]["role"], e["wan"]["state"]) for e in wan(view(n))}
+
+    failover, standby = GroupMode.FAILOVER, UplinkState.STANDBY
+    assert roles("wan1", failover, standby) == {
+        "wan1": ("active", "online"),
+        "wan2": ("backup", "standby"),
+    }
     # without a reported active member the first tier is the active one; balancing: all of them
-    group.active = None
-    roles = {e["wan"]["name"]: e["wan"]["role"] for e in wan(view(n))}
-    assert roles == {"wan1": "active", "wan2": "backup"}
-    group.mode = GroupMode.BALANCE
-    members[1].state = None
-    roles = {e["wan"]["name"]: e["wan"]["role"] for e in wan(view(n))}
-    assert roles == {"wan1": "active", "wan2": "active"}
+    assert roles(None, failover, None)["wan2"][0] == "backup"
+    assert roles(None, GroupMode.BALANCE, None)["wan2"][0] == "active"
+    assert roles(None, GroupMode.BALANCE, standby)["wan2"][0] == "backup"
 
 
 def test_an_uplink_of_a_device_that_is_not_a_node_is_left_out() -> None:

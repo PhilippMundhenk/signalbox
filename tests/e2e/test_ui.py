@@ -363,7 +363,7 @@ def test_topology_manual_link_and_vlan_highlight(app: Any) -> None:
     add_switch(app, "Core switch")
     observe(app)
     go(app, "#/topology")
-    expect(app.get_by_test_id("topo-node")).to_have_count(2)
+    expect(app.get_by_test_id("topo-node")).to_have_count(3)
     expect(app.get_by_test_id("no-links")).to_be_visible()
 
     app.get_by_test_id("link-a-device").select_option("router")
@@ -1177,7 +1177,7 @@ def test_moving_a_device_to_another_site_shows_it_there_at_once(app: Any) -> Non
         "data-id", re.compile("^office/segment/")
     )
     go(app, "#/topology")
-    expect(app.get_by_test_id("topo-node")).to_have_count(1)
+    expect(app.get_by_test_id("topo-node")).to_have_count(2)
 
 
 def test_a_dialog_taller_than_the_screen_scrolls_inside(app: Any) -> None:
