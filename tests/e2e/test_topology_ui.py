@@ -92,7 +92,9 @@ def test_wires_end_at_port_squares(app: Any) -> None:
 def test_hover_highlights_links_and_neighbours(app: Any) -> None:
     setup(app)
     svg = app.get_by_test_id("topology-graph")
-    app.locator('[data-testid="topo-node"][data-id="router"] .box').hover()
+    app.locator('[data-testid="topo-node"][data-id="router"] .box').hover(
+        position={"x": 140, "y": 30}
+    )
     expect(svg).to_have_class(re.compile("hovering"))
     expect(app.get_by_test_id("topo-edge")).to_have_class(re.compile("hot"))
     expect(app.locator('[data-testid="topo-node"][data-id="core-switch"]')).to_have_class(
@@ -365,5 +367,7 @@ def test_a_down_uplink_is_drawn_down(app: Any) -> None:
     expect(wan.locator("title")).to_contain_text("down")
     for theme in ("light", "dark"):
         app.evaluate(f"document.documentElement.setAttribute('data-theme', '{theme}')")
-        expect(app.locator(".topo .node.role-internet .box")).to_have_count(1)
+        expect(app.locator("[data-testid=topology-graph] .node.role-internet .box")).to_have_count(
+            1
+        )
         assert wan.evaluate("e => getComputedStyle(e).stroke") != "rgb(0, 0, 0)"
