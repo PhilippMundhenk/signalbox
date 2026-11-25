@@ -149,7 +149,7 @@ def test_plan_trust_apply_read_remove(
         "ssh_compare": "",
         "steps": [],
         # a new device: its SSH host key is a first contact (#526)
-        "host_key": {"state": "new", "fingerprint": fingerprint},
+        "host_key": {"kind": "ssh", "state": "new", "fingerprint": fingerprint, "offered": []},
         "ssh_host_key": None,
     }
     planned = client.post("/api/devices/setup", json=body(https_url, port, trust=fingerprint))

@@ -11,7 +11,7 @@ import { clear, h, place, sleep } from '../util.js';
 import { busy, checkField, clearNotice, empty, field, modal, notice, pageHead, run, select, setNotice, slot, statusBadge, toast } from '../ui.js';
 import { adminStep, previewList } from './adminstep.js';
 import { fingerprintText, stepList } from './devicesetup.js';
-import { hostKeyChanged, hostKeyKnown, isChanged, isKnown } from './hostkey.js';
+import { hostKeyChanged, hostKeyKnown, isChanged, isKnown, offeredKeys } from './hostkey.js';
 import { linked } from './devicetest.js';
 
 const POLL_MS = 400;
@@ -193,7 +193,8 @@ function confirmRun(chosen, onClosed) {
         left.push({ ...r, problem: apiMessage(err) });
       }
     }
-    // SSH host keys (#526): a device whose key changed is left out with the warning (its new
+    // SSH host keys (#526) and certificates (#535): a device whose key changed is left out with
+    // the warning (its new
     // key can be trusted right here, by name); one with the key confirmed before needs no
     // comparing; the others are compared as before
     const changed = found.filter((f) => isChanged(f.plan.host_key));
@@ -222,6 +223,7 @@ function confirmRun(chosen, onClosed) {
                   h('p', { class: 'muted small' }, t(f.plan.fingerprint_kind === 'certificate' ? 'fix.presentedCertificate' : 'fix.presentedSshKey')),
                   h('p', { class: 'fingerprint mono', 'data-testid': 'fixes-fingerprint' }, fingerprintText(f.plan)),
                   f.plan.compare ? h('p', { class: 'muted small' }, f.plan.compare) : null,
+                  offeredKeys(f.plan.host_key, 'fixes-offered'),
                 ],
           ),
         ),

@@ -59,5 +59,45 @@ The prompt only appears on the first contact, after *Forget*, and as a warning w
 changed, so it means something when it appears. Integrations change nothing: the core compares
 the fingerprints the plans already return, so every adapter that sets up or fixes over SSH is
 covered, MikroTik included. Only the key the server negotiates first (Ed25519, then ECDSA, then
-RSA, `HOST_KEY_ALGS`) is pinned; a device that drops that key type looks like a changed key.
-The HTTPS certificate prompt of OPNsense and MikroTik is not part of this decision.
+RSA, `HOST_KEY_ALGS`) is pinned; a device that drops that key type looks like a changed key (see the addendum).
+The HTTPS certificate prompt of OPNsense and MikroTik is not part of this decision (see the addendum).
+
+## Addendum (2026-11-25, #535): the certificate pin for setup and Fix it; every key type
+
+- **One certificate pin, no second store.** Setup, *Fix it* and *Fix all* over HTTPS (OPNsense,
+  MikroTik and every integration whose admin step uses HTTPS) compare the presented certificate
+  with the pin the device's read connection already keeps (`devices.pinned_fingerprint`, ADR
+  0019), not with a pin of their own: it is the same certificate on the same address, and two
+  pins of one certificate could disagree. The plan answers `host_key` with `kind:
+  "certificate"` and `new` (no stored device or nothing pinned: compare and confirm as before),
+  `known` (no prompt; the steps say "Certificate as trusted on <date>", the date of
+  `pinned_since`, without a date for a pin older than that column) or `changed`.
+- **A changed certificate uses the existing change flow.** It is recorded as the certificate
+  waiting to be trusted (`pending_fingerprint`), exactly as a reading records it, and the
+  device is read again, so the findings are those a reading gives (`signalbox.read` with "not
+  trusted", `cert.renewed` while the old one is known). A run whose confirmed certificate is not
+  the pin is refused before the adapter is called (409 `certificate_changed`, old and new
+  fingerprint and the date of the pin), as is a run whose handshake meets another certificate;
+  no API key or password leaves Signalbox. The UI shows the same prominent warning as for an SSH
+  host key.
+- **Re-trust is the existing endpoint, by name.** `POST /api/devices/{id}/trust` takes the full
+  new fingerprint and only accepts the one the device presented last; the warning's button
+  names it. The pin it replaces goes to the history (store schema 11, `certificate_pins`:
+  fingerprint, since when it was trusted, when and by what it was replaced), shown on the device
+  page's certificate card and removed with the device. There is no *Forget* for certificates:
+  a device without a certificate pin cannot be read over HTTPS at all.
+- **Every SSH host key type is pinned at the first trust.** Signalbox still negotiates Ed25519
+  first. When the presented key is `new`, the plan also fetches the device's other key types
+  (ECDSA, RSA) in key exchanges of their own, without a login, from the address the presented
+  key came from, and lists them under the key to confirm; after the run that saw the confirmed
+  key they are stored with it (`ssh_host_keys.offered`, one key per type). A later handshake with
+  any of these keys is `known`, so a device that drops Ed25519 is not taken as changed; any
+  other key, also one of a pinned type, is a change as before. The other types are trusted on
+  the same basis as the confirmed key (shown, first contact), not proven by the device; the
+  OpenSSH `hostkeys-prove` extension would prove them but is offered only by OpenSSH and only
+  after a login, so it is not used.
+- **What is not covered.** Pins confirmed before this addendum, and a re-trust by name, hold
+  only the one key: re-trust names one key, and the other types of the old pin go to the
+  history; *Forget* and the next setup pin all types again. The other types live in memory
+  between the plan and the run, so after a restart in between only the confirmed key is
+  pinned. A read over SSH (Linux, EdgeOS) still pins one key in hex in `pinned_fingerprint`.

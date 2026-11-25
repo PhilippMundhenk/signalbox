@@ -78,6 +78,9 @@ class OpenWrtSsh:
     certificate: bytes | None = None
     #: lldpd runs (it is started by *Fix it*, or at install)
     lldpd_running: bool = True
+    #: the SSH host keys to serve (several types, #535), the first one preferred; empty: a new
+    #: Ed25519 key for every server (a reinstall)
+    host_keys: list[asyncssh.SSHKey] = field(default_factory=list)
     _next: int = 0x10
 
     # what the scripts see ---------------------------------------------------------------
@@ -259,7 +262,8 @@ class _Server(asyncssh.SSHServer):
 @asynccontextmanager
 async def serve_ssh(device: OpenWrtSsh) -> AsyncIterator[tuple[int, str]]:
     """Serve ``device`` on 127.0.0.1; yields the port and the host key fingerprint."""
-    key = asyncssh.generate_private_key("ssh-ed25519")
+    keys = list(device.host_keys) or [asyncssh.generate_private_key("ssh-ed25519")]
+    key = keys[0]
 
     async def handle(process: asyncssh.SSHServerProcess[bytes]) -> None:
         script = (await process.stdin.read()).decode()  # before any reply (closing early races)
@@ -277,7 +281,7 @@ async def serve_ssh(device: OpenWrtSsh) -> AsyncIterator[tuple[int, str]]:
         lambda: _Server(device),
         "127.0.0.1",
         0,
-        server_host_keys=[key],
+        server_host_keys=keys,
         process_factory=handle,
         encoding=None,
     )

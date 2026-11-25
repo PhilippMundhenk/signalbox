@@ -10,7 +10,7 @@ import { clear, h, place } from '../util.js';
 import { clearNotice, confirmDialog, field, notice, run, setNotice, slot, toast } from '../ui.js';
 import { fingerprintText, stepList } from './devicesetup.js';
 import { adminStep, previewList } from './adminstep.js';
-import { hostKeyChanged, hostKeyKnown, isChanged, isKnown } from './hostkey.js';
+import { hostKeyChanged, hostKeyKnown, isChanged, isKnown, offeredKeys } from './hostkey.js';
 import { testResult } from './devicetest.js';
 
 // The remedy of an error or finding, when the integration offers it (setup.fixes on).
@@ -63,9 +63,10 @@ export function fixPanel(device, adapter, remedy, onDone) {
       if (port && port.value) body.admin.port = Number(port.value);
       const plan = await post(url, body);
       const cert = plan.fingerprint_kind === 'certificate';
-      // a changed SSH host key (#526): the warning, nothing else; nothing was sent
+      // a changed SSH host key (#526) or certificate (#535): the warning, nothing else;
+      // nothing was sent
       if (isChanged(plan.host_key)) return place(clear(out), hostKeyChanged(plan.host_key, device, 'fix-host-key-changed', identity));
-      // the key confirmed before: no prompt, the step list says since when
+      // the key or certificate confirmed before: no prompt, the step list says since when
       known = isKnown(plan.host_key) ? plan.host_key : null;
       if (known) {
         trusted = plan.fingerprint;
@@ -79,6 +80,7 @@ export function fixPanel(device, adapter, remedy, onDone) {
           h('p', {}, t('fix.compare')),
           h('p', { class: 'fingerprint mono', 'data-testid': 'fix-fingerprint' }, fingerprintText(plan)),
           plan.compare ? h('p', { class: 'muted small' }, plan.compare) : null,
+          offeredKeys(plan.host_key, 'fix-offered'),
           trust,
         ),
       );
@@ -145,8 +147,9 @@ export function fixPanel(device, adapter, remedy, onDone) {
 
   // a refusal: a changed plan goes back to the last step, with no password kept
   function failed(err) {
-    if (err.code === 'host_key_changed' && err.body && err.body.host_key) {
-      // another SSH host key than the confirmed one (#526): no password was sent
+    if ((err.code === 'host_key_changed' || err.code === 'certificate_changed') && err.body && err.body.host_key) {
+      // another SSH host key (#526) or certificate (#535) than the confirmed one: no password
+      // was sent
       trusted = null;
       known = null;
       return place(clear(out), hostKeyChanged(err.body.host_key, device, 'fix-host-key-changed', identity));

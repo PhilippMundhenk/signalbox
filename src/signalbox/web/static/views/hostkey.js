@@ -1,45 +1,76 @@
-// The SSH host key confirmed per device (#526, ADR 0031): shown instead of the prompt when a
-// device presents the key confirmed before, a distinct warning when it presents another one,
-// and the device page's card with the confirmed key, the old ones and "Forget". Re-trusting a
-// changed key is only ever the button that names the new key; nothing is sent to the device.
+// The SSH host key (#526) and HTTPS certificate (#535) confirmed per device (ADR 0031): shown
+// instead of the prompt when a device presents what was confirmed before, a distinct warning
+// when it presents another one, and the device page's card with the confirmed key, the other
+// key types confirmed with it, the old ones and "Forget". Re-trusting a changed key or
+// certificate is only ever the button that names the new one; nothing is sent to the device.
 import { del, enc, post } from '../api.js';
 import { fmtDate, t } from '../i18n.js';
-import { h } from '../util.js';
+import { groupHex, h } from '../util.js';
 import { confirmDialog, kv, notice, run, toast } from '../ui.js';
 
 const day = (iso) => (iso ? fmtDate(new Date(iso), { dateStyle: 'medium' }) : '');
 
 export const isKnown = (hk) => !!hk && hk.state === 'known';
 export const isChanged = (hk) => !!hk && hk.state === 'changed';
+// a certificate (#535) or an SSH host key: the texts and the re-trust differ
+const isCert = (hk) => !!hk && hk.kind === 'certificate';
+const shown = (hk, fp) => (isCert(hk) ? groupHex(fp) : fp);
 
-// "SSH host key as confirmed on <date>": the step that replaces the prompt
+// "SSH host key as confirmed on <date>" / "Certificate as trusted on <date>": the step that
+// replaces the prompt
 export function hostKeyKnown(hk, testid) {
-  return h('p', { class: 'fingerprint mono small', 'data-testid': testid }, t('hostkey.known', { date: day(hk.confirmed_at), fingerprint: hk.fingerprint }));
+  const fingerprint = shown(hk, hk.fingerprint);
+  const text = isCert(hk)
+    ? hk.confirmed_at ? t('hostkey.cert.known', { date: day(hk.confirmed_at), fingerprint }) : t('hostkey.cert.knownUndated', { fingerprint })
+    : t('hostkey.known', { date: day(hk.confirmed_at), fingerprint });
+  return h('p', { class: 'fingerprint mono small', 'data-testid': testid, 'data-kind': hk.kind || 'ssh' }, text);
 }
 
-// The warning for a changed key: old and new key, since when, and the one way on, a button
-// that names the new key. onTrusted() runs after the new key was stored.
+// The other SSH host key types a device offers (#535), listed with a new key to confirm: they
+// are pinned with it, so a device that later uses another of them is not taken as changed.
+export function offeredKeys(hk, testid) {
+  if (!hk || isCert(hk) || !hk.offered || !hk.offered.length) return null;
+  return h('div', { 'data-testid': testid },
+    h('p', { class: 'muted small' }, t('hostkey.offered')),
+    h('ul', { class: 'muted small' }, hk.offered.map((k) => h('li', { 'data-testid': `${testid}-key` }, `${k.algorithm}: `, h('code', {}, k.fingerprint)))),
+  );
+}
+
+// The warning for a changed key or certificate: old and new, since when, and the one way on,
+// a button that names the new one. onTrusted() runs after the new one was stored.
 export function hostKeyChanged(hk, device, testid, onTrusted) {
-  const retrust = h('button', { class: 'btn danger', type: 'button', 'data-testid': `${testid}-retrust` }, t('hostkey.retrust', { fingerprint: hk.fingerprint }));
+  const cert = isCert(hk);
+  const key = cert ? 'hostkey.cert' : 'hostkey';
+  const retrust = h('button', { class: 'btn danger', type: 'button', 'data-testid': `${testid}-retrust` }, t(`${key}.retrust`, { fingerprint: shown(hk, hk.fingerprint) }));
   retrust.addEventListener('click', () =>
     run(retrust, async () => {
-      await post(`/devices/${enc(device.id)}/ssh-host-key/trust`, { fingerprint: hk.fingerprint });
-      toast(t('hostkey.retrusted', { name: device.name }));
+      // a certificate: the device's certificate pin, which also its readings use (ADR 0019)
+      await post(cert ? `/devices/${enc(device.id)}/trust` : `/devices/${enc(device.id)}/ssh-host-key/trust`, { fingerprint: hk.fingerprint });
+      toast(t(`${key}.retrusted`, { name: device.name }));
       if (onTrusted) await onTrusted();
     }),
   );
+  const text = cert && !hk.confirmed_at ? t('hostkey.cert.changed.textUndated', { name: device.name }) : t(`${key}.changed.text`, { name: device.name, date: day(hk.confirmed_at) });
   return notice(
     'error',
     testid,
-    h('h3', {}, t('hostkey.changed.title', { name: device.name })),
-    h('p', {}, t('hostkey.changed.text', { name: device.name, date: day(hk.confirmed_at) })),
+    h('h3', {}, t(`${key}.changed.title`, { name: device.name })),
+    h('p', {}, text),
     kv([
-      [t('hostkey.changed.old'), h('code', { 'data-testid': `${testid}-old` }, hk.pinned)],
-      [t('hostkey.changed.new'), h('code', { 'data-testid': `${testid}-new` }, hk.fingerprint)],
+      [t(`${key}.changed.old`), h('code', { 'data-testid': `${testid}-old` }, shown(hk, hk.pinned))],
+      [t(`${key}.changed.new`), h('code', { 'data-testid': `${testid}-new` }, shown(hk, hk.fingerprint))],
     ]),
-    h('p', {}, t('hostkey.changed.compare')),
+    h('p', {}, t(`${key}.changed.compare`)),
     device.id ? h('div', { class: 'row' }, retrust) : null,
   );
+}
+
+// The device page's certificate history (#535): pins a re-trust replaced.
+export function certificateHistory(device) {
+  const old = device.certificate_history || [];
+  if (!old.length) return null;
+  return h('details', { 'data-testid': 'device-certificate-history' }, h('summary', { class: 'small' }, t('hostkey.cert.history')),
+    h('ul', { class: 'muted small' }, old.map((p) => h('li', {}, h('code', {}, groupHex(p.fingerprint)), ' ', p.pinned_since ? t('hostkey.card.historyItem', { from: day(p.pinned_since), to: day(p.retired_at) }) : t('hostkey.cert.historyItem', { to: day(p.retired_at) })))));
 }
 
 // The device page: the confirmed key, a changed one, earlier keys, and "Forget".
@@ -55,6 +86,8 @@ export function hostKeyCard(device, onChange) {
     rows.push([t('hostkey.card.key'), h('code', { 'data-testid': 'device-host-key' }, keys.pin.fingerprint)]);
     if (keys.pin.algorithm) rows.push([t('hostkey.card.algorithm'), keys.pin.algorithm]);
     rows.push([t('hostkey.card.confirmed'), day(keys.pin.confirmed_at)]);
+    // the other key types confirmed with it (#535)
+    for (const k of keys.also || []) rows.push([t('hostkey.card.also', { algorithm: k.algorithm || '' }), h('code', { 'data-testid': 'device-host-key-also' }, k.fingerprint)]);
   } else {
     rows.push([t('hostkey.card.key'), t('hostkey.card.none')]);
   }

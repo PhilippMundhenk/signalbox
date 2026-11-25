@@ -110,16 +110,16 @@ async def offered_host_keys(host: str, port: int, timeout: float, skip: set[str]
         if family in skip:
             continue
         options = asyncssh.SSHClientConnectionOptions(
-            config=None,
-            known_hosts=None,
-            gss_kex=False,
-            gss_auth=False,
-            server_host_key_algs=algs,
-            connect_timeout=timeout,
+            config=None, known_hosts=None, gss_kex=False, gss_auth=False, connect_timeout=timeout
         )
         try:
+            # the algorithms and config as arguments: the function's defaults would replace
+            # those of the options
             key = await asyncio.wait_for(
-                asyncssh.get_server_host_key(host, port, options=options), timeout=timeout * 2
+                asyncssh.get_server_host_key(
+                    host, port, server_host_key_algs=algs, config=None, options=options
+                ),
+                timeout=timeout * 2,
             )
         except (TimeoutError, OSError, asyncssh.Error, ValueError):
             continue
