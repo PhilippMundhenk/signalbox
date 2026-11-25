@@ -9,8 +9,9 @@ is quiet, a port that collects errors now is reported.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import timedelta
 
-from signalbox.counters import CounterDelta
+from signalbox.counters import CounterBucket, CounterDelta, percentile
 from signalbox.model import FrameTypes, Membership, Network, Port, PortKind, PortRole
 from signalbox.rules import Result, Rule, RuleParams, Severity, ctx, found, history_rule, param
 from signalbox.rules._names import device_name
@@ -135,6 +136,26 @@ def _minutes(delta: CounterDelta) -> int:
     return max(1, round(delta.seconds / 60))
 
 
+def _window(
+    history: History, port: Port, hours: int, min_seconds: int, min_coverage_pct: float
+) -> list[CounterBucket] | None:
+    """The hourly traffic buckets of the last ``hours`` hours (#471), or None when the series
+    does not cover enough of the window yet (then the rule judges the last read interval).
+    Buckets that cover less than ``min_seconds`` are too short to give a rate."""
+    if hours <= 0 or history.now is None:
+        return None
+    since = history.now - timedelta(hours=hours)
+    buckets = [
+        b
+        for b in history.series.get(port.id, [])
+        if b.at + timedelta(hours=1) > since and b.seconds >= min_seconds
+    ]
+    covered = sum(b.seconds for b in buckets)
+    if not buckets or covered < hours * 3600 * min_coverage_pct / 100:
+        return None
+    return buckets
+
+
 class PortDropParams(RuleParams):
     drop_ratio: float = param(
         0.01,
@@ -215,6 +236,31 @@ class PortUtilisationParams(RuleParams):
         ge=1,
         description="Reads closer together than this are too short to judge a rate.",
     )
+    window_hours: int = param(
+        6,
+        unit="h",
+        ge=0,
+        le=720,
+        description="Judge the traffic of the last this many hours (hourly averages of the "
+        "recorded series) instead of the last read interval. 0: only the last interval. "
+        "Falls back to the last interval while the series covers too little of the window.",
+    )
+    percentile: float = param(
+        90,
+        unit="%",
+        ge=1,
+        le=100,
+        description="Which hourly rate of the window is compared with utilisation_pct: 90 "
+        "means the rate that 90 % of the hours stay below (100: the busiest hour).",
+    )
+    min_coverage_pct: float = param(
+        50,
+        unit="%",
+        ge=1,
+        le=100,
+        description="The series must cover at least this share of the window, else the last "
+        "read interval is judged.",
+    )
 
 
 @history_rule(
@@ -223,39 +269,52 @@ class PortUtilisationParams(RuleParams):
     Severity.INFO,
     "A port that carries nearly its whole link speed (parameter utilisation_pct, default 90 %) "
     "is a bottleneck: everything behind it slows down and queues fill up (see port.drops). "
-    "The rate is the traffic between the last two reads divided by their distance, in the "
-    "busier direction, so a short burst between the reads counts as sustained. Needs the link "
-    "speed and byte counters; ports that are down and the read after a counter reset are "
-    "ignored.",
+    "The rate is the hourly average rate in the busier direction over a window (parameters "
+    "window_hours, default 6, and percentile, default 90: the rate that 90 % of the hours stay "
+    "below), so a short burst does not count. While the recorded series covers too little of the "
+    "window (min_coverage_pct), the traffic between the last two reads is judged instead. "
+    "Needs the link speed and byte counters; ports that are down and the read after a counter "
+    "reset are ignored.",
     params=PortUtilisationParams,
 )
 def port_utilisation(net: Network, history: History) -> Iterator[Result]:
     for port, delta in _live(net, history):
         limits = ctx.params(PortUtilisationParams, port)
-        if not port.speed_mbps or delta.seconds < limits.min_seconds:
+        if not port.speed_mbps:
             continue
-        if delta.rx_bytes is None and delta.tx_bytes is None:
-            continue
-        rx = (delta.rx_bytes or 0) * 8 / delta.seconds / 1e6
-        tx = (delta.tx_bytes or 0) * 8 / delta.seconds / 1e6
-        busiest = max(rx, tx)
+        buckets = _window(
+            history, port, limits.window_hours, limits.min_seconds, limits.min_coverage_pct
+        )
+        if buckets is not None:
+            rates = [max(b.rx_bps, b.tx_bps) / 1e6 for b in buckets]
+            busiest = percentile(rates, limits.percentile)
+            rx = sum(b.rx_bytes for b in buckets) >= sum(b.tx_bytes for b in buckets)
+            minutes = limits.window_hours * 60
+        else:
+            if delta.seconds < limits.min_seconds:
+                continue
+            if delta.rx_bytes is None and delta.tx_bytes is None:
+                continue
+            rx_rate = (delta.rx_bytes or 0) * 8 / delta.seconds / 1e6
+            tx_rate = (delta.tx_bytes or 0) * 8 / delta.seconds / 1e6
+            busiest, rx, minutes = max(rx_rate, tx_rate), rx_rate >= tx_rate, _minutes(delta)
         share = busiest / port.speed_mbps * 100
         if share < limits.utilisation_pct:
             continue
         name = device_name(net, port.device_id)
-        direction = "received" if rx >= tx else "sent"
+        direction = "received" if rx else "sent"
         yield found(
             f"{name} port {port.name} {direction} {busiest:.0f} Mbit/s of its "
-            f"{port.speed_mbps} Mbit/s link ({share:.0f} %) in the last {_minutes(delta)} min",
+            f"{port.speed_mbps} Mbit/s link ({share:.0f} %) in the last {minutes} min",
             [port.id],
             fix="Move heavy devices to another port, aggregate several links (LAG) or use a "
             "faster link or port.",
-            mid="counters.portUtilisationRx" if rx >= tx else "counters.portUtilisationTx",
+            mid="counters.portUtilisationRx" if rx else "counters.portUtilisationTx",
             fix_id="counters.portUtilisation.fix",
             params={
                 "device": name,
                 "port": port.name,
-                "minutes": _minutes(delta),
+                "minutes": minutes,
                 "rate": round(busiest),
                 "speed": port.speed_mbps,
                 "percent": round(share),
@@ -289,6 +348,23 @@ class IdleTrunkParams(RuleParams):
         ge=1,
         description="Reads closer together than this are too short to judge.",
     )
+    idle_hours: int = param(
+        6,
+        unit="h",
+        ge=0,
+        le=720,
+        description="The trunk must have been idle for this many hours (every hourly bucket of "
+        "the recorded series at or below idle_kbps). 0: only the last read interval. Falls back "
+        "to the last interval while the series covers too little of the period.",
+    )
+    min_coverage_pct: float = param(
+        50,
+        unit="%",
+        ge=1,
+        le=100,
+        description="The series must cover at least this share of idle_hours, else the last "
+        "read interval is judged.",
+    )
 
 
 @history_rule(
@@ -298,8 +374,10 @@ class IdleTrunkParams(RuleParams):
     "A port that is configured as a trunk (it carries tagged VLANs) and has a link, but "
     "carries almost nothing between the last two reads (parameter idle_kbps), usually leads to "
     "nothing: a forgotten uplink, an access point that is off or a cable to an unused device. "
-    "Unused trunks widen the VLAN exposure of the switch. One read can fall into a quiet "
-    "moment, so treat it as a hint.",
+    "Unused trunks widen the VLAN exposure of the switch. The trunk must have been idle for a "
+    "sustained period (parameter idle_hours, default 6: every hourly bucket of the recorded "
+    "series stays at or below idle_kbps); while the series covers too little of that period, "
+    "one read interval is judged and can fall into a quiet moment, so treat it as a hint.",
     params=IdleTrunkParams,
 )
 def port_idle_trunk(net: Network, history: History) -> Iterator[Result]:
@@ -311,19 +389,28 @@ def port_idle_trunk(net: Network, history: History) -> Iterator[Result]:
             continue
         if not _is_trunk(net, port):
             continue
-        kbps = ((delta.rx_bytes or 0) + (delta.tx_bytes or 0)) * 8 / delta.seconds / 1000
-        if kbps > limits.idle_kbps:
-            continue
+        buckets = _window(
+            history, port, limits.idle_hours, limits.min_seconds, limits.min_coverage_pct
+        )
+        if buckets is not None:
+            if any((b.rx_bps + b.tx_bps) / 1000 > limits.idle_kbps for b in buckets):
+                continue
+            minutes = limits.idle_hours * 60
+        else:
+            kbps = ((delta.rx_bytes or 0) + (delta.tx_bytes or 0)) * 8 / delta.seconds / 1000
+            if kbps > limits.idle_kbps:
+                continue
+            minutes = _minutes(delta)
         name = device_name(net, port.device_id)
         yield found(
             f"{name} port {port.name} is a trunk with a link but carried almost no traffic in "
-            f"the last {_minutes(delta)} min",
+            f"the last {minutes} min",
             [port.id],
             fix="Check what is plugged in. If nothing uses the trunk, disable the port or remove "
             "the tagged VLANs from it.",
             mid="counters.idleTrunk",
             fix_id="counters.idleTrunk.fix",
-            params={"device": name, "port": port.name, "minutes": _minutes(delta)},
+            params={"device": name, "port": port.name, "minutes": minutes},
         )
 
 

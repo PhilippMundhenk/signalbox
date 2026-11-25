@@ -10,6 +10,7 @@ reboot, a cleared statistic), not a negative number: the delta of that round is 
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 from signalbox.model import COUNTER_FIELDS, Model, PortCounters
 
@@ -63,6 +64,41 @@ class CounterRecord(Model):
 
     last: PortCounters
     delta: CounterDelta | None = None
+
+
+class CounterBucket(Model):
+    """The traffic of one port in one hour (the series behind #471).
+
+    ``seconds`` is the time the reads in the hour cover (a partial hour has less), so
+    ``rx_bytes * 8 / seconds`` is the average rate of the part that was observed.
+    """
+
+    at: datetime
+    seconds: float
+    rx_bytes: int = 0
+    tx_bytes: int = 0
+
+    @property
+    def rx_bps(self) -> float:
+        return self.rx_bytes * 8 / self.seconds if self.seconds > 0 else 0.0
+
+    @property
+    def tx_bps(self) -> float:
+        return self.tx_bytes * 8 / self.seconds if self.seconds > 0 else 0.0
+
+
+def bucket_start(at: datetime) -> datetime:
+    """The start of the hour (UTC) a read at ``at`` belongs to."""
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=UTC)
+    return at.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+
+
+def percentile(values: list[float], pct: float) -> float:
+    """Nearest-rank percentile (``pct`` in 1..100) of a non-empty list."""
+    ordered = sorted(values)
+    rank = max(1, -(-len(ordered) * pct // 100))  # ceil
+    return ordered[min(len(ordered), int(rank)) - 1]
 
 
 def counter_delta(old: PortCounters, new: PortCounters) -> CounterDelta | None:

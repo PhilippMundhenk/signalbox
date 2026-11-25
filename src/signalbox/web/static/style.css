@@ -153,6 +153,10 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .port-tree li { padding: 3px 0; }
 .port-tree .name { font-weight: 600; }
 .port-tree .ssids .tag { margin-inline-start: 6px; }
+.port-tree .spark { vertical-align: middle; margin-inline-start: 6px; }
+.spark .rx, .spark .tx { stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.spark .rx { stroke: var(--accent); }
+.spark .tx { stroke: var(--warn); }
 .row.tight { gap: 6px; flex-wrap: nowrap; justify-content: flex-end; }
 .grid.wide { grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
 ul.plain { list-style: none; padding: 0; margin: 0; }

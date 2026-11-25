@@ -450,3 +450,165 @@ def test_reboot_by_counters() -> None:
     )
     assert not evaluate(net, [reboot_by_counters], None, known)
     assert not evaluate(net, [reboot_by_counters], None, History.empty())
+
+
+# --- the per-port series (#471) -----------------------------------------------------------
+
+
+def _record_traffic(store: Store, rounds: int, rx_per_round: int, tx_per_round: int = 0) -> None:
+    """``rounds`` + 1 reads, 10 minutes apart, with the given bytes added each round."""
+    for n in range(rounds + 1):
+        net = net_with(
+            port(
+                "sw",
+                "1",
+                up=True,
+                speed_mbps=100,
+                counters=pc(n, rx_bytes=n * rx_per_round, tx_bytes=n * tx_per_round),
+            )
+        )
+        store.record_history(net, T0 + STEP * n)
+
+
+def test_schema_9_migration_adds_the_series_table(tmp_path: Path) -> None:
+    import sqlite3
+
+    from signalbox.store import SCHEMA
+
+    path = tmp_path / "db.sqlite"
+    db = sqlite3.connect(path)
+    script = "; ".join(SCHEMA[:8])
+    db.executescript(f"BEGIN; {script}; PRAGMA user_version = 8; COMMIT;")
+    db.execute("INSERT INTO sites (id, name) VALUES ('home', 'Home')")
+    db.commit()
+    db.close()
+    s = Store(path, load_vault(tmp_path, env={}))
+    try:
+        assert s._db.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert s.sites() == [SITE]
+        assert s.history(T0, 30).series == {}
+        _record_traffic(s, 1, 1000)
+        assert s.history(T0, 30).series["sw/port/1"][0].rx_bytes == 1000
+    finally:
+        s.close()
+
+
+def test_store_sums_the_deltas_into_hourly_buckets(store: Store) -> None:
+    _record_traffic(store, 8, 6_000_000, 3_000_000)
+    series = store.history(T0 + 8 * STEP, 30).series["sw/port/1"]
+    assert sum(b.seconds for b in series) == 8 * 600
+    assert sum(b.rx_bytes for b in series) == 8 * 6_000_000
+    assert sum(b.tx_bytes for b in series) == 8 * 3_000_000
+    assert 1 <= len(series) <= 2 and [b.at for b in series] == sorted(b.at for b in series)
+    assert all(b.at.minute == 0 for b in series)
+    assert series[0].rx_bps == pytest.approx(80_000.0)
+    assert series[0].tx_bps == pytest.approx(40_000.0)
+
+
+def test_series_skips_resets_unchanged_reads_and_byteless_ports(store: Store) -> None:
+    def read(n: int, **kw: Any) -> Network:
+        return net_with(port("sw", "1", counters=pc(n, **kw)))
+
+    store.record_history(read(0, rx_bytes=100), T0)
+    store.record_history(read(1, rx_bytes=1100), T0 + STEP)
+    store.record_history(read(1, rx_bytes=1100), T0 + 2 * STEP)  # the same read again
+    store.record_history(read(2, rx_bytes=5), T0 + 3 * STEP)  # a reset
+    (bucket,) = store.history(T0, 30).series["sw/port/1"]
+    assert bucket.rx_bytes == 1000 and bucket.seconds == 600
+    store.record_history(net_with(port("sw", "2", counters=pc(0, rx_packets=1))), T0)
+    store.record_history(net_with(port("sw", "2", counters=pc(1, rx_packets=9))), T0 + STEP)
+    assert "sw/port/2" not in store.history(T0, 30).series
+
+
+def test_series_is_pruned_with_the_history_and_with_the_device(store: Store) -> None:
+    _record_traffic(store, 2, 1000)
+    assert store.history(T0, 30).series
+    store.prune_history(T0 + timedelta(days=2))
+    assert store.history(T0, 30).series == {}
+    _record_traffic(store, 2, 1000)
+    store.delete_device("sw")
+    assert store.history(T0, 30).series == {}
+
+
+def test_port_series_api_and_history_without_the_series(tmp_path: Path) -> None:
+    from signalbox.service import build
+    from signalbox.web.app import create_app
+    from test_runner import Dev, per_device
+    from test_web import PW
+
+    svc = build(
+        tmp_path,
+        env={"SIGNALBOX_AUTH_PASSWORD": PW},
+        adapters={"dev": Dev},
+        rules=[per_device],
+        link_sources=[],
+    )
+    svc.store.put_site(SITE)
+    try:
+        with TestClient(create_app(svc, run_background=False)) as c:
+            assert c.post("/api/login", json={"password": PW}).status_code == 200
+            assert c.get("/api/devices/sw/port-series").json() == {}
+            _record_traffic(svc.store, 1, 75_000_000)
+            got = c.get("/api/devices/sw/port-series").json()
+            (bucket,) = got["sw/port/1"]
+            assert bucket["seconds"] == 600.0 and bucket["rx_bps"] == 1_000_000
+            assert bucket["tx_bps"] == 0
+            assert c.get("/api/devices/other/port-series").json() == {}
+            assert "series" not in c.get("/api/history").json()
+    finally:
+        svc.close()
+
+
+def series_history(net: Network, rates_mbps: list[float]) -> History:
+    """Hourly buckets ending at ``now``: one per given rate (Mbit/s received), 3600 s each,
+    and a quiet last read interval."""
+    from signalbox.counters import CounterBucket
+
+    pid = net.ports[0].id
+    now = T0.replace(minute=0, second=0, microsecond=0) + timedelta(hours=6)
+    buckets = [
+        CounterBucket(
+            at=now - timedelta(hours=len(rates_mbps) - i),
+            seconds=3600,
+            rx_bytes=int(r * 1e6 / 8 * 3600),
+        )
+        for i, r in enumerate(rates_mbps)
+    ]
+    old, new = pc(0, rx_bytes=0, tx_bytes=0), pc(1, rx_bytes=0, tx_bytes=0)
+    record = CounterRecord(last=new, delta=counter_delta(old, new))
+    return History(now=now, since=T0, counters={pid: record}, series={pid: buckets})
+
+
+def test_utilisation_judges_a_percentile_over_the_window() -> None:
+    net = net_with(port("sw", "3", up=True, speed_mbps=100))
+    (f,) = evaluate(net, [port_utilisation], None, series_history(net, [95, 96, 97, 98, 99, 99]))
+    assert f.message_id == "counters.portUtilisationRx"
+    assert f.params["minutes"] == 360 and f.params["rate"] == 99
+    one_busy = series_history(net, [1, 1, 1, 1, 1, 99])
+    # the 90th percentile of six hours is the busiest hour; a lower percentile ignores it
+    assert evaluate(net, [port_utilisation], None, one_busy)
+    median = {"port.utilisation": RuleSettings(params={"percentile": 50})}
+    assert not evaluate(net, [port_utilisation], median, one_busy)
+    # the quiet last interval does not matter when the window is covered
+    assert not evaluate(net, [port_utilisation], None, series_history(net, [10] * 6))
+    off = {"port.utilisation": RuleSettings(params={"window_hours": 0})}
+    assert not evaluate(net, [port_utilisation], off, series_history(net, [99] * 6))
+
+
+def test_utilisation_falls_back_to_the_last_interval_without_enough_series() -> None:
+    net = net_with(port("sw", "3", up=True, speed_mbps=10))
+    pid = net.ports[0].id
+    old, new = pc(0, rx_bytes=0), pc(1, rx_bytes=700_000_000)
+    history = series_history(net, [99]).model_copy(  # one hour of six: below the coverage
+        update={"counters": {pid: CounterRecord(last=new, delta=counter_delta(old, new))}}
+    )
+    (f,) = evaluate(net, [port_utilisation], None, history)
+    assert f.params["minutes"] == 10 and f.params["percent"] == 93
+
+
+def test_idle_trunk_needs_a_sustained_period() -> None:
+    net = net_with(port("sw", "3", up=True, frame_types=FrameTypes.TAGGED_ONLY))
+    (f,) = evaluate(net, [port_idle_trunk], None, series_history(net, [0.0] * 6))
+    assert f.message_id == "counters.idleTrunk" and f.params["minutes"] == 360
+    # one busy hour in the period: not idle, although the last interval was quiet
+    assert not evaluate(net, [port_idle_trunk], None, series_history(net, [0, 0, 5, 0, 0, 0]))

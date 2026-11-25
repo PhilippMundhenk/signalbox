@@ -354,6 +354,7 @@
  "device.port.radio": "Радио {name}",
  "device.port.ssid": "SSID {ssid}",
  "device.port.title": "Порты",
+ "device.port.traffic": "Трафик за последние {hours} ч, пик {peak}",
  "device.port.unknownRoles": "Это устройство не сообщает, какие порты являются разъёмами, а какие внутренними.",
  "device.remove": "Удалить устройство",
  "device.removeMessage": "Signalbox забудет это устройство, его сохранённые настройки и последнее чтение. Само устройство не изменяется.",

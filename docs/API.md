@@ -29,6 +29,7 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | POST | `/api/devices/{device_id}/trust` | Trust the certificate the device presented (pending fingerprint). |
 | GET | `/api/devices/{device_id}/port-tree` | The internal structure of a device's ports (#252): CPU port with its switch ports, |
 | GET | `/api/devices/{device_id}/port-counters` | What the counters of a device's ports did between the last two reads (#158): the |
+| GET | `/api/devices/{device_id}/port-series` | The hourly traffic of a device's ports for the retention period (#471), oldest |
 | GET | `/api/network` | The merged network model without passphrase data; derived uplink and service values. |
 | GET | `/api/fdb` | MAC address table entries (#160): of one device (``?device=``, also the switches a |
 | GET | `/api/wifi-scan` | Access points the radios heard (#169): of one device (``?device=``, also the |

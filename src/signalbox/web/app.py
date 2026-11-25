@@ -630,6 +630,25 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
                 }
         return out
 
+    @api.get("/devices/{device_id}/port-series")
+    def port_series(device_id: str) -> dict[str, list[dict[str, Any]]]:
+        """The hourly traffic of a device's ports for the retention period (#471), oldest
+        first: the hour, the seconds the reads cover and the average bit rates received and
+        sent. Ports without recorded traffic are missing."""
+        out: dict[str, list[dict[str, Any]]] = {}
+        for pid, buckets in runner.history().series.items():
+            if pid.startswith(f"{device_id}/port/"):
+                out[pid] = [
+                    {
+                        "at": b.at.isoformat(),
+                        "seconds": b.seconds,
+                        "rx_bps": round(b.rx_bps),
+                        "tx_bps": round(b.tx_bps),
+                    }
+                    for b in buckets
+                ]
+        return out
+
     # network, findings, links -----------------------------------------------------------
 
     @api.get("/network")
@@ -691,7 +710,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     @api.get("/history")
     def history() -> dict[str, Any]:
         """Observation history: first/last seen and changes of devices, clients and ports."""
-        return runner.history().model_dump(mode="json")
+        return runner.history().model_dump(mode="json", exclude={"series"})
 
     @api.post("/observe", status_code=202)
     def observe() -> dict[str, bool]:

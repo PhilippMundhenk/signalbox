@@ -354,6 +354,7 @@
  "device.port.radio": "Telsiz {name}",
  "device.port.ssid": "SSID {ssid}",
  "device.port.title": "Bağlantı noktaları",
+ "device.port.traffic": "Son {hours} saatin trafiği, tepe {peak}",
  "device.port.unknownRoles": "Bu cihaz hangi bağlantı noktalarının dış, hangilerinin dahili olduğunu bildirmiyor.",
  "device.remove": "Cihazı kaldır",
  "device.removeMessage": "Signalbox bu cihazı, kayıtlı ayarlarını ve son okumasını unutur. Cihazın kendisi değiştirilmez.",

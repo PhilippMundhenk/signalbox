@@ -354,6 +354,7 @@
  "device.port.radio": "Radio {name}",
  "device.port.ssid": "SSID {ssid}",
  "device.port.title": "Port",
+ "device.port.traffic": "Lalu lintas {hours} jam terakhir, puncak {peak}",
  "device.port.unknownRoles": "Perangkat ini tidak menyebutkan port mana yang berupa jack dan mana yang internal.",
  "device.remove": "Hapus perangkat",
  "device.removeMessage": "Signalbox melupakan perangkat ini, pengaturan tersimpan, dan pembacaan terakhirnya. Perangkat itu sendiri tidak diubah.",

@@ -373,6 +373,7 @@
  "device.port.radio": "Radio {name}",
  "device.port.ssid": "SSID {ssid}",
  "device.port.title": "Puertos",
+ "device.port.traffic": "Tráfico de las últimas {hours} h, pico {peak}",
  "device.port.unknownRoles": "Este dispositivo no indica qué puertos son físicos y cuáles internos.",
  "device.remove": "Quitar dispositivo",
  "device.removeMessage": "Signalbox olvida este dispositivo, sus ajustes guardados y su última lectura. El dispositivo en sí no se modifica.",

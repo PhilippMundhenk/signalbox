@@ -354,6 +354,7 @@
  "device.port.radio": "射频 {name}",
  "device.port.ssid": "SSID {ssid}",
  "device.port.title": "端口",
+ "device.port.traffic": "最近 {hours} 小时的流量，峰值 {peak}",
  "device.port.unknownRoles": "此设备未说明哪些端口是接口、哪些是内部端口。",
  "device.remove": "移除设备",
  "device.removeMessage": "Signalbox 将忘记此设备、其已存储的设置和最近一次读取的数据。设备本身不会被更改。",

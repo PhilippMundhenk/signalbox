@@ -354,6 +354,7 @@
  "device.port.radio": "無線 {name}",
  "device.port.ssid": "SSID {ssid}",
  "device.port.title": "ポート",
+ "device.port.traffic": "直近 {hours} 時間のトラフィック、ピーク {peak}",
  "device.port.unknownRoles": "この機器は、どのポートが物理ジャックでどれが内部ポートかを報告していません。",
  "device.remove": "機器を削除",
  "device.removeMessage": "Signalbox はこの機器、保存済みの設定、最後の読み取り結果を破棄します。機器自体は変更されません。",

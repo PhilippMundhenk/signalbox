@@ -354,6 +354,7 @@
  "device.port.radio": "무선 {name}",
  "device.port.ssid": "SSID {ssid}",
  "device.port.title": "포트",
+ "device.port.traffic": "최근 {hours}시간 트래픽, 최대 {peak}",
  "device.port.unknownRoles": "이 장치는 어느 포트가 잭이고 어느 포트가 내부용인지 알려주지 않습니다.",
  "device.remove": "장치 제거",
  "device.removeMessage": "Signalbox가 이 장치와 저장된 설정, 마지막 읽기 결과를 삭제합니다. 장치 자체는 변경되지 않습니다.",

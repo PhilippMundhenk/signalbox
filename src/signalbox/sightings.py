@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import Field
 
-from signalbox.counters import CounterRecord
+from signalbox.counters import CounterBucket, CounterRecord
 from signalbox.fdb import fdb_access_ports, managed_sightings
 from signalbox.model import Client, DeviceStatus, Model, Network, PortKind
 
@@ -186,6 +186,8 @@ class History(Model):
     fdb: dict[str, ValueHistory] = Field(default_factory=dict)
     #: By port id: the last counters and the delta to the read before (#158).
     counters: dict[str, CounterRecord] = Field(default_factory=dict)
+    #: By port id: hourly traffic buckets for the retention period, oldest first (#471).
+    series: dict[str, list[CounterBucket]] = Field(default_factory=dict)
     #: By client MAC address: access point and signal bucket (``wifi_value``, #447).
     wifi: dict[str, ValueHistory] = Field(default_factory=dict)
 
