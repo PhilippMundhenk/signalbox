@@ -7,15 +7,17 @@ so the other MikroTik tests find the router as the image preparation left it.
 
 from __future__ import annotations
 
+import asyncio
 import re
-from collections.abc import AsyncIterator, Callable
-from typing import Any
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any, TypeVar
 
 import pytest
 from pydantic import SecretStr
 
 from signalbox.adapters import (
     AdapterContext,
+    AuthFailed,
     RemedyRequest,
     SetupRequest,
     StepState,
@@ -29,6 +31,7 @@ from signalbox.model import DeviceRole, DeviceStatus
 
 from .conftest import Target
 
+_T = TypeVar("_T")
 LOGIN = "signalbox-fix"
 pytestmark = pytest.mark.integration
 
@@ -38,6 +41,25 @@ def chr_(target: Callable[[str], Target]) -> Target:
     t = target("mikrotik")
     assert t.pin and t.extra.get("ADMIN_PASSWORD") and t.extra.get("SSH_PORT")
     return t
+
+
+async def settled(call: Callable[[], Awaitable[_T]], attempts: int = 8) -> _T:
+    """Run an SSH call, repeating it when the CHR refuses the admin login (#490).
+
+    The CHR answers on the SSH port and in REST before its SSH login accepts the admin
+    password (and refuses logins for a while after quick successive ones), so a first refusal
+    is not a verdict here. Bounded (about a minute of backoff); the password is right, so a
+    refusal that lasts is a real failure and is raised. The adapter itself never repeats a
+    refused login: on a real device that may be a wrong password.
+    """
+    for attempt in range(attempts):
+        try:
+            return await call()
+        except AuthFailed:
+            if attempt == attempts - 1:
+                raise
+            await asyncio.sleep(min(2.0 * 2**attempt, 15.0))
+    raise AssertionError("unreachable")
 
 
 def admin_http(t: Target) -> DeviceHttp:
@@ -130,12 +152,17 @@ async def test_policies_broken_then_fixed(chr_: Target) -> None:
 async def ssh(chr_: Target) -> AsyncIterator[tuple[PinnedSsh, str]]:
     """An admin SSH session (host key read first) and the service's original settings."""
     port = int(chr_.extra["SSH_PORT"])
-    probe = await MikrotikAdapter.plan_remedy(remedy(chr_, "rest-service", None, port=port))
+    probe = await settled(
+        lambda: MikrotikAdapter.plan_remedy(remedy(chr_, "rest-service", None, port=port))
+    )
     assert not probe.trusted
+
     session = PinnedSsh(
         "127.0.0.1", port, "admin", chr_.extra["ADMIN_PASSWORD"], probe.fingerprint, 60
     )
-    async with session as s:
+    await settled(session.__aenter__)
+    try:
+        s = session
         got = await s.command(":put [/ip service get www-ssl available-from]")
         original = ",".join(a for a in re.split(r"[,;\s]+", got.text.strip()) if a)
         yield s, probe.fingerprint
@@ -143,6 +170,8 @@ async def ssh(chr_: Target) -> AsyncIterator[tuple[PinnedSsh, str]]:
         await s.command(f"{restore} address={original}" if original else f'{restore} address=""')
         back = await s.command(":put [/ip service get www-ssl available-from]")
         assert re.split(r"[,;\s]+", back.text.strip()) == original.split(",")
+    finally:
+        await session.__aexit__(None, None, None)
 
 
 async def rest_reachable(t: Target) -> bool:
@@ -161,23 +190,33 @@ async def test_service_address_and_certificate_fixed_over_ssh(
     # an address list that excludes the router's view of this machine: nothing answers
     await session.command("/ip service set www-ssl address=203.0.113.9/32")
     assert not await rest_reachable(chr_)
-    plan = await MikrotikAdapter.plan_remedy(remedy(chr_, "rest-service", fingerprint, port=port))
+    plan = await settled(
+        lambda: MikrotikAdapter.plan_remedy(remedy(chr_, "rest-service", fingerprint, port=port))
+    )
     states = {s.id: s.state for s in plan.steps}
     assert states["www-ssl"] is StepState.TODO and "203.0.113.9/32" in plan.steps[-2].detail
-    done = await MikrotikAdapter.apply_remedy(remedy(chr_, "rest-service", fingerprint, port=port))
+    done = await settled(
+        lambda: MikrotikAdapter.apply_remedy(remedy(chr_, "rest-service", fingerprint, port=port))
+    )
     assert done.ok, [(s.id, s.state, s.message) for s in done.steps]
     assert await rest_reachable(chr_)
 
     # no certificate: the existing signalbox-www is set again (the pin stays the same)
     await session.command("/ip service set www-ssl certificate=none")
-    plan = await MikrotikAdapter.plan_remedy(remedy(chr_, "rest-service", fingerprint, port=port))
+    plan = await settled(
+        lambda: MikrotikAdapter.plan_remedy(remedy(chr_, "rest-service", fingerprint, port=port))
+    )
     assert {s.id: s.state for s in plan.steps}["www-ssl"] is StepState.TODO
-    done = await MikrotikAdapter.apply_remedy(remedy(chr_, "rest-service", fingerprint, port=port))
+    done = await settled(
+        lambda: MikrotikAdapter.apply_remedy(remedy(chr_, "rest-service", fingerprint, port=port))
+    )
     assert done.ok, [(s.id, s.state, s.message) for s in done.steps]
     http = admin_http(chr_)
     try:
         assert await get_menu(http, "/rest/system/resource")
     finally:
         await http.close()
-    again = await MikrotikAdapter.plan_remedy(remedy(chr_, "rest-service", fingerprint, port=port))
+    again = await settled(
+        lambda: MikrotikAdapter.plan_remedy(remedy(chr_, "rest-service", fingerprint, port=port))
+    )
     assert all(s.state is StepState.UNCHANGED for s in again.steps), again.steps

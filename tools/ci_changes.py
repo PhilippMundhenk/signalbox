@@ -78,6 +78,7 @@ def integration(files: list[str] | None) -> dict[str, object]:
             f"src/signalbox/adapters/{a}/*",
             f"src/signalbox/sim/{a}*",
             f"tests/integration/test_{a}_real.py",
+            f"tests/integration/test_{a}_*_real.py",  # setup, fix-it, versions (#490)
             f"tools/integration/{a}/*",
             f"docs/adapters/{a}.md",
         )
