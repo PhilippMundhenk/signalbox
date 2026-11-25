@@ -19,9 +19,17 @@ function members(ix, seg) {
 }
 
 // A captive portal (#460): its name, how guests log in and how long a session lasts.
+const PORTAL_AUTH = {
+  'click-through': 'portal.auth.click-through',
+  external: 'portal.auth.external',
+  password: 'portal.auth.password',
+  radius: 'portal.auth.radius',
+  voucher: 'portal.auth.voucher',
+};
+
 export function portalText(p) {
   const parts = [p.name];
-  if (p.auth) parts.push(t(`portal.auth.${p.auth}`));
+  if (p.auth && PORTAL_AUTH[p.auth]) parts.push(t(PORTAL_AUTH[p.auth]));
   if (p.session_minutes) parts.push(t('portal.session', { minutes: p.session_minutes }));
   if (!p.enabled) parts.push(t('portal.disabled'));
   return parts.join(', ');

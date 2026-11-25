@@ -23,7 +23,8 @@
     "page-system-camanager",
     "page-system-staticroutes",
     "page-system-gateways",
-    "page-system-gatewaygroups"
+    "page-system-gatewaygroups",
+    "page-services-captiveportal"
   ],
   "signalbox-write": [
     "page-system-firmware-manualupdate",
@@ -50,6 +51,7 @@
     "page-system-staticroutes",
     "page-system-gateways",
     "page-system-gatewaygroups",
+    "page-services-captiveportal",
     "page-interfaces-assignnetworkports",
     "page-diagnostics-configurationhistory"
   ]

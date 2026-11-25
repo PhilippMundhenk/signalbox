@@ -1358,6 +1358,14 @@ class OpenWrtAdapter(Adapter):
             vid = view.vlan_of_device(name) if name else None
             if vid is None and name in view.devices:
                 vid = view.vlan_of_device(view.devices[name])
+            if vid is None and name in view.vlans:
+                # a bridge that filters VLANs: the one network that has an interface on it
+                on_it = {
+                    v
+                    for dev in view.devices.values()
+                    if dev.startswith(f"{name}.") and (v := view.vlan_of_device(dev)) is not None
+                }
+                vid = next(iter(on_it)) if len(on_it) == 1 else None
             return None if vid is None else self._seg(vid)
 
         out: list[CaptivePortal] = []

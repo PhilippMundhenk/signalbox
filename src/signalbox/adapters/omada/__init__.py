@@ -1638,10 +1638,11 @@ class OmadaAdapter(_Adapter):
                 break
         if not rows:
             return []
-        wlans = [
-            (w.id, w.id.split("/wlan/", 1)[-1].rsplit("-", 1)[0], w.ssid)
-            for w in (await self._wireless()).wlans
-        ]
+        try:
+            site_wlans = (await self._wireless()).wlans
+        except AdapterError:  # the SSIDs are read (and their failure reported) by read_wireless
+            site_wlans = []
+        wlans = [(w.id, w.id.split("/wlan/", 1)[-1].rsplit("-", 1)[0], w.ssid) for w in site_wlans]
         return portal_reader.portals(
             self.context.device_id, rows, wlans, {i: n.segment for i, n in nets.items()}
         )
