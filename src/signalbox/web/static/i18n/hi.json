@@ -354,6 +354,7 @@
  "device.port.radio": "रेडियो {name}",
  "device.port.ssid": "SSID {ssid}",
  "device.port.title": "पोर्ट",
+ "device.port.traffic": "पिछले {hours} घंटों का ट्रैफ़िक, अधिकतम {peak}",
  "device.port.unknownRoles": "यह डिवाइस नहीं बताता कि कौन से पोर्ट जैक हैं और कौन से आंतरिक।",
  "device.remove": "डिवाइस हटाएँ",
  "device.removeMessage": "Signalbox इस डिवाइस, उसकी सहेजी गई सेटिंग्स और आखिरी रीडिंग को भूल जाता है। डिवाइस में कोई बदलाव नहीं होता।",

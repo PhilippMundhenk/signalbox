@@ -354,6 +354,7 @@
  "device.port.radio": "ریڈیو {name}",
  "device.port.ssid": "SSID {ssid}",
  "device.port.title": "Ports",
+ "device.port.traffic": "پچھلے {hours} گھنٹوں کی ٹریفک، زیادہ سے زیادہ {peak}",
  "device.port.unknownRoles": "یہ آلہ نہیں بتاتا کہ کون سے ports جیک ہیں اور کون سے اندرونی۔",
  "device.remove": "آلہ ہٹائیں",
  "device.removeMessage": "Signalbox اس آلے، اس کی محفوظ ترتیبات اور آخری ریڈنگ کو بھلا دیتا ہے۔ آلے میں خود کوئی تبدیلی نہیں ہوتی۔",

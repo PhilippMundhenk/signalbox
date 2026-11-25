@@ -3,7 +3,10 @@
 Port counters are read where the device reports them (OpenWrt, Linux, MikroTik, OPNsense, SNMP,
 Omada, UniFi; FRITZ!Box: the WAN totals only). Signalbox keeps the last value per port and the
 change since the read before; a counter that goes down is a reset (a reboot), not a negative
-number, and a wrapped 32-bit counter is counted through. The thresholds are parameters of
+number, and a wrapped 32-bit counter is counted through. Besides that, the traffic of each port
+is kept in hourly buckets (seconds covered, bytes received and sent) for the history retention
+(`history.days`) and pruned with it; `port.utilisation` and `port.idle-trunk` judge this series, and
+the device page draws a small sparkline of the last day per port. The thresholds are parameters of
 `port.errors` (`error_ratio`, `crc_ratio`, `min_packets`, `min_errors`), also per device with
 `scopes`; the old `counters` section of the configuration is a deprecated alias (a value other
 than the default is applied rule-wide and logged as a warning).
@@ -32,19 +35,23 @@ than the default is applied rule-wide and logged as a warning).
 ## `port.utilisation`
 
 - **Severity:** info
-- **Checks:** the traffic between the last two reads divided by their distance, in the busier
-  direction, is at least `utilisation_pct` (default 90 %) of the port's link speed. Needs the link
-  speed and byte counters. It looks at one read interval, so a short burst counts as sustained;
-  reads closer than `min_seconds` are skipped.
+- **Checks:** the rate in the busier direction is at least `utilisation_pct` (default 90 %) of the
+  port's link speed. The rate is the `percentile` (default 90) of the hourly average rates of
+  the last `window_hours` (default 6) from the recorded series, so a short burst does not
+  count. While the series covers less than `min_coverage_pct` (default 50 %) of the window (a
+  new installation, a device that was away), or with `window_hours` 0, the traffic between the
+  last two reads is judged instead (reads closer than `min_seconds` are skipped). Needs the link
+  speed and byte counters.
 - **Fix:** move heavy devices to another port, aggregate links (LAG) or use a faster link.
 
 ## `port.idle-trunk`
 
 - **Severity:** info
 - **Checks:** a jack that is a trunk (tagged-only, or a tagged member of a VLAN) with a link that
-  carried no more than `idle_kbps` (default 2 kbit/s, both directions together) between the last
-  two reads. Spanning tree and LLDP frames alone stay below that. A quiet moment can trigger it,
-  so it is a hint.
+  carried no more than `idle_kbps` (default 2 kbit/s, both directions together) in every hourly
+  bucket of the last `idle_hours` (default 6). Spanning tree and LLDP frames alone stay below
+  that. While the series covers less than `min_coverage_pct` of that period, or with `idle_hours`
+  0, the last two reads are judged, and a quiet moment can trigger it, so it is a hint.
 - **Fix:** check what is plugged in; disable the port or remove the tagged VLANs.
 
 ## `port.collisions`

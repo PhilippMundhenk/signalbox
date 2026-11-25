@@ -373,6 +373,7 @@
  "device.port.radio": "Rádio {name}",
  "device.port.ssid": "SSID {ssid}",
  "device.port.title": "Portas",
+ "device.port.traffic": "Tráfego das últimas {hours} h, pico {peak}",
  "device.port.unknownRoles": "Este dispositivo não informa quais portas são conectores externos e quais são internas.",
  "device.remove": "Remover dispositivo",
  "device.removeMessage": "O Signalbox esquece este dispositivo, suas configurações salvas e a última leitura. O dispositivo em si não é alterado.",

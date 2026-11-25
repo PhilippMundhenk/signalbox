@@ -16,7 +16,13 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from signalbox.adapters import AdapterConfig, Backup
-from signalbox.counters import CounterRecord, counter_record, counter_value
+from signalbox.counters import (
+    CounterBucket,
+    CounterRecord,
+    bucket_start,
+    counter_record,
+    counter_value,
+)
 from signalbox.history import BackupInfo, ChangeEvent, ChangeRecord
 from signalbox.model import (
     Acknowledgement,
@@ -164,6 +170,17 @@ SCHEMA = [
     # version 8: the device a service runs on, set by hand (#387)
     """
     ALTER TABLE devices ADD COLUMN hosted_on TEXT;
+    """,
+    # version 9: hourly traffic buckets per port, pruned with the history (#471)
+    """
+    CREATE TABLE counter_series (
+        key TEXT NOT NULL,
+        bucket TEXT NOT NULL,
+        seconds REAL NOT NULL,
+        rx_bytes INTEGER NOT NULL,
+        tx_bytes INTEGER NOT NULL,
+        PRIMARY KEY (key, bucket)
+    ) WITHOUT ROWID;
     """,
 ]
 
@@ -537,6 +554,10 @@ class Store:
                     "AND (key = ? OR substr(key, 1, ?) = ?)",
                     (*DEVICE_KINDS, device_id, len(device_id) + 1, f"{device_id}/"),
                 )
+            db.execute(
+                "DELETE FROM counter_series WHERE key = ? OR substr(key, 1, ?) = ?",
+                (device_id, len(device_id) + 1, f"{device_id}/"),
+            )
 
     def set_pending_fingerprint(self, device_id: str, fingerprint: str | None) -> None:
         with self._tx() as db:
@@ -901,6 +922,8 @@ class Store:
                     value = counter_value(
                         known.get((kind, key)), PortCounters.model_validate_json(str(value))
                     )
+                    if value is not None:
+                        self._add_to_series(db, str(key), value)
                     if value is None:  # the same read again: keep the last delta
                         if (kind, key) in known:
                             db.execute(
@@ -944,6 +967,29 @@ class Store:
                 "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1"
             )
 
+    @staticmethod
+    def _add_to_series(db: sqlite3.Connection, key: str, value: str) -> None:
+        """Add the delta of a new counter read to the port's hour bucket (#471)."""
+        record = counter_record(value)
+        delta = record.delta if record else None
+        if delta is None or delta.reset or record is None or record.last.read_at is None:
+            return
+        if delta.rx_bytes is None and delta.tx_bytes is None:
+            return
+        db.execute(
+            "INSERT INTO counter_series (key, bucket, seconds, rx_bytes, tx_bytes) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(key, bucket) DO UPDATE SET "
+            "seconds = seconds + excluded.seconds, rx_bytes = rx_bytes + excluded.rx_bytes, "
+            "tx_bytes = tx_bytes + excluded.tx_bytes",
+            (
+                key,
+                bucket_start(record.last.read_at).isoformat(),
+                delta.seconds,
+                delta.rx_bytes or 0,
+                delta.tx_bytes or 0,
+            ),
+        )
+
     def held_sightings(self, since: datetime) -> list[MacSighting]:
         """The MAC sightings of managed devices last seen at ``since`` or later (#378)."""
         out = []
@@ -972,6 +1018,7 @@ class Store:
         with self._tx() as db:
             gone = db.execute("DELETE FROM sightings WHERE last_seen < ?", (stamp,)).rowcount
             db.execute("DELETE FROM sighting_changes WHERE at < ?", (stamp,))
+            db.execute("DELETE FROM counter_series WHERE bucket < ?", (stamp,))
             return int(gone)
 
     def history(self, now: datetime, days: int) -> History:
@@ -1043,6 +1090,16 @@ class Store:
             if mac in clients:
                 ordered = sorted(seen, key=lambda s: (s.first_seen, s.segment_id))
                 clients[mac] = clients[mac].model_copy(update={"segments": ordered})
+        series: dict[str, list[CounterBucket]] = {}
+        for r in self._all("SELECT * FROM counter_series ORDER BY key, bucket"):
+            series.setdefault(str(r["key"]), []).append(
+                CounterBucket(
+                    at=r["bucket"],
+                    seconds=r["seconds"],
+                    rx_bytes=r["rx_bytes"],
+                    tx_bytes=r["tx_bytes"],
+                )
+            )
         return History(
             now=now,
             since=self.get_setting("history:since"),
@@ -1059,4 +1116,5 @@ class Store:
             wifi=values[WIFI],
             base_macs=values[BASE_MAC],
             counters=counters,
+            series=series,
         )

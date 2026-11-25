@@ -354,6 +354,7 @@
  "device.port.radio": "الراديو {name}",
  "device.port.ssid": "SSID {ssid}",
  "device.port.title": "المنافذ",
+ "device.port.traffic": "حركة البيانات خلال آخر {hours} ساعة، الذروة {peak}",
  "device.port.unknownRoles": "لا يحدد هذا الجهاز أيّ المنافذ فيزيائية وأيّها داخلية.",
  "device.remove": "إزالة الجهاز",
  "device.removeMessage": "ينسى Signalbox هذا الجهاز وإعداداته المحفوظة وآخر قراءة له. لا يتغير الجهاز نفسه.",

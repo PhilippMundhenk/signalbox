@@ -549,6 +549,8 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `idle_kbps` | `2` | kbit/s | A trunk that carries no more than this between two reads (in both directions together) counts as idle; spanning tree and LLDP frames alone are below a kilobit per second. |
 | `min_seconds` | `20` | s | Reads closer together than this are too short to judge. |
+| `idle_hours` | `6` | h | The trunk must have been idle for this many hours (every hourly bucket of the recorded series at or below idle_kbps). 0: only the last read interval. Falls back to the last interval while the series covers too little of the period. |
+| `min_coverage_pct` | `50` | % | The series must cover at least this share of idle_hours, else the last read interval is judged. |
 
 ### `port.utilisation`
 
@@ -556,6 +558,9 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `utilisation_pct` | `90` | % | Report a port when it carried at least this share of its link speed, in either direction, between the last two reads. |
 | `min_seconds` | `20` | s | Reads closer together than this are too short to judge a rate. |
+| `window_hours` | `6` | h | Judge the traffic of the last this many hours (hourly averages of the recorded series) instead of the last read interval. 0: only the last interval. Falls back to the last interval while the series covers too little of the window. |
+| `percentile` | `90` | % | Which hourly rate of the window is compared with utilisation_pct: 90 means the rate that 90 % of the hours stay below (100: the busiest hour). |
+| `min_coverage_pct` | `50` | % | The series must cover at least this share of the window, else the last read interval is judged. |
 
 ### `security.certificate-expiry`
 
