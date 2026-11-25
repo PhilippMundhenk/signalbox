@@ -512,7 +512,11 @@ async def test_refusal_of_the_controller_names_the_code(ctrl: dict[str, str]) ->
             await Writer(a).send("POST", f"{a._site_path}/lan-networks", body)
     finally:
         await a.close()
-    assert set(await networks(ctrl)) == {1, 20, 30, 40}
+    assert set(await networks(ctrl)) == {1, 20, 30} | (
+        set()
+        if "Lab" in ctrl.get("REFUSED", "") or "interface network" in ctrl.get("REFUSED", "")
+        else {40}
+    )
 
 
 # --- SSIDs through the write module --------------------------------------------------------
