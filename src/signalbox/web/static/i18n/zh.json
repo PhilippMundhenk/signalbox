@@ -1047,6 +1047,8 @@
  "msg.mikrotik.foreignGroup.fix": "请按设置指南所示,手动为该组授予 read、api 和 rest-api 策略。",
  "msg.mikrotik.keptClash": "{label}:路由器上的行含有声明未建模且与声明不符的属性:{clash}。接管将保留:{kept}。请修改声明或路由器上的行",
  "msg.mikrotik.logTargets": "日志目标:{cause}",
+ "msg.mikrotik.ros6": "不支持 RouterOS 6：{endpoint} 没有 REST API（RouterOS 6 在此返回 404 或网页）。Signalbox 需要 RouterOS 7.1 或更新版本",
+ "msg.mikrotik.ros6.fix": "请将 RouterOS 更新到 7.1 或更新版本，或通过通用 SNMP 集成读取该设备。",
  "msg.mikrotik.noUser": "路由器上没有用户 {login}",
  "msg.mikrotik.noUser.fix": "请重新设置设备 (设备设置:自动设置,或设置指南):“修复”只会修复现有用户所属组的策略。",
  "msg.mikrotik.noWireless": "没有无线软件包:此设备上既没有 {wifi} 也没有 {wireless}",

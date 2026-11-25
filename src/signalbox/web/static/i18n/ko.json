@@ -1047,6 +1047,8 @@
  "msg.mikrotik.foreignGroup.fix": "설정 안내에 나온 대로 그룹에 read, api, rest-api 정책을 직접 부여하십시오.",
  "msg.mikrotik.keptClash": "{label}: 라우터의 행에 선언이 모델링하지 않고 맞지도 않는 속성이 있습니다: {clash}. 가져오면 유지되는 항목: {kept}. 선언 또는 라우터의 행을 변경하십시오",
  "msg.mikrotik.logTargets": "로그 대상: {cause}",
+ "msg.mikrotik.ros6": "RouterOS 6은 지원되지 않습니다: {endpoint}에 REST API가 없습니다 (RouterOS 6은 404 또는 웹 페이지로 응답합니다). Signalbox에는 RouterOS 7.1 이상이 필요합니다",
+ "msg.mikrotik.ros6.fix": "RouterOS를 7.1 이상으로 업데이트하거나 일반 SNMP 연동으로 장치를 읽으세요.",
  "msg.mikrotik.noUser": "라우터에 사용자 {login}이(가) 없습니다",
  "msg.mikrotik.noUser.fix": "장치를 다시 설정하십시오 (장치 설정: 자동 설정 또는 설정 안내). 해결 기능은 기존 사용자 그룹의 정책만 복구합니다.",
  "msg.mikrotik.noWireless": "무선 패키지가 없습니다: 이 장치에 {wifi}도 {wireless}도 없습니다",

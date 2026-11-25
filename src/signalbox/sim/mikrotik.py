@@ -17,6 +17,7 @@ every value a string. Sample network, documentation addresses only:
   Wi-Fi registrations; one LLDP/MNDP neighbour (a switch on ether2)
 
 Failure switches on :class:`MikrotikSimulator`: ``rest_enabled=False`` (404 on everything),
+``routeros6`` (a RouterOS 6 device: ``/rest`` answers its HTML page, HTTP 404),
 ``delay`` (seconds before every answer), ``malformed`` (paths answering broken JSON), ``fail``
 (a status code per path), ``wireless`` (``"wifi"``, ``"legacy"`` or ``"none"``: which wireless
 package is installed); a wrong user or password is answered with 401. ``data`` can be edited.
@@ -1335,6 +1336,8 @@ class MikrotikSimulator:
     username: str = USER
     password: str = PASSWORD
     rest_enabled: bool = True
+    #: A RouterOS 6 device: no REST API, every path answers its HTML web page (HTTP 404)
+    routeros6: bool = False
     delay: float = 0.0
     malformed: set[str] = field(default_factory=set)
     #: Status code to answer per path instead of the data (403, 500, ...).
@@ -1444,6 +1447,12 @@ class MikrotikSimulator:
         async def answer(path: str, request: Request) -> Response:
             path = "/" + path
             self.requests.append(path)
+            if self.routeros6:
+                return Response(
+                    "<html><body>RouterOS router configuration page</body></html>",
+                    status_code=404,
+                    media_type="text/html",
+                )
             if not self.rest_enabled:
                 return JSONResponse(not_found, status_code=404)
             if not self.authorised(request.headers.get("authorization")):
