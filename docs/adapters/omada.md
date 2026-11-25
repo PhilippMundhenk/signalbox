@@ -266,6 +266,17 @@ not answer it, or a gateway with fewer than two WAN ports in it, leaves the grou
 with two or more WAN ports, an optional gap says that the WAN mode is not read. The monitor
 addresses (online detection) are not read either, so `wan.monitor-missing` stays quiet.
 
+### `GET …/sites/{siteId}/portals` (optional) *(guess: path and fields)*
+
+Captive portals (#460, `CaptivePortal`, read with `interfaces`; fallback path `…/hotspot/portals`).
+Rows: `id` (or `portalId`), `name`, `enable`, `authType` (0 no authentication = click-through,
+1 simple password, 2 hotspot = voucher, 3 external RADIUS server, 4 external portal server),
+`timeout` (seconds a guest stays logged in) and the SSIDs: `ssidList` (rows with `ssidId` and
+`name`) or `ssidIds`; `networkIds` for a portal on a LAN network. SSIDs become the WLANs of every
+access point that broadcasts them. **Neither the paths nor the fields are confirmed** (#21); a
+controller that knows neither reports no portals. Vouchers, passwords and the RADIUS secret
+are never read. Controller 5.x and 6.x (both have the Open API) are covered by this guess only.
+
 ### `GET …/sites/{siteId}/aps/{mac}/radio-config` (optional) *(API description)*
 
 ```json

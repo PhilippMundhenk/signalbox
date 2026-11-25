@@ -71,7 +71,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
-from signalbox.adapters.mikrotik import multiwan, wifi_assoc
+from signalbox.adapters.mikrotik import hotspot, multiwan, wifi_assoc
 from signalbox.adapters.mikrotik import poe as mikrotik_poe
 from signalbox.adapters.mikrotik import routes as route_reader
 from signalbox.adapters.mikrotik import stp as _stp
@@ -95,6 +95,7 @@ from signalbox.model import (
     AddressSource,
     Band,
     Blocklist,
+    CaptivePortal,
     Certificate,
     CertificateUse,
     Cipher,
@@ -1622,6 +1623,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             uplinks=uplinks,
             gateway_groups=wan_groups,
             ddns=await self._cloud_ddns(uplinks),
+            portals=await self._portals(layout),
             services=await self._services(layout),
             certificates=await self._certificates(),
             log_targets={} if targets is None else {dev: targets},
@@ -1630,6 +1632,21 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             default_credentials={dev: default},
             signalbox_privilege={} if privilege is None else {dev: privilege},
             incomplete=gaps + account_gaps + stp_gaps + poe_gaps,
+        )
+
+    async def _portals(self, layout: _Layout) -> list[CaptivePortal]:
+        """``/ip/hotspot`` servers (#460). A menu that is missing (no hotspot, older package) or
+        refused to this user reports nothing."""
+        rows = await self._readable(hotspot.HOTSPOT)
+        if not rows:
+            return []
+        return hotspot.hotspots(
+            self.context.device_id,
+            rows,
+            await self._readable(hotspot.PROFILE) or [],
+            await self._readable(hotspot.USER_PROFILE) or [],
+            layout.l3,
+            duration,
         )
 
     async def _poe(self) -> tuple[dict[str, PortPoe], list[Gap]]:

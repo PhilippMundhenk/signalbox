@@ -1107,3 +1107,30 @@ def test_mesh_info_without_radio_id_uses_the_channel() -> None:
     assert mesh_info({"rssi": -500}).signal_dbm is None
     tri = mesh_info({"partnerLinks": [{"radioId": 2, "channel": 5}]})
     assert tri.band is Band.GHZ_6 and tri.channel == 5
+
+
+async def test_portals_of_the_site(snap: Snapshot) -> None:
+    """The portal profile on the guest SSID covers its WLANs of every access point (#460)."""
+    (portal,) = snap.portals
+    assert portal.id == f"{DEV}/portal/portal-guest" and portal.name == "Guest portal"
+    assert portal.auth is not None and portal.auth.value == "click-through"
+    assert portal.session_minutes == 480 and portal.enabled
+    guest = {w.id for w in snap.wlans if w.ssid == "Guest"}
+    assert guest and set(portal.wlans) == guest
+
+
+def test_portal_rows() -> None:
+    from signalbox.adapters.omada import portal as reader
+
+    wlans = [("d/wlan/s1-0", "s1", "Cafe"), ("d/wlan/s2-0", "s2", "Home")]
+    rows = [
+        {"id": "a", "name": "A", "authType": 2, "ssidIds": ["s2"], "networkIds": ["n1", "n9"]},
+        {"portalId": "b", "authType": 4, "enable": False, "timeout": 30, "ssidList": ["Cafe"]},
+        {"id": "a"},
+        {"id": "c", "authType": 9},
+    ]
+    a, b, c = reader.portals("d", rows, wlans, {"n1": "seg/1"})
+    assert (a.auth, a.wlans, a.segments) == (reader.PortalAuth.VOUCHER, ["d/wlan/s2-0"], ["seg/1"])
+    assert (b.id, b.name, b.auth) == ("d/portal/b", "portal b", reader.PortalAuth.EXTERNAL)
+    assert b.wlans == ["d/wlan/s1-0"] and not b.enabled and b.session_minutes is None
+    assert c.auth is None

@@ -46,6 +46,8 @@ READ_ACL: dict[str, Any] = {
                 "ddns",
                 "usteer",
                 "dawn",
+                "opennds",
+                "nodogsplash",
             ],
             "file": {
                 "/tmp/dhcp.leases": ["read"],

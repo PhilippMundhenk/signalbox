@@ -994,6 +994,21 @@ def sample_data() -> dict[str, Any]:
                 "invalid": "false",
             }
         ),
+        # hotspot (#460): click-through (trial login) on the main network
+        "/rest/ip/hotspot": _ids(
+            {
+                "name": "hotspot1",
+                "interface": "bridge",
+                "profile": "hsprof1",
+                "idle-timeout": "5m",
+                "disabled": "false",
+                "invalid": "false",
+            }
+        ),
+        "/rest/ip/hotspot/profile": _ids(
+            {"name": "hsprof1", "login-by": "trial,cookie", "use-radius": "no"}
+        ),
+        "/rest/ip/hotspot/user/profile": _ids({"name": "default", "session-timeout": "8h"}),
         "/rest/ip/dhcp-relay": _ids(
             {
                 "name": "iot-relay",

@@ -292,6 +292,22 @@ def firewall_data() -> dict[str, Any]:
                 }
             ]
         ),
+        # captive portal (#460): one zone on the guest network, accepting the terms only
+        "/api/captiveportal/settings/search_zones": _rows_of(
+            [
+                {
+                    "uuid": "c1",
+                    "zoneid": "0",
+                    "enabled": "1",
+                    "description": "Guest portal",
+                    "interfaces": "opt2",
+                    "authservers": "",
+                    "hardtimeout": "480",
+                    "idletimeout": "0",
+                }
+            ]
+        ),
+        "/api/captiveportal/voucher/list_providers": ["Guest vouchers"],
         "/api/firewall/alias/search_item": _rows_of(
             [
                 {

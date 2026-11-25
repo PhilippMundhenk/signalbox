@@ -1661,3 +1661,34 @@ async def test_station_bridge_is_an_uplink_peer(http_url: str, sim: MikrotikSimu
 async def test_plain_station_and_ap_registrations_are_no_mesh(http_url: str) -> None:
     snap = await observe(adapter(http_url))
     assert snap.mesh_peers == [] and snap.device.mesh is None
+
+
+async def test_hotspot_is_a_captive_portal(snap: Snapshot) -> None:
+    """A hotspot with a trial login is click-through; the session comes from the default user
+    profile (#460)."""
+    (portal,) = snap.portals
+    assert portal.id == "rt/portal/hotspot1" and portal.enabled
+    assert portal.auth is not None and portal.auth.value == "click-through"
+    assert portal.session_minutes == 480
+    assert len(portal.segments) == 1
+
+
+def test_hotspot_login_methods() -> None:
+    from signalbox.adapters.mikrotik import hotspot
+
+    assert hotspot.auth_of({"use-radius": "yes", "login-by": "trial"}).value == "radius"
+    assert hotspot.auth_of({"login-by": "http-chap,cookie"}).value == "password"
+    assert hotspot.auth_of({"login-by": "trial,http-pap"}).value == "password"
+    assert hotspot.auth_of({"login-by": "trial"}).value == "click-through"
+    assert hotspot.auth_of({"login-by": "mac,cookie"}) is None
+    assert hotspot.auth_of({}) is None
+    rows = [
+        {"name": "h1", "interface": "bridge", "profile": "p", "disabled": "true"},
+        {"name": "h1", "interface": "bridge"},
+        {"interface": "nowhere"},
+    ]
+    a, b = hotspot.hotspots(
+        "rt", rows, [{"name": "p", "login-by": "https"}], [], {"bridge": "s"}, lambda v: 30
+    )
+    assert (a.id, a.enabled, a.segments, a.auth.value) == ("rt/portal/h1", False, ["s"], "password")  # type: ignore[union-attr]
+    assert (b.id, b.segments, b.auth) == ("rt/portal/hotspot3", [], None)

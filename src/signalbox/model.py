@@ -1448,6 +1448,42 @@ class GatewayGroup(Observed):
     segments: list[str] = Field(default_factory=list)
 
 
+class PortalAuth(StrEnum):
+    """How a captive portal lets a guest in (#460), in the device's own terms."""
+
+    #: Accept the terms and click: no credentials.
+    CLICK_THROUGH = "click-through"
+    #: A voucher code the operator hands out.
+    VOUCHER = "voucher"
+    #: One shared password, or a local user account.
+    PASSWORD = "password"
+    #: Accounts of a RADIUS server (or LDAP, AD).
+    RADIUS = "radius"
+    #: A portal page hosted elsewhere (external portal server, social login).
+    EXTERNAL = "external"
+
+
+class CaptivePortal(Observed):
+    """A captive portal (guest login page) of a device, ``object_id(device, "portal", <name>)``
+    (#460). Read with ``interfaces``; read-only. Never a voucher, a shared password, a RADIUS
+    secret or an API key: there is no field for them, also not in ``vendor_extra``.
+
+    ``segments`` and ``wlans`` are what the portal covers, as far as the device says (a
+    MikroTik hotspot sits on an interface, an Omada portal on SSIDs, an OPNsense zone on
+    interfaces); both empty: not known.
+    """
+
+    device_id: str
+    name: str
+    segments: list[str] = Field(default_factory=list)
+    wlans: list[str] = Field(default_factory=list)
+    #: None: the device does not say.
+    auth: PortalAuth | None = None
+    #: How long a guest stays logged in (minutes); None: no limit, or not known.
+    session_minutes: Annotated[int, Field(ge=1)] | None = None
+    enabled: bool = True
+
+
 class DdnsResult(StrEnum):
     OK = "ok"
     ERROR = "error"
@@ -4089,6 +4125,8 @@ class Snapshot(Model):
     #: Gateway groups (#150) and dynamic DNS clients (#154; part of ``interfaces``).
     gateway_groups: list[GatewayGroup] = Field(default_factory=list)
     ddns: list[DynamicDns] = Field(default_factory=list)
+    #: Captive portals (#460; part of ``interfaces``).
+    portals: list[CaptivePortal] = Field(default_factory=list)
     #: Management services of the devices (#173; part of ``interfaces``).
     services: list[ManagementService] = Field(default_factory=list)
     #: Certificates stored on the devices (#330; part of ``interfaces``).
@@ -4203,6 +4241,8 @@ class Network(Model):
     #: Gateway groups (#150) and dynamic DNS clients (#154; part of ``interfaces``).
     gateway_groups: list[GatewayGroup] = Field(default_factory=list)
     ddns: list[DynamicDns] = Field(default_factory=list)
+    #: Captive portals (#460; part of ``interfaces``).
+    portals: list[CaptivePortal] = Field(default_factory=list)
     #: Management services of the devices (#173; part of ``interfaces``).
     services: list[ManagementService] = Field(default_factory=list)
     #: Certificates stored on the devices (#330; part of ``interfaces``).
@@ -4282,6 +4322,7 @@ class Network(Model):
             self.uplinks,
             self.gateway_groups,
             self.ddns,
+            self.portals,
             self.certificates,
             self.dhcp_servers,
             self.dhcp_relays,
@@ -4406,6 +4447,29 @@ class Network(Model):
     def dhcp_relays_on(self, segment_id: str) -> list[DhcpRelay]:
         """Enabled DHCP relays on a segment (#183): it needs no DHCP server of its own."""
         return [r for r in self.dhcp_relays if r.segment_id == segment_id and r.enabled]
+
+    def portals_of(self, device_id: str) -> list[CaptivePortal]:
+        return sorted((p for p in self.portals if p.device_id == device_id), key=lambda p: p.id)
+
+    def portals_for(self, wlan: Wlan) -> list[CaptivePortal]:
+        """The enabled captive portals (#460) that cover an SSID: named by it, or on its network."""
+        return [
+            p
+            for p in sorted(self.portals, key=lambda p: p.id)
+            if p.enabled
+            and (
+                wlan.id in p.wlans
+                or (wlan.segment_id is not None and wlan.segment_id in p.segments)
+            )
+        ]
+
+    def portals_on(self, segment_id: str) -> list[CaptivePortal]:
+        """The enabled captive portals (#460) that cover a network."""
+        return [
+            p
+            for p in sorted(self.portals, key=lambda p: p.id)
+            if p.enabled and segment_id in p.segments
+        ]
 
     def leases_read(self, segment_id: str) -> bool:
         """The segment has an enabled DHCP server, and every one of them reported its leases.

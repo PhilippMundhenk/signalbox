@@ -1373,6 +1373,7 @@
     "tls": null
    }
   ],
+  "portals": [],
   "services": [
    {
     "id": "recorded/service/http",

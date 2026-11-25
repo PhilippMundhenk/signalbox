@@ -62,6 +62,7 @@ from signalbox.adapters.openwrt import (
     lag,
     monitoring,
     multiwan,
+    portal,
     provision,
     routes,
     setup,
@@ -95,6 +96,7 @@ from signalbox.model import (
     AddressSource,
     Band,
     BandSteering,
+    CaptivePortal,
     Cipher,
     Client,
     ConfigState,
@@ -1176,6 +1178,7 @@ class OpenWrtAdapter(Adapter):
         gaps: list[Gap] = ([gap] if gap else []) + stp_gaps
         wan_groups: list[GatewayGroup] = []
         ddns_list: list[DynamicDns] = []
+        portal_list = await self._portals(view)
         if router:
             uplinks, wan_groups, ddns_list, wan_gaps = await self._multiwan(uplinks)
             gaps += wan_gaps
@@ -1247,6 +1250,7 @@ class OpenWrtAdapter(Adapter):
             subnets=subnets,
             uplinks=uplinks,
             gateway_groups=wan_groups,
+            portals=portal_list,
             ddns=ddns_list,
             services=services,
             log_targets={} if targets is None else {d: targets},
@@ -1345,6 +1349,25 @@ class OpenWrtAdapter(Adapter):
         if not cfg.probe_empty_root_password or cfg.username == "root":
             return False
         return await self.ubus.try_login("root", "")
+
+    async def _portals(self, view: NetworkView) -> list[CaptivePortal]:
+        """openNDS and nodogsplash (#460), optional packages: no config, nothing to report;
+        an ACL from before #460 does not list the configs and reads as none."""
+
+        def segment_of(name: str) -> str | None:
+            vid = view.vlan_of_device(name) if name else None
+            if vid is None and name in view.devices:
+                vid = view.vlan_of_device(view.devices[name])
+            return None if vid is None else self._seg(vid)
+
+        out: list[CaptivePortal] = []
+        for config, (kind, _) in portal.CONFIGS.items():
+            with contextlib.suppress(AdapterError):
+                uci = await self._uci(config)
+                out += portal.portals(
+                    self.context.device_id, config, _sections(uci, kind), segment_of
+                )
+        return out
 
     async def _multiwan(
         self, uplinks: list[Uplink]

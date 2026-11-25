@@ -53,6 +53,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.omada import discovery as _discovery
 from signalbox.adapters.omada import firewall, multiwan, vitals
+from signalbox.adapters.omada import portal as portal_reader
 from signalbox.adapters.portcounters import counters_of
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
@@ -62,6 +63,7 @@ from signalbox.model import (
     STANDARD_RANK,
     AccountPrivilege,
     Band,
+    CaptivePortal,
     Cipher,
     Client,
     Device,
@@ -1308,6 +1310,7 @@ class OmadaAdapter(_Adapter):
             mesh=mesh_members,
             uplinks=uplinks,
             gateway_groups=groups,
+            portals=await self._portals(nets),
             services=await self._services([m.id for m in managed]),
             **accounts,
             log_targets=await self._log_targets([m.id for m in managed]),
@@ -1624,6 +1627,24 @@ class OmadaAdapter(_Adapter):
                 fix_id="omada.wanModeUnread.fix",
             )
         ]
+
+    async def _portals(self, nets: dict[str, _Net]) -> list[CaptivePortal]:
+        """The portal profiles of the site (#460); a controller that does not know the paths
+        (a guess, see :mod:`portal`) reports none."""
+        rows: list[dict[str, Any]] = []
+        for path in portal_reader.PATHS:
+            rows = await self._optional_rows(f"{self._site_path}/{path}")
+            if rows:
+                break
+        if not rows:
+            return []
+        wlans = [
+            (w.id, w.id.split("/wlan/", 1)[-1].rsplit("-", 1)[0], w.ssid)
+            for w in (await self._wireless()).wlans
+        ]
+        return portal_reader.portals(
+            self.context.device_id, rows, wlans, {i: n.segment for i, n in nets.items()}
+        )
 
     async def _services(self, device_ids: list[str]) -> list[ManagementService]:
         """SSH and SNMP of the site (#173). The controller applies both to every device it

@@ -3,6 +3,7 @@ import { loadNetwork, noData } from '../net.js';
 import { by, h, place, yesNo } from '../util.js';
 import { card, pageHead, purposeTag, table, tabs, tag } from '../ui.js';
 import { renderWifiMap } from './wifimap.js';
+import { portalText } from './segments.js';
 import { t } from '../i18n.js';
 
 const SECURITY = {
@@ -87,6 +88,11 @@ export async function renderWireless(main, ctx, route = {}) {
     const r = ix.radios.get(w.radio_id);
     return r ? t('wireless.ghz', { band: r.band }) : null;
   };
+  // captive portals (#460) that cover an SSID, by its id or its network
+  const portalsOf = (w) => {
+    const found = (ix.net.portals || []).filter((p) => p.wlans.includes(w.id) || (w.segment_id && p.segments.includes(w.segment_id)));
+    return found.length ? h('span', { 'data-testid': 'wlan-portal' }, found.map((p) => portalText(p)).join('; ')) : null;
+  };
   for (const ssid of [...bySsid.keys()].sort(by((x) => x))) {
     const list = bySsid.get(ssid).sort(by((w) => `${ix.deviceName(w.device_id)} ${band(w)}`));
     const aps = new Set(list.map((w) => w.device_id)).size;
@@ -104,6 +110,7 @@ export async function renderWireless(main, ctx, route = {}) {
             [t('wireless.col.segment'), (w) => (w.segment_id ? ix.segmentName(w.segment_id) : null)],
             [t('wireless.col.purpose'), (w) => purposeTag(w.purpose ? w : ix.net.segments.find((s) => s.id === w.segment_id))],
             [t('wireless.col.clientIsolation'), (w) => (w.client_isolation === true || w.client_isolation === false ? h('span', { class: w.client_isolation ? 'tag ok' : 'tag', 'data-testid': 'client-isolation' }, w.client_isolation ? t('wireless.on') : t('wireless.off')) : null)],
+            [t('wireless.col.portal'), (w) => portalsOf(w)],
             [t('wireless.col.roaming'), roaming],
             [t('wireless.col.state'), (w) => [w.enabled ? t('wireless.enabled') : t('wireless.disabled'), w.hidden ? t('wireless.hidden') : '']],
           ],

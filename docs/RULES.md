@@ -41,6 +41,12 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`annotations.stale`](rules/annotation_checks.md#annotationsstale)
 - [`ack.expired`](rules/annotation_checks.md#ackexpired)
 
+## [Captive portals](rules/captive_portals.md)
+
+- [`portal.guest-unprotected`](rules/captive_portals.md#portalguest-unprotected)
+- [`portal.non-guest-network`](rules/captive_portals.md#portalnon-guest-network)
+- [`portal.click-through-open`](rules/captive_portals.md#portalclick-through-open)
+
 ## [Device HTTPS certificates](rules/certificate_checks.md)
 
 - [`security.certificate-expiry`](rules/certificate_checks.md#securitycertificate-expiry)

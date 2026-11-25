@@ -2242,3 +2242,29 @@ async def test_station_interface_is_a_wds_uplink(sim: OpenWrtSim, adapter: OpenW
     member = obs.mesh["ap1"]
     assert member.role.value == "repeater" and member.uplink is not None
     assert not any(w.backhaul for w in obs.wlans)  # a station interface is no SSID we offer
+
+
+async def test_opennds_and_nodogsplash_portals(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    """Both are optional packages (#460): without them nothing is reported."""
+    assert (await adapter.read_interfaces()).portals == []
+    sim.packages = {"opennds", "nodogsplash"}
+    obs = await adapter.read_interfaces()
+    by_name = {p.name: p for p in obs.portals}
+    splash, fas = by_name["Example"], by_name["nodogsplash"]
+    assert splash.auth is not None and splash.auth.value == "click-through"
+    assert splash.session_minutes == 480 and fas.session_minutes == 1200
+    assert fas.auth is not None and fas.auth.value == "external"
+    assert splash.segments == fas.segments and len(splash.segments) == 1
+    sim.denied = {"uci:opennds", "uci:nodogsplash"}  # an ACL from before #460
+    assert (await adapter.read_interfaces()).portals == []
+
+
+def test_portal_options() -> None:
+    from signalbox.adapters.openwrt import portal
+
+    assert portal.auth_of({"binauth": "/bin/x"}).value == "password"  # type: ignore[union-attr]
+    assert portal.auth_of({"preauth": "/bin/x"}) is None
+    sections = [("a", {"enabled": "0", "sessiontimeout": "0"}), ("b", {})]
+    one, two = portal.portals("ap", "opennds", sections, lambda name: None)
+    assert (one.id, one.enabled, one.session_minutes) == ("ap/portal/opennds-1", False, None)
+    assert (two.session_minutes, two.segments) == (1440, [])

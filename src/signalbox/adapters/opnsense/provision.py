@@ -74,11 +74,15 @@ READ_PRIVILEGES: tuple[str, ...] = (
     "page-system-gateways",
     "page-system-gatewaygroups",
     "page-services-dyndns",
+    "page-services-captiveportal",
 )
-#: Privileges that exist only with an optional plugin (os-ddclient adds *Services: Dynamic DNS*):
+#: Privileges that exist only with an optional plugin (os-ddclient adds *Services: Dynamic DNS*;
+#: *Services: Captive Portal* (#460) is core, but a firewall without it must not fail the setup):
 #: the setup grants them when the firewall offers them, and leaves them out otherwise, since
 #: the user manager refuses a privilege it does not know (#440).
-PLUGIN_PRIVILEGES: frozenset[str] = frozenset({"page-services-dyndns"})
+PLUGIN_PRIVILEGES: frozenset[str] = frozenset(
+    {"page-services-dyndns", "page-services-captiveportal"}
+)
 #: Privileges that only newer releases have: *System: Gateway Groups* came with the gateway group
 #: API of 26.7 (#150). Left out where the firewall does not offer them, like plugin privileges.
 NEWER_PRIVILEGES: frozenset[str] = frozenset({"page-system-gatewaygroups"})

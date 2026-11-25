@@ -64,6 +64,8 @@ READ_ONLY = (
     "https-dns-proxy",
     "usteer",
     "dawn",
+    "opennds",
+    "nodogsplash",
 )
 #: Of those, the configs of optional packages (#180): only there when installed
 PACKAGES = (
@@ -75,6 +77,8 @@ PACKAGES = (
     "https-dns-proxy",
     "usteer",
     "dawn",
+    "opennds",
+    "nodogsplash",
 )
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
@@ -1049,6 +1053,33 @@ def dawn_config() -> dict[str, Any]:
     return _uci(("metric", "global", {"kicking": "1", "freq_5": "100", "freq_2": "0"}))
 
 
+def opennds_config() -> dict[str, Any]:
+    """``/etc/config/opennds`` (#460, guess: option names): the built-in splash page on br-lan."""
+    return _uci(
+        (
+            "opennds",
+            "opennds",
+            {
+                "enabled": "1",
+                "gatewayinterface": "br-lan",
+                "gatewayname": "Example",
+                "sessiontimeout": "480",
+            },
+        )
+    )
+
+
+def nodogsplash_config() -> dict[str, Any]:
+    """``/etc/config/nodogsplash`` (#460, guess): an external authentication service."""
+    return _uci(
+        (
+            "nodogsplash",
+            "cfg020f15",
+            {"enabled": "1", "gatewayinterface": "br-lan", "fasremoteip": "192.0.2.80"},
+        )
+    )
+
+
 def mwan3_config() -> dict[str, Any]:
     """``/etc/config/mwan3`` of a router with a cable line (``wan``, tier 1) and an LTE stick
     (``wanb``, tier 2) as backup (documentation addresses)."""
@@ -1539,7 +1570,8 @@ class OpenWrtSim:
     #: UCI configs that do not exist (a router without Wi-Fi has no ``wireless``)
     missing: set[str] = field(default_factory=set)
     #: optional packages installed (#180): ``snmpd``, ``luci_statistics``, ``softflowd``; and
-    #: ``mwan3`` (#150), ``ddns`` (ddns-scripts, #154), ``usteer`` and ``dawn`` (#447)
+    #: ``mwan3`` (#150), ``ddns`` (ddns-scripts, #154), ``usteer`` and ``dawn`` (#447),
+    #: ``opennds`` and ``nodogsplash`` (#460)
     packages: set[str] = field(default_factory=set)
     #: an 802.11s mesh point on radio1 with one mesh peer (#171), ``mesh_peer_mac`` away
     mesh: bool = False
@@ -1646,6 +1678,8 @@ class OpenWrtSim:
                 "ddns": _sections(ddns_config()),
                 "usteer": _sections(usteer_config()),
                 "dawn": _sections(dawn_config()),
+                "opennds": _sections(opennds_config()),
+                "nodogsplash": _sections(nodogsplash_config()),
                 "https-dns-proxy": {},
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
             }

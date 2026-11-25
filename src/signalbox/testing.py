@@ -298,6 +298,24 @@ def uplink_problems(uplink: Uplink, port_ids: set[str]) -> list[str]:
     return out
 
 
+def portal_problems(snapshot: Snapshot) -> list[str]:
+    """Captive portals (#460): ids, and the networks and SSIDs they name were reported."""
+    out: list[str] = []
+    segment_ids = {s.id for s in snapshot.segments}
+    wlan_ids = {w.id for w in snapshot.wlans}
+    for portal in snapshot.portals:
+        prefix = f"{portal.device_id}/portal/"
+        if not portal.id.startswith(prefix) or portal.id == prefix:
+            out.append(f"portal id {portal.id} is not {prefix}<name>")
+        for sid in portal.segments:
+            if sid not in segment_ids:
+                out.append(f"{portal.id} references unknown segment {sid}")
+        for wid in portal.wlans:
+            if wid not in wlan_ids:
+                out.append(f"{portal.id} references unknown wlan {wid}")
+    return out
+
+
 def multiwan_problems(snapshot: Snapshot) -> list[str]:
     """Gateway groups (#150) and dynamic DNS clients (#154): ids, members once, tiers, a known
     active member, uplinks that were reported, naive times."""
@@ -668,7 +686,7 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             out.append(f"declares {cap.value} but no device has {attr}")
         if cap.value not in caps and found:
             out.append(f"{attr} reported without declaring {cap.value}")
-    for kind in ("uplinks", "gateway_groups", "ddns", "services", "certificates"):
+    for kind in ("uplinks", "gateway_groups", "ddns", "portals", "services", "certificates"):
         if getattr(snapshot, kind) and Capability.INTERFACES.value not in caps:
             out.append(f"{kind} reported without declaring {Capability.INTERFACES.value}")
     if snapshot.dhcp_relays and Capability.DHCP.value not in caps:
@@ -740,6 +758,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         "uplinks",
         "gateway_groups",
         "ddns",
+        "portals",
         "services",
         "certificates",
         "dhcp_servers",
@@ -794,6 +813,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         for obj in refs:
             if obj.segment_id not in segment_ids:
                 out.append(f"{obj.id} references unknown segment {obj.segment_id}")
+    out += portal_problems(snapshot)
     sightings: set[str] = set()
     for sighting in snapshot.server_sightings:
         if sighting.id in sightings:
