@@ -189,6 +189,17 @@ def observe(page: Any) -> None:
     api(page, "POST", "/observe", {})
     for _ in range(100):
         if api(page, "GET", "/health")["last_run"] != before:
+            for _ in range(100):  # best effort: a device whose read fails may have no snapshot
+                if _all_read(page):
+                    return
+                time.sleep(0.1)
             return
         time.sleep(0.1)
     raise AssertionError("observation round did not finish")
+
+
+def _all_read(page: Any) -> bool:
+    """Every enabled device is in the merged network (#485). A round that was already running
+    when the devices were added also moves ``last_run``, but did not read them."""
+    wanted = {d["id"] for d in api(page, "GET", "/devices") if d.get("enabled", True)}
+    return wanted <= {d["id"] for d in api(page, "GET", "/network")["devices"]}
