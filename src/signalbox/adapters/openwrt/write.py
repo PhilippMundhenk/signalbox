@@ -32,6 +32,7 @@ from signalbox.adapters import (
 from signalbox.adapters import openwrt as h  # the read helpers (circular, used at run time)
 from signalbox.adapters.openwrt.firewall import FORWARD_TAG, POLICY_TAG, RULE_TAG
 from signalbox.adapters.openwrt.firewall import tag as fw_tag
+from signalbox.adapters.openwrt.mwanwrite import gateway_group
 from signalbox.changes import (
     Change,
     ChangeKind,
@@ -58,7 +59,7 @@ from signalbox.model import (
 )
 
 #: The UCI configs Signalbox writes (and backs up); the rpcd ACL grants write access to these only.
-CONFIGS = ("network", "wireless", "dhcp", "firewall", "system", "snmpd")
+CONFIGS = ("network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3")
 #: Tag Signalbox puts on the ``system`` section when it set the remote syslog target (#327).
 LOG_TAG = "signalbox_syslog"
 BACKUP_FORMAT = "openwrt-uci-json"
@@ -1118,6 +1119,8 @@ def translate(
             _log_target(cfg, c, {a for a in adopted if a}, syslog)
         elif c.kind is ChangeKind.SNMP_POLICY:
             _snmp_policy(cfg, c)
+        elif c.kind is ChangeKind.GATEWAY_GROUP:
+            gateway_group(cfg, c)
         elif c.kind is ChangeKind.ZONE_POLICY:
             _policy(cfg, c)
         elif c.kind is ChangeKind.FIREWALL_RULE:

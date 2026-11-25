@@ -172,9 +172,11 @@ sites:
 ## Gateway groups
 
 Tiers, weights and monitor addresses of the members of a multi-WAN gateway group (#463,
-[ADR 0032](adr/0032-gateway-group-desired-state.md)). The integrations do not write them yet:
-a plan with gateway group changes is refused by every integration for now. Off like every
-write: it needs `deploy.enabled`, *Allow changes* on the device and the per-plan approval.
+[ADR 0032](adr/0032-gateway-group-desired-state.md)). Written on OpenWrt (mwan3,
+[details](adapters/openwrt.md#what-each-change-does-in-uci)) and MikroTik (the default routes,
+[details](adapters/mikrotik.md#gateway-group-463)); other integrations refuse a plan with gateway
+group changes for now. Off like every write: it needs `deploy.enabled`, *Allow changes* on the
+device and the per-plan approval.
 
 ```yaml
 sites:

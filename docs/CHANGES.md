@@ -51,6 +51,16 @@ new values; an SNMP community never appears in them. They are applied last, afte
 firewall kinds. OpenWrt uses the `uci apply` confirm timer, MikroTik its scheduler revert; both
 undo a change that is not confirmed, and a failed deployment restores the backup.
 
+## Gateway group changes
+
+The kind `gateway-group` (key `group/<name>`) holds every member of a multi-WAN group with its
+tier (as an order), weight and monitor addresses ([DESIRED.md](DESIRED.md#gateway-groups),
+ADR 0032); it is planned only for a group the desired state adopts, and never creates or removes
+a group or a member. It is applied after the logging kinds. OpenWrt uses the `uci apply` confirm
+timer, MikroTik its scheduler revert; a failed deployment restores the backup. An undo writes the
+old order as tier numbers (on OpenWrt, member copies Signalbox made stay with the old values);
+restoring the backup puts back the exact configuration.
+
 ## Tracking
 
 The *Changes* page is the change log: who, when, why, the desired-state version (git commit),

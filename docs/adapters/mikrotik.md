@@ -2,7 +2,7 @@
 
 Adapter id `mikrotik`, roles `gateway`, `switch` and `ap`. Reads a RouterOS 7 router, switch or
 access point through the REST API (`/rest`, served by the `www-ssl` service), and deploys
-changes of every kind (`router`, `dhcp`, `reservation`, `port`, `wlan`, the firewall kinds `firewall-rule`, `port-forward`, `zone-policy`, and `log-target`, `snmp-policy`) through the change
+changes of every kind (`router`, `dhcp`, `reservation`, `port`, `wlan`, the firewall kinds `firewall-rule`, `port-forward`, `zone-policy`, `log-target`, `snmp-policy`, and `gateway-group`) through the change
 transactions of [#38](https://github.com/PhilippMundhenk/signalbox/issues/38) when the device's
 "allow changes" setting is on and the user may write: see [Writing](#writing). Reading only ever
 sends `GET` requests.
@@ -953,6 +953,28 @@ The kinds `log-target` and `snmp-policy`
   logging menus and the state of `/snmp`.
 - *Guess (#21)*: `remote-protocol=tcp` and the four-topic rules on a real router; that RouterOS
   accepts `/snmp set enabled=yes` in the scheduler's script for the revert.
+
+## Gateway group (#463)
+
+The kind `gateway-group` ([ADR 0032](../adr/0032-gateway-group-desired-state.md)) for the group
+`default`, the enabled IPv4 default routes of the `main` table (see [Multi-WAN](#multi-wan-and-mikrotik-cloud-150-154)). Members are
+found by their gateway; routes and netwatch entries are never added or removed.
+
+- **Tier**: the route's `distance`. When the order of the tiers changes, every member gets its
+  tier number (1, 2, ...) as distance; otherwise distances are left as they are.
+- **Monitor**: the route's gateway in the monitor is `check-gateway=ping`; without it
+  `check-gateway` is unset (`POST /rest/ip/route/unset`; an `arp` check is not a monitor address
+  and stays). Another address changes the `host` of the netwatch entry whose comment is the
+  route's comment (its up and down scripts stay as they are). Without such an entry, or to drop
+  that address, the change is refused: Signalbox does not add or remove netwatch entries.
+- **Refused**: a weight (RouterOS shares the load of one distance equally), and any change of a
+  route a DHCP or PPPoE client added (dynamic; change the client's `default-route-distance`).
+- **Revert and backup**: the scheduler entry `signalbox-revert` (see Firewall changes) sets
+  `distance`, `check-gateway` and the netwatch host back unless the change is confirmed; the
+  backup holds these values of the static default routes and the netwatch entries, and a restore
+  sets them back by `.id`.
+- *Guess (#21)*: the netwatch tie by comment, `unset` of `check-gateway` on RouterOS 7, and the
+  `/ip route set *<id>` lines in the scheduler's script on a real router.
 
 ## Firewall changes (#295)
 

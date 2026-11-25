@@ -943,6 +943,70 @@ async def test_snmp_agent_off_then_revert(svc: Services, rt: dict[str, str]) -> 
         await a.close()
 
 
+GROUP_WANT = """
+sites:
+  home:
+    gateway_groups:
+      - device: rt
+        name: default
+        adopt: true
+        members:
+          - {name: it-a, tier: 3, monitor: [192.0.2.253]}
+          - {name: it-b, tier: 2}
+"""
+
+
+def write_call(rt: dict[str, str], method: str, path: str, body: Any = None) -> Any:
+    r = httpx.request(
+        method,
+        rt["URL"] + path,
+        json=body,
+        auth=(rt["WRITE_USER"], rt["WRITE_PASSWORD"]),
+        verify=False,
+        timeout=TIMEOUT,
+        trust_env=False,
+    )
+    r.raise_for_status()
+    return r.json() if r.content else None
+
+
+async def test_gateway_group_distances_and_check_then_revert(
+    svc: Services, rt: dict[str, str]
+) -> None:
+    """#463: two more static default routes (never active: their distances stay above the
+    DHCP route's) form the group default with the DHCP route; the deployment swaps their
+    order (distance), sets check-gateway=ping on one, arms and removes the revert timer; the
+    revert puts distance and check-gateway back. The DHCP route is not touched."""
+    made = [
+        write_call(
+            rt,
+            "PUT",
+            "/rest/ip/route",
+            {"dst-address": "0.0.0.0/0", "gateway": gw, "distance": dist, "comment": name},
+        )
+        for gw, dist, name in (("192.0.2.253", "5", "it-a"), ("192.0.2.252", "6", "it-b"))
+    ]
+    try:
+        raw = menus(rt, "/rest/ip/route")
+        net = await network(rt)
+        [group] = net.gateway_groups
+        assert {m.name for m in group.members} >= {"it-a", "it-b"}, group.members
+        d, cid = await deploy(svc, GROUP_WANT, {ChangeKind.GATEWAY_GROUP})
+        try:
+            rows = write_call(rt, "GET", "/rest/ip/route")
+            by = {r.get("comment"): r for r in rows if r.get("comment") in ("it-a", "it-b")}
+            assert (by["it-a"]["distance"], by["it-b"]["distance"]) == ("3", "2"), by
+            assert by["it-a"].get("check-gateway") == "ping", by["it-a"]
+            assert menus(rt, "/rest/system/scheduler")["/rest/system/scheduler"] == {}
+        finally:
+            await revert(svc, d, cid)
+        assert_same_menus(raw, menus(rt, "/rest/ip/route"))
+    finally:
+        for row in made:
+            if isinstance(row, dict) and row.get(".id"):
+                write_call(rt, "DELETE", f"/rest/ip/route/{row['.id']}")
+
+
 async def test_revert_timer_undoes_an_unconfirmed_change(rt: dict[str, str]) -> None:
     """The backstop on the real router: the change is applied, never confirmed, and the
     scheduler entry runs its script when the time comes (15 seconds here): the rule and the

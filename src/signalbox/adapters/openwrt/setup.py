@@ -81,7 +81,7 @@ WRITE_ACL: dict[str, Any] = {
     "signalbox": {
         "description": (
             "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, "
-            "system and snmpd"
+            "system, snmpd and mwan3"
         ),
         "read": READ_ACL["signalbox"]["read"],
         "write": {
@@ -98,7 +98,7 @@ WRITE_ACL: dict[str, Any] = {
                     "rollback",
                 ]
             },
-            "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd"],
+            "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3"],
         },
     }
 }
