@@ -178,9 +178,9 @@ def test_unknown_stays_quiet_for_known_addresses_without_clients_and_off() -> No
 
 def test_a_management_address_counts_as_known() -> None:
     known = client("02:00:00:00:00:31", "192.0.2.50")
-    ap = device("ap", DeviceRole.ACCESS_POINT, management_address="192.0.2.77")
+    ap = device("ap", DeviceRole.AP, management_address="192.0.2.77")
     assert not run(mapping_to_unknown, net(gw(mapping("192.0.2.77")), ap, clients=[known]))
-    named = device("nas", DeviceRole.ACCESS_POINT, management_address="nas.example.test")
+    named = device("nas", DeviceRole.AP, management_address="nas.example.test")
     assert run(mapping_to_unknown, net(gw(mapping("192.0.2.99")), named, clients=[known]))
 
 
