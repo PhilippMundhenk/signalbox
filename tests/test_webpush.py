@@ -261,7 +261,9 @@ def test_a_failing_push_service_is_logged_without_endpoint_or_key(
     notifier = api.app.state.notifier  # type: ignore[attr-defined]
     with caplog.at_level("DEBUG"):
         assert notifier.webpush.send("s", ["l"], "") == 0
-    assert "secret-token-xyz" not in caplog.text and "PRIVATE" not in caplog.text
+    ours = "\n".join(r.getMessage() for r in caplog.records if r.name.startswith("signalbox"))
+    assert "HTTP 500" in ours
+    assert "secret-token-xyz" not in ours and "PRIVATE" not in caplog.text
     assert len(api.get("/api/notifications/webpush").json()["subscriptions"]) == 1  # kept
 
 

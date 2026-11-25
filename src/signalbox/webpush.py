@@ -135,11 +135,11 @@ class WebPush:
             return public
 
     def _vapid(self) -> Any:
-        from py_vapid import Vapid01  # a dependency of pywebpush
+        from py_vapid import Vapid02  # RFC 8292; a dependency of pywebpush
 
         self.public_key()
         stored = self.store.get_setting(PRIVATE_KEY) or ""
-        return Vapid01.from_pem(self.store.vault.decrypt(stored).encode())
+        return Vapid02.from_pem(self.store.vault.decrypt(stored).encode())
 
     def _contact(self) -> str:
         parts = urlsplit(self.base_url)
