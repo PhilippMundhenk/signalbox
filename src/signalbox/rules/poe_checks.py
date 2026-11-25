@@ -15,8 +15,12 @@ from signalbox.model import (
     MessageValue,
     Network,
     PoeStatus,
+    Port,
+    PortKind,
 )
+from signalbox.power import powered_by
 from signalbox.rules import Result, Rule, RuleParams, Severity, ctx, found, param, rule
+from signalbox.rules._names import device_name
 
 #: Share of the budget from which the draw counts as near the limit (warning); 100 % is an error.
 WARN_SHARE = 0.8
@@ -111,7 +115,10 @@ def _idle(net: Network, device: Device) -> Iterator[Result]:
     names = sorted(
         p.name
         for p in net.ports_of(device.id)
-        if p.poe and p.poe.enabled is not False and p.poe.status is PoeStatus.SEARCHING
+        if p.poe
+        and p.poe.enabled is not False
+        and p.poe.status is PoeStatus.SEARCHING
+        and p.up is not True  # with a link and no powered device it is poe.unneeded
     )
     if not names:
         return
@@ -153,4 +160,111 @@ def poe_budget(net: Network) -> Iterator[Result]:
         yield from _idle(net, device)
 
 
-RULES: list[Rule] = [poe_budget]
+def _label(net: Network, port: Port) -> str:
+    return f"{device_name(net, port.device_id)} port {port.name}"
+
+
+@rule(
+    "poe.fault",
+    "A PoE port reports a fault or an overload",
+    Severity.ERROR,
+    "The switch reports a fault (short circuit, over-current, a power supply problem) or an "
+    "overload on a PoE port. The powered device gets no or too little power and restarts or "
+    "stays off. An overload is a warning, a fault an error. Quiet where the switch reports no "
+    "PoE state per port.",
+)
+def poe_fault(net: Network) -> Iterator[Result]:
+    powered = {p.port_id: p for p in powered_by(net).values()}
+    for port in net.ports:
+        poe = port.poe
+        if poe is None or poe.status not in (PoeStatus.FAULT, PoeStatus.OVERLOAD):
+            continue
+        name = _label(net, port)
+        overload = poe.status is PoeStatus.OVERLOAD
+        objects = [port.id]
+        known = powered.get(port.id)
+        if known is not None:
+            objects.append(known.device_id)
+        yield found(
+            f"{name}: PoE reports an overload." if overload else f"{name}: PoE reports a fault.",
+            objects,
+            fix="Check the cable and the powered device (a short circuit, a damaged connector or "
+            "a device that draws more than the port allows); unplug it and plug it in again.",
+            severity=Severity.WARNING if overload else Severity.ERROR,
+            key=port.id,
+            mid="poe.faultOverload" if overload else "poe.fault",
+            fix_id="poe.fault.fix",
+            params={"port": name},
+        )
+
+
+@rule(
+    "poe.class-mismatch",
+    "The PoE class of a port and of its device disagree",
+    Severity.WARNING,
+    "The switch detected another PoE class on a port than the powered device announces (LLDP "
+    "power TLV). One of them is wrong: the device may get less power than it needs, or the "
+    "switch reserves more of its budget than necessary. Needs a neighbour that announces its "
+    "class and a switch that reports the detected class.",
+)
+def poe_class_mismatch(net: Network) -> Iterator[Result]:
+    for nb in net.neighbours:
+        port = net.port(nb.local_port_id)
+        if nb.wireless or port is None or port.poe is None or nb.poe_class is None:
+            continue
+        seen = port.poe.power_class
+        if seen is None or seen == nb.poe_class:
+            continue
+        name = _label(net, port)
+        yield found(
+            f"{name}: the switch detects PoE class {seen} but the device announces class "
+            f"{nb.poe_class}.",
+            [port.id, nb.id],
+            fix="Check the cable and the power supply of the device. If it keeps announcing "
+            "another class, set the class or the power limit of the port by hand.",
+            key=nb.id,
+            mid="poe.classMismatch",
+            fix_id="poe.classMismatch.fix",
+            params={"port": name, "detected": seen, "announced": nb.poe_class},
+        )
+
+
+@rule(
+    "poe.unneeded",
+    "PoE is on for a device that has its own power",
+    Severity.INFO,
+    "A port has PoE switched on and a link, but the switch detects no powered device: what is "
+    "connected has its own power supply. PoE on such a port is harmless with a standard "
+    "(802.3af/at/bt) switch, but passive PoE can damage equipment, and PoE off on that port is "
+    "the safer default. One finding per switch.",
+)
+def poe_unneeded(net: Network) -> Iterator[Result]:
+    for device in net.devices:
+        names = sorted(
+            p.name
+            for p in net.ports_of(device.id)
+            if p.kind is PortKind.ETHERNET
+            and p.up is True
+            and p.poe
+            and p.poe.enabled is True
+            and p.poe.status is PoeStatus.SEARCHING
+        )
+        if not names:
+            continue
+        params: dict[str, MessageValue] = {
+            "device": device.name,
+            "ports": ", ".join(names),
+            "count": len(names),
+        }
+        yield found(
+            f"{device.name}: PoE is on but nothing is powered over it on {params['ports']}.",
+            [device.id],
+            fix="Turn PoE off on these ports; the devices there have their own power supply.",
+            key=device.id,
+            mid="poe.unneeded",
+            fix_id="poe.unneeded.fix",
+            params=params,
+        )
+
+
+RULES: list[Rule] = [poe_budget, poe_fault, poe_class_mismatch, poe_unneeded]
