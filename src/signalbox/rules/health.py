@@ -432,6 +432,7 @@ def replaced(net: Network, history: History) -> Iterator[Result]:
                 [dev.id],
                 fix="If you replaced the device, nothing to do; otherwise check who swapped it. "
                 "Acknowledge this finding once you have seen it.",
+                key=what_id,
                 mid=what_id,
                 fix_id="history.replaced.fix",
                 params={"name": dev.name, "old": _tail(first.old), "new": _tail(last.new)},
