@@ -2553,7 +2553,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     supports_encrypted_dns=True,
                     host_records=records,
                     register_dhcp=register,
-                    dynamic_records=True if dynamic else register,
+                    dynamic_records=True if dynamic else (register or None),
                     listen_segments=segments,
                     # RouterOS 7 has no rebinding protection setting (none in /ip/dns): None
                     vendor_extra=_extra(dns, "dynamic-servers", "cache-size"),
