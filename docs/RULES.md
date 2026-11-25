@@ -79,6 +79,9 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`dns.single-forwarder`](rules/dns.md#dnssingle-forwarder)
 - [`dns.forwarder-encrypted`](rules/dns.md#dnsforwarder-encrypted)
 - [`dns.conflicting-records`](rules/dns.md#dnsconflicting-records)
+- [`dns.dnssec-off`](rules/dns.md#dnsdnssec-off)
+- [`dns.rebind-protection-off`](rules/dns.md#dnsrebind-protection-off)
+- [`dns.blocklist-stale`](rules/dns.md#dnsblocklist-stale)
 
 ## [Expectations about clients](rules/expectations.md)
 
@@ -402,6 +405,12 @@ where each came from. The defaults are the values the rules used before they had
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
 | `high_pct` | `80` | % | Share of the pool in use above which it is reported as nearly full. |
+
+### `dns.blocklist-stale`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `days` | `14` | d | Days since the block list was last downloaded. |
 
 ### `health.storage-full`
 

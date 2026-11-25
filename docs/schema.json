@@ -297,6 +297,19 @@
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "updated": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated"
         }
       },
       "required": [
@@ -2396,6 +2409,18 @@
           ],
           "title": "Address"
         },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
         "port": {
           "default": 53,
           "maximum": 65535,
@@ -2437,6 +2462,18 @@
           "title": "Blocklists",
           "type": "array"
         },
+        "cache_size": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Size"
+        },
         "config_read": {
           "default": true,
           "title": "Config Read",
@@ -2457,6 +2494,18 @@
           ],
           "default": null,
           "title": "Dnssec"
+        },
+        "dynamic_records": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dynamic Records"
         },
         "enabled": {
           "default": true,
@@ -2502,6 +2551,25 @@
           "title": "Listen",
           "type": "array"
         },
+        "listen_segments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Listen Segments",
+          "type": "array"
+        },
+        "local_domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Local Domain"
+        },
         "name": {
           "anyOf": [
             {
@@ -2533,6 +2601,49 @@
           "minimum": 1,
           "title": "Port",
           "type": "integer"
+        },
+        "rebind_allowed_domains": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rebind Allowed Domains",
+          "type": "array"
+        },
+        "rebind_protection": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rebind Protection"
+        },
+        "recursive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recursive"
+        },
+        "register_dhcp": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Register Dhcp"
         },
         "source": {
           "anyOf": [

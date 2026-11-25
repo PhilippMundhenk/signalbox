@@ -3271,5 +3271,17 @@
  "msg.poe.requestOff": "{where}: 機器は {requested} W を要求していますが、ポートのPoEがオフです。",
  "msg.poe.requestOff.fix": "ポートのPoEをオンにするか、別の方法で機器に給電してください。",
  "msg.poe.requestLimit": "{where}: 機器は {requested} W を要求していますが、ポートの供給は最大 {limit} W です。",
- "msg.poe.requestLimit.fix": "ポートのPoE上限を上げるか、PoEクラスの高いポートまたはスイッチへ機器を移してください。"
+ "msg.poe.requestLimit.fix": "ポートのPoE上限を上げるか、PoEクラスの高いポートまたはスイッチへ機器を移してください。",
+ "msg.dns.dnssecOff": "{device} は DNSSEC を検証していません",
+ "msg.dns.dnssecOff.fix": "上流がシグネチャを渡す場合は、リゾルバーで DNSSEC 検証を有効にしてください。",
+ "msg.dns.rebindOff": "{device} は DNS リバインディングから保護していません",
+ "msg.dns.rebindOff.fix": "リバインディング保護を有効にし、プライベートな応答が必要なドメインは例外として登録してください。",
+ "msg.dns.blocklistStale": "{device} のブロックリスト {name} は {age} 日間更新されていません",
+ "msg.dns.blocklistStale.fix": "リストを更新し (Pi-hole: pihole -g、AdGuard Home: リストを更新)、ダウンロードが失敗する場合はエラーを確認してください。リストがなくなっている場合は削除してください。",
+ "rule.dns.dnssec-off.title": "DNS リゾルバーが DNSSEC を検証していない",
+ "rule.dns.dnssec-off.explanation": "DNSSEC を検証しないことが分かっている DNS サービスは、上流や経路上の第三者からの偽の応答を受け入れます。検証は署名の不適切なゾーンの名前解決を妨げることがあり、署名を渡す上流が必要なため、これはエラーではなくヒントです。読み取れなかったサービスや、設定が不明なサービス (全バージョンで読めるわけではありません) は報告されません。",
+ "rule.dns.rebind-protection-off.title": "DNS リバインディング保護がオフ",
+ "rule.dns.rebind-protection-off.explanation": "DNS サービスが、プライベートアドレス (10.x、192.168.x) を指すインターネットからの応答をそのまま通します。悪意のある Web サイトが、ネットワーク内のブラウザーに内部の機器へアクセスさせる可能性があります (DNS リバインディング)。スプリット DNS や一部のサービスでは特定ドメインのみ保護をオフにする必要があります。保護を切る代わりに例外として登録してください。設定が不明なサービスは報告されません。",
+ "rule.dns.blocklist-stale.title": "ブロックリストが長期間更新されていない",
+ "rule.dns.blocklist-stale.explanation": "DNS サービス (Pi-hole、AdGuard Home) の有効なブロックリストが、パラメーター days (既定 14) より長く前に最後にダウンロードされています。新しい広告やマルウェアのドメインがブロックされません。多くはダウンロードの失敗 (リストの移動や削除) が原因です。サービスがリストの更新時刻を示さない場合や観測クロックがない場合は報告されません。"
 }

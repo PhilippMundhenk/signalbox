@@ -2463,8 +2463,16 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         layout = await self._layout()
         dns = _object(await self._get(DNS), DNS)
         records = []
+        domain_forwards: list[tuple[str, IPAddress]] = []
         for row in await self._rows(DNS_STATIC):
             kind = _text(row.get("type")).upper() or "A"
+            if kind == "FWD":
+                # RouterOS 7.? static entry ``type=FWD``: names under ``name`` go to ``forward-to``
+                # (a guess for the field names, #21)
+                target = _addr(row.get("forward-to"))
+                if _active(row) and target is not None and _text(row.get("name")):
+                    domain_forwards.append((_text(row.get("name")).lower(), target))
+                continue
             host, address = _text(row.get("name")), _addr(row.get("address"))
             if not _active(row) or kind not in ("A", "AAAA") or not host or address is None:
                 continue
@@ -2500,7 +2508,11 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                             tls_name=doh or None,
                         )
                         for a in _unique(_addrs(dns.get("servers")))
-                    ],
+                    ]
+                    + [DnsForwarder(address=a, domain=name) for name, a in domain_forwards],
+                    recursive=False,
+                    # ``cache-size`` in kiB
+                    cache_size=_int(dns.get("cache-size")) if dns.get("cache-size") else None,
                     blocklists=blocklists,
                     supports_encrypted_dns=True,
                     host_records=records,

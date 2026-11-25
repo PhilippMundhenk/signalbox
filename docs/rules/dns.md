@@ -95,3 +95,45 @@ reads clients; IPv6 only when IPv6 client addresses were seen), and stay silent 
   are fine, and several addresses of one name on a single service (round robin) are not
   reported.
 - **Fix:** use the same record on every resolver, or use a single resolver.
+
+## `dns.dnssec-off`
+
+- **Severity:** info
+- **Checks:** an enabled DNS service that was read and is known not to validate DNSSEC
+  (`DnsService.dnssec` is false). Services where the setting is not known (not readable on every
+  release, for example Pi-hole v5 without recent queries) are silent.
+- **Fix:** turn DNSSEC validation on, if the upstream passes the signatures on.
+- **Data:** `DnsService.dnssec` (OPNsense Unbound `dnssec`, dnsmasq `dnssec`, AdGuard Home,
+  Pi-hole v6 `dns.dnssec`, Pi-hole v5 from the DNSSEC state of recent queries, systemd-resolved
+  `DNSSEC=`).
+
+## `dns.rebind-protection-off`
+
+- **Severity:** info
+- **Checks:** an enabled DNS service that was read and is known to pass on answers pointing to
+  private addresses (`DnsService.rebind_protection` is false). Services where the setting is
+  not known are silent; the exception domains (`rebind_allowed_domains`) are not a finding.
+- **Fix:** turn the protection on and list the domains that need private answers as exceptions.
+- **Data:** OpenWrt `rebind_protection` (on by default), `rebind_domain`; Linux dnsmasq
+  `stop-dns-rebind`, `rebind-domain-ok`; OPNsense Unbound "Private Addresses" (turns it on only).
+
+## `dns.blocklist-stale`
+
+- **Severity:** info
+- **Checks:** an enabled block list whose last download (`Blocklist.updated`) is older than the
+  parameter `days` (14 by default, a typed rule parameter, ADR 0027). Quiet where the service does
+  not say when a list was updated (Unbound DNSBL, RouterOS) and without the observation clock.
+- **Fix:** update the lists and check why the download fails; remove a list that is gone.
+- **Data:** Pi-hole v6 `date_updated`, AdGuard Home `last_updated`.
+
+## Per-domain upstreams and resolver settings (#182)
+
+`DnsForwarder.domain` marks an upstream that answers one domain only (split DNS:
+`/corp.example/192.0.2.53` in dnsmasq, Unbound domain overrides and forwards with a domain,
+`[/example.lan/]192.0.2.1` in AdGuard Home, Pi-hole conditional forwarding, RouterOS `FWD`
+entries). The loop and single-upstream checks look only at the general upstreams, so a forward
+for one internal domain is neither a loop nor "the only upstream"; `dns.forwarder-missing` and
+`dns.forwarder-encrypted` look at all of them. Host overrides (Unbound) are read as before.
+Further typed settings on `DnsService`, in the API and the schema:
+`recursive`, `rebind_protection` with `rebind_allowed_domains`, `cache_size`, `register_dhcp`,
+`dynamic_records`, `local_domain` and `listen_segments`.

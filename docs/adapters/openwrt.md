@@ -435,7 +435,7 @@ DNS (#241, the same answer): one service per `dnsmasq` section (`<device>/dns/dn
 section name when there are several). `port` (default 53; 0 turns DNS off: disabled),
 `listen_address`, else the addresses of `interface` (empty: all). `server` entries are the
 forwarders, `192.0.2.53#5353` with its port, an `@interface` suffix dropped; domain-specific
-ones (`/corp.example/192.0.2.53`) are not counted. Without `noresolv` dnsmasq also uses the
+ones (`/corp.example/192.0.2.53`, also `/a.example/b.example/192.0.2.53`) are forwarders with `domain` set (#182). Without `noresolv` dnsmasq also uses the
 servers of `resolvfile` (the WAN's), which are not read (`vendor_extra.upstream`). `domain`
 sections (`name`, `ip`) are host records. *Guess*: not yet checked against the CI VMs.
 
@@ -981,9 +981,16 @@ tests/integration/test_openwrt_real.py). *Guess:* `rule` options of other action
 
 dnsmasq's `dnssec` option becomes `dnssec`. If `/etc/config/https-dns-proxy` or
 `/etc/config/stubby` exists, the DNS service is marked as able to encrypt (dnsmasq then forwards
-to `127.0.0.1#port`, a local forwarder). The proxy instances' resolvers are not read yet.
-Domain-specific `server=/domain/addr` lines are still skipped. 23.05, 24.10 and 25.12 use the
-same UCI options (guess for 23.05, #21).
+to `127.0.0.1#port`, a local forwarder). The instances are read (#182): a forwarder to the local
+port of an `https-dns-proxy` section (`resolver_url`, older releases `url_prefix`; `listen_addr`
+127.0.0.1 and `listen_port`, counted up from 5053 in section order when not set) is shown as the
+DNS over HTTPS upstream behind it (`transport` https, `tls_name` the host of the URL); stubby's
+`listen_address` (`127.0.0.1@5453`) with the `tls_auth_name` of its first `resolver` section as DNS
+over TLS. The port numbering and the old option names are guesses (#21). Domain-specific
+`server=/domain/addr` lines are forwarders with `domain`. Typed settings (#182): `rebind_protection`
+(`rebind_protection`, on by default), `rebind_allowed_domains` (`rebind_domain`), `cache_size`
+(`cachesize`, 150 by default), `local_domain` (`domain`), `recursive` false. 23.05, 24.10 and 25.12
+use the same UCI options (guess for 23.05, #21).
 
 ## IPv6 router advertisements and DHCPv6 (#151)
 

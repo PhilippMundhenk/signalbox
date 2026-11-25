@@ -28,6 +28,7 @@ from signalbox.adapters.openwrt import (
     NetworkView,
     OpenWrtAdapter,
     OpenWrtConfig,
+    _domain_server,
     band,
     brforward,
     bridge_vlans,
@@ -36,6 +37,7 @@ from signalbox.adapters.openwrt import (
     lease_seconds,
     link_speeds,
     monitoring,
+    proxy_upstreams,
     security,
     supported_from_features,
     supported_from_packages,
@@ -344,11 +346,23 @@ async def test_dnsmasq_dns(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
     )
     (dns,) = (await adapter.read_dns()).dns_services
     assert dns.port == 53530 and dns.vendor_extra == {}
-    assert [str(f) for f in dns.forwarders] == [
+    assert [str(f) for f in dns.forwarders if f.domain is None] == [
         "192.0.2.53",
         "198.51.100.53:5353",
         "[2001:db8::53]:5353",
     ]
+    (split,) = [f for f in dns.forwarders if f.domain is not None]
+    assert (split.domain, str(split.address)) == ("corp.example", "198.51.100.53")
+    # dnsmasq on OpenWrt protects against rebinding by default, with a 150 entry cache
+    assert dns.rebind_protection is True and dns.rebind_allowed_domains == []
+    assert dns.cache_size == 150 and dns.recursive is False
+    sim.state["dhcp"][main].update(
+        {"rebind_protection": "0", "rebind_domain": ["Corp.Example"], "cachesize": "1000"}
+    )
+    sim.state["dhcp"][main]["domain"] = "Lan."
+    (dns,) = (await adapter.read_dns()).dns_services
+    assert dns.rebind_protection is False and dns.rebind_allowed_domains == ["corp.example"]
+    assert dns.cache_size == 1000 and dns.local_domain == "lan"
     assert [str(a) for a in dns.listen] == ["192.0.2.2", "2001:db8::2"]
     sim.state["dhcp"][main].update({"port": "0", "listen_address": ["192.0.2.2", "bad"]})
     sim.state["dhcp"]["second"] = {".type": "dnsmasq", ".anonymous": False}
@@ -2089,3 +2103,79 @@ async def test_no_mwan3_and_an_older_acl(sim: OpenWrtSim, https_url: str, cert: 
     assert gap.optional and gap.message.startswith("multi-WAN and dynamic DNS (mwan3, ddns)")
     [group] = status_denied.gateway_groups  # the configured tiers, without state
     assert group.active is None and all(m.state is None for m in group.members)
+
+
+def test_https_dns_proxy_and_stubby_upstreams() -> None:
+    """#182: dnsmasq forwards to the local port of the proxy; that port is the encrypted
+    upstream. Ports count up from 5053 where ``listen_port`` is not set."""
+    https = {
+        "values": {
+            "a": {
+                ".type": "https-dns-proxy",
+                ".index": 0,
+                "resolver_url": "https://dns.example.net/dns-query",
+            },
+            "b": {
+                ".type": "https-dns-proxy",
+                ".index": 1,
+                "url_prefix": "https://dns2.example.net:8443/x?",
+                "listen_addr": "127.0.0.2",
+                "listen_port": "5400",
+            },
+            "c": {".type": "https-dns-proxy", ".index": 2},
+            "d": {".type": "other"},
+        }
+    }
+    stubby = {
+        "values": {
+            "s": {".type": "stubby", "listen_address": ["127.0.0.1@5453", "::1@5453", "x@y"]},
+            "r": {
+                ".type": "resolver",
+                "address": "203.0.113.9",
+                "tls_auth_name": "dot.example.net",
+            },
+        }
+    }
+    got = proxy_upstreams({"https-dns-proxy": https, "stubby": stubby})
+    assert {k: (str(v["transport"]), v["tls_name"]) for k, v in got.items()} == {
+        ("127.0.0.1", 5053): ("https", "dns.example.net"),
+        ("127.0.0.2", 5400): ("https", "dns2.example.net"),
+        ("127.0.0.1", 5453): ("tls", "dot.example.net"),
+        ("::1", 5453): ("tls", "dot.example.net"),
+    }
+    assert proxy_upstreams({"https-dns-proxy": {"values": []}, "stubby": {}}) == {}
+    assert _domain_server("192.0.2.1") == ([None], "192.0.2.1")
+    assert _domain_server("/a.example/B.example/192.0.2.1") == (
+        ["a.example", "b.example"],
+        "192.0.2.1",
+    )
+    assert _domain_server("/corp.example/") == ([], "")
+    assert _domain_server("/#/192.0.2.1") == ([], "192.0.2.1")
+
+
+async def test_dnsmasq_forward_to_the_proxy_is_the_encrypted_upstream(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter
+) -> None:
+    main = next(k for k, v in sim.state["dhcp"].items() if v[".type"] == "dnsmasq")
+    sim.state["dhcp"][main]["server"] = ["127.0.0.1#5053", "/corp.example/127.0.0.1#5054"]
+    sim.packages = {"https-dns-proxy"}
+    sim.state["https-dns-proxy"].update(
+        {
+            "p1": {
+                ".type": "https-dns-proxy",
+                ".name": "p1",
+                "resolver_url": "https://dns.example.net/dns-query",
+            },
+            "p2": {
+                ".type": "https-dns-proxy",
+                ".name": "p2",
+                "resolver_url": "https://dns2.example.net/dns-query",
+            },
+        }
+    )
+    (dns,) = (await adapter.read_dns()).dns_services
+    assert [(f.domain, str(f.transport), f.tls_name) for f in dns.forwarders] == [
+        (None, "https", "dns.example.net"),
+        ("corp.example", "https", "dns2.example.net"),
+    ]
+    assert dns.supports_encrypted_dns is True

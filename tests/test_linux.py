@@ -165,7 +165,12 @@ async def test_contract_and_values() -> None:
     assert [str(x.address) for x in iot.leases or []] == ["192.0.2.141"]
     dns = {s.name: s for s in snap.dns_services}
     assert set(dns) == {"dnsmasq"}
-    assert [str(f) for f in dns["dnsmasq"].forwarders] == ["203.0.113.53"]
+    masq = dns["dnsmasq"]
+    assert [str(f) for f in masq.forwarders if f.domain is None] == ["203.0.113.53"]
+    (split,) = [f for f in masq.forwarders if f.domain is not None]
+    assert (split.domain, str(split.address)) == ("corp.example", "192.0.2.250")
+    assert masq.local_domain == "home.example" and masq.recursive is False
+    assert masq.rebind_protection is False and masq.cache_size is None
     assert {h.name for h in dns["dnsmasq"].host_records} == {
         "nas.home.example",
         "router.home.example",
@@ -705,6 +710,43 @@ async def test_dns_services_recognised() -> None:
         obs = await adapter.read_dns()
     (masq,) = obs.dns_services
     assert [str(f) for f in masq.forwarders] == ["192.0.2.53:5353", "192.0.2.53", "192.0.2.54"]
+
+
+async def test_systemd_resolved_dns_over_tls() -> None:
+    """#182: ``resolved.conf`` ``DNS=``, ``DNSOverTLS=`` and ``DNSSEC=``."""
+    box = device()
+    box.sections["units"] += "systemd-resolved active enabled\n"
+    box.sections["resolved"] = (
+        "@@@ /etc/systemd/resolved.conf\n[Resolve]\nDNS=192.0.2.1#dns.example 198.51.100.7:8853\n"
+        "DNSOverTLS=yes\nDNSSEC=allow-downgrade\nDomains=home.example\n"
+        "@@@ /etc/systemd/resolved.conf.d/10-x.conf\n[Other]\nDNS=203.0.113.9\n"
+    )
+    async with adapter_for(box) as adapter:
+        await adapter.read_system()
+        obs = await adapter.read_dns()
+    res = next(s for s in obs.dns_services if s.name == "systemd-resolved")
+    assert [(str(f), f.transport, f.tls_name) for f in res.forwarders] == [
+        ("192.0.2.1:853", "tls", "dns.example"),
+        ("198.51.100.7:8853", "tls", None),
+    ]
+    assert res.dnssec is True and res.supports_encrypted_dns and res.config_read
+    assert res.local_domain == "home.example" and res.vendor_extra == {"dnssec": "allow-downgrade"}
+    box.sections["resolved"] = (
+        "@@@ /etc/systemd/resolved.conf\n[Resolve]\nDNSOverTLS=opportunistic\n"
+        "DNSSEC=no\nDomains=~.\n"
+    )
+    async with adapter_for(box) as adapter:
+        await adapter.read_system()
+        obs = await adapter.read_dns()
+    res = next(s for s in obs.dns_services if s.name == "systemd-resolved")
+    assert res.forwarders == [] and not res.config_read and res.dnssec is False
+    assert res.local_domain is None and res.vendor_extra == {"dns_over_tls": "opportunistic"}
+    box.sections["units"] = box.sections["units"].replace(
+        "systemd-resolved active", "systemd-resolved inactive"
+    )
+    async with adapter_for(box) as adapter:
+        await adapter.read_system()
+        assert "systemd-resolved" not in {s.name for s in (await adapter.read_dns()).dns_services}
 
 
 async def test_timesyncd_and_no_ntp() -> None:

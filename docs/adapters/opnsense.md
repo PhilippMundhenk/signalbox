@@ -520,8 +520,16 @@ these pages, so treat its key like an admin password.
 - **DNS** (#241): Unbound is `<device>/dns/unbound`. Listen addresses are the addresses of the
   selected interfaces (all when none is selected), the port is `general.port`. Global forwarders
   (`dots` entries without a domain) become `forwarders` with their port (empty: 853 for DNS over
-  TLS, 53 for a plain forward, Unbound's defaults); per-domain forwards go to
-  `vendor_extra.domain_forwards` (also those of the domain override grid, when the release has one).
+  TLS, 53 for a plain forward, Unbound's defaults); per-domain forwards (`dots` entries
+  with a domain, also those of the domain override grid, when the release has one) are forwarders with
+  `domain` set (#182; they were `vendor_extra.domain_forwards`). Further settings (#182, guesses for the
+  setting names until checked on a real firewall, #21): `recursive` (no general forwarder and no
+  `general.forwarding`), `rebind_protection` (true when "Private Addresses" `advanced.privateaddress`
+  is set; Unbound's own default is not shown, so otherwise unknown) with `privatedomain` as
+  `rebind_allowed_domains`, `cache_size` (`advanced.msgcachesize`, MB), `register_dhcp` (`regdhcp`),
+  `dynamic_records` (`regdhcp` or `regdhcpstatic`), `local_domain` (`regdhcpdomain`) and
+  `listen_segments` (the segments of the selected interfaces). The host overrides (#386, #393) are
+  read as before and do not depend on the forwarders.
   Host records (#386), each with its `source`: enabled `A`/`AAAA` host overrides (`host-override`),
   their aliases (`alias`, with the addresses of the override they point to), and, when
   "Register DHCP static mappings" / "Register DHCP leases" is on, the names of the DHCP

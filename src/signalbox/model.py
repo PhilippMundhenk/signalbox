@@ -2728,6 +2728,8 @@ class Blocklist(Model):
     name: str
     entries: int | None = None
     enabled: bool = True
+    #: When the service last downloaded the list (#182); None: not known.
+    updated: datetime | None = None
 
 
 class DnsForwarder(Model):
@@ -2744,6 +2746,9 @@ class DnsForwarder(Model):
     #: The server name the TLS certificate is checked against (DoT, DoH); None: not checked or
     #: not known.
     tls_name: str | None = None
+    #: Set: this upstream answers only names under this domain (conditional forwarding,
+    #: ``/corp.example/192.0.2.53``); None: it is a general upstream (#182).
+    domain: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -2790,6 +2795,26 @@ class DnsService(Observed):
     #: True: the software can forward over TLS or HTTPS (OPNsense Unbound, RouterOS 7, AdGuard
     #: Home, Pi-hole, OpenWrt with https-dns-proxy); None: not known or not possible (#80).
     supports_encrypted_dns: bool | None = None
+    #: True: resolves from the root servers itself (Unbound without forwarding); False: asks
+    #: upstream resolvers (dnsmasq, AdGuard Home, Pi-hole); None: not known (#182).
+    recursive: bool | None = None
+    #: True: answers from upstream that point to private addresses are dropped (DNS rebinding
+    #: protection); False: they are passed on; None: not known (#182).
+    rebind_protection: bool | None = None
+    #: Domains exempt from the rebinding protection (dnsmasq ``rebind-domain-ok``).
+    rebind_allowed_domains: list[str] = Field(default_factory=list)
+    #: Size of the answer cache as the service states it (entries for dnsmasq, megabytes for
+    #: Unbound's message cache): not comparable between services; None: not known (#182).
+    cache_size: int | None = None
+    #: True: names of DHCP leases are answered by this service; None: not known (#182).
+    register_dhcp: bool | None = None
+    #: True: some of its records come from DHCP at runtime (leases or static mappings); None:
+    #: not known.
+    dynamic_records: bool | None = None
+    #: The local domain the registered names belong to (``lan``, ``home.example``).
+    local_domain: str | None = None
+    #: Segment ids the service answers on; empty: every segment of the device or not known.
+    listen_segments: list[str] = Field(default_factory=list)
     #: False: the service is only known to exist (something answers on the port, its own API
     #: needs its own login, like AdGuard Home on OPNsense); its forwarders and host records
     #: were not read, so empty lists mean "unknown", not "none".

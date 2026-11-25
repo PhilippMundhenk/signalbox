@@ -64,6 +64,8 @@ V5_API = "/admin/api.php"
 V5_DB = "/admin/api_db.php"
 #: forward destinations of v5 that are no upstream servers
 V5_NOT_UPSTREAM = frozenset({"blocklist", "cache", "other"})
+#: DNSSEC states FTL v5 shows in a query's row when it validates (#182).
+V5_DNSSEC_STATES = frozenset({"SECURE", "INSECURE", "BOGUS", "ABANDONED", "UNKNOWN"})
 V5_TOKEN_HELP = "Settings > API > Show API token"
 
 SETUP_URL = "https://github.com/PhilippMundhenk/signalbox/blob/main/docs/adapters/pihole.md#setup"
@@ -135,6 +137,20 @@ def _obj(value: Any, where: str) -> dict[str, Any]:
 def _sub(value: dict[str, Any], key: str) -> dict[str, Any]:
     inner = value.get(key)
     return inner if isinstance(inner, dict) else {}
+
+
+def _v6_settings(dns: dict[str, Any]) -> dict[str, Any]:
+    """Cache size (``dns.cache.size``, entries) and the local domain (``dns.domain``: a name or
+    ``{"name": ..., "local": ...}``) of the v6 configuration."""
+    out: dict[str, Any] = {}
+    size = _sub(dns, "cache").get("size")
+    if isinstance(size, int) and not isinstance(size, bool) and size >= 0:
+        out["cache_size"] = size
+    domain = dns.get("domain")
+    name = domain.get("name") if isinstance(domain, dict) else domain
+    if isinstance(name, str) and name.strip():
+        out["local_domain"] = name.strip().strip(".").lower()
+    return out
 
 
 def _epoch(value: Any) -> float:
@@ -401,8 +417,28 @@ class PiholeAdapter(Adapter):
             port=DNS_PORT,
             host_records=[],
             extra=extra,
+            dnssec=await self._dnssec_v5(),
         )
         return Observation(dns_services=[service])
+
+    async def _dnssec_v5(self) -> bool | None:
+        """Whether Pi-hole v5 validates DNSSEC. v5 has no API for the setting: the recent
+        queries say it (a ``dnssec`` status such as SECURE or INSECURE appears only when
+        validation is on, ``N/A`` or nothing when it is off). *Guess* for the field's place and
+        spelling (#21); too few queries or an unexpected answer: None."""
+        try:
+            data = await self._v5_get(V5_API, {"getAllQueries": "100"}, token=True)
+        except (Unreachable, AuthFailed):
+            raise
+        except AdapterError:
+            return None
+        rows = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            return None
+        cells = {str(c).upper() for r in rows if isinstance(r, list) for c in r}
+        if cells & V5_DNSSEC_STATES:
+            return True
+        return False if len(rows) >= 20 else None
 
     def _dhcp_v5(self) -> Observation:
         return Observation(
@@ -484,7 +520,7 @@ class PiholeAdapter(Adapter):
                     parts[3] if len(parts) > 3 and parts[3] else parts[1], []
                 ).append(parts[2])
         for domain, servers in reverse.items():
-            upstreams.domains.setdefault(domain, []).extend(servers)
+            upstreams.merge(dnsmap.parse_upstreams([f"[/{domain}/]{s}" for s in servers]))
         records: list[HostRecord] = []
         for line in dns.get("hosts") or []:
             fields = str(line).split("#", 1)[0].split()
@@ -502,6 +538,7 @@ class PiholeAdapter(Adapter):
                             name=dnsmap.list_host(row.get("address")),
                             entries=number if isinstance(number, int) else None,
                             enabled=bool(row.get("enabled", True)),
+                            updated=dnsmap.epoch(row.get("date_updated")),
                         )
                     )
         except (Unreachable, AuthFailed):
@@ -525,6 +562,7 @@ class PiholeAdapter(Adapter):
             extra=extra,
             dnssec=dnssec if isinstance(dnssec, bool) else None,
             blocklists=blocklists,
+            settings=_v6_settings(dns),
         )
         return Observation(dns_services=[service])
 

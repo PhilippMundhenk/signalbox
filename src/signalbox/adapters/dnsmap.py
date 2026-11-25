@@ -10,7 +10,8 @@ network, foreign servers) see real data:
   address Signalbox can match with a device: it is listed in ``vendor_extra["named_upstreams"]``
   (scheme and host only, never a path that could carry a token), not as a forwarder. Upstreams
   for single domains (``[/example.lan/]192.0.2.1``, Pi-hole's conditional forwarding) are
-  ``vendor_extra["domain_forwards"]`` like Unbound's: they are not where lookups in general go.
+  forwarders with ``domain`` set (#182): they are not where lookups in general go. Such an
+  upstream given by name is ``vendor_extra["named_domain_forwards"]``.
 - **DHCP** is reported on the site's native (untagged) segment: the device does not know which
   VLAN it sits in, and core moves it to the segment of the router it shares a network with.
 """
@@ -59,15 +60,23 @@ class Upstreams:
     forwarders: list[DnsForwarder] = field(default_factory=list)
     #: ``scheme://host[:port]`` of upstreams without an address (sdns stamps: ``sdns://``).
     named: list[str] = field(default_factory=list)
-    #: domain -> the upstreams of that domain only, as text.
+    #: domain -> the upstreams of that domain only that have no address, as text.
     domains: dict[str, list[str]] = field(default_factory=dict)
+
+    def merge(self, other: Upstreams) -> None:
+        """Add what ``other`` found (conditional forwarding of Pi-hole), without duplicates."""
+        self.forwarders += [f for f in other.forwarders if f not in self.forwarders]
+        self.named += [n for n in other.named if n not in self.named]
+        for domain, names in other.domains.items():
+            listed = self.domains.setdefault(domain, [])
+            listed += [n for n in names if n not in listed]
 
     def extra(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         if self.named:
             out["named_upstreams"] = self.named
         if self.domains:
-            out["domain_forwards"] = self.domains
+            out["named_domain_forwards"] = self.domains
         return out
 
 
@@ -86,7 +95,7 @@ def host_port(text: str) -> tuple[str, int | None]:
     return text, None
 
 
-def _one(spec: str) -> tuple[DnsForwarder | None, str | None]:
+def _one(spec: str, domain: str | None = None) -> tuple[DnsForwarder | None, str | None]:
     """One upstream without a domain prefix: (forwarder, None) or (None, name to list)."""
     scheme, sep, rest = spec.partition("://")
     if not sep:
@@ -109,6 +118,7 @@ def _one(spec: str) -> tuple[DnsForwarder | None, str | None]:
             address=address,
             port=number,
             transport=_SCHEME_TRANSPORT.get(scheme, DnsTransport.UDP),
+            domain=domain,
         ),
         None,
     )
@@ -136,12 +146,16 @@ def parse_upstreams(items: Iterable[str]) -> Upstreams:
         # several servers for one domain list are separated by spaces
         for part in spec.split():
             forwarder, name = _one(part)
-            text = str(forwarder) if forwarder is not None else name or part
             if domains:
                 for d in domains:
-                    out.domains.setdefault(d, [])
-                    if text not in out.domains[d]:
-                        out.domains[d].append(text)
+                    dom_fwd, _ = _one(part, d)
+                    if dom_fwd is not None:
+                        if dom_fwd not in out.forwarders:
+                            out.forwarders.append(dom_fwd)
+                    else:
+                        listed = out.domains.setdefault(d, [])
+                        if (name or part) not in listed:
+                            listed.append(name or part)
             elif forwarder is not None:
                 if forwarder not in out.forwarders:
                     out.forwarders.append(forwarder)
@@ -163,6 +177,7 @@ def dns_service(
     dnssec: bool | None = None,
     blocklists: list[Blocklist] | None = None,
     encrypted: bool | None = None,
+    settings: dict[str, Any] | None = None,
 ) -> DnsService:
     """The device's DNS service. ``upstreams`` None: their list could not be read, so the
     service is reported as not read (``config_read=False``) and the loop checks say so."""
@@ -178,9 +193,25 @@ def dns_service(
         dnssec=dnssec,
         blocklists=blocklists or [],
         supports_encrypted_dns=encrypted,
+        recursive=False if upstreams is not None else None,
         config_read=upstreams is not None,
         vendor_extra={**(upstreams.extra() if upstreams else {}), **(extra or {})},
+        **(settings or {}),
     )
+
+
+def iso_time(value: object) -> datetime | None:
+    """An ISO 8601 time (``2026-01-02T03:04:05Z``, ``...+01:00``) as a UTC time; the zero
+    time of Go (year 1) and anything unreadable: None."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.year < 2000:
+        return None
+    return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def lease_seconds(text: object) -> int | None:

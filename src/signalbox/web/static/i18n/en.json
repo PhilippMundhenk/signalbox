@@ -3271,5 +3271,17 @@
  "msg.poe.requestOff": "{where}: the device asks for {requested} W but PoE is off on the port.",
  "msg.poe.requestOff.fix": "Turn PoE on for the port, or power the device another way.",
  "msg.poe.requestLimit": "{where}: the device asks for {requested} W but the port gives at most {limit} W.",
- "msg.poe.requestLimit.fix": "Raise the PoE limit of the port or move the device to a port or switch with a higher PoE class."
+ "msg.poe.requestLimit.fix": "Raise the PoE limit of the port or move the device to a port or switch with a higher PoE class.",
+ "msg.dns.dnssecOff": "{device} does not validate DNSSEC",
+ "msg.dns.dnssecOff.fix": "Turn DNSSEC validation on in the resolver, if its upstream passes the signatures on.",
+ "msg.dns.rebindOff": "{device} does not protect against DNS rebinding",
+ "msg.dns.rebindOff.fix": "Turn the rebinding protection on and list the domains that need private answers as exceptions.",
+ "msg.dns.blocklistStale": "The block list {name} on {device} was not updated for {age} days",
+ "msg.dns.blocklistStale.fix": "Update the lists (Pi-hole: pihole -g; AdGuard Home: Update lists) and check the error if the download fails; remove the list if it is gone.",
+ "rule.dns.dnssec-off.title": "DNS resolver does not validate DNSSEC",
+ "rule.dns.dnssec-off.explanation": "A DNS service that is known not to validate DNSSEC accepts forged answers from an upstream or from someone on the path. Validation can break lookups of badly signed zones and needs an upstream that passes the signatures on, so this is a hint, not an error. Services that were not read, and services where the setting is not known (it is not readable on every release), are not reported.",
+ "rule.dns.rebind-protection-off.title": "DNS rebinding protection is off",
+ "rule.dns.rebind-protection-off.explanation": "A DNS service passes on answers from the internet that point to private addresses (10.x, 192.168.x). A malicious website can then make a browser on your network talk to devices inside it (DNS rebinding). Split DNS and some services need the protection off for single domains: list them as exceptions instead of turning it off. Services where the setting is not known are not reported.",
+ "rule.dns.blocklist-stale.title": "Block list was not updated for a long time",
+ "rule.dns.blocklist-stale.explanation": "An enabled block list of a DNS service (Pi-hole, AdGuard Home) was last downloaded longer ago than the parameter days (14 by default). New ad and malware domains are then not blocked, usually because the download fails (the list moved or was taken down). Quiet when the service does not say when a list was updated, and without the observation clock."
 }

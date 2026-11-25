@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from ipaddress import ip_address
 from typing import Any
 
@@ -133,9 +134,18 @@ async def test_adguard_contract_and_mapping(ag: tuple[AdGuardSim, str]) -> None:
     (dns,) = snap.dns_services
     assert dns.id == "adguard/dns/adguardhome" and dns.port == 53 and dns.config_read
     assert [str(x) for x in dns.listen] == ["192.0.2.53", "2001:db8::53"]
-    assert [str(f) for f in dns.forwarders] == ["192.0.2.1", "203.0.113.53:853"]
+    assert [str(f) for f in dns.forwarders if f.domain is None] == [
+        "192.0.2.1",
+        "203.0.113.53:853",
+    ]
     assert dns.vendor_extra["named_upstreams"] == ["https://dns.example.net"]
-    assert dns.vendor_extra["domain_forwards"] == {"example.lan": ["192.0.2.1:5353"]}
+    (split,) = [f for f in dns.forwarders if f.domain is not None]  # #182: typed, not extra
+    assert (split.domain, str(split.address), split.port) == ("example.lan", "192.0.2.1", 5353)
+    assert "domain_forwards" not in dns.vendor_extra
+    (blocklist,) = dns.blocklists
+    assert blocklist.name == "AdGuard DNS filter" and blocklist.entries == 52000
+    assert blocklist.updated == datetime(2030, 1, 1, 4, tzinfo=UTC)
+    assert dns.cache_size == 4194304 and dns.recursive is False
     assert dns.vendor_extra["filtering_enabled"] is True
     assert [(r.name, str(r.address)) for r in dns.host_records] == [
         ("nas.example.lan", "192.0.2.20")
@@ -249,8 +259,17 @@ async def test_pihole_contract_mapping_and_logout(ph: tuple[PiholeSim, str]) -> 
     assert (snap.device.firmware.current, snap.device.firmware.available) == ("6.0.2", "6.1")
     (dns,) = snap.dns_services
     assert dns.id == "pihole/dns/pihole" and dns.config_read
-    assert [str(f) for f in dns.forwarders] == ["192.0.2.53", "203.0.113.53:5353", "2001:db8::1"]
-    assert dns.vendor_extra["domain_forwards"] == {"lan": ["192.0.2.1"]}
+    assert [str(f) for f in dns.forwarders if f.domain is None] == [
+        "192.0.2.53",
+        "203.0.113.53:5353",
+        "2001:db8::1",
+    ]
+    (split,) = [f for f in dns.forwarders if f.domain is not None]
+    assert (split.domain, str(split.address)) == ("lan", "192.0.2.1")
+    (blocklist,) = dns.blocklists
+    assert blocklist.name == "lists.example.net" and blocklist.entries == 120000
+    assert blocklist.updated == datetime.fromtimestamp(1893456000, UTC)
+    assert dns.cache_size == 10000 and dns.local_domain == "lan"
     assert [(r.name, str(r.address)) for r in dns.host_records] == [
         ("printer.lan", "192.0.2.10"),
         ("printer", "192.0.2.10"),
@@ -350,6 +369,7 @@ async def test_pihole_v5_contract_and_mapping(ph5: tuple[PiholeSim, str]) -> Non
     # blocklist, cache and other are no upstream servers; "name|address" keys
     assert [str(f) for f in dns.forwarders] == ["192.0.2.53", "203.0.113.53:5353", "2001:db8::1"]
     assert dns.vendor_extra["filtering_enabled"] is True
+    assert dns.dnssec is True  # the recent queries carry a DNSSEC state (a guess, #21)
     assert not snap.dhcp_servers
     (gap,) = [e for e in snap.errors if e.capability == "dhcp"]
     assert gap.optional and "v6" in (gap.fix or "")
@@ -447,6 +467,19 @@ async def test_pihole_v5_status_failure_is_not_fatal(ph5: tuple[PiholeSim, str])
     snap = await observe(pihole5(url))
     assert snap.status is DeviceStatus.OK
     assert snap.dns_services[0].vendor_extra["filtering_enabled"] is False
+
+
+async def test_pihole_v5_dnssec_from_the_queries(ph5: tuple[PiholeSim, str]) -> None:
+    sim, url = ph5
+    plain = [[str(i), "A", "example.net", "laptop", "2", "N/A"] for i in range(25)]
+    sim.v5_data["getAllQueries"] = {"data": plain}
+    assert (await observe(pihole5(url))).dns_services[0].dnssec is False
+    sim.v5_data["getAllQueries"] = {"data": plain[:5]}  # too few to say
+    assert (await observe(pihole5(url))).dns_services[0].dnssec is None
+    sim.v5_data["getAllQueries"] = "junk"
+    assert (await observe(pihole5(url))).dns_services[0].dnssec is None
+    sim.v5_data["getAllQueries"] = {"data": "junk"}
+    assert (await observe(pihole5(url))).dns_services[0].dnssec is None
 
 
 async def test_pihole_v5_over_pinned_tls(tmp_path: Any) -> None:
@@ -576,13 +609,14 @@ def test_parse_upstreams() -> None:
             "sdns://AQcAAAAA",
             "[//]192.0.2.9",
             "[/a.lan/b.lan/]192.0.2.8 192.0.2.7",
+            "[/d.lan/]tls://dns.example.net",
             "[/c.lan/]#",
             "#",
             "192.0.2.4:70000",
             "",
         ]
     )
-    assert [str(f) for f in up.forwarders] == [
+    assert [str(f) for f in up.forwarders if f.domain is None] == [
         "192.0.2.1",
         "192.0.2.2:5353",
         "2001:db8::1",
@@ -590,9 +624,15 @@ def test_parse_upstreams() -> None:
         "203.0.113.1:853",
         "203.0.113.2:443",
     ]
+    assert [(f.domain, str(f.address)) for f in up.forwarders if f.domain] == [
+        ("(names without a dot)", "192.0.2.9"),
+        ("a.lan", "192.0.2.8"),
+        ("b.lan", "192.0.2.8"),
+        ("a.lan", "192.0.2.7"),
+        ("b.lan", "192.0.2.7"),
+    ]
     assert up.named == ["tls://dns.example.net:853", "sdns://", "192.0.2.4:70000"]
-    assert up.domains["a.lan"] == ["192.0.2.8", "192.0.2.7"] == up.domains["b.lan"]
-    assert up.domains["(names without a dot)"] == ["192.0.2.9"]
+    assert up.domains == {"d.lan": ["tls://dns.example.net"]}  # no address: by name only
     assert DnsForwarder(address=ip_address("192.0.2.1")) in up.forwarders
 
 

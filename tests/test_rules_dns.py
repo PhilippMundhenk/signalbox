@@ -1,7 +1,9 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from factories import SITE, device, iface, ip
 from signalbox.model import (
+    Blocklist,
     Client,
     DeviceRole,
     DhcpPool,
@@ -18,17 +20,21 @@ from signalbox.model import (
     Subnet,
     segment_id,
 )
-from signalbox.rules import Finding, Rule, evaluate
+from signalbox.rules import Finding, Rule, RuleSettings, Severity, evaluate
 from signalbox.rules.dns import (
+    blocklist_stale,
     conflicting_records,
+    dnssec_off,
     forwarder_encrypted,
     forwarder_loop,
     forwarder_missing,
     host_record_dynamic,
     host_record_reservation,
     host_record_stale,
+    rebind_protection_off,
     single_forwarder,
 )
+from signalbox.sightings import History
 
 LAN = segment_id(SITE.id, 10)
 OTHER = Site(id="away", name="Away")
@@ -537,3 +543,83 @@ def test_encrypted_local_or_unable_forwarders_are_silent() -> None:
     ]
     for svc in cases:
         assert run(forwarder_encrypted, network(dns_services=[svc])) == []
+
+
+# --- #182: per-domain upstreams, DNSSEC, rebinding, stale block lists -----------------------------
+
+
+def test_domain_upstream_is_neither_a_loop_nor_the_only_upstream() -> None:
+    """Split DNS: ``corp.example`` goes to a local resolver that forwards back to this one."""
+    split = DnsForwarder(address=ip("192.0.2.2"), domain="corp.example")
+    a = dns("gw", forwarders=["203.0.113.53", "198.51.100.53", split], listen=["192.0.2.1"])
+    b = dns("mt", forwarders=["203.0.113.54", "198.51.100.54", "192.0.2.1"], listen=["192.0.2.2"])
+    assert run(forwarder_loop, network(dns_services=[a, b])) == []
+    only_split = dns("gw", forwarders=[split], listen=["192.0.2.1"])
+    assert run(single_forwarder, network(dns_services=[only_split])) == []
+    # the same two upstreams without a domain are a loop
+    loop = dns("gw", forwarders=["192.0.2.2"], listen=["192.0.2.1"])
+    back = dns("mt", forwarders=["192.0.2.1"], listen=["192.0.2.2"])
+    assert len(run(forwarder_loop, network(dns_services=[loop, back]))) == 1
+
+
+def test_domain_upstream_to_a_missing_local_resolver_is_reported() -> None:
+    split = DnsForwarder(address=ip("192.0.2.77"), domain="corp.example")
+    svc = dns("gw", forwarders=["203.0.113.53", "198.51.100.53", split], listen=["192.0.2.1"])
+    net = network(dns_services=[svc], clients=[client(1, "192.0.2.50")])
+    (f,) = run(forwarder_missing, net)
+    assert "192.0.2.77" in f.message
+
+
+def test_dnssec_off() -> None:
+    off = dns("gw", dnssec=False)
+    [f] = run(dnssec_off, network(dns_services=[off]))
+    assert f.severity is Severity.INFO and "does not validate DNSSEC" in f.message
+    assert f.objects == [off.id]
+    for quiet in (
+        dns("gw", dnssec=True),
+        dns("gw", dnssec=None),
+        dns("gw", dnssec=False, enabled=False),
+        dns("gw", dnssec=False, config_read=False),
+    ):
+        assert run(dnssec_off, network(dns_services=[quiet])) == []
+
+
+def test_rebind_protection_off() -> None:
+    off = dns("gw", rebind_protection=False)
+    [f] = run(rebind_protection_off, network(dns_services=[off]))
+    assert f.severity is Severity.INFO and "DNS rebinding" in f.message
+    for quiet in (
+        dns("gw", rebind_protection=True, rebind_allowed_domains=["corp.example"]),
+        dns("gw", rebind_protection=None),
+        dns("gw", rebind_protection=False, config_read=False),
+    ):
+        assert run(rebind_protection_off, network(dns_services=[quiet])) == []
+
+
+NOW = datetime(2026, 11, 25, tzinfo=UTC)
+
+
+def stale_lists(net: Network, settings: dict[str, RuleSettings] | None = None) -> list[Finding]:
+    return evaluate(net, [blocklist_stale], settings, History(now=NOW))
+
+
+def test_blocklist_stale() -> None:
+    old = Blocklist(name="lists.example.net", updated=NOW - timedelta(days=20))
+    svc = dns("gw", blocklists=[old])
+    [f] = stale_lists(network(dns_services=[svc]))
+    assert f.severity is Severity.INFO and f.params["age"] == 20 and f.params["days"] == 14
+    for quiet in (
+        Blocklist(name="a", updated=NOW - timedelta(days=3)),
+        Blocklist(name="b", updated=None),
+        Blocklist(name="c", updated=NOW - timedelta(days=90), enabled=False),
+    ):
+        assert stale_lists(network(dns_services=[dns("gw", blocklists=[quiet])])) == []
+    assert evaluate(network(dns_services=[svc]), [blocklist_stale], None, History()) == []
+
+
+def test_blocklist_stale_days_are_a_parameter() -> None:
+    svc = dns("gw", blocklists=[Blocklist(name="x", updated=NOW - timedelta(days=20))])
+    settings = {"dns.blocklist-stale": RuleSettings(params={"days": 30})}
+    assert stale_lists(network(dns_services=[svc]), settings) == []
+    settings = {"dns.blocklist-stale": RuleSettings(params={"days": 10})}
+    assert [f.params["days"] for f in stale_lists(network(dns_services=[svc]), settings)] == [10]

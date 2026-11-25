@@ -3271,5 +3271,17 @@
  "msg.poe.requestOff": "{where}: perangkat meminta {requested} W tetapi PoE mati di port.",
  "msg.poe.requestOff.fix": "Aktifkan PoE di port atau beri daya perangkat dengan cara lain.",
  "msg.poe.requestLimit": "{where}: perangkat meminta {requested} W tetapi port memberi paling banyak {limit} W.",
- "msg.poe.requestLimit.fix": "Naikkan batas PoE port atau pindahkan perangkat ke port atau switch dengan kelas PoE lebih tinggi."
+ "msg.poe.requestLimit.fix": "Naikkan batas PoE port atau pindahkan perangkat ke port atau switch dengan kelas PoE lebih tinggi.",
+ "msg.dns.dnssecOff": "{device} tidak memvalidasi DNSSEC",
+ "msg.dns.dnssecOff.fix": "Aktifkan validasi DNSSEC di resolver, jika upstream-nya meneruskan tanda tangan.",
+ "msg.dns.rebindOff": "{device} tidak melindungi dari DNS rebinding",
+ "msg.dns.rebindOff.fix": "Aktifkan perlindungan rebinding dan daftarkan domain yang membutuhkan jawaban privat sebagai pengecualian.",
+ "msg.dns.blocklistStale": "Daftar blokir {name} di {device} tidak diperbarui selama {age} hari",
+ "msg.dns.blocklistStale.fix": "Perbarui daftar (Pi-hole: pihole -g; AdGuard Home: Perbarui daftar) dan periksa kesalahan jika unduhan gagal; hapus daftar jika sudah tidak ada.",
+ "rule.dns.dnssec-off.title": "Resolver DNS tidak memvalidasi DNSSEC",
+ "rule.dns.dnssec-off.explanation": "Layanan DNS yang diketahui tidak memvalidasi DNSSEC menerima jawaban palsu dari upstream atau dari pihak di jalur. Validasi dapat merusak pencarian zona yang ditandatangani buruk dan membutuhkan upstream yang meneruskan tanda tangan, jadi ini petunjuk, bukan kesalahan. Layanan yang tidak terbaca dan layanan dengan pengaturan tidak diketahui (tidak terbaca di setiap rilis) tidak dilaporkan.",
+ "rule.dns.rebind-protection-off.title": "Perlindungan DNS rebinding mati",
+ "rule.dns.rebind-protection-off.explanation": "Layanan DNS meneruskan jawaban dari internet yang menunjuk ke alamat privat (10.x, 192.168.x). Situs berbahaya lalu dapat membuat peramban di jaringan Anda berbicara dengan perangkat di dalamnya (DNS rebinding). DNS terpisah dan beberapa layanan membutuhkan perlindungan mati untuk domain tertentu: daftarkan sebagai pengecualian alih-alih mematikannya. Layanan dengan pengaturan tidak diketahui tidak dilaporkan.",
+ "rule.dns.blocklist-stale.title": "Daftar blokir lama tidak diperbarui",
+ "rule.dns.blocklist-stale.explanation": "Daftar blokir aktif dari layanan DNS (Pi-hole, AdGuard Home) terakhir diunduh lebih lama dari parameter days (bawaan 14). Domain iklan dan malware baru lalu tidak diblokir, biasanya karena unduhan gagal (daftar pindah atau dihapus). Diam jika layanan tidak menyebut kapan daftar diperbarui dan tanpa jam pengamatan."
 }

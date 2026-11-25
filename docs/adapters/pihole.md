@@ -65,8 +65,12 @@ Mapping to the model:
   listens on, so the device's management address is used. Whether blocking is on is
   `vendor_extra.filtering_enabled`.
 - **Forwarders**: `dns.upstreams` (`192.0.2.1`, `203.0.113.53#5353`, `2001:db8::1`).
-  Conditional forwarding (`dns.revServers`, enabled entries) is
-  `vendor_extra.domain_forwards`, not a forwarder. Local DNS records (`dns.hosts`,
+  Conditional forwarding (`dns.revServers`, enabled entries) is a forwarder with `domain` set (#182).
+  Block lists (`/api/lists`, v6) carry `date_updated` as `updated`; `cache_size` is `dns.cache.size`
+  and `local_domain` is `dns.domain`. **Pi-hole v5** has no API for DNSSEC: it is read from the
+  recent queries (`api.php?getAllQueries=100`: a SECURE, INSECURE or BOGUS state means validation is
+  on; 20 or more queries without one mean it is off; fewer: unknown). A guess for the column and
+  spelling, to be checked on a real v5 box (#21). Local DNS records (`dns.hosts`,
   `192.0.2.10 printer.lan`) are host records.
 - **DHCP** (only when `dhcp.active`): `<device>/dhcp/pihole` with the range, lease time
   (`24h`, `90m`, `7d`, seconds), router, domain, the reservations (`dhcp.hosts`, dnsmasq
