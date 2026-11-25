@@ -645,6 +645,9 @@ async def test_neighbours(snap: Snapshot) -> None:
     assert nb.description == "MikroTik RouterOS 7.15.3 CRS326-24G-2S+"
     # protocol, age and VLAN (#163)
     assert (nb.protocol, nb.chassis_id_kind, nb.age_seconds, nb.port_vlan) == ("lldp", "mac", 65, 1)
+    # RouterOS counts the age from the last update, so the last frame is known (#448)
+    assert nb.last_seen is not None and nb.observed_at is not None
+    assert 60 <= (nb.observed_at - nb.last_seen).total_seconds() <= 70
 
 
 def test_duration_and_vlan_helpers() -> None:

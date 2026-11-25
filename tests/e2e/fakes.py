@@ -40,6 +40,7 @@ from signalbox.model import (
     DhcpServer,
     DnsForwarder,
     DnsService,
+    DnsTransport,
     FdbEntry,
     FdbKind,
     Firewall,
@@ -56,7 +57,10 @@ from signalbox.model import (
     LogTarget,
     LogTransport,
     ManagementService,
+    MedDeviceClass,
     Membership,
+    Neighbour,
+    NeighbourProtocol,
     Network,
     NtpClient,
     Pmf,
@@ -784,6 +788,99 @@ class Service(Adapter):
 
     async def read_health(self) -> Observation:
         return Observation()
+
+
+class ResolverConfig(AdapterConfig):
+    address: str = Field(description="Address of the device.")
+
+
+class Resolver(Adapter):
+    """A switch that reports an LLDP neighbour with all details (#448) and a DNS resolver with
+    per-domain upstreams over TLS (#456), plus one resolver it could not read."""
+
+    manifest = Manifest(
+        id="labresolver",
+        name="Lab resolver",
+        version="1",
+        api_version="1.0",
+        vendor="Example",
+        roles=frozenset({DeviceRole.SWITCH}),
+        capabilities=frozenset(
+            {Capability.INTERFACES, Capability.NEIGHBOURS, Capability.DNS},
+        ),
+        config=ResolverConfig,
+    )
+
+    async def read_system(self) -> SystemInfo:
+        return SystemInfo(vendor="Example", model="LR-1", transport_encrypted=False)
+
+    async def read_interfaces(self) -> Observation:
+        d = self.context.device_id
+        return Observation(
+            ports=[Port(id=port_id(d, "p1"), device_id=d, name="p1", up=True, mac=mac(d, 1))]
+        )
+
+    async def read_neighbours(self) -> Observation:
+        d = self.context.device_id
+        return Observation(
+            neighbours=[
+                Neighbour(
+                    id=f"{d}/neighbour/p1",
+                    local_port_id=port_id(d, "p1"),
+                    chassis_id="02:00:00:00:77:01",
+                    chassis_id_kind="mac",
+                    remote_port="gi0/7",
+                    port_description="uplink <b>to</b> core",
+                    system_name="Phone <i>1</i>",
+                    protocol=NeighbourProtocol.LLDP,
+                    port_vlan=20,
+                    vlans=[20, 30],
+                    max_frame_size=1522,
+                    poe_requested_w=6.5,
+                    poe_allocated_w=7.0,
+                    poe_class=2,
+                    med_device_class=MedDeviceClass.ENDPOINT_3,
+                    age_seconds=3700,
+                ),
+                Neighbour(
+                    id=f"{d}/neighbour/p1-mndp",
+                    local_port_id=port_id(d, "p1"),
+                    chassis_id="02:00:00:00:77:02",
+                    system_name="Bridge",
+                    protocol=NeighbourProtocol.MNDP,
+                    last_seen=datetime.now(UTC) - timedelta(minutes=5),
+                ),
+            ]
+        )
+
+    async def read_dns(self) -> Observation:
+        d = self.context.device_id
+        return Observation(
+            dns_services=[
+                DnsService(
+                    id=f"{d}/dns/unbound",
+                    device_id=d,
+                    name="unbound",
+                    recursive=False,
+                    dnssec=True,
+                    rebind_protection=True,
+                    rebind_allowed_domains=["plex.direct"],
+                    cache_size=50,
+                    local_domain="home.example",
+                    register_dhcp=True,
+                    forwarders=[
+                        DnsForwarder(
+                            address=ip_address("203.0.113.53"),
+                            port=853,
+                            transport=DnsTransport.TLS,
+                            tls_name="dns.example",
+                        ),
+                        DnsForwarder(address=ip_address("192.0.2.53"), domain="corp.example"),
+                    ],
+                ),
+                DnsService(id=f"{d}/dns/port-5353", device_id=d, port=5353, config_read=False),
+            ]
+        )
 
 
 def wg_key(name: str) -> str:

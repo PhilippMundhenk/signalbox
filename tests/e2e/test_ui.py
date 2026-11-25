@@ -472,6 +472,66 @@ def test_site_to_site_tunnel_on_topology_and_device_page(app: Any) -> None:
     assert "privkey" not in str(net) and "private" not in str(net)
 
 
+def test_neighbour_and_resolver_cards_on_the_device_page(app: Any) -> None:
+    """#448, #456: the LLDP neighbour with its details and the DNS resolver settings with the
+    per-domain upstreams; names from the device stay text."""
+    add_site(app)
+    body = {
+        "name": "Resolver",
+        "site_id": "home",
+        "role": "switch",
+        "adapter": "labresolver",
+        "config": {"address": "192.0.2.3"},
+    }
+    api(app, "POST", "/devices", body)
+    observe(app)
+    go(app, "#/device/resolver")
+    card = app.get_by_test_id("device-lldp")
+    expect(card).to_be_visible()
+    rows = card.get_by_test_id("lldp-row")
+    expect(rows).to_have_count(2)
+    first = rows.filter(has_text="gi0/7")
+    expect(first).to_contain_text("Phone <i>1</i>")  # text, not markup
+    expect(first).to_contain_text("uplink <b>to</b> core")
+    expect(first).to_contain_text("LLDP")
+    for text in (
+        "port VLAN 20",
+        "VLANs 20, 30",
+        "frame size 1,522 bytes",
+        "PoE requested 6.5 W",
+        "PoE allocated 7 W",
+        "PoE class 2",
+        "LLDP-MED endpoint-3",
+        "entry age 1 h 1 min",
+    ):
+        expect(first.get_by_test_id("lldp-details")).to_contain_text(text)
+    other = rows.filter(has_text="MNDP")
+    expect(other.get_by_test_id("lldp-details")).to_contain_text("last seen")
+    expect(card.locator("b, i")).to_have_count(0)
+
+    dns = app.get_by_test_id("device-dns")
+    expect(dns).to_be_visible()
+    services = dns.get_by_test_id("dns-service")
+    expect(services).to_have_count(2)
+    settings = services.nth(0).get_by_test_id("dns-settings")
+    for text in (
+        "asks its upstream resolvers",
+        "DNSSEC validation on",
+        "rebinding protection on",
+        "plex.direct",
+        "cache size 50",
+        "local domain home.example",
+        "answers the names of DHCP leases",
+    ):
+        expect(settings).to_contain_text(text)
+    upstreams = dns.get_by_test_id("dns-upstream")
+    expect(upstreams).to_have_count(2)
+    expect(upstreams.nth(0)).to_contain_text("203.0.113.53:853")
+    expect(upstreams.nth(0)).to_contain_text("DNS over TLS")
+    expect(upstreams.nth(1)).to_contain_text("only for corp.example")
+    expect(dns.get_by_test_id("dns-unread")).to_have_count(1)
+
+
 def test_settings_sites_rules_and_delete_device(app: Any) -> None:
     add_site(app)
     add_lab(app, "Router")

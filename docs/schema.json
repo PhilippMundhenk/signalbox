@@ -5107,6 +5107,19 @@
           "title": "Id",
           "type": "string"
         },
+        "last_seen": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Seen"
+        },
         "local_port_id": {
           "title": "Local Port Id",
           "type": "string"

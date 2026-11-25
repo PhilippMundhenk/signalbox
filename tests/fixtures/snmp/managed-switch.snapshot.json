@@ -890,7 +890,8 @@
    "poe_class": null,
    "med_device_class": "network-connectivity",
    "ttl_seconds": null,
-   "age_seconds": null
+   "age_seconds": null,
+   "last_seen": null
   },
   {
    "id": "switch/neighbour/Gi3-02:00:00:00:00:a1",
@@ -923,7 +924,8 @@
    "poe_class": 4,
    "med_device_class": "endpoint-3",
    "ttl_seconds": null,
-   "age_seconds": null
+   "age_seconds": null,
+   "last_seen": null
   },
   {
    "id": "switch/neighbour/Gi7-02:00:00:00:00:02",
@@ -955,7 +957,8 @@
    "poe_class": null,
    "med_device_class": "network-connectivity",
    "ttl_seconds": null,
-   "age_seconds": null
+   "age_seconds": null,
+   "last_seen": null
   }
  ],
  "mesh_peers": [],

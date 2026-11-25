@@ -131,6 +131,94 @@ function multiwanCard(ix, deviceId) {
   return h('section', { class: 'card', 'data-testid': 'device-multiwan' }, h('h2', {}, t('device.multiwan.title')), kv(rows));
 }
 
+// Neighbours learned by LLDP, CDP or MNDP (#163, #448): what each announces on its port. Text
+// only; a fact the neighbour did not announce is left out.
+const WATTS = (v) => fmtNumber(Math.round(v * 10) / 10);
+function lldpDetails(n) {
+  return [
+    opt(n.port_vlan, (v) => t('device.lldp.portVlan', { id: v })),
+    n.vlans && n.vlans.length ? t('device.lldp.vlans', { list: n.vlans.join(', ') }) : null,
+    opt(n.max_frame_size, (v) => t('device.lldp.frameSize', { bytes: fmtNumber(v) })),
+    opt(n.poe_requested_w, (v) => t('device.lldp.poeRequested', { value: WATTS(v) })),
+    opt(n.poe_allocated_w, (v) => t('device.lldp.poeAllocated', { value: WATTS(v) })),
+    opt(n.poe_class, (v) => t('device.lldp.poeClass', { value: v })),
+    n.med_device_class ? t('device.lldp.med', { class: n.med_device_class }) : null,
+    n.last_seen ? t('device.lldp.lastSeen', { ago: fmtAgo(n.last_seen) }) : opt(n.age_seconds, (v) => t('device.lldp.age', { duration: fmtDuration(v) })),
+  ].filter(Boolean);
+}
+
+function lldpCard(ix, deviceId) {
+  const rows = ix.net.neighbours.filter((n) => (n.source && n.source.device_id === deviceId) || n.local_port_id.startsWith(`${deviceId}/`));
+  if (!rows.length) return null;
+  rows.sort((a, b) => compare(ix.portName(a.local_port_id), ix.portName(b.local_port_id)));
+  const remote = (n) => [n.remote_port, n.port_description && n.port_description !== n.remote_port ? `(${n.port_description})` : null].filter(Boolean).join(' ');
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-lldp' },
+    h('h2', {}, t('device.lldp.title')),
+    h('p', { class: 'muted' }, t('device.lldp.intro', { count: rows.length })),
+    table(
+      [
+        [t('device.lldp.port'), (n) => ix.portName(n.local_port_id)],
+        [t('device.lldp.neighbour'), (n) => n.system_name || n.chassis_id],
+        [t('device.lldp.remotePort'), remote],
+        [t('device.lldp.protocol'), (n) => (n.protocol || '').toUpperCase()],
+        [t('device.lldp.details'), (n) => h('span', { 'data-testid': 'lldp-details' }, lldpDetails(n).join(' · '))],
+      ],
+      rows,
+      { testid: 'lldp-table', rowTestid: 'lldp-row', compact: true },
+    ),
+  );
+}
+
+// DNS resolvers on the device (#182, #456): the settings that decide how names are answered,
+// and the upstream resolvers with the way they are reached. A service whose settings could not
+// be read says so instead of showing empty lists.
+const TRANSPORT = { udp: 'device.dns.transport.udp', tls: 'device.dns.transport.tls', https: 'device.dns.transport.https', quic: 'device.dns.transport.quic' };
+function dnsSettings(s) {
+  const onOff = (v, on, off) => (v === true ? t(on) : v === false ? t(off) : null);
+  return [
+    onOff(s.recursive, 'device.dns.recursive.yes', 'device.dns.recursive.no'),
+    onOff(s.dnssec, 'device.dns.dnssec.on', 'device.dns.dnssec.off'),
+    onOff(s.rebind_protection, 'device.dns.rebind.on', 'device.dns.rebind.off'),
+    s.rebind_allowed_domains.length ? t('device.dns.rebindAllowed', { domains: s.rebind_allowed_domains.join(', ') }) : null,
+    opt(s.cache_size, (v) => t('device.dns.cache', { size: fmtNumber(v) })),
+    s.local_domain ? t('device.dns.localDomain', { domain: s.local_domain }) : null,
+    onOff(s.register_dhcp, 'device.dns.dhcp.on', 'device.dns.dhcp.off'),
+  ].filter(Boolean);
+}
+
+function dnsUpstream(f) {
+  const where = f.port === 53 ? f.address : f.address.includes(':') ? `[${f.address}]:${f.port}` : `${f.address}:${f.port}`;
+  return h(
+    'li',
+    { 'data-testid': 'dns-upstream' },
+    h('span', { class: 'mono' }, where),
+    ` · ${t(TRANSPORT[f.transport] || TRANSPORT.udp)}`,
+    f.domain ? ` · ${t('device.dns.forDomain', { domain: f.domain })}` : '',
+  );
+}
+
+function dnsCard(ix, deviceId) {
+  const services = ix.net.dns_services.filter((s) => s.device_id === deviceId);
+  if (!services.length) return null;
+  const rows = services.map((s) => [
+    s.name || t('device.dns.service'),
+    h(
+      'div',
+      { 'data-testid': 'dns-service' },
+      s.port !== 53 ? h('span', { class: 'muted small' }, t('device.dns.port', { port: s.port })) : null,
+      s.config_read
+        ? h('ul', { 'data-testid': 'dns-settings' }, dnsSettings(s).map((x) => h('li', {}, x)))
+        : h('p', { class: 'muted', 'data-testid': 'dns-unread' }, t('device.dns.unread')),
+      s.config_read && s.forwarders.length
+        ? h('div', {}, h('strong', {}, t('device.dns.upstreams')), h('ul', {}, s.forwarders.map(dnsUpstream)))
+        : null,
+    ),
+  ]);
+  return h('section', { class: 'card', 'data-testid': 'device-dns' }, h('h2', {}, t('device.dns.title')), kv(rows));
+}
+
 function internetCard(ix, deviceId) {
   const uplinks = ix.net.uplinks.filter((u) => u.device_id === deviceId);
   if (!uplinks.length) return null;
@@ -1044,12 +1132,14 @@ async function overview(main, ctx, device, adapters, sites) {
     notesCard(ix, device.id, 'device', t('device.notes', { name: device.name }), () => ctx.refresh()),
     internetCard(ix, device.id),
     multiwanCard(ix, device.id),
+    dnsCard(ix, device.id),
     ddnsCard(ix, device.id),
     inferredCard(ix, device.id),
     portsCard(ix, tree, deltas),
     observed ? stpCard(ix, observed) : null,
     poeCard(ix, observed, device.id),
     radiosCard(ix, device.id),
+    lldpCard(ix, device.id),
     neighboursCard(ix, heard),
     learnedCard(ix, learned),
     tunnelsCard(ix, device.id),

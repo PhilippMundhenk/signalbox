@@ -3376,6 +3376,11 @@ class Neighbour(Observed):
     #: Age of the entry as the device reports it, in seconds (lldpd: since first seen; RouterOS:
     #: since the last update).
     age_seconds: Annotated[int, Field(ge=0)] | None = None
+    #: When a frame of the neighbour was last received, computed from the read time and an age
+    #: that counts from the last update (RouterOS). None: not known. lldpd and the tools around
+    #: it report the age since the entry was first seen, which says nothing about the last frame:
+    #: they leave this empty and only ``age_seconds`` is set (#448).
+    last_seen: datetime | None = None
 
     @field_validator("vlans")
     @classmethod

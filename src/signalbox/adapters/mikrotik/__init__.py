@@ -3013,6 +3013,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             if local is None or mac is None:
                 continue
             nid = object_id(dev, "neighbour", f"{local}-{mac}")
+            age = _duration_s(row.get("age"))
             neighbours[nid] = Neighbour(
                 id=nid,
                 local_port_id=layout.ports[local].id,
@@ -3028,7 +3029,13 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 description=_text(row.get("system-description")) or None,
                 protocol=protocol_of(_text(row.get("discovered-by"))),
                 chassis_id_kind="mac",
-                age_seconds=_duration_s(row.get("age")),
+                age_seconds=age,
+                # RouterOS counts the age from the last update (#448)
+                last_seen=(
+                    None
+                    if age is None
+                    else datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=age)
+                ),
                 port_vlan=_vlan_id(row.get("vlan-id")),
                 vendor_extra=_extra(row, "platform", "board", "version", "discovered-by"),
             )
