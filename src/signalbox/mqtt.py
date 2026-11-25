@@ -7,7 +7,8 @@ Active when ``mqtt.enabled`` is true. Every observation round publishes:
   (#186) are counted apart and never switch the problem sensor on
 - ``<prefix>/device/<device>/state``: status, firmware, clients and findings of one device, and
   its health (uptime, CPU, memory, temperature) where the device reports it, and for a
-  gateway with uplinks whether it is online and its NAT class (never its addresses)
+  gateway with uplinks whether it is online and its NAT class (never its addresses), and the
+  totals of its port counters (bytes, errors, drops over all jacks; no port names, #434)
 
 Discovery messages make each site and each device a Home Assistant device with sensors.
 """
@@ -30,7 +31,8 @@ from paho.mqtt.enums import CallbackAPIVersion
 
 from signalbox import __version__
 from signalbox.config import MqttConfig
-from signalbox.model import Device, DeviceStatus, NatClass, Network
+from signalbox.counters import CounterRecord
+from signalbox.model import Device, DeviceStatus, NatClass, Network, PortKind, PortRole
 from signalbox.rules import Finding, Severity
 
 log = logging.getLogger(__name__)
@@ -84,6 +86,45 @@ def health_values(dev: Device | None) -> dict[str, float | int | None]:
     }
 
 
+#: Traffic counters published per device (#434): key, name, unit, icon. Sums over the device's
+#: physical ports, as the device counts them (they start again from zero when it restarts).
+COUNTER_SENSORS: list[tuple[str, str, str | None, str]] = [
+    ("rx_bytes", "Received", "B", "mdi:download-network"),
+    ("tx_bytes", "Sent", "B", "mdi:upload-network"),
+    ("port_errors", "Port errors", None, "mdi:alert-circle-outline"),
+    ("port_drops", "Port drops", None, "mdi:package-down"),
+]
+
+
+def counter_values(
+    net: Network, device_id: str, counters: dict[str, CounterRecord]
+) -> dict[str, int]:
+    """Totals of the last counter reads over the device's jacks (never per port: port names
+    can carry what is plugged in). Only counters the device reports are in the result."""
+    sums: dict[str, int] = {}
+    for port in net.ports_of(device_id):
+        if port.kind is not PortKind.ETHERNET or port.role not in (None, PortRole.JACK):
+            continue
+        record = counters.get(port.id)
+        if record is None:
+            continue
+        last = record.last
+        parts = {
+            "rx_bytes": last.rx_bytes,
+            "tx_bytes": last.tx_bytes,
+            "port_errors": sum(v for v in (last.rx_errors, last.tx_errors) if v is not None)
+            if (last.rx_errors is not None or last.tx_errors is not None)
+            else None,
+            "port_drops": sum(v for v in (last.rx_drops, last.tx_drops) if v is not None)
+            if (last.rx_drops is not None or last.tx_drops is not None)
+            else None,
+        }
+        for key, value in parts.items():
+            if value is not None:
+                sums[key] = sums.get(key, 0) + value
+    return sums
+
+
 NAT_CLASSES = [c.value for c in NatClass]
 
 
@@ -105,7 +146,12 @@ def uplink_values(net: Network, device_id: str) -> dict[str, str]:
     return out
 
 
-def device_state(net: Network, findings: list[Finding], device_id: str) -> dict[str, Any]:
+def device_state(
+    net: Network,
+    findings: list[Finding],
+    device_id: str,
+    counters: dict[str, CounterRecord] | None = None,
+) -> dict[str, Any]:
     dev = net.device(device_id)
     status = net.statuses.get(device_id, DeviceStatus.UNREACHABLE)
     prefix = f"{device_id}/"
@@ -123,6 +169,7 @@ def device_state(net: Network, findings: list[Finding], device_id: str) -> dict[
         "findings": len(mine),
         **{k: v for k, v in health_values(dev).items() if v is not None},
         **uplink_values(net, device_id),
+        **counter_values(net, device_id, counters or {}),
     }
 
 
@@ -133,6 +180,8 @@ class Discovery:
         self.prefix = cfg.topic_prefix.strip("/") or "signalbox"
         self.discovery = cfg.discovery_prefix.strip("/") or "homeassistant"
         self.base_url = base_url
+        #: The last counter reads by port id (#434), set by the bridge before each publish.
+        self.counters: dict[str, CounterRecord] = {}
 
     @property
     def status_topic(self) -> str:
@@ -292,6 +341,25 @@ class Discovery:
                     icon=icon,
                     **extra,
                 )
+            totals = counter_values(net, dev.id, self.counters)
+            for key, name, count_unit, icon in COUNTER_SENSORS:
+                if key not in totals:
+                    continue
+                counter_extra: dict[str, Any] = {}
+                if count_unit:
+                    counter_extra["unit_of_measurement"] = count_unit
+                out[f"{self.discovery}/sensor/{node}/{key}/config"] = self._entity(
+                    node,
+                    key,
+                    name,
+                    topic,
+                    device,
+                    value_template=f"{{{{ value_json.{key} }}}}",
+                    state_class="total_increasing",
+                    entity_category="diagnostic",
+                    icon=icon,
+                    **counter_extra,
+                )
             wan = uplink_values(net, dev.id)
             if "internet" in wan:
                 out[f"{self.discovery}/binary_sensor/{node}/internet/config"] = self._entity(
@@ -321,7 +389,10 @@ class Discovery:
     def states(self, net: Network, findings: list[Finding]) -> dict[str, dict[str, Any]]:
         out = {self.site_topic(s.id): site_state(net, findings, s.id) for s in net.sites}
         out.update(
-            {self.device_topic(d.id): device_state(net, findings, d.id) for d in net.devices}
+            {
+                self.device_topic(d.id): device_state(net, findings, d.id, self.counters)
+                for d in net.devices
+            }
         )
         return out
 
@@ -350,6 +421,8 @@ class MqttBridge:
         self.connected = threading.Event()
         self.sent_configs: set[str] = set()
         self.last: tuple[Network, list[Finding]] | None = None
+        #: Where the last counter reads come from (the runner's history), None: no counters.
+        self.counters_source: Callable[[], dict[str, CounterRecord]] | None = None
         self.status: dict[str, Any] = {"state": "off", "error": None, "published": 0}
 
     @property
@@ -424,6 +497,11 @@ class MqttBridge:
         self.last = (net, findings)
         if self.client is None or not self.connected.is_set():
             return
+        if self.counters_source is not None:
+            try:
+                self.discovery.counters = self.counters_source()
+            except Exception:  # the counters are an extra: never block the other values
+                log.exception("counters for the MQTT export")
         configs = self.discovery.configs(net)
         for topic in sorted(self.sent_configs - set(configs)):
             self._send(topic, "")  # an empty retained config removes the entity

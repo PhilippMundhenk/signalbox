@@ -239,6 +239,53 @@
         }
       }
     },
+    "device.reboot-by-counters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/device.reboot-by-counters"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/device.reboot-by-counters"
+              }
+            }
+          }
+        }
+      }
+    },
     "device.resources": {
       "type": "object",
       "additionalProperties": false,
@@ -850,6 +897,100 @@
         }
       }
     },
+    "port.collisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/port.collisions"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/port.collisions"
+              }
+            }
+          }
+        }
+      }
+    },
+    "port.drops": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/port.drops"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/port.drops"
+              }
+            }
+          }
+        }
+      }
+    },
     "port.errors": {
       "type": "object",
       "additionalProperties": false,
@@ -891,6 +1032,100 @@
               },
               "params": {
                 "$ref": "#/$defs/port.errors"
+              }
+            }
+          }
+        }
+      }
+    },
+    "port.idle-trunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/port.idle-trunk"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/port.idle-trunk"
+              }
+            }
+          }
+        }
+      }
+    },
+    "port.utilisation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/port.utilisation"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/port.utilisation"
               }
             }
           }
@@ -1378,6 +1613,21 @@
       "title": "device.name-mismatch",
       "type": "object"
     },
+    "device.reboot-by-counters": {
+      "additionalProperties": false,
+      "properties": {
+        "min_ports": {
+          "default": 3,
+          "description": "A device counts as restarted when its counters restarted from zero on all its ports that report counters, and there are at least this many.",
+          "minimum": 1,
+          "title": "Min Ports",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "device.reboot-by-counters",
+      "type": "object"
+    },
     "device.resources": {
       "additionalProperties": false,
       "properties": {
@@ -1628,6 +1878,53 @@
       "title": "poe.request-unmet",
       "type": "object"
     },
+    "port.collisions": {
+      "additionalProperties": false,
+      "properties": {
+        "min_collisions": {
+          "default": 10,
+          "description": "Fewer collisions than this between two reads are never reported.",
+          "minimum": 1,
+          "title": "Min Collisions",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "port.collisions",
+      "type": "object"
+    },
+    "port.drops": {
+      "additionalProperties": false,
+      "properties": {
+        "drop_ratio": {
+          "default": 0.01,
+          "description": "Report a port when the packets dropped between two reads are at least this share of its packets (0.01: one in a hundred).",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Drop Ratio",
+          "type": "number",
+          "unit": "ratio"
+        },
+        "min_packets": {
+          "default": 1000,
+          "description": "Reads with fewer packets than this on a port are too small to judge.",
+          "minimum": 1,
+          "title": "Min Packets",
+          "type": "integer",
+          "unit": "count"
+        },
+        "min_drops": {
+          "default": 20,
+          "description": "Fewer drops than this between two reads are never reported.",
+          "minimum": 1,
+          "title": "Min Drops",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "port.drops",
+      "type": "object"
+    },
     "port.errors": {
       "additionalProperties": false,
       "properties": {
@@ -1667,6 +1964,54 @@
         }
       },
       "title": "port.errors",
+      "type": "object"
+    },
+    "port.idle-trunk": {
+      "additionalProperties": false,
+      "properties": {
+        "idle_kbps": {
+          "default": 2,
+          "description": "A trunk that carries no more than this between two reads (in both directions together) counts as idle; spanning tree and LLDP frames alone are below a kilobit per second.",
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Idle Kbps",
+          "type": "number",
+          "unit": "kbit/s"
+        },
+        "min_seconds": {
+          "default": 20,
+          "description": "Reads closer together than this are too short to judge.",
+          "minimum": 1,
+          "title": "Min Seconds",
+          "type": "integer",
+          "unit": "s"
+        }
+      },
+      "title": "port.idle-trunk",
+      "type": "object"
+    },
+    "port.utilisation": {
+      "additionalProperties": false,
+      "properties": {
+        "utilisation_pct": {
+          "default": 90,
+          "description": "Report a port when it carried at least this share of its link speed, in either direction, between the last two reads.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Utilisation Pct",
+          "type": "number",
+          "unit": "%"
+        },
+        "min_seconds": {
+          "default": 20,
+          "description": "Reads closer together than this are too short to judge a rate.",
+          "minimum": 1,
+          "title": "Min Seconds",
+          "type": "integer",
+          "unit": "s"
+        }
+      },
+      "title": "port.utilisation",
       "type": "object"
     },
     "security.certificate-expiry": {

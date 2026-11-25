@@ -6,6 +6,7 @@ from pydantic import SecretStr
 
 from factories import SITE, MiB, device, health, port, snapshot
 from signalbox.config import MqttConfig
+from signalbox.counters import CounterRecord
 from signalbox.merge import merge
 from signalbox.model import (
     Acknowledgement,
@@ -14,9 +15,17 @@ from signalbox.model import (
     DeviceStatus,
     Firmware,
     Network,
+    PortCounters,
     Site,
 )
-from signalbox.mqtt import Discovery, MqttBridge, device_state, node_id, site_state
+from signalbox.mqtt import (
+    Discovery,
+    MqttBridge,
+    counter_values,
+    device_state,
+    node_id,
+    site_state,
+)
 from signalbox.rules import Finding, Severity
 
 
@@ -289,3 +298,47 @@ def test_network_without_identity() -> None:
     assert n.devices[0].serial is None and n.devices[0].mac is None
     assert "SN-SECRET-1" not in n.model_dump_json()
     assert n.without_identity() is n
+
+
+def _counters() -> dict[str, CounterRecord]:
+    last = PortCounters(rx_bytes=1000, tx_bytes=500, rx_errors=2, tx_errors=1, rx_drops=7)
+    return {"gw/port/lan": CounterRecord(last=last)}
+
+
+def test_counter_totals_are_published_per_device_without_port_names() -> None:
+    n = net()
+    assert counter_values(n, "gw", _counters()) == {
+        "rx_bytes": 1000,
+        "tx_bytes": 500,
+        "port_errors": 3,
+        "port_drops": 7,
+    }
+    assert counter_values(n, "ap", _counters()) == {}
+    assert counter_values(n, "gw", {}) == {}
+    state = device_state(n, FINDINGS, "gw", _counters())
+    assert state["rx_bytes"] == 1000 and state["port_drops"] == 7
+    assert "rx_bytes" not in device_state(n, FINDINGS, "gw")
+    disc = Discovery(MqttConfig(enabled=True, host="broker"))
+    assert not any("rx_bytes" in t for t in disc.configs(n))
+    disc.counters = _counters()
+    configs = disc.configs(n)
+    entity = configs["homeassistant/sensor/device_gw/rx_bytes/config"]
+    assert entity["state_class"] == "total_increasing" and entity["unit_of_measurement"] == "B"
+    assert "homeassistant/sensor/device_gw/port_errors/config" in configs
+    assert "port_errors" in json.dumps(disc.states(n, FINDINGS)["signalbox/device/gw/state"])
+    assert "lan" not in json.dumps(entity)
+
+
+def test_the_bridge_asks_its_counter_source_and_survives_its_failure() -> None:
+    b, fake = bridge()
+    b.counters_source = _counters
+    b.start()
+    b._on_connect(fake, None, None, Reason(False))
+    b.publish(net(), FINDINGS)
+    assert any(t.endswith("rx_bytes/config") for t, _, _ in fake.published)
+
+    def broken() -> dict[str, CounterRecord]:
+        raise RuntimeError("no history")
+
+    b.counters_source = broken
+    b.publish(net(), FINDINGS)  # logged, the other values still go out
