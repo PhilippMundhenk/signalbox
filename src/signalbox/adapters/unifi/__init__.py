@@ -511,7 +511,7 @@ class UnifiAdapter(_Adapter):
         detail = ""
         if answer.status_code in (404, 405):
             raise NotFound(
-                f"{path}: not found (HTTP {answer.status_code})",
+                f"{path}: not found (HTTP 404); is the API enabled?",
                 message_id="transport.http404",
                 params={"path": path},
             )

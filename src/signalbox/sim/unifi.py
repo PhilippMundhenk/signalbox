@@ -201,7 +201,7 @@ def sample_data(major: int) -> dict[str, Any]:
 
     return {
         "sites": [{"_id": "s1", "name": "default", "desc": "Default"}],
-        "sysinfo": [
+        "stat/sysinfo": [
             {
                 "version": f"{major}.0.0",
                 "timezone": "Europe/Berlin",
@@ -503,7 +503,7 @@ class UnifiSimulator:
         self.key_classic = key_classic
         self.major = int(version.split(".")[0])
         self.data = sample_data(self.major)
-        self.data["sysinfo"][0]["version"] = version
+        self.data["stat/sysinfo"][0]["version"] = version
         self.data["integration/info"]["applicationVersion"] = version
         self.sessions: set[str] = set()
         self.requests: list[str] = []
