@@ -343,6 +343,13 @@ through rpcd with "invalid argument". Signalbox then calls `luci-rpc getWireless
   push-button, `wps_label` `1` PIN, neither set: `Wps(enabled=False)`. `key_rotation_seconds`
   from `wpa_group_rekey` (unset: not reported). `beacon_protection` from `beacon_prot` when set
   *(guess: option name)*.
+- Band steering (#447, `Wlan.band_steering` of every AP SSID, *guess: option names and defaults
+  from the READMEs, #21*): `uci get {"config": "usteer"}` (package `usteer`; section type `usteer`):
+  `band_steering_interval` in ms (default 120000; above 0: `prefer-5ghz`), else
+  `load_balancing_threshold` above 0: `balance`, else `off`. `dawn` (`{"config": "dawn"}`,
+  section type `metric`): `freq_5` (default 100) above `freq_2` (default 0): `prefer-5ghz`, else
+  `off`. Neither installed (no such config) or an ACL from before #447: not reported. The
+  daemons' `network` filter and whether the service runs are not looked at.
 - `Radio.supported_security`: `luci getFeatures` (luci-base, part of a LuCI install, not of rpcd-mod-luci; the `hostapd` flags `sae`,
   `owe`, `eap`, `suiteb192` as LuCI reads them *(guess: object `luci`, not `luci-rpc`)*), else
   the `wpad-*` package of `rpc-sys packagelist` (`wpad-basic*`: no SAE, OWE, EAP; every other
@@ -648,7 +655,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -768,7 +775,7 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],

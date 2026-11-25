@@ -1917,6 +1917,9 @@ class OmadaAdapter(_Adapter):
                                 and _flag(s.get("ssidEnable", s.get("enable")), default=True),
                                 security=sec,
                                 pmf=PMF_MODES.get(_int(s.get("pmfMode")) or 0),
+                                # the SSID's own "Fast Roaming" switch (802.11r, #447); the
+                                # mobility domain is not in the documented API
+                                roaming_80211r=_flag(s["enable11r"]) if "enable11r" in s else None,
                                 passphrase_fingerprint=(
                                     passphrase_fingerprint(name, key_text) if psk else None
                                 ),

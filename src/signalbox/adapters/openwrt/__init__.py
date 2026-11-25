@@ -94,6 +94,7 @@ from signalbox.model import (
     AccountPrivilege,
     AddressSource,
     Band,
+    BandSteering,
     Cipher,
     Client,
     ConfigState,
@@ -1642,6 +1643,7 @@ class OpenWrtAdapter(Adapter):
             up = await self._radios_up()
         view = await self._network(running=False)
         supported = await self._supported_security()
+        steering = await self._band_steering()
         radios: dict[str, Radio] = {}
         devices = dict(_sections(uci, "wifi-device"))
         for name, s in _sections(uci, "wifi-device"):
@@ -1727,6 +1729,7 @@ class OpenWrtAdapter(Adapter):
                     roaming_80211k=_flag(s.get("ieee80211k")),
                     roaming_80211v=_flag(s.get("bss_transition", s.get("ieee80211v"))),
                     **wifi_assoc.roaming_fields(s, devices.get(str(s.get("device")), {}), ssid),
+                    band_steering=steering if mode == "ap" else None,
                     client_isolation=_flag(s.get("isolate")),
                     port_id=port_id(d, ifnames[name]) if name in ifnames else None,
                     bssid=bssids.get(ifnames.get(name, "")),
@@ -1742,6 +1745,15 @@ class OpenWrtAdapter(Adapter):
             mesh=membership,
             incomplete=gaps[:1],
         )
+
+    async def _band_steering(self) -> BandSteering | None:
+        """What usteer or dawn steer on this access point (#447): their UCI configs exist only
+        where the package is installed, and an ACL from before #447 does not allow them."""
+        configs: dict[str, dict[str, Any]] = {"usteer": {}, "dawn": {}}
+        for name in configs:
+            with contextlib.suppress(AdapterError):
+                configs[name] = await self._uci(name)
+        return wifi_assoc.band_steering(configs["usteer"], configs["dawn"])
 
     async def _mesh_peers(
         self, uci: Any, radios: dict[str, Radio], ifnames: dict[str, str]

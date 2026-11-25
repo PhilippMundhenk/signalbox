@@ -45,6 +45,13 @@ MAC_PORT = "mac-port"
 #: Per port: its last counters and their delta to the read before (a JSON value, #158). Only the
 #: last value is kept: no change log.
 COUNTERS = "counters"
+#: Per wireless client MAC address: ``<device id of its access point> <signal bucket>`` (#447),
+#: the signal rounded down to 5 dBm (``-73`` is ``-75``). Changes are logged, so a rule sees how
+#: long a client has been weak on one access point and where it was before.
+WIFI = "wifi"
+#: Resolution of the recorded client signal (dB): a threshold between two steps is judged by the
+#: step below it.
+WIFI_STEP_DB = 5
 #: How long such a sighting still counts after it was last seen.
 MAC_HOLD = timedelta(hours=24)
 #: Kinds whose key is a device id (deleted with the device).
@@ -179,6 +186,8 @@ class History(Model):
     fdb: dict[str, ValueHistory] = Field(default_factory=dict)
     #: By port id: the last counters and the delta to the read before (#158).
     counters: dict[str, CounterRecord] = Field(default_factory=dict)
+    #: By client MAC address: access point and signal bucket (``wifi_value``, #447).
+    wifi: dict[str, ValueHistory] = Field(default_factory=dict)
 
     @classmethod
     def empty(cls) -> History:
@@ -201,6 +210,62 @@ class History(Model):
         """True when the history reaches back at least ``period`` without gaps by retention."""
         start = self.covered_since
         return start is not None and self.now is not None and self.now - start >= period
+
+
+def wifi_value(device_id: str, signal_dbm: int) -> str:
+    """``ap1 -75``: the access point and the signal rounded down to ``WIFI_STEP_DB``."""
+    bucket = (signal_dbm // WIFI_STEP_DB) * WIFI_STEP_DB
+    return f"{device_id} {bucket}"
+
+
+def parse_wifi(value: str) -> tuple[str, int] | None:
+    """The access point id and the signal bucket of :func:`wifi_value` (None: not a value)."""
+    device, _, bucket = value.rpartition(" ")
+    try:
+        return (device, int(bucket)) if device else None
+    except ValueError:
+        return None
+
+
+class WifiSpan(Model):
+    """A stretch of time a client stayed on one access point within one signal bucket."""
+
+    start: datetime
+    end: datetime
+    device_id: str
+    bucket_dbm: int
+
+
+def wifi_spans(past: ValueHistory) -> list[WifiSpan]:
+    """The recorded stretches of a client's association (:func:`wifi_value`), oldest first.
+
+    The client is taken to be present between two readings with the same value; a client that
+    left and came back with the same signal on the same access point counts as one stretch.
+    """
+    values = [past.value] if not past.changes else [past.changes[0].old]
+    starts = [past.first_seen]
+    for change in past.changes:
+        values.append(change.new)
+        starts.append(change.at)
+    out = []
+    for i, value in enumerate(values):
+        parsed = parse_wifi(value) if value else None
+        if parsed is None:
+            continue
+        end = starts[i + 1] if i + 1 < len(starts) else past.last_seen
+        out.append(WifiSpan(start=starts[i], end=end, device_id=parsed[0], bucket_dbm=parsed[1]))
+    return out
+
+
+def weak_run(past: ValueHistory, min_dbm: int) -> list[WifiSpan]:
+    """The newest unbroken run of stretches on one access point whose signal bucket is below
+    ``min_dbm`` (empty: the client is not weak now). Resolution is ``WIFI_STEP_DB``."""
+    run: list[WifiSpan] = []
+    for span in reversed(wifi_spans(past)):
+        if span.bucket_dbm >= min_dbm or (run and span.device_id != run[0].device_id):
+            break
+        run.insert(0, span)
+    return run
 
 
 def client_segment(net: Network, client: Client) -> str | None:
@@ -230,6 +295,12 @@ def observed_values(net: Network) -> dict[tuple[str, str], str | None]:
         out[(CLIENT, client.mac)] = segment if reliable else None
         if segment is not None:
             out[(CLIENT_SEGMENT, f"{client.mac} {segment}")] = None
+    wlans = {w.id: w for w in net.wlans}
+    for client in net.clients:
+        wireless = client.wireless
+        wlan = wlans.get(wireless.wlan_id) if wireless and wireless.wlan_id else None
+        if wireless is not None and wlan is not None and wireless.signal_dbm is not None:
+            out[(WIFI, client.mac)] = wifi_value(wlan.device_id, wireless.signal_dbm)
     if net.fdb:
         fdb_ok = reliable and not any(e.optional for e in net.errors)
         for mac, port_id in fdb_access_ports(net).items():

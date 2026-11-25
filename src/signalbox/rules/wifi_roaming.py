@@ -4,16 +4,28 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterator
+from datetime import timedelta
 
 from signalbox.model import Client, Network, WifiStandard, Wlan
-from signalbox.rules import Result, Rule, RuleParams, Severity, ctx, found, param, rule
+from signalbox.rules import (
+    Result,
+    Rule,
+    RuleParams,
+    Severity,
+    ctx,
+    found,
+    history_rule,
+    param,
+    rule,
+)
 from signalbox.rules._names import device_name, site_of_device
+from signalbox.sightings import History, weak_run
 
 #: Standards that slow a whole radio down: 802.11b and g clients (#170).
 LEGACY_STANDARDS = (WifiStandard.B, WifiStandard.G)
 
 
-def _by_ssid(net: Network) -> dict[tuple[str, str], list[Wlan]]:
+def by_ssid(net: Network) -> dict[tuple[str, str], list[Wlan]]:
     """Enabled WLANs by (site, SSID), in id order."""
     groups: dict[tuple[str, str], list[Wlan]] = defaultdict(list)
     for w in sorted(net.wlans, key=lambda w: w.id):
@@ -23,8 +35,19 @@ def _by_ssid(net: Network) -> dict[tuple[str, str], list[Wlan]]:
     return groups
 
 
-def _who(c: Client) -> str:
+def who(c: Client) -> str:
     return f"{c.hostname} ({c.mac})" if c.hostname else c.mac
+
+
+def is_node(net: Network, mac: str) -> bool:
+    """A mesh node or a device of Signalbox, not a client (it may show up in a client list)."""
+    return mac in {p.peer_mac for p in net.mesh_peers} or any(d.mac == mac for d in net.devices)
+
+
+def own_wlan(net: Network, c: Client) -> Wlan | None:
+    """The WLAN a client is associated with."""
+    found_ = _ap_of(net, c)
+    return found_[0] if found_ else None
 
 
 def _ap_of(net: Network, c: Client) -> tuple[Wlan, str] | None:
@@ -47,7 +70,7 @@ def _ap_of(net: Network, c: Client) -> tuple[Wlan, str] | None:
     "roam at all. Only access points that report their domain are compared.",
 )
 def ft_mobility_domain_mismatch(net: Network) -> Iterator[Result]:
-    for (_, ssid), wlans in sorted(_by_ssid(net).items()):
+    for (_, ssid), wlans in sorted(by_ssid(net).items()):
         domains = {
             w.device_id: w.ft.mobility_domain
             for w in wlans
@@ -125,7 +148,7 @@ def min_rssi_too_high(net: Network) -> Iterator[Result]:
     "limit are compared.",
 )
 def min_rssi_inconsistent(net: Network) -> Iterator[Result]:
-    for (_, ssid), wlans in sorted(_by_ssid(net).items()):
+    for (_, ssid), wlans in sorted(by_ssid(net).items()):
         limits = {w.device_id: w.min_rssi_dbm for w in wlans if w.min_rssi_dbm is not None}
         if len(set(limits.values())) < 2:
             continue
@@ -149,37 +172,58 @@ class WeakSignalParams(RuleParams):
         unit="dBm",
         ge=-120,
         le=0,
-        description="A client below this signal is slow and drops packets (#170).",
+        description="A client below this signal is slow and drops packets (#170). The history "
+        "keeps the signal in steps of 5 dB.",
+    )
+    sustained_minutes: int = param(
+        30,
+        unit="min",
+        ge=1,
+        description="How long a client must have been weak on the same access point before it "
+        "is reported (#447). Without any history the current reading counts.",
     )
 
 
-@rule(
+@history_rule(
     "wifi.client-weak-signal",
     "A Wi-Fi client has a weak signal",
     Severity.INFO,
-    "A client below -75 dBm (the parameter min_dbm) gets slow rates and many retries. This is "
-    "one reading, not a trend: a device carried past the access point shows up too. Clients "
-    "without a reported signal are not judged.",
+    "A client below -75 dBm (the parameter min_dbm) gets slow rates and many retries. With the "
+    "observation history it is reported once it has been weak on the same access point for "
+    "30 minutes (sustained_minutes), so a device carried past the access point does not show "
+    "up; the history keeps the signal in steps of 5 dB. Without a history, or for a client it "
+    "has no record of yet, the current reading counts. Clients without a reported signal are "
+    "not judged.",
     params=WeakSignalParams,
 )
-def client_weak_signal(net: Network) -> Iterator[Result]:
+def client_weak_signal(net: Network, history: History) -> Iterator[Result]:
     for c in sorted(net.clients, key=lambda c: c.mac):
         signal = c.wireless.signal_dbm if c.wireless else None
         where = _ap_of(net, c)
-        if signal is None or where is None:
+        if signal is None or where is None or where[0].backhaul or is_node(net, c.mac):
             continue
         wlan, ap = where
-        if signal >= ctx.params(WeakSignalParams, wlan).min_dbm:
+        p = ctx.params(WeakSignalParams, wlan)
+        if signal >= p.min_dbm:
             continue
+        past = history.wifi.get(c.mac)
+        if past is not None:
+            run = weak_run(past, p.min_dbm)
+            if (
+                not run
+                or run[0].device_id != wlan.device_id
+                or run[-1].end - run[0].start < timedelta(minutes=p.sustained_minutes)
+            ):
+                continue
         yield found(
-            f"{_who(c)} has a weak Wi-Fi signal ({signal} dBm) on {ap}",
+            f"{who(c)} has a weak Wi-Fi signal ({signal} dBm) on {ap}",
             [wlan.id, c.id],
             fix="Move the device or an access point closer together, or add an access point "
             "where the device is used.",
             key=c.mac,
             mid="wifi.clientWeakSignal",
             fix_id="wifi.clientWeakSignal.fix",
-            params={"client": _who(c), "dbm": signal, "ap": ap},
+            params={"client": who(c), "dbm": signal, "ap": ap},
         )
 
 
@@ -198,18 +242,18 @@ def legacy_client(net: Network) -> Iterator[Result]:
     for c in sorted(net.clients, key=lambda c: c.mac):
         standard = c.wireless.standard if c.wireless else None
         where = _ap_of(net, c)
-        if standard not in LEGACY_STANDARDS or where is None:
+        if standard not in LEGACY_STANDARDS or where is None or is_node(net, c.mac):
             continue
         wlan, ap = where
         yield found(
-            f"{_who(c)} connects to {ap} with 802.11{standard.value if standard else ''}, which "
+            f"{who(c)} connects to {ap} with 802.11{standard.value if standard else ''}, which "
             "slows down the other devices on the radio",
             [c.id, wlan.id],
             fix="Replace the device, or give it an SSID of its own on a separate radio.",
             key=c.mac,
             mid="wifi.legacyClient",
             fix_id="wifi.legacyClient.fix",
-            params={"client": _who(c), "ap": ap, "standard": standard.value if standard else ""},
+            params={"client": who(c), "ap": ap, "standard": standard.value if standard else ""},
         )
 
 

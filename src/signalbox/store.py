@@ -52,6 +52,7 @@ from signalbox.sightings import (
     PORT,
     SERIAL,
     UNLOGGED_KINDS,
+    WIFI,
     ClientHistory,
     DeviceHistory,
     History,
@@ -988,6 +989,7 @@ class Store:
             FDB: {},
             GATEWAY: {},
             SERIAL: {},
+            WIFI: {},
             BASE_MAC: {},
         }
         segments: dict[str, list[SegmentSighting]] = {}
@@ -1054,6 +1056,7 @@ class Store:
             fdb=values[FDB],
             gateway_actives=values[GATEWAY],
             serials=values[SERIAL],
+            wifi=values[WIFI],
             base_macs=values[BASE_MAC],
             counters=counters,
         )

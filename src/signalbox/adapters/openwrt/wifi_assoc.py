@@ -13,6 +13,7 @@ from typing import Any
 
 from signalbox.model import (
     Band,
+    BandSteering,
     FastTransition,
     FtKeyHolder,
     WifiStandard,
@@ -78,6 +79,53 @@ def roaming_fields(iface: dict[str, Any], device: dict[str, Any], ssid: str) -> 
     if limit is not None and limit >= 0:
         fields["max_clients"] = limit
     return fields
+
+
+#: usteer's defaults (``band_steering_interval`` in ms, ``load_balancing_threshold`` in clients).
+USTEER_BAND_STEERING_MS = 120000
+#: dawn's metric weights for a station on 5 GHz and on 2.4 GHz (``freq_5``, ``freq_2``).
+DAWN_FREQ_5, DAWN_FREQ_2 = 100, 0
+
+
+def band_steering(usteer: dict[str, Any], dawn: dict[str, Any]) -> BandSteering | None:
+    """Band steering a steering daemon does for this access point's SSIDs (#447), from the
+    ``usteer`` and ``dawn`` UCI configs (each ``{"values": {...}}`` as ``uci get`` answers; empty:
+    package not installed or not readable). None: neither is installed, so nothing is known.
+
+    usteer: ``band_steering_interval`` (ms, 0 off; default 120000) steers clients to a higher
+    band, ``load_balancing_threshold`` (clients, 0 off) balances them. dawn: the ``metric``
+    section's ``freq_5`` against ``freq_2`` ranks 5 GHz above 2.4 GHz. *(Guess: option names and
+    defaults from the usteer and dawn READMEs, not tried on a device, #21.)* The daemons' own
+    ``network`` filter and whether the service runs are not looked at.
+    """
+    steer = _usteer(usteer)
+    return steer if steer is not None else _dawn(dawn)
+
+
+def _sections_of(config: dict[str, Any], kind: str) -> list[dict[str, Any]]:
+    values = config.get("values")
+    if not isinstance(values, dict):
+        return []
+    return [v for v in values.values() if isinstance(v, dict) and v.get(".type") == kind]
+
+
+def _usteer(config: dict[str, Any]) -> BandSteering | None:
+    for sec in _sections_of(config, "usteer")[:1]:
+        interval = _int(sec.get("band_steering_interval"))
+        if (USTEER_BAND_STEERING_MS if interval is None else interval) > 0:
+            return BandSteering.PREFER_5GHZ
+        balance = _int(sec.get("load_balancing_threshold"))
+        return BandSteering.BALANCE if balance and balance > 0 else BandSteering.OFF
+    return None
+
+
+def _dawn(config: dict[str, Any]) -> BandSteering | None:
+    for sec in _sections_of(config, "metric")[:1]:
+        f5, f2 = _int(sec.get("freq_5")), _int(sec.get("freq_2"))
+        high = DAWN_FREQ_5 if f5 is None else f5
+        low = DAWN_FREQ_2 if f2 is None else f2
+        return BandSteering.PREFER_5GHZ if high > low else BandSteering.OFF
+    return None
 
 
 def _valid_dbm(value: Any) -> int | None:

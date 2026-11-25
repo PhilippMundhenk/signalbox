@@ -62,9 +62,20 @@ READ_ONLY = (
     "mwan3",
     "ddns",
     "https-dns-proxy",
+    "usteer",
+    "dawn",
 )
 #: Of those, the configs of optional packages (#180): only there when installed
-PACKAGES = ("snmpd", "luci_statistics", "softflowd", "mwan3", "ddns", "https-dns-proxy")
+PACKAGES = (
+    "snmpd",
+    "luci_statistics",
+    "softflowd",
+    "mwan3",
+    "ddns",
+    "https-dns-proxy",
+    "usteer",
+    "dawn",
+)
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
     "/tmp/dhcp.leases",
@@ -1028,6 +1039,16 @@ def rpcd_config(username: str) -> dict[str, Any]:
     )
 
 
+def usteer_config() -> dict[str, Any]:
+    """``/etc/config/usteer`` (#447, guess: option names): band steering every 2 minutes."""
+    return _uci(("usteer", "usteer", {"band_steering_interval": "120000", "network": ["lan"]}))
+
+
+def dawn_config() -> dict[str, Any]:
+    """``/etc/config/dawn`` (#447, guess: option names): 5 GHz ranked above 2.4 GHz."""
+    return _uci(("metric", "global", {"kicking": "1", "freq_5": "100", "freq_2": "0"}))
+
+
 def mwan3_config() -> dict[str, Any]:
     """``/etc/config/mwan3`` of a router with a cable line (``wan``, tier 1) and an LTE stick
     (``wanb``, tier 2) as backup (documentation addresses)."""
@@ -1518,7 +1539,7 @@ class OpenWrtSim:
     #: UCI configs that do not exist (a router without Wi-Fi has no ``wireless``)
     missing: set[str] = field(default_factory=set)
     #: optional packages installed (#180): ``snmpd``, ``luci_statistics``, ``softflowd``; and
-    #: ``mwan3`` (#150) and ``ddns`` (ddns-scripts, #154)
+    #: ``mwan3`` (#150), ``ddns`` (ddns-scripts, #154), ``usteer`` and ``dawn`` (#447)
     packages: set[str] = field(default_factory=set)
     #: an 802.11s mesh point on radio1 with one mesh peer (#171), ``mesh_peer_mac`` away
     mesh: bool = False
@@ -1623,6 +1644,8 @@ class OpenWrtSim:
                 "rpcd": _sections(rpcd_config(self.username)),
                 "mwan3": _sections(mwan3_config()),
                 "ddns": _sections(ddns_config()),
+                "usteer": _sections(usteer_config()),
+                "dawn": _sections(dawn_config()),
                 "https-dns-proxy": {},
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
             }

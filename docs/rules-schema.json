@@ -1179,6 +1179,53 @@
         }
       }
     },
+    "wifi.client-sticky": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/wifi.client-sticky"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/wifi.client-sticky"
+              }
+            }
+          }
+        }
+      }
+    },
     "wifi.client-weak-signal": {
       "type": "object",
       "additionalProperties": false,
@@ -1226,6 +1273,53 @@
         }
       }
     },
+    "wifi.dtim-high": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/wifi.dtim-high"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/wifi.dtim-high"
+              }
+            }
+          }
+        }
+      }
+    },
     "wifi.min-rssi-too-high": {
       "type": "object",
       "additionalProperties": false,
@@ -1267,6 +1361,53 @@
               },
               "params": {
                 "$ref": "#/$defs/wifi.min-rssi-too-high"
+              }
+            }
+          }
+        }
+      }
+    },
+    "wifi.radio-overloaded": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/wifi.radio-overloaded"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/wifi.radio-overloaded"
               }
             }
           }
@@ -1801,20 +1942,77 @@
       "title": "wifi.channel-crowded",
       "type": "object"
     },
-    "wifi.client-weak-signal": {
+    "wifi.client-sticky": {
       "additionalProperties": false,
       "properties": {
         "min_dbm": {
           "default": -75,
-          "description": "A client below this signal is slow and drops packets (#170).",
+          "description": "A client below this signal is weak (#447). The history keeps the signal in steps of 5 dB.",
           "maximum": 0,
           "minimum": -120,
           "title": "Min Dbm",
           "type": "integer",
           "unit": "dBm"
+        },
+        "sustained_minutes": {
+          "default": 30,
+          "description": "How long the client has been weak on the same access point (#447).",
+          "minimum": 1,
+          "title": "Sustained Minutes",
+          "type": "integer",
+          "unit": "min"
+        },
+        "margin_db": {
+          "default": 10,
+          "description": "How much stronger the client's signal was on another access point of the SSID before (#447).",
+          "maximum": 60,
+          "minimum": 1,
+          "title": "Margin Db",
+          "type": "integer",
+          "unit": "dBm"
+        }
+      },
+      "title": "wifi.client-sticky",
+      "type": "object"
+    },
+    "wifi.client-weak-signal": {
+      "additionalProperties": false,
+      "properties": {
+        "min_dbm": {
+          "default": -75,
+          "description": "A client below this signal is slow and drops packets (#170). The history keeps the signal in steps of 5 dB.",
+          "maximum": 0,
+          "minimum": -120,
+          "title": "Min Dbm",
+          "type": "integer",
+          "unit": "dBm"
+        },
+        "sustained_minutes": {
+          "default": 30,
+          "description": "How long a client must have been weak on the same access point before it is reported (#447). Without any history the current reading counts.",
+          "minimum": 1,
+          "title": "Sustained Minutes",
+          "type": "integer",
+          "unit": "min"
         }
       },
       "title": "wifi.client-weak-signal",
+      "type": "object"
+    },
+    "wifi.dtim-high": {
+      "additionalProperties": false,
+      "properties": {
+        "max_period": {
+          "default": 3,
+          "description": "A DTIM period above this makes sleeping clients wait that many beacons for broadcast and multicast traffic (#447).",
+          "maximum": 255,
+          "minimum": 1,
+          "title": "Max Period",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "wifi.dtim-high",
       "type": "object"
     },
     "wifi.min-rssi-too-high": {
@@ -1831,6 +2029,29 @@
         }
       },
       "title": "wifi.min-rssi-too-high",
+      "type": "object"
+    },
+    "wifi.radio-overloaded": {
+      "additionalProperties": false,
+      "properties": {
+        "max_clients": {
+          "default": 30,
+          "description": "A radio with more clients than this is crowded (#447).",
+          "minimum": 1,
+          "title": "Max Clients",
+          "type": "integer",
+          "unit": "count"
+        },
+        "idle_clients": {
+          "default": 10,
+          "description": "Another radio with the same SSID and fewer clients than this counts as free (#447).",
+          "minimum": 0,
+          "title": "Idle Clients",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "wifi.radio-overloaded",
       "type": "object"
     },
     "ScopeMatch": {
