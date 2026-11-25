@@ -392,6 +392,52 @@ def reboot(net: Network, history: History) -> Iterator[Result]:
             )
 
 
+#: A replacement is reported for this long after it was seen.
+REPLACED_PERIOD = timedelta(days=7)
+
+
+def _tail(value: str) -> str:
+    """The last four characters: enough to tell two values apart, without the identifier
+    itself (findings reach notifications and exporters, the serial number does not, #427)."""
+    return "\u2026" + value[-4:]
+
+
+@history_rule(
+    "device.replaced",
+    "Device was replaced",
+    Severity.INFO,
+    "A device that reports another serial number or base MAC address than at the read before "
+    "is other hardware behind the same entry: it was replaced (or swapped with a spare). "
+    "Everything Signalbox knows from the old device, its history, firmware and expectations, "
+    "no longer applies. Reported for a week after the change; only the end of each value is "
+    "shown, as serial numbers identify the hardware.",
+)
+def replaced(net: Network, history: History) -> Iterator[Result]:
+    if history.now is None:
+        return
+    since = history.now - REPLACED_PERIOD
+    for dev in net.devices:
+        for source, what_id, label in (
+            (history.serials, "history.replacedSerial", "serial number"),
+            (history.base_macs, "history.replacedMac", "base MAC address"),
+        ):
+            past = source.get(dev.id)
+            changes = [c for c in past.changes if c.at >= since] if past else []
+            if not changes:
+                continue
+            first, last = changes[0], changes[-1]
+            yield found(
+                f"{dev.name} reports another {label} than before ({_tail(first.old)} -> "
+                f"{_tail(last.new)}): it was replaced",
+                [dev.id],
+                fix="If you replaced the device, nothing to do; otherwise check who swapped it. "
+                "Acknowledge this finding once you have seen it.",
+                mid=what_id,
+                fix_id="history.replaced.fix",
+                params={"name": dev.name, "old": _tail(first.old), "new": _tail(last.new)},
+            )
+
+
 RULES: list[Rule] = [
     resources,
     storage_full,
@@ -402,4 +448,5 @@ RULES: list[Rule] = [
     ups_not_tested,
     uptime_very_long,
     reboot,
+    replaced,
 ]

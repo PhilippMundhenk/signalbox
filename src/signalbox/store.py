@@ -38,6 +38,7 @@ from signalbox.rules import Finding
 from signalbox.secrets import SecretError, Vault
 from signalbox.sightings import (
     ANSWERED,
+    BASE_MAC,
     BOOT,
     CLIENT,
     CLIENT_SEGMENT,
@@ -48,6 +49,7 @@ from signalbox.sightings import (
     FDB,
     MAC_PORT,
     PORT,
+    SERIAL,
     UNLOGGED_KINDS,
     ClientHistory,
     DeviceHistory,
@@ -979,7 +981,13 @@ class Store:
         clients: dict[str, ClientHistory] = {}
         ports: dict[str, PortHistory] = {}
         counters: dict[str, CounterRecord] = {}
-        values: dict[str, dict[str, ValueHistory]] = {BOOT: {}, CPU: {}, FDB: {}}
+        values: dict[str, dict[str, ValueHistory]] = {
+            BOOT: {},
+            CPU: {},
+            FDB: {},
+            SERIAL: {},
+            BASE_MAC: {},
+        }
         segments: dict[str, list[SegmentSighting]] = {}
         for r in self._all("SELECT * FROM sightings ORDER BY kind, key"):
             kind, key = r["kind"], str(r["key"])
@@ -1042,6 +1050,8 @@ class Store:
             boots=values[BOOT],
             cpu=values[CPU],
             fdb=values[FDB],
+            serials=values[SERIAL],
+            base_macs=values[BASE_MAC],
             counters=counters,
             counter_limits=limits or CounterLimits(),
         )

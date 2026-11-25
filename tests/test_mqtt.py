@@ -254,3 +254,38 @@ def test_default_client() -> None:
     from signalbox.mqtt import _default_client
 
     assert _default_client() is not None
+
+
+# serial numbers and base MACs stay out unless exports.identity allows them (#427) ----------------
+
+
+def identified_net() -> Network:
+    gw = snapshot(
+        device(
+            "gw", DeviceRole.GATEWAY, name="Gateway", serial="SN-SECRET-1", mac="02:00:00:00:cc:01"
+        )
+    )
+    return merge([SITE], [gw])
+
+
+def test_discovery_has_no_serial_or_mac_by_default() -> None:
+    text = json.dumps(Discovery(MqttConfig()).configs(identified_net()))
+    states = json.dumps([device_state(identified_net(), [], "gw")])
+    for secret in ("SN-SECRET-1", "02:00:00:00:cc:01", "serial_number", "connections"):
+        assert secret not in text + states
+
+
+def test_discovery_carries_serial_and_mac_when_allowed() -> None:
+    configs = Discovery(MqttConfig(), identity=True).configs(identified_net())
+    devices = [c["device"] for c in configs.values() if c["device"]["name"] == "Gateway"]
+    assert devices and all(
+        d["serial_number"] == "SN-SECRET-1" and d["connections"] == [["mac", "02:00:00:00:cc:01"]]
+        for d in devices
+    )
+
+
+def test_network_without_identity() -> None:
+    n = identified_net().without_identity()
+    assert n.devices[0].serial is None and n.devices[0].mac is None
+    assert "SN-SECRET-1" not in n.model_dump_json()
+    assert n.without_identity() is n

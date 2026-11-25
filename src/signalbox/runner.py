@@ -258,6 +258,8 @@ class Runner:
         # exporters and MQTT never get account names (#175): they are for the device page;
         # nor the neighbours' networks (#169): other people's SSIDs and BSSIDs
         shared = net.without_account_names().without_neighbour_networks()
+        if not self.config.exports.identity:  # serial numbers and base MACs (#427)
+            shared = shared.without_identity()
         for listener in self.listeners:
             try:
                 listener(shared, findings)

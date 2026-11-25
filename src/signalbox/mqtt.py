@@ -127,7 +127,9 @@ def device_state(net: Network, findings: list[Finding], device_id: str) -> dict[
 
 
 class Discovery:
-    def __init__(self, cfg: MqttConfig, base_url: str = "") -> None:
+    def __init__(self, cfg: MqttConfig, base_url: str = "", identity: bool = False) -> None:
+        #: Serial numbers and base MACs go into the discovery only with ``exports.identity``.
+        self.identity = identity
         self.prefix = cfg.topic_prefix.strip("/") or "signalbox"
         self.discovery = cfg.discovery_prefix.strip("/") or "homeassistant"
         self.base_url = base_url
@@ -168,7 +170,7 @@ class Discovery:
         out: dict[str, dict[str, Any]] = {}
         for site in net.sites:
             node = f"site_{node_id(site.id)}"
-            device = {
+            device: dict[str, Any] = {
                 "identifiers": [f"signalbox_{node}"],
                 "name": f"Signalbox {site.name}",
                 "manufacturer": "Signalbox",
@@ -224,6 +226,11 @@ class Discovery:
             }
             if dev.firmware and dev.firmware.current:
                 device["sw_version"] = dev.firmware.current
+            if self.identity:  # opt-in (#427): identifying data
+                if dev.serial:
+                    device["serial_number"] = dev.serial
+                if dev.mac:
+                    device["connections"] = [["mac", dev.mac]]
             topic = self.device_topic(dev.id)
             out[f"{self.discovery}/binary_sensor/{node}/reachable/config"] = self._entity(
                 node,
@@ -330,10 +337,14 @@ class MqttBridge:
     """Runner listener that publishes discovery and state; reconnects in the background."""
 
     def __init__(
-        self, cfg: MqttConfig, base_url: str = "", client_factory: ClientFactory = _default_client
+        self,
+        cfg: MqttConfig,
+        base_url: str = "",
+        client_factory: ClientFactory = _default_client,
+        identity: bool = False,
     ) -> None:
         self.cfg = cfg
-        self.discovery = Discovery(cfg, base_url)
+        self.discovery = Discovery(cfg, base_url, identity)
         self.client_factory = client_factory
         self.client: Any = None
         self.connected = threading.Event()
