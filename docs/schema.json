@@ -731,6 +731,42 @@
           "title": "Adapter",
           "type": "string"
         },
+        "architecture": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Architecture"
+        },
+        "board": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Board"
+        },
+        "bootloader": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bootloader"
+        },
         "capabilities": {
           "items": {
             "type": "string"
@@ -748,6 +784,18 @@
             }
           ],
           "default": null
+        },
+        "contact": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contact"
         },
         "default_credentials": {
           "anyOf": [
@@ -772,6 +820,18 @@
           ],
           "default": null
         },
+        "hardware_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hardware Revision"
+        },
         "health": {
           "anyOf": [
             {
@@ -795,9 +855,33 @@
           "default": null,
           "title": "Hosted On"
         },
+        "hostname": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hostname"
+        },
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location"
         },
         "log_targets": {
           "anyOf": [
@@ -892,8 +976,44 @@
           "default": null,
           "title": "Observed At"
         },
+        "os": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Os"
+        },
+        "os_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Os Version"
+        },
         "role": {
           "$ref": "#/$defs/DeviceRole"
+        },
+        "serial": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Serial"
         },
         "signalbox_account_needed": {
           "anyOf": [

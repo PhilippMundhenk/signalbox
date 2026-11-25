@@ -165,6 +165,23 @@ def fritzos_release(version: str | None) -> tuple[int, int] | None:
 WEB_PORT = 443
 
 
+def _identity(info: dict[str, str]) -> dict[str, Any]:
+    """Device identity from ``DeviceInfo:1 GetInfo`` (#177). ``NewSerialNumber`` is the box's
+    base MAC without separators (FRITZ!OS 6 and 7; a placeholder where the box has none)."""
+    serial = (info.get("NewSerialNumber") or "").strip()
+    mac = None
+    if re.fullmatch(r"[0-9A-Fa-f]{12}", serial) and set(serial) != {"0"}:
+        mac = ":".join(serial[i : i + 2] for i in range(0, 12, 2)).lower()
+    hardware = (info.get("NewHardwareVersion") or "").strip()
+    return {
+        "serial": serial or None,
+        "mac": mac,
+        "hardware_revision": hardware or None,
+        "os": "FRITZ!OS",
+        "os_version": (info.get("NewSoftwareVersion") or "").strip() or None,
+    }
+
+
 class _User(httpx.Auth):
     """Digest login whose user name is known only after the lookup (#373)."""
 
@@ -720,6 +737,7 @@ class FritzboxAdapter(Adapter):
             firmware=Firmware(current=version) if version else None,
             management_address=self.http.host,
             transport_encrypted=self.http.secure,
+            **_identity(info),
         )
 
     async def _no_tr064(self, exc: AdapterError) -> AdapterError:

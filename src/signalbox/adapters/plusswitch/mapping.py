@@ -102,8 +102,16 @@ def system_info(info: Mapping[str, Any], vendor: str, address: str) -> SystemInf
         management_address=address,
         transport_encrypted=False,  # UDP, the password is only obfuscated
         mac=str(extra["mac"]),  # no port carries it: the MAC tables of others find it (#378)
+        # Identity (#177); the advanced tab keeps the same values
+        serial=_text(info.get("serial")),
+        hardware_revision=_text(info.get("hardware")),
+        hostname=_text(info.get("name")),
         vendor_extra=extra,
     )
+
+
+def _text(value: Any) -> str | None:
+    return value.strip() or None if isinstance(value, str) else None
 
 
 #: ``speed_code`` of ``read_port_admin``: auto-negotiation, and a disabled port

@@ -108,6 +108,45 @@ def hardware(answer: Answer) -> tuple[str | None, str | None]:
     return vendor, model
 
 
+def identity(answer: Answer, release: dict[str, str]) -> dict[str, str | None]:
+    """Device identity (#177) from the device tree (``serial-number``, Raspberry Pi) or DMI.
+    The DMI serial and the board name are readable by root only on many systems: then they
+    are left out, as is every value a vendor left as a placeholder."""
+    files = answer.files("model")
+
+    def value(path: str) -> str | None:
+        text = files.get(path, "").replace("\x00", "").strip()
+        return None if not text or text.lower() in _DMI_PLACEHOLDERS else text
+
+    kernel = answer.text("kernel").split()
+    return {
+        "serial": value("/proc/device-tree/serial-number")
+        or value("/sys/class/dmi/id/product_serial"),
+        "board": value("/sys/class/dmi/id/board_name"),
+        "hardware_revision": value("/sys/class/dmi/id/board_version"),
+        "bootloader": value("/sys/class/dmi/id/bios_version"),
+        "architecture": kernel[-1] if len(kernel) >= 3 else None,
+        "hostname": answer.text("hostname").strip() or None,
+        "os": release.get("NAME") or None,
+        "os_version": release.get("VERSION_ID") or None,
+    }
+
+
+#: What firmware writes where it has no value.
+_DMI_PLACEHOLDERS = frozenset(
+    {
+        "none",
+        "default string",
+        "to be filled by o.e.m.",
+        "not specified",
+        "not applicable",
+        "system serial number",
+        "system version",
+        "0",
+    }
+)
+
+
 # --- links and addresses ---------------------------------------------------------------------
 
 

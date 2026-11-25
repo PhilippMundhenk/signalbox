@@ -127,7 +127,9 @@ def typical_switch() -> str:
     w.text("1.3.6.1.2.1.1.1.0", "Example Networks EX-8G-SW managed switch, firmware 1.2.3")
     w.add("1.3.6.1.2.1.1.2.0", "6", "1.3.6.1.4.1.99999.1.8")
     w.add("1.3.6.1.2.1.1.3.0", "67", 8_640_000)
+    w.text("1.3.6.1.2.1.1.4.0", "noc@example.net")
     w.text("1.3.6.1.2.1.1.5.0", "switch-example")
+    w.text("1.3.6.1.2.1.1.6.0", "Rack 1, server room")
     # ENTITY-MIB: a chassis and its first port
     ent = "1.3.6.1.2.1.47.1.1.1.1"
     w.integer(f"{ent}.5.1", 3)

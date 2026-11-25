@@ -245,7 +245,12 @@ def default_sections() -> dict[str, str]:
         ),
         "hostname": "gateway2\n",
         "kernel": "Linux 6.12.47+rpt-rpi-2712 aarch64\n",
-        "model": _files({"/proc/device-tree/model": "Raspberry Pi 5 Model B Rev 1.0\x00"}),
+        "model": _files(
+            {
+                "/proc/device-tree/model": "Raspberry Pi 5 Model B Rev 1.0\x00",
+                "/proc/device-tree/serial-number": "0000000012345678\x00",  # invented
+            }
+        ),
         "link": json.dumps(default_links()) + "\n",
         "addr": json.dumps(default_addresses()) + "\n",
         "route": json.dumps(

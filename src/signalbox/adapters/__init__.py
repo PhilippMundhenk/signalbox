@@ -585,6 +585,17 @@ class SystemInfo(BaseModel):
     transport_encrypted: bool | None = None
     #: The device's own MAC address where no port carries it (#378). Copied to ``Device.mac``.
     mac: str | None = Field(default=None, pattern=r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")
+    #: Device identity (#177), copied to the same fields of ``Device``; ``None``: not said.
+    serial: str | None = None
+    hardware_revision: str | None = None
+    board: str | None = None
+    architecture: str | None = None
+    bootloader: str | None = None
+    hostname: str | None = None
+    location: str | None = None
+    contact: str | None = None
+    os: str | None = None
+    os_version: str | None = None
     #: Vendor fields of the device itself (MAC, serial, protocol details); shown on the
     #: device's advanced tab only, never read by rules.
     vendor_extra: dict[str, JsonValue] = Field(default_factory=dict)

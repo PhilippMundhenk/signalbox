@@ -327,6 +327,8 @@ def sample_data() -> dict[str, Any]:
                 "name": "Gateway",
                 "type": "gateway",
                 "model": "ER605 v2.0",
+                "sn": "SIM-OMADA-0001",  # invented
+                "hwVersion": "2.0",
                 "modelName": "ER605",
                 "ip": "192.0.2.1",
                 "status": 1,
@@ -340,6 +342,8 @@ def sample_data() -> dict[str, Any]:
                 "name": "Switch",
                 "type": "switch",
                 "model": "TL-SG2008P",
+                "sn": "SIM-OMADA-0002",  # invented
+                "hwVersion": "3.0",
                 "ip": "192.0.2.2",
                 "status": 1,
                 "firmwareVersion": "1.0.5",
@@ -352,6 +356,8 @@ def sample_data() -> dict[str, Any]:
                 "name": "AP 1",
                 "type": "ap",
                 "model": "EAP650",
+                "sn": "SIM-OMADA-0003",  # invented
+                "hwVersion": "1.0",
                 "ip": "192.0.2.3",
                 "status": 1,
                 "firmwareVersion": "1.1.0",
@@ -365,6 +371,8 @@ def sample_data() -> dict[str, Any]:
                 "name": "AP 2",
                 "type": "ap",
                 "model": "EAP225",
+                "sn": "SIM-OMADA-0004",  # invented
+                "hwVersion": "3.0",
                 "ip": "192.0.2.4",
                 "status": 1,
                 "firmwareVersion": "5.1.0",

@@ -669,10 +669,30 @@ class Device(Observed):
     model: str | None = None
     firmware: Firmware | None = None
     management_address: str | None = None
-    #: The device's own MAC address where no port carries it (#378): the management address of
-    #: a switch that reports no MAC per port (NETGEAR Plus, TP-Link Easy Smart). Lets the MAC
-    #: tables of other devices find it.
+    #: The device's own (base, chassis) MAC address (#378, #177): the management address of
+    #: a switch that reports no MAC per port (NETGEAR Plus, TP-Link Easy Smart), or the base
+    #: MAC the device names itself. Lets the MAC tables and LLDP chassis ids of other devices
+    #: find it.
     mac: Mac | None = None
+    #: Device identity (#177), typed so rules can read it (``vendor_extra`` is for display
+    #: only). The serial number is a device identifier: it is kept out of exports and support
+    #: bundles by default. Every field is ``None`` where the device does not say.
+    serial: str | None = None
+    hardware_revision: str | None = None
+    #: Board or hardware model code (OpenWrt ``board_name``, RouterBOARD model code).
+    board: str | None = None
+    architecture: str | None = None
+    #: Boot loader version (RouterBOOT, U-Boot) where it is a software of its own.
+    bootloader: str | None = None
+    #: The name the device calls itself, which may differ from the inventory name.
+    hostname: str | None = None
+    #: SNMP sysLocation / sysContact style, where set.
+    location: str | None = None
+    contact: str | None = None
+    #: Operating system and its version where the device has both next to its firmware
+    #: (RouterOS, OpenWrt with the kernel).
+    os: str | None = None
+    os_version: str | None = None
     #: The port of the address Signalbox reads the device on (the URL's port), copied from the
     #: configured URL by core (#387). Tells two services at one address apart.
     management_port: int | None = None
