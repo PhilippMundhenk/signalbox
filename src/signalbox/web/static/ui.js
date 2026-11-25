@@ -69,6 +69,7 @@ export function modal({ title, body, actions, onClose }) {
   const previous = document.activeElement;
   const close = () => {
     overlay.remove();
+    document.documentElement.classList.remove('modal-open');
     if (previous && previous.focus) previous.focus();
     if (onClose) onClose();
   };
@@ -76,7 +77,7 @@ export function modal({ title, body, actions, onClose }) {
     'div',
     { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, 'data-testid': 'modal' },
     h('h2', {}, title),
-    body,
+    h('div', { class: 'modal-body', 'data-testid': 'modal-body' }, body),
     h('div', { class: 'modal-actions' }, actions(close)),
   );
   const overlay = h('div', { class: 'overlay' }, box);
@@ -84,6 +85,7 @@ export function modal({ title, body, actions, onClose }) {
     if (e.key === 'Escape') close();
   });
   clear(root).append(overlay);
+  document.documentElement.classList.add('modal-open'); // the page behind does not scroll (#524)
   const first = box.querySelector('input, select, button');
   if (first) first.focus();
   return close;
