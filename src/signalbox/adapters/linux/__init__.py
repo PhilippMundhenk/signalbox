@@ -1039,6 +1039,17 @@ class LinuxAdapter(Adapter):
                     for x in parse.resolvers(a)
                     if DnsForwarder(address=x) not in forwarders
                 ]
+            lay = self._layout()
+            # dnsmasq answers the names of the leases it hands out (and its ``dhcp-host`` names)
+            # whenever it serves DHCP; no ``dhcp-range``: no DHCP names
+            serves_dhcp = bool(masq.scopes)
+            segments = {lay.networks[i][0] for i in masq.interfaces if i in lay.networks}
+            for addr in masq.listen:
+                segments |= {
+                    seg
+                    for seg, nets in lay.networks.values()
+                    if any(addr in n.network for n in nets)
+                }
             out.append(
                 DnsService(
                     id=object_id(d, "dns", "dnsmasq"),
@@ -1054,6 +1065,9 @@ class LinuxAdapter(Adapter):
                     rebind_allowed_domains=masq.rebind_ok,
                     cache_size=masq.cache_size,
                     local_domain=masq.domain,
+                    register_dhcp=serves_dhcp,
+                    dynamic_records=True if serves_dhcp else None,
+                    listen_segments=sorted(segments),
                 )
             )
         out += self._resolved(a, active)

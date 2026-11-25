@@ -258,6 +258,24 @@ class AdGuardHomeAdapter(Adapter):
         bootstrap = [str(x) for x in info.get("bootstrap_dns") or []]
         if bootstrap:
             extra["bootstrap_dns"] = bootstrap
+        # AdGuard Home answers the names of the leases of its own DHCP server (``enabled`` of
+        # /control/dhcp/status); an optional extra. It has no rebinding protection setting: the
+        # private reverse DNS options (``use_private_ptr_resolvers``, ``private_networks``) only
+        # route PTR lookups, so ``rebind_protection`` stays unknown.
+        names: bool | None = None
+        try:
+            enabled = _dict(await self._get(DHCP_STATUS), DHCP_STATUS).get("enabled")
+            names = enabled if isinstance(enabled, bool) else None
+        except (Unreachable, AuthFailed):
+            raise
+        except AdapterError as exc:
+            log.debug("%s: no DHCP status: %s", dev, exc)
+        settings: dict[str, Any] = {
+            "register_dhcp": names,
+            "dynamic_records": True if names else None,
+        }
+        if isinstance(cache := info.get("cache_size"), int) and not isinstance(cache, bool):
+            settings["cache_size"] = cache
         service = dnsmap.dns_service(
             dev,
             "adguardhome",
@@ -271,9 +289,7 @@ class AdGuardHomeAdapter(Adapter):
             blocklists=blocklists,
             encrypted=True,
             # ``cache_size`` in bytes (0 with ``cache_enabled`` false)
-            settings={"cache_size": cache}
-            if isinstance(cache := info.get("cache_size"), int) and not isinstance(cache, bool)
-            else None,
+            settings=settings,
         )
         return Observation(dns_services=[service], incomplete=gaps)
 

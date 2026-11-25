@@ -2485,7 +2485,9 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         dns = _object(await self._get(DNS), DNS)
         records = []
         domain_forwards: list[tuple[str, IPAddress]] = []
+        dynamic = False
         for row in await self._rows(DNS_STATIC):
+            dynamic = dynamic or _flag(row.get("dynamic"))
             kind = _text(row.get("type")).upper() or "A"
             if kind == "FWD":
                 # RouterOS 7.? static entry ``type=FWD``: names under ``name`` go to ``forward-to``
@@ -2514,6 +2516,19 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         ]
         remote = _flag(dns.get("allow-remote-requests"))
         listen = _unique(a.ip for n, a in layout.addresses if n in layout.l3) if remote else []
+        # RouterOS has no switch that puts lease names into DNS: it takes a ``lease-script`` on
+        # the DHCP server that adds ``/ip dns static`` entries. A script that mentions "dns" is
+        # read as registering (a guess, #21); servers without one: not registering. Entries the
+        # script made (or any other ``dynamic`` row) show as ``dynamic`` in the static table.
+        servers = [r for r in await self._optional_rows(DHCP_SERVER) if _active(r)]
+        register = (
+            any("dns" in _text(r.get("lease-script")).lower() for r in servers) if servers else None
+        )
+        # only the layer-3 interfaces that carry an address are answered on (not an interface
+        # list: ``allow-remote-requests`` has none)
+        segments = (
+            sorted({layout.l3[n] for n, _ in layout.addresses if n in layout.l3}) if remote else []
+        )
         return Observation(
             dns_services=[
                 DnsService(
@@ -2537,6 +2552,10 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     blocklists=blocklists,
                     supports_encrypted_dns=True,
                     host_records=records,
+                    register_dhcp=register,
+                    dynamic_records=True if dynamic else register,
+                    listen_segments=segments,
+                    # RouterOS 7 has no rebinding protection setting (none in /ip/dns): None
                     vendor_extra=_extra(dns, "dynamic-servers", "cache-size"),
                 )
             ]

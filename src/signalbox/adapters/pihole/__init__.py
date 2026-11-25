@@ -139,10 +139,33 @@ def _sub(value: dict[str, Any], key: str) -> dict[str, Any]:
     return inner if isinstance(inner, dict) else {}
 
 
-def _v6_settings(dns: dict[str, Any]) -> dict[str, Any]:
+def _v6_settings(dns: dict[str, Any], cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """Cache size (``dns.cache.size``, entries) and the local domain (``dns.domain``: a name or
-    ``{"name": ..., "local": ...}``) of the v6 configuration."""
+    ``{"name": ..., "local": ...}``) of the v6 configuration.
+
+    With ``cfg`` (the whole configuration): DHCP names and rebinding protection (#456). Pi-hole
+    answers the names of its own DHCP leases (dnsmasq), so ``dhcp.active`` is ``register_dhcp``.
+    Pi-hole has no rebinding setting of its own: ``dns.domainNeeded`` (no forwarding of plain
+    names) and ``dns.bogusPriv`` (no forwarding of private reverse lookups) are something else.
+    dnsmasq's ``stop-dns-rebind`` and ``rebind-domain-ok`` count when they are in
+    ``misc.dnsmasq_lines``; without them the protection is off (Pi-hole's own dnsmasq.conf has
+    none)."""
     out: dict[str, Any] = {}
+    if cfg is not None:
+        if isinstance(active := _sub(cfg, "dhcp").get("active"), bool):
+            out["register_dhcp"] = active
+            out["dynamic_records"] = True if active else None
+        lines = _sub(cfg, "misc").get("dnsmasq_lines")
+        if isinstance(lines, list):
+            keys = [str(x).split("#", 1)[0].strip() for x in lines]
+            out["rebind_protection"] = any(k == "stop-dns-rebind" for k in keys)
+            out["rebind_allowed_domains"] = [
+                d.lower()
+                for k in keys
+                if k.startswith("rebind-domain-ok=")
+                for d in k.split("=", 1)[1].split("/")
+                if d.strip()
+            ]
     size = _sub(dns, "cache").get("size")
     if isinstance(size, int) and not isinstance(size, bool) and size >= 0:
         out["cache_size"] = size
@@ -418,8 +441,23 @@ class PiholeAdapter(Adapter):
             host_records=[],
             extra=extra,
             dnssec=await self._dnssec_v5(),
+            settings=await self._cache_v5(),
         )
         return Observation(dns_services=[service])
+
+    async def _cache_v5(self) -> dict[str, Any]:
+        """``cacheinfo.cache-size`` of FTL's ``getCacheInfo`` (entries; a guess for the spelling
+        on v5, #21): an optional extra."""
+        try:
+            info = await self._v5_get(V5_API, {"getCacheInfo": ""}, token=True)
+        except (Unreachable, AuthFailed):
+            raise
+        except AdapterError:
+            return {}
+        size = _sub(info, "cacheinfo").get("cache-size") if isinstance(info, dict) else None
+        if isinstance(size, int) and not isinstance(size, bool) and size >= 0:
+            return {"cache_size": size}
+        return {}
 
     async def _dnssec_v5(self) -> bool | None:
         """Whether Pi-hole v5 validates DNSSEC. v5 has no API for the setting: the recent
@@ -562,7 +600,7 @@ class PiholeAdapter(Adapter):
             extra=extra,
             dnssec=dnssec if isinstance(dnssec, bool) else None,
             blocklists=blocklists,
-            settings=_v6_settings(dns),
+            settings=_v6_settings(dns, cfg),
         )
         return Observation(dns_services=[service])
 

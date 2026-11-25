@@ -270,6 +270,8 @@ async def test_pihole_contract_mapping_and_logout(ph: tuple[PiholeSim, str]) -> 
     assert blocklist.name == "lists.example.net" and blocklist.entries == 120000
     assert blocklist.updated == datetime.fromtimestamp(1893456000, UTC)
     assert dns.cache_size == 10000 and dns.local_domain == "lan"
+    assert dns.register_dhcp is True and dns.dynamic_records is True
+    assert dns.rebind_protection is False
     assert [(r.name, str(r.address)) for r in dns.host_records] == [
         ("printer.lan", "192.0.2.10"),
         ("printer", "192.0.2.10"),

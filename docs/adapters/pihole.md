@@ -71,6 +71,7 @@ Mapping to the model:
   recent queries (`api.php?getAllQueries=100`: a SECURE, INSECURE or BOGUS state means validation is
   on; 20 or more queries without one mean it is off; fewer: unknown). A guess for the column and
   spelling, to be checked on a real v5 box (#21). Local DNS records (`dns.hosts`,
+  v6: `register_dhcp` is `dhcp.active` (dnsmasq answers its lease names). `rebind_protection` is read from `misc.dnsmasq_lines` (`stop-dns-rebind`, `rebind-domain-ok=/domain/`) and is off without them; `dns.domainNeeded` and `dns.bogusPriv` are different settings (plain names and private reverse lookups stay local) and are not read as rebinding protection. v5: `cache_size` from `getCacheInfo` (`cacheinfo.cache-size`, a guess, #21); DHCP names and rebinding stay unknown (#456).
   `192.0.2.10 printer.lan`) are host records.
 - **DHCP** (only when `dhcp.active`): `<device>/dhcp/pihole` with the range, lease time
   (`24h`, `90m`, `7d`, seconds), router, domain, the reservations (`dhcp.hosts`, dnsmasq
