@@ -880,6 +880,51 @@ Mtu = Annotated[int, Field(ge=68, le=65535)]
 Mbps = Annotated[int, Field(ge=1)]
 
 
+class PortCounters(Model):
+    """Traffic and error counters of a port as the device reports them (#158): monotonic
+    totals since ``counters_since`` (the last reset or boot), they restart at zero on a reboot.
+    ``None``: not reported. Deltas and rates are computed by the core from two reads
+    (:mod:`signalbox.counters`), never by adapters."""
+
+    rx_bytes: Annotated[int, Field(ge=0)] | None = None
+    tx_bytes: Annotated[int, Field(ge=0)] | None = None
+    rx_packets: Annotated[int, Field(ge=0)] | None = None
+    tx_packets: Annotated[int, Field(ge=0)] | None = None
+    rx_errors: Annotated[int, Field(ge=0)] | None = None
+    tx_errors: Annotated[int, Field(ge=0)] | None = None
+    #: Frames received with a bad checksum (FCS/CRC): a cable, connector or duplex problem.
+    rx_crc_errors: Annotated[int, Field(ge=0)] | None = None
+    rx_drops: Annotated[int, Field(ge=0)] | None = None
+    tx_drops: Annotated[int, Field(ge=0)] | None = None
+    collisions: Annotated[int, Field(ge=0)] | None = None
+    #: Link-down events, where the device counts them.
+    link_downs: Annotated[int, Field(ge=0)] | None = None
+    last_link_change: datetime | None = None
+    #: When the counters started at zero (reset or boot), where the device says.
+    counters_since: datetime | None = None
+    #: When the counters were read (set by the adapter): the time base of the deltas.
+    read_at: datetime | None = None
+
+    def has_values(self) -> bool:
+        return any(getattr(self, f) is not None for f in COUNTER_FIELDS)
+
+
+#: The integer counters of :class:`PortCounters`.
+COUNTER_FIELDS = (
+    "rx_bytes",
+    "tx_bytes",
+    "rx_packets",
+    "tx_packets",
+    "rx_errors",
+    "tx_errors",
+    "rx_crc_errors",
+    "rx_drops",
+    "tx_drops",
+    "collisions",
+    "link_downs",
+)
+
+
 class Port(Observed):
     """A port of a device.
 
@@ -946,6 +991,8 @@ class Port(Observed):
     lag_member_state: LagMemberState | None = None
     #: Spanning tree of the port in its bridge (#155, ADR 0023); None: not reported.
     stp: StpPort | None = None
+    #: Traffic and error counters (#158); None: not reported.
+    counters: PortCounters | None = None
 
     @field_validator("advertised_speeds_mbps")
     @classmethod

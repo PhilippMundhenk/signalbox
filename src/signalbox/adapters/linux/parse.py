@@ -20,9 +20,11 @@ from ipaddress import IPv4Interface, IPv6Interface, ip_address, ip_interface
 from typing import Any
 
 from signalbox.adapters.linux.collect import Answer
+from signalbox.adapters.portcounters import count
 from signalbox.model import (
     IPAddress,
     IPInterface,
+    PortCounters,
     PortKind,
     PortRole,
     StorageKind,
@@ -684,3 +686,29 @@ def _number(value: Any) -> int | None:
         return int(text, 16) if text.startswith("0x") else int(text)
     except ValueError:
         return None
+
+
+def link_counters(raw: dict[str, Any]) -> PortCounters | None:
+    """The counters of an ``ip -j -s -s link`` entry: ``stats64`` (iproute2 4.14 and later,
+    ``stats`` where only the 32-bit counters are printed), ``rx`` and ``tx`` with the
+    kernel's rtnl_link_stats64 names. The second ``-s`` adds ``crc_errors``."""
+    stats = raw.get("stats64") or raw.get("stats")
+    if not isinstance(stats, dict):
+        return None
+    rx, tx = stats.get("rx"), stats.get("tx")
+    rx = rx if isinstance(rx, dict) else {}
+    tx = tx if isinstance(tx, dict) else {}
+    values = {
+        "rx_bytes": count(rx.get("bytes")),
+        "rx_packets": count(rx.get("packets")),
+        "rx_errors": count(rx.get("errors")),
+        "rx_crc_errors": count(rx.get("crc_errors")),
+        "rx_drops": count(rx.get("dropped")),
+        "tx_bytes": count(tx.get("bytes")),
+        "tx_packets": count(tx.get("packets")),
+        "tx_errors": count(tx.get("errors")),
+        "tx_drops": count(tx.get("dropped")),
+        "collisions": count(tx.get("collisions")),
+    }
+    present = {k: v for k, v in values.items() if v is not None}
+    return PortCounters(**present) if present else None

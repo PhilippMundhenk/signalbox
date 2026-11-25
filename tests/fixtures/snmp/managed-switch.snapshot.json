@@ -128,7 +128,8 @@
     "bpdu_guard": null,
     "root_guard": null,
     "loop_protect": null
-   }
+   },
+   "counters": null
   },
   {
    "id": "switch/port/Gi2",
@@ -179,7 +180,8 @@
     "bpdu_guard": null,
     "root_guard": null,
     "loop_protect": null
-   }
+   },
+   "counters": null
   },
   {
    "id": "switch/port/Gi3",
@@ -230,7 +232,8 @@
     "bpdu_guard": null,
     "root_guard": null,
     "loop_protect": null
-   }
+   },
+   "counters": null
   },
   {
    "id": "switch/port/Gi4",
@@ -281,7 +284,8 @@
     "bpdu_guard": null,
     "root_guard": null,
     "loop_protect": null
-   }
+   },
+   "counters": null
   },
   {
    "id": "switch/port/Gi5",
@@ -332,7 +336,8 @@
     "bpdu_guard": null,
     "root_guard": null,
     "loop_protect": null
-   }
+   },
+   "counters": null
   },
   {
    "id": "switch/port/Gi6",
@@ -383,7 +388,8 @@
     "bpdu_guard": null,
     "root_guard": null,
     "loop_protect": null
-   }
+   },
+   "counters": null
   },
   {
    "id": "switch/port/Gi7",
@@ -440,7 +446,8 @@
     "bpdu_guard": null,
     "root_guard": null,
     "loop_protect": null
-   }
+   },
+   "counters": null
   },
   {
    "id": "switch/port/Gi8",
@@ -497,7 +504,8 @@
     "bpdu_guard": null,
     "root_guard": null,
     "loop_protect": null
-   }
+   },
+   "counters": null
   },
   {
    "id": "switch/port/Po1",
@@ -551,7 +559,8 @@
     "bpdu_guard": null,
     "root_guard": null,
     "loop_protect": null
-   }
+   },
+   "counters": null
   }
  ],
  "segments": [

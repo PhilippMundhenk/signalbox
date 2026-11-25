@@ -1070,7 +1070,8 @@
     "min_links": null,
     "lacp_rate": null,
     "lag_member_state": null,
-    "stp": null
+    "stp": null,
+    "counters": null
    }
   ],
   "segments": [

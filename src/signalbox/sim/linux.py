@@ -61,6 +61,30 @@ def _link(
         "operstate": "UP" if up else "DOWN",
         "link_type": "ether",
         "address": mac,
+        # ``-s -s``: the kernel's counters (fixed values; the loopback has none here)
+        "stats64": {
+            "rx": {
+                "bytes": 31_204_113 + index,
+                "packets": 120_411,
+                "errors": 0,
+                "dropped": 2,
+                "over_errors": 0,
+                "multicast": 311,
+                "length_errors": 0,
+                "crc_errors": 0,
+                "frame_errors": 0,
+            },
+            "tx": {
+                "bytes": 210_449_902,
+                "packets": 188_044,
+                "errors": 0,
+                "dropped": 0,
+                "carrier_errors": 0,
+                "collisions": 0,
+            },
+        }
+        if up
+        else {"rx": {"bytes": 0, "packets": 0}, "tx": {"bytes": 0, "packets": 0}},
     }
     row.update(extra)
     return row

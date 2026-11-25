@@ -1068,6 +1068,7 @@ class _Layout:
                 mtu=mtu if isinstance(mtu, int) and 68 <= mtu <= 65535 else None,
                 role=role,
                 lower=[port_id(device, x) for x in lower],
+                counters=parse.link_counters(link.raw),
                 vendor_extra=extra,
             )
 
