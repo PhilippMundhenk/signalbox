@@ -51,9 +51,19 @@ CONFIGS = ("network", "wireless", "dhcp", "firewall")
 #: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173)
 #: Read-only until #327: ``system`` and ``snmpd`` are also written (log target, SNMP agent)
 WRITE_ALSO = ("system", "snmpd")
-READ_ONLY = ("system", "dropbear", "uhttpd", "snmpd", "luci_statistics", "softflowd", "rpcd")
+READ_ONLY = (
+    "system",
+    "dropbear",
+    "uhttpd",
+    "snmpd",
+    "luci_statistics",
+    "softflowd",
+    "rpcd",
+    "mwan3",
+    "ddns",
+)
 #: Of those, the configs of optional packages (#180): only there when installed
-PACKAGES = ("snmpd", "luci_statistics", "softflowd")
+PACKAGES = ("snmpd", "luci_statistics", "softflowd", "mwan3", "ddns")
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
     "/tmp/dhcp.leases",
@@ -67,6 +77,7 @@ FILES = (
     "/sys/devices/*/net/*/brforward",
     "/sys/devices/*/net/*/bridge/*",
     "/sys/devices/*/net/*/brport/*",
+    "/var/run/ddns/*",
 )
 
 Sections = dict[str, dict[str, Any]]
@@ -1005,6 +1016,60 @@ def rpcd_config(username: str) -> dict[str, Any]:
     )
 
 
+def mwan3_config() -> dict[str, Any]:
+    """``/etc/config/mwan3`` of a router with a cable line (``wan``, tier 1) and an LTE stick
+    (``wanb``, tier 2) as backup (documentation addresses)."""
+    return _uci(
+        ("interface", "wan", {"enabled": "1", "track_ip": ["192.0.2.53", "198.51.100.53"]}),
+        ("interface", "wanb", {"enabled": "1", "track_ip": ["198.51.100.53"], "interval": "10"}),
+        ("member", "wan_m1", {"interface": "wan", "metric": "1", "weight": "3"}),
+        ("member", "wanb_m2", {"interface": "wanb", "metric": "2", "weight": "1"}),
+        ("policy", "failover", {"use_member": ["wan_m1", "wanb_m2"]}),
+    )
+
+
+def ddns_config() -> dict[str, Any]:
+    """``/etc/config/ddns`` with one client; the account data is there, and never read."""
+    return _uci(
+        (
+            "service",
+            "home",
+            {
+                "enabled": "1",
+                "service_name": "duckdns.org",
+                "lookup_host": "home.example.dyndns.invalid",
+                "domain": "home.example.dyndns.invalid",
+                "username": "sim-user",
+                "password": "sim-secret-token",
+                "interface": "wan",
+                "use_ipv6": "0",
+            },
+        ),
+    )
+
+
+#: ``ubus call mwan3 status`` (guess: shape of mwan3 2.x, #21)
+MWAN3_STATUS: dict[str, Any] = {
+    "interfaces": {
+        "wan": {
+            "status": "online",
+            "up": True,
+            "track_ip": [
+                {"ip": "192.0.2.53", "status": "up", "latency": 12, "packetloss": 0},
+                {"ip": "198.51.100.53", "status": "up", "latency": 15, "packetloss": 0},
+            ],
+        },
+        "wanb": {
+            "status": "offline",
+            "up": False,
+            "track_ip": [
+                {"ip": "198.51.100.53", "status": "down", "latency": 0, "packetloss": 100}
+            ],
+        },
+    }
+}
+
+
 def system_config(router: bool) -> dict[str, Any]:
     """``/etc/config/system`` as OpenWrt writes it for Europe/Berlin (LuCI's zone table)."""
     ntp: dict[str, Any] = {"enabled": "1", "enable_server": "0", "server": ["192.0.2.1"]}
@@ -1357,7 +1422,8 @@ class OpenWrtSim:
     denied: set[str] = field(default_factory=set)
     #: UCI configs that do not exist (a router without Wi-Fi has no ``wireless``)
     missing: set[str] = field(default_factory=set)
-    #: optional packages installed (#180): ``snmpd``, ``luci_statistics``, ``softflowd``
+    #: optional packages installed (#180): ``snmpd``, ``luci_statistics``, ``softflowd``; and
+    #: ``mwan3`` (#150) and ``ddns`` (ddns-scripts, #154)
     packages: set[str] = field(default_factory=set)
     #: no ``network.wireless`` ubus object (a device without Wi-Fi)
     no_wireless_object: bool = False
@@ -1458,6 +1524,8 @@ class OpenWrtSim:
                 "luci_statistics": _sections(statistics_config()),
                 "softflowd": _sections(softflowd_config()),
                 "rpcd": _sections(rpcd_config(self.username)),
+                "mwan3": _sections(mwan3_config()),
+                "ddns": _sections(ddns_config()),
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
             }
         return self.configs
@@ -1706,6 +1774,14 @@ class OpenWrtSim:
                     return self.bond_file(path.removeprefix("/sys/class/net/"))
                 value = self.sysfs_net(path)
                 return [NOT_FOUND] if value is None else [0, {"data": f"{value}\n"}]
+            if path.startswith("/var/run/ddns/"):
+                files = {"home.update": "1795000000\n", "home.ip": "203.0.113.45\n"}
+                text = files.get(path.removeprefix("/var/run/ddns/"))
+                return (
+                    [NOT_FOUND]
+                    if text is None or "ddns" not in self.packages
+                    else [0, {"data": text}]
+                )
             if path.startswith("/sys/class/thermal/thermal_zone"):
                 n, _, leaf = path.removeprefix("/sys/class/thermal/thermal_zone").partition("/")
                 if not n.isdigit() or int(n) >= len(self.thermal_zones):
@@ -1728,6 +1804,8 @@ class OpenWrtSim:
                 ],
             }
             return [0, {"device": {"br-lan": {"leases": [lease]}}}]
+        if obj == "mwan3" and "mwan3" in self.packages:
+            return [0, MWAN3_STATUS] if method == "status" else [3]
         if obj == "luci.wireguard" and self.luci_wireguard:
             return [0, self.wg_instances()] if method == "getWgInstances" else [3]
         if obj == "luci.lldpd" and self.lldpd:
