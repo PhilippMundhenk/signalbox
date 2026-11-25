@@ -74,6 +74,7 @@ from signalbox.adapters.opnsense import multicast as multicast_reader
 from signalbox.adapters.opnsense import portal as portal_reader
 from signalbox.adapters.opnsense import routes as route_reader
 from signalbox.adapters.opnsense import trace as _trace
+from signalbox.adapters.opnsense import upnp as upnp_reader
 from signalbox.adapters.opnsense import write as w
 from signalbox.adapters.opnsense.certificates import CA_PRIVILEGE, CERT_PRIVILEGE, issuer_names
 from signalbox.adapters.opnsense.certificates import parse as parse_certificates
@@ -96,6 +97,7 @@ from signalbox.model import (
     DeviceAccount,
     DeviceMulticast,
     DeviceRole,
+    DeviceUpnp,
     Dhcp6Mode,
     Dhcp6PrefixPool,
     Dhcp6Server,
@@ -1406,8 +1408,13 @@ class OpnsenseAdapter(_Adapter):
         ddns_list, ddns_gaps = await self._ddns(uplinks[0].id if uplinks else None)
         portal_list, portal_gaps = await self._portals(layout)
         multicast, multicast_gaps = await self._multicast(layout)
+        upnp_state, upnp_gaps = await self._upnp(layout)
+        services = await self._services()
+        if upnp_state is not None:
+            services.append(upnp_state[0])
         gaps = [
-            *gaps, *cert_gaps, *route_gaps, *group_gaps, *ddns_gaps, *portal_gaps, *multicast_gaps
+            *gaps, *cert_gaps, *route_gaps, *group_gaps, *ddns_gaps, *portal_gaps, *multicast_gaps,
+            *upnp_gaps,
         ]  # fmt: skip
         return Observation(
             routes=route_list,
@@ -1418,10 +1425,11 @@ class OpnsenseAdapter(_Adapter):
             gateway_groups=group_list,
             ddns=ddns_list,
             portals=portal_list,
-            services=await self._services(),
+            services=services,
             certificates=certificates,
             log_targets={} if targets is None else {dev: targets},
             multicast={dev: multicast},
+            upnp={} if upnp_state is None else {dev: upnp_state[1]},
             **accounts,
             incomplete=[*gaps, *account_gaps],
         )
@@ -1502,6 +1510,25 @@ class OpnsenseAdapter(_Adapter):
                 _privilege_gap("UDP broadcast relay", exc, multicast_reader.RELAY_PRIVILEGE)
             )
         return DeviceMulticast(reflectors=list(found.values())), gaps
+
+    async def _upnp(
+        self, layout: _Layout
+    ) -> tuple[tuple[ManagementService, DeviceUpnp] | None, list[Gap]]:
+        """The ``os-upnp`` plugin (#176, ADR 0029): settings and service status. Optional: no
+        plugin (404) is nothing to report; a 403 is an optional gap naming the privilege. The
+        active mappings have no API (``mappings_complete`` is false)."""
+        segment_of = {i.identifier: i.segment for i in layout.ifaces if i.segment is not None}
+        try:
+            data = await self._optional(upnp_reader.SETTINGS)
+        except AdapterError as exc:
+            return None, [_privilege_gap("UPnP", exc, upnp_reader.PRIVILEGE)]
+        if data is None:
+            return None, []
+        try:
+            status = await self._optional(upnp_reader.STATUS)
+        except AdapterError:
+            status = None  # the state of the service is a bonus
+        return upnp_reader.state(self.context.device_id, data, status, segment_of), []
 
     async def _portals(self, layout: _Layout) -> tuple[list[CaptivePortal], list[Gap]]:
         """Captive portal zones (#460); no captive portal API (404): nothing to report; a

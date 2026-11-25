@@ -34,6 +34,7 @@ from signalbox.model import (
     DeviceMulticast,
     DeviceStatus,
     DeviceTime,
+    DeviceUpnp,
     DhcpRelay,
     DhcpServer,
     FdbEntry,
@@ -459,6 +460,20 @@ def multicast_problems(device_id: str, multicast: DeviceMulticast, segments: set
     return out
 
 
+def upnp_problems(device_id: str, upnp: DeviceUpnp) -> list[str]:
+    """UPnP (#176): a protocol, external port and remote host is mapped once."""
+    out: list[str] = []
+    seen: set[tuple[str, int, str | None]] = set()
+    for m in upnp.mappings:
+        key = (m.protocol, m.external_port, str(m.remote_host) if m.remote_host else None)
+        if key in seen:
+            out.append(f"{device_id}: mapping {m.protocol}/{m.external_port} listed twice")
+        seen.add(key)
+    if len(set(upnp.protocols)) != len(upnp.protocols):
+        out.append(f"{device_id}: UPnP protocols listed twice")
+    return out
+
+
 def credential_problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
     """No configured secret and no password hash anywhere in the snapshot (#175): only the
     booleans derived from them may leave the integration."""
@@ -737,6 +752,10 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             if Capability.INTERFACES.value not in caps:
                 out.append(f"multicast reported without declaring {Capability.INTERFACES.value}")
             out += multicast_problems(d.id, d.multicast, {s.id for s in snapshot.segments})
+        if d.upnp is not None:
+            if Capability.INTERFACES.value not in caps:
+                out.append(f"upnp reported without declaring {Capability.INTERFACES.value}")
+            out += upnp_problems(d.id, d.upnp)
         if d.health is not None:
             out += health_problems(d.id, d.health)
         if d.time is not None:

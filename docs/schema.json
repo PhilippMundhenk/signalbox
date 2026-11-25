@@ -1488,6 +1488,17 @@
           "default": null,
           "title": "Transport Encrypted"
         },
+        "upnp": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceUpnp"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "vendor": {
           "anyOf": [
             {
@@ -1906,6 +1917,52 @@
         }
       },
       "title": "DeviceTime",
+      "type": "object"
+    },
+    "DeviceUpnp": {
+      "additionalProperties": false,
+      "description": "UPnP IGD, NAT-PMP and PCP of one gateway beyond the on/off state, which is the\n:class:`ManagementService` of kind ``upnp`` (#176, ADR 0029). ``None``: not reported.",
+      "properties": {
+        "allow_rules": {
+          "items": {
+            "$ref": "#/$defs/UpnpAclRule"
+          },
+          "title": "Allow Rules",
+          "type": "array"
+        },
+        "mappings": {
+          "items": {
+            "$ref": "#/$defs/DynamicPortMapping"
+          },
+          "title": "Mappings",
+          "type": "array"
+        },
+        "mappings_complete": {
+          "default": true,
+          "title": "Mappings Complete",
+          "type": "boolean"
+        },
+        "protocols": {
+          "items": {
+            "$ref": "#/$defs/UpnpProtocol"
+          },
+          "title": "Protocols",
+          "type": "array"
+        },
+        "secure_mode": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secure Mode"
+        }
+      },
+      "title": "DeviceUpnp",
       "type": "object"
     },
     "DfsState": {
@@ -3057,6 +3114,111 @@
         "hostname"
       ],
       "title": "DynamicDns",
+      "type": "object"
+    },
+    "DynamicPortMapping": {
+      "additionalProperties": false,
+      "description": "A port mapping a client opened on a gateway through UPnP IGD, NAT-PMP or PCP (#176, ADR\n0029). Descriptions often carry names of apps or devices: they stay local, never in\nexports for others. The device a mapping belongs to is found from ``internal_address``\nthrough the clients of the network.",
+      "properties": {
+        "created_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MappingOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "external_port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "External Port",
+          "type": "integer"
+        },
+        "internal_address": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            }
+          ],
+          "title": "Internal Address"
+        },
+        "internal_port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Internal Port",
+          "type": "integer"
+        },
+        "lease_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lease Seconds"
+        },
+        "protocol": {
+          "enum": [
+            "tcp",
+            "udp"
+          ],
+          "title": "Protocol",
+          "type": "string"
+        },
+        "remote_host": {
+          "anyOf": [
+            {
+              "format": "ipv4",
+              "type": "string"
+            },
+            {
+              "format": "ipv6",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remote Host"
+        }
+      },
+      "required": [
+        "protocol",
+        "external_port",
+        "internal_address",
+        "internal_port"
+      ],
+      "title": "DynamicPortMapping",
       "type": "object"
     },
     "EvidenceSource": {
@@ -4978,6 +5140,16 @@
       ],
       "title": "ManagementService",
       "type": "object"
+    },
+    "MappingOrigin": {
+      "description": "How a dynamic port mapping was asked for (#176).",
+      "enum": [
+        "upnp",
+        "nat-pmp",
+        "pcp"
+      ],
+      "title": "MappingOrigin",
+      "type": "string"
     },
     "MedDeviceClass": {
       "description": "LLDP-MED device class a neighbour announces (ANSI/TIA-1057, #163).",
@@ -10528,6 +10700,73 @@
         "standby"
       ],
       "title": "UplinkState",
+      "type": "string"
+    },
+    "UpnpAclRule": {
+      "additionalProperties": false,
+      "description": "One permission rule of a UPnP daemon (miniupnpd ``allow``/``deny``): which clients may\nmap which external ports to which internal ports (#176).",
+      "properties": {
+        "allow": {
+          "title": "Allow",
+          "type": "boolean"
+        },
+        "external_first": {
+          "default": 0,
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "External First",
+          "type": "integer"
+        },
+        "external_last": {
+          "default": 65535,
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "External Last",
+          "type": "integer"
+        },
+        "internal_first": {
+          "default": 0,
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Internal First",
+          "type": "integer"
+        },
+        "internal_last": {
+          "default": 65535,
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Internal Last",
+          "type": "integer"
+        },
+        "internal_network": {
+          "anyOf": [
+            {
+              "format": "ipv4network",
+              "type": "string"
+            },
+            {
+              "format": "ipv6network",
+              "type": "string"
+            }
+          ],
+          "title": "Internal Network"
+        }
+      },
+      "required": [
+        "allow",
+        "internal_network"
+      ],
+      "title": "UpnpAclRule",
+      "type": "object"
+    },
+    "UpnpProtocol": {
+      "description": "Port mapping protocols a gateway answers (#176).",
+      "enum": [
+        "upnp-igd",
+        "nat-pmp",
+        "pcp"
+      ],
+      "title": "UpnpProtocol",
       "type": "string"
     },
     "UpsStatus": {

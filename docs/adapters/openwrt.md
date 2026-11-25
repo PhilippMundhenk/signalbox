@@ -666,7 +666,7 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -680,7 +680,8 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "/sys/devices/*/net/*/bridge/*": ["read"],
         "/sys/devices/*/net/*/brport/*": ["read"],
         "/var/run/ddns/*": ["read"],
-        "/etc/avahi/avahi-daemon.conf": ["read"]
+        "/etc/avahi/avahi-daemon.conf": ["read"],
+        "/var/run/miniupnpd.leases": ["read"]
       }
     }
   }
@@ -787,7 +788,7 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -801,7 +802,8 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "/sys/devices/*/net/*/bridge/*": ["read"],
         "/sys/devices/*/net/*/brport/*": ["read"],
         "/var/run/ddns/*": ["read"],
-        "/etc/avahi/avahi-daemon.conf": ["read"]
+        "/etc/avahi/avahi-daemon.conf": ["read"],
+        "/var/run/miniupnpd.leases": ["read"]
       }
     },
     "write": {
@@ -1090,3 +1092,22 @@ UCI interface exists (#475).
 
 *(Guess, #21: the option names of the UCI sections and the Avahi paths are from the package
 documentation, not yet seen on a device.)* Covered: OpenWrt 23.05, 24.10 and 25.12.
+
+## UPnP, NAT-PMP and mappings of `miniupnpd` *(optional part)* (interfaces, #176)
+
+- **Settings**: `uci get upnpd` (package `miniupnpd`): the section `upnpd` has `enabled`,
+  `enable_upnp` and `enable_natpmp` (both on when unset), `secure_mode` (on when unset),
+  `internal_iface` (the networks it listens on; `lan` when unset); each `perm_rule` section
+  (`action`, `ext_ports`, `int_addr`, `int_ports`) is one permission rule. The service object
+  `upnp` and `Device.upnp` come from this. No `upnpd` config: nothing is reported.
+- **Mappings**: the lease file `/var/run/miniupnpd.leases` through `file read`, one line per
+  mapping `PROTO:external port:internal address:internal port:expiry:description` (expiry is a
+  Unix time, `0` never ends; expired lines are left out). Mappings of NAT-PMP and PCP are told by
+  the description miniupnpd gives them.
+- ACL additions: UCI config `upnpd` and the file `/var/run/miniupnpd.leases`; an older ACL keeps
+  the rest and reports an optional gap naming them (mappings then count as not complete).
+
+*(Guess, #21: the option names and the lease file format are from the package documentation, not
+yet seen on a device; the `luci.upnp` ubus object is not used because its fields are not
+documented.)* Covered: OpenWrt 23.05, 24.10 and 25.12 (miniupnpd 2.3; the file format is the same
+in 2.1 and later).

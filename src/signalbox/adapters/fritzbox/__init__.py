@@ -93,11 +93,13 @@ from signalbox.model import (
     DeviceHealth,
     DeviceRole,
     DeviceTime,
+    DeviceUpnp,
     DhcpLease,
     DhcpPool,
     DhcpRelay,
     DhcpServer,
     DynamicDns,
+    DynamicPortMapping,
     Firewall,
     FirewallAction,
     FirewallChain,
@@ -109,6 +111,7 @@ from signalbox.model import (
     FirmwareChannel,
     LeaseState,
     ManagementService,
+    MappingOrigin,
     Membership,
     NtpClient,
     Port,
@@ -127,6 +130,7 @@ from signalbox.model import (
     Subnet,
     Uplink,
     UplinkKind,
+    UpnpProtocol,
     WifiStandard,
     WirelessAssociation,
     Wlan,
@@ -559,6 +563,43 @@ def port_forward(row: dict[str, str]) -> PortForward | None:
         target_address=target,
         target_port=internal if internal and 0 < internal < 65536 else None,
         passes_filter=True,
+    )
+
+
+def upnp_mapping(row: dict[str, str]) -> DynamicPortMapping | None:
+    """The mapping an application opened (#176) out of one ``GetGenericPortMappingEntry``.
+
+    TR-064 does not say who created an entry. *Guess* (#21): an entry with a lease time
+    (``NewLeaseDuration`` above 0) was asked for through UPnP IGD, a permanent one is port
+    sharing the user set up (read as :class:`PortForward`); permanent UPnP mappings are missed.
+    """
+    lease = _int(row.get("NewLeaseDuration"))
+    if not lease or lease < 0 or not _flag(row.get("NewEnabled")):
+        return None
+    protocol = row.get("NewProtocol", "").strip().lower()
+    external, internal = _int(row.get("NewExternalPort")), _int(row.get("NewInternalPort"))
+    try:
+        target = ip_address(row.get("NewInternalClient", "").strip())
+    except ValueError:
+        return None
+    if protocol not in ("tcp", "udp") or not external or not internal:
+        return None
+    if not (0 < external < 65536 and 0 < internal < 65536):
+        return None
+    remote = row.get("NewRemoteHost", "").strip()
+    try:
+        host = ip_address(remote) if remote else None
+    except ValueError:
+        host = None
+    return DynamicPortMapping(
+        protocol="tcp" if protocol == "tcp" else "udp",
+        external_port=external,
+        internal_address=target,
+        internal_port=internal,
+        description=row.get("NewPortMappingDescription", "").strip() or None,
+        lease_seconds=lease,
+        created_by=MappingOrigin.UPNP,
+        remote_host=host,
     )
 
 
@@ -1283,6 +1324,7 @@ class FritzboxAdapter(Adapter):
         policies = _fixed_policies(guest, wan)
         forwards: list[PortForward] = []
         gaps: list[Gap] = []
+        rows: list[dict[str, str]] = []
         if uplinks:
             service = str(uplinks[0].vendor_extra.get("service", "")).split(":")[0] + "1"
             rows, fault = await self._port_mappings(service)
@@ -1299,6 +1341,7 @@ class FritzboxAdapter(Adapter):
                         )
                     )
         return Observation(
+            upnp=await self._upnp(uplinks, rows),
             firewalls=[
                 Firewall(
                     id=firewall_id(d),
@@ -1313,6 +1356,30 @@ class FritzboxAdapter(Adapter):
             ],
             incomplete=gaps,
         )
+
+    async def _upnp(
+        self, uplinks: list[Uplink], rows: list[dict[str, str]]
+    ) -> dict[str, DeviceUpnp]:
+        """UPnP state and the mappings with a lease (#176, ADR 0029), from the port sharing
+        ``read_firewall`` has read anyway. Only gateways, and only where the box answers
+        ``X_AVM-DE_UPnP`` (``NewEnable``); the protocols are UPnP IGD, and secure mode and
+        permission rules are not in TR-064."""
+        try:
+            info = await self._try("X_AVM-DE_UPnP1", "GetInfo")
+        except AdapterError:  # an extra of the firewall read: never fails it
+            return {}
+        if info is None:
+            return {}
+        on = _flag(info.get("NewEnable"))
+        found = [m for row in rows if on and (m := upnp_mapping(row)) is not None]
+        return {
+            self.context.device_id: DeviceUpnp(
+                protocols=[UpnpProtocol.IGD] if on else [],
+                mappings=found,
+                # permanent UPnP mappings look like port sharing and are not told apart
+                mappings_complete=not on or not uplinks,
+            )
+        }
 
     async def _port_mappings(self, service: str) -> tuple[list[dict[str, str]], Gap | None]:
         """Every ``GetGenericPortMappingEntry`` of *service* until the box answers 713; a gap

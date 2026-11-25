@@ -77,8 +77,7 @@ def roaming(net: Network) -> Iterator[Result]:
     "noticing; malware and cheap cameras use it, and many provider routers ship with it on. It "
     "is worst on a gateway that serves a guest, IoT or camera network, which is a warning; "
     "enabled anywhere else it is reported as information. Networks come from where the device "
-    "says UPnP listens, otherwise from the networks the gateway has addresses in. The active "
-    "port mappings are not read yet.",
+    "says UPnP listens, otherwise from the networks the gateway has addresses in.",
 )
 def upnp(net: Network) -> Iterator[Result]:
     for s in sorted(net.services, key=lambda s: s.id):

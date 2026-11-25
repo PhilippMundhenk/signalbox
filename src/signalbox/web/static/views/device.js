@@ -445,6 +445,42 @@ function managementCard(ix, observed) {
   return h('section', { class: 'card', 'data-testid': 'device-management' }, h('h2', {}, t('device.mgmt.title')), kv(rows));
 }
 
+// UPnP, NAT-PMP and PCP of a gateway (#176): the protocols, secure mode and the ports devices opened.
+// Descriptions come from the devices: they go in as text nodes only.
+const UPNP_PROTOCOL = { 'upnp-igd': 'UPnP IGD', 'nat-pmp': 'NAT-PMP', pcp: 'PCP' };
+
+function upnpLease(m) {
+  if (m.lease_seconds === 0) return t('device.upnp.permanent');
+  return given(m.lease_seconds) ? t('device.upnp.left', { duration: fmtDuration(m.lease_seconds) }) : null;
+}
+
+function upnpCard(ix, observed) {
+  const u = observed.upnp;
+  if (!u) return null;
+  const clients = ix.net.clients || [];
+  const facts = [
+    u.protocols.map((p) => UPNP_PROTOCOL[p] || p).join(', '),
+    u.secure_mode === true ? t('device.upnp.secureOn') : u.secure_mode === false ? t('device.upnp.secureOff') : null,
+    u.allow_rules.length ? t('device.upnp.rules', { count: u.allow_rules.length }) : null,
+  ].filter(Boolean);
+  const rows = u.mappings.map((m) => {
+    const client = clients.find((c) => (c.addresses || []).includes(m.internal_address));
+    const detail = [client && client.hostname, m.description, upnpLease(m)].filter(Boolean).join(' · ');
+    return [
+      ltr(`${m.protocol.toUpperCase()} ${m.external_port}`),
+      h('span', { 'data-testid': 'upnp-mapping', 'data-port': `${m.protocol}/${m.external_port}` }, h('span', { class: 'mirror', 'aria-hidden': 'true' }, '→'), ' ', ltr(`${m.internal_address}:${m.internal_port}`), detail ? ` (${detail})` : ''),
+    ];
+  });
+  return h(
+    'section',
+    { class: 'card', 'data-testid': 'device-upnp' },
+    h('h2', {}, t('device.upnp.title')),
+    facts.length ? h('p', { class: 'muted', 'data-testid': 'upnp-facts' }, facts.join(' · ')) : null,
+    u.mappings_complete ? null : h('p', { class: 'muted', 'data-testid': 'upnp-incomplete' }, t('device.upnp.incomplete')),
+    rows.length ? h('div', { 'data-testid': 'upnp-mappings' }, h('h3', {}, t('device.upnp.mappings')), kv(rows)) : h('p', { class: 'muted' }, t('device.upnp.none')),
+  );
+}
+
 const LOG_KIND = {
   syslog: 'device.logs.syslog',
   netflow: 'device.logs.netflow',
@@ -1160,6 +1196,7 @@ async function overview(main, ctx, device, adapters, sites) {
     inferredCard(ix, device.id),
     portsCard(ix, tree, deltas, series),
     observed ? stpCard(ix, observed) : null,
+    observed ? upnpCard(ix, observed) : null,
     poeCard(ix, observed, device.id),
     radiosCard(ix, device.id),
     lldpCard(ix, device.id),

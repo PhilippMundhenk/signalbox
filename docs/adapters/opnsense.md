@@ -1169,3 +1169,14 @@ snooping setting, and the IGMP proxy page has no API: it is not read. *(Guess, #
 and field names of both plugins, and the privilege names `page-services-mdnsrepeater` and
 `page-services-udpbroadcastrelay`.)* Covered: 24.7, 25.1, 25.7 and 26.1 as far as the plugins
 exist there.
+
+## UPnP and NAT-PMP, `os-upnp` *(optional plugin)* (interfaces, #176)
+
+`/api/miniupnpd/settings/get` gives `general.enabled`, `enable_upnp`, `enable_natpmp`, the
+selected interfaces (`iface_array`), `secure_mode` (or the opposite `allow_third_party_mapping`)
+and the permission rules `permuser1` to `permuser4` (`allow 1024-65535 192.0.2.0/24 1024-65535`);
+`/api/miniupnpd/service/status` says whether the service runs (a stopped service counts as off).
+No plugin (404): nothing is reported; a 403 is an optional gap naming the privilege
+`page-services-upnp`. The active mappings have no API (miniupnpd keeps them in a lease file on
+the firewall), so the list is marked not complete. *(Guess, #21: endpoint, field and privilege
+names.)* Covered: 24.7, 25.1, 25.7 and 26.1 as far as the plugin exists there.

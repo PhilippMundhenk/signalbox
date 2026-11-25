@@ -366,6 +366,23 @@ def firewall_data() -> dict[str, Any]:
                 }
             ]
         ),
+        # os-upnp plugin (#176, guess: shape): UPnP and NAT-PMP on LAN, secure mode on
+        "/api/miniupnpd/settings/get": {
+            "miniupnpd": {
+                "general": {
+                    "enabled": "1",
+                    "enable_upnp": "1",
+                    "enable_natpmp": "1",
+                    "iface_array": _opt({"lan": ("LAN", True), "opt1": ("IoT", False)}),
+                    "secure_mode": "1",
+                    "permuser1": "allow 1024-65535 192.0.2.0/24 1024-65535",
+                    "permuser2": "deny 0-65535 0.0.0.0/0 0-65535",
+                    "permuser3": "",
+                    "permuser4": "",
+                }
+            }
+        },
+        "/api/miniupnpd/service/status": {"status": "running"},
         "/api/firewall/alias/search_item": _rows_of(
             [
                 {

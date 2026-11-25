@@ -1106,3 +1106,35 @@ async def test_repeater_set_up_as_device_is_merged_with_its_mesh_node(
     assert net.port("fb/node/n-rep1/port/uplink") is None
     again = merge([SITE], [box])  # without the own device nothing changes
     assert "fb/node/n-rep1" in {d.id for d in again.devices}
+
+
+# --- UPnP and its mappings (#176) ------------------------------------------------------------
+
+
+async def test_upnp_mappings_are_the_port_sharing_with_a_lease(
+    sim: FritzboxSim, adapter: FritzboxAdapter
+) -> None:
+    sim.port_mappings += [
+        fritz_sim.port_mapping(3074, "UDP", 3074, "192.0.2.60", "Example console", lease=3600),
+        fritz_sim.port_mapping(9, "TCP", 9, "192.0.2.61", "off", enabled=False, lease=60),
+        fritz_sim.port_mapping(7, "TCP", 7, "not-an-address", "broken", lease=60),
+    ]
+    obs = await adapter.read_firewall()
+    u = obs.upnp["fb"]
+    assert [p.value for p in u.protocols] == ["upnp-igd"]
+    (m,) = u.mappings  # static sharing (lease 0), disabled and broken entries are not UPnP
+    assert (m.protocol, m.external_port, str(m.internal_address), m.lease_seconds) == (
+        "udp",
+        3074,
+        "192.0.2.60",
+        3600,
+    )
+    assert m.description == "Example console" and m.created_by is not None
+    assert m.created_by.value == "upnp"
+    assert not u.mappings_complete  # a permanent UPnP mapping looks like port sharing
+
+
+async def test_upnp_off_reports_no_protocols(sim: FritzboxSim, adapter: FritzboxAdapter) -> None:
+    sim.upnp["NewEnable"] = "0"
+    obs = await adapter.read_firewall()
+    assert obs.upnp["fb"].protocols == [] and obs.upnp["fb"].mappings == []

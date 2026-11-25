@@ -2363,3 +2363,75 @@ def test_multicast_parsers() -> None:
     assert on is not None and on.interfaces == ["a", "b"] and on.segments == ["a", "b"]
     everything = om.avahi("[reflector]\nenable-reflector=yes\n", lambda n: None)
     assert everything is not None and everything.interfaces == [] and everything.segments == []
+
+
+# --- UPnP, NAT-PMP and the mappings of miniupnpd (#176) --------------------------------------
+
+
+async def test_upnp_state_and_mappings(sim: OpenWrtSim, adapter: OpenWrtAdapter) -> None:
+    assert (await assert_contract(adapter)).device.upnp is None  # no miniupnpd: nothing reported
+    sim.packages = {"upnpd"}
+    snap = await assert_contract(adapter)
+    (svc,) = [s for s in snap.services if s.kind.value == "upnp"]
+    assert svc.enabled and svc.segments == [segment_id("home", None)]
+    u = snap.device.upnp
+    assert u is not None and u.secure_mode is True and u.mappings_complete
+    assert [p.value for p in u.protocols] == ["upnp-igd", "nat-pmp"]
+    assert [(r.allow, str(r.internal_network), r.external_first) for r in u.allow_rules] == [
+        (True, "192.0.2.0/24", 1024),
+        (False, "0.0.0.0/0", 0),
+    ]
+    by = {m.external_port: m for m in u.mappings}  # the expired and the broken line are left out
+    assert sorted(by) == [2222, 3074, 51413]
+    game = by[3074]
+    assert (game.protocol, str(game.internal_address), game.internal_port) == (
+        "udp",
+        "192.0.2.60",
+        3074,
+    )
+    assert game.description == "Example console" and game.created_by is not None
+    assert game.created_by.value == "upnp" and game.lease_seconds is not None
+    assert 7000 < game.lease_seconds <= 7200
+    assert by[51413].description == "Example torrent client: port 51413"  # colons stay
+    natpmp = by[2222]
+    assert natpmp.lease_seconds == 0 and natpmp.created_by is not None
+    assert natpmp.created_by.value == "nat-pmp"
+
+
+async def test_upnp_with_an_old_acl_keeps_the_settings(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sim.packages = {"upnpd"}
+    monkeypatch.setattr(openwrt_sim, "FILES", ("/tmp/dhcp.leases",))
+    obs = await adapter.read_interfaces()
+    u = obs.upnp["ap1"]
+    assert u.mappings == [] and not u.mappings_complete and u.secure_mode is True
+    (gap,) = [g for g in obs.incomplete if g.message_id == "openwrt.upnpGap"]
+    assert gap.optional and "miniupnpd.leases" in gap.message
+    sim.denied = {"uci:upnpd"}
+    again = await adapter.read_interfaces()
+    assert again.upnp == {}
+    assert [g.optional for g in again.incomplete if g.message_id == "openwrt.upnpGap"] == [True]
+
+
+def test_upnp_parsers() -> None:
+    from signalbox.adapters import upnp as parse
+
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    soon = int(now.timestamp()) + 90
+    text = (
+        f"TCP:80:192.0.2.5:8080:{soon}:web: server\n"
+        "UDP:x:192.0.2.5:1:0:bad port\n"
+        "SCTP:9:192.0.2.5:9:0:bad protocol\n"
+        "UDP:7:not-an-address:7:0:bad address\n"
+        f"UDP:8:2001:db8::5:8:{soon}:v6\n"  # an IPv6 address has colons: not supported, skipped
+    )
+    (m,) = parse.lease_file(text, now)
+    assert (m.protocol, m.external_port, m.internal_port, m.lease_seconds) == ("tcp", 80, 8080, 90)
+    assert m.description == "web: server"
+    assert parse.acl_text("allow 1024-65535 192.0.2.0/24 1024-65535") is not None
+    assert parse.acl_text("allow 5 192.0.2.0/24") is None
+    assert parse.acl_text("permit 1-2 192.0.2.0/24 1-2") is None
+    assert parse.acl_text("allow 9-1 192.0.2.0/24 1-2") is None
+    assert parse.acl_text("allow 1-2 nonsense 1-2") is None
+    assert parse.origin_of("PCP 5 tcp").value == "pcp" and parse.origin_of(None).value == "upnp"

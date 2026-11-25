@@ -89,6 +89,7 @@
    }
   ],
   "multicast": null,
+  "upnp": null,
   "poe": null,
   "config_state": null,
   "local_backups": null,

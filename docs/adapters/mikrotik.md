@@ -1190,3 +1190,14 @@ a login that may not read it gets an optional gap. *(Guess, #21: the field names
 `mdns-repeat-ifaces` and the proxy menu path are from the RouterOS documentation, not yet seen on
 a device; the querier a bridge sees is not read, the monitor has no field known to us.)* Covered:
 RouterOS 7.16 and later for the repeater, 7.x for the rest; RouterOS 6 has no REST API.
+
+## UPnP and its mappings (#176)
+
+Read with `interfaces`. `/ip/upnp` gives `enabled`; `/ip/upnp/interfaces` the interfaces with
+`type=internal` (where it listens, mapped to the networks Signalbox knows). The mappings are
+the dynamic `dstnat` rows of `/ip/firewall/nat` (`dynamic=true`, action `dst-nat`, a comment
+with `upnp`): protocol, `dst-port`, `to-addresses` and `to-ports`; rows with ranges are left
+out. RouterOS answers UPnP IGD only: no NAT-PMP or PCP, no secure mode, no permission rules and
+no lease time. When the NAT rules cannot be read the list is marked not complete. *(Guess, #21:
+the comment of dynamic rows, matched by the word `upnp`.)* Covered: RouterOS 6.49 (REST needs 7,
+so only 7.x is read), 7.x.

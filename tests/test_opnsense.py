@@ -910,7 +910,7 @@ def test_health_and_time_helpers() -> None:
 
 async def test_services(snap: Snapshot) -> None:
     by = {s.id: s for s in snap.services}
-    assert sorted(by) == ["fw/service/snmp", "fw/service/webgui"]
+    assert sorted(by) == ["fw/service/snmp", "fw/service/upnp", "fw/service/webgui"]
     web = by["fw/service/webgui"]  # the plain-HTTP simulator
     assert (web.kind.value, web.enabled, web.encrypted) == ("http", True, False)
     snmp = by["fw/service/snmp"]
@@ -924,10 +924,42 @@ async def test_services(snap: Snapshot) -> None:
 async def test_services_without_the_plugin_or_privilege(http_url: str, sim: Any) -> None:
     del sim.data["/api/netsnmp/general/get"]  # os-net-snmp not installed
     snap = await observe(adapter(http_url))
-    assert [s.name for s in snap.services] == ["webgui"]
+    assert [s.name for s in snap.services] == ["webgui", "upnp"]
     sim.fail["/api/netsnmp/general/get"] = 403
     snap = await observe(adapter(http_url))
-    assert [s.name for s in snap.services] == ["webgui"] and not snap.errors
+    assert [s.name for s in snap.services] == ["webgui", "upnp"] and not snap.errors
+
+
+async def test_upnp_plugin_state(snap: Snapshot) -> None:
+    (svc,) = [s for s in snap.services if s.kind.value == "upnp"]
+    assert svc.enabled and svc.segments  # the selected interface is a network Signalbox knows
+    u = snap.device.upnp
+    assert u is not None and u.secure_mode is True
+    assert [p.value for p in u.protocols] == ["upnp-igd", "nat-pmp"]
+    assert [(r.allow, str(r.internal_network)) for r in u.allow_rules] == [
+        (True, "192.0.2.0/24"),
+        (False, "0.0.0.0/0"),
+    ]
+    assert u.mappings == [] and not u.mappings_complete  # no API lists the active mappings
+
+
+async def test_upnp_plugin_variants(http_url: str, sim: Any) -> None:
+    general = sim.data["/api/miniupnpd/settings/get"]["miniupnpd"]["general"]
+    del general["secure_mode"]
+    general["allow_third_party_mapping"] = "1"  # the pfSense wording: the opposite
+    sim.data["/api/miniupnpd/service/status"] = {"status": "stopped"}
+    snap = await observe(adapter(http_url))
+    (svc,) = [s for s in snap.services if s.kind.value == "upnp"]
+    assert not svc.enabled  # configured but not running
+    assert snap.device.upnp is not None and snap.device.upnp.secure_mode is False
+    del sim.data["/api/miniupnpd/settings/get"]  # os-upnp not installed
+    snap = await observe(adapter(http_url))
+    assert snap.device.upnp is None and not [s for s in snap.services if s.kind.value == "upnp"]
+    sim.data["/api/miniupnpd/settings/get"] = {"miniupnpd": {"general": {}}}
+    sim.fail["/api/miniupnpd/settings/get"] = 403
+    snap = await observe(adapter(http_url))
+    assert snap.device.upnp is None
+    assert [e.optional for e in snap.errors if e.message_id == "opnsense.privilegeGap"] == [True]
 
 
 async def test_never_downloads_the_backup(http_url: str, sim: Any) -> None:
