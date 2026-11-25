@@ -210,6 +210,7 @@ All notable changes to this project are documented here. The format follows
 
 - Docker base image is now `python:3.15-slim` (was 3.13); the unit tests also run on Python 3.15 in CI (#270)
 ### Fixed
+- Topology: a FRITZ!Box host list no longer links every wired or mesh device to the box, and an ARP-only router is no longer linked to an access point beside it; link guesses use every device's own sighting of a client (#529, #532)
 - MikroTik automatic setup waits (up to 20 s) until RouterOS accepts the new user before it reports done, so the first read or trace with the new login no longer answers HTTP 401 (#520, PR #521)
 - Dialogs taller than the screen (e.g. *fix all* with many devices) scroll inside; title and buttons stay visible and the page behind no longer scrolls (#524).
 - Omada: the first controller release with a working Open API is 5.13 (#515, #389, PR #516): 5.9.31 has none (-1600) and 5.12.7 refuses the token request of its own application (-44106); the minimum-version message and docs say 5.13, 5.13.30.8 joins the CI matrix, the adapter no longer tries older controllers
