@@ -52,6 +52,9 @@ Generated from the code by `tools/gen_api_doc.py`; a test keeps it current.
 | DELETE | `/api/notifications/channels/{name}` | Delete |
 | POST | `/api/notifications/channels/{name}/test` | Test |
 | GET | `/api/notifications/browser` | Messages for the browser channels newer than ``after`` (the page polls this). |
+| GET | `/api/notifications/webpush` | Push State |
+| POST | `/api/notifications/webpush/subscriptions` | Push Subscribe |
+| DELETE | `/api/notifications/webpush/subscriptions/{sid}` | Push Unsubscribe |
 | GET | `/api/annotations` | Annotations and acknowledgements in effect, declared and stored (with `source`). |
 | GET | `/api/annotations/export` | The annotations and acknowledgements set in the UI as desired-state YAML. |
 | PUT | `/api/annotations/{target}` | Set the label, purpose, owner, notes, tags and expectations of an object. |

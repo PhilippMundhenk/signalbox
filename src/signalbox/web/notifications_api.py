@@ -13,8 +13,10 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from signalbox import webpush
 from signalbox.config import KINDS_LIST, ChannelSpec
 from signalbox.notifications import NAME, Notifier, apprise_available
+from signalbox.webpush import SubscriptionIn, WebPushError
 
 CONFIG_FILE = "This channel is set in the configuration file."
 
@@ -89,5 +91,39 @@ def router(notifier: Notifier) -> APIRouter:
     def browser(after: int = 0) -> list[dict[str, Any]]:
         """Messages for the browser channels newer than ``after`` (the page polls this)."""
         return [vars(m) for m in notifier.browser_since(after)]
+
+    # Web Push (#372): the public key and the subscriptions of browsers. The private key and the
+    # endpoints are never returned.
+
+    @api.get("/webpush")
+    def push_state() -> dict[str, Any]:
+        on = webpush.available()
+        return {
+            "available": on,
+            "public_key": notifier.webpush.public_key() if on else "",
+            "subscriptions": [
+                {"id": s.id, "host": s.host, "label": s.label, "created": s.created}
+                for s in notifier.webpush.subscriptions()
+            ],
+        }
+
+    @api.post("/webpush/subscriptions", response_model=None)
+    def push_subscribe(body: SubscriptionIn) -> dict[str, Any] | JSONResponse:
+        if not webpush.available():
+            return JSONResponse(
+                {"error": "unavailable", "message": "The pywebpush package is not installed."},
+                409,
+            )
+        try:
+            sub = notifier.webpush.add(body)
+        except WebPushError as exc:
+            return JSONResponse({"error": "invalid", "message": str(exc)}, 422)
+        return {"id": sub.id, "host": sub.host, "label": sub.label, "created": sub.created}
+
+    @api.delete("/webpush/subscriptions/{sid}", status_code=204, response_model=None)
+    def push_unsubscribe(sid: str) -> JSONResponse | None:
+        if not notifier.webpush.remove(sid):
+            return JSONResponse({"error": "not_found", "message": "No such subscription."}, 404)
+        return None
 
     return api

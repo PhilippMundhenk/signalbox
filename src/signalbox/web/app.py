@@ -321,6 +321,8 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = CSP
+        if path == "/sw.js":  # the Web Push service worker (#372); it controls the whole app
+            response.headers["Service-Worker-Allowed"] = "/"
         response.headers["Cache-Control"] = "no-store" if path.startswith("/api/") else "no-cache"
         return response
 
