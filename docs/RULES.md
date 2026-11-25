@@ -14,7 +14,9 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 ## [Access control](rules/access_control.md)
 
 - [`radius.unreachable`](rules/access_control.md#radiusunreachable)
+- [`radius.single`](rules/access_control.md#radiussingle)
 - [`port.dot1x-trunk`](rules/access_control.md#portdot1x-trunk)
+- [`port.dot1x-no-fallback`](rules/access_control.md#portdot1x-no-fallback)
 - [`wifi.mac-filter-as-security`](rules/access_control.md#wifimac-filter-as-security)
 - [`wifi.enterprise-consistent`](rules/access_control.md#wifienterprise-consistent)
 
@@ -588,6 +590,12 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `min_collisions` | `10` | count | Fewer collisions than this between two reads are never reported. |
 
+### `port.dot1x-no-fallback`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `min_clients` | `1` | count | Number of printers, IoT devices, cameras or media players seen on an 802.1X port from which it is reported. |
+
 ### `port.drops`
 
 | Parameter | Default | Unit | Meaning |
@@ -623,6 +631,12 @@ where each came from. The defaults are the values the rules used before they had
 | `window_hours` | `6` | h | Judge the traffic of the last this many hours (hourly averages of the recorded series) instead of the last read interval. 0: only the last interval. Falls back to the last interval while the series covers too little of the window. |
 | `percentile` | `90` | % | Which hourly rate of the window is compared with utilisation_pct: 90 means the rate that 90 % of the hours stay below (100: the busiest hour). |
 | `min_coverage_pct` | `50` | % | The series must cover at least this share of the window, else the last read interval is judged. |
+
+### `radius.single`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `min_servers` | `2` | count | Fewest RADIUS servers an enterprise network or an 802.1X switch should have; fewer are reported (1 turns the rule off). |
 
 ### `security.certificate-expiry`
 

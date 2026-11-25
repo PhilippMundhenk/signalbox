@@ -1338,6 +1338,36 @@ async def test_lldpd_refused_is_a_gap_not_no_neighbours(
     assert snap.status.value == "ok"
 
 
+async def test_freeradius_plugin_is_a_local_radius_server(snap: Snapshot) -> None:
+    """os-freeradius (#519): the firewall itself, secret never read."""
+    servers = snap.device.radius_servers or []
+    (local,) = [s for s in servers if s.local]
+    assert local.name == "FreeRADIUS" and local.secret_set is True
+    assert [s.address for s in servers if not s.local] == ["192.0.2.53"]
+    assert "do-not-leak" not in snap.model_dump_json()
+
+
+async def test_freeradius_not_installed_or_stopped_is_not_reported(
+    http_url: str, sim: OpnsenseSimulator
+) -> None:
+    sim.fail = {"/api/freeradius/general/get": 404}
+    snap = await observe(adapter(http_url))
+    assert not [s for s in snap.device.radius_servers or [] if s.local]
+    assert not [e for e in snap.errors if "FreeRADIUS" in e.message]
+    sim.fail = {}
+    sim.data["/api/freeradius/service/status"] = {"status": "stopped"}
+    snap = await observe(adapter(http_url))
+    assert not [s for s in snap.device.radius_servers or [] if s.local]
+
+
+async def test_freeradius_refused_is_a_gap(http_url: str, sim: OpnsenseSimulator) -> None:
+    sim.fail = {"/api/freeradius/general/get": 403}
+    snap = await observe(adapter(http_url))
+    (gap,) = [e for e in snap.errors if e.message.startswith("FreeRADIUS")]
+    assert gap.optional and "page-services-freeradius" in (gap.fix or "")
+    assert snap.status.value == "ok"
+
+
 async def test_captive_portal_zones(snap: Snapshot) -> None:
     """The zone on the guest interface is click-through; session length from hardtimeout (#460)."""
     (portal,) = snap.portals

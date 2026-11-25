@@ -63,6 +63,8 @@ UNBOUND_GRIDS = (
 SECRET = "sim-secret"
 #: shared secret of the simulated RADIUS server: tests assert that it is never read (#162)
 RADIUS_SECRET = "sim-radius-secret-do-not-leak"
+#: shared secrets of the simulated FreeRADIUS NAS clients (os-freeradius, #519): never read either
+FREERADIUS_SECRET = "sim-freeradius-client-secret-do-not-leak"
 USERS = "/api/auth/user/"
 TRACEROUTE = "/api/diagnostics/traceroute/set"
 TRACE_PRIVILEGE = "page-diagnostics-traceroute"
@@ -406,6 +408,28 @@ def firewall_data() -> dict[str, Any]:
                     "radius_secret": RADIUS_SECRET,
                 },
                 {"uuid": "s2", "name": "Directory", "type": "ldap", "host": "192.0.2.54"},
+            ]
+        ),
+        # os-freeradius (#519; guess: endpoints and fields): settings, status, NAS clients
+        "/api/freeradius/general/get": {"freeradius": {"general": {"enabled": "1", "vlan": "0"}}},
+        "/api/freeradius/service/status": {"status": "running"},
+        "/api/freeradius/client/search_client": _rows_of(
+            [
+                {
+                    "uuid": "c1",
+                    "enabled": "1",
+                    "name": "Office access point",
+                    "ip": "192.0.2.20",
+                    "secret": FREERADIUS_SECRET,
+                    "description": "do-not-leak",
+                },
+                {
+                    "uuid": "c2",
+                    "enabled": "1",
+                    "name": "Desk switch",
+                    "ip": "192.0.2.21",
+                    "secret": FREERADIUS_SECRET,
+                },
             ]
         ),
         "/api/firewall/alias/search_item": _rows_of(
