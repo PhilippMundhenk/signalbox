@@ -26,6 +26,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, peer_certificate
 from signalbox.adapters.mikrotik import MikrotikAdapter, MikrotikConfig, get_menu
 from signalbox.adapters.mikrotik.provision import READ_POLICY
+from signalbox.adapters.provision import new_password
 from signalbox.adapters.ssh import PinnedSsh
 from signalbox.model import DeviceRole, DeviceStatus
 
@@ -102,32 +103,28 @@ async def read_as(t: Target, password: str) -> Any:
         await a.close()
 
 
-async def read_until(t: Target, password: str, reads: bool, tries: int = 12) -> Any:
-    """``read_as`` until the group's policy is in effect: RouterOS keeps the rights of a login it
-    has just seen for a while (the setup's check of the new login primes it, #520), so ask
-    every 5 s rather than keeping the login busy. ``reads``: the read works, else it is refused."""
+async def read_until(t: Target, password: str, reads: bool, tries: int = 10) -> Any:
+    """``read_as`` until the group's policy is in effect (RouterOS applies it a moment after
+    the REST call returns, #520). ``reads``: the read works, else it is refused."""
     for _ in range(tries):
-        await asyncio.sleep(5)
         snap = await read_as(t, password)
         if (snap.status in (DeviceStatus.OK, DeviceStatus.PARTIAL)) is reads:
             break
+        await asyncio.sleep(2)
     return snap
 
 
 async def test_policies_broken_then_fixed(chr_: Target) -> None:
-    result = await MikrotikAdapter.apply_setup(
-        SetupRequest(
-            config={"url": chr_.url, "username": LOGIN},
-            admin_user="admin",
-            admin_secret=SecretStr(chr_.extra["ADMIN_PASSWORD"]),
-            trust=chr_.pin,
-            timeout=60,
-        )
-    )
-    assert result.ok
-    password = result.secrets["password"].get_secret_value()
+    # The user is made by hand, not by the setup: the setup checks the new login, and RouterOS
+    # keeps the rights of a login it has seen, so the broken group below would still read (#520).
+    password = new_password()
     http = admin_http(chr_)
     try:
+        await http.request(
+            "PUT",
+            "/rest/user",
+            json={"name": LOGIN, "group": "signalbox-read", "password": password},
+        )
         groups = await get_menu(http, "/rest/user/group")
         gid = next(g[".id"] for g in groups if g["name"] == "signalbox-read")
         broken = "read,!api,!rest-api,!write,!policy,!password,!sensitive,!reboot,!test,!sniff"
