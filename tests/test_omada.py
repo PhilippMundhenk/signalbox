@@ -38,7 +38,10 @@ from signalbox.model import (
     LagMode,
     Membership,
     Pmf,
+    PoeStatus,
+    PoeSupply,
     PortKind,
+    PortPoe,
     PortRole,
     Security,
     Snapshot,
@@ -202,7 +205,7 @@ async def test_ports_and_segments(snap: Snapshot) -> None:
         True,
         2500,
         True,
-        False,
+        PortPoe(enabled=False, status=PoeStatus.DISABLED),
     )
     assert p1.vendor_extra == {
         "omada_device": {
@@ -219,7 +222,11 @@ async def test_ports_and_segments(snap: Snapshot) -> None:
     assert p1.jumbo is True and p1.jumbo_frames() is True
     assert ports[f"{SW}/port/7"].pvid == 20 and ports[f"{SW}/port/8"].pvid == 30  # override
     assert ports[f"{SW}/port/2"].max_speed_mbps == 1000
-    assert ports[f"{SW}/port/2"].poe is True
+    assert ports[f"{SW}/port/2"].poe == PortPoe(
+        enabled=True, status=PoeStatus.DELIVERING, power_w=12.3
+    )  # #159
+    switch = next(d for d in snap.extra_devices if d.id == SW)
+    assert switch.poe == PoeSupply(budget_w=65, used_w=17.5)
     p4 = ports[f"{SW}/port/4"]
     assert (p4.up, p4.speed_mbps, p4.full_duplex) == (False, None, None)
     p5 = ports[f"{SW}/port/5"]

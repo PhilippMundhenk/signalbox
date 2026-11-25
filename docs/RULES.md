@@ -166,6 +166,10 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`segment.purpose-missing`](rules/networks.md#segmentpurpose-missing)
 - [`segment.iot-on-5ghz-only`](rules/networks.md#segmentiot-on-5ghz-only)
 
+## [Power over Ethernet](rules/poe_checks.md)
+
+- [`poe.budget`](rules/poe_checks.md#poebudget)
+
 ## [Port counters](rules/port_counters.md)
 
 - [`port.errors`](rules/port_counters.md#porterrors)

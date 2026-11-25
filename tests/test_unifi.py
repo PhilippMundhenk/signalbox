@@ -31,6 +31,7 @@ from signalbox.model import (
     DeviceRole,
     DeviceStatus,
     Membership,
+    PoeStatus,
     PortKind,
     PortRole,
     Security,
@@ -185,10 +186,23 @@ async def test_ports_and_vlans(snaps: dict[str, Snapshot]) -> None:
     snap = snaps["10.0.26"]
     ports = {p.id: p for p in snap.ports}
     p1 = ports[f"{SW}/port/1"]
-    assert (p1.up, p1.speed_mbps, p1.poe, p1.profile, p1.pvid) == (True, 1000, True, "All", 1)
+    assert p1.poe is not None
+    assert (p1.up, p1.speed_mbps, p1.poe.enabled, p1.profile, p1.pvid) == (
+        True,
+        1000,
+        True,
+        "All",
+        1,
+    )
+    # #159: the delivered power, the class and the state of the port, and the switch's budget
+    assert (p1.poe.power_w, p1.poe.power_class, p1.poe.status) == (4.2, 2, PoeStatus.DELIVERING)
     assert p1.name == "Switch Port 1" and p1.role is PortRole.JACK
     p4 = ports[f"{SW}/port/4"]
-    assert (p4.admin_up, p4.up, p4.poe) == (False, False, False)
+    assert p4.poe is not None
+    assert (p4.admin_up, p4.up, p4.poe.enabled) == (False, False, False)
+    assert p4.poe.status is PoeStatus.DISABLED
+    switch = next(d for d in snap.extra_devices if d.id == SW)
+    assert switch.poe is not None and switch.poe.budget_w == 60 and switch.poe.used_w == 4.2
     segments = {s.id: {m.port_id: m.mode for m in s.members} for s in snap.segments}
     native, iot, guest = "home/segment/native", "home/segment/20", "home/segment/30"
     assert segments[native][f"{SW}/port/1"] is Membership.UNTAGGED

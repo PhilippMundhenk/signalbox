@@ -71,6 +71,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
+from signalbox.adapters.mikrotik import poe as mikrotik_poe
 from signalbox.adapters.mikrotik import routes as route_reader
 from signalbox.adapters.mikrotik import stp as _stp
 from signalbox.adapters.mikrotik import trace as _trace
@@ -141,6 +142,7 @@ from signalbox.model import (
     PortCounters,
     PortKind,
     PortMembership,
+    PortPoe,
     PortRole,
     PowerSupply,
     Radio,
@@ -199,6 +201,8 @@ VLAN = "/rest/interface/vlan"
 BONDING = "/rest/interface/bonding"
 BONDING_MONITOR = "/rest/interface/bonding/monitor-slaves"
 ETHERNET_SWITCH_PORT = "/rest/interface/ethernet/switch/port"
+ETHERNET_POE = "/rest/interface/ethernet/poe"
+ETHERNET_POE_MONITOR = "/rest/interface/ethernet/poe/monitor"
 LIST_MEMBER = "/rest/interface/list/member"
 DHCP_CLIENT = "/rest/ip/dhcp-client"
 IPV6_DHCP_CLIENT = "/rest/ipv6/dhcp-client"
@@ -1469,8 +1473,11 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
         assert isinstance(cfg, MikrotikConfig)
         default = is_factory_default("mikrotik", cfg.password.get_secret_value(), cfg.username)
         bridges, port_stp, stp_gaps = await self._stp(layout)
+        port_poe, poe_gaps = await self._poe()
         ports = [
-            p.model_copy(update={"stp": port_stp[n]}) if n in port_stp else p
+            p.model_copy(update={"stp": port_stp[n]} if n in port_stp else {}).model_copy(
+                update={"poe": port_poe[n]} if n in port_poe else {}
+            )
             for n, p in layout.ports.items()
         ]
         route_rows = [
@@ -1506,8 +1513,54 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
             stp_bridges={dev: bridges},
             default_credentials={dev: default},
             signalbox_privilege={} if privilege is None else {dev: privilege},
-            incomplete=gaps + account_gaps + stp_gaps,
+            incomplete=gaps + account_gaps + stp_gaps + poe_gaps,
         )
+
+    async def _poe(self) -> tuple[dict[str, PortPoe], list[Gap]]:
+        """PoE-out of the ethernet ports (``/interface/ethernet/poe``: ``poe-out`` auto-on,
+        forced-on or off, ``poe-priority``; RouterOS 6 and 7 have the menu on boards with PoE
+        out, elsewhere it is missing) with the state from its ``monitor once``
+        (``poe-out-status``, ``poe-out-voltage``, ``poe-out-current`` in mA, ``poe-out-power``
+        in W; RouterOS 6 spells the status ``poe-out-status`` as well, the power field is
+        missing on older 6.x). The monitor is optional: without it only the settings are read."""
+        rows = await self._optional_rows(ETHERNET_POE)
+        if not rows:
+            return {}, []
+        names = [_text(r.get("name")) for r in rows if _text(r.get("name"))]
+        seen: dict[str, dict[str, Any]] = {}
+        refused: AdapterError | None = None
+        try:
+            answer = await self.http.post_json(
+                ETHERNET_POE_MONITOR, {"numbers": ",".join(names), "once": ""}
+            )
+        except AdapterError as exc:
+            refused = exc
+        else:
+            rows_seen = _stp.monitor_rows(answer)
+            for i, m in enumerate(rows_seen):
+                name = _text(m.get("name"))
+                if not name and len(rows_seen) == len(names):
+                    name = names[i]
+                seen[name] = m
+        out = {
+            _text(r.get("name")): mikrotik_poe.port(r, seen.get(_text(r.get("name")), {}))
+            for r in rows
+            if _text(r.get("name"))
+        }
+        gaps: list[Gap] = []
+        if refused is not None:
+            gaps.append(
+                Gap(
+                    message=f"PoE state (status and power per port): {refused}",
+                    fix="Give Signalbox's group on the router the policies of the setup guide "
+                    "so it may run the PoE monitor; without it only the PoE settings are read.",
+                    optional=True,
+                    message_id="mikrotik.poeMonitor",
+                    fix_id="mikrotik.poeMonitor.fix",
+                    params={"cause": str(refused)},
+                )
+            )
+        return out, gaps
 
     async def _stp(self, layout: _Layout) -> tuple[list[StpBridge], dict[str, StpPort], list[Gap]]:
         """Spanning tree per bridge and bridge port (#155). The running state comes from the

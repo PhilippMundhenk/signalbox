@@ -778,6 +778,14 @@ and `list write 'signalbox'` next to `list read 'signalbox'` in the login entry 
 not start the interface at all. Signalbox only checks the UCI values after a change, not that
 hostapd runs it.
 
+## PoE switches (#159)
+
+On a switch with the `realtek-poe` daemon, `ubus call poe info` gives the budget, the total
+consumption and per port the mode (`PoE`, `PoE+`, `PoE++`), the status and the consumption. The
+units are a *guess* (#21): the total in watts, the port value in milliwatts (a value above the
+budget is read as milliwatts, below as watts). A device without that object (or an rpcd ACL that
+hides it) reports no PoE. The older `poemgr` daemon is not read.
+
 ## Supported versions
 
 | Release | Package manager | CI (QEMU) | Simulator | Known differences |

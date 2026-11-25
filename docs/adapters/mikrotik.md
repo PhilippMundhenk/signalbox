@@ -1006,6 +1006,16 @@ What that does not cover ([#21](https://github.com/PhilippMundhenk/signalbox/iss
 - A timer that runs while Signalbox is still working (a very slow router) undoes the change and
   `confirm` reports it.
 
+## PoE-out (#159)
+
+`GET /rest/interface/ethernet/poe` lists the ports with PoE-out (`poe-out`: `auto-on`, `forced-on`,
+`off`); boards without PoE-out answer 404 and report nothing. `POST /rest/interface/ethernet/poe/monitor`
+with `once` adds `poe-out-status` (`powered-on`, `waiting-for-load`, `overload`, `short-circuit`, ...),
+`poe-out-voltage`, `poe-out-current` (mA) and `poe-out-power` (W; RouterOS 6 before 6.46 lacks the
+power field, so only status and settings are read there). A group without the monitor policy keeps the
+settings and gets the optional gap `mikrotik.poeMonitor`. RouterOS has no total PoE budget: the
+budget stays empty (*guess: `/system/health` shows no PoE total on the boards we know of*).
+
 ## MAC address table (#160)
 
 `/rest/interface/bridge/host` (already read for clients) gives one `FdbEntry` per row on the

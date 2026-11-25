@@ -449,6 +449,13 @@ is no confirm timer: a change that does not read back as planned is undone from 
   passphrase included, and `enable`), created or deleted, networks created since deleted last.
   Port profiles, reservations and everything else are not touched.
 
+## PoE (#159)
+
+Per port `poe` (on or off) and `poePower` (watts delivered), per switch `totalPower` (older
+controllers: `poePower`) as the budget and `poeRemain` (watts left); used power is the difference.
+All four names are a *guess* (#21); a controller that lacks them gives no PoE data. A switch port's
+`poe` that is a profile mode number (the `poe: 2` of the LAN profiles) is not read as on or off.
+
 ## Controller versions (#415, part of #389)
 
 Supported: the current major version (6.x) and the two before it (5.x, 4.x), as far as each

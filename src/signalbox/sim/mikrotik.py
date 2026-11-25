@@ -384,6 +384,11 @@ def sample_data() -> dict[str, Any]:
             _ether("ether4", "1G-baseT-full", **{"loop-protect": "on"}),
             _ether("ether5", "1G-baseT-full"),
         ),
+        # PoE-out of two ports (RouterOS boards with PoE out); ether5 is switched off
+        "/rest/interface/ethernet/poe": _ids(
+            {"name": "ether4", "poe-out": "auto-on", "poe-priority": "10", "poe-voltage": "auto"},
+            {"name": "ether5", "poe-out": "off", "poe-priority": "10", "poe-voltage": "auto"},
+        ),
         "/rest/interface/bridge": _ids(
             {
                 "name": "bridge",
@@ -1466,6 +1471,18 @@ class MikrotikSimulator:
             "ether5": {"status": "inactive", "role": "disabled-port", "forwarding": "false"},
         }
     )
+    #: ``/interface/ethernet/poe/monitor once`` per port (a camera on ether4)
+    poe_monitor: dict[str, dict[str, str]] = field(
+        default_factory=lambda: {
+            "ether4": {
+                "name": "ether4",
+                "poe-out-status": "powered-on",
+                "poe-out-voltage": "48.1V",
+                "poe-out-current": "120mA",
+                "poe-out-power": "5.8W",
+            },
+        }
+    )
     next_id: int = 0x100
     #: Traceroutes (#253): target -> hops (address or None, RTT in ms); a target not listed
     #: answers through one router (192.0.2.254) and then itself.
@@ -1574,6 +1591,15 @@ class MikrotikSimulator:
                 return JSONResponse(self.bond_members.get(str(body.get("bond", "")), []))
             if request.method == "POST" and path in (BRIDGE_MONITOR, BRIDGE_PORT_MONITOR):
                 return self.stp_monitor(path, body)
+            if request.method == "POST" and path == POE_MONITOR:
+                if self.read_only_monitor:
+                    return JSONResponse(NO_POLICY, status_code=500)
+                return JSONResponse(
+                    [
+                        self.poe_monitor.get(name, {"name": name, "poe-out-status": "off"})
+                        for name in str(body.get("numbers", "")).split(",")
+                    ]
+                )
             if request.method == "POST" and path == TRACEROUTE:
                 return self.traceroute(path, body)
             self.writes.append((request.method, path, body))
@@ -2190,6 +2216,7 @@ def add_bond(sim: MikrotikSimulator, mode: str = "802.3ad") -> MikrotikSimulator
 
 BRIDGE_MONITOR = "/rest/interface/bridge/monitor"
 BRIDGE_PORT_MONITOR = "/rest/interface/bridge/port/monitor"
+POE_MONITOR = "/rest/interface/ethernet/poe/monitor"
 TRACEROUTE = "/rest/tool/traceroute"
 DHCP_CLIENT = "/rest/ip/dhcp-client"
 LIST_MEMBER = "/rest/interface/list/member"

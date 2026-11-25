@@ -75,7 +75,8 @@
     "topology_changes": 3,
     "last_topology_change": null
    }
-  ]
+  ],
+  "poe": null
  },
  "status": "ok",
  "ports": [

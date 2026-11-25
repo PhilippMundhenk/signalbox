@@ -71,9 +71,13 @@ from signalbox.model import (
     Membership,
     Neighbour,
     Pmf,
+    PoeMode,
+    PoeStatus,
+    PoeSupply,
     Port,
     PortKind,
     PortMembership,
+    PortPoe,
     PortRole,
     PurposeSource,
     Radio,
@@ -257,6 +261,53 @@ def _num(value: Any) -> float | None:
         return float(value)
     except ValueError:
         return None
+
+
+_POE_MODES = {
+    "pasv24": PoeMode.PASSIVE_24V,
+    "passthrough": None,
+    "auto": None,
+}
+
+
+def _port_poe(row: dict[str, Any]) -> PortPoe:
+    """PoE of a switch port from ``port_table``: ``poe_enable``, ``poe_mode`` (``auto``,
+    ``pasv24``, ``passthrough``, ``off``; ``auto`` negotiates 802.3af/at/bt, so no mode), the
+    delivered ``poe_power`` (watts as text), ``poe_good`` (a device is powered) and
+    ``poe_class`` (``Class 4``). Network versions that lack a field leave it out."""
+    enabled = _flag(row.get("poe_enable"), None)
+    mode_text = _text(row.get("poe_mode")).lower()
+    if mode_text == "off":
+        enabled = False
+    power = _num(row.get("poe_power"))
+    good = _flag(row.get("poe_good"), None)
+    status = None
+    if enabled is False:
+        status = PoeStatus.DISABLED
+    elif good is True or (power is not None and power > 0):
+        status = PoeStatus.DELIVERING
+    elif enabled is True:
+        status = PoeStatus.SEARCHING
+    class_text = _text(row.get("poe_class")).lower().removeprefix("class").strip()
+    return PortPoe(
+        enabled=enabled,
+        status=status,
+        mode=_POE_MODES.get(mode_text),
+        power_class=int(class_text) if class_text.isdigit() and int(class_text) <= 8 else None,
+        power_w=power if power is not None and power >= 0 else None,
+        voltage_v=_num(row.get("poe_voltage")),
+        current_ma=_num(row.get("poe_current")),
+    )
+
+
+def _poe_supply(row: dict[str, Any]) -> PoeSupply | None:
+    """The PoE budget of a switch: ``total_max_power`` (watts) and the sum of its ports'
+    ``poe_power``. ``None`` for a device without a budget."""
+    budget = _num(row.get("total_max_power"))
+    if budget is None or budget <= 0:
+        return None
+    drawn = [_num(p.get("poe_power")) for p in _list(row, "port_table")]
+    return PoeSupply(budget_w=budget, used_w=sum(w for w in drawn if w is not None))
 
 
 def _flag(value: Any, default: bool | None = None) -> bool | None:
@@ -960,6 +1011,7 @@ class UnifiAdapter(_Adapter):
             mac=d.mac,
             management_address=_text(d.row.get("ip")) or None,
             adapter=self.manifest.id,
+            poe=_poe_supply(d.row),
             vendor_extra={"unifi_device": d.identity()},
         )
 
@@ -1026,7 +1078,7 @@ class UnifiAdapter(_Adapter):
                     up=False if enabled is False else up,
                     speed_mbps=speed if up and speed else None,
                     full_duplex=_flag(row.get("full_duplex"), None) if up else None,
-                    poe=_flag(row.get("poe_enable"), None) if capable else None,
+                    poe=_port_poe(row) if capable else None,
                     lag=str(lag) if lag else None,
                     role=PortRole.JACK,
                     admin_up=enabled,
