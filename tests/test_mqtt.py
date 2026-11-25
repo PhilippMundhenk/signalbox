@@ -342,3 +342,57 @@ def test_the_bridge_asks_its_counter_source_and_survives_its_failure() -> None:
 
     b.counters_source = broken
     b.publish(net(), FINDINGS)  # logged, the other values still go out
+
+
+def _wifi_net() -> Network:
+    from factories import wlan
+    from signalbox.model import Band, WifiStandard, WirelessAssociation
+
+    w = wlan("ap", "Home")
+    assoc = WirelessAssociation(
+        wlan_id=w.id,
+        band=Band.GHZ_5,
+        signal_dbm=-71,
+        standard=WifiStandard.AX,
+        capabilities=["11k", "pmf"],
+    )
+    ap = snapshot(
+        device("ap", DeviceRole.AP, name="AP"),
+        wlans=[w],
+        clients=[
+            Client(id="ap/c/1", mac="02:00:00:00:00:01", seen_on=w.id, wireless=assoc),
+            Client(id="ap/c/2", mac="02:00:00:00:00:02", seen_on="ap/port/lan"),
+        ],
+    )
+    return merge([SITE], [ap])
+
+
+def test_wifi_clients_are_published_only_on_opt_in() -> None:
+    n = _wifi_net()
+    assert "wifi_clients" not in device_state(n, [], "ap")
+    state = device_state(n, [], "ap", wifi_clients=True)
+    assert state["wifi_clients"] == [
+        {
+            "ssid": "Home",
+            "band": "5",
+            "signal_dbm": -71,
+            "snr_db": None,
+            "standard": "ax",
+            "capabilities": ["11k", "pmf"],
+        }
+    ]
+    assert state["wifi_weakest_signal"] == -71
+    assert "02:00:00:00:00:01" not in json.dumps(state)  # no MAC without exports.identity
+    with_mac = device_state(n, [], "ap", wifi_clients=True, identity=True)
+    assert with_mac["wifi_clients"][0]["mac"] == "02:00:00:00:00:01"
+    assert "wifi_weakest_signal" not in device_state(net(), [], "ap", wifi_clients=True)
+
+
+def test_wifi_clients_discovery_follows_the_option() -> None:
+    cfg = MqttConfig(enabled=True, host="broker")
+    key = "homeassistant/sensor/device_ap/wifi_weakest_signal/config"
+    assert key not in Discovery(cfg).configs(_wifi_net())
+    on = Discovery(cfg, wifi_clients=True)
+    assert on.configs(_wifi_net())[key]["unit_of_measurement"] == "dBm"
+    states = on.states(_wifi_net(), [])
+    assert states["signalbox/device/ap/state"]["wifi_clients"]

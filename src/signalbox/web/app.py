@@ -244,7 +244,12 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
         config.auth.session_hours,
     )
 
-    bridge = MqttBridge(config.mqtt, config.server.base_url, identity=config.exports.identity)
+    bridge = MqttBridge(
+        config.mqtt,
+        config.server.base_url,
+        identity=config.exports.identity,
+        wifi_clients=config.exports.wifi_clients,
+    )
     bridge.counters_source = lambda: runner.history().counters
     notifier = Notifier(config.notifications, store, config.server.base_url)
     runner.round_listeners.append(notifier.on_round)

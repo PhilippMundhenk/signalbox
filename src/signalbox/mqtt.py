@@ -73,6 +73,33 @@ HEALTH_SENSORS: list[tuple[str, str, str, str | None, str]] = [
 ]
 
 
+def wifi_client_values(
+    net: Network, device_id: str, identity: bool = False
+) -> list[dict[str, Any]]:
+    """The Wi-Fi associations of the clients seen on an access point (#469). Personal data
+    (presence and movement), so only behind ``exports.wifi_clients``; the MAC address is left
+    out unless ``exports.identity`` is on as well. Names and addresses are never included."""
+    prefix = f"{device_id}/"
+    ssids = {w.id: w.ssid for w in net.wlans}
+    out = []
+    for c in sorted(net.clients, key=lambda x: x.mac):
+        if c.wireless is None or not (c.seen_on or "").startswith(prefix):
+            continue
+        a = c.wireless
+        row: dict[str, Any] = {
+            "ssid": ssids.get(a.wlan_id or c.seen_on or ""),
+            "band": a.band.value if a.band else None,
+            "signal_dbm": a.signal_dbm,
+            "snr_db": a.snr_db,
+            "standard": a.standard.value if a.standard else None,
+            "capabilities": sorted(a.capabilities),
+        }
+        if identity:
+            row["mac"] = c.mac
+        out.append(row)
+    return out
+
+
 def health_values(dev: Device | None) -> dict[str, float | int | None]:
     h = dev.health if dev else None
     if h is None:
@@ -151,6 +178,8 @@ def device_state(
     findings: list[Finding],
     device_id: str,
     counters: dict[str, CounterRecord] | None = None,
+    wifi_clients: bool = False,
+    identity: bool = False,
 ) -> dict[str, Any]:
     dev = net.device(device_id)
     status = net.statuses.get(device_id, DeviceStatus.UNREACHABLE)
@@ -161,7 +190,15 @@ def device_state(
         if f.problem and any(o == device_id or o.startswith(prefix) for o in f.objects)
     ]
     clients = [c for c in net.clients if (c.seen_on or "").startswith(prefix)]
+    extra: dict[str, Any] = {}
+    if wifi_clients:  # opt-in (#469): where and how well each client is connected
+        listed = wifi_client_values(net, device_id, identity)
+        extra["wifi_clients"] = listed
+        signals = [x["signal_dbm"] for x in listed if x.get("signal_dbm") is not None]
+        if signals:
+            extra["wifi_weakest_signal"] = min(signals)
     return {
+        **extra,
         "status": status.value,
         "reachable": "ON" if status in (DeviceStatus.OK, DeviceStatus.PARTIAL) else "OFF",
         "firmware": (dev.firmware.current if dev and dev.firmware else None) or "unknown",
@@ -174,7 +211,15 @@ def device_state(
 
 
 class Discovery:
-    def __init__(self, cfg: MqttConfig, base_url: str = "", identity: bool = False) -> None:
+    def __init__(
+        self,
+        cfg: MqttConfig,
+        base_url: str = "",
+        identity: bool = False,
+        wifi_clients: bool = False,
+    ) -> None:
+        #: Client association details only with ``exports.wifi_clients`` (#469).
+        self.wifi_clients = wifi_clients
         #: Serial numbers and base MACs go into the discovery only with ``exports.identity``.
         self.identity = identity
         self.prefix = cfg.topic_prefix.strip("/") or "signalbox"
@@ -324,6 +369,19 @@ class Discovery:
                     state_class="measurement",
                     icon=icon,
                 )
+            if self.wifi_clients and wifi_client_values(net, dev.id):
+                out[f"{self.discovery}/sensor/{node}/wifi_weakest_signal/config"] = self._entity(
+                    node,
+                    "wifi_weakest_signal",
+                    "Weakest client signal",
+                    topic,
+                    device,
+                    value_template="{{ value_json.wifi_weakest_signal }}",
+                    unit_of_measurement="dBm",
+                    device_class="signal_strength",
+                    state_class="measurement",
+                    icon="mdi:wifi-strength-2",
+                )
             for key, name, unit, device_class, icon in HEALTH_SENSORS:
                 if health_values(dev).get(key) is None:
                     continue
@@ -390,7 +448,14 @@ class Discovery:
         out = {self.site_topic(s.id): site_state(net, findings, s.id) for s in net.sites}
         out.update(
             {
-                self.device_topic(d.id): device_state(net, findings, d.id, self.counters)
+                self.device_topic(d.id): device_state(
+                    net,
+                    findings,
+                    d.id,
+                    self.counters,
+                    self.wifi_clients,
+                    self.identity,
+                )
                 for d in net.devices
             }
         )
@@ -413,9 +478,10 @@ class MqttBridge:
         base_url: str = "",
         client_factory: ClientFactory = _default_client,
         identity: bool = False,
+        wifi_clients: bool = False,
     ) -> None:
         self.cfg = cfg
-        self.discovery = Discovery(cfg, base_url, identity)
+        self.discovery = Discovery(cfg, base_url, identity, wifi_clients)
         self.client_factory = client_factory
         self.client: Any = None
         self.connected = threading.Event()

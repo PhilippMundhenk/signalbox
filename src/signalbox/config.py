@@ -80,6 +80,12 @@ class ExportsConfig(Section):
         "Signalbox (MQTT / Home Assistant discovery and exporter plugins). Off: they stay on "
         "the device page.",
     )
+    wifi_clients: bool = Field(
+        False,
+        description="Publish the Wi-Fi association of each client (SSID, band, signal, standard, "
+        "capabilities) per access point over MQTT. Off: only the number of clients. Client MAC "
+        "addresses are included only if exports.identity is on as well.",
+    )
 
 
 class DeployConfig(Section):
@@ -482,6 +488,10 @@ exports:
   # Serial numbers and base MAC addresses identify a device: they stay out of MQTT and exporter
   # plugins unless you set this to true.
   identity: false
+  # Publish each client's Wi-Fi association (SSID, band, signal) per access point over MQTT.
+  # Shows who is where and how well, so it is off by default; without identity: true no
+  # MAC addresses are included.
+  wifi_clients: false
 
 deploy:
   # Allow deploying changes to devices at all. Each device must also allow changes

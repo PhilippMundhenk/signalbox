@@ -1303,6 +1303,7 @@ def sample_data() -> dict[str, Any]:
                 "ft-over-ds": "yes",
                 "ft-mobility-domain": "44481",
                 "ft-reassociation-deadline": "20s",
+                "ft-nas-identifier": "02aabbcc0001",
             }
         ),
         "/rest/interface/wifi/channel": [],
@@ -1351,7 +1352,7 @@ def sample_data() -> dict[str, Any]:
                 "signal": "-61",
                 "tx-rate": "286.7Mbps-20MHz-2S",
                 "rx-rate": "172.0Mbps-20MHz-2S",
-                "auth-type": "wpa2-psk",
+                "auth-type": "wpa2-psk ft",
                 "band": "2ghz-ax",
             }
         ),

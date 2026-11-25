@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from signalbox.model import Band, WifiStandard, WirelessAssociation
+from signalbox.model import Band, FtKeyHolder, WifiStandard, WirelessAssociation
 
 _RATE = re.compile(
     r"(?P<rate>\d+(?:\.\d+)?)\s*(?P<unit>[GMK]?)bps"
@@ -78,6 +78,15 @@ def mobility_domain(value: Any) -> str | None:
     return f"{number:04x}" if 0 <= number <= 0xFFFF else None
 
 
+def key_holder(nas_identifier: Any) -> FtKeyHolder | None:
+    """``ft-nas-identifier`` is the R0 key holder id of the access point: set, the access
+    points push the R1 keys to each other; empty: not told (None, nothing is claimed)
+    *(guess: RouterOS has no explicit key holder switch)*. There is no band steering setting
+    in ``/interface/wifi/steering`` (``rrm``, ``wnm``, ``neighbor-group`` only), so none is
+    reported."""
+    return FtKeyHolder.PMK_R1_PUSH if _text(nas_identifier) else None
+
+
 def min_signal(rows: list[dict[str, Any]], interface: str) -> int | None:
     """Weakest signal ``/interface/wifi/access-list`` lets an interface's clients have: the
     lower end of ``signal-range`` (``-80..120``) of the entries that accept clients on this
@@ -123,5 +132,21 @@ def association(
         width_mhz=tx_width or rx_width,
         spatial_streams=tx_streams or rx_streams,
         connected_seconds=uptime(row.get("uptime")),
-        capabilities=["pmf"] if "pmf" in _text(row.get("auth-type")).lower() else [],
+        capabilities=capabilities(row),
     )
+
+
+def capabilities(row: dict[str, Any]) -> list[str]:
+    """What the ``auth-type`` of a registration row says (#89, #90): ``pmf``; ``wpa3`` for an
+    SAE association; ``11r`` where the word ``ft`` is one of the parts *(guess: RouterOS
+    spelling such as ``wpa2-psk ft`` / ``wpa3-psk,ft``)*."""
+    text = _text(row.get("auth-type")).lower()
+    parts = set(re.split(r"[\s,;/]+", text))
+    caps = []
+    if "pmf" in text:
+        caps.append("pmf")
+    if "wpa3-psk" in parts or "sae" in parts or "wpa3" in parts:
+        caps.append("wpa3")
+    if "ft" in parts or any(p.startswith("ft-") or p.endswith("-ft") for p in parts):
+        caps.append("11r")
+    return caps

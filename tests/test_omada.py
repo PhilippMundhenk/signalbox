@@ -32,6 +32,7 @@ from signalbox.adapters.omada import (
 )
 from signalbox.model import (
     Band,
+    BandSteering,
     Cipher,
     DeviceHealth,
     DeviceRole,
@@ -310,6 +311,11 @@ async def test_wireless(snap: Snapshot) -> None:
     assert home.vendor_extra["wlan_group"] == "Default"
     # the SSID's "Fast Roaming" switch (enable11r, #447)
     assert home.roaming_80211r is True and wlans[f"{AP1}/wlan/ssid-iot-2g"].roaming_80211r is False
+    # site roaming and steering settings and the SSID's DTIM and minimum RSSI (#469, guesses)
+    assert (home.roaming_80211k, home.roaming_80211v) == (True, True)
+    assert home.band_steering is BandSteering.PREFER_5GHZ and home.airtime_fairness is False
+    assert (home.dtim_period, home.min_rssi_dbm) == (3, -80)
+    assert wlans[f"{AP1}/wlan/ssid-iot-2g"].dtim_period is None
     iot = wlans[f"{AP2}/wlan/ssid-iot-2g"]  # EAP 2 names no WLAN group: the primary one
     assert iot.hidden and iot.segment_id == "home/segment/20" and iot.passphrase_fingerprint
     assert iot.passphrase_fingerprint == wlans[f"{AP1}/wlan/ssid-iot-2g"].passphrase_fingerprint

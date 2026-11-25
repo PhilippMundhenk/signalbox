@@ -159,3 +159,13 @@ def test_openwrt_band_steering_of_usteer_and_dawn() -> None:
     assert openwrt.band_steering(none, {"values": {"x": {".type": "other"}}}) is None
     both = openwrt.band_steering(usteer(band_steering_interval="0"), dawn())
     assert both is BandSteering.OFF  # usteer wins
+
+
+def test_mikrotik_auth_type_capabilities() -> None:
+    from signalbox.adapters.mikrotik import wifi_assoc as mt
+
+    assert mt.capabilities({"auth-type": "wpa2-psk ft"}) == ["11r"]
+    assert mt.capabilities({"auth-type": "wpa3-psk,ft"}) == ["wpa3", "11r"]
+    assert mt.capabilities({"auth-type": "wpa2-psk"}) == []
+    assert mt.capabilities({}) == []
+    assert mt.key_holder("") is None and mt.key_holder(None) is None

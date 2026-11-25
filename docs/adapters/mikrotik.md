@@ -263,7 +263,7 @@ permissions` and the trace says which policy is missing.
   (`wpa2-psk,wpa3-psk` → WPA2/WPA3, `wpa-psk,wpa2-psk` → WPA/WPA2, `wpa-psk` → WPA,
   `wpa-eap` → WPA-Enterprise (also with `wpa2-eap`), `wpa3-eap-192` → 192-bit, empty → open),
   PMF from `management-protection`
-  (`allowed` → optional), 802.11r from `ft`, 802.11k/v from `steering.rrm`/`steering.wnm`
+  (`allowed` → optional), 802.11r from `ft` (`ft-nas-identifier` set: key holder `pmk-r1-push` *(guess)*; `/interface/wifi/steering` has no band steering, so none is reported), 802.11k/v from `steering.rrm`/`steering.wnm`
   (not set at all: unknown, RouterOS' default applies), hidden from `hide-ssid`, segment from the bridge port's `pvid`, else `datapath.vlan-id`. Client isolation and a network purpose are not read (declare the purpose in the desired state); a plan that sets `client_isolation` is refused.
 - **Wireless (`wireless` package)**: radios from `/interface/wireless` entries without
   `master-interface` (`band` like `2ghz-b/g/n`, `frequency`, `channel-width`), WLANs in mode
