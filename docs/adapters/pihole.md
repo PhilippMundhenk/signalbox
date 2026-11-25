@@ -179,3 +179,10 @@ API description and the web interface source, not from a real v5 box):
 errors without a token and with only a token on a v6 box), the wrong token, the gaps, pinned
 TLS and the check that the token is removed from errors; `tests/test_recordings.py` records
 and replays it (`SIGNALBOX_RECORD_API_TOKEN`).
+
+## DNS transport, DNSSEC and block lists (#182, #80)
+
+Pi-hole itself does not encrypt upstream traffic (DoT and DoH need `cloudflared` or `stubby`),
+so `dns.forwarder-encrypted` stays silent for it. v6: `dns.dnssec` becomes `dnssec` and
+`/api/lists` (type `block`) the block lists (host of the address only). v5: neither is read (the
+legacy API has no setting for them; it is in `setupVars.conf`).

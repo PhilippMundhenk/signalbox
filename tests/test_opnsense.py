@@ -322,6 +322,13 @@ async def test_dns(snap: Snapshot) -> None:
         ("storage.home.example", "192.0.2.10"),  # the alias, with its override's address
     ]
     assert [h.source for h in dns.host_records] == ["host-override"] * 2 + ["alias"]
+    assert [(f.transport, f.tls_name) for f in dns.forwarders] == [
+        ("udp", None),
+        ("tls", "dns.example.net"),
+    ]
+    assert dns.dnssec is True and dns.supports_encrypted_dns
+    # selected predefined list by name, own list by host only (the token is dropped)
+    assert [b.name for b in dns.blocklists] == ["AdGuard List", "lists.example.net"]
     assert dns.host_records_read
     assert dns.vendor_extra == {"domain_forwards": {"corp.example": "198.51.100.53"}}
 

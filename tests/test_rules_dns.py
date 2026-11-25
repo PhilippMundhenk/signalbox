@@ -6,7 +6,9 @@ from signalbox.model import (
     DeviceRole,
     DhcpPool,
     DhcpServer,
+    DnsForwarder,
     DnsService,
+    DnsTransport,
     HostRecord,
     Network,
     ReadError,
@@ -19,6 +21,7 @@ from signalbox.model import (
 from signalbox.rules import Finding, Rule, evaluate
 from signalbox.rules.dns import (
     conflicting_records,
+    forwarder_encrypted,
     forwarder_loop,
     forwarder_missing,
     host_record_dynamic,
@@ -512,3 +515,25 @@ def test_host_record_to_a_network_of_another_site_is_not_stale_here() -> None:
         clients=[client(1, "192.0.2.10")],
     )
     assert run(host_record_stale, net) == []
+
+
+# --- dns.forwarder-encrypted --------------------------------------------------------------------
+
+
+def test_plain_forward_to_a_public_resolver_is_info() -> None:
+    svc = dns("gw", forwarders=["203.0.113.53", "192.168.1.2"], supports_encrypted_dns=True)
+    (f,) = run(forwarder_encrypted, network(dns_services=[svc]))
+    assert f.severity == "info" and f.message == "gw forwards DNS in plain text to 203.0.113.53"
+
+
+def test_encrypted_local_or_unable_forwarders_are_silent() -> None:
+    tls = DnsForwarder(address=ip("203.0.113.53"), port=853, transport=DnsTransport.TLS)
+    cases = [
+        dns("gw", forwarders=[tls], supports_encrypted_dns=True),
+        dns("gw", forwarders=["10.0.0.2", "fd00::2"], supports_encrypted_dns=True),
+        dns("gw", forwarders=["203.0.113.53"]),
+        dns("gw", forwarders=["203.0.113.53"], supports_encrypted_dns=False),
+        dns("gw", forwarders=["203.0.113.53"], supports_encrypted_dns=True, config_read=False),
+    ]
+    for svc in cases:
+        assert run(forwarder_encrypted, network(dns_services=[svc])) == []

@@ -113,3 +113,11 @@ only (`192.0.2.53`, upstreams `192.0.2.1` and `203.0.113.53`, DHCP range `192.0.
 `tests/test_dnsfilter.py` runs the contract checks against it (plain http and pinned TLS), the
 gaps and failures, and the DNS and DHCP rules over merged snapshots;
 `tests/test_recordings.py` records and replays it.
+
+## DNS transport, DNSSEC and filter lists (#182, #80)
+
+Upstreams with an address and a scheme (`tls://`, `https://`, `quic://`, `h3://`) become
+forwarders with that transport; named upstreams stay in `named_upstreams` (encrypted anyway).
+`/control/dns_info` `dnssec_enabled` (`enable_dnssec`: guess for older releases, #21) gives
+`dnssec`; `/control/filtering/status` gives the filter lists (name, rule count, enabled). A
+release without these fields leaves them unknown.

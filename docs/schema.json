@@ -263,6 +263,38 @@
       "title": "Band",
       "type": "string"
     },
+    "Blocklist": {
+      "additionalProperties": false,
+      "description": "A list of blocked names a DNS service uses (Unbound DNSBL, AdGuard filter, Pi-hole list).\n\n``name`` is the list's name or the host of its URL: never the full URL, which can carry a\nsubscription token.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "entries": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entries"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Blocklist",
+      "type": "object"
+    },
     "Certificate": {
       "additionalProperties": false,
       "description": "A certificate stored on a device (VPN, RADIUS, web proxy, CA; #330),\n``object_id(device, \"cert\", <name>)``.\n\nThe facts are those of :class:`CertificateFacts`, read from the device's list of\ncertificates. Adapters report only public data: the private key, its passphrase and the\ncertificate request never enter the model, not even in ``vendor_extra`` (the device\nonly says whether a key exists: ``has_private_key``). An empty ``Snapshot.certificates``\nmeans \"not read\", never \"none\".",
@@ -2073,6 +2105,22 @@
           "minimum": 1,
           "title": "Port",
           "type": "integer"
+        },
+        "tls_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tls Name"
+        },
+        "transport": {
+          "$ref": "#/$defs/DnsTransport",
+          "default": "udp"
         }
       },
       "required": [
@@ -2085,6 +2133,13 @@
       "additionalProperties": false,
       "description": "A DNS server on a device, ``object_id(device, \"dns\", <name>)``.\n\nA device may run several (#241): Unbound on another port next to AdGuard Home, dnsmasq next\nto Unbound. Each has its own id and port.",
       "properties": {
+        "blocklists": {
+          "items": {
+            "$ref": "#/$defs/Blocklist"
+          },
+          "title": "Blocklists",
+          "type": "array"
+        },
         "config_read": {
           "default": true,
           "title": "Config Read",
@@ -2093,6 +2148,18 @@
         "device_id": {
           "title": "Device Id",
           "type": "string"
+        },
+        "dnssec": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dnssec"
         },
         "enabled": {
           "default": true,
@@ -2181,6 +2248,18 @@
           ],
           "default": null
         },
+        "supports_encrypted_dns": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Supports Encrypted Dns"
+        },
         "vendor_extra": {
           "additionalProperties": {
             "$ref": "#/$defs/JsonValue"
@@ -2195,6 +2274,17 @@
       ],
       "title": "DnsService",
       "type": "object"
+    },
+    "DnsTransport": {
+      "description": "How a resolver talks to an upstream (#182).",
+      "enum": [
+        "udp",
+        "tls",
+        "https",
+        "quic"
+      ],
+      "title": "DnsTransport",
+      "type": "string"
     },
     "EvidenceSource": {
       "description": "What kind of observation supports a link drawn from MAC tables (#378).",

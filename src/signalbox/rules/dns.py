@@ -5,10 +5,17 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 
 from signalbox.adapters import Capability
-from signalbox.model import DnsForwarder, DnsService, HostRecord, IPAddress, Network
+from signalbox.model import (
+    DnsForwarder,
+    DnsService,
+    DnsTransport,
+    HostRecord,
+    IPAddress,
+    Network,
+)
 from signalbox.rules import Result, Rule, Severity, found, incomplete, rule
 from signalbox.rules._names import device_name, segment_name, site_of_device
 
@@ -509,6 +516,59 @@ def single_forwarder(net: Network) -> Iterator[Result]:
         )
 
 
+#: Addresses inside a local network (documentation ranges are not: they stand for public hosts).
+_LOCAL = [
+    ip_network(n)
+    for n in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "169.254.0.0/16",
+        "127.0.0.0/8",
+        "fc00::/7",
+        "fe80::/10",
+        "::1/128",
+    )
+]
+
+
+def _public(idx: _Index, address: IPAddress) -> bool:
+    if any(address.version == n.version and address in n for n in _LOCAL):
+        return False
+    return not idx.used(address)
+
+
+@rule(
+    "dns.forwarder-encrypted",
+    "DNS goes to a public resolver in plain text",
+    Severity.INFO,
+    "A DNS service that can forward over TLS or HTTPS sends its lookups to a public resolver "
+    "(an address outside the local networks) as plain DNS. The provider and anyone on the path "
+    "can read and change them. Forwarders inside the local network, services that cannot "
+    "encrypt and services that were not read are not reported.",
+)
+def forwarder_encrypted(net: Network) -> Iterator[Result]:
+    idx = _Index.of(net)
+    for dns in sorted(_services(net), key=lambda d: d.id):
+        if not dns.config_read or not dns.supports_encrypted_dns:
+            continue
+        plain = [
+            f for f in dns.forwarders if f.transport == DnsTransport.UDP and _public(idx, f.address)
+        ]
+        if not plain:
+            continue
+        upstream = ", ".join(str(f) for f in plain)
+        yield found(
+            f"{device_name(net, dns.device_id)} forwards DNS in plain text to {upstream}",
+            [dns.id],
+            fix="Enable DNS over TLS (or HTTPS) to that provider, with its server name.",
+            mid="dns.forwarderPlain",
+            fix_id="dns.forwarderPlain.fix",
+            params={"device": device_name(net, dns.device_id), "upstream": upstream},
+        )
+
+
 def _local_domains(net: Network) -> dict[str, set[str]]:
     out: dict[str, set[str]] = defaultdict(set)
     for srv in net.dhcp_servers:
@@ -573,5 +633,6 @@ RULES: list[Rule] = [
     forwarder_loop,
     forwarder_missing,
     single_forwarder,
+    forwarder_encrypted,
     conflicting_records,
 ]

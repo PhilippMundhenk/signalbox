@@ -1784,6 +1784,13 @@ class OpenWrtAdapter(Adapter):
                 records.append(HostRecord(name=str(sec["name"]), address=address))
         services = []
         instances = _sections(uci, "dnsmasq")
+        # https-dns-proxy (DoH) or stubby (DoT) next to dnsmasq: dnsmasq then forwards to
+        # 127.0.0.1#port, which the encryption check does not report (#80)
+        proxy: Any = {}
+        for package in ("https-dns-proxy", "stubby"):
+            with contextlib.suppress(AdapterError):
+                proxy = proxy or (await self._uci(package)).get("values")
+        encrypted = True if proxy else None
         for name, sec in instances:
             port = _int(sec.get("port", DNS_PORT))
             forwarders: list[DnsForwarder] = []
@@ -1815,6 +1822,9 @@ class OpenWrtAdapter(Adapter):
                     listen=listen,
                     port=port if port and 0 < port <= 65535 else DNS_PORT,
                     forwarders=forwarders,
+                    # ``dnssec``: dnsmasq validates when set (and built with DNSSEC support)
+                    dnssec=_flag(sec.get("dnssec")) if "dnssec" in sec else None,
+                    supports_encrypted_dns=encrypted,
                     host_records=records if len(instances) == 1 else [],
                     vendor_extra=extra,
                 )

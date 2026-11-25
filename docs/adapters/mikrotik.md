@@ -1059,3 +1059,10 @@ tried. The rules are in [account_checks](../rules/account_checks.md).
 The read policy covers them; a refused route menu is an optional gap and no routes are
 reported. *CI* (CHR): a static route and a blackhole route written by the VM setup. *Guess:*
 flag names of older RouterOS 7 releases (#21).
+
+## DNS transport and block lists (#182, #80)
+
+`/ip/dns` `use-doh-server` (RouterOS 7.x; absent on older 7.x releases: plain DNS) marks the
+forwarders as `https` with the host of the URL as `tls_name`. `/ip/dns/adlist` (RouterOS 7.15
+and later; absent before: no block lists) gives the block lists by the host of their URL. Guess
+for #21: `match-count` as the number of entries. RouterOS 6 has no REST API (see #389).

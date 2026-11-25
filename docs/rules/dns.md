@@ -73,6 +73,18 @@ reads clients; IPv6 only when IPv6 client addresses were seen), and stay silent 
   is not reported (its upstreams are unknown).
 - **Fix:** add a second upstream resolver, or let the resolver resolve recursively.
 
+## `dns.forwarder-encrypted`
+
+- **Severity:** info
+- **Checks:** a DNS service that can forward over TLS or HTTPS (`supports_encrypted_dns`: OPNsense
+  Unbound, RouterOS 7, AdGuard Home, OpenWrt with `https-dns-proxy` or `stubby`) has a forwarder
+  with plain transport to a public address. Local networks (RFC 1918, CGNAT, ULA, link-local,
+  loopback) and addresses of known devices are not public; the documentation ranges count as
+  public. Services that cannot encrypt (Pi-hole, plain dnsmasq) or were not read are silent.
+- **Fix:** enable DNS over TLS (or HTTPS) to that provider, with its server name.
+- **Data:** `DnsForwarder.transport` / `tls_name` (OPNsense `dots` type and `verify`, MikroTik
+  `use-doh-server`, AdGuard Home and Pi-hole `tls://`, `https://`, `quic://` upstreams).
+
 ## `dns.conflicting-records`
 
 - **Severity:** warning

@@ -83,6 +83,7 @@ from signalbox.model import (
     WIREGUARD_KEY,
     AccountPrivilege,
     AddressSource,
+    Blocklist,
     Certificate,
     Client,
     DeviceAccount,
@@ -96,6 +97,7 @@ from signalbox.model import (
     DhcpServer,
     DnsForwarder,
     DnsService,
+    DnsTransport,
     Firmware,
     HostRecord,
     IPAddress,
@@ -537,6 +539,27 @@ def _selected(value: Any) -> list[str]:
     if isinstance(value, list):
         return [x for x in value if isinstance(x, str)]
     return []
+
+
+def _dnsbl(root: dict[str, Any]) -> list[Blocklist]:
+    """The block lists of Unbound's DNSBL (22.1 and later; older releases have no ``dnsbl``
+    node: none). ``type`` selects the predefined lists (by their name); ``lists`` holds URLs
+    of own lists, of which only the host is kept (a URL can carry a token). Both are off when
+    ``enabled`` is 0. The number of entries is not in the settings (guess for 26.x, #21)."""
+    node = root.get("dnsbl")
+    if not isinstance(node, dict) or not _flag(node.get("enabled")):
+        return []
+    out: list[Blocklist] = []
+    kinds = node.get("type")
+    for key in _selected(kinds):
+        option = kinds.get(key) if isinstance(kinds, dict) else None
+        label = _text(option.get("value")) if isinstance(option, dict) else ""
+        out.append(Blocklist(name=label or key))
+    for url in _text(node.get("lists")).split(","):
+        host = url.strip().split("://", 1)[-1].split("/", 1)[0].split("@")[-1]
+        if host:
+            out.append(Blocklist(name=host))
+    return out
 
 
 def _addr(value: Any) -> IPAddress | None:
@@ -1827,8 +1850,15 @@ class OpnsenseAdapter(_Adapter):
             if not _flag(f.get("enabled")) or server is None:
                 continue
             # an empty port: 853 for DNS over TLS, 53 for a plain forward (Unbound's defaults)
-            default = 853 if _text(f.get("type")) in ("", "dot") else DNS_PORT
-            fwd = DnsForwarder(address=server, port=_port(f.get("port")) or default)
+            tls = _text(f.get("type")) in ("", "dot")
+            default = 853 if tls else DNS_PORT
+            fwd = DnsForwarder(
+                address=server,
+                port=_port(f.get("port")) or default,
+                transport=DnsTransport.TLS if tls else DnsTransport.UDP,
+                # ``verify``: the name the certificate is checked against (20.7 and later)
+                tls_name=(_text(f.get("verify")) or None) if tls else None,
+            )
             domain = _text(f.get("domain"))
             if domain:
                 domain_forwards[domain] = str(fwd)
@@ -1858,6 +1888,9 @@ class OpnsenseAdapter(_Adapter):
                 forwarders=forwarders,
                 host_records=records,
                 host_records_read=read,
+                dnssec=_flag(general.get("dnssec")) if "dnssec" in general else None,
+                blocklists=_dnsbl(root),
+                supports_encrypted_dns=True,
                 vendor_extra=extra,
             )
         ]

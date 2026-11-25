@@ -15,6 +15,7 @@ not yet confirmed on a real device, #21).
 from __future__ import annotations
 
 import contextlib
+import logging
 from typing import Any
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -40,6 +41,7 @@ from signalbox.adapters.pihole import discovery as _discovery
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.model import (
     DNS_PORT,
+    Blocklist,
     Client,
     DeviceRole,
     Firmware,
@@ -51,7 +53,10 @@ from signalbox.model import (
 
 AUTH = "/api/auth"
 VERSION = "/api/info/version"
+log = logging.getLogger(__name__)
+
 CONFIG = "/api/config"
+LISTS = "/api/lists"
 LEASES = "/api/dhcp/leases"
 DEVICES = "/api/network/devices"
 #: Pi-hole v5's legacy API (web interface ``api.php``, ``api_FTL.php``) and its database API.
@@ -486,6 +491,24 @@ class PiholeAdapter(Adapter):
             a = dnsmap.address(fields[0]) if fields else None
             if a is not None:
                 records += [HostRecord(name=name, address=a) for name in fields[1:]]
+        blocklists: list[Blocklist] = []
+        try:
+            # v6: {"lists": [{"address", "type": "block"|"allow", "enabled", "number"}]}
+            for row in _obj(await self._get(LISTS), LISTS).get("lists") or []:
+                if isinstance(row, dict) and row.get("type", "block") == "block":
+                    number = row.get("number")
+                    blocklists.append(
+                        Blocklist(
+                            name=dnsmap.list_host(row.get("address")),
+                            entries=number if isinstance(number, int) else None,
+                            enabled=bool(row.get("enabled", True)),
+                        )
+                    )
+        except (Unreachable, AuthFailed):
+            raise
+        except AdapterError as exc:
+            log.debug("%s: no block lists: %s", self.context.device_id, exc)  # optional extra
+        dnssec = dns.get("dnssec")
         port = dns.get("port")
         blocking = _sub(dns, "blocking")
         extra: dict[str, Any] = {"filtering_enabled": bool(blocking.get("active", True))}
@@ -500,6 +523,8 @@ class PiholeAdapter(Adapter):
             port=port if isinstance(port, int) and 1 <= port <= 65535 else DNS_PORT,
             host_records=records,
             extra=extra,
+            dnssec=dnssec if isinstance(dnssec, bool) else None,
+            blocklists=blocklists,
         )
         return Observation(dns_services=[service])
 

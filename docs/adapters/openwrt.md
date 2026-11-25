@@ -941,3 +941,11 @@ and `prohibit` are dropping routes. A rule with `invert`, an unreadable `src` or
 `goto`, or an incoming interface (`in`) that is no network of the router is left out. Connected
 networks come from the subnets. *CI*: the image's static route and rule (see
 tests/integration/test_openwrt_real.py). *Guess:* `rule` options of other actions (#21).
+
+## DNS: DNSSEC and encrypted upstreams (#182, #80)
+
+dnsmasq's `dnssec` option becomes `dnssec`. If `/etc/config/https-dns-proxy` or
+`/etc/config/stubby` exists, the DNS service is marked as able to encrypt (dnsmasq then forwards
+to `127.0.0.1#port`, a local forwarder). The proxy instances' resolvers are not read yet.
+Domain-specific `server=/domain/addr` lines are still skipped. 23.05, 24.10 and 25.12 use the
+same UCI options (guess for 23.05, #21).
