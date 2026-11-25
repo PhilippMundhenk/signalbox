@@ -292,7 +292,7 @@ def test_migration_from_schema_3_adds_the_tables(tmp_path: Path) -> None:
     db.close()
     s = Store(path, load_vault(tmp_path, env={}))
     try:
-        assert s._db.execute("PRAGMA user_version").fetchone()[0] == len(SCHEMA) == 8
+        assert s._db.execute("PRAGMA user_version").fetchone()[0] == len(SCHEMA) == 9
         assert s.sites() == [SITE] and s.annotations() == [] and s.acknowledgements() == []
         s.put_annotation(annotation("gw"))
         assert len(s.annotations()) == 1
