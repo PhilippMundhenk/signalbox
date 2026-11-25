@@ -171,7 +171,7 @@ What the real OpenWrt showed that the simulator had wrong is listed in
 `tools/integration/mikrotik/`, job `Integration / MikroTik`; see
 [adapters/mikrotik.md](adapters/mikrotik.md#integration-tests).
 
-### TP-Link Omada (Software Controller in Docker, versions 6.3, 5.15 and 5.14)
+### TP-Link Omada (Software Controller in Docker, versions 6.3, 5.15, 5.14 and 5.13)
 
 `tools/integration/omada/`, job `Integration / Omada`; see
 [adapters/omada.md](adapters/omada.md#integration-tests).

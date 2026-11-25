@@ -302,9 +302,11 @@ def _client_mode_gap() -> Gap:
 
 _VERSION = re.compile(r"(\d+)\.(\d+)")
 
-#: The Open API (``/openapi/v1``, client credentials) needs controller 5.9 or later (guess, #21:
-#: TP-Link's page names 6.4 for the current description and does not date its start).
-OPEN_API_FROM = (5, 9)
+#: The Open API (``/openapi/v1``, client credentials) works from controller 5.13 (CI, #515):
+#: 5.9.31 has none (-1600 "Unsupported request path" on the application setup) and 5.12.7
+#: refused the token request of its own application (-44106). TP-Link names 5.12 as the start
+#: of the Open API; there is no 5.10 or 5.11 image.
+OPEN_API_FROM = (5, 13)
 
 
 def controller_release(version: str | None) -> tuple[int, int] | None:
@@ -1086,8 +1088,8 @@ class OmadaAdapter(_Adapter):
         self._token = None
         info = _dict(_check(await self.http.get_json(INFO), INFO), INFO, "result")
         self._release = controller_release(_text(info.get("controllerVer")))
-        if self._release is not None and self._release[0] < 5:
-            raise self._no_open_api()  # 4.x: classic web API only
+        if self._release is not None and self._release < OPEN_API_FROM:
+            raise self._no_open_api()  # 4.x to 5.12: no (working) Open API
         self._omadac_id = self.config.omadac_id or _text(info.get("omadacId"))
         if not self._omadac_id:
             raise _unexpected(INFO, "no omadacId (set the controller id in the settings)")

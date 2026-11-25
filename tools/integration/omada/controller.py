@@ -4,7 +4,7 @@
 Runs on a GitHub Actions runner (Docker), never in the development sandbox. Standard library
 only.
 
-    controller.py start DIR VER  pull the pinned image of the version (6.3, 5.15 or 5.14), start
+    controller.py start DIR VER  pull the pinned image (6.3, 5.15, 5.14 or 5.13), start
                                the controller, wait for /api/info
     controller.py setup DIR    the first-start wizard, two Open API applications (viewer and
                                administrator) and the test site's networks, SSIDs and profile;
@@ -13,8 +13,10 @@ only.
 
 The image is mbentley/omada-controller, a maintained community image that installs TP-Link's
 official Linux package (the .deb) unchanged; it is pinned by version tag and digest. Versions:
-6.3 (current), 5.15 and 5.14 (#501). 5.9.31 is not covered: its open-api/applications path answers
-"Unsupported request path" (-1600).
+6.3 (current), 5.15, 5.14 (#501) and 5.13 (#515). 5.9.31 has no Open API (its
+open-api/applications path answers "Unsupported request path", -1600); 5.12.7 has it but refused
+the token request of the application it created (-44106, Client Id Or Secret Invalid); 5.13 is the
+first release that works.
 
 The setup uses the calls of the controller's own web UI (read from its scripts): the
 administrator (``/api/v2/anon/register``), the wizard (``/api/v2/anon/cmd/wizardConfig``),
@@ -47,6 +49,8 @@ IMAGES = {
     "@sha256:d5d688dc39c8c6d17926d2a090d2ce806e221e00a037e3a43ff8cbc2d61f269b",
     "5.15": "mbentley/omada-controller:5.15.24.19"
     "@sha256:908a4e38ff273b0be77db5525237cf039f724c169f33d3be8b32f3acf34bbe2b",
+    "5.13": "mbentley/omada-controller:5.13.30.8"
+    "@sha256:bcabcfaf73e5b75b09fa2dcb1db9e7cf498960d851556b1c52742fb67729fcd9",
     "5.14": "mbentley/omada-controller:5.14.32.4"
     "@sha256:879ec82534c76284ba8fabd3ccda5d27eda25b6cb69812466ac8b695d642c5f7",
 }
@@ -287,7 +291,7 @@ class OpenApi:
         return ok(method, f"/openapi/v1/{self.oid}{path}", body, self.headers)
 
     def rows(self, path: str) -> list[dict[str, Any]]:
-        result = self.ok("GET", path + ("&" if "?" in path else "?") + "page=1&pageSize=1000")
+        result = self.ok("GET", path + ("&" if "?" in path else "?") + "page=1&pageSize=100")
         rows: list[dict[str, Any]] = result.get("data", []) if isinstance(result, dict) else result
         return rows
 
