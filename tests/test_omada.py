@@ -1013,3 +1013,57 @@ async def test_rogue_ap_list_missing(sim: OmadaSimulator, http_url: str) -> None
     finally:
         await a.close()
     assert got.wifi_scan == [] and got.wlans
+
+
+# --- controller releases (#415) --------------------------------------------------------------
+
+
+@pytest.mark.parametrize("release", ["6.3", "5.15", "5.9"])
+async def test_contract_per_release(http_url: str, sim: OmadaSimulator, release: str) -> None:
+    sim.release = release
+    a = adapter(http_url)
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    assert snap.status in (DeviceStatus.OK, DeviceStatus.PARTIAL)
+    assert snap.device.firmware is not None
+    assert snap.device.firmware.current.startswith(release)
+    assert snap.ports and snap.wlans and snap.clients
+    old = [g.message for g in snap.incomplete if g.message_id == "omada.oldController"]
+    if release == "6.3":
+        assert not old
+    elif release == "5.15":
+        assert old == [
+            "accounts: controller 5.15 does not offer it through the Open API (controller 6 does)"
+        ]
+    else:
+        assert sorted(m.split(":")[0] for m in old) == [
+            "accounts",
+            "firewall ACLs",
+            "port forwarding",
+        ]
+        assert all(g.optional for g in snap.incomplete if g.message_id == "omada.oldController")
+
+
+@pytest.mark.parametrize(("release", "version"), [("5.8", "5.8"), ("4.4", "4.4")])
+async def test_controller_without_open_api(
+    http_url: str, sim: OmadaSimulator, release: str, version: str
+) -> None:
+    sim.release = release
+    snap = await observe(adapter(http_url, omadac_id=OMADAC_ID if release == "5.8" else ""))
+    assert snap.status is DeviceStatus.UNREACHABLE
+    assert snap.errors[0].message == (
+        f"this controller ({version}) has no Open API: Signalbox needs Omada controller "
+        "5.9 or later"
+    )
+    assert snap.errors[0].message_id == "omada.noOpenApi"
+    assert sim.token_requests == 0
+
+
+def test_controller_release() -> None:
+    from signalbox.adapters.omada import controller_release
+
+    assert controller_release("5.15.20.18") == (5, 15)
+    assert controller_release("6.3.0.111") == (6, 3)
+    assert controller_release("") is None and controller_release("x") is None
