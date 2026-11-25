@@ -216,6 +216,9 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 ## [Power over Ethernet](rules/poe_checks.md)
 
 - [`poe.budget`](rules/poe_checks.md#poebudget)
+- [`poe.fault`](rules/poe_checks.md#poefault)
+- [`poe.class-mismatch`](rules/poe_checks.md#poeclass-mismatch)
+- [`poe.unneeded`](rules/poe_checks.md#poeunneeded)
 
 ## [Port counters](rules/port_counters.md)
 
