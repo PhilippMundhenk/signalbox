@@ -3174,6 +3174,7 @@
  "msg.omada.secretMissing": "{subject}: सीक्रेट {name} नहीं दिया गया",
  "msg.omada.passphraseLength": "{subject}: WPA पासफ़्रेज़ 8 से 63 अक्षरों का होता है",
  "msg.omada.passphraseNeeded": "{subject}: WPA SSID के लिए पासफ़्रेज़ चाहिए (वांछित स्थिति में passphrase_secret)",
+ "msg.omada.ssidNoSwitch": "{subject}: यह कंट्रोलर संस्करण Open API से SSID बंद नहीं कर सकता (Omada 5.x); SSID हटाएँ या कंट्रोलर में बंद करें",
  "msg.omada.restoreFormat": "फ़ॉर्मैट {format} का बैकअप रिस्टोर नहीं किया जा सकता",
  "msg.omada.restoreInvalid": "बैकअप Omada बैकअप नहीं है: {detail}",
  "msg.omada.restoreOther": "बैकअप किसी दूसरे controller या साइट का है",

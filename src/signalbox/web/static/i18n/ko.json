@@ -3174,6 +3174,7 @@
  "msg.omada.secretMissing": "{subject}: 시크릿 {name}이(가) 제공되지 않았습니다",
  "msg.omada.passphraseLength": "{subject}: WPA 비밀번호는 8~63자입니다",
  "msg.omada.passphraseNeeded": "{subject}: WPA SSID에는 비밀번호가 필요합니다 (목표 상태의 passphrase_secret)",
+ "msg.omada.ssidNoSwitch": "{subject}: 이 컨트롤러 버전은 Open API로 SSID를 끌 수 없습니다 (Omada 5.x). SSID를 삭제하거나 컨트롤러에서 끄세요",
  "msg.omada.restoreFormat": "{format} 형식의 백업은 복원할 수 없습니다",
  "msg.omada.restoreInvalid": "Omada 백업이 아닙니다: {detail}",
  "msg.omada.restoreOther": "다른 컨트롤러 또는 사이트의 백업입니다",

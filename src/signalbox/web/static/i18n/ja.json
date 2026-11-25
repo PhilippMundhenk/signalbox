@@ -3174,6 +3174,7 @@
  "msg.omada.secretMissing": "{subject}: シークレット {name} が指定されていません",
  "msg.omada.passphraseLength": "{subject}: WPA パスフレーズは 8 ~ 63 文字です",
  "msg.omada.passphraseNeeded": "{subject}: WPA の SSID にはパスフレーズが必要です (目標状態の passphrase_secret)",
+ "msg.omada.ssidNoSwitch": "{subject}: このバージョンのコントローラーは Open API で SSID をオフにできません (Omada 5.x)。SSID を削除するか、コントローラーでオフにしてください",
  "msg.omada.restoreFormat": "形式 {format} のバックアップは復元できません",
  "msg.omada.restoreInvalid": "Omada のバックアップではありません: {detail}",
  "msg.omada.restoreOther": "このバックアップは別のコントローラーまたはサイトのものです",

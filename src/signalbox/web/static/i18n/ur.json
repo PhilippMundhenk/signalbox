@@ -3174,6 +3174,7 @@
  "msg.omada.secretMissing": "{subject}: خفیہ {name} نہیں دیا گیا",
  "msg.omada.passphraseLength": "{subject}: WPA پاس فریز 8 سے 63 حروف کا ہوتا ہے",
  "msg.omada.passphraseNeeded": "{subject}: WPA SSID کو پاس فریز چاہیے (مطلوبہ حالت میں passphrase_secret)",
+ "msg.omada.ssidNoSwitch": "{subject}: یہ کنٹرولر ورژن Open API کے ذریعے SSID بند نہیں کر سکتا (Omada 5.x)؛ SSID ہٹائیں یا کنٹرولر میں بند کریں",
  "msg.omada.restoreFormat": "فارمیٹ {format} کا بیک اپ بحال نہیں کیا جا سکتا",
  "msg.omada.restoreInvalid": "یہ Omada بیک اپ نہیں: {detail}",
  "msg.omada.restoreOther": "یہ بیک اپ کسی اور کنٹرولر یا سائٹ کا ہے",

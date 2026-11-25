@@ -3174,6 +3174,7 @@
  "msg.omada.secretMissing": "{subject}: لم يتم تقديم السر {name}",
  "msg.omada.passphraseLength": "{subject}: تتراوح عبارة مرور WPA بين 8 و63 حرفًا",
  "msg.omada.passphraseNeeded": "{subject}: يحتاج SSID من نوع WPA إلى عبارة مرور (passphrase_secret في الحالة المطلوبة)",
+ "msg.omada.ssidNoSwitch": "{subject}: لا يمكن لهذا الإصدار من وحدة التحكم إيقاف SSID عبر Open API (Omada 5.x)؛ احذف SSID أو أوقفه في وحدة التحكم",
  "msg.omada.restoreFormat": "لا يمكن استعادة نسخة احتياطية بصيغة {format}",
  "msg.omada.restoreInvalid": "النسخة الاحتياطية ليست نسخة Omada: {detail}",
  "msg.omada.restoreOther": "النسخة الاحتياطية تخص متحكمًا أو موقعًا آخر",

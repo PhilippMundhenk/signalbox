@@ -3174,6 +3174,7 @@
  "msg.omada.secretMissing": "{subject}: секрет {name} не указан",
  "msg.omada.passphraseLength": "{subject}: парольная фраза WPA содержит от 8 до 63 символов",
  "msg.omada.passphraseNeeded": "{subject}: для SSID с WPA нужна парольная фраза (passphrase_secret в желаемом состоянии)",
+ "msg.omada.ssidNoSwitch": "{subject}: эта версия контроллера не может отключить SSID через Open API (Omada 5.x); удалите SSID или отключите его в контроллере",
  "msg.omada.restoreFormat": "нельзя восстановить копию формата {format}",
  "msg.omada.restoreInvalid": "это не резервная копия Omada: {detail}",
  "msg.omada.restoreOther": "копия относится к другому контроллеру или площадке",

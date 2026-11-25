@@ -3174,6 +3174,7 @@
  "msg.omada.secretMissing": "{subject} : le secret {name} n'a pas été fourni",
  "msg.omada.passphraseLength": "{subject} : une phrase secrète WPA comporte de 8 à 63 caractères",
  "msg.omada.passphraseNeeded": "{subject} : un SSID WPA nécessite une phrase secrète (passphrase_secret dans l'état souhaité)",
+ "msg.omada.ssidNoSwitch": "{subject} : cette version du contrôleur ne peut pas désactiver un SSID via l'Open API (Omada 5.x) ; supprimez le SSID ou désactivez-le dans le contrôleur",
  "msg.omada.restoreFormat": "impossible de restaurer une sauvegarde au format {format}",
  "msg.omada.restoreInvalid": "la sauvegarde n'est pas une sauvegarde Omada : {detail}",
  "msg.omada.restoreOther": "la sauvegarde provient d'un autre contrôleur ou site",
