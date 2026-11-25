@@ -527,6 +527,12 @@ where each came from. The defaults are the values the rules used before they had
 | `signal_dbm` | `-75` | dBm | Backhaul signal below which a link is weak. |
 | `rate_mbps` | `100` | Mbit/s | Backhaul link rate below which a link is slow. |
 
+### `multicast.reflector-missing`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `min_clients` | `1` | count | Report an IoT network only when it has at least this many clients, and so has the network its devices would have to be found from. |
+
 ### `poe.budget`
 
 | Parameter | Default | Unit | Meaning |

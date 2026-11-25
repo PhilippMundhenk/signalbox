@@ -850,6 +850,53 @@
         }
       }
     },
+    "multicast.reflector-missing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/multicast.reflector-missing"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/multicast.reflector-missing"
+              }
+            }
+          }
+        }
+      }
+    },
     "poe.budget": {
       "type": "object",
       "additionalProperties": false,
@@ -2102,6 +2149,22 @@
         }
       },
       "title": "mesh.weak-backhaul",
+      "type": "object"
+    },
+    "multicast.reflector-missing": {
+      "additionalProperties": false,
+      "properties": {
+        "min_clients": {
+          "default": 1,
+          "description": "Report an IoT network only when it has at least this many clients, and so has the network its devices would have to be found from.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Min Clients",
+          "type": "integer",
+          "unit": "count"
+        }
+      },
+      "title": "multicast.reflector-missing",
       "type": "object"
     },
     "poe.budget": {

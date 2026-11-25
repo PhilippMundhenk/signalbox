@@ -148,6 +148,7 @@ def _clients_by_segment(net: Network) -> dict[str, list[Client]]:
     "main network no longer find them. Reported for an IoT network (declared or reported, not "
     "guessed) with clients while the main network has clients too and no reflector joins them; "
     "quiet when no device reports its reflectors.",
+    params=ReflectorMissingParams,
 )
 def reflector_missing(net: Network) -> Iterator[Result]:
     reads = [d for d in net.devices if d.multicast is not None]

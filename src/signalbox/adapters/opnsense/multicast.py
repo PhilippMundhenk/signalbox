@@ -34,7 +34,7 @@ def _text(value: Any) -> str:
 
 
 def _on(value: Any) -> bool:
-    return value is True or _text(value) in ("1", "true", "yes")
+    return value is True or value == 1 or _text(value) in ("1", "true", "yes")
 
 
 def _identifiers(value: Any) -> list[str]:
