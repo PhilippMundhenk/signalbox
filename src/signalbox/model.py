@@ -2957,6 +2957,33 @@ class Pmf(StrEnum):
     REQUIRED = "required"
 
 
+class FtKeyHolder(StrEnum):
+    """Where an 802.11r access point keeps the pairwise master keys (#168)."""
+
+    #: Every access point derives the keys itself (OpenWrt ``ft_psk_generate_local``).
+    LOCAL = "local"
+    #: R0 key holders push the R1 keys to the other access points.
+    PMK_R1_PUSH = "pmk-r1-push"
+
+
+class FastTransition(Model):
+    """802.11r details of a WLAN (#168); every value None where the device does not say."""
+
+    #: Four hex digits, lower case. Access points of one SSID need the same one.
+    mobility_domain: str | None = Field(default=None, pattern=r"^[0-9a-f]{4}$")
+    #: Fast transition over the distribution system (instead of over the air).
+    over_ds: bool | None = None
+    key_holder: FtKeyHolder | None = None
+    reassociation_deadline_ms: int | None = Field(default=None, ge=0)
+
+
+class BandSteering(StrEnum):
+    OFF = "off"
+    PREFER_5GHZ = "prefer-5ghz"
+    PREFER_6GHZ = "prefer-6ghz"
+    BALANCE = "balance"
+
+
 class Wlan(Observed):
     device_id: str
     ssid: str
@@ -2970,6 +2997,22 @@ class Wlan(Observed):
     roaming_80211r: bool | None = None
     roaming_80211k: bool | None = None
     roaming_80211v: bool | None = None
+    #: 802.11r details (#168); None: not reported (``roaming_80211r`` says whether it is on).
+    ft: FastTransition | None = None
+    #: Steering clients to a faster band, as configured for this SSID or its site (#168).
+    band_steering: BandSteering | None = None
+    #: Clients weaker than this are refused or kicked (dBm, negative). None: no limit or not
+    #: reported.
+    min_rssi_dbm: int | None = Field(default=None, ge=-120, le=0)
+    #: Weakest signal a client may associate with (hostapd ``rssi_reject_assoc_rssi``).
+    assoc_rssi_dbm: int | None = Field(default=None, ge=-120, le=0)
+    airtime_fairness: bool | None = None
+    multicast_to_unicast: bool | None = None
+    dtim_period: int | None = Field(default=None, ge=1, le=255)
+    beacon_interval_ms: int | None = Field(default=None, ge=1)
+    bss_max_idle_seconds: int | None = Field(default=None, ge=0)
+    #: Most clients the SSID accepts on this access point.
+    max_clients: int | None = Field(default=None, ge=0)
     #: Some devices know a guest SSID without a VLAN of its own (Omada guest network).
     purpose: SegmentPurpose | None = None
     purpose_source: PurposeSource | None = None
@@ -3045,6 +3088,36 @@ class WifiScanResult(Observed):
     kind: ScanSource = ScanSource.SCAN
 
 
+class WirelessAssociation(Model):
+    """What an access point knows of a client's Wi-Fi association (#170); None where the device
+    does not say. A snapshot of one moment: rules want it with history, never judge one sample.
+
+    Personal data like the client itself (presence and movement): MQTT only counts clients and
+    exporters never list them.
+    """
+
+    #: The radio and SSID (WLAN) the client is on; None: the device does not say.
+    radio_id: str | None = None
+    wlan_id: str | None = None
+    bssid: Mac | None = None
+    band: Band | None = None
+    signal_dbm: int | None = Field(default=None, ge=-120, le=0)
+    noise_dbm: int | None = Field(default=None, ge=-120, le=0)
+    snr_db: int | None = Field(default=None, ge=0, le=120)
+    tx_rate_mbps: float | None = Field(default=None, ge=0)
+    rx_rate_mbps: float | None = Field(default=None, ge=0)
+    standard: WifiStandard | None = None
+    width_mhz: int | None = Field(default=None, ge=0)
+    spatial_streams: int | None = Field(default=None, ge=0)
+    connected_seconds: int | None = Field(default=None, ge=0)
+    inactive_seconds: int | None = Field(default=None, ge=0)
+    #: ``11r``, ``11k``, ``11v``, ``wpa3``, ``pmf``, ``6ghz`` where the access point reports them.
+    capabilities: list[str] = Field(default_factory=list)
+    retries_pct: float | None = Field(default=None, ge=0, le=100)
+    tx_failed: int | None = Field(default=None, ge=0)
+    power_save: bool | None = None
+
+
 class Client(Observed):
     mac: Mac
     addresses: list[IPAddress] = Field(default_factory=list)
@@ -3056,6 +3129,8 @@ class Client(Observed):
     #: Where each address came from (#183), for the addresses in ``addresses`` the device can
     #: say it of; an address left out: not known (see :meth:`Network.address_source`).
     address_sources: dict[IPAddress, AddressSource] = Field(default_factory=dict)
+    #: The Wi-Fi association the access point reports (#170); None: wired or not reported.
+    wireless: WirelessAssociation | None = None
 
 
 #: Names other protocols and tools use for an LLDP system capability, as they are in ``Neighbour``.

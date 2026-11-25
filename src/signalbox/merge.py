@@ -393,6 +393,7 @@ def _merge_clients(snapshots: list[Snapshot]) -> list[Client]:
                     "hostname": old.hostname or c.hostname,
                     "segment_id": old.segment_id or c.segment_id,
                     "seen_on": old.seen_on or c.seen_on,
+                    "wireless": old.wireless or c.wireless,
                     "last_seen": last_seen,
                     "address_sources": _merge_sources(old, c),
                 }

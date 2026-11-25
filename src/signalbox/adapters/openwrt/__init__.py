@@ -66,6 +66,7 @@ from signalbox.adapters.openwrt import (
     routes,
     setup,
     vitals,
+    wifi_assoc,
     wireguard,
 )
 from signalbox.adapters.openwrt import discovery as _discovery
@@ -1572,6 +1573,7 @@ class OpenWrtAdapter(Adapter):
         view = await self._network(running=False)
         supported = await self._supported_security()
         radios: dict[str, Radio] = {}
+        devices = dict(_sections(uci, "wifi-device"))
         for name, s in _sections(uci, "wifi-device"):
             b = band(s)
             if b is None:
@@ -1651,6 +1653,7 @@ class OpenWrtAdapter(Adapter):
                     roaming_80211r=_flag(s.get("ieee80211r")),
                     roaming_80211k=_flag(s.get("ieee80211k")),
                     roaming_80211v=_flag(s.get("bss_transition", s.get("ieee80211v"))),
+                    **wifi_assoc.roaming_fields(s, devices.get(str(s.get("device")), {}), ssid),
                     client_isolation=_flag(s.get("isolate")),
                     port_id=port_id(d, ifnames[name]) if name in ifnames else None,
                     bssid=bssids.get(ifnames.get(name, "")),
@@ -2295,6 +2298,8 @@ class OpenWrtAdapter(Adapter):
         up = await self._radios_up()
         view = await self._network(running=False)
         networks = {name: _list(s.get("network")) for name, s in _sections(uci, "wifi-iface")}
+        sections_device = {name: str(s.get("device")) for name, s in _sections(uci, "wifi-iface")}
+        devices = dict(_sections(uci, "wifi-device"))
         clients: dict[str, dict[str, Any]] = {}
         for radio in up.values():
             for iface in radio.get("interfaces") or []:
@@ -2307,12 +2312,25 @@ class OpenWrtAdapter(Adapter):
                     continue
                 nets = networks.get(section) or []
                 vid = view.vlan_of_interface(nets[0]) if nets else None
-                for mac in data.get("clients") or {}:
+                stations = data.get("clients") or {}
+                details = await self._assoclist(str(ifname)) if stations else {}
+                device = devices.get(sections_device.get(section, ""), {})
+                b = band(device) if device else None
+                for mac, entry in stations.items():
                     if (m := _mac(mac)) is not None:
                         clients[m] = {
                             "seen_on": object_id(d, "wlan", section),
                             "segment_id": self._seg(vid) if vid is not None else None,
                             "addresses": [],
+                            "wireless": wifi_assoc.association(
+                                entry if isinstance(entry, dict) else {},
+                                radio_id=object_id(d, "radio", sections_device.get(section, "")),
+                                wlan_id=object_id(d, "wlan", section),
+                                band=b,
+                                bssid=None,
+                                iwinfo=details.get(m),
+                                noise_dbm=None,
+                            ),
                         }
         for mac, addr, hostname in await self._leases():
             m = _mac(mac)
@@ -2335,6 +2353,19 @@ class OpenWrtAdapter(Adapter):
             fdb=fdb,
             incomplete=gaps,
         )
+
+    async def _assoclist(self, ifname: str) -> dict[str, dict[str, Any]]:
+        """``iwinfo assoclist`` of an interface by station MAC (#170): noise, rates, connected
+        and idle time. Optional (rpcd-mod-iwinfo, or an ACL from before #170): {} without it."""
+        try:
+            data = await self.ubus.call("iwinfo", "assoclist", {"device": ifname})
+        except AdapterError:
+            return {}
+        out: dict[str, dict[str, Any]] = {}
+        for item in data.get("results") or []:
+            if isinstance(item, dict) and (m := _mac(item.get("mac"))) is not None:
+                out[m] = item
+        return out
 
     async def _fdb(self) -> tuple[list[FdbEntry], list[Gap]]:
         """The bridges' MAC address tables (#378) from sysfs through ``file read``

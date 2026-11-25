@@ -71,7 +71,7 @@ from signalbox.adapters import (
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.mikrotik import discovery as _discovery
 from signalbox.adapters.mikrotik import firewall as _firewall
-from signalbox.adapters.mikrotik import multiwan
+from signalbox.adapters.mikrotik import multiwan, wifi_assoc
 from signalbox.adapters.mikrotik import poe as mikrotik_poe
 from signalbox.adapters.mikrotik import routes as route_reader
 from signalbox.adapters.mikrotik import stp as _stp
@@ -118,6 +118,7 @@ from signalbox.model import (
     DnsTransport,
     DynamicDns,
     Fan,
+    FastTransition,
     FdbEntry,
     FdbKind,
     Firmware,
@@ -244,6 +245,7 @@ WIFI_CHANNEL = "/rest/interface/wifi/channel"
 WIFI_DATAPATH = "/rest/interface/wifi/datapath"
 WIFI_STEERING = "/rest/interface/wifi/steering"
 WIFI_REGISTRATION = "/rest/interface/wifi/registration-table"
+WIFI_ACCESS_LIST = "/rest/interface/wifi/access-list"
 WIFI_RADIO = "/rest/interface/wifi/radio"
 WIRELESS = "/rest/interface/wireless"
 WIRELESS_SECURITY = "/rest/interface/wireless/security-profiles"
@@ -437,6 +439,15 @@ def _flag(value: Any, default: bool = False) -> bool:
     if value is None or value == "":
         return default
     return value is True or _text(value).lower() in ("true", "yes", "on")
+
+
+def _ms(value: Any) -> int | None:
+    """A RouterOS time (``20s``, ``500ms``) in milliseconds."""
+    text = _text(value)
+    if text.endswith("ms") and text[:-2].isdigit():
+        return int(text[:-2])
+    seconds = duration(text)
+    return seconds * 1000 if seconds is not None else None
 
 
 def _maybe(value: Any) -> bool | None:
@@ -2508,6 +2519,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 return inline
             return profiles[section].get(_text(row.get(section)), {}).get(key)
 
+        access_list = await self._optional_rows(WIFI_ACCESS_LIST)
         by_name = {_text(r.get("name")): r for r in rows if _text(r.get("name"))}
         radios: dict[str, Radio] = {}
         for name, row in by_name.items():
@@ -2587,12 +2599,41 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     roaming_80211r=_maybe(prop(row, "security", "ft")),
                     roaming_80211k=_maybe(prop(row, "steering", "rrm")),
                     roaming_80211v=_maybe(prop(row, "steering", "wnm")),
+                    **self._roaming(row, prop, access_list, name),
                     vendor_extra={
                         "authentication-types": _text(prop(row, "security", "authentication-types"))
                     },
                 )
             )
         return Observation(radios=list(radios.values()), wlans=wlans)
+
+    @staticmethod
+    def _roaming(
+        row: dict[str, Any], prop: Any, access_list: list[dict[str, Any]], name: str
+    ) -> dict[str, Any]:
+        """Roaming fields (#168) of a ``wifi`` interface; what is not set stays None."""
+        out: dict[str, Any] = {}
+        if _maybe(prop(row, "security", "ft")):
+            out["ft"] = FastTransition(
+                mobility_domain=wifi_assoc.mobility_domain(
+                    prop(row, "security", "ft-mobility-domain")
+                ),
+                over_ds=_maybe(prop(row, "security", "ft-over-ds")),
+                reassociation_deadline_ms=_ms(prop(row, "security", "ft-reassociation-deadline")),
+            )
+        dtim = _int(prop(row, "configuration", "dtim-period"))
+        if dtim is not None and 1 <= dtim <= 255:
+            out["dtim_period"] = dtim
+        beacon = _int(prop(row, "configuration", "beacon-interval"))
+        if beacon is not None and beacon > 0:
+            out["beacon_interval_ms"] = beacon
+        limit = _int(prop(row, "configuration", "max-clients"))  # (guess)
+        if limit is not None and limit >= 0:
+            out["max_clients"] = limit
+        low = wifi_assoc.min_signal(access_list, name)
+        if low is not None:
+            out["min_rssi_dbm"] = low
+        return out
 
     async def _client_counts(
         self, radios: dict[str, Radio], masters: dict[str, str], endpoint: str
@@ -2804,6 +2845,13 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 if mac is not None and mac not in own and iface:
                     add(mac, segment=layout.port_segment.get(iface))
                     seen[mac]["seen_on"] = object_id(dev, "wlan", iface)
+                    seen[mac]["wireless"] = wifi_assoc.association(
+                        row,
+                        radio_id=None,
+                        wlan_id=object_id(dev, "wlan", iface),
+                        band=band_of(row.get("band")),
+                        standard=standard_of(row.get("band")),
+                    )
 
         for entry in seen.values():  # nothing said where: by address
             if entry["segment"] is None:
@@ -2819,6 +2867,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                 segment_id=e["segment"],
                 seen_on=e["seen_on"],
                 address_sources=e["src"],
+                wireless=e.get("wireless"),
             )
             for mac, e in sorted(seen.items())
         ]

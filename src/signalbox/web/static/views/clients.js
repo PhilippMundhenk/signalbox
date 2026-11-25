@@ -27,13 +27,14 @@ export async function renderClients(main, ctx) {
   // The same client can be reported by several devices: one row per MAC, every place it was seen.
   const rows = new Map();
   for (const c of clients) {
-    const row = rows.get(c.mac) || { mac: c.mac, addresses: new Set(), sources: {}, lease_expires: null, hostname: null, vendor: null, segment_id: null, seen: [], last_seen: null };
+    const row = rows.get(c.mac) || { mac: c.mac, addresses: new Set(), sources: {}, lease_expires: null, hostname: null, vendor: null, segment_id: null, seen: [], last_seen: null, wireless: null };
     c.addresses.forEach((a) => row.addresses.add(a));
     Object.assign(row.sources, c.sources || {});
     if (c.lease_expires && (!row.lease_expires || c.lease_expires > row.lease_expires)) row.lease_expires = c.lease_expires;
     row.hostname = row.hostname || c.hostname;
     row.vendor = row.vendor || c.vendor;
     row.segment_id = row.segment_id || c.segment_id;
+    row.wireless = row.wireless || c.wireless || null;
     if (c.seen_on) row.seen.push(c.seen_on);
     if (c.last_seen && (!row.last_seen || c.last_seen > row.last_seen)) row.last_seen = c.last_seen;
     rows.set(c.mac, row);
@@ -74,6 +75,7 @@ export async function renderClients(main, ctx) {
           [t('clients.col.vendor'), (r) => r.vendor || null],
           [t('clients.col.addresses'), (r) => [...r.addresses].flatMap((a, i) => [i ? ', ' : null, ltr(a), r.sources[a] && r.sources[a] !== 'unknown' ? ` (${sourceLabel(r.sources[a])})` : null])],
           [t('clients.col.lease'), (r) => (r.lease_expires ? h('span', { title: fmtTime(r.lease_expires), 'data-testid': 'client-lease' }, fmtTime(r.lease_expires)) : null)],
+          [t('clients.col.wifi'), (r) => wifiSummary(r.wireless)],
           [t('clients.col.segment'), (r) => (r.segment_id ? ix.segmentName(r.segment_id) : null)],
           [t('clients.col.seenOn'), (r) => seenOn(ix, r, learned.get(r.mac) || [])],
           [t('clients.col.firstSeen'), (r) => (r.first_seen ? h('span', { title: fmtTime(r.first_seen), 'data-testid': 'client-first-seen' }, fmtAgo(r.first_seen)) : null)],
@@ -91,6 +93,17 @@ export async function renderClients(main, ctx) {
   });
   place(main, h('div', { class: 'filters' }, search), body);
   draw();
+}
+
+// Signal, rates and standard of a Wi-Fi association (#170); units are the same in every language.
+function wifiSummary(w) {
+  if (!w) return null;
+  const parts = [];
+  if (w.signal_dbm != null) parts.push(`${w.signal_dbm} dBm`);
+  if (w.tx_rate_mbps != null || w.rx_rate_mbps != null) parts.push(`${w.tx_rate_mbps ?? '?'}/${w.rx_rate_mbps ?? '?'} Mbit/s`);
+  if (w.standard) parts.push(`802.11${w.standard}`);
+  if (w.band) parts.push(`${w.band} GHz`);
+  return parts.length ? h('span', { class: 'mono', 'data-testid': 'client-wifi' }, parts.join(', ')) : null;
 }
 
 // Where the client is, and (collapsed) every port a MAC address table learned it on (#160).

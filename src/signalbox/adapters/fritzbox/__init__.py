@@ -126,6 +126,7 @@ from signalbox.model import (
     Uplink,
     UplinkKind,
     WifiStandard,
+    WirelessAssociation,
     Wlan,
     Wps,
     WpsMethod,
@@ -544,6 +545,27 @@ def port_forward(row: dict[str, str]) -> PortForward | None:
         target_address=target,
         target_port=internal if internal and 0 < internal < 65536 else None,
         passes_filter=True,
+    )
+
+
+def _association(assoc: dict[str, str], w: WlanService, wlan_id: str) -> WirelessAssociation:
+    """Wi-Fi details of one station (#170). ``NewX_AVM-DE_Speed`` is the link rate in Mbit/s
+    (direction not stated: both rates get it), ``NewX_AVM-DE_ChannelWidth`` the width. The box
+    reports the signal only as a percentage (``NewX_AVM-DE_SignalStrength``): no dBm is
+    derived from it. Band and standard are those of the WLAN, not the station's own *(guess:
+    ``NewStandard`` and ``NewChannel`` of ``GetInfo``)*."""
+    speed = _int(assoc.get("NewX_AVM-DE_Speed"))
+    width = _int(assoc.get("NewX_AVM-DE_ChannelWidth"))
+    channel = _int(w.info.get("NewChannel"))
+    text = str(w.info.get("NewStandard", "")).lower()
+    standard = next((WifiStandard(x) for x in ("be", "ax", "ac", "n", "g", "b") if x in text), None)
+    return WirelessAssociation(
+        wlan_id=wlan_id,
+        band=(Band.GHZ_2_4 if channel <= 14 else Band.GHZ_5) if channel else None,
+        tx_rate_mbps=float(speed) if speed else None,
+        rx_rate_mbps=float(speed) if speed else None,
+        standard=standard,
+        width_mhz=width if width else None,
     )
 
 
@@ -1572,6 +1594,7 @@ class FritzboxAdapter(Adapter):
                 entry["segment_id"] = self._guest if w.guest else self._native
                 if (a := _v4(assoc.get("NewAssociatedDeviceIPAddress"))) is not None:
                     entry["addresses"].append(a)
+                entry["wireless"] = _association(assoc, w, object_id(d, "wlan", str(w.index)))
         for host in await self._hosts():
             mac = _mac(host.get("NewMACAddress"))
             if mac is None or not (_flag(host.get("NewActive")) or mac in clients):
