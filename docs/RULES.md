@@ -174,6 +174,10 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`wan.monitor-local`](rules/multiwan.md#wanmonitor-local)
 - [`ddns.mismatch`](rules/multiwan.md#ddnsmismatch)
 - [`ddns.update-failed`](rules/multiwan.md#ddnsupdate-failed)
+- [`ddns.private-address`](rules/multiwan.md#ddnsprivate-address)
+- [`ddns.plain-http`](rules/multiwan.md#ddnsplain-http)
+- [`ddns.vpn-endpoint`](rules/multiwan.md#ddnsvpn-endpoint)
+- [`ddns.stale`](rules/multiwan.md#ddnsstale)
 
 ## [Neighbour details (LLDP)](rules/neighbour_checks.md)
 
@@ -357,6 +361,12 @@ where each came from. The defaults are the values the rules used before they had
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
 | `days` | `90` | d | Days without a login. |
+
+### `ddns.stale`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `days` | `30` | d | Days without an update of the name. |
 
 ### `device.resources`
 

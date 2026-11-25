@@ -798,6 +798,7 @@ async def test_fritzbox_ddns_provider_and_myfritz(fritzbox: tuple[FritzboxSim, s
     )
     assert provider.enabled and provider.last_result.value == "ok"
     assert provider.published_address is None and provider.uplink_id is not None
+    assert provider.tls is True and my.tls is None  # scheme of the update URL (#440)
     assert (my.provider, my.hostname, my.last_result.value) == (
         "myfritz",
         "example.myfritz.example",

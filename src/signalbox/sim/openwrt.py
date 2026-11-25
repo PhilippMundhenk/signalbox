@@ -1051,6 +1051,7 @@ def ddns_config() -> dict[str, Any]:
                 "password": "sim-secret-token",
                 "interface": "wan",
                 "use_ipv6": "0",
+                "use_https": "1",
             },
         ),
     )

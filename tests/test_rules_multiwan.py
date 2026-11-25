@@ -1,11 +1,11 @@
 """Multi-WAN groups (#150) and dynamic DNS (#154): passing, failing and silent cases."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
-from factories import SITE, device, iface, ip, uplink
+from factories import SITE, device, iface, ip, peer, tunnel, uplink
 from signalbox.adapters import Observation
 from signalbox.model import (
     DdnsResult,
@@ -20,7 +20,7 @@ from signalbox.model import (
     UplinkState,
     object_id,
 )
-from signalbox.rules import Finding, Rule, Severity, evaluate
+from signalbox.rules import Finding, Rule, RuleSettings, Severity, evaluate
 from signalbox.rules.builtin import RULES as BUILTIN
 from signalbox.rules.multiwan import (
     RULES,
@@ -28,8 +28,13 @@ from signalbox.rules.multiwan import (
     member_down,
     mismatch,
     monitor_local,
+    plain_http,
+    private_address,
+    stale,
     update_failed,
+    vpn_endpoint,
 )
+from signalbox.sightings import History
 from signalbox.testing import multiwan_problems
 
 
@@ -69,7 +74,7 @@ def ddns(**kw: Any) -> DynamicDns:
 
 def test_registered_with_the_builtin_rules() -> None:
     assert {r.id for r in RULES} <= {r.id for r in BUILTIN}
-    assert len(RULES) == 5
+    assert len(RULES) == 9
 
 
 def test_member_down_with_two_left() -> None:
@@ -216,3 +221,80 @@ def test_contract_checks() -> None:
 def test_observation_carries_the_new_objects() -> None:
     obs = Observation(gateway_groups=[group(member("a"))], ddns=[ddns()])
     assert len(obs.gateway_groups) == 1 and len(obs.ddns) == 1
+
+
+# --- #440: private address, plain http, VPN endpoint, stale ------------------------------------
+
+
+def test_private_address_announced() -> None:
+    for address in ("192.168.1.5", "100.64.3.4", "127.0.0.1", "fe80::1", "fd00::5"):
+        [f] = run(private_address, network(ddns=[ddns(published_address=ip(address))]))
+        assert f.message_id == "ddns.privateAddress" and f.params["address"] == address
+
+
+def test_private_address_of_a_shared_line() -> None:
+    wan = uplink("gw", "wan", addresses=[iface("100.64.2.9/10")])
+    entry = ddns(published_address=None, uplink_id=wan.id)
+    [f] = run(private_address, network(uplinks=[wan], ddns=[entry]))
+    assert f.params["address"] == "100.64.2.9"
+
+
+def test_private_address_quiet() -> None:
+    cases = [
+        ddns(),  # public address
+        ddns(published_address=None),  # nothing known
+        ddns(published_address=ip("192.168.1.5"), enabled=False),
+        ddns(published_address=ip("2001:db8::1")),
+    ]
+    for entry in cases:
+        assert run(private_address, network(ddns=[entry])) == []
+    off = uplink("gw", "wan", addresses=[iface("100.64.2.9/10")], up=False)
+    entry = ddns(published_address=None, uplink_id=off.id)
+    assert run(private_address, network(uplinks=[off], ddns=[entry])) == []
+
+
+def test_plain_http() -> None:
+    [f] = run(plain_http, network(ddns=[ddns(tls=False)]))
+    assert f.message_id == "ddns.plainHttp" and f.severity is Severity.WARNING
+    for entry in (ddns(tls=True), ddns(tls=None), ddns(tls=False, enabled=False)):
+        assert run(plain_http, network(ddns=[entry])) == []
+
+
+def test_vpn_endpoint_name_not_kept_up_to_date() -> None:
+    host = "home.example.dyndns.invalid"
+    tun = tunnel("gw", peer("far", "198.51.100.0/24", endpoint_host=host.upper()))
+    for bad in (ddns(enabled=False), ddns(last_result=DdnsResult.ERROR)):
+        [f] = run(vpn_endpoint, network(ddns=[bad], tunnels=[tun]))
+        assert f.message_id == "ddns.vpnEndpoint" and f.params["hostname"] == host
+    assert run(vpn_endpoint, network(ddns=[ddns()], tunnels=[tun])) == []
+    assert run(vpn_endpoint, network(tunnels=[tun])) == []  # no client known
+    off = tunnel("gw", peer("far", endpoint_host=host, enabled=False))
+    assert run(vpn_endpoint, network(ddns=[ddns(enabled=False)], tunnels=[off])) == []
+    other = tunnel("gw", peer("far", endpoint_host="203.0.113.7"))
+    assert run(vpn_endpoint, network(ddns=[ddns(enabled=False)], tunnels=[other])) == []
+
+
+NOW = datetime(2026, 11, 25, tzinfo=UTC)
+
+
+def run_stale(net: Network, settings: dict[str, RuleSettings] | None = None) -> list[Finding]:
+    return evaluate(net, [stale], settings, History(now=NOW))
+
+
+def test_stale_update() -> None:
+    old = ddns(last_update=NOW - timedelta(days=45))
+    [f] = run_stale(network(ddns=[old]))
+    assert f.severity is Severity.INFO and f.params["age"] == 45 and f.params["days"] == 30
+    for entry in (
+        ddns(last_update=NOW - timedelta(days=5)),
+        ddns(last_update=None),
+        ddns(last_update=NOW - timedelta(days=45), enabled=False),
+    ):
+        assert run_stale(network(ddns=[entry])) == []
+    assert evaluate(network(ddns=[old]), [stale], None, History()) == []
+
+
+def test_stale_days_are_a_parameter() -> None:
+    entry = ddns(last_update=NOW - timedelta(days=45))
+    settings = {"ddns.stale": RuleSettings(params={"days": 60})}
+    assert run_stale(network(ddns=[entry]), settings) == []

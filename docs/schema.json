@@ -2678,6 +2678,18 @@
           ],
           "default": null
         },
+        "tls": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tls"
+        },
         "uplink_id": {
           "anyOf": [
             {

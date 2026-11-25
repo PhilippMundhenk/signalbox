@@ -1337,7 +1337,8 @@
     "enabled": true,
     "last_update": null,
     "last_result": "ok",
-    "published_address": null
+    "published_address": null,
+    "tls": true
    },
    {
     "id": "recorded/ddns/myfritz",
@@ -1354,7 +1355,8 @@
     "enabled": true,
     "last_update": null,
     "last_result": "ok",
-    "published_address": null
+    "published_address": null,
+    "tls": null
    }
   ],
   "services": [

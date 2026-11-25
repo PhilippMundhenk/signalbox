@@ -4,9 +4,10 @@
   7.57 and 8.02): ``NewEnabled``, ``NewProviderName``, ``NewDomain``, ``NewMode`` (``ddns_v4``,
   ``ddns_v6``, ``ddns_both``, *guess*), ``NewStatusIPv4`` and ``NewStatusIPv6`` (the status
   words are free text of the box: an ``error`` or ``fail`` is an error, ``ok`` or ``updated``
-  is a success, anything else unknown; *guess*, #21). ``NewUpdateURL`` and ``NewUsername`` are
-  never read (the URL can carry the account); ``NewServerIPv4`` is the provider's server, not
-  the address announced, so the announced address is not known.
+  is a success, anything else unknown; *guess*, #21). ``NewUsername`` is never read and of
+  ``NewUpdateURL`` (it can carry the account) only the scheme is kept (``tls``);
+  ``NewServerIPv4`` is the provider's server, not the address announced, so the announced
+  address is not known.
 - ``X_AVM-DE_MyFritz:1 GetInfo``: ``NewEnabled``, ``NewDynDNSName`` (the MyFRITZ! name),
   ``NewState``. ``NewEmail`` (the account) is never read.
 """
@@ -39,6 +40,11 @@ def _result(*words: Any) -> DdnsResult:
     return DdnsResult.UNKNOWN
 
 
+def _scheme(url: str) -> bool | None:
+    low = url.strip().lower()
+    return low.startswith("https://") if low.startswith(("http://", "https://")) else None
+
+
 def provider(name: str) -> str:
     low = name.lower()
     return next((p for key, p in PROVIDERS if key in low), "other")
@@ -66,6 +72,7 @@ def clients(
                 uplink_id=uplink_id,
                 families=families,
                 enabled=_flag(ddns.get("NewEnabled")),
+                tls=_scheme(ddns.get("NewUpdateURL", "")),
                 last_result=_result(
                     ddns.get("NewStatusIPv4") if 4 in families else None,
                     ddns.get("NewStatusIPv6") if 6 in families else None,

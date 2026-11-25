@@ -51,6 +51,53 @@
         }
       }
     },
+    "ddns.stale": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/ddns.stale"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/ddns.stale"
+              }
+            }
+          }
+        }
+      }
+    },
     "device.resources": {
       "type": "object",
       "additionalProperties": false,
@@ -728,6 +775,22 @@
         }
       },
       "title": "account.stale",
+      "type": "object"
+    },
+    "ddns.stale": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "default": 30,
+          "description": "Days without an update of the name.",
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Days",
+          "type": "integer",
+          "unit": "d"
+        }
+      },
+      "title": "ddns.stale",
       "type": "object"
     },
     "device.resources": {
