@@ -231,11 +231,12 @@ class Console:
             time.sleep(0.03)
 
     def run(self, command: str, timeout: float = 120) -> str:
-        """Type one shell command, return its output up to a marker (the typed marker is split
+        """(The VyOS shell binds "?" to completion, so the exit code is read from PIPESTATUS.)
+        Type one shell command, return its output up to a marker (the typed marker is split
         by quotes, so only the printed one matches) and the exit code."""
         marker = secrets.token_hex(4)
         start = self.pos
-        self.send(f'{command}; echo __D""ONE{marker}:$?\r')
+        self.send(f'{command}; echo __D""ONE{marker}:${{PIPESTATUS[0]}}\r')
         found = self.expect([rf"^__DONE{marker}:(\d+)$"], timeout, command)
         assert found is not None
         with self.lock:
