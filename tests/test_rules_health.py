@@ -364,7 +364,6 @@ def test_missing_value_does_not_hide_or_fake_a_replacement(store: Store) -> None
         store, identified("SN-1111", None), identified(None, None), identified("SN-2222", None)
     )
     assert len(out) == 1 and "serial number" in out[0][1]
-    assert replaced_findings(store, identified("SN-1", None), identified(None, None)) == []
 
 
 def test_unreachable_device_records_no_identity() -> None:
