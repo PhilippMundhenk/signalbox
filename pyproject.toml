@@ -61,6 +61,7 @@ mikrotik = "signalbox.adapters.mikrotik:MikrotikAdapter"
 omada = "signalbox.adapters.omada:OmadaAdapter"
 unifi = "signalbox.adapters.unifi:UnifiAdapter"
 linux = "signalbox.adapters.linux:LinuxAdapter"
+edgeos = "signalbox.adapters.edgeos:EdgeosAdapter"
 openwrt = "signalbox.adapters.openwrt:OpenWrtAdapter"
 opnsense = "signalbox.adapters.opnsense:OpnsenseAdapter"
 pihole = "signalbox.adapters.pihole:PiholeAdapter"
@@ -91,6 +92,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint.per-file-ignores]
 "tools/make_icons.py" = ["E501"]
+"src/signalbox/sim/edgeos.py" = ["E501"]  # recorded command output keeps its long lines
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RUF"]

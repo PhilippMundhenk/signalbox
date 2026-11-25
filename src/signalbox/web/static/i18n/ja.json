@@ -3078,5 +3078,20 @@
  "msg.unifi.version": "Network アプリケーションのバージョンは {version} です。Signalbox はバージョン {tested} 向けに作られています。読み取りは続けますが、項目が不足する場合があります",
  "msg.unifi.integrationOnly": "Network アプリケーションはこの API キーを Integration API にのみ受け付けます。デバイス、ネットワーク、クライアントは読み取られますが、ポート、無線、Wi-Fi ネットワーク、アップリンクは読み取られません",
  "msg.unifi.integrationOnly.fix": "完全に読み取るには、読み取り専用ロールのローカルアカウントを使用してください。",
- "msg.unifi.optional": "{what}: 読み取れません ({cause})"
+ "msg.unifi.optional": "{what}: 読み取れません ({cause})",
+ "msg.edgeos.privateKey": "秘密鍵: {detail}",
+ "msg.edgeos.auth.fix": "設定のユーザー名と秘密鍵(またはパスワード)を確認し、ルーターにレベル operator と公開鍵を持つそのユーザーが存在することを確認してください(セットアップガイドを参照)。",
+ "msg.edgeos.incompleteAnswer": "ルーターが読み取りコマンドに完全には応答しませんでした: {tail}",
+ "msg.edgeos.incompleteAnswer.fix": "Signalbox は sh -s でコマンドを実行します。ユーザーのログインシェルが既定(vbash)であること、ユーザーのレベルが operator であることを確認してください。",
+ "msg.edgeos.versionUnknown": "バージョン: show version に Version 行が出力されなかったため、ソフトウェアのバージョンが不明です。設定は EdgeOS 2.0 として読み取ります",
+ "msg.edgeos.noLinks": "インターフェース: ip -o link がインターフェースを出力しなかったため、リンク状態、MAC アドレス、設定済みアドレスは読み取られません",
+ "msg.edgeos.configEmpty": "設定: show configuration commands が何も出力しなかったため、設定は何も読み取られませんでした",
+ "msg.edgeos.configEmpty.fix": "ユーザーのレベルが operator であること、および /opt/vyatta/bin/vyatta-op-cmd-wrapper が存在することを確認してください。",
+ "msg.edgeos.rangeNoNetwork": "{server}: DHCP サブネット {range} はルーターのどのネットワークにもありません",
+ "msg.edgeos.lldpOff": "ルーターで LLDP が無効のため、ネイバーは読み取られません",
+ "msg.edgeos.lldpOff.fix": "任意: 有効にします(configure、set service lldp interface all、commit、save)。",
+ "msg.edgeos.firewallVyos14": "ファイアウォール: {version} はルールセットを firewall ipv4 と firewall ipv6 と呼びます(VyOS 1.4 以降)。NAT とポートフォワードのみ読み取られます",
+ "msg.edgeos.firewallUnsupported": "ファイアウォール: {what} は読み取られないため、ゾーンポリシーのルールがありません",
+ "msg.edgeos.ruleSetMissing": "ファイアウォール: {interface} は未定義のルールセット {name} を使用しています",
+ "msg.edgeos.natSkipped": "NAT: 使用可能な変換アドレスのないルールを省略しました"
 }

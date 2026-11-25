@@ -3078,5 +3078,20 @@
  "msg.unifi.version": "версия приложения Network: {version}; Signalbox написан для версий {tested}: чтение продолжается, но какого-то поля может не хватать",
  "msg.unifi.integrationOnly": "приложение Network принимает этот ключ API только для API интеграции: устройства, сети и клиенты читаются, порты, радиомодули, сети Wi-Fi и аплинки — нет",
  "msg.unifi.integrationOnly.fix": "Для полного чтения используйте локальную учётную запись с ролью только для чтения.",
- "msg.unifi.optional": "{what}: не прочитано ({cause})"
+ "msg.unifi.optional": "{what}: не прочитано ({cause})",
+ "msg.edgeos.privateKey": "закрытый ключ: {detail}",
+ "msg.edgeos.auth.fix": "Проверьте имя пользователя и закрытый ключ (или пароль) в настройках, а также что пользователь существует на маршрутизаторе с уровнем operator и своим открытым ключом (см. руководство по настройке).",
+ "msg.edgeos.incompleteAnswer": "маршрутизатор ответил на команды чтения не полностью: {tail}",
+ "msg.edgeos.incompleteAnswer.fix": "Signalbox выполняет свои команды через sh -s. Проверьте, что оболочка входа пользователя — стандартная (vbash) и что у пользователя уровень operator.",
+ "msg.edgeos.versionUnknown": "версия: show version не вывела строку Version, поэтому версия ПО неизвестна; конфигурация читается как для EdgeOS 2.0",
+ "msg.edgeos.noLinks": "интерфейсы: ip -o link не вывела ни одного интерфейса, поэтому состояние связи, MAC-адреса и установленные адреса не читаются",
+ "msg.edgeos.configEmpty": "конфигурация: show configuration commands ничего не вывела, поэтому конфигурация не прочитана",
+ "msg.edgeos.configEmpty.fix": "Проверьте, что у пользователя уровень operator и что существует /opt/vyatta/bin/vyatta-op-cmd-wrapper.",
+ "msg.edgeos.rangeNoNetwork": "{server}: подсеть DHCP {range} не входит ни в одну сеть маршрутизатора",
+ "msg.edgeos.lldpOff": "LLDP на маршрутизаторе выключен, поэтому соседи не читаются",
+ "msg.edgeos.lldpOff.fix": "Необязательно: включите его (configure, set service lldp interface all, commit, save).",
+ "msg.edgeos.firewallVyos14": "межсетевой экран: {version} называет свои наборы правил firewall ipv4 и firewall ipv6 (VyOS 1.4 и новее); читаются только NAT и проброс портов",
+ "msg.edgeos.firewallUnsupported": "межсетевой экран: {what} не читается, поэтому правил политики зон нет",
+ "msg.edgeos.ruleSetMissing": "межсетевой экран: {interface} использует набор правил {name}, который не определён",
+ "msg.edgeos.natSkipped": "NAT: правило без пригодного адреса трансляции пропущено"
 }

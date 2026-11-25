@@ -3078,5 +3078,20 @@
  "msg.unifi.version": "l'application Network est en version {version} ; Signalbox est écrit pour les versions {tested} : la lecture continue, mais un champ peut manquer",
  "msg.unifi.integrationOnly": "l'application Network n'accepte cette clé d'API que pour l'API d'intégration : les appareils, réseaux et clients sont lus, mais pas les ports, radios, réseaux Wi-Fi ni liaisons montantes",
  "msg.unifi.integrationOnly.fix": "Utilisez un compte local avec un rôle en lecture seule pour une lecture complète.",
- "msg.unifi.optional": "{what} : non lu ({cause})"
+ "msg.unifi.optional": "{what} : non lu ({cause})",
+ "msg.edgeos.privateKey": "clé privée : {detail}",
+ "msg.edgeos.auth.fix": "Vérifiez le nom d'utilisateur et la clé privée (ou le mot de passe) dans les réglages, et que l'utilisateur existe sur le routeur avec le niveau operator et sa clé publique (voir le guide de configuration).",
+ "msg.edgeos.incompleteAnswer": "le routeur n'a pas répondu complètement aux commandes de lecture : {tail}",
+ "msg.edgeos.incompleteAnswer.fix": "Signalbox exécute ses commandes avec sh -s. Vérifiez que le shell de connexion de l'utilisateur est celui par défaut (vbash) et que l'utilisateur a le niveau operator.",
+ "msg.edgeos.versionUnknown": "version : show version n'a affiché aucune ligne Version, la version du logiciel est donc inconnue ; la configuration est lue comme celle d'EdgeOS 2.0",
+ "msg.edgeos.noLinks": "interfaces : ip -o link n'a affiché aucune interface, l'état des liens, les adresses MAC et les adresses installées ne sont donc pas lus",
+ "msg.edgeos.configEmpty": "configuration : show configuration commands n'a rien affiché, rien de la configuration n'a donc été lu",
+ "msg.edgeos.configEmpty.fix": "Vérifiez que l'utilisateur a le niveau operator et que /opt/vyatta/bin/vyatta-op-cmd-wrapper existe.",
+ "msg.edgeos.rangeNoNetwork": "{server} : le sous-réseau DHCP {range} n'est sur aucun réseau du routeur",
+ "msg.edgeos.lldpOff": "LLDP est désactivé sur le routeur, aucun voisin n'est donc lu",
+ "msg.edgeos.lldpOff.fix": "Facultatif : activez-le (configure, set service lldp interface all, commit, save).",
+ "msg.edgeos.firewallVyos14": "pare-feu : {version} nomme ses jeux de règles firewall ipv4 et firewall ipv6 (VyOS 1.4 et suivants) ; seuls le NAT et les redirections de ports sont lus",
+ "msg.edgeos.firewallUnsupported": "pare-feu : {what} n'est pas lu, les règles de la politique de zones manquent donc",
+ "msg.edgeos.ruleSetMissing": "pare-feu : {interface} utilise le jeu de règles {name}, qui n'est pas défini",
+ "msg.edgeos.natSkipped": "NAT : une règle sans adresse de traduction utilisable a été omise"
 }

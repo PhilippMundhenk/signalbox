@@ -3078,5 +3078,20 @@
  "msg.unifi.version": "إصدار تطبيق Network هو {version}؛ كُتب Signalbox للإصدارات {tested}: تستمر القراءة لكن قد يغيب حقل",
  "msg.unifi.integrationOnly": "يقبل تطبيق Network مفتاح API هذا لواجهة Integration API فقط: تُقرأ الأجهزة والشبكات والعملاء، ولا تُقرأ المنافذ ووحدات الراديو وشبكات Wi-Fi والوصلات الصاعدة",
  "msg.unifi.integrationOnly.fix": "استخدم حسابًا محليًا بدور للقراءة فقط للحصول على قراءة كاملة.",
- "msg.unifi.optional": "{what}: لم تتم قراءته ({cause})"
+ "msg.unifi.optional": "{what}: لم تتم قراءته ({cause})",
+ "msg.edgeos.privateKey": "المفتاح الخاص: {detail}",
+ "msg.edgeos.auth.fix": "تحقق من اسم المستخدم والمفتاح الخاص (أو كلمة المرور) في الإعدادات، ومن أن المستخدم موجود على الموجّه بمستوى operator ومفتاحه العام (راجع دليل الإعداد).",
+ "msg.edgeos.incompleteAnswer": "لم يجب الموجّه على أوامر القراءة بالكامل: {tail}",
+ "msg.edgeos.incompleteAnswer.fix": "ينفّذ Signalbox أوامره عبر sh -s. تحقق من أن صدفة تسجيل الدخول للمستخدم هي الافتراضية (vbash) وأن المستخدم بمستوى operator.",
+ "msg.edgeos.versionUnknown": "الإصدار: لم يطبع show version سطر Version، لذا إصدار البرنامج غير معروف؛ تُقرأ الإعدادات كما في EdgeOS 2.0",
+ "msg.edgeos.noLinks": "الواجهات: لم يطبع ip -o link أي واجهة، لذا لا تُقرأ حالة الرابط وعناوين MAC والعناوين المثبّتة",
+ "msg.edgeos.configEmpty": "الإعدادات: لم يطبع show configuration commands شيئًا، لذا لم تُقرأ أي إعدادات",
+ "msg.edgeos.configEmpty.fix": "تحقق من أن المستخدم بمستوى operator وأن /opt/vyatta/bin/vyatta-op-cmd-wrapper موجود.",
+ "msg.edgeos.rangeNoNetwork": "{server}: شبكة DHCP الفرعية {range} ليست على أي شبكة في الموجّه",
+ "msg.edgeos.lldpOff": "LLDP متوقف على الموجّه، لذا لا تُقرأ الجيران",
+ "msg.edgeos.lldpOff.fix": "اختياري: فعّله (configure وset service lldp interface all وcommit وsave).",
+ "msg.edgeos.firewallVyos14": "جدار الحماية: يسمّي {version} مجموعات قواعده firewall ipv4 وfirewall ipv6 (VyOS 1.4 وما بعده)؛ تُقرأ NAT وإعادة توجيه المنافذ فقط",
+ "msg.edgeos.firewallUnsupported": "جدار الحماية: لا تُقرأ {what}، لذا قواعد سياسة المناطق مفقودة",
+ "msg.edgeos.ruleSetMissing": "جدار الحماية: تستخدم {interface} مجموعة القواعد {name} وهي غير معرّفة",
+ "msg.edgeos.natSkipped": "NAT: تم تجاهل قاعدة بلا عنوان ترجمة صالح"
 }

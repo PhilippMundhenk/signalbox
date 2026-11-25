@@ -3078,5 +3078,20 @@
  "msg.unifi.version": "Network uygulamasının sürümü {version}; Signalbox {tested} sürümleri için yazılmıştır: okumaya devam eder, ancak bir alan eksik olabilir",
  "msg.unifi.integrationOnly": "Network uygulaması bu API anahtarını yalnızca Integration API için kabul ediyor: cihazlar, ağlar ve istemciler okunur; portlar, radyolar, Wi-Fi ağları ve uplink'ler okunmaz",
  "msg.unifi.integrationOnly.fix": "Tam okuma için salt okunur rolü olan bir yerel hesap kullanın.",
- "msg.unifi.optional": "{what}: okunmadı ({cause})"
+ "msg.unifi.optional": "{what}: okunmadı ({cause})",
+ "msg.edgeos.privateKey": "özel anahtar: {detail}",
+ "msg.edgeos.auth.fix": "Ayarlardaki kullanıcı adını ve özel anahtarı (veya parolayı) kontrol edin; kullanıcının yönlendiricide operator düzeyiyle ve genel anahtarıyla var olduğunu doğrulayın (kurulum kılavuzuna bakın).",
+ "msg.edgeos.incompleteAnswer": "yönlendirici okuma komutlarını tam olarak yanıtlamadı: {tail}",
+ "msg.edgeos.incompleteAnswer.fix": "Signalbox komutlarını sh -s ile çalıştırır. Kullanıcının oturum açma kabuğunun varsayılan (vbash) olduğunu ve kullanıcının operator düzeyine sahip olduğunu kontrol edin.",
+ "msg.edgeos.versionUnknown": "sürüm: show version hiçbir Version satırı yazdırmadı, bu yüzden yazılım sürümü bilinmiyor; yapılandırma EdgeOS 2.0 gibi okunur",
+ "msg.edgeos.noLinks": "arayüzler: ip -o link hiçbir arayüz yazdırmadı, bu yüzden bağlantı durumu, MAC adresleri ve kurulu adresler okunmadı",
+ "msg.edgeos.configEmpty": "yapılandırma: show configuration commands hiçbir şey yazdırmadı, bu yüzden yapılandırmadan hiçbir şey okunmadı",
+ "msg.edgeos.configEmpty.fix": "Kullanıcının operator düzeyine sahip olduğunu ve /opt/vyatta/bin/vyatta-op-cmd-wrapper dosyasının var olduğunu kontrol edin.",
+ "msg.edgeos.rangeNoNetwork": "{server}: {range} DHCP alt ağı yönlendiricinin hiçbir ağında değil",
+ "msg.edgeos.lldpOff": "LLDP yönlendiricide kapalı, bu yüzden komşular okunmadı",
+ "msg.edgeos.lldpOff.fix": "İsteğe bağlı: açın (configure, set service lldp interface all, commit, save).",
+ "msg.edgeos.firewallVyos14": "güvenlik duvarı: {version} kural kümelerini firewall ipv4 ve firewall ipv6 olarak adlandırır (VyOS 1.4 ve üzeri); yalnızca NAT ve port yönlendirmeleri okunur",
+ "msg.edgeos.firewallUnsupported": "güvenlik duvarı: {what} okunmadı, bu yüzden bölge ilkesinin kuralları eksik",
+ "msg.edgeos.ruleSetMissing": "güvenlik duvarı: {interface} tanımlı olmayan {name} kural kümesini kullanıyor",
+ "msg.edgeos.natSkipped": "NAT: kullanılabilir çeviri adresi olmayan bir kural dışarıda bırakıldı"
 }

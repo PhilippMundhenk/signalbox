@@ -3078,5 +3078,20 @@
  "msg.unifi.version": "Network एप्लिकेशन का संस्करण {version} है; Signalbox संस्करण {tested} के लिए लिखा गया है: पढ़ना जारी रहता है, पर कोई फ़ील्ड गायब हो सकता है",
  "msg.unifi.integrationOnly": "Network एप्लिकेशन यह API कुंजी केवल Integration API के लिए स्वीकार करता है: डिवाइस, नेटवर्क और क्लाइंट पढ़े जाते हैं, पोर्ट, रेडियो, Wi-Fi नेटवर्क और अपलिंक नहीं",
  "msg.unifi.integrationOnly.fix": "पूरा पढ़ने के लिए केवल-पढ़ने की भूमिका वाला लोकल खाता उपयोग करें।",
- "msg.unifi.optional": "{what}: पढ़ा नहीं गया ({cause})"
+ "msg.unifi.optional": "{what}: पढ़ा नहीं गया ({cause})",
+ "msg.edgeos.privateKey": "निजी कुंजी: {detail}",
+ "msg.edgeos.auth.fix": "सेटिंग में उपयोगकर्ता नाम और निजी कुंजी (या पासवर्ड) जाँचें, और यह भी कि उपयोगकर्ता राउटर पर operator स्तर और अपनी सार्वजनिक कुंजी के साथ मौजूद है (सेटअप गाइड देखें)।",
+ "msg.edgeos.incompleteAnswer": "राउटर ने रीड कमांड का पूरा उत्तर नहीं दिया: {tail}",
+ "msg.edgeos.incompleteAnswer.fix": "Signalbox अपने कमांड sh -s से चलाता है। जाँचें कि उपयोगकर्ता का लॉगिन शेल डिफ़ॉल्ट (vbash) है और उपयोगकर्ता का स्तर operator है।",
+ "msg.edgeos.versionUnknown": "संस्करण: show version ने कोई Version पंक्ति नहीं दी, इसलिए सॉफ़्टवेयर संस्करण अज्ञात है; कॉन्फ़िगरेशन EdgeOS 2.0 की तरह पढ़ा जाता है",
+ "msg.edgeos.noLinks": "इंटरफ़ेस: ip -o link ने कोई इंटरफ़ेस नहीं दिया, इसलिए लिंक स्थिति, MAC पते और स्थापित पते नहीं पढ़े गए",
+ "msg.edgeos.configEmpty": "कॉन्फ़िगरेशन: show configuration commands ने कुछ नहीं दिया, इसलिए कॉन्फ़िगरेशन का कुछ भी नहीं पढ़ा गया",
+ "msg.edgeos.configEmpty.fix": "जाँचें कि उपयोगकर्ता का स्तर operator है और /opt/vyatta/bin/vyatta-op-cmd-wrapper मौजूद है।",
+ "msg.edgeos.rangeNoNetwork": "{server}: DHCP सबनेट {range} राउटर के किसी भी नेटवर्क पर नहीं है",
+ "msg.edgeos.lldpOff": "राउटर पर LLDP बंद है, इसलिए पड़ोसी नहीं पढ़े गए",
+ "msg.edgeos.lldpOff.fix": "वैकल्पिक: इसे चालू करें (configure, set service lldp interface all, commit, save)।",
+ "msg.edgeos.firewallVyos14": "फ़ायरवॉल: {version} अपने नियम-समूहों को firewall ipv4 और firewall ipv6 कहता है (VyOS 1.4 और नया); केवल NAT और पोर्ट फ़ॉरवर्ड पढ़े जाते हैं",
+ "msg.edgeos.firewallUnsupported": "फ़ायरवॉल: {what} नहीं पढ़ा गया, इसलिए ज़ोन नीति के नियम नहीं हैं",
+ "msg.edgeos.ruleSetMissing": "फ़ायरवॉल: {interface} अपरिभाषित नियम-समूह {name} का उपयोग करता है",
+ "msg.edgeos.natSkipped": "NAT: बिना उपयोगी अनुवाद पते वाला एक नियम छोड़ दिया गया"
 }

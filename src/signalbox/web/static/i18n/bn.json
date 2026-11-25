@@ -3078,5 +3078,20 @@
  "msg.unifi.version": "Network অ্যাপ্লিকেশনের সংস্করণ {version}; Signalbox সংস্করণ {tested}-এর জন্য লেখা: পড়া চলতে থাকবে, তবে কোনো ফিল্ড অনুপস্থিত থাকতে পারে",
  "msg.unifi.integrationOnly": "Network অ্যাপ্লিকেশন এই API কী শুধু Integration API-র জন্য গ্রহণ করে: ডিভাইস, নেটওয়ার্ক ও ক্লায়েন্ট পড়া হয়, কিন্তু পোর্ট, রেডিও, Wi-Fi নেটওয়ার্ক ও আপলিংক নয়",
  "msg.unifi.integrationOnly.fix": "সম্পূর্ণ পড়ার জন্য শুধু-পড়ার ভূমিকার একটি লোকাল অ্যাকাউন্ট ব্যবহার করুন।",
- "msg.unifi.optional": "{what}: পড়া হয়নি ({cause})"
+ "msg.unifi.optional": "{what}: পড়া হয়নি ({cause})",
+ "msg.edgeos.privateKey": "ব্যক্তিগত কী: {detail}",
+ "msg.edgeos.auth.fix": "সেটিংসে ব্যবহারকারীর নাম ও ব্যক্তিগত কী (বা পাসওয়ার্ড) পরীক্ষা করুন, এবং ব্যবহারকারী রাউটারে operator স্তর ও তার পাবলিক কী সহ আছে কিনা দেখুন (সেটআপ গাইড দেখুন)।",
+ "msg.edgeos.incompleteAnswer": "রাউটার রিড কমান্ডগুলোর সম্পূর্ণ উত্তর দেয়নি: {tail}",
+ "msg.edgeos.incompleteAnswer.fix": "Signalbox তার কমান্ড sh -s দিয়ে চালায়। ব্যবহারকারীর লগইন শেল ডিফল্ট (vbash) কিনা এবং ব্যবহারকারীর স্তর operator কিনা পরীক্ষা করুন।",
+ "msg.edgeos.versionUnknown": "সংস্করণ: show version কোনো Version লাইন দেখায়নি, তাই সফটওয়্যারের সংস্করণ অজানা; কনফিগারেশন EdgeOS 2.0-এর মতো পড়া হয়",
+ "msg.edgeos.noLinks": "ইন্টারফেস: ip -o link কোনো ইন্টারফেস দেখায়নি, তাই লিঙ্কের অবস্থা, MAC ঠিকানা ও ইনস্টল করা ঠিকানা পড়া হয়নি",
+ "msg.edgeos.configEmpty": "কনফিগারেশন: show configuration commands কিছুই দেখায়নি, তাই কনফিগারেশনের কিছুই পড়া হয়নি",
+ "msg.edgeos.configEmpty.fix": "ব্যবহারকারীর স্তর operator কিনা এবং /opt/vyatta/bin/vyatta-op-cmd-wrapper আছে কিনা পরীক্ষা করুন।",
+ "msg.edgeos.rangeNoNetwork": "{server}: DHCP সাবনেট {range} রাউটারের কোনো নেটওয়ার্কে নেই",
+ "msg.edgeos.lldpOff": "রাউটারে LLDP বন্ধ, তাই প্রতিবেশী পড়া হয়নি",
+ "msg.edgeos.lldpOff.fix": "ঐচ্ছিক: এটি চালু করুন (configure, set service lldp interface all, commit, save)।",
+ "msg.edgeos.firewallVyos14": "ফায়ারওয়াল: {version} তার নিয়ম-সেটগুলোকে firewall ipv4 ও firewall ipv6 বলে (VyOS 1.4 ও নতুন); শুধু NAT ও পোর্ট ফরওয়ার্ড পড়া হয়",
+ "msg.edgeos.firewallUnsupported": "ফায়ারওয়াল: {what} পড়া হয়নি, তাই জোন নীতির নিয়ম নেই",
+ "msg.edgeos.ruleSetMissing": "ফায়ারওয়াল: {interface} অসংজ্ঞায়িত নিয়ম-সেট {name} ব্যবহার করে",
+ "msg.edgeos.natSkipped": "NAT: ব্যবহারযোগ্য অনুবাদ ঠিকানা ছাড়া একটি নিয়ম বাদ দেওয়া হয়েছে"
 }

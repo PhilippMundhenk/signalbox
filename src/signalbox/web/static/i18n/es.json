@@ -3078,5 +3078,20 @@
  "msg.unifi.version": "la aplicación Network es la versión {version}; Signalbox está escrito para las versiones {tested}: sigue leyendo, pero puede faltar algún campo",
  "msg.unifi.integrationOnly": "la aplicación Network acepta esta clave de API solo para la API de integración: se leen dispositivos, redes y clientes, pero no puertos, radios, redes Wi-Fi ni enlaces ascendentes",
  "msg.unifi.integrationOnly.fix": "Use una cuenta local con un rol de solo lectura para la lectura completa.",
- "msg.unifi.optional": "{what}: no se lee ({cause})"
+ "msg.unifi.optional": "{what}: no se lee ({cause})",
+ "msg.edgeos.privateKey": "clave privada: {detail}",
+ "msg.edgeos.auth.fix": "Compruebe el nombre de usuario y la clave privada (o la contraseña) en los ajustes, y que el usuario existe en el router con el nivel operator y su clave pública (consulte la guía de configuración).",
+ "msg.edgeos.incompleteAnswer": "el router no respondió por completo a los comandos de lectura: {tail}",
+ "msg.edgeos.incompleteAnswer.fix": "Signalbox ejecuta sus comandos con sh -s. Compruebe que el shell de inicio de sesión del usuario es el predeterminado (vbash) y que el usuario tiene el nivel operator.",
+ "msg.edgeos.versionUnknown": "versión: show version no mostró ninguna línea Version, por lo que se desconoce la versión del software; la configuración se lee como en EdgeOS 2.0",
+ "msg.edgeos.noLinks": "interfaces: ip -o link no mostró ninguna interfaz, por lo que no se leen el estado del enlace, las direcciones MAC ni las direcciones instaladas",
+ "msg.edgeos.configEmpty": "configuración: show configuration commands no mostró nada, por lo que no se leyó nada de la configuración",
+ "msg.edgeos.configEmpty.fix": "Compruebe que el usuario tiene el nivel operator y que existe /opt/vyatta/bin/vyatta-op-cmd-wrapper.",
+ "msg.edgeos.rangeNoNetwork": "{server}: la subred DHCP {range} no está en ninguna red del router",
+ "msg.edgeos.lldpOff": "LLDP está desactivado en el router, por lo que no se leen vecinos",
+ "msg.edgeos.lldpOff.fix": "Opcional: actívelo (configure, set service lldp interface all, commit, save).",
+ "msg.edgeos.firewallVyos14": "firewall: {version} llama a sus conjuntos de reglas firewall ipv4 y firewall ipv6 (VyOS 1.4 y posteriores); solo se leen NAT y reenvíos de puertos",
+ "msg.edgeos.firewallUnsupported": "firewall: {what} no se lee, por lo que faltan las reglas de la política de zonas",
+ "msg.edgeos.ruleSetMissing": "firewall: {interface} usa el conjunto de reglas {name}, que no está definido",
+ "msg.edgeos.natSkipped": "NAT: se omitió una regla sin una dirección de traducción utilizable"
 }

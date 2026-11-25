@@ -3078,5 +3078,20 @@
  "msg.unifi.version": "the Network application is version {version}; Signalbox is written for versions {tested}: it reads on, but a field may be missing",
  "msg.unifi.integrationOnly": "the Network application accepts this API key for the Integration API only: devices, networks and clients are read, ports, radios, Wi-Fi networks and uplinks are not",
  "msg.unifi.integrationOnly.fix": "Use a local account with a read-only role for the full read.",
- "msg.unifi.optional": "{what}: not read ({cause})"
+ "msg.unifi.optional": "{what}: not read ({cause})",
+ "msg.edgeos.privateKey": "private key: {detail}",
+ "msg.edgeos.auth.fix": "Check the user name and the private key (or password) in the settings, and that the user exists on the router with the level operator and its public key (see the setup guide).",
+ "msg.edgeos.incompleteAnswer": "the router did not answer the read commands completely: {tail}",
+ "msg.edgeos.incompleteAnswer.fix": "Signalbox runs its commands with sh -s. Check that the user's login shell is the default (vbash) and that the user has the level operator.",
+ "msg.edgeos.versionUnknown": "version: show version printed no Version line, so the software version is not known; the configuration is read as EdgeOS 2.0",
+ "msg.edgeos.noLinks": "interfaces: ip -o link printed no interfaces, so the link state, MAC addresses and installed addresses are not read",
+ "msg.edgeos.configEmpty": "configuration: show configuration commands printed nothing, so nothing of the configuration was read",
+ "msg.edgeos.configEmpty.fix": "Check that the user has the level operator and that /opt/vyatta/bin/vyatta-op-cmd-wrapper exists.",
+ "msg.edgeos.rangeNoNetwork": "{server}: the DHCP subnet {range} is on no network of the router",
+ "msg.edgeos.lldpOff": "LLDP is off on the router, so no neighbours are read",
+ "msg.edgeos.lldpOff.fix": "Optional: enable it (configure, set service lldp interface all, commit, save).",
+ "msg.edgeos.firewallVyos14": "firewall: {version} names its rule-sets firewall ipv4 and firewall ipv6 (VyOS 1.4 and newer); only the NAT and port forwards are read",
+ "msg.edgeos.firewallUnsupported": "firewall: {what} is not read, so the rules of the zone policy are missing",
+ "msg.edgeos.ruleSetMissing": "firewall: {interface} uses the rule-set {name}, which is not defined",
+ "msg.edgeos.natSkipped": "NAT: a rule without a usable translation address was left out"
 }
