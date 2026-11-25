@@ -1364,7 +1364,10 @@ class FritzboxAdapter(Adapter):
         ``read_firewall`` has read anyway. Only gateways, and only where the box answers
         ``X_AVM-DE_UPnP`` (``NewEnable``); the protocols are UPnP IGD, and secure mode and
         permission rules are not in TR-064."""
-        info = await self._try("X_AVM-DE_UPnP1", "GetInfo")
+        try:
+            info = await self._try("X_AVM-DE_UPnP1", "GetInfo")
+        except AdapterError:  # an extra of the firewall read: never fails it
+            return {}
         if info is None:
             return {}
         on = _flag(info.get("NewEnable"))
