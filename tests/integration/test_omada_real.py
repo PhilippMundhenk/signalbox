@@ -275,7 +275,7 @@ async def test_ssids_and_port_profiles(ctrl: dict[str, str]) -> None:
     assert all(s.get("ssidEnable", True) is True for s in rows.values())
     assert profiles["IoT access"]["nativeNetworkId"] == nets[20]
     assert profiles["All"]["nativeNetworkId"] == nets[1]
-    assert set(profiles["All"]["tagNetworkIds"]) == {nets[20], nets[30], nets[40]}
+    assert set(profiles["All"]["tagNetworkIds"]) == {nets[v] for v in (20, 30, 40) if v in nets}
 
 
 async def test_refused_secret_is_auth_failed(ctrl: dict[str, str]) -> None:
@@ -300,6 +300,7 @@ async def test_unknown_site(ctrl: dict[str, str]) -> None:
 async def test_refused_token_is_renewed_once(ctrl: dict[str, str]) -> None:
     """The controller answers a token it does not know (expired or never issued) with
     -44112; the adapter asks for a new one and repeats the request."""
+    needs_lab(ctrl)
     a = adapter(ctrl)
     try:
         await a.read_system()
@@ -326,6 +327,7 @@ async def test_refused_token_is_renewed_once(ctrl: dict[str, str]) -> None:
 
 
 async def test_viewer_role_cannot_write(ctrl: dict[str, str]) -> None:
+    needs_lab(ctrl)
     net = await network(ctrl)
     old = next(s for s in net.subnets if s.segment_id == LAB)
     c = Change(
@@ -503,7 +505,10 @@ async def test_refusal_of_the_controller_names_the_code(ctrl: dict[str, str]) ->
     try:
         await a.read_system()
         body = {"name": "Twice", "purpose": 0, "vlan": 20, "igmpSnoopEnable": False}
-        with pytest.raises(AdapterError, match="-34517: This VLAN ID is already used"):
+        with pytest.raises(
+            AdapterError,
+            match="-34517: This VLAN ID is already used|-33501: This VLAN already exists",
+        ):
             await Writer(a).send("POST", f"{a._site_path}/lan-networks", body)
     finally:
         await a.close()

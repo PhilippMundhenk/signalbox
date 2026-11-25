@@ -22,7 +22,7 @@ their DHCP, switch ports, SSIDs ([Changing the site](#changing-the-site)).
 | wireless | radios of every EAP; SSIDs of its WLAN group per band (security, VLAN, hidden, PMF) |
 | clients | wired and wireless clients with address, network and where they were seen (switch port or EAP WLAN) |
 
-> **Verified against Omada Controller 6.3.0.111, 5.15.24.19 and 5.9 in CI.** What the controller holds itself
+> **Verified against Omada Controller 6.3.0.111, 5.15.24.19 and 5.14.32.4 in CI.** What the controller holds itself
 > (sites, LAN networks, DHCP, port profiles, WLAN groups and SSIDs, the token, roles and
 > refusals) is checked every night against TP-Link's Omada Software Controller, the official
 > Linux package in Docker, set up through its own first-start wizard:
@@ -517,13 +517,17 @@ Signalbox.
 
 ### CI
 
-Only 6.3 runs against a real controller. A 5.x entry next to it
-(`mbentley/omada-controller:5.15`, also TP-Link's official package) was **not** added: the
-first-start wizard, role names and Open API application calls of `controller.py` are those of the
-6.3 web UI, a 5.x controller's differ and cannot be tried outside CI, and an image digest cannot
-be pinned without having seen it run (the 6.3 job pins one). It stays a follow-up; 5.9 and 5.15
-would need `controller.py` to take the version and its wizard variant as a parameter, and the job
-to become a matrix (read only, selective as in #249).
+6.3, 5.15 and 5.14 run against a real controller (#501). **5.9 does not**: the 5.9.31 image
+answers the Open API application calls of `controller.py` (`/api/v2/open-api/applications` and
+three other spellings) with -1600 "Unsupported request path", and its web UI scripts do not
+mention the Open API, so the application cannot be created headless. Differences the real
+5.x controllers showed, handled in the adapter or the tests:
+
+- 5.15: an SSID has no on/off switch in the Open API (no `ssidEnable`, `.../enable` is 404):
+  switching one off is refused with a readable message.
+- 5.14: `update-basic-config` needs `greEnable` and `hidePwd` (-1001 otherwise): sent as
+  defaults. A duplicate VLAN is -33501 (6.3: -34517). Without a gateway the controller
+  refuses an interface network (-33515): the tests that need network "Lab" skip there.
 
 ### Guesses to confirm on real controllers (#21)
 
@@ -541,12 +545,13 @@ to become a matrix (read only, selective as in #249).
 ## Integration tests
 
 `tools/integration/omada/controller.py` runs on the GitHub Actions runner only (job
-`Integration / Omada`, one matrix entry per version line: 6.3, 5.15 and 5.9, #501), never locally; tests/integration/test_omada_real.py skips without
+`Integration / Omada`, one matrix entry per version line: 6.3, 5.15 and 5.14, #501), never locally;
+tests/integration/test_omada_real.py skips without
 `IT_OMADA_URL` (and fails in CI, `REQUIRE_INTEGRATION`).
 
-- **The controller**: `mbentley/omada-controller` in the versions 6.3.0.111 (current), 5.15.24.19
-  (newest 5.x) and `5.9` (oldest supported 5.x; the maintainer only publishes a floating tag for
-  it, so the digest is the pin), each pinned by digest, a maintained community image that installs TP-Link's official Linux package unchanged; it answers
+- **The controller**: `mbentley/omada-controller` in the versions 6.3.0.111 (current),
+  5.15.24.19 and 5.14.32.4, each pinned by digest, a maintained community image that installs
+  TP-Link's official Linux package unchanged; it answers
   `/api/info` some 40 seconds after the start.
 - **Setup** through the calls of the controller's own web UI (read from its scripts): the
   administrator (`POST /{omadacId}/api/v2/anon/register`), the first-start wizard

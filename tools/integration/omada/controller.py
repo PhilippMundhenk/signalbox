@@ -4,7 +4,7 @@
 Runs on a GitHub Actions runner (Docker), never in the development sandbox. Standard library
 only.
 
-    controller.py start DIR VER  pull the pinned image of the version (6.3, 5.15 or 5.9), start
+    controller.py start DIR VER  pull the pinned image of the version (6.3, 5.15 or 5.14), start
                                the controller, wait for /api/info
     controller.py setup DIR    the first-start wizard, two Open API applications (viewer and
                                administrator) and the test site's networks, SSIDs and profile;
@@ -13,8 +13,8 @@ only.
 
 The image is mbentley/omada-controller, a maintained community image that installs TP-Link's
 official Linux package (the .deb) unchanged; it is pinned by version tag and digest. Versions:
-6.3 (current), 5.15 (the newest 5.x), 5.14 and 5.9 (the oldest 5.x the adapter supports, #416); the
-tag of 5.9 is the maintainer's floating "5.9" line, pinned by its digest (#501).
+6.3 (current), 5.15 and 5.14 (#501). 5.9.31 is not covered: its open-api/applications path answers
+"Unsupported request path" (-1600).
 
 The setup uses the calls of the controller's own web UI (read from its scripts): the
 administrator (``/api/v2/anon/register``), the wizard (``/api/v2/anon/cmd/wizardConfig``),
@@ -49,8 +49,6 @@ IMAGES = {
     "@sha256:908a4e38ff273b0be77db5525237cf039f724c169f33d3be8b32f3acf34bbe2b",
     "5.14": "mbentley/omada-controller:5.14.32.4"
     "@sha256:879ec82534c76284ba8fabd3ccda5d27eda25b6cb69812466ac8b695d642c5f7",
-    "5.9": "mbentley/omada-controller:5.9"
-    "@sha256:06aa6851b743083fd35aa6672c5bfd849cf4c8b3f1c1a6d195b83eb302abe763",
 }
 NAME = "signalbox-omada"
 PORT = 8043
@@ -248,71 +246,6 @@ def login(oid: str, admin_password: str) -> dict[str, str]:
     return {"Csrf-Token": result["token"]}
 
 
-#: where the web UI keeps the Open API applications: 6.x, then the spellings 5.x may use (#501)
-APP_PATHS = (
-    "open-api/applications",
-    "openapi/applications",
-    "open-api/application",
-    "openapi/application",
-)
-
-
-def web_scripts(oid: str) -> str:
-    """The Open API strings of the web UI's scripts: what to try when no path answers."""
-    status, page = request("GET", f"/{oid}/")
-    if not isinstance(page, str):
-        return f"index page: HTTP {status} {str(page)[:200]}"
-    srcs = re.findall(r"""src=["']([^"']+\.js[^"']*)["']""", page)
-    out = [f"index page HTTP {status}, {len(page)} bytes, {len(srcs)} scripts"]
-    found: set[str] = set()
-    app_js = ""
-    for src in srcs[:40]:
-        path = src if src.startswith("/") else f"/{src}"
-        code, js = request("GET", path)
-        if isinstance(js, str):
-            if "/js/app/" in path:
-                app_js = js
-            for m in re.finditer(r"open-?api|client_?secret|platform.?integration", js, re.I):
-                found.add(js[max(0, m.start() - 40) : m.end() + 50].replace("\n", " "))
-            found.update(
-                f"path {p}"
-                for p in re.findall(
-                    r"""["'`]([\w/{}.$-]*(?:app|integr|platform|token|client)[\w/{}.$-]*)["'`]""",
-                    js,
-                    re.I,
-                )
-                if "/" in p and len(p) < 90
-            )
-        else:
-            out.append(f"{path}: HTTP {code} not text")
-    # the app scripts load the screens lazily: follow the script names they mention
-    names = {
-        m for m in re.findall(r"""["']((?:/?js/)?[\w./-]+\.js)["']""", app_js) if m not in srcs
-    }
-    out.append(f"{len(names)} lazily loaded scripts")
-    for name in sorted(names)[:300]:
-        code, js = request("GET", name if name.startswith("/") else f"/{name}")
-        if code == 200 and isinstance(js, str) and not js.lstrip().startswith("<!"):
-            for m in re.finditer(r"open-?api", js, re.I):
-                found.add(js[max(0, m.start() - 60) : m.end() + 60].replace("\n", " "))
-    return (page[-1800:] + "\n" + "\n".join(out[:3] + sorted(found)[:120]))[:9000]
-
-
-def applications_path(oid: str, web: dict[str, str]) -> str:
-    seen = []
-    for sub in APP_PATHS:
-        path = f"/{oid}/api/v2/{sub}"
-        status, answer = request("GET", f"{path}?currentPage=1&currentPageSize=100", headers=web)
-        if status == 200 and isinstance(answer, dict) and answer.get("errorCode") == 0:
-            return path
-        seen.append(f"{sub}: HTTP {status} {str(answer)[:120]}")
-    text = web_scripts(oid)
-    for i in range(0, len(text), 3800):
-        notice(f"Omada web UI: Open API strings {i // 3800}", text[i : i + 3800])
-    fail("Omada setup: no Open API applications path", "\n".join(seen))
-    raise AssertionError
-
-
 def application(oid: str, web: dict[str, str], name: str, role: str) -> dict[str, str]:
     roles = ok("GET", f"/{oid}/api/v2/roles-available", headers=web)
     found = roles.get("roles", roles) if isinstance(roles, dict) else roles
@@ -323,7 +256,7 @@ def application(oid: str, web: dict[str, str], name: str, role: str) -> dict[str
     if match is None:
         fail("Omada setup: no such role", f"{role!r} not in {names}")
     body = {"name": name, "mode": 1, "permission": {"roleId": match, "sitePrivilege": 0}}
-    base = applications_path(oid, web)
+    base = f"/{oid}/api/v2/open-api/applications"
     ok("POST", base, body, headers=web)
     listed = ok("GET", f"{base}?currentPage=1&currentPageSize=100", headers=web)
     rows = listed.get("data", listed) if isinstance(listed, dict) else listed

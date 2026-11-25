@@ -93,6 +93,9 @@ SSID_DEFAULTS: dict[str, Any] = {
     "mloEnable": False,
     "enable11r": False,
 }
+#: Omada 5.14 (CI, #501) refuses ``update-basic-config`` without these two (-1001 "should not be
+#: null") and does not answer them: sent as defaults, the own value of the answer wins.
+SSID_UPDATE_REQUIRED: dict[str, Any] = {"greEnable": False, "hidePwd": False}
 #: Keys of a switch port that a port change writes (and a restore puts back).
 PORT_KEYS = ("profileId", "profileOverrideEnable", "nativeNetworkId", "tagNetworkIds")
 #: Keys of a network that are the controller's own (not sent back).
@@ -741,7 +744,8 @@ class Writer:
             desc = Described(
                 f"SSID {c.key} {where}", "plan.omada.ssidUpdate", ssid=c.key, where=where
             )
-            out.append(Op(desc, "PATCH", update, body, _shown(body)))
+            sent = {**SSID_UPDATE_REQUIRED, **body}
+            out.append(Op(desc, "PATCH", update, sent, _shown(sent)))
         if new.enabled != (row.get("ssidEnable") is not False):
             if "ssidEnable" not in row:
                 # Omada Software Controller 5.15 (CI, #501): an SSID has no on/off switch in the
@@ -935,7 +939,9 @@ class Writer:
             if _basic(have) != basic:
                 body = {**SSID_DEFAULTS, **basic}
                 body.setdefault("pmfMode", _basic(have).get("pmfMode") or 3)
-                await self.send("PATCH", f"{path}/{sid}/update-basic-config", body)
+                await self.send(
+                    "PATCH", f"{path}/{sid}/update-basic-config", {**SSID_UPDATE_REQUIRED, **body}
+                )
             if (have.get("ssidEnable") is not False) != enabled:
                 enable = f"{self.site}/wireless-network/ssids/{sid}/enable"
                 await self.send("PATCH", enable, {"ssidEnable": enabled})
