@@ -777,3 +777,49 @@ async def test_mikrotik_two_default_routes_are_a_failover_group(
     assert ip_address("203.0.113.53") in lte.monitor_targets
     [up] = snap.uplinks
     assert up.monitor is not None and up.health is not None
+
+
+# --- FRITZ!Box DDNS provider and MyFRITZ! (#154) --------------------------------------------------
+
+
+async def test_fritzbox_ddns_provider_and_myfritz(fritzbox: tuple[FritzboxSim, str]) -> None:
+    sim, url = fritzbox
+    adapter = _fritzbox(url)
+    try:
+        snap = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    by = {d.id: d for d in snap.ddns}
+    provider, my = by["gw/ddns/provider"], by["gw/ddns/myfritz"]
+    assert (provider.provider, provider.hostname, provider.families) == (
+        "dyndns2",
+        "home.example.dyndns.invalid",
+        [4],
+    )
+    assert provider.enabled and provider.last_result.value == "ok"
+    assert provider.published_address is None and provider.uplink_id is not None
+    assert (my.provider, my.hostname, my.last_result.value) == (
+        "myfritz",
+        "example.myfritz.example",
+        "ok",
+    )
+    text = snap.model_dump_json()
+    assert "sim-user" not in text and "dyn.example.invalid" not in text
+    sim.ddns.update({"NewStatusIPv4": "error: authentication failed", "NewMode": "ddns_both"})
+    sim.myfritz["NewDynDNSName"] = ""
+    adapter = _fritzbox(url)
+    try:
+        snap = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    [only] = snap.ddns
+    assert only.last_result.value == "error" and only.families == [4, 6]
+
+
+async def test_fritzbox_access_point_has_no_ddns(fritzbox: tuple[FritzboxSim, str]) -> None:
+    adapter = _fritzbox(fritzbox[1], DeviceRole.AP)
+    try:
+        snap = await assert_contract(adapter)
+    finally:
+        await adapter.close()
+    assert snap.ddns == []
