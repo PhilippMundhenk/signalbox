@@ -3083,6 +3083,62 @@ def normalise_capabilities(values: Iterable[str]) -> list[str]:
     return out
 
 
+class NeighbourProtocol(StrEnum):
+    """The discovery protocol a neighbour was learned by (#163)."""
+
+    LLDP = "lldp"
+    CDP = "cdp"
+    #: MikroTik Neighbor Discovery Protocol.
+    MNDP = "mndp"
+    #: Extreme (EDP) and Foundry/Brocade (FDP) discovery protocols.
+    EDP = "edp"
+    FDP = "fdp"
+    OTHER = "other"
+
+
+class MedDeviceClass(StrEnum):
+    """LLDP-MED device class a neighbour announces (ANSI/TIA-1057, #163)."""
+
+    ENDPOINT_1 = "endpoint-1"
+    ENDPOINT_2 = "endpoint-2"
+    ENDPOINT_3 = "endpoint-3"
+    NETWORK_CONNECTIVITY = "network-connectivity"
+
+
+#: Kinds of an LLDP chassis id (IEEE 802.1AB subtypes), as ``Neighbour.chassis_id_kind``.
+CHASSIS_ID_KINDS = (
+    "chassis-component",
+    "interface-alias",
+    "port-component",
+    "mac",
+    "network-address",
+    "interface-name",
+    "local",
+)
+
+#: Names tools use for the chassis id kinds (lldpcli, RouterOS, ...).
+_CHASSIS_KIND_ALIASES = {
+    "ifalias": "interface-alias",
+    "ifname": "interface-name",
+    "mac address": "mac",
+    "macaddress": "mac",
+    "ip": "network-address",
+    "ipv4": "network-address",
+    "ipv6": "network-address",
+}
+
+
+def normalise_id_kind(value: str | None, number: int | None = None) -> str | None:
+    """An LLDP chassis/port id kind from a name (lldpcli ``mac``/``ifname``, RouterOS, ...) or
+    from the IEEE 802.1AB subtype number (1 chassis component, 2 interface alias, 3 port
+    component, 4 MAC, 5 network address, 6 interface name, 7 local). None when unknown."""
+    if number is not None:
+        return CHASSIS_ID_KINDS[number - 1] if 1 <= number <= len(CHASSIS_ID_KINDS) else None
+    name = " ".join(str(value or "").strip().lower().replace("-", " ").replace("_", " ").split())
+    name = _CHASSIS_KIND_ALIASES.get(name, name.replace(" ", "-"))
+    return name if name in CHASSIS_ID_KINDS else None
+
+
 class Neighbour(Observed):
     """A device seen on a port by LLDP (or a similar protocol)."""
 
@@ -3100,6 +3156,41 @@ class Neighbour(Observed):
     #: A wireless link (a mesh uplink between two access points, #336): the topology draws it
     #: as a ``wireless`` link between the two wireless ports.
     wireless: bool = False
+    # details of the neighbour's own port and announcement (#163); None / empty: not reported --
+    #: Protocol the neighbour was learned by (``lldp``, ``cdp``, ``mndp``).
+    protocol: NeighbourProtocol | None = None
+    #: What ``chassis_id`` is, one of :data:`CHASSIS_ID_KINDS` (``mac``, ``network-address``,
+    #: ``local``, ...). A neighbour with ``local`` or ``interface-name`` has no MAC address in it.
+    chassis_id_kind: str | None = None
+    #: The neighbour's own description of ``remote_port`` (LLDP port description, an alias).
+    port_description: str | None = None
+    #: Port VLAN id (PVID, untagged VLAN) the neighbour announces on its port (IEEE 802.1 TLV).
+    port_vlan: Vlan | None = None
+    #: VLAN ids the neighbour announces on its port (802.1 VLAN name TLVs), ascending; may or
+    #: may not include ``port_vlan``.
+    vlans: list[Vlan] = Field(default_factory=list)
+    #: Largest frame the neighbour's port accepts, in bytes including the Ethernet header and
+    #: FCS (802.3 maximum frame size TLV; 1522 is the usual standard value, jumbo 9000+).
+    max_frame_size: Annotated[int, Field(ge=64, le=65535)] | None = None
+    #: Power over Ethernet from the neighbour's point of view (802.3 and LLDP-MED power TLVs):
+    #: the power a powered device asks for, in watts, ...
+    poe_requested_w: Annotated[float, Field(ge=0)] | None = None
+    #: ... the power the switch allocated to it (as the neighbour reports it) ...
+    poe_allocated_w: Annotated[float, Field(ge=0)] | None = None
+    #: ... and the 802.3 class of the powered device, 0 to 8.
+    poe_class: Annotated[int, Field(ge=0, le=8)] | None = None
+    #: LLDP-MED device class (phones and cameras are endpoints, switches network connectivity).
+    med_device_class: MedDeviceClass | None = None
+    #: Hold time the neighbour announced (LLDP TTL, seconds); the entry expires without a frame.
+    ttl_seconds: Annotated[int, Field(ge=0)] | None = None
+    #: Age of the entry as the device reports it, in seconds (lldpd: since first seen; RouterOS:
+    #: since the last update).
+    age_seconds: Annotated[int, Field(ge=0)] | None = None
+
+    @field_validator("vlans")
+    @classmethod
+    def _sorted_vlans(cls, value: list[int]) -> list[int]:
+        return sorted(set(value))
 
 
 class FdbKind(StrEnum):

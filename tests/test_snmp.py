@@ -233,6 +233,12 @@ async def test_lldp_neighbours() -> None:
     assert ap.capabilities == ["bridge", "wlan-access-point"]
     assert ap.remote_port == "02:00:00:00:00:a1"  # a MAC port id
     assert by_id["Gi7"].remote_port == "Gi3/5" and by_id["Gi7"].description
+    # details from the 802.1, 802.3 and LLDP-MED tables (#163)
+    assert router.protocol == "lldp" and router.chassis_id_kind == "mac"
+    assert (router.port_vlan, router.vlans, router.max_frame_size) == (1, [1, 20], 1522)
+    assert router.med_device_class == "network-connectivity" and router.poe_requested_w is None
+    assert (ap.port_vlan, ap.poe_class, ap.poe_requested_w) == (10, 4, 15.4)
+    assert ap.med_device_class == "endpoint-3" and by_id["Gi7"].max_frame_size == 9216
 
 
 # --- switches that offer less ---------------------------------------------------------------------

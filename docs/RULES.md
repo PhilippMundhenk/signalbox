@@ -175,6 +175,12 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`ddns.mismatch`](rules/multiwan.md#ddnsmismatch)
 - [`ddns.update-failed`](rules/multiwan.md#ddnsupdate-failed)
 
+## [Neighbour details (LLDP)](rules/neighbour_checks.md)
+
+- [`link.pvid-mismatch`](rules/neighbour_checks.md#linkpvid-mismatch)
+- [`link.mtu-mismatch`](rules/neighbour_checks.md#linkmtu-mismatch)
+- [`poe.request-unmet`](rules/neighbour_checks.md#poerequest-unmet)
+
 ## [Network purposes](rules/networks.md)
 
 - [`wifi.guest-isolation`](rules/networks.md#wifiguest-isolation)
@@ -390,11 +396,23 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `days` | `365` | d | Uptime from which it is reported. |
 
+### `link.mtu-mismatch`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `tolerance_bytes` | `22` | bytes | Frame size the neighbour may be smaller than the local MTU needs before it is reported (devices count header, tag and FCS differently). |
+
 ### `poe.budget`
 
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
 | `warn_pct` | `80` | % | Share of the budget in use from which it is a warning (100 % is an error). |
+
+### `poe.request-unmet`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `margin_w` | `0.5` | W | Watts the request may exceed the port's limit by before it is reported. |
 
 ### `time.offset`
 

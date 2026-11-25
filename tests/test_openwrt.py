@@ -469,6 +469,29 @@ async def test_neighbours(adapter: OpenWrtAdapter) -> None:
     # only the enabled system capabilities (#113)
     assert nb.capabilities == ["bridge", "router"]
     assert nb.description == "MikroTik RouterOS 7.15.3 CRS326-24G-2S+"
+    # port and announcement details (#163)
+    assert (nb.protocol, nb.chassis_id_kind) == ("lldp", "mac")
+    assert (nb.port_description, nb.ttl_seconds, nb.age_seconds) == ("uplink to router", 120, 11564)
+    assert (nb.max_frame_size, nb.port_vlan, nb.vlans) == (1522, 1, [1, 20])
+    assert (nb.poe_requested_w, nb.poe_allocated_w, nb.poe_class) == (15.4, 15.4, 4)
+    assert nb.med_device_class == "network-connectivity"
+
+
+def test_lldp_helpers() -> None:
+    from signalbox.adapters.openwrt import _med_class, _pvid, _vlans
+    from signalbox.lldp import age_seconds, med_class, protocol_of
+
+    assert protocol_of("CDPv2") == "cdp" and protocol_of("lldp,mndp") == "lldp"
+    assert protocol_of("mndp") == "mndp" and protocol_of("FDP") == "fdp"
+    assert protocol_of("SONMP") == "other" and protocol_of("") is None
+    assert age_seconds("1 day, 00:00:01") == 86401 and age_seconds("90") == 90
+    assert age_seconds("soon") is None
+    assert med_class("Communication Device Endpoint (Class III)") == "endpoint-3"
+    assert med_class("Generic Endpoint (Class I)") == "endpoint-1"
+    assert med_class("Media Endpoint (Class II)") == "endpoint-2"
+    assert med_class("Generic") is None and med_class(None) is None
+    assert _vlans({"vlan-id": "30", "pvid": "yes"}) == [30] and _pvid({"vlan-id": "30"}) is None
+    assert _vlans([{"vlan-id": "9999"}, "x"]) == [] and _med_class("x") is None
 
 
 def test_lldp_capabilities_shapes() -> None:

@@ -1207,6 +1207,8 @@ def sample_data() -> dict[str, Any]:
                 "board": "CRS326-24G-2S+",
                 "interface-name": "ether24",
                 "discovered-by": "lldp,mndp",
+                "age": "1m5s",
+                "vlan-id": "1",
                 "system-caps": "bridge,router,wlan-ap",
                 "system-caps-enabled": "bridge,router",
                 "system-description": "MikroTik RouterOS 7.15.3 CRS326-24G-2S+",

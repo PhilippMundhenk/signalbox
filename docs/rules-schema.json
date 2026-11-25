@@ -380,6 +380,53 @@
         }
       }
     },
+    "link.mtu-mismatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/link.mtu-mismatch"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/link.mtu-mismatch"
+              }
+            }
+          }
+        }
+      }
+    },
     "poe.budget": {
       "type": "object",
       "additionalProperties": false,
@@ -421,6 +468,53 @@
               },
               "params": {
                 "$ref": "#/$defs/poe.budget"
+              }
+            }
+          }
+        }
+      }
+    },
+    "poe.request-unmet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/poe.request-unmet"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/poe.request-unmet"
               }
             }
           }
@@ -781,6 +875,22 @@
       "title": "health.uptime-very-long",
       "type": "object"
     },
+    "link.mtu-mismatch": {
+      "additionalProperties": false,
+      "properties": {
+        "tolerance_bytes": {
+          "default": 22,
+          "description": "Frame size the neighbour may be smaller than the local MTU needs before it is reported (devices count header, tag and FCS differently).",
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Tolerance Bytes",
+          "type": "integer",
+          "unit": "bytes"
+        }
+      },
+      "title": "link.mtu-mismatch",
+      "type": "object"
+    },
     "poe.budget": {
       "additionalProperties": false,
       "properties": {
@@ -795,6 +905,22 @@
         }
       },
       "title": "poe.budget",
+      "type": "object"
+    },
+    "poe.request-unmet": {
+      "additionalProperties": false,
+      "properties": {
+        "margin_w": {
+          "default": 0.5,
+          "description": "Watts the request may exceed the port's limit by before it is reported.",
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Margin W",
+          "type": "number",
+          "unit": "W"
+        }
+      },
+      "title": "poe.request-unmet",
       "type": "object"
     },
     "time.offset": {

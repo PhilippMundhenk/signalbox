@@ -3209,5 +3209,19 @@
  "msg.firmware.betaChannel": "{name} は {channel} チャネルを使用しています",
  "msg.firmware.betaChannel.fix": "意図的にテストする場合を除き、安定版または長期サポート版のチャネルに切り替えてください。",
  "msg.firmware.updateUnnamed": "{name} にファームウェアの更新があります",
- "msg.firmware.updateUnnamed.fix": "{name} を更新してください。"
+ "msg.firmware.updateUnnamed.fix": "{name} を更新してください。",
+ "rule.link.pvid-mismatch.title": "リンクの両端でネイティブVLANが異なる",
+ "rule.link.pvid-mismatch.explanation": "隣接装置がタグなしフレームを入れるVLAN(LLDP)を通知し、ローカルポートは別のVLANを使っています。タグなしの通信が一方のVLANからもう一方へ漏れます。トランクの両端は同じネイティブVLANを使う必要があります。Signalboxが両端を読み取れる場合は vlan.native-mismatch が比較します。",
+ "msg.link.pvidMismatch": "{where}: ネイティブVLANはこちらが {local}、反対側は {remote} です。",
+ "msg.link.pvidMismatch.fix": "ケーブルの両端に同じネイティブ(タグなし)VLANを設定してください。",
+ "rule.link.mtu-mismatch.title": "相手側がこのポートの送信より小さいフレームしか受け付けない",
+ "rule.link.mtu-mismatch.explanation": "隣接装置が自身のポートが受け付ける最大フレーム(LLDP)を通知し、ローカルのMTUはそれより大きなフレームを必要とします。大きなパケットは破棄され小さなものは通るため、ハンドシェイク後に接続が止まります。両端を読み取れる場合は link.mtu が比較します。",
+ "msg.link.mtuMismatch": "{where}: こちらのMTUは {mtu} ですが、反対側は {frame} バイトまでのフレームしか受け付けません。",
+ "msg.link.mtuMismatch.fix": "このポートのMTUを下げるか、反対側と経路上のフレームサイズ(ジャンボフレーム)を大きくしてください。",
+ "rule.poe.request-unmet.title": "機器がポートの供給より多くのPoE電力を要求している",
+ "rule.poe.request-unmet.explanation": "隣接装置が要求するPoE電力(LLDP)を通知しますが、スイッチのポートはPoEがオフか上限が低くなっています。機器は機能を制限して動作するか、起動しません。",
+ "msg.poe.requestOff": "{where}: 機器は {requested} W を要求していますが、ポートのPoEがオフです。",
+ "msg.poe.requestOff.fix": "ポートのPoEをオンにするか、別の方法で機器に給電してください。",
+ "msg.poe.requestLimit": "{where}: 機器は {requested} W を要求していますが、ポートの供給は最大 {limit} W です。",
+ "msg.poe.requestLimit.fix": "ポートのPoE上限を上げるか、PoEクラスの高いポートまたはスイッチへ機器を移してください。"
 }

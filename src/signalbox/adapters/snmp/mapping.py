@@ -37,8 +37,10 @@ from signalbox.model import (
     LacpRate,
     LagMemberState,
     LagMode,
+    MedDeviceClass,
     Membership,
     Neighbour,
+    NeighbourProtocol,
     PoePriority,
     PoeStatus,
     PoeSupply,
@@ -55,6 +57,7 @@ from signalbox.model import (
     StpProtocol,
     fdb_id,
     normalise_capabilities,
+    normalise_id_kind,
     normalise_mac,
     object_id,
     parse_stp_bridge_id,
@@ -731,6 +734,32 @@ def _local_port(number: int, pmap: PortMap, data: Mib) -> str | None:
     return pmap.by_if.get(number) or pmap.of_bridge(number)
 
 
+_MED_CLASSES = {
+    1: MedDeviceClass.ENDPOINT_1,
+    2: MedDeviceClass.ENDPOINT_2,
+    3: MedDeviceClass.ENDPOINT_3,
+    4: MedDeviceClass.NETWORK_CONNECTIVITY,
+}
+
+
+def _vlan(value: int | None) -> int | None:
+    return value if value is not None and 1 <= value <= 4094 else None
+
+
+def _frame_size(value: int | None) -> int | None:
+    return value if value is not None and 64 <= value <= 65535 else None
+
+
+def _poe_class(value: int | None) -> int | None:
+    """lldpXdot3RemPowerClass: 1 to 5 stand for the classes 0 to 4."""
+    return value - 1 if value is not None and 1 <= value <= 5 else None
+
+
+def _deciwatt(value: int | None) -> float | None:
+    """The LLDP-MED power request in units of 0.1 W; 0 means none requested."""
+    return value / 10 if value else None
+
+
 def neighbours(device_id: str, pmap: PortMap, data: Mib) -> list[Neighbour]:
     """LLDP-MIB neighbours (lldpRemTable) with chassis and port ids, system name and
     description, capabilities and management address."""
@@ -770,6 +799,16 @@ def neighbours(device_id: str, pmap: PortMap, data: Mib) -> list[Neighbour]:
             continue
         if address is not None:
             addresses.setdefault(index, address)
+    dot1 = data.col(mib.LLDP_X_DOT1_PVID)
+    dot3_mfs = data.col(mib.LLDP_X_DOT3_MAX_FRAME)
+    dot3_class = data.col(mib.LLDP_X_DOT3_POWER_CLASS)
+    med_class = data.col(mib.LLDP_X_MED_DEVICE_CLASS)
+    med_power = data.col(mib.LLDP_X_MED_PD_POWER_REQ)
+    vlans: dict[str, list[int]] = {}
+    for vkey in data.col(mib.LLDP_X_DOT1_VLAN_NAME):
+        head, _, vid = vkey.rpartition(".")
+        if vid.isdigit() and 1 <= int(vid) <= 4094:
+            vlans.setdefault(head, []).append(int(vid))
     out: dict[str, Neighbour] = {}
     for key in cols[mib.REM_CHASSIS_ID]:
         parts = key.split(".")
@@ -798,6 +837,15 @@ def neighbours(device_id: str, pmap: PortMap, data: Mib) -> list[Neighbour]:
             management_address=addresses.get(key),
             capabilities=caps,
             description=as_text(cols[mib.REM_SYS_DESC].get(key)),
+            protocol=NeighbourProtocol.LLDP,
+            chassis_id_kind=normalise_id_kind(None, as_int(cols[mib.REM_CHASSIS_SUBTYPE].get(key))),
+            port_description=as_text(cols[mib.REM_PORT_DESC].get(key)),
+            port_vlan=_vlan(as_int(dot1[key]) if key in dot1 else None),
+            vlans=vlans.get(key, []),
+            max_frame_size=_frame_size(as_int(dot3_mfs.get(key))),
+            poe_class=_poe_class(as_int(dot3_class.get(key))),
+            poe_requested_w=_deciwatt(as_int(med_power.get(key))),
+            med_device_class=_MED_CLASSES.get(as_int(med_class.get(key)) or 0),
         )
     return list(out.values())
 

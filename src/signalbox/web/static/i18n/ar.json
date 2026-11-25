@@ -3209,5 +3209,19 @@
  "msg.firmware.betaChannel": "{name} يتبع القناة {channel}",
  "msg.firmware.betaChannel.fix": "انقله إلى القناة المستقرة أو طويلة الأمد ما لم تكن تختبر عن قصد.",
  "msg.firmware.updateUnnamed": "يتوفر تحديث برنامج ثابت لـ {name}",
- "msg.firmware.updateUnnamed.fix": "حدّث {name}."
+ "msg.firmware.updateUnnamed.fix": "حدّث {name}.",
+ "rule.link.pvid-mismatch.title": "شبكة VLAN الأصلية تختلف بين طرفي الوصلة",
+ "rule.link.pvid-mismatch.explanation": "يعلن الجار عن شبكة VLAN التي يضع فيها الإطارات غير الموسومة (LLDP) بينما يستخدم المنفذ المحلي شبكة أخرى. فيتسرب الحركة غير الموسومة من شبكة إلى أخرى. يجب أن يستخدم طرفا الوصلة نفس شبكة VLAN الأصلية. حيث يقرأ Signalbox الطرفين يقارنهما vlan.native-mismatch.",
+ "msg.link.pvidMismatch": "{where}: شبكة VLAN الأصلية هنا {local} وفي الطرف الآخر {remote}.",
+ "msg.link.pvidMismatch.fix": "اضبط نفس شبكة VLAN الأصلية (غير الموسومة) على طرفي الكابل.",
+ "rule.link.mtu-mismatch.title": "الطرف الآخر يقبل إطارات أصغر مما يرسله هذا المنفذ",
+ "rule.link.mtu-mismatch.explanation": "يعلن الجار عن أكبر إطار يقبله منفذه (LLDP) بينما يحتاج MTU المحلي إلى إطارات أكبر. تُسقَط الحزم الكبيرة وتعمل الصغيرة، فتتجمد الاتصالات بعد المصافحة. حيث يقرأ Signalbox الطرفين يقارنهما link.mtu.",
+ "msg.link.mtuMismatch": "{where}: قيمة MTU هنا {mtu} لكن الطرف الآخر يقبل إطارات حتى {frame} بايت فقط.",
+ "msg.link.mtuMismatch.fix": "اخفض MTU لهذا المنفذ أو ارفع حجم الإطار (الإطارات الضخمة) في الطرف الآخر وفي ما بينهما.",
+ "rule.poe.request-unmet.title": "جهاز يطلب طاقة PoE أكبر مما يمنحه منفذه",
+ "rule.poe.request-unmet.explanation": "يعلن الجار عن قدرة PoE التي يطلبها (LLDP) بينما PoE مطفأ على منفذ المبدّل أو حدّه أقل. فيعمل الجهاز بوظائف محدودة أو لا يبدأ.",
+ "msg.poe.requestOff": "{where}: يطلب الجهاز {requested} واط لكن PoE مطفأ على المنفذ.",
+ "msg.poe.requestOff.fix": "فعّل PoE على المنفذ أو زوّد الجهاز بالطاقة بطريقة أخرى.",
+ "msg.poe.requestLimit": "{where}: يطلب الجهاز {requested} واط لكن المنفذ يمنح {limit} واط كحد أقصى.",
+ "msg.poe.requestLimit.fix": "ارفع حد PoE للمنفذ أو انقل الجهاز إلى منفذ أو مبدّل بفئة PoE أعلى."
 }

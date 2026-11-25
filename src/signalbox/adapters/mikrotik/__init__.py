@@ -83,6 +83,7 @@ from signalbox.adapters.mikrotik.write import WRITES, MikrotikWrites
 from signalbox.adapters.portcounters import counters_of
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.factory_defaults import is_factory_default
+from signalbox.lldp import protocol_of
 from signalbox.model import (
     LOG_PORTS,
     SERVICE_PORTS,
@@ -525,6 +526,26 @@ def _int(value: Any) -> int | None:
         return value
     match = re.match(r"-?\d+", _text(value))
     return int(match.group()) if match else None
+
+
+_DURATION = re.compile(r"(\d+)([wdhms])")
+_UNIT_S = {"w": 604800, "d": 86400, "h": 3600, "m": 60, "s": 1}
+
+
+def _duration_s(value: Any) -> int | None:
+    """A RouterOS duration (``1w2d3h4m5s``, ``45s``, or a plain number of seconds) in seconds."""
+    text = _text(value)
+    if text.isdigit():
+        return int(text)
+    parts = _DURATION.findall(text)
+    if not parts:
+        return None
+    return sum(int(n) * _UNIT_S[u] for n, u in parts)
+
+
+def _vlan_id(value: Any) -> int | None:
+    vid = _int(value)
+    return vid if vid is not None and 1 <= vid <= 4094 else None
 
 
 def _names(value: Any) -> list[str]:
@@ -2860,6 +2881,10 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     _text(row.get("system-caps-enabled")).split(",")
                 ),
                 description=_text(row.get("system-description")) or None,
+                protocol=protocol_of(_text(row.get("discovered-by"))),
+                chassis_id_kind="mac",
+                age_seconds=_duration_s(row.get("age")),
+                port_vlan=_vlan_id(row.get("vlan-id")),
                 vendor_extra=_extra(row, "platform", "board", "version", "discovered-by"),
             )
         return Observation(neighbours=list(neighbours.values()))

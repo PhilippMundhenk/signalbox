@@ -76,6 +76,15 @@ LLDP_LOC_PORT_SUBTYPE, LLDP_LOC_PORT_ID, LLDP_LOC_PORT_DESC = 2, 3, 4
 LLDP_REM = "1.0.8802.1.1.2.1.4.1.1"  # index: time mark.local port.remote index
 REM_CHASSIS_SUBTYPE, REM_CHASSIS_ID, REM_PORT_SUBTYPE, REM_PORT_ID = 4, 5, 6, 7
 REM_PORT_DESC, REM_SYS_NAME, REM_SYS_DESC, REM_CAP_SUPPORTED, REM_CAP_ENABLED = 8, 9, 10, 11, 12
+# Organisationally specific extensions of the remote table (index: time mark.local port.remote
+# index): IEEE 802.1 (port VLAN id, VLAN names), IEEE 802.3 (power class, maximum frame size) and
+# LLDP-MED (device class, powered device power request).
+LLDP_X_DOT1_PVID = "1.0.8802.1.1.2.1.5.32962.1.3.1.1.1"
+LLDP_X_DOT1_VLAN_NAME = "1.0.8802.1.1.2.1.5.32962.1.3.3.1.2"  # index: ...remote index.vlan id
+LLDP_X_DOT3_POWER_CLASS = "1.0.8802.1.1.2.1.5.4623.1.3.2.1.6"  # 1..5: class 0..4
+LLDP_X_DOT3_MAX_FRAME = "1.0.8802.1.1.2.1.5.4623.1.3.4.1.1"
+LLDP_X_MED_DEVICE_CLASS = "1.0.8802.1.1.2.1.5.4795.1.3.1.1.3"  # 1..3 endpoint, 4 network
+LLDP_X_MED_PD_POWER_REQ = "1.0.8802.1.1.2.1.5.4795.1.3.7.1.1"  # in 0.1 W
 LLDP_REM_MAN_ADDR = "1.0.8802.1.1.2.1.4.2.1.3"  # index: ...remote index.subtype.length.address
 
 # IEEE8023-LAG-MIB

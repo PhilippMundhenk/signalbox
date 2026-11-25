@@ -3209,5 +3209,19 @@
  "msg.firmware.betaChannel": "{name} suit le canal {channel}",
  "msg.firmware.betaChannel.fix": "Passez-le sur le canal stable ou à long terme, sauf si vous testez volontairement.",
  "msg.firmware.updateUnnamed": "{name} a une mise à jour de firmware disponible",
- "msg.firmware.updateUnnamed.fix": "Mettez {name} à jour."
+ "msg.firmware.updateUnnamed.fix": "Mettez {name} à jour.",
+ "rule.link.pvid-mismatch.title": "Le VLAN natif diffère entre les deux extrémités d'un lien",
+ "rule.link.pvid-mismatch.explanation": "Le voisin annonce le VLAN dans lequel il place les trames non étiquetées (LLDP) et le port local en utilise un autre. Le trafic non étiqueté passe alors d'un VLAN à l'autre. Les deux extrémités d'un trunk doivent utiliser le même VLAN natif. Là où Signalbox lit les deux extrémités, vlan.native-mismatch les compare.",
+ "msg.link.pvidMismatch": "{where} : le VLAN natif est {local} ici mais {remote} à l'autre extrémité.",
+ "msg.link.pvidMismatch.fix": "Réglez le même VLAN natif (non étiqueté) aux deux extrémités du câble.",
+ "rule.link.mtu-mismatch.title": "L'autre extrémité accepte des trames plus petites que celles envoyées par ce port",
+ "rule.link.mtu-mismatch.explanation": "Le voisin annonce la plus grande trame que son port accepte (LLDP) et la MTU locale exige des trames plus grandes. Les gros paquets sont perdus, les petits passent : les connexions se bloquent après la poignée de main. Là où Signalbox lit les deux extrémités, link.mtu les compare.",
+ "msg.link.mtuMismatch": "{where} : la MTU est {mtu} ici mais l'autre extrémité n'accepte que des trames de {frame} octets.",
+ "msg.link.mtuMismatch.fix": "Réduisez la MTU de ce port, ou augmentez la taille de trame (trames jumbo) à l'autre extrémité et entre les deux.",
+ "rule.poe.request-unmet.title": "Un appareil demande plus de puissance PoE que son port n'en fournit",
+ "rule.poe.request-unmet.explanation": "Un voisin annonce la puissance PoE qu'il demande (LLDP) et le port du commutateur a le PoE désactivé ou une limite plus basse. L'appareil fonctionne alors avec des fonctions réduites ou ne démarre pas.",
+ "msg.poe.requestOff": "{where} : l'appareil demande {requested} W mais le PoE est désactivé sur le port.",
+ "msg.poe.requestOff.fix": "Activez le PoE sur le port ou alimentez l'appareil autrement.",
+ "msg.poe.requestLimit": "{where} : l'appareil demande {requested} W mais le port fournit au plus {limit} W.",
+ "msg.poe.requestLimit.fix": "Augmentez la limite PoE du port ou déplacez l'appareil vers un port ou un commutateur de classe PoE supérieure."
 }

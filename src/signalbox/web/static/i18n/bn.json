@@ -3209,5 +3209,19 @@
  "msg.firmware.betaChannel": "{name} {channel} চ্যানেল অনুসরণ করছে",
  "msg.firmware.betaChannel.fix": "ইচ্ছে করে টেস্ট না করলে এটিকে স্টেবল বা লং-টার্ম চ্যানেলে নিন।",
  "msg.firmware.updateUnnamed": "{name}-এর জন্য ফার্মওয়্যার আপডেট পাওয়া যাচ্ছে",
- "msg.firmware.updateUnnamed.fix": "{name} আপডেট করুন।"
+ "msg.firmware.updateUnnamed.fix": "{name} আপডেট করুন।",
+ "rule.link.pvid-mismatch.title": "লিঙ্কের দুই প্রান্তে নেটিভ VLAN আলাদা",
+ "rule.link.pvid-mismatch.explanation": "প্রতিবেশী যে VLAN-এ ট্যাগবিহীন ফ্রেম রাখে তা জানায় (LLDP), আর স্থানীয় পোর্ট অন্য একটি ব্যবহার করে। তখন ট্যাগবিহীন ট্রাফিক এক VLAN থেকে অন্যটিতে চলে যায়। ট্রাঙ্কের দুই প্রান্তে একই নেটিভ VLAN থাকা উচিত। যেখানে Signalbox দুই প্রান্তই পড়ে, সেখানে vlan.native-mismatch সেগুলো তুলনা করে।",
+ "msg.link.pvidMismatch": "{where}: নেটিভ VLAN এখানে {local} কিন্তু অন্য প্রান্তে {remote}।",
+ "msg.link.pvidMismatch.fix": "তারের দুই প্রান্তে একই নেটিভ (ট্যাগবিহীন) VLAN সেট করুন।",
+ "rule.link.mtu-mismatch.title": "অন্য প্রান্ত এই পোর্টের পাঠানো ফ্রেমের চেয়ে ছোট ফ্রেম গ্রহণ করে",
+ "rule.link.mtu-mismatch.explanation": "প্রতিবেশী তার পোর্টের গ্রহণযোগ্য সর্বোচ্চ ফ্রেম জানায় (LLDP) এবং স্থানীয় MTU-র বড় ফ্রেম দরকার। বড় প্যাকেট বাদ পড়ে, ছোটগুলো চলে: হ্যান্ডশেকের পর সংযোগ আটকে যায়। যেখানে Signalbox দুই প্রান্তই পড়ে, সেখানে link.mtu সেগুলো তুলনা করে।",
+ "msg.link.mtuMismatch": "{where}: MTU এখানে {mtu} কিন্তু অন্য প্রান্ত শুধু {frame} বাইটের ফ্রেম গ্রহণ করে।",
+ "msg.link.mtuMismatch.fix": "এই পোর্টের MTU কমান, অথবা অন্য প্রান্তে ও মাঝখানে ফ্রেমের আকার (জাম্বো ফ্রেম) বাড়ান।",
+ "rule.poe.request-unmet.title": "ডিভাইস পোর্টের দেওয়া পাওয়ারের চেয়ে বেশি PoE পাওয়ার চায়",
+ "rule.poe.request-unmet.explanation": "প্রতিবেশী কত PoE পাওয়ার চায় তা জানায় (LLDP), আর সুইচ পোর্টে PoE বন্ধ বা সীমা কম। ফলে ডিভাইস সীমিত ফিচার নিয়ে চলে অথবা চালুই হয় না।",
+ "msg.poe.requestOff": "{where}: ডিভাইস {requested} W চায় কিন্তু পোর্টে PoE বন্ধ।",
+ "msg.poe.requestOff.fix": "পোর্টে PoE চালু করুন অথবা অন্য উপায়ে ডিভাইসে বিদ্যুৎ দিন।",
+ "msg.poe.requestLimit": "{where}: ডিভাইস {requested} W চায় কিন্তু পোর্ট সর্বোচ্চ {limit} W দেয়।",
+ "msg.poe.requestLimit.fix": "পোর্টের PoE সীমা বাড়ান অথবা ডিভাইসটি উচ্চতর PoE ক্লাসের পোর্ট বা সুইচে সরান।"
 }

@@ -632,6 +632,16 @@ async def test_neighbours(snap: Snapshot) -> None:
     # the enabled system capabilities, not the announced ones (#113)
     assert nb.capabilities == ["bridge", "router"]
     assert nb.description == "MikroTik RouterOS 7.15.3 CRS326-24G-2S+"
+    # protocol, age and VLAN (#163)
+    assert (nb.protocol, nb.chassis_id_kind, nb.age_seconds, nb.port_vlan) == ("lldp", "mac", 65, 1)
+
+
+def test_duration_and_vlan_helpers() -> None:
+    from signalbox.adapters.mikrotik import _duration_s, _vlan_id
+
+    assert _duration_s("1w2d3h4m5s") == 604800 + 2 * 86400 + 3 * 3600 + 245
+    assert _duration_s("12") == 12 and _duration_s("") is None
+    assert _vlan_id("20") == 20 and _vlan_id("0") is None and _vlan_id(None) is None
 
 
 # --- other layouts ---------------------------------------------------------------------------

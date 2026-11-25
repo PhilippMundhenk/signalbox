@@ -3209,5 +3209,19 @@
  "msg.firmware.betaChannel": "{name} использует канал {channel}",
  "msg.firmware.betaChannel.fix": "Переключите его на стабильный или долгосрочный канал, если не тестируете намеренно.",
  "msg.firmware.updateUnnamed": "Для {name} доступно обновление прошивки",
- "msg.firmware.updateUnnamed.fix": "Обновите {name}."
+ "msg.firmware.updateUnnamed.fix": "Обновите {name}.",
+ "rule.link.pvid-mismatch.title": "Native VLAN различается на концах линка",
+ "rule.link.pvid-mismatch.explanation": "Сосед сообщает VLAN, в который он помещает нетегированные кадры (LLDP), а локальный порт использует другой. Нетегированный трафик тогда перетекает из одной VLAN в другую. Оба конца транка должны использовать одну native VLAN. Там, где Signalbox читает оба конца, их сравнивает vlan.native-mismatch.",
+ "msg.link.pvidMismatch": "{where}: native VLAN здесь {local}, а на другом конце {remote}.",
+ "msg.link.pvidMismatch.fix": "Задайте одну и ту же native (нетегированную) VLAN на обоих концах кабеля.",
+ "rule.link.mtu-mismatch.title": "Другой конец принимает кадры меньше, чем отправляет этот порт",
+ "rule.link.mtu-mismatch.explanation": "Сосед сообщает наибольший кадр, который принимает его порт (LLDP), а локальному MTU нужны кадры больше. Большие пакеты отбрасываются, маленькие проходят: соединения зависают после рукопожатия. Там, где Signalbox читает оба конца, их сравнивает link.mtu.",
+ "msg.link.mtuMismatch": "{where}: MTU здесь {mtu}, но другой конец принимает кадры только до {frame} байт.",
+ "msg.link.mtuMismatch.fix": "Уменьшите MTU этого порта или увеличьте размер кадра (jumbo-кадры) на другом конце и между ними.",
+ "rule.poe.request-unmet.title": "Устройство запрашивает больше мощности PoE, чем даёт его порт",
+ "rule.poe.request-unmet.explanation": "Сосед сообщает, сколько мощности PoE он запрашивает (LLDP), а на порту коммутатора PoE выключен или лимит ниже. Устройство тогда работает с ограниченными функциями или не запускается.",
+ "msg.poe.requestOff": "{where}: устройство запрашивает {requested} Вт, но PoE на порту выключен.",
+ "msg.poe.requestOff.fix": "Включите PoE на порту или запитайте устройство иначе.",
+ "msg.poe.requestLimit": "{where}: устройство запрашивает {requested} Вт, но порт даёт не более {limit} Вт.",
+ "msg.poe.requestLimit.fix": "Повысьте лимит PoE порта или переключите устройство на порт или коммутатор с более высоким классом PoE."
 }
