@@ -571,9 +571,12 @@ async def test_mesh_uplink_has_radio_details_and_membership(snaps: dict[str, Sna
     w = link.wireless
     assert w is not None and (w.band, w.channel, w.signal_dbm) == (Band.GHZ_5, 36, -58)
     assert (w.tx_rate_mbps, w.rx_rate_mbps) == (866.0, 780.0)
-    assert snap.mesh[AP_2].hop == 1 and snap.mesh[AP_2].uplink is not None
-    assert snap.mesh[AP_2].uplink.value == "wireless"
-    assert snap.mesh[AP_1].hop == 0 and snap.mesh[AP_1].uplink.value == "wired"  # type: ignore[union-attr]
+    devices = {d.id: d for d in snap.extra_devices}
+    mesh2, mesh1 = devices[AP_2].mesh, devices[AP_1].mesh
+    assert mesh2 is not None and mesh2.hop == 1 and mesh2.uplink is not None
+    assert mesh2.uplink.value == "wireless"
+    assert mesh1 is not None and mesh1.hop == 0 and mesh1.uplink is not None
+    assert mesh1.uplink.value == "wired"
 
 
 def test_mesh_info_tolerates_missing_and_odd_values() -> None:
