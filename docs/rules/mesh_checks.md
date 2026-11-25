@@ -4,10 +4,12 @@
 
 Checks on the wireless links that join mesh nodes and repeaters (#171). A backhaul link is read
 from the device that knows it: the FRITZ!Box mesh list (`X_AVM-DE_GetMeshListPath`, repeaters
-appear as devices the box manages), the Omada controller (wireless uplink of an access point),
+appear as devices the box manages; a repeater that is also a device of its own is merged with its
+mesh node by MAC address, #459), the Omada controller and UniFi (wireless uplink of an access point),
 OpenWrt (802.11s mesh points, `sta` interfaces with or without WDS, `iwinfo assoclist`) and
 MikroTik (`station-bridge`, `station-pseudobridge` and `station-wds` interfaces with their
-registration table). The topology draws these links as wireless links with band, signal and rate.
+registration table). The topology draws these links as wireless links with band, signal and rate,
+and colours a weak one (the limits of `mesh.weak-backhaul`).
 Readings a device did not report are never judged, and a reading is one moment, not a trend.
 Signalbox only observes the mesh: its settings belong to the vendor's controller.
 

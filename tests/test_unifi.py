@@ -559,3 +559,32 @@ async def test_two_wans_are_a_failover_group() -> None:
     assert (first.tier, first.state.value if first.state else None) == (1, "online")
     assert (backup.tier, backup.state.value if backup.state else None) == (2, "down")
     assert all(m.uplink_id in {u.id for u in snap.uplinks} for m in group.members)
+
+
+async def test_mesh_uplink_has_radio_details_and_membership(snaps: dict[str, Snapshot]) -> None:
+    """#459: the wireless uplink of an access point is a backhaul link with radio details."""
+    from signalbox.model import Band
+
+    snap = snaps["9.0.114"]
+    (link,) = [x for x in snap.wireless_links if x.b == f"{AP_2}/port/mesh"]
+    assert link.a == f"{AP_1}/port/mesh" and link.origin.value == "mesh"
+    w = link.wireless
+    assert w is not None and (w.band, w.channel, w.signal_dbm) == (Band.GHZ_5, 36, -58)
+    assert (w.tx_rate_mbps, w.rx_rate_mbps) == (866.0, 780.0)
+    assert snap.mesh[AP_2].hop == 1 and snap.mesh[AP_2].uplink is not None
+    assert snap.mesh[AP_2].uplink.value == "wireless"
+    assert snap.mesh[AP_1].hop == 0 and snap.mesh[AP_1].uplink.value == "wired"  # type: ignore[union-attr]
+
+
+def test_mesh_info_tolerates_missing_and_odd_values() -> None:
+    from signalbox.adapters.unifi import mesh_info
+
+    link = uplink_of({"mac": AP2, "uplink": {"type": "wireless", "uplink_mac": AP1, "speed": 300}})
+    assert link is not None
+    w = mesh_info(link)  # no radio details: only the negotiated speed
+    assert (w.band, w.channel, w.signal_dbm, w.tx_rate_mbps) == (None, None, None, 300.0)
+    odd = {"type": "wireless", "uplink_mac": AP1, "signal": 50, "tx_rate": 120, "channel": 0}
+    link = uplink_of({"mac": AP2, "uplink": odd})
+    assert link is not None
+    w = mesh_info(link)
+    assert (w.signal_dbm, w.channel, w.tx_rate_mbps, w.rx_rate_mbps) == (None, None, 120.0, None)

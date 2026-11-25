@@ -213,11 +213,12 @@ function drawGraph(data, nodes, onPort, siteNames) {
       const st = bundled ? (states.includes('inconsistent') ? 'inconsistent' : states.includes('carry') ? 'carry' : state.segment ? 'dim' : 'none') : cableState(e);
       const cls = ['edge', e.kind, e.origin];
       if (e.inferred) cls.push('inferred');
+      if (e.weak) cls.push('weak');
       if (st !== 'none') cls.push(st);
       if (bundled) cls.push('bundle');
       if (lag) cls.push('lag');
-      const path = s('path', { d, class: cls.join(' '), 'data-testid': 'topo-edge', 'data-id': e.id, 'data-state': st, 'data-a': e.a.port_id, 'data-b': e.b.port_id, 'data-inferred': e.inferred ? 'true' : null, 'data-count': bundled ? String(all.length) : null, 'data-lag': lag ? lag.a : null });
-      place(path, s('title', {}, t('topology.edgeTitle', { a: e.a.port, b: e.b.port, origin: edgeOrigin(e) }) + (e.wireless ? ` — ${meshText(e)}` : '')));
+      const path = s('path', { d, class: cls.join(' '), 'data-testid': 'topo-edge', 'data-id': e.id, 'data-state': st, 'data-a': e.a.port_id, 'data-b': e.b.port_id, 'data-inferred': e.inferred ? 'true' : null, 'data-weak': e.weak ? 'true' : null, 'data-count': bundled ? String(all.length) : null, 'data-lag': lag ? lag.a : null });
+      place(path, s('title', {}, t('topology.edgeTitle', { a: e.a.port, b: e.b.port, origin: edgeOrigin(e) }) + (e.wireless ? ` — ${meshText(e)}${e.weak ? ` — ${t('topology.weakBackhaul')}` : ''}` : '')));
       place(edgeLayer, path);
       track(path, e.a.device_id, e.b.device_id);
       if (all.length > 1 && (bundled || e === all[0])) {
@@ -482,6 +483,7 @@ function legendBlock() {
         item(line('manual'), t('topology.legend.line.manual')),
         item(line('address'), t('topology.legend.line.address')),
         item(line('wireless'), t('topology.legend.line.wireless')),
+        item(line('wireless weak'), t('topology.legend.line.weak')),
       ]),
       group(t('topology.legend.boxes'), [
         item(box('status-ok'), t('topology.legend.box.ok')),

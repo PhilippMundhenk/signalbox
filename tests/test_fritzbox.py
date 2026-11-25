@@ -1074,3 +1074,32 @@ def test_mesh_signal_and_rate_helpers() -> None:
     assert mesh._mbps(866_000) == 866.0 and mesh._mbps(0) is None and mesh._mbps(None) is None
     assert mesh._band("UPLINK:5G:0") is Band.GHZ_5 and mesh._band("LAN:0") is None
     assert mesh._band("AP:6G:1") is Band.GHZ_6
+
+
+async def test_repeater_set_up_as_device_is_merged_with_its_mesh_node(
+    sim: FritzboxSim, adapter: FritzboxAdapter
+) -> None:
+    """#459: a repeater that is also a device of its own is one device (merged by MAC)."""
+    from factories import SITE, device, port, snapshot
+    from signalbox.merge import merge
+    from signalbox.model import DeviceRole, PortKind
+
+    sim.mesh = True
+    box = await assert_contract(adapter)
+    hall = next(d for d in box.extra_devices if d.id == "fb/node/n-rep1")
+    own = device("hall", DeviceRole.AP, mac=hall.mac, name="Hall repeater")
+    mine = snapshot(own, ports=[port("hall", "lan", kind=PortKind.ETHERNET, mac=hall.mac)])
+    net = merge([SITE], [box, mine])
+    ids = {d.id for d in net.devices}
+    assert "fb/node/n-rep1" not in ids and "hall" in ids and "fb/node/n-rep2" in ids
+    merged = net.device("hall")
+    assert merged is not None and merged.name == "Hall repeater"  # the own record wins
+    assert merged.mesh is not None and merged.mesh.hop == 1 and merged.mesh.controller_id == "fb"
+    up = next(x for x in net.links if x.b == "hall/port/uplink")
+    assert up.a == "fb/port/mesh-n-rep1"
+    behind = next(x for x in net.links if x.b == "fb/node/n-rep2/port/uplink")
+    assert behind.a == "hall/port/mesh-n-rep2"  # the second repeater hangs on the merged device
+    assert net.port("hall/port/uplink") is not None
+    assert net.port("fb/node/n-rep1/port/uplink") is None
+    again = merge([SITE], [box])  # without the own device nothing changes
+    assert "fb/node/n-rep1" in {d.id for d in again.devices}

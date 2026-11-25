@@ -19,6 +19,7 @@ from signalbox.model import (
     DeviceRole,
     FdbKind,
     LagGroup,
+    LinkKind,
     Membership,
     Neighbour,
     Network,
@@ -656,16 +657,20 @@ SPOF_MINIMUM = 2
     Severity.INFO,
     "One switch or one cable carries the connection of several access points or switches to "
     "the router. If it fails, all of them are offline. A spare, a better switch or a second "
-    "uplink (with LAG or spanning tree) helps. Checked only for sites with at least three "
-    "network devices whose links to the router are all known.",
+    "uplink (with LAG or spanning tree) helps. A wireless hop (mesh backhaul, repeater, WDS) is "
+    "such a cable too and is marked (Wi-Fi), because it is the likeliest to fail. Checked only "
+    "for sites with at least three network devices whose links to the router are all known.",
 )
 def single_point(net: Network) -> Iterator[Result]:
     adjacent = _adjacency(net)
     cables: dict[frozenset[str], int] = {}
+    wired: set[frozenset[str]] = set()  # pairs with at least one link that is not wireless
     for link in net.links:
         pair = frozenset((_device_of(net, link.a), _device_of(net, link.b)))
         if len(pair) == 2:
             cables[pair] = cables.get(pair, 0) + 1
+            if link.kind is not LinkKind.WIRELESS:
+                wired.add(pair)
     for site in sorted({d.site_id for d in net.devices}):
         infra = [d for d in net.devices if d.site_id == site and d.role in INFRASTRUCTURE]
         roots = {d.id for d in infra if d.role is DeviceRole.GATEWAY}
@@ -689,7 +694,9 @@ def single_point(net: Network) -> Iterator[Result]:
             lost = others - _reach(adjacent, roots, cut=pair)
             if len(lost) >= SPOF_MINIMUM:
                 a, b = sorted(device_name(net, d) for d in pair)
-                lines.append(f"{a} \u2194 {b}: {_affected(net, lost)}")
+                # a hop that is only wireless (a mesh backhaul, #459) is named as such
+                how = "" if pair in wired else " (Wi-Fi)"
+                lines.append(f"{a} \u2194 {b}{how}: {_affected(net, lost)}")
         if not lines:
             continue
         points = "; ".join(lines)

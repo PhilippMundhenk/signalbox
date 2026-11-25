@@ -4,7 +4,7 @@ from addresses, without making it a :class:`Link`: the checks only see what devi
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -25,7 +25,7 @@ from signalbox.model import (
     Uplink,
     normalise_mac,
 )
-from signalbox.rules import Result, Severity, found, rule
+from signalbox.rules import Result, RuleSettings, Severity, found, rule
 
 
 def link_id(origin: LinkOrigin, a: str, b: str) -> str:
@@ -330,8 +330,34 @@ def _vpn_edge(net: Network, link: Link, end: Callable[[str], dict[str, Any]]) ->
     }
 
 
-def view(net: Network) -> dict[str, Any]:
-    """Nodes, edges with VLANs per end, and clients per port, for the topology page."""
+def _weak_backhaul(
+    net: Network, settings: Mapping[str, RuleSettings] | None
+) -> Callable[[Link], bool]:
+    """Whether a wireless backhaul link is weak by the thresholds of ``mesh.weak-backhaul``
+    (rule parameters of the node's scope, #459); never, while that rule is switched off."""
+    from signalbox.rules._params import Resolver
+    from signalbox.rules.mesh_checks import WeakBackhaulParams, is_weak
+
+    settings = settings or {}
+    own = settings.get(WeakBackhaulParams.rule_id)
+    resolver = Resolver(net, settings, {WeakBackhaulParams.rule_id: WeakBackhaulParams})
+
+    def weak(link: Link) -> bool:
+        if link.wireless is None or link.origin is not LinkOrigin.MESH:
+            return False
+        if own is not None and own.enabled is False:
+            return False
+        port = net.port(link.b)
+        node = port.device_id if port else None
+        return is_weak(link.wireless, resolver.params(WeakBackhaulParams, node))
+
+    return weak
+
+
+def view(net: Network, settings: Mapping[str, RuleSettings] | None = None) -> dict[str, Any]:
+    """Nodes, edges with VLANs per end, and clients per port, for the topology page.
+    ``settings``: the rule settings (the thresholds that colour a weak wireless backhaul)."""
+    weak = _weak_backhaul(net, settings)
     modes: dict[str, dict[str, str]] = {}  # port id -> segment id -> mode
     for seg in net.segments:
         for m in seg.members:
@@ -421,6 +447,7 @@ def view(net: Network) -> dict[str, Any]:
                 "evidence": [e.model_dump(mode="json") for e in link.evidence],
                 # radio details of a wireless backhaul link (#171)
                 "wireless": link.wireless.model_dump(mode="json") if link.wireless else None,
+                "weak": weak(link),
             }
         )
     for fl in front_links(net):
