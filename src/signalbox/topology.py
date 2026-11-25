@@ -122,12 +122,16 @@ def discovered_links(net: Network) -> list[Link]:
     """LLDP first; a MAC-table link only where LLDP has nothing for either port; VPN links
     between tunnels (they join tunnels, never ports)."""
     out: dict[frozenset[str], Link] = {}
+    # ports the devices report as ends of a wireless backhaul (#171): nothing else is guessed there
+    meshed = {p for link in net.links if link.origin is LinkOrigin.MESH for p in (link.a, link.b)}
     for link in lldp_links(net):
+        if {link.a, link.b} & meshed:
+            continue
         out.setdefault(frozenset((link.a, link.b)), link)
     used = {p for pair in out for p in pair}
     for link in mac_links(net):
         pair = frozenset((link.a, link.b))
-        if pair & used:
+        if pair & used or pair & meshed:
             continue
         seen = out.get(pair)
         if seen is None:
@@ -377,6 +381,8 @@ def view(net: Network) -> dict[str, Any]:
                 "segments": segments,
                 "inferred": link.inferred,
                 "evidence": [e.model_dump(mode="json") for e in link.evidence],
+                # radio details of a wireless backhaul link (#171)
+                "wireless": link.wireless.model_dump(mode="json") if link.wireless else None,
             }
         )
     for fl in front_links(net):

@@ -22,14 +22,16 @@ expansion attacks.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Awaitable, Callable
+from typing import Any
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
 
 import httpx
 
-from signalbox.adapters import AdapterError
+from signalbox.adapters import AdapterError, unexpected_answer
 from signalbox.adapters.https import DeviceHttp
 
 SOAP_ENV = "http://schemas.xmlsoap.org/soap/envelope/"
@@ -271,3 +273,19 @@ class Tr064:
             await self.prepare()
         response = await self.http.request("GET", path, headers={"Accept": "text/xml"})
         return parse_xml(response.content, what)
+
+    async def get_json(self, path: str, what: str) -> Any:
+        """GET a JSON document the device pointed to (a path on the same host, never a URL)."""
+        if not path.startswith("/") or path.startswith("//"):
+            raise AdapterError(
+                f"{what}: refused to follow {path!r}, not a path on the device",
+                message_id="fritzbox.soapPath",
+                params={"what": what, "path": repr(path)},
+            )
+        if self.prepare:
+            await self.prepare()
+        response = await self.http.request("GET", path, headers={"Accept": "application/json"})
+        try:
+            return json.loads(response.content)
+        except ValueError as exc:
+            raise unexpected_answer(what, "not valid JSON") from exc

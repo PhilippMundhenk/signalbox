@@ -9,7 +9,7 @@ import { layoutTopology } from '../topolayout.js';
 import { attachZoom } from '../topozoom.js';
 import { t } from '../i18n.js';
 
-const ORIGIN = { lldp: 'topology.origin.lldp', mac: 'topology.origin.mac', manual: 'topology.origin.manual', tunnel: 'topology.origin.tunnel', address: 'topology.origin.address' };
+const ORIGIN = { lldp: 'topology.origin.lldp', mac: 'topology.origin.mac', manual: 'topology.origin.manual', tunnel: 'topology.origin.tunnel', mesh: 'topology.origin.mesh', address: 'topology.origin.address' };
 // Port states of spanning tree in which a port forwards nothing (#155).
 const BLOCKED = new Set(['blocking', 'discarding']);
 const ROLE = { gateway: 'topology.role.gateway', remote: 'topology.role.remote', switch: 'topology.role.switch', ap: 'topology.role.ap', other: 'topology.role.other' };
@@ -17,6 +17,13 @@ const MODE = { tagged: 'topology.mode.tagged', untagged: 'topology.mode.untagged
 const KIND = { cable: 'topology.linkKind.cable', wireless: 'topology.linkKind.wireless', vpn: 'topology.linkKind.vpn' };
 const originLabel = (o) => (ORIGIN[o] ? t(ORIGIN[o]) : o);
 // a link drawn from partial data (#378): its origin with "inferred"
+// quality of a wireless backhaul link (#171): band, signal and rates as far as reported
+const meshText = (e) => {
+  const w = e.wireless;
+  if (!w) return '';
+  const rate = w.tx_rate_mbps != null || w.rx_rate_mbps != null ? `${w.tx_rate_mbps ?? '?'}/${w.rx_rate_mbps ?? '?'} Mbit/s` : null;
+  return [w.kind, w.band ? `${w.band} GHz` : null, w.signal_dbm != null ? `${w.signal_dbm} dBm` : null, rate].filter(Boolean).join(' · ');
+};
 const edgeOrigin = (e) => (e.inferred ? t('topology.origin.inferred', { origin: originLabel(e.origin) }) : originLabel(e.origin));
 const modeLabel = (m) => (MODE[m] ? t(MODE[m]) : m);
 
@@ -210,7 +217,7 @@ function drawGraph(data, nodes, onPort, siteNames) {
       if (bundled) cls.push('bundle');
       if (lag) cls.push('lag');
       const path = s('path', { d, class: cls.join(' '), 'data-testid': 'topo-edge', 'data-id': e.id, 'data-state': st, 'data-a': e.a.port_id, 'data-b': e.b.port_id, 'data-inferred': e.inferred ? 'true' : null, 'data-count': bundled ? String(all.length) : null, 'data-lag': lag ? lag.a : null });
-      place(path, s('title', {}, t('topology.edgeTitle', { a: e.a.port, b: e.b.port, origin: edgeOrigin(e) })));
+      place(path, s('title', {}, t('topology.edgeTitle', { a: e.a.port, b: e.b.port, origin: edgeOrigin(e) }) + (e.wireless ? ` — ${meshText(e)}` : '')));
       place(edgeLayer, path);
       track(path, e.a.device_id, e.b.device_id);
       if (all.length > 1 && (bundled || e === all[0])) {
@@ -367,7 +374,7 @@ function linkList(ctx, data, nodes) {
     [
       [t('topology.col.from'), (e) => endText(e.a)],
       [t('topology.col.to'), (e) => endText(e.b)],
-      [t('topology.col.kind'), (e) => (KIND[e.kind] ? t(KIND[e.kind]) : e.kind)],
+      [t('topology.col.kind'), (e) => (KIND[e.kind] ? t(KIND[e.kind]) : e.kind) + (e.wireless ? ` (${meshText(e)})` : '')],
       [t('topology.col.foundBy'), (e) => tag(edgeOrigin(e), `origin-${e.origin}${e.inferred ? ' origin-inferred' : ''}`)],
       [
         t('topology.col.vlans'),

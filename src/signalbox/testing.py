@@ -40,6 +40,8 @@ from signalbox.model import (
     FirewallChain,
     FirewallProtocol,
     LeaseState,
+    LinkKind,
+    LinkOrigin,
     LogKind,
     LogTarget,
     LogTransport,
@@ -853,6 +855,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
 
     out += fdb_problems(snapshot.fdb, owners, port_ids, segment_ids)
     out += route_problems(snapshot, port_ids, segment_ids)
+    out += mesh_problems(snapshot, port_ids, owners)
     if snapshot.wifi_scan and Capability.WIRELESS.value not in snapshot.device.capabilities:
         out.append(f"wifi_scan reported without declaring {Capability.WIRELESS.value}")
     out += scan_problems(snapshot.wifi_scan, owners, {r.id: r for r in snapshot.radios})
@@ -861,6 +864,31 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
 
     if Snapshot.model_validate_json(snapshot.model_dump_json()) != snapshot:
         out.append("snapshot does not survive a JSON round trip")
+    return out
+
+
+def mesh_problems(snapshot: Snapshot, port_ids: set[str], owners: Iterable[str]) -> list[str]:
+    """Wireless backhaul links (#171) join two reported ports of two devices of this snapshot,
+    are of origin ``mesh`` and say what kind of link they are; mesh membership names devices."""
+    out: list[str] = []
+    caps = set(snapshot.device.capabilities)
+    ids = set(owners)
+    if snapshot.wireless_links and not caps & {Capability.INTERFACES.value, "wireless"}:
+        out.append("wireless_links reported without declaring interfaces or wireless")
+    ports = {p.id: p.device_id for p in snapshot.ports}
+    for link in snapshot.wireless_links:
+        if link.origin is not LinkOrigin.MESH or link.kind is not LinkKind.WIRELESS:
+            out.append(f"wireless link {link.id} is not a wireless link of origin mesh")
+        if link.wireless is None:
+            out.append(f"wireless link {link.id} has no radio details")
+        for end in (link.a, link.b):
+            if end not in port_ids:
+                out.append(f"wireless link {link.id} ends on unknown port {end}")
+        if ports.get(link.a) is not None and ports.get(link.a) == ports.get(link.b):
+            out.append(f"wireless link {link.id} joins two ports of one device")
+    for dev in (snapshot.device, *snapshot.extra_devices):
+        if dev.mesh is not None and dev.mesh.controller_id not in (None, *ids):
+            out.append(f"{dev.id} names mesh controller {dev.mesh.controller_id} (unknown)")
     return out
 
 

@@ -753,6 +753,9 @@ class Device(Observed):
     #: (an AdGuard Home on the router). Derived in the merge, or set in the device's settings;
     #: ``None``: a device of its own.
     hosted_on: str | None = None
+    #: Mesh membership (#171): the device's place in a Wi-Fi mesh (controller, agent,
+    #: repeater). ``None``: not reported or not part of a mesh.
+    mesh: MeshMembership | None = None
     adapter: str
     capabilities: list[str] = Field(default_factory=list)
     #: Set for a device reported through a controller (the configured device that observed it).
@@ -3067,6 +3070,9 @@ class Wlan(Observed):
     #: The MAC address this SSID sends from on its radio (#169): the BSSID clients and
     #: neighbouring access points see. None: not reported.
     bssid: Mac | None = None
+    #: A backhaul SSID (#171): used only between mesh nodes (hidden mesh SSID, 802.11s mesh id,
+    #: WDS link, a repeater's uplink network), not offered to clients. SSID rules skip it.
+    backhaul: bool = False
 
 
 class ScanSource(StrEnum):
@@ -3144,6 +3150,56 @@ class WirelessAssociation(Model):
     retries_pct: float | None = Field(default=None, ge=0, le=100)
     tx_failed: int | None = Field(default=None, ge=0)
     power_save: bool | None = None
+
+
+class MeshLinkKind(StrEnum):
+    """How two nodes are connected wirelessly (#171)."""
+
+    #: A vendor mesh (FRITZ!Mesh, Omada mesh, EasyMesh) whose kind is not told more closely.
+    MESH = "mesh"
+    WDS = "wds"
+    REPEATER = "repeater"
+    #: A station that bridges a wired network into the Wi-Fi (client bridge, station-bridge).
+    CLIENT_BRIDGE = "client-bridge"
+    IEEE80211S = "802.11s"
+
+
+class WirelessLinkInfo(Model):
+    """Radio details of a wireless backhaul link (#171). Every field is ``None`` where the
+    device does not say. ``radio_a``/``radio_b`` are radio ids of the two ends where known."""
+
+    radio_a: str | None = None
+    radio_b: str | None = None
+    band: Band | None = None
+    channel: int | None = Field(default=None, ge=0)
+    signal_dbm: int | None = Field(default=None, ge=-120, le=0)
+    tx_rate_mbps: float | None = Field(default=None, ge=0)
+    rx_rate_mbps: float | None = Field(default=None, ge=0)
+    kind: MeshLinkKind = MeshLinkKind.MESH
+
+
+class MeshRole(StrEnum):
+    CONTROLLER = "controller"
+    AGENT = "agent"
+    REPEATER = "repeater"
+    STANDALONE = "standalone"
+
+
+class MeshUplink(StrEnum):
+    WIRED = "wired"
+    WIRELESS = "wireless"
+
+
+class MeshMembership(Model):
+    """A device's place in a Wi-Fi mesh (#171)."""
+
+    role: MeshRole
+    #: The device that controls the mesh (another device); ``None``: this one, or not known.
+    controller_id: str | None = None
+    #: Wireless hops to the controller (0: the controller, 1: directly connected).
+    hop: int | None = Field(default=None, ge=0)
+    #: How this node reaches the mesh; ``None``: not reported.
+    uplink: MeshUplink | None = None
 
 
 class Client(Observed):
@@ -3463,6 +3519,8 @@ class LinkOrigin(StrEnum):
     MANUAL = "manual"
     #: Two tunnels whose peers name each other's public keys (#239).
     TUNNEL = "tunnel"
+    #: A wireless backhaul link reported by the mesh controller or the node itself (#171).
+    MESH = "mesh"
 
 
 class LinkKind(StrEnum):
@@ -3518,6 +3576,8 @@ class Link(Model):
     #: The observations of the devices that support a ``mac`` link, the far end's table and
     #: third devices that see both ends behind one port included (#378).
     evidence: list[LinkEvidence] = Field(default_factory=list)
+    #: Radio details of a wireless link between two mesh nodes (#171); ``None``: not reported.
+    wireless: WirelessLinkInfo | None = None
 
 
 #: A value that fills a placeholder of a translated text (#204).
@@ -4022,6 +4082,8 @@ class Snapshot(Model):
     #: Access points the radios heard (#169; ``wireless``), at most :data:`SCAN_LIMIT` per
     #: device. Other people's networks: see :class:`WifiScanResult`.
     wifi_scan: list[WifiScanResult] = Field(default_factory=list)
+    #: Wireless backhaul links between mesh nodes (#171); merged into ``Network.links``.
+    wireless_links: list[Link] = Field(default_factory=list)
     #: VPN tunnels with their peers (#239; ``vpn``, adapter API 1.3).
     tunnels: list[Tunnel] = Field(default_factory=list)
     #: Packet filters and NAT (#135; ``firewall``, adapter API 1.4).

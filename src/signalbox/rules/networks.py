@@ -44,7 +44,7 @@ def _names(items: Iterable[str]) -> str:
 
 
 def _enabled(net: Network) -> list[Wlan]:
-    return sorted((w for w in net.wlans if w.enabled), key=lambda w: w.id)
+    return sorted((w for w in net.wlans if w.enabled and not w.backhaul), key=lambda w: w.id)
 
 
 def _network_text(net: Network, segment_id: str) -> str:

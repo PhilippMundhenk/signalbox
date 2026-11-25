@@ -18,7 +18,7 @@ def _by_ssid(net: Network) -> dict[tuple[str, str], list[Wlan]]:
     groups: dict[tuple[str, str], list[Wlan]] = defaultdict(list)
     for w in sorted(net.wlans, key=lambda w: w.id):
         site = site_of_device(net, w.device_id)
-        if w.enabled and site is not None:
+        if w.enabled and not w.backhaul and site is not None:
             groups[(site, w.ssid)].append(w)
     return groups
 
@@ -94,7 +94,7 @@ def min_rssi_too_high(net: Network) -> Iterator[Result]:
     for w in sorted(net.wlans, key=lambda w: w.id):
         limits = [v for v in (w.min_rssi_dbm, w.assoc_rssi_dbm) if v is not None]
         max_dbm = ctx.params(MinRssiHighParams, w).max_dbm
-        if not w.enabled or not limits or max(limits) <= max_dbm:
+        if not w.enabled or w.backhaul or not limits or max(limits) <= max_dbm:
             continue
         ap = device_name(net, w.device_id)
         yield found(
