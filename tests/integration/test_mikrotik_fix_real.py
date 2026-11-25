@@ -102,6 +102,17 @@ async def read_as(t: Target, password: str) -> Any:
         await a.close()
 
 
+async def read_until(t: Target, password: str, reads: bool, seconds: int = 20) -> Any:
+    """``read_as`` until the group's policy is in effect (RouterOS applies it a moment after the
+    REST call returns, #520): the read works (``reads``) or is refused."""
+    for _ in range(seconds):
+        snap = await read_as(t, password)
+        if (snap.status in (DeviceStatus.OK, DeviceStatus.PARTIAL)) is reads:
+            break
+        await asyncio.sleep(1)
+    return snap
+
+
 async def test_policies_broken_then_fixed(chr_: Target) -> None:
     result = await MikrotikAdapter.apply_setup(
         SetupRequest(
@@ -121,14 +132,14 @@ async def test_policies_broken_then_fixed(chr_: Target) -> None:
         broken = "read,!api,!rest-api,!write,!policy,!password,!sensitive,!reboot,!test,!sniff"
         await http.request("PATCH", f"/rest/user/group/{gid}", json={"policy": broken})
         try:
-            snap = await read_as(chr_, password)
+            snap = await read_until(chr_, password, reads=False)
             assert snap.status is not DeviceStatus.OK, "the broken group still reads"
 
             plan = await MikrotikAdapter.plan_remedy(remedy(chr_, "policies", chr_.pin))
             assert plan.steps[0].state is StepState.TODO, plan.steps
             done = await MikrotikAdapter.apply_remedy(remedy(chr_, "policies", chr_.pin))
             assert done.ok, [(s.id, s.state, s.message) for s in done.steps]
-            snap = await read_as(chr_, password)
+            snap = await read_until(chr_, password, reads=True)
             assert snap.status in (DeviceStatus.OK, DeviceStatus.PARTIAL), snap.errors
             again = await MikrotikAdapter.plan_remedy(remedy(chr_, "policies", chr_.pin))
             assert again.steps[0].state is StepState.UNCHANGED

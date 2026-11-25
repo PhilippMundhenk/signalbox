@@ -2994,6 +2994,7 @@
  "msg.mikrotik.badUserName": "bir RouterOS kullanıcı adı değil: {login}",
  "msg.mikrotik.userIsAdmin": "kurulacak kullanıcı yönetici girişi olmamalı: Signalbox'a kendine ait bir kullanıcı verin, örneğin signalbox",
  "msg.mikrotik.usersUnexpected": "/rest/user: beklenmeyen yanıt",
+ "msg.mikrotik.newLoginRefused": "yönlendirici {seconds} sn sonra bile yeni {login} kullanıcısını reddediyor (HTTP 401)",
  "msg.mikrotik.noRemedy": "MikroTik'te {remedy} çözümü yok",
  "msg.mikrotik.fixHttpsOnly": "Düzelt, yönetici parolasını yalnızca https üzerinden gönderir",
  "msg.mikrotik.commandFailed": "{command}: {detail}",

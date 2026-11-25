@@ -2994,6 +2994,7 @@
  "msg.mikrotik.badUserName": "não é um nome de utilizador RouterOS: {login}",
  "msg.mikrotik.userIsAdmin": "o utilizador a configurar não pode ser o login de administrador: dê ao Signalbox um utilizador próprio, por exemplo signalbox",
  "msg.mikrotik.usersUnexpected": "/rest/user: resposta inesperada",
+ "msg.mikrotik.newLoginRefused": "o roteador ainda recusa o novo usuário {login} após {seconds} s (HTTP 401)",
  "msg.mikrotik.noRemedy": "A MikroTik não tem a solução {remedy}",
  "msg.mikrotik.fixHttpsOnly": "Corrigir só envia a palavra-passe de administrador por https",
  "msg.mikrotik.commandFailed": "{command}: {detail}",

@@ -2994,6 +2994,7 @@
  "msg.mikrotik.badUserName": "不是有效的 RouterOS 用户名:{login}",
  "msg.mikrotik.userIsAdmin": "要设置的用户不能是管理员登录名:请为 Signalbox 提供专用用户,例如 signalbox",
  "msg.mikrotik.usersUnexpected": "/rest/user:意外的响应",
+ "msg.mikrotik.newLoginRefused": "路由器在 {seconds} 秒后仍拒绝新用户 {login} (HTTP 401)",
  "msg.mikrotik.noRemedy": "MikroTik 没有修复方式 {remedy}",
  "msg.mikrotik.fixHttpsOnly": "修复仅通过 https 发送管理员密码",
  "msg.mikrotik.commandFailed": "{command}:{detail}",

@@ -2994,6 +2994,7 @@
  "msg.mikrotik.badUserName": "nom d'utilisateur RouterOS invalide : {login}",
  "msg.mikrotik.userIsAdmin": "l'utilisateur à configurer ne doit pas être l'identifiant administrateur : donnez à Signalbox un utilisateur dédié, par exemple signalbox",
  "msg.mikrotik.usersUnexpected": "/rest/user : réponse inattendue",
+ "msg.mikrotik.newLoginRefused": "le routeur refuse toujours le nouvel utilisateur {login} après {seconds} s (HTTP 401)",
  "msg.mikrotik.noRemedy": "MikroTik n'a pas de remède {remedy}",
  "msg.mikrotik.fixHttpsOnly": "Corriger n'envoie le mot de passe administrateur que via https",
  "msg.mikrotik.commandFailed": "{command} : {detail}",

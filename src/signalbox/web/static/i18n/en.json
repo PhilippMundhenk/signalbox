@@ -2994,6 +2994,7 @@
  "msg.mikrotik.badUserName": "not a RouterOS user name: {login}",
  "msg.mikrotik.userIsAdmin": "the user to set up must not be the admin login: give Signalbox a user of its own, for example signalbox",
  "msg.mikrotik.usersUnexpected": "/rest/user: unexpected answer",
+ "msg.mikrotik.newLoginRefused": "the router still refuses the new user {login} after {seconds} s (HTTP 401)",
  "msg.mikrotik.noRemedy": "MikroTik has no remedy {remedy}",
  "msg.mikrotik.fixHttpsOnly": "Fix it sends the admin password only over https",
  "msg.mikrotik.commandFailed": "{command}: {detail}",

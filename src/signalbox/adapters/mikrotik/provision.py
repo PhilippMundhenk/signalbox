@@ -148,7 +148,9 @@ class MikrotikSetup:
                         if time.monotonic() >= deadline:
                             raise AdapterError(
                                 f"the router still refuses the new user {self.login} after "
-                                f"{LOGIN_WAIT:g} s (HTTP 401)"
+                                f"{LOGIN_WAIT:g} s (HTTP 401)",
+                                message_id="mikrotik.newLoginRefused",
+                                params={"login": self.login, "seconds": f"{LOGIN_WAIT:g}"},
                             ) from None
                         await asyncio.sleep(LOGIN_POLL)
             finally:
