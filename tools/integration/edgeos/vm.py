@@ -416,12 +416,6 @@ def start(d: Path) -> None:
         ],
         required=False,
     )
-    log(
-        con.run(
-            "/opt/vyatta/bin/vyatta-op-cmd-wrapper show configuration commands 2>&1 | head -n 80",
-            60,
-        )
-    )
     pin = host_key_pin()
     env = {
         "IT_EDGEOS_URL": f"ssh://127.0.0.1:{SSH_PORT}",
