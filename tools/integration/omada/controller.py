@@ -261,17 +261,18 @@ def web_scripts(oid: str) -> str:
     if not isinstance(page, str):
         return f"index page: HTTP {status} {str(page)[:200]}"
     srcs = re.findall(r"""src=["']([^"']+\.js[^"']*)["']""", page)
-    out = [f"index page HTTP {status}, {len(page)} bytes, scripts {srcs[:12]}"]
+    out = [f"index page HTTP {status}, {len(page)} bytes, {len(srcs)} scripts"]
     found: set[str] = set()
     for src in srcs[:40]:
         path = src if src.startswith("/") else f"/{oid}/{src}"
         code, js = request("GET", path)
         if isinstance(js, str):
-            for m in re.finditer(r"open-?api", js, re.IGNORECASE):
+            out.append(f"{path}: {len(js)} bytes")
+            for m in re.finditer(r"open-?api|client_?secret|platform.?integration", js, re.I):
                 found.add(js[max(0, m.start() - 40) : m.end() + 50].replace("\n", " "))
         else:
             out.append(f"{path}: HTTP {code} not text")
-    return "\n".join(out + sorted(found)[:40])[:6000]
+    return "\n".join(out + sorted(found)[:40])[:7000]
 
 
 def applications_path(oid: str, web: dict[str, str]) -> str:
