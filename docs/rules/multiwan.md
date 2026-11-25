@@ -40,6 +40,19 @@ address is not known.
   groups, and when the active member is on the first tier.
 - **Fix:** find out why the first choice was left; the group goes back by itself.
 
+## `wan.flapping`
+
+- **Severity:** warning
+- **Checks:** a failover group whose active member changed `count` or more times (4 by
+  default) in the last `hours` hours (24 by default), counted from the observation history
+  (#463). Each change breaks connections; the usual causes are a first line that drops out now
+  and then, or a monitor address that does not always answer.
+- **Stays quiet** without an observation history, and for groups whose gateway does not say
+  which member is active (load balancing). Switches between two observation rounds are not seen.
+- **Parameters:** `count` (2 to 1000), `hours` (1 to 720).
+- **Fix:** check the first line and the group's monitor; raise the parameters if it is
+  expected.
+
 ## `wan.failover-same-path`
 
 - **Severity:** warning

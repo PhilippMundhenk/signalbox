@@ -1790,6 +1790,53 @@
         }
       }
     },
+    "wan.flapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "params": {
+          "$ref": "#/$defs/wan.flapping"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "match"
+            ],
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/ScopeMatch"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "error"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/wan.flapping"
+              }
+            }
+          }
+        }
+      }
+    },
     "wifi.channel-busy": {
       "type": "object",
       "additionalProperties": false,
@@ -2919,6 +2966,31 @@
         }
       },
       "title": "wan.degraded",
+      "type": "object"
+    },
+    "wan.flapping": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "default": 4,
+          "description": "Changes of the active line from which a group flaps.",
+          "maximum": 1000,
+          "minimum": 2,
+          "title": "Count",
+          "type": "integer",
+          "unit": "count"
+        },
+        "hours": {
+          "default": 24,
+          "description": "Period over which the changes are counted.",
+          "maximum": 720,
+          "minimum": 1,
+          "title": "Hours",
+          "type": "integer",
+          "unit": "h"
+        }
+      },
+      "title": "wan.flapping",
       "type": "object"
     },
     "wifi.channel-busy": {

@@ -26,6 +26,7 @@ from signalbox.rules.multiwan import (
     RULES,
     degraded,
     failover_same_path,
+    flapping,
     last_member,
     member_down,
     mismatch,
@@ -38,7 +39,7 @@ from signalbox.rules.multiwan import (
     update_failed,
     vpn_endpoint,
 )
-from signalbox.sightings import History
+from signalbox.sightings import History, ValueChange, ValueHistory
 from signalbox.testing import multiwan_problems
 
 
@@ -78,7 +79,7 @@ def ddns(**kw: Any) -> DynamicDns:
 
 def test_registered_with_the_builtin_rules() -> None:
     assert {r.id for r in RULES} <= {r.id for r in BUILTIN}
-    assert len(RULES) == 13
+    assert len(RULES) == 14
 
 
 def test_member_down_with_two_left() -> None:
@@ -443,3 +444,45 @@ def test_failovers_are_counted_in_the_history(tmp_path: Any) -> None:
     assert h.failovers(gid, start + timedelta(minutes=12)) == 1
     assert h.failovers("gw/gateway-group/other", start) == 0
     assert History().failovers(gid, start) == 0
+
+
+# --- wan.flapping: failovers in the history (#463) ---------------------------------------------
+
+
+def flaps(times: list[datetime]) -> History:
+    gid = object_id("gw", "gateway-group", "failover")
+    changes = [
+        ValueChange(
+            at=t, old="cable" if i % 2 == 0 else "lte", new="lte" if i % 2 == 0 else "cable"
+        )
+        for i, t in enumerate(times)
+    ]
+    value = ValueHistory(
+        first_seen=NOW - timedelta(days=2), last_seen=NOW, value="cable", since=NOW, changes=changes
+    )
+    return History(now=NOW, since=NOW - timedelta(days=2), gateway_actives={gid: value})
+
+
+def test_flapping_counts_the_changes_of_the_active_line() -> None:
+    first, backup = member("cable", tier=1), member("lte", tier=2)
+    net = network(gateway_groups=[failover(first, backup, active="cable")])
+    recent = [NOW - timedelta(hours=h) for h in (1, 2, 3, 4)]
+    [f] = evaluate(net, [flapping], None, flaps(recent))
+    assert f.severity is Severity.WARNING and f.message_id == "wan.flapping"
+    assert f.params == {"group": "failover", "device": "Router", "count": 4, "hours": 24}
+    assert "switched its active line 4 times in the last 24 hours" in f.message
+    # three changes, or changes older than the period: quiet
+    assert evaluate(net, [flapping], None, flaps(recent[:3])) == []
+    old = [NOW - timedelta(hours=h) for h in (30, 31, 32, 33)]
+    assert evaluate(net, [flapping], None, flaps(old)) == []
+    # the typed parameters move the limits
+    wide = {"wan.flapping": RuleSettings(params={"hours": 48})}
+    assert len(evaluate(net, [flapping], wide, flaps(old))) == 1
+    strict = {"wan.flapping": RuleSettings(params={"count": 2})}
+    assert len(evaluate(net, [flapping], strict, flaps(recent[:2]))) == 1
+
+
+def test_flapping_is_quiet_without_a_history() -> None:
+    net = network(gateway_groups=[failover(member("cable"), member("lte", tier=2), active="lte")])
+    assert run(flapping, net) == []
+    assert evaluate(net, [flapping], None, History()) == []
