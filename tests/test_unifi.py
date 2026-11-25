@@ -608,3 +608,54 @@ def test_mesh_info_tolerates_missing_and_odd_values() -> None:
     assert link is not None
     w = mesh_info(link)
     assert (w.signal_dbm, w.channel, w.tx_rate_mbps, w.rx_rate_mbps) == (None, None, 120.0, None)
+
+
+# --- multicast (#161) -------------------------------------------------------------------------
+
+
+async def test_multicast_of_the_networks_on_the_gateway(snaps: dict[str, Snapshot]) -> None:
+    from signalbox.model import ReflectorKind, segment_id
+
+    gw = next(d for d in snaps["10.0.26"].extra_devices if d.id == GW)
+    assert gw.multicast is not None
+    by_name = {s.name: s for s in gw.multicast.settings}
+    assert set(by_name) == {"LAN", "IoT"}  # the guest network does not say
+    assert by_name["LAN"].igmp_snooping is True and by_name["LAN"].querier is None
+    assert by_name["IoT"].segment_id == segment_id("home", 20)
+    (mdns,) = gw.multicast.reflectors
+    assert mdns.kind is ReflectorKind.MDNS
+    assert mdns.segments == sorted([segment_id("home", None), segment_id("home", 20)])
+
+
+def test_multicast_fields_of_a_network() -> None:
+    from signalbox.adapters.unifi import multicast as umc
+    from signalbox.model import ReflectorKind, UnknownMulticast
+
+    nets = [
+        (
+            "Main",
+            "s/native",
+            {
+                "igmp_snooping": True,
+                "igmp_flood_unknown_multicast": False,
+                "igmp_querier_switches": [
+                    {"switch_mac": "02:00:00:00:0b:01", "querier_address": "192.0.2.5"},
+                    "junk",
+                ],
+                "igmp_proxy_upstream": True,
+                "igmp_proxy_for": "all",
+            },
+        ),
+        ("Cams", "s/30", {"igmp_snooping": "false", "mdns_enabled": True, "igmp_proxy_for": "all"}),
+        ("Odd", "s/40", {"igmp_snooping": "maybe"}),
+    ]
+    out = umc.multicast(nets)
+    main, cams = out.settings
+    assert main.unknown_multicast is UnknownMulticast.DROP
+    assert str(main.observed_querier) == "192.0.2.5"
+    assert cams.igmp_snooping is False and cams.observed_querier is None
+    mdns, proxy = out.reflectors
+    assert mdns.kind is ReflectorKind.MDNS and mdns.segments == ["s/30"]
+    assert proxy.kind is ReflectorKind.IGMP_PROXY and proxy.upstream_segment_id == "s/native"
+    assert proxy.upstream_interface == "Main" and proxy.segments == ["s/30", "s/native"]
+    assert umc.multicast([]).settings == []

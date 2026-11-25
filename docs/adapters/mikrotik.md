@@ -1175,3 +1175,18 @@ the setup guide and *Repair Signalbox's access* are unchanged. *Guess (#21): the
 from the RouterOS manual, in particular the `remote-cap-*` columns of the radio tables and the
 dotted `channel.*`/`configuration.*` columns of `/caps-man/interface` in REST; the CAP's
 bridge-table MAC is assumed to be its `base-mac` or ARP MAC.*
+
+## Multicast (#161)
+
+Read with `interfaces`, no new privilege beyond the read policy. `/rest/interface/bridge` gives
+`igmp-snooping`, `multicast-querier`, `igmp-version` (the querier's version; only kept where the
+bridge is the querier); RouterOS snoops MLD together with IGMP. The bridge ports give
+`fast-leave` and `unknown-multicast-flood` (all ports alike: the value, otherwise unknown). The
+network of a bridge is the one of its own interface (`pvid`); the other VLANs of a filtering
+bridge are not listed. The mDNS repeater is `mdns-repeat-ifaces` of `/rest/ip/dns` (RouterOS 7.16
+and later; the field is absent before, then there is no repeater to report). The IGMP proxy is
+`/rest/routing/igmp-proxy/interface` (RouterOS 7; `upstream=yes` marks the uplink side);
+a login that may not read it gets an optional gap. *(Guess, #21: the field names
+`mdns-repeat-ifaces` and the proxy menu path are from the RouterOS documentation, not yet seen on
+a device; the querier a bridge sees is not read, the monitor has no field known to us.)* Covered:
+RouterOS 7.16 and later for the repeater, 7.x for the rest; RouterOS 6 has no REST API.

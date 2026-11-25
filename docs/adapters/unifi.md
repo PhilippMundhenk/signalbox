@@ -171,3 +171,14 @@ schedule is not read yet. The site-wide `auto_upgrade` flag of `rest/setting` (t
 section) gives `Firmware.auto_update` of every managed device; the hour of the schedule
 (`auto_upgrade_hour`) is not kept. Unconfirmed on a real controller (#21); absent in integration
 mode.
+
+## Multicast (#161)
+
+Read from `rest/networkconf` (controller mode, no new call): `igmp_snooping`,
+`igmp_flood_unknown_multicast`, `igmp_querier_switches[].querier_address` (the querier the
+controller reports, kept as the observed querier), `mdns_enabled` (the networks in the gateway's
+mDNS reflection; Network application 7 and later) and `igmp_proxy_upstream` / `igmp_proxy_for`.
+The settings are the site's and are reported on the gateway. A missing field is not reported.
+Integration mode has none of them. *(Guess, #21: the field names are from the controller's JSON as
+known from community documentation; the site-wide mDNS switch of controllers before 7 is not
+read.)*

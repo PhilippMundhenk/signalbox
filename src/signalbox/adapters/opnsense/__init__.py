@@ -70,6 +70,7 @@ from signalbox.adapters.opnsense import ddns as ddns_reader
 from signalbox.adapters.opnsense import discovery as _discovery
 from signalbox.adapters.opnsense import firewall as fw
 from signalbox.adapters.opnsense import lldpd as lldpd_reader
+from signalbox.adapters.opnsense import multicast as multicast_reader
 from signalbox.adapters.opnsense import portal as portal_reader
 from signalbox.adapters.opnsense import routes as route_reader
 from signalbox.adapters.opnsense import trace as _trace
@@ -93,6 +94,7 @@ from signalbox.model import (
     Client,
     ConfigState,
     DeviceAccount,
+    DeviceMulticast,
     DeviceRole,
     Dhcp6Mode,
     Dhcp6PrefixPool,
@@ -130,11 +132,13 @@ from signalbox.model import (
     PortRole,
     RaMode,
     RaPrefix,
+    ReflectorKind,
     Reservation,
     Route,
     RouterAdvert,
     Segment,
     ServiceKind,
+    ServiceReflector,
     SnmpSettings,
     SnmpVersion,
     Subnet,
@@ -1401,7 +1405,10 @@ class OpnsenseAdapter(_Adapter):
         group_list, group_gaps = await self._gateway_groups(uplinks, gateway_rows)
         ddns_list, ddns_gaps = await self._ddns(uplinks[0].id if uplinks else None)
         portal_list, portal_gaps = await self._portals(layout)
-        gaps = [*gaps, *cert_gaps, *route_gaps, *group_gaps, *ddns_gaps, *portal_gaps]
+        multicast, multicast_gaps = await self._multicast(layout)
+        gaps = [
+            *gaps, *cert_gaps, *route_gaps, *group_gaps, *ddns_gaps, *portal_gaps, *multicast_gaps
+        ]  # fmt: skip
         return Observation(
             routes=route_list,
             ports=layout.ports,
@@ -1414,6 +1421,7 @@ class OpnsenseAdapter(_Adapter):
             services=await self._services(),
             certificates=certificates,
             log_targets={} if targets is None else {dev: targets},
+            multicast={dev: multicast},
             **accounts,
             incomplete=[*gaps, *account_gaps],
         )
@@ -1454,6 +1462,46 @@ class OpnsenseAdapter(_Adapter):
             return Observation()
         known = {p.id for p in (await self._layout()).ports}
         return Observation(neighbours=lldpd_reader.neighbours(self.context.device_id, data, known))
+
+    async def _multicast(self, layout: _Layout) -> tuple[DeviceMulticast, list[Gap]]:
+        """The mDNS repeater and UDP broadcast relay plugins (#161). Optional: no plugin (404),
+        nothing to report; a 403 is an optional gap naming the privilege. OPNsense has no
+        snooping setting, and its IGMP proxy page has no API (not read)."""
+        segment_of = {i.identifier: i.segment for i in layout.ifaces if i.segment is not None}
+        found: dict[ReflectorKind, ServiceReflector] = {}
+
+        def add(item: ServiceReflector) -> None:
+            old = found.get(item.kind)
+            if old is not None:
+                item = ServiceReflector(
+                    kind=item.kind,
+                    enabled=old.enabled or item.enabled,
+                    interfaces=[
+                        *old.interfaces,
+                        *(n for n in item.interfaces if n not in old.interfaces),
+                    ],
+                    segments=sorted({*old.segments, *item.segments}),
+                )
+            found[item.kind] = item
+
+        gaps: list[Gap] = []
+        try:
+            data = await self._optional(multicast_reader.MDNS_SETTINGS)
+            if data is not None and (r := multicast_reader.mdns_repeater(data, segment_of)):
+                add(r)
+        except AdapterError as exc:
+            gaps.append(_privilege_gap("mDNS repeater", exc, multicast_reader.MDNS_PRIVILEGE))
+        try:
+            grid = await self._optional(multicast_reader.RELAYS, grid=True)
+            if grid is not None:
+                rows = _rows(grid, multicast_reader.RELAYS)
+                for r in multicast_reader.relays(rows, segment_of):
+                    add(r)
+        except AdapterError as exc:
+            gaps.append(
+                _privilege_gap("UDP broadcast relay", exc, multicast_reader.RELAY_PRIVILEGE)
+            )
+        return DeviceMulticast(reflectors=list(found.values())), gaps
 
     async def _portals(self, layout: _Layout) -> tuple[list[CaptivePortal], list[Gap]]:
         """Captive portal zones (#460); no captive portal API (404): nothing to report; a

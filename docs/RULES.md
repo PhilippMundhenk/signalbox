@@ -192,6 +192,13 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`mesh.wired-possible`](rules/mesh_checks.md#meshwired-possible)
 - [`mesh.channel-locked`](rules/mesh_checks.md#meshchannel-locked)
 
+## [Multicast](rules/multicast_checks.md)
+
+- [`multicast.snooping-no-querier`](rules/multicast_checks.md#multicastsnooping-no-querier)
+- [`multicast.reflector-guest`](rules/multicast_checks.md#multicastreflector-guest)
+- [`multicast.reflector-missing`](rules/multicast_checks.md#multicastreflector-missing)
+- [`multicast.iptv-proxy`](rules/multicast_checks.md#multicastiptv-proxy)
+
 ## [Multi-WAN and dynamic DNS](rules/multiwan.md)
 
 - [`wan.group-member-down`](rules/multiwan.md#wangroup-member-down)
@@ -519,6 +526,12 @@ where each came from. The defaults are the values the rules used before they had
 | --- | --- | --- | --- |
 | `signal_dbm` | `-75` | dBm | Backhaul signal below which a link is weak. |
 | `rate_mbps` | `100` | Mbit/s | Backhaul link rate below which a link is slow. |
+
+### `multicast.reflector-missing`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `min_clients` | `1` | count | Report an IoT network only when it has at least this many clients, and so has the network its devices would have to be found from. |
 
 ### `poe.budget`
 

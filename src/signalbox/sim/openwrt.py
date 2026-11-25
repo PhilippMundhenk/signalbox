@@ -66,6 +66,7 @@ READ_ONLY = (
     "dawn",
     "opennds",
     "nodogsplash",
+    "igmpproxy",
 )
 #: Of those, the configs of optional packages (#180): only there when installed
 PACKAGES = (
@@ -79,6 +80,7 @@ PACKAGES = (
     "dawn",
     "opennds",
     "nodogsplash",
+    "igmpproxy",
 )
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
@@ -94,7 +96,18 @@ FILES = (
     "/sys/devices/*/net/*/bridge/*",
     "/sys/devices/*/net/*/brport/*",
     "/var/run/ddns/*",
+    "/etc/avahi/avahi-daemon.conf",
 )
+
+#: Avahi's configuration (#161); the file exists when the package ``avahi`` is installed
+AVAHI_CONF = "/etc/avahi/avahi-daemon.conf"
+AVAHI_TEXT = """[server]
+use-ipv4=yes
+allow-interfaces=br-lan.1,br-lan.20
+
+[reflector]
+enable-reflector=yes
+"""
 
 Sections = dict[str, dict[str, Any]]
 """One UCI config: section name -> {".type", ".anonymous", options}, in order."""
@@ -270,7 +283,12 @@ def _base_network(upstream: dict[str, str], router: bool, wireguard: bool) -> di
         (
             "device",
             "cfg030f15",
-            {"name": "br-lan", "type": "bridge", "ports": ["lan1", "lan2", "lan3", "lan4"]},
+            {
+                "name": "br-lan",
+                "type": "bridge",
+                "ports": ["lan1", "lan2", "lan3", "lan4"],
+                "igmp_snooping": "1",
+            },
         ),
         (
             "bridge-vlan",
@@ -1072,6 +1090,16 @@ def opennds_config() -> dict[str, Any]:
     )
 
 
+def igmpproxy_config() -> dict[str, Any]:
+    """``/etc/config/igmpproxy`` (#161): the uplink ``wan`` upstream, the main network down."""
+    return _uci(
+        ("igmpproxy", "igmpproxy", {"quickleave": "1"}),
+        ("phyint", "wan", {"network": "wan", "direction": "upstream", "altnet": "0.0.0.0/0"}),
+        ("phyint", "lan", {"network": "lan", "direction": "downstream"}),
+        ("phyint", "iot", {"network": "iot", "direction": "disabled"}),
+    )
+
+
 def nodogsplash_config() -> dict[str, Any]:
     """``/etc/config/nodogsplash`` (#460, guess): an external authentication service."""
     return _uci(
@@ -1648,6 +1676,8 @@ class OpenWrtSim:
     thermal_zones: list[tuple[str, int]] = field(default_factory=lambda: [("cpu-thermal", 47823)])
     #: bridge members without ``/sys/class/net/<port>/brport`` (#155)
     no_brport: set[str] = field(default_factory=set)
+    #: the bridge is the IGMP querier (``multicast_querier``, #161)
+    querier: bool = True
     #: addresses the bridges learned (#378): (member, MAC, seconds since refreshed); the
     #: members' own MACs are local entries of ``brforward`` besides these
     learned: list[tuple[str, str, int]] = field(default_factory=list)
@@ -1702,6 +1732,7 @@ class OpenWrtSim:
                 "dawn": _sections(dawn_config()),
                 "opennds": _sections(opennds_config()),
                 "nodogsplash": _sections(nodogsplash_config()),
+                "igmpproxy": _sections(igmpproxy_config()),
                 "https-dns-proxy": {},
                 "firewall": _sections(firewall_config(self.router, self.wireguard)),
             }
@@ -1978,6 +2009,8 @@ class OpenWrtSim:
                     return self.bond_file(path.removeprefix("/sys/class/net/"))
                 value = self.sysfs_net(path)
                 return [NOT_FOUND] if value is None else [0, {"data": f"{value}\n"}]
+            if path == AVAHI_CONF:
+                return [0, {"data": AVAHI_TEXT}] if "avahi" in self.packages else [NOT_FOUND]
             if path.startswith("/var/run/ddns/"):
                 files = {"home.update": "1795000000\n", "home.ip": "203.0.113.45\n"}
                 text = files.get(path.removeprefix("/var/run/ddns/"))
@@ -2080,6 +2113,11 @@ class OpenWrtSim:
                 "root_path_cost": "0",
                 "stp_state": "1" if on else "0",
                 "priority": str(prio),
+                # multicast (#161): snooping on, the bridge is the querier unless the test says not
+                "multicast_snooping": "1",
+                "multicast_querier": "1" if self.querier else "0",
+                "multicast_igmp_version": "2",
+                "multicast_mld_version": "1",
             }
             return values.get(leaf)
         for st in bridges.values():
@@ -2091,6 +2129,8 @@ class OpenWrtSim:
                     "path_cost": "100" if name.startswith("phy") else "4",
                     "bpdu_guard": "0",
                     "root_block": "0",
+                    "multicast_fast_leave": "0",
+                    "multicast_flood": "1",
                 }
                 return values.get(leaf)
         return None

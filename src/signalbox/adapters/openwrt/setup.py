@@ -48,6 +48,7 @@ READ_ACL: dict[str, Any] = {
                 "dawn",
                 "opennds",
                 "nodogsplash",
+                "igmpproxy",
             ],
             "file": {
                 "/tmp/dhcp.leases": ["read"],
@@ -63,6 +64,7 @@ READ_ACL: dict[str, Any] = {
                 "/sys/devices/*/net/*/bridge/*": ["read"],
                 "/sys/devices/*/net/*/brport/*": ["read"],
                 "/var/run/ddns/*": ["read"],
+                "/etc/avahi/avahi-daemon.conf": ["read"],
             },
         },
     }

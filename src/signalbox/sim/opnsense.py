@@ -347,6 +347,25 @@ def firewall_data() -> dict[str, Any]:
             ]
         ),
         "/api/captiveportal/voucher/list_providers": ["Guest vouchers"],
+        # mDNS repeater plugin (#161, guess: shape): LAN and IoT
+        "/api/mdnsrepeater/settings/get": {
+            "mdnsrepeater": {
+                "enabled": "1",
+                "interfaces": _opt({"lan": ("LAN", True), "opt1": ("IoT", True)}),
+            }
+        },
+        # UDP broadcast relay plugin: SSDP between LAN and IoT (guess: fields)
+        "/api/udpbroadcastrelay/settings/search_relay": _rows_of(
+            [
+                {
+                    "uuid": "r1",
+                    "enabled": "1",
+                    "listenport": "1900",
+                    "interfaces": "lan,opt1",
+                    "description": "SSDP",
+                }
+            ]
+        ),
         "/api/firewall/alias/search_item": _rows_of(
             [
                 {
