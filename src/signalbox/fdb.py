@@ -144,10 +144,15 @@ def index(net: Network, held: bool = False) -> Index:
         if e.kind is not FdbKind.SELF and usable(e.port_id):
             sightings[Sighting(e.device_id, e.port_id, e.mac)] = None
     for c in net.clients:
-        # an ARP table names a VLAN interface (internal): the cable is on the jack below it
-        port = usable(_jack(net, c.seen_on or ""))
-        if port is not None and port.device_id not in with_table:
-            sightings[Sighting(port.device_id, port.id, c.mac)] = None
+        # every device's own sighting (#165), not only the merged ``seen_on``: a client two
+        # devices see keeps one ``seen_on``, and the other device's evidence would be lost
+        # (#529, #532). An ARP table names a VLAN interface (internal): the cable is on the
+        # jack below it.
+        places = {s.seen_on for s in c.sightings if s.seen_on} or {c.seen_on or ""}
+        for seen_on in sorted(places):
+            port = usable(_jack(net, seen_on))
+            if port is not None and port.device_id not in with_table:
+                sightings[Sighting(port.device_id, port.id, c.mac)] = None
     for h in earlier:
         port = usable(_jack(net, h.port_id))
         if port is not None and owner.get(h.mac) not in (None, port.device_id):
@@ -371,7 +376,8 @@ def adjacencies(net: Network) -> list[Adjacent]:
         gateway = None if wireless else _gateway(ix, hops, here, nearest)
         if gateway is not None:
             nearest = [gateway]
-        arp_only = roles.get(here) is DeviceRole.GATEWAY and here not in ix.tables
+        # a coarse host list is the device's own LAN switch speaking: no ARP-only guess (#529)
+        arp_only = roles.get(here) is DeviceRole.GATEWAY and here not in ix.tables and not coarse
         here_segments = port_segments.get(port_id, set())
         for dev in nearest:
             unsure = False
