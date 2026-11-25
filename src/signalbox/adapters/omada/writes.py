@@ -748,7 +748,9 @@ class Writer:
                 # Open API (no ``ssidEnable`` in its answers, ``…/enable`` is a 404)
                 raise AdapterError(
                     f"{c.id}: this controller version cannot switch an SSID off through its "
-                    "Open API (Omada 5.x); remove the SSID or turn it off in the controller"
+                    "Open API (Omada 5.x); remove the SSID or turn it off in the controller",
+                    message_id="omada.ssidNoSwitch",
+                    params={"subject": c.id},
                 )
             on = {"ssidEnable": new.enabled}
             desc = Described(

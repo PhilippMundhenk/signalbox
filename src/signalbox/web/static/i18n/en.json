@@ -3174,6 +3174,7 @@
  "msg.omada.secretMissing": "{subject}: the secret {name} was not provided",
  "msg.omada.passphraseLength": "{subject}: a WPA passphrase has 8 to 63 characters",
  "msg.omada.passphraseNeeded": "{subject}: a WPA SSID needs a passphrase (passphrase_secret in the desired state)",
+ "msg.omada.ssidNoSwitch": "{subject}: this controller version cannot switch an SSID off through its Open API (Omada 5.x); remove the SSID or turn it off in the controller",
  "msg.omada.restoreFormat": "cannot restore a backup in the format {format}",
  "msg.omada.restoreInvalid": "the backup is not an Omada backup: {detail}",
  "msg.omada.restoreOther": "the backup is of another controller or site",
