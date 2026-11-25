@@ -197,7 +197,8 @@ def test_client_2_4_only_quiet() -> None:
 
 
 def crowd(n: int, radio_name: str = "radio0") -> list[Client]:
-    return [station(radio_name=radio_name, mac=f"02:00:00:00:01:{i:02x}") for i in range(n)]
+    prefix = "01" if radio_name == "radio0" else "02"
+    return [station(radio_name=radio_name, mac=f"02:00:00:00:{prefix}:{i:02x}") for i in range(n)]
 
 
 def test_radio_overloaded_is_found() -> None:

@@ -50,6 +50,7 @@ from signalbox.adapters.omada import (
     _check,
     _dhcp_settings,
     _dict,
+    _flag,
     _int,
     _Managed,
     _Net,
@@ -652,7 +653,13 @@ class Writer:
                 message_id="omada.securityUnsupported",
                 params={"subject": c.id, "security": new.security.value},
             )
-        if any(x is not None for x in (new.roaming_80211r, new.roaming_80211k, new.roaming_80211v)):
+        # 802.11r is read since #447 (``enable11r``), so a value that is the SSID's own is no change
+        current_r = _flag(row.get("enable11r")) if row is not None else False
+        if (
+            new.roaming_80211r not in (None, current_r)
+            or new.roaming_80211k is not None
+            or new.roaming_80211v is not None
+        ):
             raise AdapterError(
                 f"{c.id}: fast roaming (802.11r/k/v) is not changed on Omada",
                 message_id="omada.roamingNotChanged",
