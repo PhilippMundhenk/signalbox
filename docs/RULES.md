@@ -158,6 +158,14 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`security.service-exposure`](rules/management.md#securityservice-exposure)
 - [`security.plaintext-read`](rules/management.md#securityplaintext-read)
 
+## [Multi-WAN and dynamic DNS](rules/multiwan.md)
+
+- [`wan.group-member-down`](rules/multiwan.md#wangroup-member-down)
+- [`wan.group-last-member`](rules/multiwan.md#wangroup-last-member)
+- [`wan.monitor-local`](rules/multiwan.md#wanmonitor-local)
+- [`ddns.mismatch`](rules/multiwan.md#ddnsmismatch)
+- [`ddns.update-failed`](rules/multiwan.md#ddnsupdate-failed)
+
 ## [Network purposes](rules/networks.md)
 
 - [`wifi.guest-isolation`](rules/networks.md#wifiguest-isolation)

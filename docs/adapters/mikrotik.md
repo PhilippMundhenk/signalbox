@@ -1095,3 +1095,17 @@ and nothing is reported.
 *(guess: the field names of RouterOS 7 `nd` and `dhcp-server`; the DNS servers of the DHCPv6 server
 (option 23) and the bindings `/ipv6/dhcp-server/binding` are not read.)* The simulator answers all
 four menus. RouterOS 6 has no REST API (see #389).
+
+## Multi-WAN and MikroTik Cloud (#150, #154)
+
+- **Gateway group**: two or more enabled `0.0.0.0/0` routes of the `main` table with a next hop
+  (`/rest/ip/route`, already read) are the group `default`. Different `distance` values are the
+  tiers of a failover (lowest first), one value is load balancing. `check-gateway=ping` makes the
+  monitor target the route's own gateway, which `wan.monitor-local` reports. `gateway-status`
+  (`... reachable via ether1` or `... unreachable`) is the state *(guess for the wording, #21)*.
+  `/rest/tool/netwatch` (`host`, `status`, `comment`): an entry with the same comment as a route
+  is that route's monitor *(guess: a convention, netwatch has no link to routes)*. The member's
+  uplink is the one whose next hop is the route's gateway.
+  RouterOS 7.1 and later (REST); RouterOS 6 has no REST API.
+- **Cloud DDNS**: `/rest/ip/cloud` `dns-name`, `public-address`, `status` (`updated` is ok,
+  `error...` is an error) and `ddns-enabled`; no name, no client.

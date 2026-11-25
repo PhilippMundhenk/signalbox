@@ -258,6 +258,8 @@ def sample_data(major: int) -> dict[str, Any]:
                     "gateway": "203.0.113.1",
                     "dns": ["203.0.113.53"],
                     "up": True,
+                    "latency": 9,
+                    "is_uplink": True,
                 },
             },
             {
@@ -371,8 +373,21 @@ def sample_data(major: int) -> dict[str, Any]:
                 "purpose": "wan",
                 "wan_type": "dhcp",
                 "wan_networkgroup": "WAN",
+                "wan_failover_priority": 1,
                 "enabled": True,
             },
+        ],
+        # dynamic DNS (#154); the account fields are there and never read
+        "rest/dynamicdns": [
+            {
+                "_id": "dd1",
+                "service": "dyndns",
+                "host_name": "home.example.dyndns.invalid",
+                "interface": "wan",
+                "login": "sim-user",
+                "x_password": "sim-secret-token",
+                "server": "dyn.example.invalid",
+            }
         ],
         "rest/portconf": [
             {"_id": PROF_ALL, "name": "All", "forward": "all"},

@@ -513,6 +513,27 @@ transfer); with a read ACL from before this method was added the read fails with
 denied" for the `vpn` capability only. ACL entry: `"luci.wireguard": ["getWgInstances"]`, the
 only addition.
 
+### Multi-WAN and dynamic DNS: `uci get` of `mwan3` and `ddns`, `mwan3 status` *(optional)* (interfaces)
+
+Both packages are optional; without them there is no config and nothing is reported (#150, #154).
+
+- **mwan3** (`uci get {"config": "mwan3"}`): `interface` sections (`enabled`, `track_ip`,
+  `interval`) are the monitors, `member` sections (`interface`, `metric`, `weight`) and `policy`
+  sections (`use_member`) the gateway groups. Members of different metrics are the tiers of a
+  failover (metric 1 first), members of one metric share the load. The state per interface comes
+  from `ubus call mwan3 status {"section": "interfaces"}` (`status` `online`/`offline`,
+  `track_ip` with `latency` and `packetloss`) *(guess: not yet seen on a device, #21)*; without
+  it the groups come without state. Written for mwan3 2.x (OpenWrt 22.03, 23.05, 24.10 and
+  25.12 ship it; *guess*: the option names are the same in all of them, #21).
+- **ddns-scripts** (`uci get {"config": "ddns"}`): `service` sections with `enabled`,
+  `service_name` (the provider), `lookup_host` (the name), `interface` and `use_ipv6`. The
+  `username`, `password` and `update_url` options are never read. The last update and the
+  announced address come from `file read /var/run/ddns/<section>.update` (epoch seconds) and
+  `<section>.ip` *(guess, #21)*; a section with an update file counts as `ok`, otherwise the
+  result is unknown (the failure state is not read).
+- ACL entries: `"mwan3": ["status"]`, the UCI configs `mwan3` and `ddns`, and the file
+  `/var/run/ddns/*`; with an older ACL the rest is read and an optional gap names them.
+
 ## Path traces: not supported (#253)
 
 rpcd has no traceroute method. LuCI's *Network > Diagnostics* runs `/usr/bin/traceroute`
@@ -623,10 +644,11 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "rpc-sys": ["packagelist"],
         "file": ["read"],
         "luci.lldpd": ["getStatus"],
-        "luci.wireguard": ["getWgInstances"]
+        "luci.wireguard": ["getWgInstances"],
+        "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -638,7 +660,8 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "/sys/class/net/*/brforward": ["read"],
         "/sys/devices/*/net/*/brforward": ["read"],
         "/sys/devices/*/net/*/bridge/*": ["read"],
-        "/sys/devices/*/net/*/brport/*": ["read"]
+        "/sys/devices/*/net/*/brport/*": ["read"],
+        "/var/run/ddns/*": ["read"]
       }
     }
   }
@@ -741,10 +764,11 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "rpc-sys": ["packagelist"],
         "file": ["read"],
         "luci.lldpd": ["getStatus"],
-        "luci.wireguard": ["getWgInstances"]
+        "luci.wireguard": ["getWgInstances"],
+        "mwan3": ["status"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -756,7 +780,8 @@ only allows the `uci` methods of a transaction on the six configs it changes (`s
         "/sys/class/net/*/brforward": ["read"],
         "/sys/devices/*/net/*/brforward": ["read"],
         "/sys/devices/*/net/*/bridge/*": ["read"],
-        "/sys/devices/*/net/*/brport/*": ["read"]
+        "/sys/devices/*/net/*/brport/*": ["read"],
+        "/var/run/ddns/*": ["read"]
       }
     },
     "write": {

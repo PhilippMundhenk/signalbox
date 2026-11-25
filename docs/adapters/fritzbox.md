@@ -595,3 +595,15 @@ delegated prefix and the external address are in the IGD services (see the uplin
 therefore reports no `RouterAdvert` or `Dhcp6Server` for a Fritz!Box and `ipv6.ra-consistent` is
 silent for its network unless another device reports one (*guess: FRITZ!OS 7.5x and 8 have no such
 action; not checked on a device*).
+
+## Dynamic DNS (#154)
+
+`X_AVM-DE_RemoteAccess:1 GetDDNSInfo` (in the descriptions of FRITZ!OS 6.83, 7.29, 7.57 and
+8.02): `NewEnabled`, `NewProviderName`, `NewDomain`, `NewMode` (`ddns_v4`, `ddns_v6`,
+`ddns_both`), `NewStatusIPv4`/`NewStatusIPv6`. A status with `error` or `fail` is an error, `ok`
+or `updated` a success, anything else unknown *(guess: the words are the box's, #21)*.
+`NewUpdateURL` and `NewUsername` are never read. `NewServerIPv4` is the provider's server, not
+the address announced, so `published_address` stays empty (and `ddns.mismatch` quiet).
+`X_AVM-DE_MyFritz:1 GetInfo` gives the MyFRITZ! name (`NewDynDNSName`, `NewState`); the account
+(`NewEmail`) is never read. A box without a DDNS domain reports none. Multi-WAN: the mobile
+fallback of FRITZ!OS is not in TR-064, nothing is read.

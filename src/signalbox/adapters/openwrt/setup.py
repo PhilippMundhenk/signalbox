@@ -28,6 +28,7 @@ READ_ACL: dict[str, Any] = {
                 "file": ["read"],
                 "luci.lldpd": ["getStatus"],
                 "luci.wireguard": ["getWgInstances"],
+                "mwan3": ["status"],
             },
             "uci": [
                 "network",
@@ -41,6 +42,8 @@ READ_ACL: dict[str, Any] = {
                 "luci_statistics",
                 "softflowd",
                 "rpcd",
+                "mwan3",
+                "ddns",
             ],
             "file": {
                 "/tmp/dhcp.leases": ["read"],
@@ -55,6 +58,7 @@ READ_ACL: dict[str, Any] = {
                 "/sys/devices/*/net/*/brforward": ["read"],
                 "/sys/devices/*/net/*/bridge/*": ["read"],
                 "/sys/devices/*/net/*/brport/*": ["read"],
+                "/var/run/ddns/*": ["read"],
             },
         },
     }

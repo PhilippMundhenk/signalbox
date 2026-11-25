@@ -518,6 +518,8 @@ def merge(
             "segments": segments,
             "subnets": prefix_sources(snaps),
             "uplinks": every("uplinks"),
+            "gateway_groups": every("gateway_groups"),
+            "ddns": every("ddns"),
             "services": every("services"),
             "certificates": every("certificates"),
             "dhcp_servers": every("dhcp_servers"),

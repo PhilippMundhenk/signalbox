@@ -2010,3 +2010,58 @@ async def test_no_router_advertisements_on_an_ap(adapter: OpenWrtAdapter) -> Non
     obs = await adapter.read_dhcp()
     assert all(r.mode is RaMode.OFF for r in obs.router_adverts)
     assert obs.dhcp6_servers == []
+
+
+# --- multi-WAN (mwan3, #150) and dynamic DNS (ddns-scripts, #154) ----------------------------
+
+
+async def test_mwan3_groups_and_ddns(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
+    sim.router = True
+    sim.packages = {"mwan3", "ddns"}
+    a = OpenWrtAdapter(
+        context(https_url, pinned_fingerprint=cert.fingerprint, role=DeviceRole.GATEWAY)
+    )
+    try:
+        snap = await assert_contract(a)
+    finally:
+        await a.close()
+    [group] = snap.gateway_groups
+    assert (group.name, group.mode.value, group.active) == ("failover", "failover", "wan")
+    wan, wanb = group.members
+    assert (wan.name, wan.tier, wan.weight, wan.state) == ("wan", 1, 3, "online")
+    assert (wanb.tier, wanb.state, wanb.loss_pct) == (2, "down", 100)
+    assert wan.latency_ms == 15 and wan.uplink_id == "ap1/uplink/wan"
+    [up] = snap.uplinks
+    assert up.monitor is not None and up.monitor.targets[0] == ip_address("192.0.2.53")
+    assert up.health is not None and up.health.state == "online"
+    [dd] = snap.ddns
+    assert (dd.provider, dd.hostname, dd.families, dd.enabled) == (
+        "duckdns",
+        "home.example.dyndns.invalid",
+        [4],
+        True,
+    )
+    assert dd.published_address == ip_address("203.0.113.45") and dd.uplink_id == up.id
+    assert dd.last_result == "ok" and dd.last_update is not None
+    assert "sim-secret-token" not in snap.model_dump_json()
+
+
+async def test_no_mwan3_and_an_older_acl(sim: OpenWrtSim, https_url: str, cert: TlsFiles) -> None:
+    sim.router = True
+    a = OpenWrtAdapter(
+        context(https_url, pinned_fingerprint=cert.fingerprint, role=DeviceRole.GATEWAY)
+    )
+    try:
+        obs = await a.read_interfaces()
+        assert obs.gateway_groups == [] and obs.ddns == [] and not obs.incomplete
+        sim.packages = {"mwan3", "ddns"}
+        sim.denied = {"uci:mwan3", "uci:ddns"}
+        obs = await a.read_interfaces()
+        sim.denied = {"mwan3.status"}
+        status_denied = await a.read_interfaces()
+    finally:
+        await a.close()
+    [gap] = obs.incomplete
+    assert gap.optional and gap.message.startswith("multi-WAN and dynamic DNS (mwan3, ddns)")
+    [group] = status_denied.gateway_groups  # the configured tiers, without state
+    assert group.active is None and all(m.state is None for m in group.members)

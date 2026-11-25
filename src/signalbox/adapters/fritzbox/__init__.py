@@ -47,6 +47,7 @@ from signalbox.adapters import (
     VendorCall,
     unexpected_answer,
 )
+from signalbox.adapters.fritzbox import ddns as ddns_reader
 from signalbox.adapters.fritzbox import discovery
 from signalbox.adapters.fritzbox.accounts import box_rights, user_names
 from signalbox.adapters.fritzbox.routes import (
@@ -94,6 +95,7 @@ from signalbox.model import (
     DhcpPool,
     DhcpRelay,
     DhcpServer,
+    DynamicDns,
     Firewall,
     FirewallAction,
     FirewallChain,
@@ -909,8 +911,21 @@ class FritzboxAdapter(Adapter):
             subnets=subnets,
             routes=await self._routes(uplinks, forwarding),
             uplinks=uplinks,
+            ddns=await self._ddns(uplinks),
             services=await self._services(),
             **await self._accounts(),
+        )
+
+    async def _ddns(self, uplinks: list[Uplink]) -> list[DynamicDns]:
+        """The box's DDNS provider and its MyFRITZ! name (#154); a box without them (a repeater,
+        an older FRITZ!OS) has none."""
+        if self.context.role is not DeviceRole.GATEWAY:
+            return []
+        return ddns_reader.clients(
+            self.context.device_id,
+            await self._try("X_AVM-DE_RemoteAccess1", "GetDDNSInfo"),
+            await self._try("X_AVM-DE_MyFritz1", "GetInfo"),
+            uplinks[0].id if uplinks else None,
         )
 
     async def _wan_port(self) -> Port | None:

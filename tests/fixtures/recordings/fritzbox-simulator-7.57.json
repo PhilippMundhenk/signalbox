@@ -659,6 +659,18 @@
   },
   {
    "method": "POST",
+   "path": "/upnp/control/x_remote",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:X_AVM-DE_RemoteAccess:1#GetDDNSInfo\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetDDNSInfo xmlns:u=\"urn:dslforum-org:service:X_AVM-DE_RemoteAccess:1\"></u:GetDDNSInfo></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetDDNSInfoResponse xmlns:u=\"urn:dslforum-org:service:X_AVM-DE_RemoteAccess:1\"><NewEnabled>1</NewEnabled><NewProviderName>DynDNS</NewProviderName><NewUpdateURL>https://dyn.example.invalid/update</NewUpdateURL><NewDomain>home.example.dyndns.invalid</NewDomain><NewStatusIPv4>ok</NewStatusIPv4><NewStatusIPv6>unknown</NewStatusIPv6><NewUsername></NewUsername><NewMode>ddns_v4</NewMode><NewServerIPv4>198.51.100.80</NewServerIPv4><NewServerIPv6></NewServerIPv6></u:GetDDNSInfoResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
    "path": "/upnp/control/x_myfritz",
    "headers": {
     "soapaction": "\"urn:dslforum-org:service:X_AVM-DE_MyFritz:1#GetInfo\"",
@@ -1265,7 +1277,50 @@
     ],
     "public_ipv4": null,
     "downstream_kbps": 116790,
-    "upstream_kbps": 46719
+    "upstream_kbps": 46719,
+    "priority": null,
+    "weight": null,
+    "monitor": null,
+    "health": null
+   }
+  ],
+  "gateway_groups": [],
+  "ddns": [
+   {
+    "id": "recorded/ddns/provider",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "provider": "dyndns2",
+    "hostname": "home.example.dyndns.invalid",
+    "uplink_id": "recorded/uplink/internet",
+    "families": [
+     4
+    ],
+    "enabled": true,
+    "last_update": null,
+    "last_result": "ok",
+    "published_address": null
+   },
+   {
+    "id": "recorded/ddns/myfritz",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "provider": "myfritz",
+    "hostname": "example.myfritz.example",
+    "uplink_id": "recorded/uplink/internet",
+    "families": [],
+    "enabled": true,
+    "last_update": null,
+    "last_result": "ok",
+    "published_address": null
    }
   ],
   "services": [

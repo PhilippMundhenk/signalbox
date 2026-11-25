@@ -1074,3 +1074,18 @@ spelling on 24.7 and 25.x (compared with the sources, not recorded).
   `search_pd_pool` and their field names)* is read like Kea DHCPv4: subnet, pools, DNS servers,
   prefix delegation pools. A 404 means no Kea DHCPv6 and is not an error.
 - **The delegated prefix on the WAN** is `Uplink.delegated_prefixes` (already read).
+
+## Gateway health and dynamic DNS (#150, #154)
+
+- `GET /api/routes/gateway/status` (already read for routes): the row whose `address` is the WAN
+  uplink's next hop gives the uplink's health (`status` `none` is online, a status with `down`
+  is down, `loss` and `delay` are degraded; `delay` and `loss` as `4.2 ms` and `0.0 %`) and its
+  monitor (`monitor`, the address pinged). Fields as of 24.7 to 26.1 *(guess, #21)*.
+- **Gateway groups are not read.** OPNsense keeps them in the configuration (System, Gateways,
+  Groups) and has no API that lists them *(guess: check on a real 26.x, #21)*; the multi-WAN
+  rules do not run for OPNsense yet.
+- `GET /api/dyndns/accounts/search_item` (plugin `os-ddclient`): one client per hostname of an
+  enabled or disabled account (`service`, `protocol`, `hostnames`, `interface`, `enabled`). The
+  rows hold `username` and `password`; they are never read. Not installed (404) or no privilege
+  (403, *Services: Dynamic DNS*, `page-services-dyndns`, *guess*): nothing is reported, without
+  a gap on every read. The plugin has no API for the last update or the address announced.

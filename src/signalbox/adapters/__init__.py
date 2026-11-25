@@ -48,10 +48,12 @@ from signalbox.model import (
     DhcpRelay,
     DhcpServer,
     DnsService,
+    DynamicDns,
     FdbEntry,
     FdbKind,
     Firewall,
     Firmware,
+    GatewayGroup,
     LogTarget,
     ManagementService,
     MessageParams,
@@ -645,6 +647,11 @@ class Observation(BaseModel):
     subnets: list[Subnet] = Field(default_factory=list)
     #: WAN connections of a gateway (#148), read with ``interfaces``; no API version needed.
     uplinks: list[Uplink] = Field(default_factory=list)
+    #: Gateway groups (#150) and dynamic DNS clients (#154), read with ``interfaces``; no API
+    #: version needed. Report every group or client the device has, or none (not read). Never
+    #: an account name, password or token of a DDNS provider, also not in ``vendor_extra``.
+    gateway_groups: list[GatewayGroup] = Field(default_factory=list)
+    ddns: list[DynamicDns] = Field(default_factory=list)
     #: Management services (#173), read with ``interfaces``; no API version needed. Report
     #: every service the device has, disabled ones too, or none (not read).
     services: list[ManagementService] = Field(default_factory=list)

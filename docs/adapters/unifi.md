@@ -132,3 +132,14 @@ state, SFP data and more; they are not read yet. Firewall, VPN and routes are no
 A self-hosted Network application in Docker would be the natural CI target (the issue names
 `linuxserver/unifi-network-application` with MongoDB). See the section at the end of this page
 for what the CI job does, or why there is none.
+
+## WAN failover and dynamic DNS (#150, #154)
+
+`rest/networkconf` rows with `purpose` `wan` give each WAN connection its `wan_failover_priority`
+(1 first), `wan_load_balance_type` (`failover-only` or `weighted`) and `wan_load_balance_weight`;
+the gateway's `wan1`/`wan2` give `up`, `latency` and `is_uplink` (the connection in use). Two or
+more connections form the group `WAN`. UniFi has no readable monitor target. Field spellings of
+the controller 8, 9 and 10 are the same in the simulator; on older controllers a missing field
+leaves the value empty *(guess, #21)*. `rest/dynamicdns` (`host_name`, `service`, `interface`)
+gives the DDNS entries; `login` and `x_password` are never read, the result is unknown, and a
+controller without the list gives none.

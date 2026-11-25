@@ -296,6 +296,46 @@ def uplink_problems(uplink: Uplink, port_ids: set[str]) -> list[str]:
     return out
 
 
+def multiwan_problems(snapshot: Snapshot) -> list[str]:
+    """Gateway groups (#150) and dynamic DNS clients (#154): ids, members once, tiers, a known
+    active member, uplinks that were reported, naive times."""
+    out: list[str] = []
+    uplink_ids = {u.id for u in snapshot.uplinks}
+    seen: set[str] = set()
+    for u in snapshot.uplinks:
+        if u.health is not None and u.health.last_change and not _aware(u.health.last_change):
+            out.append(f"uplink {u.id}: last_change has no time zone")
+    for g in snapshot.gateway_groups:
+        prefix = f"{g.device_id}/gateway-group/"
+        if not g.id.startswith(prefix) or g.id == prefix:
+            out.append(f"gateway group id {g.id} is not {prefix}<name>")
+        if g.id in seen:
+            out.append(f"gateway group {g.id} reported twice")
+        seen.add(g.id)
+        names = [m.name for m in g.members]
+        if len(set(names)) != len(names):
+            out.append(f"gateway group {g.id} lists a member twice")
+        if g.active is not None and g.active not in names:
+            out.append(f"gateway group {g.id}: active member {g.active} is not a member")
+        for m in g.members:
+            if m.uplink_id is not None and m.uplink_id not in uplink_ids:
+                out.append(f"gateway group {g.id}: member {m.name} has unknown uplink")
+    for d in snapshot.ddns:
+        prefix = f"{d.device_id}/ddns/"
+        if not d.id.startswith(prefix) or d.id == prefix:
+            out.append(f"ddns id {d.id} is not {prefix}<name>")
+        if d.id in seen:
+            out.append(f"ddns {d.id} reported twice")
+        seen.add(d.id)
+        if d.uplink_id is not None and d.uplink_id not in uplink_ids:
+            out.append(f"ddns {d.id} publishes the address of unknown uplink {d.uplink_id}")
+        if d.last_update is not None and not _aware(d.last_update):
+            out.append(f"ddns {d.id}: last_update has no time zone")
+        if d.hostname != d.hostname.strip() or not d.hostname:
+            out.append(f"ddns {d.id}: hostname is empty or has spaces around it")
+    return out
+
+
 def service_problems(
     service: ManagementService, port_ids: set[str], segment_ids: set[str]
 ) -> list[str]:
@@ -626,7 +666,7 @@ def _capability_problems(snapshot: Snapshot, site: str) -> list[str]:
             out.append(f"declares {cap.value} but no device has {attr}")
         if cap.value not in caps and found:
             out.append(f"{attr} reported without declaring {cap.value}")
-    for kind in ("uplinks", "services", "certificates"):
+    for kind in ("uplinks", "gateway_groups", "ddns", "services", "certificates"):
         if getattr(snapshot, kind) and Capability.INTERFACES.value not in caps:
             out.append(f"{kind} reported without declaring {Capability.INTERFACES.value}")
     if snapshot.dhcp_relays and Capability.DHCP.value not in caps:
@@ -696,6 +736,8 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
         "ports",
         "subnets",
         "uplinks",
+        "gateway_groups",
+        "ddns",
         "services",
         "certificates",
         "dhcp_servers",
@@ -773,6 +815,7 @@ def problems(adapter: Adapter, snapshot: Snapshot) -> list[str]:
     out += structure_problems(snapshot.ports, snapshot.wlans)
     for uplink in snapshot.uplinks:
         out += uplink_problems(uplink, port_ids)
+    out += multiwan_problems(snapshot)
     seen: set[str] = set()
     for service in snapshot.services:
         if service.id in seen:

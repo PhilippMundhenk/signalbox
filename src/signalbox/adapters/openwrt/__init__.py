@@ -61,6 +61,7 @@ from signalbox.adapters.openwrt import (
     firewall,
     lag,
     monitoring,
+    multiwan,
     provision,
     routes,
     setup,
@@ -106,9 +107,11 @@ from signalbox.model import (
     DhcpServer,
     DnsForwarder,
     DnsService,
+    DynamicDns,
     FdbEntry,
     FdbKind,
     Firmware,
+    GatewayGroup,
     HostRecord,
     IPAddress,
     IPInterface,
@@ -1078,6 +1081,11 @@ class OpenWrtAdapter(Adapter):
         ]
         uplinks = self._uplinks(view, ports) if router else []
         gaps: list[Gap] = ([gap] if gap else []) + stp_gaps
+        wan_groups: list[GatewayGroup] = []
+        ddns_list: list[DynamicDns] = []
+        if router:
+            uplinks, wan_groups, ddns_list, wan_gaps = await self._multiwan(uplinks)
+            gaps += wan_gaps
         try:
             services = await self._services(view, ports, {s.id for s in segments})
         except AccessDenied as exc:  # set up with an older ACL: the rest is read
@@ -1145,6 +1153,8 @@ class OpenWrtAdapter(Adapter):
             segments=segments,
             subnets=subnets,
             uplinks=uplinks,
+            gateway_groups=wan_groups,
+            ddns=ddns_list,
             services=services,
             log_targets={} if targets is None else {d: targets},
             accounts={} if users is None else {d: users},
@@ -1242,6 +1252,56 @@ class OpenWrtAdapter(Adapter):
         if not cfg.probe_empty_root_password or cfg.username == "root":
             return False
         return await self.ubus.try_login("root", "")
+
+    async def _multiwan(
+        self, uplinks: list[Uplink]
+    ) -> tuple[list[Uplink], list[GatewayGroup], list[DynamicDns], list[Gap]]:
+        """mwan3 (#150) and ddns-scripts (#154), both optional packages: no config, nothing to
+        report. A config the ACL of an older setup does not list is an optional gap."""
+        d = self.context.device_id
+        gaps: list[Gap] = []
+        groups: list[GatewayGroup] = []
+        clients: list[DynamicDns] = []
+        denied: list[str] = []
+        fix: AccessDenied | None = None
+        try:
+            uci = await self._uci("mwan3")
+            status: dict[str, Any] | None = None
+            if multiwan.has_groups(uci):
+                try:
+                    status = await self.ubus.call("mwan3", "status", {"section": "interfaces"})
+                except AdapterError:  # not installed as an ubus object, or not in the ACL
+                    status = None
+            uplinks = multiwan.with_health(uplinks, uci, status)
+            groups = multiwan.groups(d, uci, status, uplinks)
+        except AccessDenied as exc:
+            denied.append("mwan3")
+            fix = exc
+        try:
+            uci = await self._uci("ddns")
+            files: dict[str, str] = {}
+            for name, _ in multiwan.service_sections(uci):
+                for ext in ("update", "ip"):
+                    text = await self._sysfs(f"/var/run/ddns/{name}.{ext}")
+                    if text:
+                        files[f"{name}.{ext}"] = text
+            clients = multiwan.ddns_clients(d, uci, files, uplinks)
+        except AccessDenied as exc:
+            denied.append("ddns")
+            fix = exc
+        if fix is not None:
+            gaps.append(
+                Gap(
+                    message=f"multi-WAN and dynamic DNS ({', '.join(denied)}): {fix}",
+                    fix=fix.fix,
+                    remedy=fix.remedy,
+                    optional=True,
+                    message_id="openwrt.multiwanGap",
+                    fix_id=fix.fix_id,
+                    params={**fix.params, "denied": ", ".join(denied), "cause": str(fix)},
+                )
+            )
+        return uplinks, groups, clients, gaps
 
     async def _monitoring(
         self,

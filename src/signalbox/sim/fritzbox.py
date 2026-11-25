@@ -112,6 +112,20 @@ REMOTE_ACCESS = {
     "NewLetsEncryptEnabled": "0",
     "NewLetsEncryptState": "",
 }
+#: ``X_AVM-DE_RemoteAccess GetDDNSInfo``: a DDNS provider (names invented; the update URL and
+#: the account are in the answer and never read, #154)
+DDNS = {
+    "NewEnabled": "1",
+    "NewProviderName": "DynDNS",
+    "NewUpdateURL": "https://dyn.example.invalid/update?hostname=<domain>&myip=<ipaddr>",
+    "NewDomain": "home.example.dyndns.invalid",
+    "NewStatusIPv4": "ok",
+    "NewStatusIPv6": "unknown",
+    "NewUsername": "sim-user",
+    "NewMode": "ddns_v4",
+    "NewServerIPv4": "198.51.100.80",
+    "NewServerIPv6": "",
+}
 MYFRITZ = {
     "NewEnabled": "1",
     "NewDeviceRegistered": "1",
@@ -421,6 +435,8 @@ class FritzboxSim:
     #: internet access to the box (``X_AVM-DE_RemoteAccess GetInfo``, off as shipped)
     remote_access: dict[str, str] = field(default_factory=lambda: dict(REMOTE_ACCESS))
     myfritz: dict[str, str] = field(default_factory=lambda: dict(MYFRITZ))
+    #: ``X_AVM-DE_RemoteAccess GetDDNSInfo`` (#154)
+    ddns: dict[str, str] = field(default_factory=lambda: dict(DDNS))
     #: ``X_AVM-DE_Storage GetInfo``: FTP in the LAN and from the internet
     storage: dict[str, str] = field(default_factory=lambda: dict(STORAGE))
     upnp: dict[str, str] = field(default_factory=lambda: dict(UPNP))
@@ -640,6 +656,8 @@ class FritzboxSim:
             }
         if name == "X_AVM-DE_RemoteAccess" and action == "GetInfo":
             return dict(self.remote_access)
+        if name == "X_AVM-DE_RemoteAccess" and action == "GetDDNSInfo":
+            return dict(self.ddns)
         if name == "X_AVM-DE_MyFritz" and action == "GetInfo":
             return dict(self.myfritz)
         if name == "X_AVM-DE_Storage" and action == "GetInfo":
