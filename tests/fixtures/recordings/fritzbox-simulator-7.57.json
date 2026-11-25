@@ -263,6 +263,66 @@
   },
   {
    "method": "POST",
+   "path": "/upnp/control/wancommonifconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANCommonInterfaceConfig:1#GetAddonInfos\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetAddonInfos xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"></u:GetAddonInfos></s:Body></s:Envelope>",
+   "status": 500,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail><UPnPError xmlns=\"urn:dslforum-org:control-1-0\"><errorCode>401</errorCode><errorDescription>Invalid Action</errorDescription></UPnPError></detail></s:Fault></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wancommonifconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANCommonInterfaceConfig:1#GetTotalBytesSent\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalBytesSent xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"></u:GetTotalBytesSent></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalBytesSentResponse xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"><NewTotalBytesSent>1204117552</NewTotalBytesSent></u:GetTotalBytesSentResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wancommonifconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANCommonInterfaceConfig:1#GetTotalBytesReceived\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalBytesReceived xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"></u:GetTotalBytesReceived></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalBytesReceivedResponse xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"><NewTotalBytesReceived>3881020914</NewTotalBytesReceived></u:GetTotalBytesReceivedResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wancommonifconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANCommonInterfaceConfig:1#GetTotalPacketsSent\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalPacketsSent xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"></u:GetTotalPacketsSent></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalPacketsSentResponse xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"><NewTotalPacketsSent>7204511</NewTotalPacketsSent></u:GetTotalPacketsSentResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
+   "path": "/upnp/control/wancommonifconfig1",
+   "headers": {
+    "soapaction": "\"urn:dslforum-org:service:WANCommonInterfaceConfig:1#GetTotalPacketsReceived\"",
+    "content-type": "text/xml; charset=\"utf-8\""
+   },
+   "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalPacketsReceived xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"></u:GetTotalPacketsReceived></s:Body></s:Envelope>",
+   "status": 200,
+   "content_type": "text/xml; charset=\"utf-8\"",
+   "response": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetTotalPacketsReceivedResponse xmlns:u=\"urn:dslforum-org:service:WANCommonInterfaceConfig:1\"><NewTotalPacketsReceived>9113207</NewTotalPacketsReceived></u:GetTotalPacketsReceivedResponse></s:Body></s:Envelope>"
+  },
+  {
+   "method": "POST",
    "path": "/upnp/control/wlanconfig1",
    "headers": {
     "soapaction": "\"urn:dslforum-org:service:WLANConfiguration:1#GetInfo\"",
@@ -1072,6 +1132,61 @@
     "lag_member_state": null,
     "stp": null,
     "counters": null
+   },
+   {
+    "id": "recorded/port/wan",
+    "source": {
+     "adapter": "fritzbox",
+     "device_id": "recorded"
+    },
+    "vendor_extra": {},
+    "device_id": "recorded",
+    "name": "wan",
+    "kind": "virtual",
+    "up": null,
+    "speed_mbps": null,
+    "full_duplex": null,
+    "poe": null,
+    "lag": null,
+    "mac": null,
+    "description": null,
+    "admin_up": null,
+    "pvid": null,
+    "frame_types": null,
+    "ingress_filter": null,
+    "mtu": null,
+    "l2_mtu": null,
+    "jumbo": null,
+    "max_speed_mbps": null,
+    "advertised_speeds_mbps": [],
+    "autoneg": null,
+    "media": null,
+    "profile": null,
+    "flow_control": null,
+    "eee": null,
+    "role": "virtual",
+    "lower": [],
+    "lag_mode": null,
+    "hash_policy": null,
+    "min_links": null,
+    "lacp_rate": null,
+    "lag_member_state": null,
+    "stp": null,
+    "counters": {
+     "rx_bytes": 3881020914,
+     "tx_bytes": 1204117552,
+     "rx_packets": 9113207,
+     "tx_packets": 7204511,
+     "rx_errors": null,
+     "tx_errors": null,
+     "rx_crc_errors": null,
+     "rx_drops": null,
+     "tx_drops": null,
+     "collisions": null,
+     "link_downs": null,
+     "last_link_change": null,
+     "counters_since": null
+    }
    }
   ],
   "segments": [
