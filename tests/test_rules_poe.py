@@ -270,7 +270,9 @@ async def test_openwrt_reads_the_ubus_object_when_present() -> None:
         "ports": {"lan1": {"mode": "PoE", "status": "Delivering power", "consumption": 9000}},
     }
     with serve(create_app(sim)) as url:
-        cfg = OpenWrtConfig(url=f"{url}/ubus", password=SecretStr(sim.password))
+        cfg = OpenWrtConfig(
+            url=f"{url}/ubus", password=SecretStr(sim.password), allow_insecure_http=True
+        )
         a = OpenWrtAdapter(
             AdapterContext(
                 site_id="home",

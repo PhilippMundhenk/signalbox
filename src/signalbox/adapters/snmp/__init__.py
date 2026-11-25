@@ -125,6 +125,18 @@ _VLAN_CURRENT_COLUMNS = (
 )
 _FDB_COLUMNS = (mib.Q_FDB_PORT, mib.Q_FDB_STATUS)
 _FDB_LEGACY_COLUMNS = (mib.TP_FDB_PORT, mib.TP_FDB_STATUS)
+_POE_COLUMNS = (
+    *(
+        f"{mib.PETH_PORT}.{n}"
+        for n in (
+            mib.PETH_PORT_ADMIN,
+            mib.PETH_PORT_DETECTION,
+            mib.PETH_PORT_PRIORITY,
+            mib.PETH_PORT_CLASS,
+        )
+    ),
+    *(f"{mib.PETH_MAIN}.{n}" for n in (mib.PETH_MAIN_POWER, mib.PETH_MAIN_CONSUMPTION)),
+)
 _STP_SCALARS = (
     mib.STP_PROTOCOL,
     mib.STP_PRIORITY,
@@ -396,7 +408,7 @@ class SnmpAdapter(Adapter):
         table = mapping.fdb(d, site, pmap, self._mib, vlans)
         if not table:
             gaps.append(self._gap("a MAC address table (Q-BRIDGE-MIB, BRIDGE-MIB)"))
-        await self._walks("poe", (mib.PETH_PORT, mib.PETH_MAIN))
+        await self._walks("poe", _POE_COLUMNS)
         supply, port_poe = mapping.poe(pmap, self._mib)
         ports = [
             p.model_copy(update={"poe": port_poe[p.id]}) if p.id in port_poe else p
