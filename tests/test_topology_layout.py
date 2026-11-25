@@ -81,11 +81,11 @@ def home() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
 
 def test_layers_follow_role_and_uplink() -> None:
     r = run(*home())["ranks"]
-    assert r["isp-a"] == r["isp-b"] == 1  # remote site on top, then the ISP routers
-    assert r["remote"] == 0
-    assert r["fw"] == r["pi"] == 2  # behind an ISP router: their WAN port is an uplink
-    assert r["sw-core"] == r["sw-office"] == 3
-    assert {r[a] for a in ("ap-attic", "ap-garage", "ap-hall", "ap-office", "ap-patio")} == {4}
+    assert r["isp-a"] == r["isp-b"] == 0  # the ISP routers on top
+    assert r["fw"] == r["pi"] == 1  # behind an ISP router: their WAN port is an uplink
+    assert r["sw-core"] == r["sw-office"] == 2
+    assert r["remote"] == r["pi"] + 1  # a remote site hangs below its tunnel's device (#541)
+    assert {r[a] for a in ("ap-attic", "ap-garage", "ap-hall", "ap-office", "ap-patio")} == {3}
 
 
 def test_fewer_crossings_than_before() -> None:
