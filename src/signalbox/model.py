@@ -1558,6 +1558,9 @@ class Subnet(Observed):
     gateway: bool = False
     #: Where an IPv6 subnet's prefix comes from (#151). None: not known (and every IPv4 subnet).
     prefix_source: PrefixSource | None = None
+    #: Name of the device's L3 interface that carries the address (``br-lan.10``, ``vlan10``,
+    #: ``eth0.20``); None: the adapter does not know it (#517). Used for ``SegmentView.interface``.
+    interface_name: str | None = None
 
 
 class UplinkKind(StrEnum):

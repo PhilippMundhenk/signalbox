@@ -1346,6 +1346,7 @@ class _Layout:
                         id=object_id(self.device, "subnet", f"{name}-{n}"),
                         segment_id=seg,
                         interface=addr,
+                        interface_name=name,
                         device_id=self.device,
                         gateway=router and forwarding is not False,
                     )

@@ -10309,6 +10309,18 @@
           ],
           "title": "Interface"
         },
+        "interface_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interface Name"
+        },
         "observed_at": {
           "anyOf": [
             {

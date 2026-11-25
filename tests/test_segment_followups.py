@@ -14,6 +14,7 @@ from signalbox.model import (
     PortMembership,
     PortRole,
     Segment,
+    Subnet,
     segment_id,
 )
 from signalbox.rules import evaluate
@@ -64,6 +65,39 @@ def test_interface_from_the_vlan_name_without_membership() -> None:
     assert interface_of([port("gw", "vlan20", role=PortRole.VLAN)], 20) == "vlan20"
     assert interface_of(ports, None) is None
     assert interface_of(ports, 40) is None
+
+
+def reported_interface(*names: str | None) -> str | None:
+    from ipaddress import ip_interface
+
+    subs = [
+        Subnet(
+            id=f"gw/subnet/{n}",
+            segment_id=segment_id(SITE.id, 20),
+            interface=ip_interface(f"192.0.2.{n + 1}/24"),
+            device_id="gw",
+            interface_name=name,
+        )
+        for n, name in enumerate(names)
+    ]
+    ports = [port("gw", "a.20", role=PortRole.VLAN), port("gw", "b.20", role=PortRole.VLAN)]
+    snap = snapshot(
+        device("gw"),
+        ports=ports,
+        segments=[seg(20, "IoT", member("a.20"), member("b.20"))],
+        subnets=subs,
+    )
+    return merge([SITE], [snap], ()).segments[0].views[0].interface
+
+
+def test_interface_uses_the_name_the_adapter_reported_first() -> None:
+    assert reported_interface("eth1.20") == "eth1.20"
+    assert reported_interface("eth1.20", "eth1.20", None) == "eth1.20"
+
+
+def test_interface_ignores_ambiguous_reported_names() -> None:
+    assert reported_interface("x", "y") is None  # falls back to the (ambiguous) heuristic
+    assert reported_interface(None) is None
 
 
 def test_client_segment_falls_back_to_the_sightings() -> None:
