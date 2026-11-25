@@ -19,6 +19,9 @@ from ipaddress import ip_address, ip_network
 from typing import Any
 
 from signalbox.model import (
+    GatewayGroup,
+    GatewayGroupMember,
+    GroupMode,
     IPAddress,
     Monitor,
     Route,
@@ -27,11 +30,16 @@ from signalbox.model import (
     UplinkHealth,
     UplinkKind,
     UplinkState,
+    object_id,
     route_id,
 )
 
 ROUTES_SEARCH = "/api/routes/routes/searchroute"
 GATEWAY_STATUS = "/api/routes/gateway/status"
+#: Gateway groups (#150): an API of its own since the groups became an MVC model (26.7);
+#: before, they live in config.xml only and no API lists them.
+GROUPS_SEARCH = "/api/routing/group_settings/search"
+GROUPS_PRIVILEGE = "System: Gateways: Group (page-system-gateways)"
 ROUTES_PRIVILEGE = "System: Static Routes (page-system-staticroutes)"
 GATEWAY_PRIVILEGE = "System: Gateways (page-system-gateways)"
 
@@ -168,3 +176,97 @@ def default_route(device_id: str, uplink: Uplink | None) -> Route | None:
         origin=origin,
         active=True,
     )
+
+
+def _member_state(row: dict[str, Any]) -> UplinkState | None:
+    if "status" not in row and "address" not in row:
+        return UplinkState.DOWN  # "Disabled or inactive": the API's stand-in row has no status
+    status = _text(row.get("status")).lower()
+    if "down" in status:
+        return UplinkState.DOWN
+    if "loss" in status or "delay" in status:
+        return UplinkState.DEGRADED
+    if status in ("none", "online", "up"):
+        return UplinkState.ONLINE
+    return None
+
+
+def _tiers(raw: Any) -> list[list[dict[str, Any]]]:
+    """The tiers of a group row: ``gateways`` maps a tier index to the status rows of its
+    gateways (a JSON object or a list); empty tiers are dropped, the order of the keys ranks."""
+    if isinstance(raw, dict):
+        ordered = [v for _, v in sorted(raw.items(), key=lambda kv: str(kv[0]))]
+    elif isinstance(raw, list):
+        ordered = raw
+    else:
+        return []
+    out: list[list[dict[str, Any]]] = []
+    for tier in ordered:
+        rows = [r for r in tier if isinstance(r, dict)] if isinstance(tier, list) else []
+        if rows:
+            out.append(rows)
+    return out
+
+
+def gateway_groups(
+    device_id: str, rows: list[dict[str, Any]], uplinks: list[Uplink]
+) -> list[GatewayGroup]:
+    """The gateway groups of ``/api/routing/group_settings/search`` (26.7; *guess*: the row
+    fields ``name`` and ``gateways`` as the controller builds them, #21).
+
+    Each row has the group's ``name`` and ``gateways``: the tiers (the first is the first
+    choice) with the status row of every gateway in them (``name``, ``address``, ``status``,
+    ``delay``, ``loss``, ``monitor``). Two or more gateways in the first tier share the load
+    (balance); otherwise the lowest tier with a gateway that is not down carries the traffic.
+    A gateway without a status row is disabled or inactive and counts as down.
+    """
+    out: list[GatewayGroup] = []
+    for row in rows:
+        name = _text(row.get("name"))
+        tiers = _tiers(row.get("gateways"))
+        if not name or not tiers:
+            continue
+        members: list[GatewayGroupMember] = []
+        for tier, gateways in enumerate(tiers, start=1):
+            for gw in gateways:
+                gw_name = _text(gw.get("name"))
+                if not gw_name:
+                    continue
+                address = _address(gw.get("address"))
+                monitor = _address(gw.get("monitor"))
+                up = next(
+                    (u for u in uplinks if address is not None and u.upstream_gateway == address),
+                    None,
+                )
+                latency, loss = _number(gw.get("delay")), _number(gw.get("loss"))
+                members.append(
+                    GatewayGroupMember(
+                        name=gw_name,
+                        uplink_id=up.id if up else None,
+                        tier=tier,
+                        gateway=address,
+                        monitor_targets=[monitor] if monitor is not None else [],
+                        state=_member_state(gw),
+                        latency_ms=latency,
+                        loss_pct=min(loss, 100.0) if loss is not None else None,
+                    )
+                )
+        if not members:
+            continue
+        balance = sum(1 for m in members if m.tier == 1) > 1
+        active = None
+        if not balance:
+            alive = [m for m in members if m.state in (UplinkState.ONLINE, UplinkState.DEGRADED)]
+            if alive:
+                active = min(alive, key=lambda m: m.tier).name
+        out.append(
+            GatewayGroup(
+                id=object_id(device_id, "gateway-group", name),
+                device_id=device_id,
+                name=name,
+                mode=GroupMode.BALANCE if balance else GroupMode.FAILOVER,
+                members=members,
+                active=active,
+            )
+        )
+    return sorted(out, key=lambda g: g.id)

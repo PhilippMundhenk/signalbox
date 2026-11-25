@@ -1090,9 +1090,16 @@ spelling on 24.7 and 25.x (compared with the sources, not recorded).
   uplink's next hop gives the uplink's health (`status` `none` is online, a status with `down`
   is down, `loss` and `delay` are degraded; `delay` and `loss` as `4.2 ms` and `0.0 %`) and its
   monitor (`monitor`, the address pinged). Fields as of 24.7 to 26.1 *(guess, #21)*.
-- **Gateway groups are not read.** OPNsense keeps them in the configuration (System, Gateways,
-  Groups) and has no API that lists them *(guess: check on a real 26.x, #21)*; the multi-WAN
-  rules do not run for OPNsense yet.
+- **Gateway groups** (#150): `GET /api/routing/group_settings/search` lists them, with the tiers
+  and the status row of every gateway in a tier (`gateways`: tier index to rows with `name`,
+  `address`, `status`, `delay`, `loss`, `monitor`). The API exists since **26.7**, when Deciso
+  moved the groups into the MVC model `GatewayGroups` (`System: Gateways: Group`); **24.7, 25.1,
+  25.7 and 26.1 keep the groups in config.xml only and have no such API** (checked in the
+  sources of those tags): there the groups stay unread and, where the firewall has two or more
+  gateways, an optional gap says so; the gateway health above is still read. Several gateways
+  in the first tier are load balancing, otherwise the lowest tier with a gateway that is not
+  down is the active member; a gateway the API lists without a status is disabled or inactive
+  and counts as down. The tier keys are ranked in order; the row layout is a *guess* (#21).
 - `GET /api/dyndns/accounts/search_item` (plugin `os-ddclient`): one client per hostname of an
   enabled or disabled account (`service`, `protocol`, `hostnames`, `interface`, `enabled`). The
   rows hold `username` and `password`; they are never read. Not installed (404): nothing is

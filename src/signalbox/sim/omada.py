@@ -332,6 +332,15 @@ def sample_data() -> dict[str, Any]:
             "serverIp": "192.0.2.50",
             "serverPort": 514,
         },
+        # GUESSED shape (#150), not from a real controller: the WAN mode of the gateway, link
+        # backup with WAN2 as the backup port
+        f"{SITE}/internet/load-balance": {
+            "mode": 1,
+            "ports": [
+                {"port": 1, "weight": 1, "backup": False},
+                {"port": 2, "weight": 1, "backup": True},
+            ],
+        },
         f"{SITE}/gateways/{GATEWAY}/wan-status": [
             _wan(1, "SFP WAN", "DHCP", connected=True),
             _wan(2, "WAN2", "PPPoE", connected=False, kind=1),

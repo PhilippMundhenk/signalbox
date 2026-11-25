@@ -107,6 +107,7 @@ from signalbox.model import (
     DynamicDns,
     Firmware,
     FirmwareChannel,
+    GatewayGroup,
     HostRecord,
     IPAddress,
     IPInterface,
@@ -580,6 +581,23 @@ def _forwards_gap(version: compat.Version | None) -> Gap:
         optional=True,
         message_id="opnsense.forwardsUnread",
         fix_id="opnsense.forwardsUnread.fix",
+        params={"where": where},
+    )
+
+
+def _groups_gap(version: compat.Version | None) -> Gap:
+    """The gateway groups have no API (404): OPNsense before 26.7 keeps them in config.xml only
+    (24.7, 25.1, 25.7 and 26.1 have no ``/api/routing/group_settings``; the MVC model came
+    with 26.7, #150). Optional: the gateways and their health are read, the groups are not."""
+    where = f"OPNsense {compat.release(version)}" if version else "this OPNsense"
+    return Gap(
+        message=f"gateway groups: not readable on {where}, its API lists none (26.7 and newer "
+        "do), so failover groups are not checked",
+        fix="Optional: nothing to grant. Gateway groups are shown once OPNsense is updated to "
+        "26.7 or newer.",
+        optional=True,
+        message_id="opnsense.groupsUnread",
+        fix_id="opnsense.groupsUnread.fix",
         params={"where": where},
     )
 
@@ -1376,14 +1394,16 @@ class OpnsenseAdapter(_Adapter):
         certificates, cert_gaps = await self._certificates()
         route_list, route_gaps, gateway_rows = await self._routes(uplinks[0] if uplinks else None)
         uplinks = [route_reader.with_health(u, gateway_rows) for u in uplinks]
+        group_list, group_gaps = await self._gateway_groups(uplinks, gateway_rows)
         ddns_list, ddns_gaps = await self._ddns(uplinks[0].id if uplinks else None)
-        gaps = [*gaps, *cert_gaps, *route_gaps, *ddns_gaps]
+        gaps = [*gaps, *cert_gaps, *route_gaps, *group_gaps, *ddns_gaps]
         return Observation(
             routes=route_list,
             ports=layout.ports,
             segments=list(layout.segments.values()),
             subnets=subnets,
             uplinks=uplinks,
+            gateway_groups=group_list,
             ddns=ddns_list,
             services=await self._services(),
             certificates=certificates,
@@ -1416,6 +1436,23 @@ class OpnsenseAdapter(_Adapter):
             return [], []
         rows = _rows(data, ddns_reader.ACCOUNTS)
         return ddns_reader.clients(self.context.device_id, rows, wan), []
+
+    async def _gateway_groups(
+        self, uplinks: list[Uplink], status_rows: list[dict[str, Any]]
+    ) -> tuple[list[GatewayGroup], list[Gap]]:
+        """Gateway groups (#150) from the group API of 26.7. A 404 is an optional gap, but only
+        where the firewall has two or more gateways (a group needs them); a refused read (403)
+        names the privilege."""
+        try:
+            data = await self._get(route_reader.GROUPS_SEARCH, grid=True)
+        except NotFound:
+            if len(status_rows) < 2:
+                return [], []
+            return [], [_groups_gap(await self._release())]
+        except AdapterError as exc:
+            return [], [_privilege_gap("gateway groups", exc, route_reader.GROUPS_PRIVILEGE)]
+        rows = _rows(data, route_reader.GROUPS_SEARCH)
+        return route_reader.gateway_groups(self.context.device_id, rows, uplinks), []
 
     async def _routes(
         self, uplink: Uplink | None

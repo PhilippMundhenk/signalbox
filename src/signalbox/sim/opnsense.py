@@ -1017,8 +1017,55 @@ def sample_data() -> dict[str, Any]:
                     "loss": "0.0 %",
                 },
                 {"name": "LAB_GW", "address": "192.0.2.254", "status": "online"},
+                {
+                    "name": "WAN2_LTE",
+                    "address": "198.51.100.1",
+                    "status": "none",
+                    "monitor": "203.0.113.53",
+                    "delay": "38.0 ms",
+                    "stddev": "4.1 ms",
+                    "loss": "0.0 %",
+                },
             ],
             "status": "ok",
+        },
+        # Gateway groups (#150), 26.7 only: the group API lists the tiers with the status row of
+        # each gateway in them. Fields as the adapter expects them: *guess* until a 26.7 image
+        # says otherwise.
+        "/api/routing/group_settings/search": {
+            "total": 1,
+            "rowCount": 1,
+            "current": 1,
+            "rows": [
+                {
+                    "uuid": "7c1d0e22-0000-4000-8000-000000000151",
+                    "name": "WAN_FAILOVER",
+                    "trigger": "down",
+                    "descr": "Cable with a mobile backup",
+                    "gateways": {
+                        "0": [
+                            {
+                                "name": "WAN_DHCP",
+                                "address": "100.64.20.1",
+                                "status": "none",
+                                "monitor": "100.64.20.1",
+                                "delay": "4.2 ms",
+                                "loss": "0.0 %",
+                            }
+                        ],
+                        "1": [
+                            {
+                                "name": "WAN2_LTE",
+                                "address": "198.51.100.1",
+                                "status": "none",
+                                "monitor": "203.0.113.53",
+                                "delay": "38.0 ms",
+                                "loss": "0.0 %",
+                            }
+                        ],
+                    },
+                }
+            ],
         },
         # os-net-snmp (not part of the base system): general settings, v2c community "public"
         "/api/netsnmp/general/get": {
@@ -1096,7 +1143,8 @@ def older_release(data: dict[str, Any], release: str) -> None:
     """Make ``data`` what OPNsense ``release`` answers, from the public sources of the tags
     24.7.12, 25.1.12 and 25.7.11 (docs/adapters/opnsense.md, "Versions"):
 
-    - all older than 26.7: no destination NAT API (26.1), no ntpd API (25.7), the disk table of
+    - all older than 26.7: no destination NAT API (26.1), no gateway group API (26.7), no ntpd
+      API (25.7), the disk table of
       ``df -h`` without byte counts, no interface assignment API, ``search_rule`` as
       :meth:`OpnsenseSimulator.old_filter_rows` answers it;
     - 25.1 and 24.7 refuse a snake_case action with 403 (camelCase ACL patterns);
@@ -1109,7 +1157,11 @@ def older_release(data: dict[str, Any], release: str) -> None:
     product = data["/api/core/firmware/status"]["product"]
     product["product_version"] = RELEASES[release]
     product["product_latest"] = RELEASES[release].split("_")[0]
-    for path in ("/api/firewall/d_nat/search_rule", "/api/ntpd/service/status"):
+    for path in (
+        "/api/firewall/d_nat/search_rule",
+        "/api/ntpd/service/status",
+        "/api/routing/group_settings/search",
+    ):
         data.pop(path, None)
     for row in data["/api/diagnostics/system/system_disk"]["devices"]:
         for key in ("total", "total_bytes", "used_bytes", "available_bytes"):

@@ -52,7 +52,7 @@ from signalbox.adapters import (
 )
 from signalbox.adapters.https import DeviceHttp, NotFound, device_url
 from signalbox.adapters.omada import discovery as _discovery
-from signalbox.adapters.omada import firewall, vitals
+from signalbox.adapters.omada import firewall, multiwan, vitals
 from signalbox.adapters.portcounters import counters_of
 from signalbox.changes import Change, ChangeKind
 from signalbox.discovery import Candidate, HostProbe
@@ -75,6 +75,7 @@ from signalbox.model import (
     FirewallAction,
     FirewallRule,
     Firmware,
+    GatewayGroup,
     IPAddress,
     IPInterface,
     LagMode,
@@ -112,7 +113,9 @@ from signalbox.model import (
     SnmpVersion,
     Subnet,
     Uplink,
+    UplinkHealth,
     UplinkKind,
+    UplinkState,
     WifiScanResult,
     WifiStandard,
     WirelessAssociation,
@@ -595,6 +598,32 @@ def _wan_addresses(row: dict[str, Any]) -> list[IPInterface]:
     return out
 
 
+def _float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number >= 0 else None
+
+
+def _wan_health(row: dict[str, Any], up: bool | None) -> UplinkHealth | None:
+    """What the controller's WAN monitor sees of a port (#150): ``latency`` in ms and ``loss`` in
+    percent of ``wan-status`` (*guess*: the unit of both; a port that is down reports 0 and
+    keeps no figures). The state is online or down; the degraded threshold is the rule's."""
+    if up is None:
+        return None
+    if not up:
+        return UplinkHealth(state=UplinkState.DOWN)
+    latency, loss = _float(row.get("latency")), _float(row.get("loss"))
+    return UplinkHealth(
+        state=UplinkState.ONLINE,
+        latency_ms=latency if latency else None,
+        loss_pct=min(loss, 100.0) if loss is not None else None,
+    )
+
+
 def wan_uplink(row: dict[str, Any], device_id: str, extra: dict[str, JsonValue]) -> Uplink | None:
     """One entry of ``…/gateways/{mac}/wan-status``; a port in LAN mode is no uplink."""
     port = _int(row.get("port"))
@@ -616,6 +645,7 @@ def wan_uplink(row: dict[str, Any], device_id: str, extra: dict[str, JsonValue])
     return Uplink(
         id=f"{device_id}/uplink/port{port}",
         device_id=device_id,
+        health=_wan_health(row, up),
         name=_text(row.get("name")) or f"WAN{port}",
         kind=kind,
         up=up,
@@ -1263,6 +1293,9 @@ class OmadaAdapter(_Adapter):
             for d in await self._devices()
         ]
         uplinks = await self._uplinks(gateway) if gateway is not None else []
+        groups, group_gaps = (
+            await self._wan_groups(gateway, uplinks) if gateway is not None else ([], [])
+        )
         return Observation(
             ports=ports,
             poe=poe_supply,
@@ -1272,6 +1305,8 @@ class OmadaAdapter(_Adapter):
             wireless_links=mesh_links,
             mesh=mesh_members,
             uplinks=uplinks,
+            gateway_groups=groups,
+            incomplete=group_gaps,
             services=await self._services([m.id for m in managed]),
             **await self._accounts([m.id for m in managed]),
             log_targets=await self._log_targets([m.id for m in managed]),
@@ -1560,6 +1595,34 @@ class OmadaAdapter(_Adapter):
             for row in await self._optional_rows(path)
         )
         return [u for u in found if u is not None]
+
+    async def _wan_groups(
+        self, gateway: _Managed, uplinks: list[Uplink]
+    ) -> tuple[list[GatewayGroup], list[Gap]]:
+        """The WAN mode of the gateway (load balancing or link backup, #150) as one gateway
+        group. The setting's path is a guess: a controller that does not answer it leaves the
+        group out, with an optional gap where the gateway has two or more WAN ports."""
+        if len(uplinks) < 2:
+            return [], []
+        setting = await self._object(f"{self._site_path}/{multiwan.SETTING}")
+        group = (
+            multiwan.wan_group(self._prefix(gateway), setting, uplinks)
+            if setting is not None
+            else None
+        )
+        if group is not None:
+            return [group], []
+        return [], [
+            Gap(
+                message="multi-WAN: the controller does not report the WAN mode (load "
+                "balancing or link backup) of the gateway, so failover is not checked",
+                fix="Optional: nothing to grant. The WAN mode is read from the controller's "
+                "Open API where it offers it.",
+                optional=True,
+                message_id="omada.wanModeUnread",
+                fix_id="omada.wanModeUnread.fix",
+            )
+        ]
 
     async def _services(self, device_ids: list[str]) -> list[ManagementService]:
         """SSH and SNMP of the site (#173). The controller applies both to every device it

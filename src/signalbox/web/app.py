@@ -7,6 +7,7 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -129,7 +130,7 @@ class LinkBody(BaseModel):
     kind: LinkKind = LinkKind.CABLE
 
 
-def public_network(net: Network) -> dict[str, Any]:
+def public_network(net: Network, history: History | None = None) -> dict[str, Any]:
     """The network as JSON for the UI: passphrase fingerprints and digests never leave the server.
 
     Uplinks get the derived ``nat_class`` and ``upstream_device`` (the known router in front,
@@ -146,7 +147,8 @@ def public_network(net: Network) -> dict[str, Any]:
     large and are read with ``GET /api/fdb``; so are the scan results (``wifi_scan``, #169):
     neighbours' networks, read with ``GET /api/wifi-scan``. Each WLAN gets its BSSID's
     ``neighbours`` count and each radio ``neighbour_count`` and ``strongest_foreign_dbm`` on
-    its channel (:func:`signalbox.neighbours.radio_neighbours`).
+    its channel (:func:`signalbox.neighbours.radio_neighbours`). Gateway groups get ``failovers``,
+    how often their active member changed in the retained history (#150), where there is one.
     """
     data = net.model_dump(mode="json", exclude={"fdb", "wifi_scan", "held_sightings"})
     for radio, raw in zip(net.radios, data["radios"], strict=True):
@@ -161,6 +163,11 @@ def public_network(net: Network) -> dict[str, Any]:
         front = net.upstream_router(uplink)
         raw["nat_class"] = nat.value if nat else None
         raw["upstream_device"] = front.device_id if front else None
+    if history is not None and history.now is not None:
+        since = history.now - timedelta(days=history.days)
+        for group, raw in zip(net.gateway_groups, data["gateway_groups"], strict=True):
+            raw["failovers"] = history.failovers(group.id, since)
+            raw["failover_days"] = history.days
     for service, raw in zip(net.services, data["services"], strict=True):
         raw["reach_segments"] = net.service_segments(service)
         internet = service_from_internet(net, service).verdict
@@ -627,7 +634,7 @@ def create_app(services: Services, run_background: bool = True) -> FastAPI:
     @api.get("/network")
     def network() -> dict[str, Any]:
         """The merged network model without passphrase data; derived uplink and service values."""
-        return public_network(runner.network())
+        return public_network(runner.network(), runner.history())
 
     @api.get("/fdb", response_model=None)
     def fdb(

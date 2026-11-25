@@ -8,6 +8,7 @@ given: unknown is not down, and not different.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import timedelta
 from ipaddress import IPv4Address, IPv6Address
 
@@ -16,6 +17,7 @@ from signalbox.model import (
     DynamicDns,
     GatewayGroup,
     GatewayGroupMember,
+    GroupMode,
     NatClass,
     Network,
     Uplink,
@@ -170,6 +172,219 @@ def monitor_local(net: Network) -> Iterator[Result]:
                 fix_id="wan.monitorLocal.fix",
                 params={"member": m.name, "group": group.name, "device": device, "hop": str(hop)},
             )
+
+
+def _hop(net: Network, m: GatewayGroupMember) -> IPv4Address | IPv6Address | None:
+    up = net.uplink(m.uplink_id) if m.uplink_id else None
+    return m.gateway or (up.upstream_gateway if up else None)
+
+
+def _targets(net: Network, m: GatewayGroupMember) -> list[IPv4Address | IPv6Address]:
+    up = net.uplink(m.uplink_id) if m.uplink_id else None
+    return list(m.monitor_targets or (up.monitor.targets if up and up.monitor else []))
+
+
+@rule(
+    "wan.on-backup",
+    "The traffic runs over a backup line",
+    Severity.WARNING,
+    "A failover group of internet connections currently sends the traffic over a backup line "
+    "(a later tier) although it has a first choice. Backup lines are often slower, metered "
+    "or behind carrier-grade NAT, and the group stays on them until the first choice works "
+    "again. Quiet when the gateway does not say which line is active.",
+)
+def on_backup(net: Network) -> Iterator[Result]:
+    for group in sorted(net.gateway_groups, key=lambda g: g.id):
+        if group.mode is not GroupMode.FAILOVER or group.active is None:
+            continue
+        active = next((m for m in group.members if m.name == group.active), None)
+        if active is None:
+            continue
+        top = min(m.tier for m in group.members)
+        if active.tier <= top:
+            continue
+        primary = [m for m in group.members if m.tier == top]
+        device = device_name(net, group.device_id)
+        yield found(
+            f"The gateway group {group.name} on {device} runs over its backup line "
+            f"{active.name}; {_names(primary)} is the first choice",
+            [group.id],
+            fix="Check why the first choice was left (the line, the modem, its monitor "
+            "address). The group goes back by itself when it works again.",
+            mid="wan.onBackup",
+            fix_id="wan.onBackup.fix",
+            params={
+                "group": group.name,
+                "device": device,
+                "active": active.name,
+                "primary": _names(primary),
+            },
+        )
+
+
+@rule(
+    "wan.failover-same-path",
+    "The backup line goes the same way as the first choice",
+    Severity.WARNING,
+    "Two lines of a failover group (different tiers) use the same port of the gateway or the "
+    "same public next hop. A failure of the cable, the modem or the provider takes both down "
+    "at once, so the backup does not protect against it. Private and link-local next hops are "
+    "left out: modems often share such an address. Quiet where the gateway does not say the "
+    "port or the next hop.",
+)
+def failover_same_path(net: Network) -> Iterator[Result]:
+    for group in sorted(net.gateway_groups, key=lambda g: g.id):
+        if group.mode is not GroupMode.FAILOVER or len(group.members) < 2:
+            continue
+        shared: dict[str, list[GatewayGroupMember]] = {}
+        for m in group.members:
+            up = net.uplink(m.uplink_id) if m.uplink_id else None
+            hop = _hop(net, m)
+            keys = [f"port {up.port_id}"] if up is not None and up.port_id else []
+            if hop is not None and not _unreachable(hop):
+                keys.append(str(hop))
+            for key in keys:
+                shared.setdefault(key, []).append(m)
+        for key, members in sorted(shared.items()):
+            if len({m.tier for m in members}) < 2:
+                continue
+            device = device_name(net, group.device_id)
+            yield found(
+                f"{_names(members)} of the gateway group {group.name} on {device} use the same "
+                f"path ({key}): one failure takes both down",
+                [group.id],
+                fix="Connect the backup line through another port, modem and, if possible, "
+                "another provider or technology (mobile instead of a second cable).",
+                key=key,
+                mid="wan.failoverSamePath",
+                fix_id="wan.failoverSamePath.fix",
+                params={
+                    "members": _names(members),
+                    "group": group.name,
+                    "device": device,
+                    "shared": key,
+                },
+            )
+
+
+@rule(
+    "wan.monitor-missing",
+    "A line of a group is not monitored",
+    Severity.WARNING,
+    "A member of a group of internet connections has no address the gateway pings, while "
+    "another member has one. Without a monitor the gateway only sees a cable that is "
+    "unplugged: a dead provider connection is never noticed and the group does not switch. "
+    "Quiet when no member of the group has a monitor (the gateway may not report it) and "
+    "for groups with one member.",
+)
+def monitor_missing(net: Network) -> Iterator[Result]:
+    for group in sorted(net.gateway_groups, key=lambda g: g.id):
+        if len(group.members) < 2 or not any(_targets(net, m) for m in group.members):
+            continue
+        for m in group.members:
+            if _targets(net, m):
+                continue
+            device = device_name(net, group.device_id)
+            yield found(
+                f"{m.name} of the gateway group {group.name} on {device} is not monitored",
+                [group.id],
+                fix="Let the gateway ping an address on the internet through this line (a "
+                "public DNS server, for example) and switch the group when it stops answering.",
+                key=m.name,
+                mid="wan.monitorMissing",
+                fix_id="wan.monitorMissing.fix",
+                params={"member": m.name, "group": group.name, "device": device},
+            )
+
+
+class DegradedParams(RuleParams):
+    loss_pct: float = param(
+        5.0, unit="%", ge=0, le=100, description="Packet loss from which a line is degraded."
+    )
+    latency_ms: float = param(
+        300.0, unit="ms", ge=1, le=60000, description="Latency from which a line is degraded."
+    )
+
+
+def _figure(value: float | None, unit: str) -> str:
+    return "?" if value is None else f"{value:g} {unit}"
+
+
+@dataclass(frozen=True)
+class _Line:
+    """One line as the degraded check sees it: an uplink, or a group member without one."""
+
+    key: str
+    ident: str
+    device_id: str
+    name: str
+    state: UplinkState | None
+    latency: float | None
+    loss: float | None
+    up: bool | None
+
+
+def _lines(net: Network) -> Iterator[_Line]:
+    for up in sorted(net.uplinks, key=lambda u: u.id):
+        h = up.health
+        yield _Line(
+            up.id,
+            up.id,
+            up.device_id,
+            up.name or up.id.rsplit("/", 1)[-1],
+            h.state if h else None,
+            h.latency_ms if h else None,
+            h.loss_pct if h else None,
+            up.up,
+        )
+    for group in sorted(net.gateway_groups, key=lambda g: g.id):
+        for m in group.members:
+            if m.uplink_id and net.uplink(m.uplink_id) is not None:
+                continue
+            yield _Line(
+                f"{group.id}/{m.name}",
+                group.id,
+                group.device_id,
+                m.name,
+                m.state,
+                m.latency_ms,
+                m.loss_pct,
+                None,
+            )
+
+
+@rule(
+    "wan.degraded",
+    "An internet connection is slow or loses packets",
+    Severity.WARNING,
+    "The gateway's monitor calls an internet connection degraded, or its packet loss or latency "
+    "is at or above the parameters loss_pct (5 % by default) and latency_ms (300 ms by "
+    "default). Lines that are down are left out (wan.down), and lines whose gateway reports no "
+    "figures stay quiet unless it calls them degraded.",
+    params=DegradedParams,
+)
+def degraded(net: Network) -> Iterator[Result]:
+    for line in _lines(net):
+        if line.state is UplinkState.DOWN or line.up is False:
+            continue
+        p = ctx.params(DegradedParams, line.ident)
+        slow = line.latency is not None and line.latency >= p.latency_ms
+        lossy = line.loss is not None and line.loss >= p.loss_pct
+        if line.state is not UplinkState.DEGRADED and not slow and not lossy:
+            continue
+        device = device_name(net, line.device_id)
+        latency, loss = _figure(line.latency, "ms"), _figure(line.loss, "%")
+        yield found(
+            f"The internet connection {line.name} on {device} is degraded (latency {latency}, "
+            f"loss {loss})",
+            [line.ident],
+            fix="Check the line, the modem and the signal (mobile), and whether the link is "
+            "saturated. Raise the parameters if the line is always like this.",
+            key=line.key,
+            mid="wan.degraded",
+            fix_id="wan.degraded.fix",
+            params={"name": line.name, "device": device, "latency": latency, "loss": loss},
+        )
 
 
 def _uplink_of(net: Network, entry: DynamicDns) -> Uplink | None:
@@ -401,6 +616,10 @@ RULES: list[Rule] = [
     member_down,
     last_member,
     monitor_local,
+    on_backup,
+    failover_same_path,
+    monitor_missing,
+    degraded,
     mismatch,
     update_failed,
     private_address,

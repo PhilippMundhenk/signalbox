@@ -47,6 +47,7 @@ from signalbox.sightings import (
     DEVICE,
     DEVICE_KINDS,
     FDB,
+    GATEWAY,
     MAC_PORT,
     PORT,
     SERIAL,
@@ -985,6 +986,7 @@ class Store:
             BOOT: {},
             CPU: {},
             FDB: {},
+            GATEWAY: {},
             SERIAL: {},
             BASE_MAC: {},
         }
@@ -1050,6 +1052,7 @@ class Store:
             boots=values[BOOT],
             cpu=values[CPU],
             fdb=values[FDB],
+            gateway_actives=values[GATEWAY],
             serials=values[SERIAL],
             base_macs=values[BASE_MAC],
             counters=counters,

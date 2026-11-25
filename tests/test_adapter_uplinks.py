@@ -824,3 +824,137 @@ async def test_fritzbox_access_point_has_no_ddns(fritzbox: tuple[FritzboxSim, st
     finally:
         await adapter.close()
     assert snap.ddns == []
+
+
+# --- gateway groups of OPNsense 26.7 and Omada's WAN mode (#150) --------------------------------
+
+GROUPS = "/api/routing/group_settings/search"
+
+
+async def _snapshot(adapter: Adapter) -> Any:
+    try:
+        return await assert_contract(adapter)
+    finally:
+        await adapter.close()
+
+
+async def test_opnsense_gateway_group(opnsense_sim: tuple[opnsense.OpnsenseSimulator, str]) -> None:
+    snap = await _snapshot(_opnsense(opnsense_sim[1]))
+    [up] = snap.uplinks
+    [group] = snap.gateway_groups
+    assert (group.name, group.mode.value, group.active) == ("WAN_FAILOVER", "failover", "WAN_DHCP")
+    first, backup = group.members
+    assert (first.name, first.tier, first.uplink_id, first.state.value) == (
+        "WAN_DHCP",
+        1,
+        up.id,
+        "online",
+    )
+    assert (first.latency_ms, first.loss_pct) == (4.2, 0.0)
+    assert (backup.name, backup.tier, backup.uplink_id) == ("WAN2_LTE", 2, None)
+    assert backup.gateway == ip_address("198.51.100.1")
+    assert backup.monitor_targets == [ip_address("203.0.113.53")]
+    assert "opnsense.groupsUnread" not in {e.message_id for e in snap.errors}
+
+
+async def test_opnsense_gateway_group_states(
+    opnsense_sim: tuple[opnsense.OpnsenseSimulator, str],
+) -> None:
+    sim, url = opnsense_sim
+    tiers = sim.data[GROUPS]["rows"][0]["gateways"]
+    tiers["0"][0]["status"] = "down"
+    snap = await _snapshot(_opnsense(url))
+    assert snap.gateway_groups[0].active == "WAN2_LTE"
+    # a gateway that is disabled or inactive is listed without a status row of its own
+    tiers["1"][0] = {"name": "WAN2_LTE", "label": "danger", "status_translated": "Disabled"}
+    snap = await _snapshot(_opnsense(url))
+    group = snap.gateway_groups[0]
+    assert group.members[1].state.value == "down" and group.active is None
+    # two gateways in the first tier share the load
+    tiers["0"][0]["status"] = "none"
+    tiers["0"].append({"name": "WAN3", "address": "198.51.100.9", "status": "loss"})
+    del tiers["1"]
+    snap = await _snapshot(_opnsense(url))
+    group = snap.gateway_groups[0]
+    assert (group.mode.value, group.active) == ("balance", None)
+    assert [m.state.value for m in group.members] == ["online", "degraded"]
+    # a group without a name or gateways is skipped
+    sim.data[GROUPS]["rows"] = [{"name": "", "gateways": tiers}, {"name": "empty", "gateways": []}]
+    snap = await _snapshot(_opnsense(url))
+    assert snap.gateway_groups == []
+
+
+async def test_opnsense_without_group_api_is_an_optional_gap(
+    opnsense_sim: tuple[opnsense.OpnsenseSimulator, str],
+) -> None:
+    sim, url = opnsense_sim
+    del sim.data[GROUPS]
+    snap = await _snapshot(_opnsense(url))
+    assert snap.gateway_groups == []
+    [gap] = [e for e in snap.errors if e.message_id == "opnsense.groupsUnread"]
+    assert gap.optional and "26.7" in gap.message
+    # a firewall with one gateway has no use for groups: no gap
+    sim.data["/api/routes/gateway/status"]["items"] = sim.data["/api/routes/gateway/status"][
+        "items"
+    ][:1]
+    snap = await _snapshot(_opnsense(url))
+    assert "opnsense.groupsUnread" not in {e.message_id for e in snap.errors}
+
+
+GW = "gw/gateway-020000000a01"
+
+
+async def test_omada_wan_health_and_link_backup(
+    omada_sim: tuple[omada.OmadaSimulator, str],
+) -> None:
+    snap = await _snapshot(_omada(omada_sim[1]))
+    dhcp, pppoe = snap.uplinks
+    assert dhcp.health is not None and dhcp.health.state.value == "online"
+    assert (dhcp.health.latency_ms, dhcp.health.loss_pct) == (9.0, 0.0)
+    assert pppoe.health is not None and pppoe.health.state.value == "down"
+    assert pppoe.health.latency_ms is None
+    [group] = snap.gateway_groups
+    assert (group.id, group.mode.value, group.active) == (
+        f"{GW}/gateway-group/wan",
+        "failover",
+        "SFP WAN",
+    )
+    assert [(m.name, m.tier, m.state.value) for m in group.members] == [
+        ("SFP WAN", 1, "online"),
+        ("WAN2", 2, "down"),
+    ]
+    assert "omada.wanModeUnread" not in {e.message_id for e in snap.errors}
+
+
+async def test_omada_load_balancing_and_missing_mode(
+    omada_sim: tuple[omada.OmadaSimulator, str],
+) -> None:
+    sim, url = omada_sim
+    path = f"{omada.SITE}/internet/load-balance"
+    sim.data[path] = {"mode": 0, "ports": [{"port": 1, "weight": 3}, {"port": 2, "weight": 1}]}
+    snap = await _snapshot(_omada(url))
+    [group] = snap.gateway_groups
+    assert (group.mode.value, group.active) == ("balance", None)
+    assert [(m.tier, m.weight) for m in group.members] == [(1, 3), (1, 1)]
+    del sim.data[path]  # a controller that does not know the setting
+    snap = await _snapshot(_omada(url))
+    assert snap.gateway_groups == []
+    [gap] = [e for e in snap.errors if e.message_id == "omada.wanModeUnread"]
+    assert gap.optional
+    # one WAN port only: nothing to group, no gap
+    sim.data[WAN_STATUS] = sim.data[WAN_STATUS][:1]
+    snap = await _snapshot(_omada(url))
+    assert snap.gateway_groups == [] and "omada.wanModeUnread" not in {
+        e.message_id for e in snap.errors
+    }
+
+
+def test_omada_wan_health_entries() -> None:
+    odd = omada_uplink({"port": 1, "internetState": 1, "latency": "x", "loss": 250}, "gw", {})
+    assert odd is not None and odd.health is not None
+    assert (odd.health.latency_ms, odd.health.loss_pct) == (None, 100.0)
+    unknown = omada_uplink({"port": 2, "proto": "DHCP"}, "gw", {})
+    assert unknown is not None and unknown.health is None
+    negative = omada_uplink({"port": 3, "internetState": 1, "latency": -1, "loss": True}, "gw", {})
+    assert negative is not None and negative.health is not None
+    assert (negative.health.latency_ms, negative.health.loss_pct) == (None, None)

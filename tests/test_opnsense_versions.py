@@ -76,6 +76,14 @@ async def test_firewall_and_health_per_release(served: tuple[str, OpnsenseSimula
     # df -h sizes are rounded but present
     root = next(s for s in health.storage if s.name == "/")
     assert root.total_bytes is not None and root.used_bytes is not None
+    # gateway groups (#150): an API since 26.7 only, an optional gap before
+    if sim.release == "26.7":
+        assert [g.name for g in snap.gateway_groups] == ["WAN_FAILOVER"]
+        assert "opnsense.groupsUnread" not in gaps
+    else:
+        assert snap.gateway_groups == []
+        assert gaps["opnsense.groupsUnread"].optional
+        assert f"OPNsense {sim.release}" in gaps["opnsense.groupsUnread"].message
     if sim.release == "26.7":
         assert fw.rules_complete and fw.port_forwards_complete
         assert "opnsense.forwardsUnread" not in gaps
@@ -99,6 +107,7 @@ def test_older_release_data(release: str) -> None:
     data = sim.data
     assert "/api/firewall/d_nat/search_rule" not in data
     assert "/api/ntpd/service/status" not in data
+    assert "/api/routing/group_settings/search" not in data
     assert ("/api/dnsmasq/settings/get" in data) is (release == "25.1")
     # search_rule: 25.1 needs show_all=1 for the legacy and automatic rules, 24.7 has 4 columns
     plain = sim.old_filter_rows(False)["rows"]

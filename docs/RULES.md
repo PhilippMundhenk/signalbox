@@ -183,6 +183,10 @@ touch a shared file. This index is generated (`python tools/gen_docs.py`).
 - [`wan.group-member-down`](rules/multiwan.md#wangroup-member-down)
 - [`wan.group-last-member`](rules/multiwan.md#wangroup-last-member)
 - [`wan.monitor-local`](rules/multiwan.md#wanmonitor-local)
+- [`wan.on-backup`](rules/multiwan.md#wanon-backup)
+- [`wan.failover-same-path`](rules/multiwan.md#wanfailover-same-path)
+- [`wan.monitor-missing`](rules/multiwan.md#wanmonitor-missing)
+- [`wan.degraded`](rules/multiwan.md#wandegraded)
 - [`ddns.mismatch`](rules/multiwan.md#ddnsmismatch)
 - [`ddns.update-failed`](rules/multiwan.md#ddnsupdate-failed)
 - [`ddns.private-address`](rules/multiwan.md#ddnsprivate-address)
@@ -503,6 +507,13 @@ where each came from. The defaults are the values the rules used before they had
 | Parameter | Default | Unit | Meaning |
 | --- | --- | --- | --- |
 | `minutes` | `5` | min | Time without a handshake after which a peer is reported. |
+
+### `wan.degraded`
+
+| Parameter | Default | Unit | Meaning |
+| --- | --- | --- | --- |
+| `loss_pct` | `5` | % | Packet loss from which a line is degraded. |
+| `latency_ms` | `300` | ms | Latency from which a line is degraded. |
 
 ### `wifi.channel-busy`
 

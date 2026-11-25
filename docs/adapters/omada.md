@@ -249,6 +249,23 @@ the description, so neither is read as the line rate. A refused answer leaves th
 *To confirm with a gateway (#21): the spelling of `proto` and of `addr` (with or without a prefix
 length).*
 
+Multi-WAN (#150): `latency` (ms) and `loss` (percent) of each WAN port are the uplink's health
+(`wan-status` has no state beyond `status` and `internetState`, so it is online or down;
+`wan.degraded` applies its own thresholds); a port that is down has no figures *(guess: the
+units, #21)*.
+
+### `GET …/sites/{siteId}/internet/load-balance` (optional) *(guess)*
+
+The WAN mode of the gateway (Internet, Load Balancing) as one gateway group `wan`, shaped as
+`{"mode": 0 | 1, "ports": [{"port": 1, "weight": 1, "backup": false}]}`: mode 1 is link backup
+(a port with `backup` true is the second tier, the lowest tier that is online is the active
+member), mode 0 load balancing (the `weight` of each port). **Neither the path nor the fields
+are confirmed**: the Open API description does not name them in the parts read so far; the
+controller releases 5.x and 6.x are covered only by this guess (#21). A controller that does
+not answer it, or a gateway with fewer than two WAN ports in it, leaves the group out and,
+with two or more WAN ports, an optional gap says that the WAN mode is not read. The monitor
+addresses (online detection) are not read either, so `wan.monitor-missing` stays quiet.
+
 ### `GET …/sites/{siteId}/aps/{mac}/radio-config` (optional) *(API description)*
 
 ```json

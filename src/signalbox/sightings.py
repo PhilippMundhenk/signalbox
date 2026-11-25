@@ -33,6 +33,9 @@ BOOT, CPU = "boot", "cpu"
 #: Per device: its serial number and its base MAC address (``device.replaced``, #427). Recorded
 #: only in a round that reports them, so a read that lacks the field keeps the stored value.
 SERIAL, BASE_MAC = "serial", "base-mac"
+#: Per gateway group: the member that carries the traffic (``wan.on-backup``, failover counts,
+#: #150). A change is a failover or a failback.
+GATEWAY = "gateway"
 #: Per MAC address: the access port its device-table entries put it behind (``mac.flapping``,
 #: #298), as the id of the port.
 FDB = "fdb"
@@ -45,7 +48,7 @@ COUNTERS = "counters"
 #: How long such a sighting still counts after it was last seen.
 MAC_HOLD = timedelta(hours=24)
 #: Kinds whose key is a device id (deleted with the device).
-DEVICE_KINDS = (DEVICE, PORT, BOOT, CPU, SERIAL, BASE_MAC, MAC_PORT, COUNTERS)
+DEVICE_KINDS = (DEVICE, PORT, BOOT, CPU, SERIAL, BASE_MAC, MAC_PORT, COUNTERS, GATEWAY)
 #: Kinds whose value changes with every round: the changes are not logged.
 UNLOGGED_KINDS = (COUNTERS,)
 #: CPU load (percent) from which an observation counts as high for ``device.resources``.
@@ -170,6 +173,8 @@ class History(Model):
     #: By device id: the serial number and the base MAC address it reported (#427).
     serials: dict[str, ValueHistory] = Field(default_factory=dict)
     base_macs: dict[str, ValueHistory] = Field(default_factory=dict)
+    #: By gateway group id: the member that carried the traffic and when it changed (#150).
+    gateway_actives: dict[str, ValueHistory] = Field(default_factory=dict)
     #: By MAC address: the access port its MAC address table entries put it behind.
     fdb: dict[str, ValueHistory] = Field(default_factory=dict)
     #: By port id: the last counters and the delta to the read before (#158).
@@ -178,6 +183,12 @@ class History(Model):
     @classmethod
     def empty(cls) -> History:
         return cls()
+
+    def failovers(self, group_id: str, since: datetime) -> int:
+        """How often the member that carries a gateway group's traffic changed since ``since``
+        (a failover or a failback; 0 where nothing is recorded)."""
+        value = self.gateway_actives.get(group_id)
+        return 0 if value is None else sum(1 for c in value.changes if c.at >= since)
 
     @property
     def covered_since(self) -> datetime | None:
@@ -237,6 +248,12 @@ def observed_values(net: Network) -> dict[tuple[str, str], str | None]:
                 out[(SERIAL, dev.id)] = dev.serial
             if dev.mac:
                 out[(BASE_MAC, dev.id)] = dev.mac
+    for group in net.gateway_groups:
+        if (
+            group.active is not None
+            and net.statuses.get(group.device_id, DeviceStatus.OK) in ANSWERED
+        ):
+            out[(GATEWAY, group.id)] = group.active
     for dev in net.devices:
         h = dev.health
         if h is None or net.statuses.get(dev.id, DeviceStatus.OK) not in ANSWERED:
