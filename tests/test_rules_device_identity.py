@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from factories import device, snapshot
+from factories import SITE, device, snapshot
 from signalbox.merge import merge
 from signalbox.model import Device, Network
 from signalbox.rules import Finding, Rule, RuleSettings, evaluate
@@ -10,7 +10,7 @@ from signalbox.rules.device_identity import RULES, bootloader_outdated, name_mis
 
 
 def net_of(*devices: Device) -> Network:
-    return merge([snapshot(d) for d in devices])
+    return merge([SITE], [snapshot(d) for d in devices])
 
 
 def run(r: Rule, net: Network, raw: dict[str, Any] | None = None) -> list[Finding]:
