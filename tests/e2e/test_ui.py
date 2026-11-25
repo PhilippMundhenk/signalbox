@@ -1172,3 +1172,39 @@ def test_moving_a_device_to_another_site_shows_it_there_at_once(app: Any) -> Non
     )
     go(app, "#/topology")
     expect(app.get_by_test_id("topo-node")).to_have_count(1)
+
+
+def test_a_dialog_taller_than_the_screen_scrolls_inside(app: Any) -> None:
+    """#524: a long dialog (e.g. "fix all" with many devices) keeps its buttons on screen,
+    its body scrolls, and the page behind it does not."""
+    app.set_viewport_size({"width": 400, "height": 500})
+    add_site(app)
+    go(app, "#/devices")
+    app.evaluate(
+        """async () => {
+            const ui = await import('./ui.js');
+            const body = document.createElement('div');
+            for (let i = 0; i < 80; i += 1) {
+                const p = document.createElement('p');
+                p.textContent = `Step ${i}`;
+                body.append(p);
+            }
+            ui.modal({ title: 'Long', body, actions: (close) => {
+                const b = document.createElement('button');
+                b.dataset.testid = 'long-ok';
+                b.textContent = 'OK';
+                b.onclick = close;
+                return [b];
+            } });
+        }"""
+    )
+    ok = app.get_by_test_id("long-ok")
+    expect(ok).to_be_in_viewport()
+    body = app.get_by_test_id("modal-body")
+    assert body.evaluate("e => e.scrollHeight > e.clientHeight")
+    body.evaluate("e => { e.scrollTop = e.scrollHeight; }")
+    assert body.evaluate("e => e.scrollTop > 0")
+    assert app.evaluate("document.documentElement.classList.contains('modal-open')")
+    ok.click()
+    expect(app.get_by_test_id("modal")).to_have_count(0)
+    assert not app.evaluate("document.documentElement.classList.contains('modal-open')")

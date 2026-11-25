@@ -116,6 +116,7 @@ function renderLogin(message) {
   setPageSlot(null);
   clear(root);
   clear(document.getElementById('modal-root'));
+  document.documentElement.classList.remove('modal-open');
   const pw = h('input', { type: 'password', id: 'pw', autocomplete: 'current-password', required: true, 'data-testid': 'login-password' });
   const err = slot();
   const say = (text) => setNotice(err, 'error', 'login-error', text);
