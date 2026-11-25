@@ -125,7 +125,9 @@ def _errors_and_plan_texts_match_their_english_catalogue_entries(
         def described_new(
             cls: Any, message: str, message_id: str, orig: Any = original_new, **params: Any
         ) -> Any:
-            assert _english(message_id, params) == message
+            # NftGap fills the parameter ``source`` itself (default nftables, #404)
+            default = {"source": "nftables"} if issubclass(cls, nftables.NftGap) else {}
+            assert _english(message_id, {**default, **params}) == message
             return orig(cls, message, message_id, **params)
 
         monkeypatch.setattr(klass, "__new__", described_new)

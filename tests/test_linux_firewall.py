@@ -368,7 +368,7 @@ def test_jump_goto_return_and_loops() -> None:
     assert any("vmap" in g for g in p.gaps)
     assert {g.message_id for g in p.gaps} == {"linux.nft.chainJump", "linux.nft.vmap"}
     jump = next(g for g in p.gaps if g.message_id == "linux.nft.chainJump")
-    assert set(jump.params) == {"kind", "chain"}
+    assert set(jump.params) == {"kind", "chain", "source"}
     first, second, third = p.rules[0], p.rules[1], p.rules[2]
     assert first.source.zones == ["eth9"] and first.exact is False
     assert second.source.zones == ["eth0"] and second.destination.zones == ["eth2"]
@@ -451,3 +451,11 @@ def test_nat() -> None:
     n1, n2 = nat.nat
     assert n1.masquerade and n1.exact is False and n1.zones == []
     assert not n2.masquerade and str(n2.to_address) == "198.51.100.2"
+
+
+def test_gap_texts_name_the_real_source() -> None:
+    """#404: the shared mapping says iptables when the rules came from iptables-save."""
+    g = nftables.NftGap("nftables: a verdict map (vmap) is not read", "linux.nft.vmap").named(
+        "iptables"
+    )
+    assert g == "iptables: a verdict map (vmap) is not read" and g.params["source"] == "iptables"

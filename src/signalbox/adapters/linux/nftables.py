@@ -184,8 +184,13 @@ class NftGap(str):
     def __new__(cls, message: str, message_id: str, **params: str) -> NftGap:
         gap = super().__new__(cls, message)
         gap.message_id = message_id
-        gap.params = params
+        gap.params = {"source": "nftables", **params}
         return gap
+
+    def named(self, source: str) -> NftGap:
+        """The same gap naming the real source (``iptables`` for ``iptables-save`` input, #404)."""
+        text = source + self[len("nftables") :] if self.startswith("nftables") else str(self)
+        return NftGap(text, self.message_id, **{**self.params, "source": source})
 
 
 @dataclass
@@ -487,8 +492,11 @@ def _families(family: str) -> set[int]:
     return {"ip": {4}, "ip6": {6}, "inet": {4, 6}}.get(family, set())
 
 
-def parse(text: str) -> Parsed:
-    """Rules, forwards and NAT of ``nft -j list ruleset``; ``ValueError`` for anything else."""
+def parse(text: str, source: str = "nftables") -> Parsed:
+    """Rules, forwards and NAT of ``nft -j list ruleset``; ``ValueError`` for anything else.
+
+    ``source`` names where the rules came from in the gap texts (``iptables``: legacy reader).
+    """
     try:
         data = json.loads(text)
         objects = [o for o in data["nftables"] if isinstance(o, dict)]
@@ -498,7 +506,7 @@ def parse(text: str) -> Parsed:
     out = reader.parsed
     _filter(reader, out)
     _nat(reader, out)
-    out.gaps = reader.gaps
+    out.gaps = [g.named(source) for g in reader.gaps]
     for r in out.rules:
         out.zone_names |= {*r.source.zones, *r.destination.zones}
     for f in out.port_forwards:

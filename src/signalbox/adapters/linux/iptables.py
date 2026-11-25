@@ -267,7 +267,7 @@ def objects(text: str, family: str) -> list[dict[str, Any]]:
 def parse(save4: str, save6: str = "") -> nftables.Parsed:
     """Rules, forwards and NAT of ``iptables-save`` (and ``ip6tables-save``) output."""
     both = objects(save4, "ip") + objects(save6, "ip6")
-    return nftables.parse(json.dumps({"nftables": both}))
+    return nftables.parse(json.dumps({"nftables": both}), source="iptables")
 
 
 def has_rules(parsed: nftables.Parsed) -> bool:
