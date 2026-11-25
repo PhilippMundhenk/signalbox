@@ -849,6 +849,74 @@ async def test_services_not_read_when_the_controller_has_no_such_setting(
     assert snap.services == [] and not snap.errors
 
 
+# --- multicast (#508) ------------------------------------------------------------------------
+
+
+async def test_multicast_of_the_site_on_the_gateway(snap: Snapshot) -> None:
+    from signalbox.model import ReflectorKind, UnknownMulticast
+
+    gw = next(d for d in snap.extra_devices if d.id == GW)
+    assert gw.multicast is not None
+    by_name = {s.name: s for s in gw.multicast.settings}
+    assert set(by_name) == {"LAN", "IoT", "Guest"}
+    lan = by_name["LAN"]
+    assert lan.segment_id == "home/segment/native"
+    assert (lan.igmp_snooping, lan.mld_snooping, lan.querier) == (True, True, True)
+    assert lan.observed_querier == ip_address("192.0.2.1")
+    assert lan.unknown_multicast is UnknownMulticast.DROP
+    assert (by_name["IoT"].igmp_snooping, by_name["IoT"].mld_snooping) == (True, False)
+    assert by_name["Guest"].igmp_snooping is False and by_name["Guest"].querier is None
+    kinds = {r.kind: r for r in gw.multicast.reflectors}
+    assert kinds[ReflectorKind.IGMP_PROXY].enabled
+    mdns = kinds[ReflectorKind.MDNS]
+    assert mdns.enabled and mdns.segments == ["home/segment/20", "home/segment/native"]
+
+
+async def test_multicast_of_a_controller_before_6(http_url: str, sim: OmadaSimulator) -> None:
+    sim.release = "5.13"
+    snap = await observe(adapter(http_url))
+    gw = next(d for d in snap.extra_devices if d.id == GW)
+    assert gw.multicast is not None
+    lan = next(s for s in gw.multicast.settings if s.name == "LAN")
+    assert lan.igmp_snooping is True and lan.querier is None  # no lan-multicasts before 6
+    assert len(gw.multicast.reflectors) == 2 and not snap.errors
+
+
+async def test_multicast_rule_that_is_off_or_not_in_effect(
+    http_url: str, sim: OmadaSimulator
+) -> None:
+    sim.data[f"{SITE}/setting/service/mdns-exception"] = {"mdnsEffect": False}
+    snap = await observe(adapter(http_url))
+    gw = next(d for d in snap.extra_devices if d.id == GW)
+    assert gw.multicast is not None
+    (mdns,) = [r for r in gw.multicast.reflectors if r.kind.value == "mdns"]
+    assert mdns.enabled is False
+
+
+async def test_multicast_not_reported_without_the_mdns_rules(
+    http_url: str, sim: OmadaSimulator
+) -> None:
+    del sim.data[f"{SITE}/setting/service/mdns"]
+    snap = await observe(adapter(http_url))
+    assert all(d.multicast is None for d in snap.extra_devices) and not snap.errors
+
+
+def test_multicast_shapes_it_does_not_know_are_left_out() -> None:
+    from signalbox.adapters.omada import multicast as mc
+
+    nets = [("n1", "LAN", "home/segment/native", {"igmpSnoopEnable": True, "vlan": 1})]
+    out = mc.multicast(
+        nets,
+        [{"networks": "n1", "protocol": 0, "igmpQueriers": [{"ip": "not an address"}]}],
+        {"enable": "yes"},
+        [{"status": True, "type": 1, "osg": {"serviceNetworks": [{"id": "n1"}, 7]}}, {"type": 0}],
+        None,
+    )
+    assert [s.querier for s in out.settings] == [None]
+    (mdns,) = out.reflectors  # the proxy has no on/off flag; the second rule has no status
+    assert mdns.segments == ["home/segment/native"]
+
+
 async def test_access_point_uplinks(snap: Snapshot) -> None:
     """AP 1 hangs on switch port 5 (wired), AP 2 on AP 1 by mesh (#336)."""
     ports = {p.id: p for p in snap.ports}
