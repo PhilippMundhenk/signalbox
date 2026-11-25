@@ -65,9 +65,10 @@ if TYPE_CHECKING:  # pragma: no cover
 #: RouterOS 7.25.1 shows that for about a second after the address of a new VLAN interface).
 SETTLE_SECONDS = 15.0
 
-#: Kinds of change the integration applies (all of them; Wi-Fi on the RouterOS 7 ``wifi``
-#: package; firewall kinds (#295, docs/adr/0017) with a revert timer, see ``fwwrite``).
-WRITES = frozenset(ChangeKind)
+#: Kinds of change the integration applies (Wi-Fi on the RouterOS 7 ``wifi`` package; firewall
+#: kinds (#295, docs/adr/0017) with a revert timer, see ``fwwrite``); gateway groups (#463) not
+#: yet.
+WRITES = frozenset(ChangeKind) - {ChangeKind.GATEWAY_GROUP}
 
 #: ``/system/scheduler``: the revert timer of firewall changes.
 SCHEDULER = "/rest/system/scheduler"

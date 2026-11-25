@@ -34,6 +34,7 @@ from signalbox.changes import (
     WlanValue,
     observed_dhcp,
     observed_forward,
+    observed_group,
     observed_log_target,
     observed_policy,
     observed_port,
@@ -105,6 +106,8 @@ def current_value(net: Network, c: Change) -> Any:
         return observed_log_target(net, c.device_id, c.key, c.adopt)
     if c.kind is ChangeKind.SNMP_POLICY:
         return observed_snmp(net, c.device_id)
+    if c.kind is ChangeKind.GATEWAY_GROUP:
+        return observed_group(net, c.device_id, c.key)
     return observed_wlan(net, c.device_id, c.key)
 
 

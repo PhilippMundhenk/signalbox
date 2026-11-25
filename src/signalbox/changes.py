@@ -30,6 +30,7 @@ from signalbox.desired import (
     EffectiveLogging,
     EndpointSpec,
     FirewallSpec,
+    GatewayGroupSpec,
     SegmentRef,
     ZoneRef,
     effective_logging,
@@ -48,6 +49,8 @@ from signalbox.model import (
     FirewallMatch,
     FirewallProtocol,
     FirewallRule,
+    GatewayGroup,
+    GroupMode,
     IPAddress,
     IPInterface,
     IPNetwork,
@@ -92,6 +95,7 @@ class ChangeKind(StrEnum):
     PORT_FORWARD = "port-forward"  # one port forward (destination NAT) Signalbox owns
     LOG_TARGET = "log-target"  # one remote syslog target of a device (#327)
     SNMP_POLICY = "snmp-policy"  # the state of the SNMP agent of a device (#327)
+    GATEWAY_GROUP = "gateway-group"  # tiers, weights and monitors of a gateway group (#463)
 
 
 #: Kinds that change a device's firewall: their plans are checked for lost management access.
@@ -194,6 +198,26 @@ class LogTargetValue(Value):
     enabled: bool = True
 
 
+class GatewayMemberValue(Value):
+    """One member of a gateway group: its rank, weight and monitor addresses."""
+
+    name: str
+    #: Rank among the group's tiers (1 is the first choice), renumbered without gaps.
+    tier: int
+    weight: int | None = None
+    #: The addresses the monitor pings, sorted; empty: no monitor.
+    monitor: list[IPAddress] = Field(default_factory=list)
+    #: The member's next hop as the device reports it (not declared; it identifies a route).
+    gateway: IPAddress | None = None
+
+
+class GatewayGroupValue(Value):
+    """Every member of a gateway group (the undeclared ones as the device has them); the key
+    of its change is ``group/<name>``."""
+
+    members: list[GatewayMemberValue]
+
+
 class SnmpPolicyValue(Value):
     """The state of a device's SNMP agent. Never a community or a password.
 
@@ -214,6 +238,7 @@ VALUE_TYPES: dict[ChangeKind, type[Value]] = {
     ChangeKind.PORT_FORWARD: PortForwardValue,
     ChangeKind.LOG_TARGET: LogTargetValue,
     ChangeKind.SNMP_POLICY: SnmpPolicyValue,
+    ChangeKind.GATEWAY_GROUP: GatewayGroupValue,
 }
 #: Order in which kinds are applied when objects are created or changed; removals run reversed.
 PHASE = {
@@ -227,6 +252,7 @@ PHASE = {
     ChangeKind.PORT_FORWARD: 7,
     ChangeKind.LOG_TARGET: 8,
     ChangeKind.SNMP_POLICY: 9,
+    ChangeKind.GATEWAY_GROUP: 10,
 }
 
 AnyValue = (
@@ -240,6 +266,7 @@ AnyValue = (
     | PortForwardValue
     | LogTargetValue
     | SnmpPolicyValue
+    | GatewayGroupValue
 )
 
 
@@ -257,7 +284,8 @@ class Change(BaseModel):
     risk: str | None = None
     #: The device's own object (not created by Signalbox) this change may take over or
     #: remove: the name of an adopted rule or forward, or the zone pair of a forwarding (#295),
-    #: or the address of a syslog target the device had before (#327).
+    #: or the address of a syslog target the device had before (#327), or the name of the
+    #: device's gateway group that the desired state adopts (#463).
     adopt: str | None = None
 
     @model_validator(mode="after")
@@ -824,6 +852,158 @@ def _apply_logging(net: Network, c: Change) -> Network:
     return net.model_copy(update={"services": services})
 
 
+# gateway groups (#463) ------------------------------------------------------------------------
+
+
+def _ranks(tiers: list[int]) -> list[int]:
+    """The tiers renumbered 1, 2, ... in their order (1 and 5 become 1 and 2)."""
+    order = sorted(set(tiers))
+    return [order.index(t) + 1 for t in tiers]
+
+
+def _addresses(values: Iterable[IPAddress]) -> list[IPAddress]:
+    return sorted(set(values), key=lambda a: (a.version, int(a)))
+
+
+def _group_of(net: Network, device_id: str, name: str) -> GatewayGroup | None:
+    return next((g for g in net.gateway_groups_of(device_id) if g.name == name), None)
+
+
+def _group_value(group: GatewayGroup) -> GatewayGroupValue:
+    ranks = _ranks([m.tier for m in group.members])
+    return GatewayGroupValue(
+        members=[
+            GatewayMemberValue(
+                name=m.name,
+                tier=rank,
+                weight=m.weight,
+                monitor=_addresses(m.monitor_targets),
+                gateway=m.gateway,
+            )
+            for m, rank in zip(group.members, ranks, strict=True)
+        ]
+    )
+
+
+def group_key(name: str) -> str:
+    return f"group/{name}"
+
+
+def observed_group(net: Network, device_id: str, key: str) -> GatewayGroupValue | None:
+    """The gateway group ``group/<name>`` as the device reports it (None: there is none)."""
+    group = _group_of(net, device_id, key.partition("/")[2])
+    return _group_value(group) if group is not None else None
+
+
+def gateway_group_changes(
+    net: Network, site_id: str, spec: GatewayGroupSpec, *, planning: bool = True
+) -> list[Change]:
+    """The change that gives a group's members the declared tiers, weights and monitors.
+
+    Signalbox never creates or removes groups or members: a declared group or member the device
+    does not have is an error. Planning also needs ``adopt: true`` (every group is the device's
+    own); the drift comparison does not (``planning=False``)."""
+    _known(net, spec.device)
+    group = _group_of(net, spec.device, spec.name)
+    if group is None:
+        raise PlanError(
+            f"{spec.device} has no gateway group {spec.name}; Signalbox does not create groups",
+            message_id="plan.groupMissing",
+            params={"device": spec.device, "group": spec.name},
+        )
+    old = _group_value(group)
+    have = {m.name for m in old.members}
+    unknown = [m.name for m in spec.members if m.name not in have]
+    if unknown:
+        raise PlanError(
+            f"Gateway group {spec.name} of {spec.device} has no member {', '.join(unknown)}; "
+            "Signalbox does not add members",
+            message_id="plan.groupMemberMissing",
+            params={"device": spec.device, "group": spec.name, "member": ", ".join(unknown)},
+        )
+    declared = {m.name: m for m in spec.members}
+    tiers = [
+        d.tier if (d := declared.get(m.name)) is not None and d.tier is not None else m.tier
+        for m in old.members
+    ]
+    members = []
+    for m, rank in zip(old.members, _ranks(tiers), strict=True):
+        d = declared.get(m.name)
+        update: dict[str, Any] = {"tier": rank}
+        if d is not None and d.weight is not None:
+            update["weight"] = d.weight
+        if d is not None and d.monitor is not None:
+            update["monitor"] = _addresses(d.monitor)
+        members.append(m.model_copy(update=update))
+    new = GatewayGroupValue(members=members)
+    if new == old:
+        return []
+    if planning and not spec.adopt:
+        raise PlanError(
+            f"Gateway group {spec.name} of {spec.device} is the device's own: add adopt: true "
+            "to its entry to let a deployment change it",
+            message_id="plan.groupAdopt",
+            params={"device": spec.device, "group": spec.name},
+        )
+    return [
+        Change(
+            kind=ChangeKind.GATEWAY_GROUP,
+            device_id=spec.device,
+            site_id=site_id,
+            key=group_key(spec.name),
+            old=old,
+            new=new,
+            adopt=spec.name,
+        )
+    ]
+
+
+def _check_monitors(changes: list[Change]) -> None:
+    """A monitor belongs to a line: one line in two groups needs one set of addresses."""
+    seen: dict[tuple[str, str], list[IPAddress]] = {}
+    for c in changes:
+        if c.kind is not ChangeKind.GATEWAY_GROUP or not isinstance(c.new, GatewayGroupValue):
+            continue
+        for m in c.new.members:
+            other = seen.setdefault((c.device_id, m.name), m.monitor)
+            if other != m.monitor:
+                raise PlanError(
+                    f"{c.device_id}: the line {m.name} is in several gateway groups with "
+                    "different monitor addresses; its monitor is one for all its groups",
+                    message_id="plan.groupMonitorConflict",
+                    params={"device": c.device_id, "member": m.name},
+                )
+
+
+def _apply_group(net: Network, c: Change) -> Network:
+    """A gateway group change on the predicted network: tiers, weights, monitors and mode."""
+    if not isinstance(c.new, GatewayGroupValue):  # pragma: no cover - groups are not removed
+        return net
+    want = {m.name: m for m in c.new.members}
+    name = c.key.partition("/")[2]
+    groups = []
+    for g in net.gateway_groups:
+        if g.device_id == c.device_id and g.name == name:
+            members = [
+                m.model_copy(
+                    update={"tier": w.tier, "weight": w.weight, "monitor_targets": w.monitor}
+                )
+                if (w := want.get(m.name)) is not None
+                else m
+                for m in g.members
+            ]
+            failover = len({m.tier for m in members}) > 1
+            g = g.model_copy(
+                update={
+                    "members": members,
+                    "mode": GroupMode.FAILOVER if failover else GroupMode.BALANCE,
+                    "active": g.active if failover else None,
+                }
+            )
+        groups.append(g)
+    return net.model_copy(update={"gateway_groups": groups})
+
+
 # planner --------------------------------------------------------------------------------------
 
 SecretLookup = Callable[[str], str | None]
@@ -1016,6 +1196,9 @@ def changes_for(
                 if not eff.explicit and (known is None or known.log_targets is None):
                     continue  # a device whose integration does not read this: not touched
                 out += logging_changes(net, site_id, eff)
+        for gg in spec.gateway_groups:
+            out += gateway_group_changes(net, site_id, gg)
+    _check_monitors(out)
     return out
 
 
@@ -1193,6 +1376,8 @@ def _apply(net: Network, c: Change) -> Network:
         return _apply_firewall(net, c)
     if c.kind in LOGGING_KINDS:
         return _apply_logging(net, c)
+    if c.kind is ChangeKind.GATEWAY_GROUP:
+        return _apply_group(net, c)
     # WLAN
     wl = [w for w in net.wlans if not (w.device_id == c.device_id and w.ssid == c.key)]
     if isinstance(c.new, WlanValue):

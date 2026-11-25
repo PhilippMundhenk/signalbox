@@ -169,6 +169,40 @@ sites:
   is switched off. `devices: []` keeps the site-wide settings from applying to anything until
   you write some.
 
+## Gateway groups
+
+Tiers, weights and monitor addresses of the members of a multi-WAN gateway group (#463,
+[ADR 0032](adr/0032-gateway-group-desired-state.md)). The integrations do not write them yet:
+a plan with gateway group changes is refused by every integration for now. Off like every
+write: it needs `deploy.enabled`, *Allow changes* on the device and the per-plan approval.
+
+```yaml
+sites:
+  home:
+    gateway_groups:
+      - device: gateway           # the router that has the group
+        name: failover            # the device's name of the group (mwan3 policy, MikroTik: default)
+        adopt: true               # lets a deployment change it (needed for a plan)
+        members:                  # the device's names of the members, as the device page shows them
+          - name: wan
+            tier: 1               # 1 is the first choice, higher numbers are backups
+            weight: 3             # share of the load among the members of one tier
+            monitor: [192.0.2.53, 198.51.100.53]   # what the gateway pings; [] means none
+          - {name: wanb, tier: 2}
+```
+
+- **Signalbox never creates or removes groups or members.** It changes the tier, weight and
+  monitor of members the group has; a declared group or member the device does not have is
+  reported as drift and refuses the plan.
+- **Adopt**: every group is the device's own, so a plan changes it only with `adopt: true`;
+  without it the plan is refused with that hint, and the drift is still shown. Groups that are
+  not declared, and members that are not listed, are left as they are.
+- **Tiers** are an order: they are compared and written renumbered 1, 2, ... (tiers 1 and 5 are
+  the same as 1 and 2). Members on one tier share the load; several tiers are a failover.
+- **Monitor** addresses are compared as a set. A monitor belongs to the line, so a line that is
+  in several groups has one monitor for all of them; different declarations are refused.
+- *Import what the devices report* exports every group with all its members, without `adopt`.
+
 ## Network purposes
 
 `purpose` says what a segment or SSID is for: `main`, `guest`, `iot`, `management`, `servers`,
@@ -198,6 +232,7 @@ device does not report it the finding is incomplete. Deployments write it on Ope
 | `drift.port` | untagged and tagged VLANs of each declared port |
 | `drift.logging` | the declared syslog targets of each device (address, port, transport, sent at all), targets Signalbox created or was told to adopt that are no longer declared, and the SNMP agent (off, or v3-only) |
 | `drift.firewall` | every declared zone policy (the action the device applies), rule and port forward Signalbox created (all fields), and tagged ones that are no longer declared; a reference to a zone or segment that does not resolve |
+| `drift.gateway-group` | the declared tier (as an order), weight and monitor addresses of each declared member of a declared gateway group; a group or member the device does not have |
 
 A device that was not read gives an "incomplete" finding instead. An unreadable desired-state
 file gives the error finding `desired.invalid` with the reason.
