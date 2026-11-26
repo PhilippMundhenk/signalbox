@@ -118,6 +118,9 @@ UNSPECIFIED: dict[ChangeKind, tuple[str, ...]] = {
         "roaming_80211r",
         "roaming_80211k",
         "roaming_80211v",
+        "mobility_domain",
+        "ft_over_ds",
+        "min_rssi_dbm",
         "client_isolation",
     ),
     ChangeKind.DHCP: ("lease_seconds",),
@@ -143,6 +146,11 @@ def matches(net: Network, c: Change, want: Any, secrets: Mapping[str, str]) -> b
             if w.passphrase_fingerprint not in (None, fp):
                 return False
         want = want.model_copy(update={"passphrase_secret": None})
+        if want.roaming_80211r is False:  # no 802.11r: its details are not reported
+            want = want.model_copy(update={"mobility_domain": None, "ft_over_ds": None})
+            have = have.model_copy(update={"mobility_domain": None, "ft_over_ds": None})
+        if want.min_rssi_dbm == "off" and have.min_rssi_dbm is None:
+            want = want.model_copy(update={"min_rssi_dbm": None})  # no limit reported (ADR 0033)
     if c.kind is ChangeKind.PORT and want is None:
         from signalbox.changes import PortValue
 

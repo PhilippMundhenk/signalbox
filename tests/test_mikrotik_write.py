@@ -522,6 +522,33 @@ async def test_wlan_roundtrip_without_passphrase(url: str) -> None:
     await roundtrip(url, [iot], {})
 
 
+async def test_wlan_mobility_domain_and_over_ds(url: str, sim: MikrotikSimulator) -> None:
+    """#489, ADR 0033: ``security.ft-mobility-domain`` (a number) and ``ft-over-ds``."""
+    net = await network(url)
+    iot = change(
+        net,
+        ChangeKind.WLAN,
+        "Example-IoT",
+        WlanValue(
+            ssid="Example-IoT",
+            security=Security.WPA2_WPA3,
+            pmf=Pmf.OPTIONAL,
+            segment="native",
+            roaming_80211r=True,
+            mobility_domain="a1b2",
+            ft_over_ds=False,
+        ),
+    )
+    after = await roundtrip(url, [iot], {})
+    sent = [w for w in sim.writes if "security.ft-mobility-domain" in json.dumps(w)]
+    assert sent and str(int("a1b2", 16)) in json.dumps(sent)
+    assert all(
+        w.ft is not None and (w.ft.mobility_domain, w.ft.over_ds) == ("a1b2", False)
+        for w in after.wlans
+        if w.ssid == "Example-IoT"
+    )
+
+
 async def test_wlan_open_and_owe(url: str, sim: MikrotikSimulator) -> None:
     # both radios alike (a change sets every interface of the SSID to the same values)
     sim.data[WIFI][1].update({"steering.rrm": "yes", "steering.wnm": "yes"})
@@ -601,6 +628,8 @@ async def test_wlan_refusals(url: str, sim: MikrotikSimulator) -> None:
         await apply(url, [wlan("Example", security=Security.WPA2_ENTERPRISE)])
     with pytest.raises(AdapterError, match="client isolation is not read or changed on RouterOS"):
         await apply(url, [wlan("Example", client_isolation=True)])
+    with pytest.raises(AdapterError, match="minimum signal is set in the access list"):
+        await apply(url, [wlan("Example", min_rssi_dbm=-70)])
     with pytest.raises(AdapterError, match="needs a passphrase secret"):
         await apply(url, [wlan("New")])
     with pytest.raises(AdapterError, match="secret 'missing' was not given"):

@@ -34,5 +34,6 @@
 | [0030](0030-access-control-radius.md) | Port access control (802.1X, MAC authentication, port security), MAC filters and RADIUS servers; shared secrets and MAC lists are never read (#162) |
 | [0031](0031-ssh-host-key-pins.md) | SSH host keys are pinned per device; a changed key stops the run before the password and warns, re-trust names the new key (#526); addendum: setup and Fix it reuse the certificate pin, every SSH key type is pinned (#535) |
 | [0032](0032-gateway-group-desired-state.md) | Gateway group desired state: tiers, weights and monitors of groups the user adopted; Signalbox never creates or removes groups or members (#463) |
+| [0033](0033-wifi-roaming-desired-state.md) | Wi-Fi roaming in the desired state: 802.11r mobility domain and over-DS, minimum signal; one mobility domain per SSID across its access points, inconsistent plans are refused (#489) |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.

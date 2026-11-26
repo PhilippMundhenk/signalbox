@@ -33,6 +33,7 @@ from signalbox.adapters import openwrt as h  # the read helpers (circular, used 
 from signalbox.adapters.openwrt.firewall import FORWARD_TAG, POLICY_TAG, RULE_TAG
 from signalbox.adapters.openwrt.firewall import tag as fw_tag
 from signalbox.adapters.openwrt.mwanwrite import gateway_group
+from signalbox.adapters.openwrt.wifi_assoc import default_mobility_domain
 from signalbox.changes import (
     Change,
     ChangeKind,
@@ -45,6 +46,7 @@ from signalbox.changes import (
     SnmpPolicyValue,
     WlanValue,
     ZonePolicyValue,
+    unchanged_left_alone,
 )
 from signalbox.desired import SegmentRef, seg_key
 from signalbox.model import (
@@ -340,12 +342,46 @@ def _interface_for(cfg: Configs, site: str, ref: SegmentRef, label: str) -> str:
     )
 
 
+#: The first release whose netifd hostapd script passes ``rssi_reject_assoc_rssi`` on
+#: (hostapd 2.10) *(guess, #21)*; older ones keep the option in UCI without any effect.
+RSSI_REJECT_SINCE = (22, 3)
+
+
+def rssi_reject_supported(release: str | None) -> bool:
+    """Whether the OpenWrt ``release`` (``23.05.3``, ``SNAPSHOT``) applies the option."""
+    text = (release or "").strip().upper()
+    if text.startswith("SNAPSHOT"):
+        return True
+    match = re.match(r"(\d+)\.(\d+)", text)
+    return match is not None and (int(match[1]), int(match[2])) >= RSSI_REJECT_SINCE
+
+
+def _ft_values(s: dict[str, Any], w: WlanValue, out: dict[str, Any], drop: list[str]) -> None:
+    """802.11r details and the minimum signal (#489, ADR 0033); only while 802.11r is on."""
+    ft = w.roaming_80211r if w.roaming_80211r is not None else h._flag(s.get("ieee80211r"))
+    if ft and w.mobility_domain is not None:
+        have = str(s.get("mobility_domain") or "").lower()
+        if not re.fullmatch(r"[0-9a-f]{4}", have):
+            have = default_mobility_domain(w.ssid)
+        if have != w.mobility_domain or "mobility_domain" not in s:
+            out["mobility_domain"] = w.mobility_domain
+    over_ds = h._flag(s["ft_over_ds"]) if "ft_over_ds" in s else None
+    if ft and w.ft_over_ds not in (None, over_ds):
+        out["ft_over_ds"] = "1" if w.ft_over_ds else "0"
+    if isinstance(w.min_rssi_dbm, int):
+        if str(s.get("rssi_reject_assoc_rssi")) != str(w.min_rssi_dbm):
+            out["rssi_reject_assoc_rssi"] = str(w.min_rssi_dbm)
+    elif w.min_rssi_dbm == "off" and "rssi_reject_assoc_rssi" in s:
+        drop.append("rssi_reject_assoc_rssi")
+
+
 def _wifi_values(
     s: dict[str, Any], w: WlanValue, key: str | None, network: str
 ) -> tuple[dict[str, Any], list[str]]:
     """Options to set and to delete so that the read side reports ``w``."""
     out: dict[str, Any] = {}
     drop: list[str] = []
+    _ft_values(s, w, out, drop)
     if h.security(s.get("encryption")) is not w.security:
         out["encryption"] = ENCRYPTION_OF[w.security]
     if key is not None and s.get("key") != key:
@@ -373,9 +409,24 @@ def _wifi_values(
     return out, drop
 
 
-def _wlan(cfg: Configs, c: Change, site: str, secrets: Mapping[str, str]) -> None:
+def _wlan(
+    cfg: Configs, c: Change, site: str, secrets: Mapping[str, str], release: str | None
+) -> None:
     ssid = c.key
     label = Label(f"SSID {ssid}", "ssid", ssid)
+    old_rssi = c.old.min_rssi_dbm if isinstance(c.old, WlanValue) else None
+    if (
+        isinstance(c.new, WlanValue)
+        and isinstance(c.new.min_rssi_dbm, int)
+        and c.new.min_rssi_dbm != old_rssi
+        and not rssi_reject_supported(release)
+    ):
+        raise AdapterError(
+            f"{label}: a minimum signal (rssi_reject_assoc_rssi) needs OpenWrt 22.03 or newer; "
+            f"this device runs {release or 'an unknown release'}",
+            message_id="openwrt.minRssiRelease",
+            params={"label": label, "release": release or "?"},
+        )
     radios = [n for n, s in cfg.sections("wireless", "wifi-device") if h.band(s) is not None]
     existing = [
         (n, s)
@@ -437,6 +488,7 @@ def _wlan(cfg: Configs, c: Change, site: str, secrets: Mapping[str, str]) -> Non
                 ),
             )
         return
+    w = unchanged_left_alone(w, c.old)
     view = cfg.view()
     for n, s in existing:
         nets = h._list(s.get("network"))
@@ -1102,8 +1154,10 @@ def translate(
     dump: Mapping[str, Any],
     site: str,
     secrets: Mapping[str, str],
+    release: str | None = None,
 ) -> Configs:
-    """The UCI operations for a device's changes, in order."""
+    """The UCI operations for a device's changes, in order; ``release`` is the OpenWrt
+    version (``system board``), needed for a minimum signal only."""
     # ``firewall`` is missing where an older ACL does not let the login read it
     cfg = Configs({name: copy.deepcopy(data[name]) for name in CONFIGS if name in data})
     for name in cfg.data:
@@ -1131,7 +1185,7 @@ def translate(
         elif c.kind is ChangeKind.PORT:
             _port(cfg, c)
         elif c.kind is ChangeKind.WLAN:
-            _wlan(cfg, c, site, secrets)
+            _wlan(cfg, c, site, secrets, release)
         elif c.kind is ChangeKind.DHCP:
             _dhcp(cfg, c, site, dump)
         elif c.kind is ChangeKind.RESERVATION:

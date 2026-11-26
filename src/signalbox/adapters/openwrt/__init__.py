@@ -92,7 +92,7 @@ from signalbox.adapters.openwrt.ubus import (
     unexpected,
 )
 from signalbox.adapters.portcounters import counters_of
-from signalbox.changes import Change, ChangeKind
+from signalbox.changes import Change, ChangeKind, WlanValue
 from signalbox.discovery import Candidate, HostProbe
 from signalbox.factory_defaults import is_factory_default
 from signalbox.lldp import age_seconds, int_of, med_class, protocol_of
@@ -2839,7 +2839,14 @@ class OpenWrtAdapter(Adapter):
     async def _translate(self, changes: list[Change], secrets: Mapping[str, str]) -> write.Configs:
         data = await self._configs()
         dump = await self.ubus.call("network.interface", "dump")
-        return write.translate(changes, data, dump, self.context.site_id, secrets)
+        release = None
+        if any(
+            isinstance(c.new, WlanValue) and isinstance(c.new.min_rssi_dbm, int) for c in changes
+        ):
+            board = await self.ubus.call("system", "board")
+            info = board.get("release") if isinstance(board.get("release"), dict) else {}
+            release = info.get("version") if isinstance(info.get("version"), str) else None
+        return write.translate(changes, data, dump, self.context.site_id, secrets, release)
 
     async def plan_changes(
         self, changes: list[Change], secrets: Mapping[str, str]

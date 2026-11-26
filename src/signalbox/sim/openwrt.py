@@ -1657,6 +1657,8 @@ LEASE = (_mac(0x20, 3), "192.0.2.103", "laptop")
 #: Releases the simulator can pose as: revision and kernel per version (#407). 23.05 and 24.10
 #: have netifd's shell wireless object and opkg; 25.12 has the ucode one (``wireless_ucode``), apk.
 RELEASES: dict[str, tuple[str, str]] = {
+    #: only the release string differs: a minimum signal is refused before 22.03 (#489)
+    "21.02.7": ("r16847-f8282da11e", "5.4.238"),
     "23.05.5": ("r24106-10cc5fcd00", "5.15.167"),
     "23.05.6": ("r23630-842932a63d", "5.15.194"),
     "24.10.8": ("r28939-ecd2cf8f09", "6.6.119"),

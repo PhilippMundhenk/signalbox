@@ -41,7 +41,8 @@ sites:
         pmf: optional            # disabled, optional, required
         segment: native
         devices: [ap-1, ap-2]    # default: every access point of the site
-        roaming: {r: true}
+        roaming: {r: true, mobility_domain: a1b2, over_ds: false}   # one domain per SSID
+        min_rssi_dbm: -75        # weaker clients cannot associate; off: no limit
       - ssid: Example-IoT
         security: wpa2-psk
         passphrase_secret: iot-wifi
@@ -228,12 +229,27 @@ declared here; the guest and IoT checks ([rules/networks.md](rules/networks.md))
 device does not report it the finding is incomplete. Deployments write it on OpenWrt
 (`option isolate`); the Omada, MikroTik and Fritz!Box integrations refuse a plan that changes it.
 
+### Wi-Fi roaming
+
+`roaming` switches 802.11r (`r`), 802.11k (`k`) and 802.11v (`v`); with `r: true` it also takes
+`mobility_domain` (four hex digits) and `over_ds` (fast transition over the distribution system
+instead of over the air). `min_rssi_dbm` (-120 to -1, or `off`) is the weakest signal a client
+may have ([ADR 0033](adr/0033-wifi-roaming-desired-state.md)).
+
+- **One mobility domain per SSID**: the declared domain applies to all access points of the
+  SSID. Without one, a plan that leaves 802.11r on for an SSID on several access points needs
+  them to report the same domain; otherwise it is refused with the hint to declare it.
+- These fields never change security, PMF or the passphrase.
+- Written on OpenWrt (`ieee80211r`, `mobility_domain`, `ft_over_ds`, and `rssi_reject_assoc_rssi`
+  from OpenWrt 22.03) and MikroTik (`security.ft`, `ft-mobility-domain`, `ft-over-ds`; a minimum
+  signal is refused there for now). Omada refuses a plan that changes them.
+
 ## Drift findings
 
 | Rule | Compares |
 | --- | --- |
 | `drift.segment` | segment exists, name, purpose against a reported one, router address, DHCP on/off, pool, DNS servers, lease time, reservations |
-| `drift.wlan` | SSID present on each access point, security, PMF, VLAN, hidden, on/off, 802.11r/k/v, client isolation, purpose against a reported one, passphrase (by fingerprint against the stored secret) |
+| `drift.wlan` | SSID present on each access point, security, PMF, VLAN, hidden, on/off, 802.11r/k/v, mobility domain, over-DS and minimum signal, one mobility domain per SSID, client isolation, purpose against a reported one, passphrase (by fingerprint against the stored secret) |
 | `drift.port` | untagged and tagged VLANs of each declared port |
 | `drift.logging` | the declared syslog targets of each device (address, port, transport, sent at all), targets Signalbox created or was told to adopt that are no longer declared, and the SNMP agent (off, or v3-only) |
 | `drift.firewall` | every declared zone policy (the action the device applies), rule and port forward Signalbox created (all fields), and tagged ones that are no longer declared; a reference to a zone or segment that does not resolve |

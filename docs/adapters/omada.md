@@ -461,8 +461,9 @@ is no confirm timer: a change that does not read back as planned is undone from 
 - Security that can be set: open, WPA2, WPA2/WPA3 (`versionPsk` 2 and 4). WPA3 alone is refused
   (the controller sets it only for 6 GHz-only SSIDs), OWE too: the controller takes `oweEnable`
   but does not answer it, so it cannot be verified. Enterprise needs a RADIUS profile and is
-  refused, as are 802.11r/k/v and client isolation (not read, so not verifiable). The guest
-  network flag is not written.
+  refused, as are changes of 802.11r/k/v, the mobility domain, over-DS and the minimum signal
+  (`rssiSetting`, not confirmed on a controller, #21) and client isolation (not read, so not
+  verifiable). The guest network flag is not written.
 - Refused before anything is sent: a network without a name, removing the native network, DHCP
   on a network without a gateway address, more than two DNS servers, lease times that are not
   whole minutes, a port without an untagged network or with VLAN 1 tagged, a VLAN the
