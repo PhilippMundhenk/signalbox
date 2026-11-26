@@ -3481,6 +3481,7 @@ class MikrotikAdapter(MikrotikWrites, Adapter):
                     enabled=not disabled,
                     listen_port=listen if listen and 1 <= listen <= 65535 else None,
                     public_key=_wg_key(row.get("public-key")),
+                    signalbox_key=wg_tagged(row),
                     addresses=addresses.get(name, []),
                     mtu=mtu if mtu is not None and 68 <= mtu <= 65535 else None,
                     peers=wireguard_peers(
@@ -3685,8 +3686,19 @@ def wireguard_peers(rows: list[dict[str, Any]], now: datetime) -> list[TunnelPee
             keepalive_seconds=keepalive if keepalive is not None and keepalive <= 65535 else 0,
             preshared_key=bool(row.get("preshared-key-set")),
             enabled=not _flag(row.get("disabled")),
+            signalbox_key=wg_tagged(row),
         )
     return list(out.values())
+
+
+#: The comment prefix of the WireGuard rows Signalbox creates (#152, see ``wgwrite``).
+WG_TAG = "signalbox:wg/"
+
+
+def wg_tagged(row: dict[str, Any]) -> str | None:
+    """The tunnel name of a WireGuard row Signalbox created (its comment), else ``None``."""
+    text = _text(row.get("comment"))
+    return text[len(WG_TAG) :] if text.startswith(WG_TAG) and len(text) > len(WG_TAG) else None
 
 
 def _sort_key(address: IPAddress) -> tuple[int, int]:

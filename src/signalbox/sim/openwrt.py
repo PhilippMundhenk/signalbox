@@ -180,6 +180,20 @@ def _wg_key(name: str) -> str:
     return base64.b64encode(hashlib.sha256(name.encode()).digest()).decode()
 
 
+#: The key helper of the write ACL (#152, docs/adapters/openwrt.md).
+WG_KEY_HELPER = "/usr/libexec/signalbox-wg-key"
+
+
+def wg_private_key(interface: str) -> str:
+    """The private key the simulated helper generates for an interface Signalbox created: it
+    must never leave the integration (``do-not-leak`` in the seed, #152)."""
+    return _wg_key(f"sim-wg-private-do-not-leak-{interface}")
+
+
+def wg_public_key(interface: str) -> str:
+    return _wg_key(f"sim-wg-public-{interface}")
+
+
 #: the router's own tunnel ``wg0``, its site peer (the OPNsense simulator's ``wg0``) and a phone
 WG_KEY = _wg_key("sim-site-b")
 WG_SITE_A = _wg_key("sim-opnsense-wg0")
@@ -1869,6 +1883,8 @@ class OpenWrtSim:
     luci_wireguard: bool = True
     #: seconds since the site peer's last handshake
     wg_handshake_ago: int = 42
+    #: ``/usr/libexec/signalbox-wg-key`` installed with wireguard-tools (#152)
+    wg_key_helper: bool = True
     #: rpcd-mod-iwinfo installed (ubus object ``iwinfo``, #172)
     iwinfo: bool = True
     #: access points ``iwinfo scan`` reports (#169), see :data:`NEIGHBOURS`
@@ -2251,6 +2267,8 @@ class OpenWrtSim:
                 0,
                 {"dhcp_leases": [lease, printer, {"macaddr": "bogus"}], "dhcp6_leases": [v6]},
             ]
+        if obj == "file" and method == "exec":
+            return self.file_exec(args)
         if obj == "file" and method == "read":
             path = str(args.get("path"))
             if f"file:{path}" in self.denied or not any(
@@ -2404,13 +2422,64 @@ class OpenWrtSim:
                 return values.get(leaf)
         return None
 
-    def wg_instances(self) -> dict[str, Any]:
-        """``luci.wireguard getWgInstances``: running state, public data only."""
-        if not any(
-            s.get("proto") == "wireguard" for _, s in _of(self.state["network"], "interface")
+    def file_exec(self, args: dict[str, Any]) -> list[Any]:
+        """rpcd ``file exec``: only the WireGuard key helper of the write ACL (#152). It gives
+        an interface Signalbox created a private key (marked ``do-not-leak``) in the live
+        configuration, as the script's ``uci commit`` does, and prints nothing."""
+        if "network" not in self.writable or "file:exec" in self.denied:
+            return [DENIED]  # a read-only login, or an ACL from before #152
+        if args.get("command") != WG_KEY_HELPER:
+            return [DENIED]
+        if not self.wg_key_helper:
+            return [NOT_FOUND]
+        params = [str(p) for p in args.get("params") or []]
+        if params == ["--check"]:
+            return [0, {"code": 0}]
+        if len(params) != 1:
+            return [0, {"code": 2}]
+        section = self.state["network"].get(params[0])
+        if (
+            not isinstance(section, dict)
+            or section.get("proto") != "wireguard"
+            or not section.get("signalbox")
         ):
-            return {}
-        return {
+            return [0, {"code": 3}]
+        section.setdefault("private_key", wg_private_key(params[0]))
+        self.history.append(f"wg-key {params[0]}")
+        return [0, {"code": 0}]
+
+    def wg_instances(self) -> dict[str, Any]:
+        """``luci.wireguard getWgInstances``: running state, public data only. Interfaces other
+        than the sample's ``wg0`` (created by a deployment) report the public key of the key
+        the helper generated, and their peers without a handshake."""
+        out: dict[str, Any] = {}
+        for name, s in _of(self.state["network"], "interface"):
+            if s.get("proto") != "wireguard" or name == "wg0":
+                continue
+            entry: dict[str, Any] = {"name": name, "peers": []}
+            if s.get("private_key"):
+                entry["public_key"] = wg_public_key(name)
+            if str(s.get("listen_port") or "").isdigit():
+                entry["listen_port"] = int(s["listen_port"])
+            for _, p in _of(self.state["network"], f"wireguard_{name}"):
+                entry["peers"].append(
+                    {
+                        "public_key": p.get("public_key"),
+                        "endpoint": "(none)",
+                        "allowed_ips": p.get("allowed_ips") or [],
+                        "latest_handshake": 0,
+                        "transfer_rx": 0,
+                        "transfer_tx": 0,
+                        "persistent_keepalive": p.get("persistent_keepalive") or "off",
+                    }
+                )
+            out[name] = entry
+        if not any(
+            s.get("proto") == "wireguard" and name == "wg0"
+            for name, s in _of(self.state["network"], "interface")
+        ):
+            return out
+        return out | {
             "wg0": {
                 "name": "wg0",
                 "public_key": WG_KEY,

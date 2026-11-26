@@ -816,7 +816,7 @@ only allows the `uci` methods of a transaction on the seven configs it changes (
 ```json
 {
   "signalbox": {
-    "description": "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, system, snmpd and mwan3",
+    "description": "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, system, snmpd and mwan3, WireGuard key helper",
     "read": {
       "ubus": {
         "system": ["board", "info"],
@@ -858,9 +858,13 @@ only allows the `uci` methods of a transaction on the seven configs it changes (
     },
     "write": {
       "ubus": {
+        "file": ["exec"],
         "uci": ["set", "add", "delete", "order", "revert", "changes", "apply", "confirm", "rollback"]
       },
-      "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3"]
+      "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3"],
+      "file": {
+        "/usr/libexec/signalbox-wg-key": ["exec"]
+      }
     }
   }
 }
@@ -869,6 +873,45 @@ only allows the `uci` methods of a transaction on the seven configs it changes (
 and `list write 'signalbox'` next to `list read 'signalbox'` in the login entry of
 `/etc/config/rpcd`. Without the write part, deploying fails at the first staged call with
 "access denied for uci.…", and nothing is changed.
+
+### WireGuard key helper
+
+Only for WireGuard tunnels Signalbox creates (#152, [ADR 0034](../adr/0034-wireguard-tunnels-desired-state.md)).
+A new interface needs a key pair, and its private key must never pass through Signalbox: the
+router generates it. rpcd cannot do that without returning the key (`luci.wireguard
+generateKeyPair` answers with it), so the ACL above lets Signalbox run this one script, which
+writes a key from `wg genkey` (package `wireguard-tools`) into `/etc/config/network` of an
+interface Signalbox created (option `signalbox`) and prints nothing:
+
+```sh
+cat > /usr/libexec/signalbox-wg-key <<'END'
+#!/bin/sh
+# Signalbox: a private key for a WireGuard interface Signalbox created (#152).
+# Generated here with wg genkey and written to /etc/config/network; nothing is printed.
+[ "$1" = "--check" ] && { command -v wg >/dev/null; exit $?; }
+s="$1"
+case "$s" in ""|*[!A-Za-z0-9_]*) exit 2 ;; esac
+[ "$(uci -q get "network.$s.proto")" = wireguard ] || exit 3
+[ -n "$(uci -q get "network.$s.signalbox")" ] || exit 3
+[ -z "$(uci -q get "network.$s.private_key")" ] || exit 0
+umask 077
+d=$(mktemp -d) || exit 4
+k=$(wg genkey) || { rm -rf "$d"; exit 5; }
+uci -t "$d" set "network.$s.private_key=$k" && uci -t "$d" commit network
+r=$?
+rm -rf "$d"
+[ $r -eq 0 ] || exit 6
+ifup "$s" >/dev/null 2>&1
+exit 0
+END
+chmod 755 /usr/libexec/signalbox-wg-key
+```
+
+It runs after `uci apply` and before the confirmation, so a rollback also takes the key away;
+it uses a save directory of its own, so changes staged elsewhere are not committed. Without
+the script (or with an ACL from before #152), creating a tunnel is refused with that reason;
+changing an interface you created yourself and adopted still works. Signalbox never sets or
+changes a pre-shared key.
 
 802.11v (`bss_transition`) needs the full `wpad` (`wpad-mbedtls`, `wpad-openssl`,
 ...): the hostapd of `wpad-basic-*` rejects `bss_transition` as an unknown option and then does

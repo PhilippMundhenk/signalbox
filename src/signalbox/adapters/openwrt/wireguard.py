@@ -39,6 +39,18 @@ def scrub(answer: dict[str, Any]) -> dict[str, Any]:
     return answer
 
 
+def drop_keys(answer: dict[str, Any]) -> dict[str, Any]:
+    """The ``uci get network`` answer without private and pre-shared keys and without the flag
+    :func:`scrub` leaves (in place; also returned): what the writer, the backup and a restore
+    see (#152). A restore therefore neither sets nor deletes a key."""
+    values = answer.get("values")
+    for section in values.values() if isinstance(values, dict) else []:
+        if isinstance(section, dict):
+            for option in SECRET_OPTIONS:
+                section.pop(option, None)
+    return answer
+
+
 def _list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(v).strip() for v in value if str(v).strip()]
@@ -141,6 +153,7 @@ def _peers(name: str, uci: dict[str, Any], runtime: dict[str, Any]) -> list[Tunn
             keepalive_seconds=keepalive if keepalive is not None and 0 <= keepalive <= 65535 else 0,
             preshared_key=_flag(section.get("preshared_key_set")),
             enabled=not _flag(section.get("disabled")),
+            signalbox_key=str(section.get("signalbox") or "").strip() or None,
         )
     return list(out.values())
 
@@ -211,6 +224,7 @@ def tunnels(
                 enabled=not disabled,
                 listen_port=listen if listen and 1 <= listen <= 65535 else None,
                 public_key=_key(live.get("public_key")),
+                signalbox_key=str(section.get("signalbox") or "").strip() or None,
                 addresses=addresses,
                 mtu=mtu if mtu is not None and 68 <= mtu <= 65535 else None,
                 routes=routes(uci, name),

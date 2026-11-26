@@ -72,6 +72,7 @@ from signalbox.adapters.openwrt import (
     sqm,
     strongswan,
     vitals,
+    wgwrite,
     wifi_assoc,
     wireguard,
 )
@@ -908,6 +909,8 @@ class OpenWrtAdapter(Adapter):
                 ChangeKind.LOG_TARGET,
                 ChangeKind.SNMP_POLICY,
                 ChangeKind.GATEWAY_GROUP,
+                ChangeKind.TUNNEL,
+                ChangeKind.TUNNEL_PEER,
             }
         ),
         admin_login=AdminLogin(
@@ -2828,6 +2831,8 @@ class OpenWrtAdapter(Adapter):
         for c in write.CONFIGS:
             try:
                 out[c] = await self.ubus.call("uci", "get", {"config": c})
+                if c == "network":  # WireGuard keys: dropped on arrival, never backed up (#152)
+                    wireguard.drop_keys(out[c])
             except AccessDenied:
                 if c not in ("firewall", "system", "snmpd", "mwan3"):
                     raise
@@ -2851,7 +2856,36 @@ class OpenWrtAdapter(Adapter):
     async def plan_changes(
         self, changes: list[Change], secrets: Mapping[str, str]
     ) -> list[VendorCall]:
-        return [op.call() for op in (await self._translate(changes, secrets)).ops]
+        cfg = await self._translate(changes, secrets)
+        if cfg.wg_keys:
+            await self._key_helper(["--check"])
+        return [op.call() for op in cfg.ops]
+
+    async def _key_helper(self, params: list[str]) -> None:
+        """Run the WireGuard key helper on the router (#152). It prints nothing; its output is
+        not looked at or kept in any case, only the exit code."""
+        try:
+            answer = await self.ubus.call(
+                "file", "exec", {"command": wgwrite.KEY_HELPER, "params": params}, keep_session=True
+            )
+        except (AccessDenied, NotFound):
+            raise AdapterError(
+                "a new WireGuard interface needs the key helper on the router, which generates "
+                "its key pair there (the login's ACL does not allow it, or it is not installed)",
+                fix="Install /usr/libexec/signalbox-wg-key and the ACL with write access as in "
+                "the setup guide (OpenWrt, WireGuard key helper), or create the interface "
+                "yourself and adopt it in the desired state.",
+                message_id="openwrt.wgKeyHelper",
+                fix_id="openwrt.wgKeyHelper.fix",
+            ) from None
+        code = answer.get("code") if isinstance(answer, dict) else None
+        if code != 0:
+            raise AdapterError(
+                f"the WireGuard key helper failed (exit code {code}); wireguard-tools (wg) "
+                "may be missing",
+                message_id="openwrt.wgKeyHelperFailed",
+                params={"code": str(code)},
+            )
 
     async def backup(self) -> Backup:
         data = {c: answer.get("values") for c, answer in (await self._configs()).items()}
@@ -2976,7 +3010,8 @@ class OpenWrtAdapter(Adapter):
     ) -> ApplyResult:
         async def attempt() -> ApplyResult:
             await self._clear_staging()
-            ops = (await self._translate(changes, secrets)).ops
+            cfg = await self._translate(changes, secrets)
+            ops = cfg.ops
             if not ops:
                 return ApplyResult()
             self._pending = True  # also if the answer to apply is lost
@@ -2986,6 +3021,9 @@ class OpenWrtAdapter(Adapter):
             except BaseException:
                 self._pending = False
                 raise
+            # inside the confirm window: a rollback also takes the new keys away (#152)
+            for interface in cfg.wg_keys:
+                await self._key_helper([interface])
             await self._wireless_settled(radios)
             self._radios = frozenset(radios)
             return ApplyResult(
@@ -3044,9 +3082,12 @@ class OpenWrtAdapter(Adapter):
 
         async def attempt() -> None:
             await self._clear_staging()
-            current = {
-                c: (await self.ubus.call("uci", "get", {"config": c})).get("values") for c in saved
-            }
+            current = {}
+            for c in saved:
+                answer = await self.ubus.call("uci", "get", {"config": c})
+                if c == "network":  # keys are neither read nor restored (#152)
+                    wireguard.drop_keys(answer)
+                current[c] = answer.get("values")
             ops = write.restore_ops(saved, current)
             if not ops:
                 return
