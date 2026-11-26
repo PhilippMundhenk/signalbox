@@ -27,11 +27,11 @@ Generated from the adapter manifests by `tools/gen_docs.py`.
 | AdGuard Home (`adguardhome`) | - | simulator | simulator | - | simulator | - | - | - | - | - | - | nothing yet |
 | TP-Link Easy Smart (`easysmart`) | simulator | - | - | - | - | - | - | - | - | - | port | nothing yet |
 | Ubiquiti EdgeRouter (EdgeOS) and VyOS (`edgeos`) | simulator | simulator | simulator | - | - | simulator | simulator | simulator | simulator | simulator | - | nothing yet |
-| AVM Fritz!Box (`fritzbox`) | simulator | simulator | - | simulator | simulator | - | simulator | simulator | - | simulator | dhcp, wlan | nothing yet |
+| AVM Fritz!Box (`fritzbox`) | simulator | simulator | - | simulator | simulator | - | simulator | simulator | - | simulator | dhcp, wlan, upnp | nothing yet |
 | Linux (Debian, Raspberry Pi OS, Arch Linux ARM) (`linux`) | simulator | simulator | simulator | - | - | - | simulator | simulator | simulator | simulator | - | nothing yet |
-| MikroTik RouterOS (`mikrotik`) | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | router, dhcp, reservation, port, wlan, zone-policy, firewall-rule, port-forward, log-target, snmp-policy, gateway-group, tunnel, tunnel-peer | nothing yet |
+| MikroTik RouterOS (`mikrotik`) | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | router, dhcp, reservation, port, wlan, zone-policy, firewall-rule, port-forward, log-target, snmp-policy, gateway-group, tunnel, tunnel-peer, upnp | nothing yet |
 | TP-Link Omada (`omada`) | simulator | simulator | - | simulator | simulator | simulator | simulator | simulator | - | simulator | router, dhcp, port, wlan | nothing yet |
-| OpenWrt (`openwrt`) | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | dhcp, reservation, port, wlan, zone-policy, firewall-rule, port-forward, log-target, snmp-policy, gateway-group, tunnel, tunnel-peer | nothing yet |
+| OpenWrt (`openwrt`) | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | simulator | dhcp, reservation, port, wlan, zone-policy, firewall-rule, port-forward, log-target, snmp-policy, gateway-group, tunnel, tunnel-peer, upnp | nothing yet |
 | OPNsense (`opnsense`) | simulator | simulator | simulator | - | simulator | simulator | simulator | simulator | simulator | simulator | router, dhcp, reservation, port, zone-policy, firewall-rule, port-forward | nothing yet |
 | Pi-hole (`pihole`) | - | simulator | simulator | - | simulator | - | - | - | - | - | - | nothing yet |
 | NETGEAR ProSAFE Plus (`prosafe`) | simulator | - | - | - | - | - | - | - | - | - | port | nothing yet |

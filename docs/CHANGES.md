@@ -61,6 +61,17 @@ timer, MikroTik its scheduler revert; a failed deployment restores the backup. A
 old order as tier numbers (on OpenWrt, member copies Signalbox made stay with the old values);
 restoring the backup puts back the exact configuration.
 
+## UPnP changes
+
+The kind `upnp` (key `upnp`) holds the whole state of a gateway's UPnP, NAT-PMP and PCP service:
+on or off, secure mode, the networks it answers in and the permission rules
+([DESIRED.md](DESIRED.md#upnp-nat-pmp-and-pcp), ADR 0035); only the declared fields differ from
+what the device has. A change that turns the service on, secure mode off, adds a network or lets
+more clients map carries the risk *widens UPnP* in the review. Open mappings are not removed by
+Signalbox. It is applied last. OpenWrt uses the `uci apply` confirm timer, MikroTik its
+scheduler revert, the FRITZ!Box (on or off only) has none; a failed deployment restores the
+backup.
+
 ## Tracking
 
 The *Changes* page is the change log: who, when, why, the desired-state version (git commit),
