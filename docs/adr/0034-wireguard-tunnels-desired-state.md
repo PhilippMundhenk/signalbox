@@ -74,7 +74,9 @@ This is the most sensitive write so far:
   the comment `signalbox:<key>`), or ends whose entry says `adopt: true`. On an adopted
   interface Signalbox writes only the declared fields and the peer of the other end (found by
   its tag, else by the other end's public key); every other peer (road warriors, other sites)
-  is left as it is. A declared end on an interface that exists but is neither tagged nor
+  is left as it is. Only what Signalbox creates is tagged; an adopted interface or peer stays
+  the device's own (found by its name or the other end's public key), so it is never removed
+  when the tunnel is no longer declared. A declared end on an interface that exists but is neither tagged nor
   adopted refuses the plan with that hint. A tagged tunnel or peer that is no longer declared
   anywhere in the desired state is removed, like firewall rules Signalbox created.
 - **Change kinds** `tunnel` (key `tunnel/<name>`: interface name, listen port, addresses, MTU)

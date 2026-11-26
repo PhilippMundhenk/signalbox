@@ -279,7 +279,7 @@ def test_an_adopted_interface_keeps_its_other_peers() -> None:
     [t] = after.tunnels_of("home-gw")
     assert [p.public_key for p in t.peers] == [ROAMING_KEY, OFFICE_KEY]
     assert t.peers[0] == roaming
-    assert t.peers[1].signalbox_key == "office"
+    assert t.peers[1].signalbox_key is None  # adopted, not tagged: never removed later
 
 
 def test_a_renamed_interface_is_refused() -> None:

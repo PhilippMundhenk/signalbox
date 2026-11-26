@@ -1338,7 +1338,8 @@ def _apply_tunnel(net: Network, c: Change) -> Network:
                 "listen_port": v.listen_port,
                 "addresses": list(v.addresses),
                 "mtu": v.mtu,
-                "signalbox_key": name,
+                # an adopted interface stays the device's own: it is not tagged
+                "signalbox_key": name if t is None else t.signalbox_key,
             }
             tunnels.append(
                 t.model_copy(update=update)
@@ -1371,7 +1372,7 @@ def _apply_tunnel(net: Network, c: Change) -> Network:
                 if n.keepalive is not None
                 else (gone.keepalive_seconds if gone else None),
                 preshared_key=gone.preshared_key if gone else None,
-                signalbox_key=name,
+                signalbox_key=name if gone is None else gone.signalbox_key,
             )
         )
     tunnels[tunnels.index(t)] = t.model_copy(update={"peers": peers})
