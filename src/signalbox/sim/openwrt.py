@@ -50,8 +50,8 @@ FIXED_MAC = "00:00:5e:00:53:{:02x}"
 CONFIGS = ("network", "wireless", "dhcp", "firewall")
 #: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173)
 #: Read-only until #327: ``system`` and ``snmpd`` are also written (log target, SNMP agent);
-#: ``mwan3`` since #463 (gateway groups)
-WRITE_ALSO = ("system", "snmpd", "mwan3")
+#: ``mwan3`` since #463 (gateway groups), ``upnpd`` since #513
+WRITE_ALSO = ("system", "snmpd", "mwan3", "upnpd")
 READ_ONLY = (
     "system",
     "dropbear",

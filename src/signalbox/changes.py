@@ -34,6 +34,7 @@ from signalbox.desired import (
     SegmentRef,
     TunnelEndSpec,
     TunnelSpec,
+    UpnpSpec,
     ZoneRef,
     effective_logging,
     firewall_key,
@@ -78,6 +79,7 @@ from signalbox.model import (
     Tunnel,
     TunnelKind,
     TunnelPeer,
+    UpnpAclRule,
     Verdict,
     WireGuardKey,
     Wlan,
@@ -105,6 +107,7 @@ class ChangeKind(StrEnum):
     GATEWAY_GROUP = "gateway-group"  # tiers, weights and monitors of a gateway group (#463)
     TUNNEL = "tunnel"  # a WireGuard interface of one end of a tunnel (#152)
     TUNNEL_PEER = "tunnel-peer"  # the peer of a tunnel's end: the other end (#152)
+    UPNP = "upnp"  # the UPnP / NAT-PMP / PCP service of a gateway (#513)
 
 
 #: Kinds that change a device's firewall: their plans are checked for lost management access.
@@ -267,6 +270,20 @@ class TunnelPeerValue(Value):
     keepalive: int | None = None
 
 
+class UpnpValue(Value):
+    """The UPnP IGD / NAT-PMP / PCP service of a gateway as a change leaves it (#513, ADR
+    0035); the key of its change is ``upnp``. Open mappings are not part of it: they are the
+    clients' state and end with their lease."""
+
+    enabled: bool
+    #: Mappings only for the asking host; None: the device has no such setting.
+    secure_mode: bool | None = None
+    #: The segment ids it answers in, sorted; empty: every network (or not reported).
+    networks: list[str] = Field(default_factory=list)
+    #: The permission rules in order (empty: none configured or the device has none).
+    rules: list[UpnpAclRule] = Field(default_factory=list)
+
+
 class SnmpPolicyValue(Value):
     """The state of a device's SNMP agent. Never a community or a password.
 
@@ -290,6 +307,7 @@ VALUE_TYPES: dict[ChangeKind, type[Value]] = {
     ChangeKind.GATEWAY_GROUP: GatewayGroupValue,
     ChangeKind.TUNNEL: TunnelValue,
     ChangeKind.TUNNEL_PEER: TunnelPeerValue,
+    ChangeKind.UPNP: UpnpValue,
 }
 #: Order in which kinds are applied when objects are created or changed; removals run reversed.
 PHASE = {
@@ -306,6 +324,7 @@ PHASE = {
     ChangeKind.GATEWAY_GROUP: 10,
     ChangeKind.TUNNEL: 11,
     ChangeKind.TUNNEL_PEER: 12,
+    ChangeKind.UPNP: 13,
 }
 
 AnyValue = (
@@ -322,6 +341,7 @@ AnyValue = (
     | GatewayGroupValue
     | TunnelValue
     | TunnelPeerValue
+    | UpnpValue
 )
 
 
@@ -1425,6 +1445,156 @@ def tunnel_cuts(
     return list(dict.fromkeys(out))
 
 
+# UPnP, NAT-PMP and PCP (#513) -------------------------------------------------------------------
+
+UPNP_KEY = "upnp"
+#: The rule that ends a declared permission list: everything else is denied.
+UPNP_DENY_ALL = UpnpAclRule(allow=False, internal_network=ip_network("0.0.0.0/0"))
+
+
+def _upnp_service(net: Network, device_id: str) -> Any:
+    return next((s for s in net.services_of(device_id) if s.kind is ServiceKind.UPNP), None)
+
+
+def observed_upnp(net: Network, device_id: str) -> UpnpValue | None:
+    """The device's UPnP service as it reports it (None: it has none Signalbox could read)."""
+    service = _upnp_service(net, device_id)
+    if service is None:
+        return None
+    device = net.device(device_id)
+    upnp = device.upnp if device is not None else None
+    return UpnpValue(
+        enabled=service.enabled,
+        secure_mode=upnp.secure_mode if upnp is not None else None,
+        networks=sorted(service.segments),
+        rules=list(upnp.allow_rules) if upnp is not None else [],
+    )
+
+
+def upnp_rules(spec: UpnpSpec) -> list[UpnpAclRule] | None:
+    """The permission list a declared ``allow`` stands for: one allow rule per entry (the same
+    ports outside and inside), then one that denies everything else."""
+    if spec.allow is None:
+        return None
+    return [
+        *(
+            UpnpAclRule(
+                allow=True,
+                external_first=a.ports.start,
+                external_last=a.ports.last,
+                internal_network=a.network,
+                internal_first=a.ports.start,
+                internal_last=a.ports.last,
+            )
+            for a in spec.allow
+        ),
+        UPNP_DENY_ALL,
+    ]
+
+
+def _covers(a: UpnpAclRule, b: UpnpAclRule) -> bool:
+    """``a`` allows at least what ``b`` allows."""
+    return (
+        a.allow
+        and a.internal_network.version == b.internal_network.version
+        and b.internal_network.subnet_of(a.internal_network)  # type: ignore[arg-type]
+        and a.external_first <= b.external_first
+        and b.external_last <= a.external_last
+        and a.internal_first <= b.internal_first
+        and b.internal_last <= a.internal_last
+    )
+
+
+def upnp_widens(old: UpnpValue | None, new: UpnpValue) -> list[str]:
+    """What a change opens up (ADR 0035): on, secure mode off, more networks, more clients or
+    ports that may map. Empty: it only narrows or keeps the service."""
+    if old is None:
+        return ["turns it on"] if new.enabled else []
+    out = []
+    if new.enabled and not old.enabled:
+        out.append("turns it on")
+    if old.secure_mode and new.secure_mode is False:
+        out.append("turns secure mode off")
+    if old.networks and (not new.networks or set(new.networks) - set(old.networks)):
+        out.append("adds networks")
+    if old.rules and any(r.allow and not any(_covers(o, r) for o in old.rules) for r in new.rules):
+        out.append("lets more clients or ports map")
+    return out
+
+
+def upnp_changes(net: Network, site_id: str, spec: UpnpSpec) -> list[Change]:
+    """The change that gives a gateway's UPnP service the declared fields; the others keep what
+    the device has. A device without a UPnP service satisfies ``enabled: false``."""
+    _known(net, spec.device)
+    old = observed_upnp(net, spec.device)
+    networks = (
+        sorted({seg_sid(site_id, ref) for ref in spec.networks})
+        if spec.networks is not None
+        else None
+    )
+    rules = upnp_rules(spec)
+    if old is None:
+        if (
+            spec.enabled is not True
+            and networks is None
+            and rules is None
+            and (spec.secure_mode is None)
+        ):
+            return []
+        raise PlanError(
+            f"{spec.device} has no UPnP service Signalbox could read; Signalbox does not "
+            "install one",
+            message_id="plan.upnpMissing",
+            params={"device": spec.device},
+        )
+    new = UpnpValue(
+        enabled=spec.enabled if spec.enabled is not None else old.enabled,
+        secure_mode=spec.secure_mode if spec.secure_mode is not None else old.secure_mode,
+        networks=networks if networks is not None else old.networks,
+        rules=rules if rules is not None else old.rules,
+    )
+    if new == old:
+        return []
+    widens = upnp_widens(old, new)
+    return [
+        Change(
+            kind=ChangeKind.UPNP,
+            device_id=spec.device,
+            site_id=site_id,
+            key=UPNP_KEY,
+            old=old,
+            new=new,
+            risk="widens UPnP: " + ", ".join(widens) if widens else None,
+        )
+    ]
+
+
+def _apply_upnp(net: Network, c: Change) -> Network:
+    """A UPnP change on the predicted network: the service and the device's UPnP state."""
+    if not isinstance(c.new, UpnpValue):  # pragma: no cover - the service is never removed
+        return net
+    v = c.new
+    services = [
+        s.model_copy(update={"enabled": v.enabled, "segments": list(v.networks)})
+        if s.device_id == c.device_id and s.kind is ServiceKind.UPNP
+        else s
+        for s in net.services
+    ]
+    devices = [
+        d.model_copy(
+            update={
+                "upnp": d.upnp.model_copy(
+                    update={"secure_mode": v.secure_mode, "allow_rules": list(v.rules)}
+                )
+            }
+        )
+        if d.id == c.device_id and d.upnp is not None
+        else d
+        for d in net.devices
+    ]
+    return net.model_copy(update={"services": services, "devices": devices})
+
+
 # planner --------------------------------------------------------------------------------------
 
 SecretLookup = Callable[[str], str | None]
@@ -1633,6 +1803,8 @@ def changes_for(
                 out += logging_changes(net, site_id, eff)
         for gg in spec.gateway_groups:
             out += gateway_group_changes(net, site_id, gg)
+        for up in spec.upnp:
+            out += upnp_changes(net, site_id, up)
     _check_monitors(out)
     return [*out, *tunnel_plan(state, net)[0]]
 
@@ -1846,6 +2018,8 @@ def _apply(net: Network, c: Change) -> Network:
         return _apply_group(net, c)
     if c.kind in TUNNEL_KINDS:
         return _apply_tunnel(net, c)
+    if c.kind is ChangeKind.UPNP:
+        return _apply_upnp(net, c)
     # WLAN
     wl = [w for w in net.wlans if not (w.device_id == c.device_id and w.ssid == c.key)]
     if isinstance(c.new, WlanValue):

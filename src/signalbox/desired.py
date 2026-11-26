@@ -675,6 +675,50 @@ def _tunnel_interface(spec: TunnelSpec, device_id: str) -> str:
     return next(e.interface for e in spec.ends if e.device == device_id)
 
 
+# UPnP, NAT-PMP and PCP (#513) -------------------------------------------------------------------
+
+#: The ports miniupnpd lets clients map by default (outside and inside).
+UPNP_PORTS = PortRange(start=1024, end=65535)
+
+
+def _one_range(value: Any) -> PortRange:
+    ranges = _port_ranges(value)
+    if len(ranges) != 1:
+        raise ValueError("one port or one port range")
+    return ranges[0]
+
+
+class UpnpAllowSpec(Spec):
+    """Client networks that may open ports through UPnP, NAT-PMP or PCP (ADR 0035)."""
+
+    network: IPNetwork = Field(description="Client addresses that may open ports")
+    ports: PortRange = Field(
+        default=UPNP_PORTS, description="Ports they may map (outside and inside), e.g. 1024-65535"
+    )
+
+    _port = field_validator("ports", mode="before")(classmethod(lambda cls, v: _one_range(v)))
+    _show = field_serializer("ports")(lambda self, v: str(v))
+
+
+class UpnpSpec(Spec):
+    """The UPnP IGD, NAT-PMP and PCP service of one gateway (#513, ADR 0035). Only the declared
+    fields are compared and written; a widening change only comes from a declared field."""
+
+    device: str
+    enabled: bool | None = Field(None, description="On or off (every protocol the device answers)")
+    secure_mode: bool | None = Field(
+        None, description="A client may only open ports to its own address"
+    )
+    networks: list[SegmentRef | NativeKey] | None = Field(
+        None, min_length=1, description="The segments the service answers in"
+    )
+    allow: list[UpnpAllowSpec] | None = Field(
+        None,
+        description="The client networks that may open ports, in order; everything else is "
+        "denied. Replaces the device's permission rules",
+    )
+
+
 def _as_datetime(value: datetime | date | None) -> datetime | None:
     if value is None or isinstance(value, datetime):
         return value
@@ -693,6 +737,8 @@ class SiteSpec(Spec):
     gateway_groups: list[GatewayGroupSpec] = Field(default_factory=list)
     #: WireGuard tunnels between two managed devices (#152).
     tunnels: list[TunnelSpec] = Field(default_factory=list)
+    #: The UPnP / NAT-PMP / PCP service of the gateways (#513).
+    upnp: list[UpnpSpec] = Field(default_factory=list)
     #: User annotations of objects of the site (#186).
     annotations: list[AnnotationSpec] = Field(default_factory=list)
     #: Accepted findings (#186).
@@ -740,6 +786,7 @@ class DesiredState(Spec):
                     logging=_merge_logging(old.logging, spec.logging),
                     gateway_groups=[*old.gateway_groups, *spec.gateway_groups],
                     tunnels=[*old.tunnels, *spec.tunnels],
+                    upnp=[*old.upnp, *spec.upnp],
                     annotations=[*old.annotations, *spec.annotations],
                     acknowledgements=[*old.acknowledgements, *spec.acknowledgements],
                 )
@@ -816,6 +863,10 @@ def _check_unique(state: DesiredState, source: str) -> None:
         if spec.logging is not None:
             _check_logging(spec.logging, source, site)
         _check_groups(spec.gateway_groups, source, site)
+        devs = [u.device for u in spec.upnp]
+        dup = sorted({d for d in devs if devs.count(d) > 1})
+        if dup:
+            raise DesiredError(f"{source}: site {site}: UPnP of {', '.join(dup)} declared twice")
         for fw in spec.firewalls:
             for what, names in (
                 ("rule", [firewall_key(r.name) for r in fw.rules]),
@@ -1092,9 +1143,30 @@ def from_network(net: Network, site_id: str) -> DesiredState:
                 firewalls=firewalls,
                 logging=_logging_spec(net, list(devices)),
                 gateway_groups=_group_specs(net, list(devices)),
+                upnp=_upnp_specs(net, list(devices)),
             )
         }
     )
+
+
+def _upnp_specs(net: Network, device_ids: list[str]) -> list[UpnpSpec]:
+    """Whether each gateway's UPnP service is on, and its secure mode where reported; the
+    networks and permission rules are the owner's decision (ADR 0035)."""
+    out = []
+    for dev in device_ids:
+        service = next((s for s in net.services_of(dev) if s.kind is ServiceKind.UPNP), None)
+        if service is None:
+            continue
+        device = net.device(dev)
+        upnp = device.upnp if device is not None else None
+        out.append(
+            UpnpSpec(
+                device=dev,
+                enabled=service.enabled,
+                secure_mode=upnp.secure_mode if upnp is not None else None,
+            )
+        )
+    return out
 
 
 def _group_specs(net: Network, device_ids: list[str]) -> list[GatewayGroupSpec]:
@@ -1236,6 +1308,19 @@ def _fmt(value: Any) -> str:
     if isinstance(value, list | tuple):
         return ", ".join(str(v) for v in value) or "none"
     return str(getattr(value, "value", value))
+
+
+def _upnp_shown(value: Any) -> Any:
+    """A UPnP field for a drift message: rules as miniupnpd writes them."""
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if isinstance(value, list) and value and not isinstance(value[0], str):
+        return [
+            f"{'allow' if r.allow else 'deny'} {r.external_first}-{r.external_last} "
+            f"{r.internal_network} {r.internal_first}-{r.internal_last}"
+            for r in value
+        ]
+    return value
 
 
 def _differ(field: str, want: Any, have: Any) -> str:
@@ -1634,6 +1719,46 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                                 key=f"{gg.device}/{gg.name}/{m.name}",
                             )
 
+    def upnp(net: Network) -> Iterator[Result]:
+        from signalbox.changes import PlanError, UpnpValue, upnp_changes
+        from signalbox.sightings import ANSWERED
+
+        for site_id, spec in state.sites.items():
+            for up in spec.upnp:
+                subject = f"UPnP of {up.device}"
+                if (
+                    net.device(up.device) is None
+                    or net.statuses.get(up.device, DeviceStatus.OK) not in ANSWERED
+                ):
+                    yield incomplete(f"{subject}: not read", [up.device], key=f"{up.device}/upnp")
+                    continue
+                try:
+                    found_changes = upnp_changes(net, site_id, up)
+                except PlanError as exc:
+                    yield found(
+                        f"{subject}: {exc}",
+                        [up.device],
+                        key=f"{up.device}/upnp",
+                        fix="Remove the entry, or keep only enabled: false: Signalbox does not "
+                        "install a UPnP service.",
+                    )
+                    continue
+                target = object_id(up.device, "service", "upnp")
+                for c in found_changes:
+                    assert isinstance(c.old, UpnpValue) and isinstance(c.new, UpnpValue)
+                    diffs = [
+                        _differ(
+                            field.replace("_", " "),
+                            _upnp_shown(getattr(c.new, field)),
+                            _upnp_shown(getattr(c.old, field)),
+                        )
+                        for field in ("enabled", "secure_mode", "networks", "rules")
+                        if getattr(c.new, field) != getattr(c.old, field)
+                    ]
+                    yield found(
+                        f"{subject}: " + "; ".join(diffs), [target], key=f"{up.device}/upnp"
+                    )
+
     def tunnels(net: Network) -> Iterator[Result]:
         from signalbox.changes import PlanError, tunnel_changes
         from signalbox.sightings import ANSWERED
@@ -1752,6 +1877,16 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
             "IPs, keepalive). A new tunnel's peers follow in a second deployment, once the "
             "devices have generated their key pairs; until then the missing peer is reported.",
             tunnels,
+        ),
+        Rule(
+            "drift.upnp",
+            "UPnP service differs from the desired state",
+            Severity.WARNING,
+            explanation
+            + " Only the declared fields of the UPnP / NAT-PMP / PCP service are compared: on or "
+            "off, secure mode, the networks it answers in and the permission rules. Open "
+            "mappings are not part of it; they end with their lease.",
+            upnp,
         ),
     ]
 

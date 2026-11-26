@@ -43,6 +43,7 @@ from signalbox.changes import (
     observed_rule,
     observed_snmp,
     observed_tunnel,
+    observed_upnp,
     observed_wlan,
     revert_plan,
 )
@@ -110,6 +111,8 @@ def current_value(net: Network, c: Change) -> Any:
         return observed_snmp(net, c.device_id)
     if c.kind is ChangeKind.GATEWAY_GROUP:
         return observed_group(net, c.device_id, c.key)
+    if c.kind is ChangeKind.UPNP:
+        return observed_upnp(net, c.device_id)
     if c.kind is ChangeKind.TUNNEL:
         return observed_tunnel(net, c.device_id, c.key, c.adopt)
     if c.kind is ChangeKind.TUNNEL_PEER:

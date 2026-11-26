@@ -81,7 +81,7 @@ WRITE_ACL: dict[str, Any] = {
     "signalbox": {
         "description": (
             "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, "
-            "system, snmpd and mwan3, WireGuard key helper"
+            "system, snmpd, mwan3 and upnpd, WireGuard key helper"
         ),
         "read": READ_ACL["signalbox"]["read"],
         "write": {
@@ -99,7 +99,16 @@ WRITE_ACL: dict[str, Any] = {
                     "rollback",
                 ],
             },
-            "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3"],
+            "uci": [
+                "network",
+                "wireless",
+                "dhcp",
+                "firewall",
+                "system",
+                "snmpd",
+                "mwan3",
+                "upnpd",
+            ],
             # generates a new WireGuard interface's key pair on the router (#152)
             "file": {"/usr/libexec/signalbox-wg-key": ["exec"]},
         },
