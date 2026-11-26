@@ -37,5 +37,6 @@
 | [0033](0033-wifi-roaming-desired-state.md) | Wi-Fi roaming in the desired state: 802.11r mobility domain and over-DS, minimum signal; one mobility domain per SSID across its access points, inconsistent plans are refused (#489) |
 | [0034](0034-wireguard-tunnels-desired-state.md) | WireGuard tunnels in the desired state: key pairs generated on the devices, only public keys travel, no pre-shared keys; two steps for a new tunnel, ownership by tag or adoption, lockout check (#152) |
 | [0035](0035-upnp-desired-state.md) | UPnP, NAT-PMP and PCP in the desired state: off or on, secure mode, declared networks and permission rules; never widened unless declared, mappings left to expire (#513) |
+| [0036](0036-poe-desired-state.md) | PoE in the desired state: on or off per declared port; switching off refused where it powers a managed device, a switch, a router or an access point unless the port allows the outage; switching on checked against the budget (#484) |
 
 New records copy the structure of the existing ones: Context, Decision, Consequences.

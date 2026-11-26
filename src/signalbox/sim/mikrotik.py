@@ -1820,10 +1820,7 @@ class MikrotikSimulator:
                 if self.read_only_monitor:
                     return JSONResponse(NO_POLICY, status_code=500)
                 return JSONResponse(
-                    [
-                        self.poe_monitor.get(name, {"name": name, "poe-out-status": "off"})
-                        for name in str(body.get("numbers", "")).split(",")
-                    ]
+                    [self._poe_state(name) for name in str(body.get("numbers", "")).split(",")]
                 )
             if request.method == "POST" and path == TRACEROUTE:
                 return self.traceroute(path, body)
@@ -2028,6 +2025,14 @@ class MikrotikSimulator:
             except ValueError as exc:
                 self.script_errors.append(str(exc))
         return fired
+
+    def _poe_state(self, name: str) -> dict[str, str]:
+        """``monitor once`` of one PoE-out port: off when its ``poe-out`` is off (written since
+        #484), else what ``poe_monitor`` says, or waiting for a load."""
+        row = next((r for r in self.data.get(POE_MENU, []) if r.get("name") == name), None)
+        if row is None or row.get("poe-out") == "off":
+            return {"name": name, "poe-out-status": "off"}
+        return self.poe_monitor.get(name, {"name": name, "poe-out-status": "waiting-for-load"})
 
     def _script_line(self, line: str) -> None:
         words = _script_words(line)
@@ -2381,6 +2386,8 @@ NETWATCH = "/rest/tool/netwatch"
 #: UPnP (#176; written since #513)
 UPNP = "/rest/ip/upnp"
 UPNP_INTERFACES = "/rest/ip/upnp/interfaces"
+#: PoE-out per port (#159; ``poe-out`` written since #484)
+POE_MENU = "/rest/interface/ethernet/poe"
 SCRIPT_VERBS = ("add", "remove", "set", "unset")
 SCRIPT_MENUS = {
     "/ip firewall filter": FW_FILTER,
@@ -2397,6 +2404,7 @@ SCRIPT_MENUS = {
     "/interface wireguard": WG_MENU,
     "/interface wireguard peers": WG_PEERS,
     "/ip upnp interfaces": UPNP_INTERFACES,
+    "/interface ethernet poe": POE_MENU,
 }
 FILTER_ACTIONS = frozenset(
     {"accept", "drop", "reject", "jump", "return", "passthrough", "log", "tarpit"}
@@ -2590,6 +2598,7 @@ WRITABLE = (
     WG_MENU,
     WG_PEERS,
     UPNP_INTERFACES,
+    POE_MENU,
 )
 REQUIRED = {
     UPNP_INTERFACES: ("interface", "type"),

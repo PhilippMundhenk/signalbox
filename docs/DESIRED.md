@@ -304,6 +304,45 @@ sites:
   fields are refused there.
 - *Import what the devices report* writes `enabled` and, where reported, `secure_mode`.
 
+## PoE
+
+Whether a switch delivers Power over Ethernet on a port (#484,
+[ADR 0036](adr/0036-poe-desired-state.md)). Written on MikroTik
+([details](adapters/mikrotik.md#poe-484)); other integrations refuse a plan with PoE changes for
+now. Off like every write: it needs `deploy.enabled`, *Allow changes* on the switch and the
+per-plan approval.
+
+```yaml
+sites:
+  home:
+    poe:
+      - {device: sw-1, port: ether5, enabled: true}    # on, with standard detection
+      - device: sw-1
+        port: ether8
+        enabled: false            # off: whatever is plugged in loses its power
+        allow_outage: true        # needed when it powers an access point, a switch, a router
+                                  # or a device Signalbox manages
+```
+
+- **Only declared ports** are compared and switched; a port without an entry is never touched,
+  and the entry never changes the port's VLANs (`ports:`). A port without PoE that Signalbox
+  could read refuses the plan.
+- **On** is the standard mode with detection (RouterOS `auto-on`), never a forced or passive
+  mode; a port that is on in any mode already counts as on.
+- **Switching off names what loses power**: the managed device at the other end of the cable,
+  else the neighbour the port reports (LLDP, CDP, MNDP), else the power it draws now. The plan
+  is refused when the port powers a device Signalbox manages (whatever its role: the device
+  Signalbox reaches the switch through is one of them) or a neighbour that announces itself as
+  a bridge, router or access point, unless that port's entry says `allow_outage: true`. The
+  review still shows *cuts power to ...* for every port that is switched off.
+- **Switching on is checked against the budget** the switch reports: what it uses now (or has
+  reserved, if more) plus, per port switched on, the port's power limit where the switch reports
+  one, else 15.4 W (the most an 802.3af device asks for). A plan above the budget is refused
+  with the numbers; a switch that reports no budget is not checked, and the review says so.
+- Priority and power limit are not written yet.
+- *Import what the devices report* writes no PoE entries: which ports Signalbox may switch is
+  your decision.
+
 ## Network purposes
 
 `purpose` says what a segment or SSID is for: `main`, `guest`, `iot`, `management`, `servers`,
@@ -350,6 +389,7 @@ may have ([ADR 0033](adr/0033-wifi-roaming-desired-state.md)).
 | `drift.firewall` | every declared zone policy (the action the device applies), rule and port forward Signalbox created (all fields), and tagged ones that are no longer declared; a reference to a zone or segment that does not resolve |
 | `drift.gateway-group` | the declared tier (as an order), weight and monitor addresses of each declared member of a declared gateway group; a group or member the device does not have |
 | `drift.tunnel` | both ends of each declared tunnel: the interface (listen port, addresses, MTU) and the peer of the other end (public key, endpoint where declared, allowed IPs, keepalive); a missing interface or a peer that waits for the other end's public key |
+| `drift.poe` | whether each declared port delivers PoE (on in any mode counts as on); a declared port without PoE data |
 | `drift.upnp` | the declared state of the UPnP service of each declared gateway: on or off, secure mode, the networks it answers in and the permission rules; a declaration for a device without UPnP |
 
 A device that was not read gives an "incomplete" finding instead. An unreadable desired-state

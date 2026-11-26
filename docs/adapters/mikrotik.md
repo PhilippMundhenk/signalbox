@@ -1025,6 +1025,25 @@ desired state declares:
 - *Guess (#21)*: the script lines `/ip upnp set enabled=...` and `/ip upnp interfaces ...` on a
   real router.
 
+## PoE (#484)
+
+The kind `poe` ([ADR 0036](../adr/0036-poe-desired-state.md)), one change per declared port:
+
+- **On or off**: `PATCH /rest/interface/ethernet/poe/<id>` of the port's row with
+  `poe-out=auto-on` or `poe-out=off`. Signalbox never writes `forced-on` (it powers a device
+  that did not ask for it); a port on `forced-on` already counts as on and is left alone.
+  `poe-priority` and `poe-voltage` are not changed. A port without a row in that menu is
+  refused.
+- **What it reads back**: `poe-out` of the row and the `poe-out-status` of `monitor once`, as
+  for reading (#159).
+- **Revert and backup**: the scheduler entry `signalbox-revert` (see Firewall changes) sets
+  `poe-out` back unless the change is confirmed; the backup holds `poe-out` of every row, and a
+  restore sets it back.
+- The write user's group needs nothing more (`write` covers `/interface/ethernet/poe`).
+- *Tested against the simulator only*: CHR has no PoE-out, so the integration test on CHR
+  cannot cover it. *Guess (#21)*: the REST `PATCH` of a row of this menu and the script line
+  `/interface ethernet poe set [find where name=...] poe-out=...` on a real board.
+
 ## Firewall changes (#295)
 
 The kinds `firewall-rule`, `port-forward` and `zone-policy` are written

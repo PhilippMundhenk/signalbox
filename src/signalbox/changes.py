@@ -31,6 +31,7 @@ from signalbox.desired import (
     EndpointSpec,
     FirewallSpec,
     GatewayGroupSpec,
+    PoeSpec,
     SegmentRef,
     TunnelEndSpec,
     TunnelSpec,
@@ -43,6 +44,7 @@ from signalbox.desired import (
 )
 from signalbox.messages import Label, plain_params
 from signalbox.model import (
+    POE_CLASS_PSE_W,
     DeviceRole,
     DhcpPool,
     DhcpServer,
@@ -58,6 +60,8 @@ from signalbox.model import (
     IPAddress,
     IPInterface,
     IPNetwork,
+    LinkKind,
+    LinkOrigin,
     LogKind,
     LogTarget,
     LogTransport,
@@ -65,6 +69,7 @@ from signalbox.model import (
     MessageParams,
     Network,
     Pmf,
+    PoeStatus,
     PortForward,
     PortMembership,
     PortRange,
@@ -108,6 +113,7 @@ class ChangeKind(StrEnum):
     TUNNEL = "tunnel"  # a WireGuard interface of one end of a tunnel (#152)
     TUNNEL_PEER = "tunnel-peer"  # the peer of a tunnel's end: the other end (#152)
     UPNP = "upnp"  # the UPnP / NAT-PMP / PCP service of a gateway (#513)
+    POE = "poe"  # PoE of one switch port: on or off (#484)
 
 
 #: Kinds that change a device's firewall: their plans are checked for lost management access.
@@ -284,6 +290,13 @@ class UpnpValue(Value):
     rules: list[UpnpAclRule] = Field(default_factory=list)
 
 
+class PoeValue(Value):
+    """PoE of one switch port as a change leaves it (#484, ADR 0036); the key of its change is
+    the port id. On is the standard mode with detection, never a forced or passive one."""
+
+    enabled: bool
+
+
 class SnmpPolicyValue(Value):
     """The state of a device's SNMP agent. Never a community or a password.
 
@@ -308,6 +321,7 @@ VALUE_TYPES: dict[ChangeKind, type[Value]] = {
     ChangeKind.TUNNEL: TunnelValue,
     ChangeKind.TUNNEL_PEER: TunnelPeerValue,
     ChangeKind.UPNP: UpnpValue,
+    ChangeKind.POE: PoeValue,
 }
 #: Order in which kinds are applied when objects are created or changed; removals run reversed.
 PHASE = {
@@ -325,6 +339,7 @@ PHASE = {
     ChangeKind.TUNNEL: 11,
     ChangeKind.TUNNEL_PEER: 12,
     ChangeKind.UPNP: 13,
+    ChangeKind.POE: 14,
 }
 
 AnyValue = (
@@ -342,6 +357,7 @@ AnyValue = (
     | TunnelValue
     | TunnelPeerValue
     | UpnpValue
+    | PoeValue
 )
 
 
@@ -363,6 +379,25 @@ class Change(BaseModel):
     #: device's gateway group that the desired state adopts (#463), or the interface name of
     #: a WireGuard interface the desired state adopts (#152).
     adopt: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _by_kind(cls, data: Any) -> Any:
+        """Stored values are read as the type of their kind: several value types share a
+        field layout (``{"enabled": true}`` is a whole PoE value, #484)."""
+        if not isinstance(data, dict):
+            return data
+        want = VALUE_TYPES.get(ChangeKind(data["kind"])) if data.get("kind") else None
+        if want is None:
+            return data
+        return {
+            **data,
+            **{
+                side: want.model_validate(data[side])
+                for side in ("old", "new")
+                if isinstance(data.get(side), dict)
+            },
+        }
 
     @model_validator(mode="after")
     def _types(self) -> Change:
@@ -1595,6 +1630,175 @@ def _apply_upnp(net: Network, c: Change) -> Network:
     return net.model_copy(update={"services": services, "devices": devices})
 
 
+# PoE (#484) ------------------------------------------------------------------------------------
+
+#: What a port that is switched on may draw when the switch reports no limit for it: the most an
+#: 802.3af (class 0) powered device asks for (ADR 0036).
+POE_DEFAULT_W = POE_CLASS_PSE_W[0]
+#: LLDP capabilities of a neighbour whose power is protected: its loss is an outage of a part of
+#: the network, not of one end device.
+POE_PROTECTED_CAPABILITIES = ("bridge", "router", "wlan-access-point")
+#: What the plan says of a port that powers nothing it detected.
+POE_NO_LOAD = "no powered device detected"
+
+
+def _w(value: float) -> str:
+    return f"{value:.1f}".removesuffix(".0")
+
+
+def observed_poe(net: Network, pid: str) -> PoeValue | None:
+    """PoE of a port as the switch reports it (None: no PoE, or not whether it is on)."""
+    port = net.port(pid)
+    if port is None or port.poe is None or port.poe.enabled is None:
+        return None
+    return PoeValue(enabled=port.poe.enabled)
+
+
+def poe_load(net: Network, pid: str) -> tuple[str, str | None]:
+    """What a port powers, for the plan: ``(text, protected)``. ``protected`` names why
+    switching it off is refused without ``allow_outage`` (ADR 0036); None: it may be switched
+    off. The far end of a cable link between managed devices comes first, then the neighbours
+    the port reports, then the power it draws."""
+    port = net.port(pid)
+    for link in sorted(net.links, key=lambda x: x.id):
+        if link.kind is not LinkKind.CABLE or link.inferred or link.origin is LinkOrigin.TUNNEL:
+            continue
+        if pid not in (link.a, link.b):
+            continue
+        far = net.port(link.b if link.a == pid else link.a)
+        dev = net.device(far.device_id) if far is not None else None
+        if dev is not None and (port is None or dev.id != port.device_id):
+            what = f"{dev.name} ({dev.role.value}, managed by Signalbox)"
+            return what, what
+    for nb in sorted(
+        (n for n in net.neighbours if n.local_port_id == pid), key=lambda n: n.chassis_id
+    ):
+        name = nb.system_name or nb.chassis_id
+        caps = [c for c in POE_PROTECTED_CAPABILITIES if c in nb.capabilities]
+        if caps:
+            what = f"{name} (announces itself as {', '.join(caps)})"
+            return what, what
+        return name, None
+    poe = port.poe if port is not None else None
+    if poe is not None and (poe.status is PoeStatus.DELIVERING or (poe.power_w or 0) > 0):
+        drawn = f" that draws {_w(poe.power_w)} W" if poe.power_w else ""
+        return f"an unknown device{drawn}", None
+    return POE_NO_LOAD, None
+
+
+def _poe_used(net: Network, device_id: str) -> float:
+    """Power a switch uses now: its own figure or the sum of its ports, or what it reserved
+    where that is larger."""
+    device = net.device(device_id)
+    supply = device.poe if device is not None else None
+    drawn = [p.poe.power_w for p in net.ports_of(device_id) if p.poe and p.poe.power_w]
+    used = supply.used_w if supply is not None and supply.used_w is not None else sum(drawn)
+    reserved = supply.reserved_w if supply is not None and supply.reserved_w else 0.0
+    return max(used, reserved)
+
+
+def poe_changes(net: Network, site_id: str, specs: Iterable[PoeSpec]) -> list[Change]:
+    """The PoE changes of the declared ports (ADR 0036): switching off is refused where the port
+    powers a managed device or a neighbour announcing a bridge, router or access point unless
+    the entry allows the outage; switching on must stay within each switch's budget."""
+    out: list[Change] = []
+    adding: dict[str, list[tuple[str, float]]] = {}
+    for spec in specs:
+        _known(net, spec.device)
+        pid = port_id(spec.device, spec.port)
+        port = net.port(pid)
+        if port is None:
+            raise PlanError(
+                f"port {pid} does not exist on the device",
+                message_id="plan.noPort",
+                params={"port": pid},
+            )
+        old = observed_poe(net, pid)
+        if old is None:
+            raise PlanError(
+                f"port {pid} has no PoE Signalbox could read; Signalbox only switches PoE that "
+                "the switch reports",
+                message_id="plan.poeMissing",
+                params={"port": pid},
+            )
+        new = PoeValue(enabled=spec.enabled)
+        if new == old:
+            continue
+        risk: str | None = None
+        if not new.enabled:
+            what, protected = poe_load(net, pid)
+            if protected is not None and not spec.allow_outage:
+                raise PlanError(
+                    f"port {pid} powers {protected}: switching PoE off cuts its power; add "
+                    "allow_outage: true to the entry to accept the outage",
+                    message_id="plan.poeOutage",
+                    params={"port": pid, "load": protected},
+                )
+            risk = what if what == POE_NO_LOAD else f"cuts power to {what}"
+        else:
+            limit = port.poe.max_w if port.poe is not None else None
+            adding.setdefault(spec.device, []).append((pid, limit or POE_DEFAULT_W))
+        out.append(
+            Change(
+                kind=ChangeKind.POE,
+                device_id=spec.device,
+                site_id=site_id,
+                key=pid,
+                old=old,
+                new=new,
+                risk=risk,
+            )
+        )
+    for dev, ports in adding.items():
+        device = net.device(dev)
+        budget = device.poe.budget_w if device is not None and device.poe is not None else None
+        if not budget:
+            out = [
+                c.model_copy(update={"risk": "the switch reports no PoE budget; not checked"})
+                if c.device_id == dev and c.risk is None
+                else c
+                for c in out
+            ]
+            continue
+        used = _poe_used(net, dev)
+        total = used + sum(w for _, w in ports)
+        if total > budget:
+            names = ", ".join(p for p, _ in ports)
+            raise PlanError(
+                f"{dev}: switching PoE on for {names} may need {_w(total)} W "
+                f"({_w(used)} W in use now), more than the budget of {_w(budget)} W the "
+                "switch reports",
+                message_id="plan.poeBudget",
+                params={
+                    "device": dev,
+                    "ports": names,
+                    "total": _w(total),
+                    "used": _w(used),
+                    "budget": _w(budget),
+                },
+            )
+    return out
+
+
+def _apply_poe(net: Network, c: Change) -> Network:
+    """A PoE change on the predicted network: the port's PoE on or off (a port switched off
+    delivers nothing; one switched on searches until the switch reports more)."""
+    if not isinstance(c.new, PoeValue):  # pragma: no cover - PoE is never removed
+        return net
+    on = c.new.enabled
+    ports = []
+    for p in net.ports:
+        if p.id == c.key and p.poe is not None:
+            update: dict[str, Any] = {"enabled": on}
+            if not on:
+                update |= {"status": PoeStatus.DISABLED, "power_w": None, "current_ma": None}
+            elif p.poe.status is PoeStatus.DISABLED:
+                update["status"] = PoeStatus.SEARCHING
+            p = p.model_copy(update={"poe": p.poe.model_copy(update=update)})
+        ports.append(p)
+    return net.model_copy(update={"ports": ports})
+
+
 # planner --------------------------------------------------------------------------------------
 
 SecretLookup = Callable[[str], str | None]
@@ -1805,6 +2009,7 @@ def changes_for(
             out += gateway_group_changes(net, site_id, gg)
         for up in spec.upnp:
             out += upnp_changes(net, site_id, up)
+        out += poe_changes(net, site_id, spec.poe)
     _check_monitors(out)
     return [*out, *tunnel_plan(state, net)[0]]
 
@@ -2020,6 +2225,8 @@ def _apply(net: Network, c: Change) -> Network:
         return _apply_tunnel(net, c)
     if c.kind is ChangeKind.UPNP:
         return _apply_upnp(net, c)
+    if c.kind is ChangeKind.POE:
+        return _apply_poe(net, c)
     # WLAN
     wl = [w for w in net.wlans if not (w.device_id == c.device_id and w.ssid == c.key)]
     if isinstance(c.new, WlanValue):
