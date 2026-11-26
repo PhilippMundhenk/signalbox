@@ -266,6 +266,44 @@ sites:
 - *Import what the devices report* writes no tunnels: which interfaces form a tunnel is your
   decision.
 
+## UPnP, NAT-PMP and PCP
+
+Whether a gateway lets clients open ports to the internet, and for whom (#513,
+[ADR 0035](adr/0035-upnp-desired-state.md)). Written on OpenWrt (miniupnpd,
+[details](adapters/openwrt.md#what-each-change-does-in-uci)), MikroTik
+([details](adapters/mikrotik.md#upnp-513)) and the FRITZ!Box (on or off only); other integrations
+refuse a plan with UPnP changes for now. Off like every write: it needs `deploy.enabled`,
+*Allow changes* on the device and the per-plan approval.
+
+```yaml
+sites:
+  home:
+    upnp:
+      - device: gateway           # the router that offers UPnP IGD, NAT-PMP or PCP
+        enabled: false            # off; true turns it on (only when written here)
+      - device: office-gw
+        secure_mode: true         # a client may only open ports to itself
+        networks: [native]        # the networks it answers in
+        allow:                    # the clients that may open ports; everything else is denied
+          - {network: 192.0.2.0/25, ports: 1024-65535}   # ports: default 1024-65535
+```
+
+- **Only what is written** is compared and changed; devices without an entry are never touched.
+  `enabled` covers every protocol the device answers (UPnP IGD, NAT-PMP, PCP).
+- **Never opened up by accident.** Turning UPnP on, secure mode off, adding a network or letting
+  more clients map only happens when the entry says exactly that; the plan marks such a change
+  as *widens UPnP*. Other fields keep what the device has, and a service that is off stays off
+  while its secure mode, networks or rules are written.
+- **`allow` is the whole list**: one rule per entry, then one that denies everything else; the
+  device's other permission rules are replaced (the backup keeps them).
+- **Open mappings are not removed** by Signalbox: they end with their lease, and the device may
+  drop them itself when the service stops. The `upnp.*` checks keep showing the ones that are
+  still open.
+- A device without UPnP satisfies `enabled: false`; any other field for it refuses the plan.
+  RouterOS has no secure mode and no permission rules, the FRITZ!Box only the switch: those
+  fields are refused there.
+- *Import what the devices report* writes `enabled` and, where reported, `secure_mode`.
+
 ## Network purposes
 
 `purpose` says what a segment or SSID is for: `main`, `guest`, `iot`, `management`, `servers`,
@@ -312,6 +350,7 @@ may have ([ADR 0033](adr/0033-wifi-roaming-desired-state.md)).
 | `drift.firewall` | every declared zone policy (the action the device applies), rule and port forward Signalbox created (all fields), and tagged ones that are no longer declared; a reference to a zone or segment that does not resolve |
 | `drift.gateway-group` | the declared tier (as an order), weight and monitor addresses of each declared member of a declared gateway group; a group or member the device does not have |
 | `drift.tunnel` | both ends of each declared tunnel: the interface (listen port, addresses, MTU) and the peer of the other end (public key, endpoint where declared, allowed IPs, keepalive); a missing interface or a peer that waits for the other end's public key |
+| `drift.upnp` | the declared state of the UPnP service of each declared gateway: on or off, secure mode, the networks it answers in and the permission rules; a declaration for a device without UPnP |
 
 A device that was not read gives an "incomplete" finding instead. An unreadable desired-state
 file gives the error finding `desired.invalid` with the reason.
