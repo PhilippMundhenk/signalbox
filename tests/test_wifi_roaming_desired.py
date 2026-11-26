@@ -16,9 +16,10 @@ from signalbox.changes import (
     changes_for,
     observed_wlan,
     predict,
+    unchanged_left_alone,
 )
 from signalbox.desired import DesiredError, drift_rules, dump, from_network, parse
-from signalbox.model import DeviceRole, FastTransition, Network
+from signalbox.model import DeviceRole, FastTransition, Network, Security
 from signalbox.rules import evaluate
 
 
@@ -243,3 +244,13 @@ def test_import_exports_shared_values_only() -> None:
     )
     w = from_network(split, "home").sites["home"].wlans[0]
     assert (w.roaming.mobility_domain, w.min_rssi_dbm) == (None, None)
+
+
+def test_writers_leave_unchanged_details_alone() -> None:
+    old = WlanValue(
+        ssid="Example", security=Security.WPA2, mobility_domain="a1b2", min_rssi_dbm=-75
+    )
+    new = old.model_copy(update={"hidden": True, "min_rssi_dbm": -70})
+    kept = unchanged_left_alone(new, old)
+    assert (kept.mobility_domain, kept.min_rssi_dbm, kept.hidden) == (None, -70, True)
+    assert unchanged_left_alone(new, None) is new

@@ -52,6 +52,7 @@ from signalbox.changes import (
     ReservationValue,
     RouterValue,
     WlanValue,
+    unchanged_left_alone,
 )
 from signalbox.desired import seg_key
 from signalbox.model import Pmf, Security, normalise_mac
@@ -1608,6 +1609,7 @@ class MikrotikWrites:
                     ),
                 )
             return
+        new = unchanged_left_alone(new, c.old)
         for row in rows:
             iname = _text(row.get("name"))
             what = f"{iname} (SSID {c.key})"

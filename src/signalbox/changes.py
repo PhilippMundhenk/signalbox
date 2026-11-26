@@ -447,6 +447,19 @@ def observed_wlan(net: Network, device_id: str, ssid: str) -> WlanValue | None:
     )
 
 
+#: SSID fields a writer sets only when the change changes them (ADR 0033).
+ROAMING_DETAILS = ("mobility_domain", "ft_over_ds", "min_rssi_dbm")
+
+
+def unchanged_left_alone(new: WlanValue, old: Any) -> WlanValue:
+    """``new`` with the roaming details that the change does not change set to None: the
+    reported value is the first radio's, so writing it would change the other radios."""
+    if not isinstance(old, WlanValue):
+        return new
+    same = {f: None for f in ROAMING_DETAILS if getattr(old, f) == getattr(new, f)}
+    return new.model_copy(update=same) if same else new
+
+
 def observed_min_rssi(w: Wlan) -> int | None:
     """The minimum signal as the device reports it: ``min_rssi_dbm``, else the association
     limit (OpenWrt ``rssi_reject_assoc_rssi``); None: no limit or not reported (ADR 0033)."""

@@ -46,6 +46,7 @@ from signalbox.changes import (
     SnmpPolicyValue,
     WlanValue,
     ZonePolicyValue,
+    unchanged_left_alone,
 )
 from signalbox.desired import SegmentRef, seg_key
 from signalbox.model import (
@@ -487,6 +488,7 @@ def _wlan(
                 ),
             )
         return
+    w = unchanged_left_alone(w, c.old)
     view = cfg.view()
     for n, s in existing:
         nets = h._list(s.get("network"))

@@ -33,8 +33,10 @@ What makes these fields different from the other SSID fields:
 - **Syntax** (docs/DESIRED.md, `wlans:` of a site): `roaming` gains `mobility_domain` (four hex
   digits, `a1b2`) and `over_ds` (true or false) next to `r`, `k` and `v`; the SSID gains
   `min_rssi_dbm` (-120 to -1, or `off` for no limit). Only what is written is compared and
-  changed, like every other field. Declaring `mobility_domain` or `over_ds` with `r: false` is
-  an error of the file (the details mean nothing without 802.11r). The key holder and the
+  changed, like every other field. Declaring `mobility_domain` or `over_ds` without `r: true`
+  is an error of the file (the details mean nothing without 802.11r). A writer sets these
+  fields only where the change changes them: the reported value is the first radio's, and an
+  unrelated change of the SSID must not copy it to the other radios. The key holder and the
   reassociation deadline stay read-only.
 - **One mobility domain per SSID.** The declared domain applies to every access point of the
   SSID. When a plan leaves 802.11r on (or turns it on) for an SSID on more than one access

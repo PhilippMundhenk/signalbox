@@ -249,7 +249,7 @@ may have ([ADR 0033](adr/0033-wifi-roaming-desired-state.md)).
 | Rule | Compares |
 | --- | --- |
 | `drift.segment` | segment exists, name, purpose against a reported one, router address, DHCP on/off, pool, DNS servers, lease time, reservations |
-| `drift.wlan` | SSID present on each access point, security, PMF, VLAN, hidden, on/off, 802.11r/k/v, client isolation, purpose against a reported one, passphrase (by fingerprint against the stored secret) |
+| `drift.wlan` | SSID present on each access point, security, PMF, VLAN, hidden, on/off, 802.11r/k/v, mobility domain, over-DS and minimum signal, one mobility domain per SSID, client isolation, purpose against a reported one, passphrase (by fingerprint against the stored secret) |
 | `drift.port` | untagged and tagged VLANs of each declared port |
 | `drift.logging` | the declared syslog targets of each device (address, port, transport, sent at all), targets Signalbox created or was told to adopt that are no longer declared, and the SNMP agent (off, or v3-only) |
 | `drift.firewall` | every declared zone policy (the action the device applies), rule and port forward Signalbox created (all fields), and tagged ones that are no longer declared; a reference to a zone or segment that does not resolve |
