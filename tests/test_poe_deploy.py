@@ -328,12 +328,20 @@ async def test_openwrt_on_deploys_verifies_and_undoes(owrt: OpenWrtSim, owrt_svc
     assert enable(owrt) == {"lan1": "1", "lan2": "0"}
 
 
-async def test_openwrt_off_names_the_load(owrt: OpenWrtSim, owrt_svc: Services) -> None:
-    await net_of(owrt_svc)
+async def test_openwrt_off_of_a_switch_needs_allow_outage(
+    owrt: OpenWrtSim, owrt_svc: Services
+) -> None:
+    net = await net_of(owrt_svc)
+    # the simulator's LLDP neighbour on lan1 is a switch: refused without the override
+    with pytest.raises(PlanError) as err:
+        plan(parse(OFF1), net, RULES)
+    assert err.value.message_id == "plan.poeOutage" and "bridge" in str(err.value)
+    assert enable(owrt)["lan1"] == "1"
     d = Deployer(owrt_svc.runner)
-    rec, done = await deploy(d, owrt_svc, OFF1)
+    allowed = poe_text("{device: sw, port: lan1, enabled: false, allow_outage: true}")
+    rec, done = await deploy(d, owrt_svc, allowed)
     [c] = rec.plan.changes
-    assert c.risk == "cuts power to an unknown device that draws 9 W"
+    assert c.risk is not None and c.risk.startswith("cuts power to ")
     assert done.status is ChangeStatus.APPLIED, [r.error for r in done.devices]
     assert enable(owrt)["lan1"] == "0"
     lan1 = owrt_svc.runner.network().port(port_id("sw", "lan1"))
