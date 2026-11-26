@@ -1,7 +1,8 @@
 """PoE writes (#484, ADR 0036) through the real Deployer against the MikroTik simulator
-(``/interface/ethernet/poe`` ``poe-out``): plan, apply, verify, undo, the revert timer, the
-backup, the outage refusal, and nothing changed where nothing is declared. CHR has no PoE-out,
-so this is the only test of the writer; integrations that do not write PoE refuse the plan."""
+(``/interface/ethernet/poe`` ``poe-out``) and the OpenWrt simulator (realtek-poe, UCI ``poe``):
+plan, apply, verify, undo, the revert timer, the backup, the outage and budget refusals, and
+nothing changed where nothing is declared. CHR has no PoE-out, so this is the only test of the
+MikroTik writer; integrations that do not write PoE refuse the plan."""
 
 from __future__ import annotations
 
@@ -13,14 +14,16 @@ from typing import Any
 import pytest
 from pydantic import SecretStr
 
-from signalbox.adapters import AdapterContext
+from signalbox.adapters import AdapterContext, AdapterError
 from signalbox.adapters.mikrotik import MikrotikAdapter, MikrotikConfig, poewrite
 from signalbox.adapters.omada import OmadaAdapter
-from signalbox.adapters.openwrt import OpenWrtAdapter
+from signalbox.adapters.openwrt import OpenWrtAdapter, OpenWrtConfig
+from signalbox.adapters.openwrt import write as owrt_write
+from signalbox.adapters.openwrt.setup import READ_ACL, WRITE_ACL
 from signalbox.adapters.plusswitch import EasySmartAdapter, ProsafeAdapter
 from signalbox.adapters.unifi import UnifiAdapter
 from signalbox.changes import ChangeKind, PlanError, PoeValue, plan
-from signalbox.deploy import Deployer
+from signalbox.deploy import Deployer, DeployError
 from signalbox.desired import drift_rules, parse
 from signalbox.history import ChangeStatus
 from signalbox.model import DeviceRole, Network, PoeStatus, Site, port_id
@@ -28,6 +31,7 @@ from signalbox.rules import evaluate
 from signalbox.rules.builtin import RULES
 from signalbox.service import Services, build
 from signalbox.sim.mikrotik import PASSWORD, POE_MENU, SCHEDULER, MikrotikSimulator
+from signalbox.sim.openwrt import OpenWrtSim, create_app
 from signalbox.sim.server import serve
 from signalbox.store import DeviceRecord
 
@@ -237,6 +241,164 @@ def test_a_forced_on_port_counts_as_on_and_is_left_alone() -> None:
 
 
 def test_integrations_that_do_not_write_poe_say_so() -> None:
-    for cls in (OpenWrtAdapter, OmadaAdapter, UnifiAdapter, ProsafeAdapter, EasySmartAdapter):
+    for cls in (OmadaAdapter, UnifiAdapter, ProsafeAdapter, EasySmartAdapter):
         assert ChangeKind.POE not in cls.manifest.writes, cls
     assert ChangeKind.POE in MikrotikAdapter.manifest.writes
+    assert ChangeKind.POE in OpenWrtAdapter.manifest.writes
+
+
+# --- OpenWrt realtek-poe (UCI poe) --------------------------------------------------------------
+
+OWRT = OpenWrtSim()
+POE_INFO = {
+    "budget": 60,
+    "consumption": 9,
+    "ports": {
+        "lan1": {"mode": "PoE", "status": "Delivering power", "consumption": 9000},
+        "lan2": {"status": "Disabled"},
+    },
+}
+ON2 = poe_text("{device: sw, port: lan2, enabled: true}")
+OFF1 = poe_text("{device: sw, port: lan1, enabled: false}")
+
+
+@pytest.fixture(scope="module")
+def owrt_url() -> Iterator[str]:
+    with serve(create_app(OWRT)) as base:
+        yield base
+
+
+@pytest.fixture
+def owrt(owrt_url: str) -> OpenWrtSim:
+    OWRT.reset()
+    OWRT.packages = {"poe"}
+    OWRT.poe_info = copy.deepcopy(POE_INFO)
+    return OWRT
+
+
+@pytest.fixture
+def owrt_svc(owrt: OpenWrtSim, owrt_url: str, tmp_path: Path) -> Iterator[Services]:
+    s = build(tmp_path, env=ENV, adapters={"openwrt": OpenWrtAdapter}, rules=RULES, link_sources=[])
+    s.store.put_site(SITE)
+    rec = DeviceRecord(
+        id="sw",
+        site_id="home",
+        name="Switch",
+        role=DeviceRole.SWITCH,
+        adapter="openwrt",
+        allow_writes=True,
+    )
+    values = {"url": f"{owrt_url}/ubus", "password": owrt.password, "allow_insecure_http": True}
+    s.store.put_device(rec, values, OpenWrtConfig)
+    yield s
+    s.close()
+
+
+def enable(sim: OpenWrtSim) -> dict[str, str]:
+    return copy.deepcopy(
+        {
+            str(s["name"]): str(s["enable"])
+            for s in sim.state["poe"].values()
+            if s.get(".type") == "port"
+        }
+    )
+
+
+async def test_openwrt_on_deploys_verifies_and_undoes(owrt: OpenWrtSim, owrt_svc: Services) -> None:
+    assert enable(owrt) == {"lan1": "1", "lan2": "0"}
+    net = await net_of(owrt_svc)
+    lan2 = net.port(port_id("sw", "lan2"))
+    assert lan2 is not None and lan2.poe is not None and lan2.poe.enabled is False
+    d = Deployer(owrt_svc.runner)
+    rec, done = await deploy(d, owrt_svc, ON2)
+    [c] = rec.plan.changes
+    assert c.kind is ChangeKind.POE and c.risk is None  # 9 W + 15.4 W of 60 W
+    assert done.status is ChangeStatus.APPLIED, [r.error for r in done.devices]
+    assert "apply" in owrt.history and "confirm" in owrt.history
+    assert enable(owrt) == {"lan1": "1", "lan2": "1"}
+    net = owrt_svc.runner.network()
+    lan2 = net.port(port_id("sw", "lan2"))
+    assert lan2 is not None and lan2.poe is not None
+    assert (lan2.poe.enabled, lan2.poe.status) == (True, PoeStatus.SEARCHING)
+    assert plan(parse(ON2), net, RULES).changes == [] and no_poe_drift(net, ON2)
+    back = await d.revert(rec.id, "not needed", "tester")
+    d.approve(back.id, "tester", override="lab" if back.plan.blocking else None)
+    undone = await d.deploy(back.id)
+    assert undone.status is ChangeStatus.APPLIED, [r.error for r in undone.devices]
+    assert enable(owrt) == {"lan1": "1", "lan2": "0"}
+
+
+async def test_openwrt_off_of_a_switch_needs_allow_outage(
+    owrt: OpenWrtSim, owrt_svc: Services
+) -> None:
+    net = await net_of(owrt_svc)
+    # the simulator's LLDP neighbour on lan1 is a switch: refused without the override
+    with pytest.raises(PlanError) as err:
+        plan(parse(OFF1), net, RULES)
+    assert err.value.message_id == "plan.poeOutage" and "bridge" in str(err.value)
+    assert enable(owrt)["lan1"] == "1"
+    d = Deployer(owrt_svc.runner)
+    allowed = poe_text("{device: sw, port: lan1, enabled: false, allow_outage: true}")
+    rec, done = await deploy(d, owrt_svc, allowed)
+    [c] = rec.plan.changes
+    assert c.risk is not None and c.risk.startswith("cuts power to ")
+    assert done.status is ChangeStatus.APPLIED, [r.error for r in done.devices]
+    assert enable(owrt)["lan1"] == "0"
+    lan1 = owrt_svc.runner.network().port(port_id("sw", "lan1"))
+    assert lan1 is not None and lan1.poe is not None and lan1.poe.status is PoeStatus.DISABLED
+
+
+async def test_openwrt_over_the_budget_is_refused(owrt: OpenWrtSim, owrt_svc: Services) -> None:
+    assert owrt.poe_info is not None
+    owrt.poe_info["consumption"] = 50  # 50 W + 15.4 W > 60 W
+    net = await net_of(owrt_svc)
+    with pytest.raises(PlanError) as err:
+        plan(parse(ON2), net, RULES)
+    assert err.value.message_id == "plan.poeBudget"
+    assert enable(owrt) == {"lan1": "1", "lan2": "0"}
+
+
+async def test_openwrt_a_login_without_poe_write_access_changes_nothing(
+    owrt: OpenWrtSim, owrt_svc: Services
+) -> None:
+    owrt.writable.discard("poe")
+    await net_of(owrt_svc)
+    d = Deployer(owrt_svc.runner)
+    p = plan(parse(ON2), owrt_svc.runner.network(), RULES)
+    try:
+        rec = await d.prepare(p, "x", "tester")
+    except DeployError:
+        assert enable(owrt) == {"lan1": "1", "lan2": "0"}
+        return
+    d.approve(rec.id, "tester", override="lab" if rec.plan.blocking else None)
+    done = await d.deploy(rec.id)
+    assert done.status is not ChangeStatus.APPLIED
+    assert enable(owrt) == {"lan1": "1", "lan2": "0"}
+
+
+async def test_openwrt_refusals(owrt: OpenWrtSim, owrt_svc: Services) -> None:
+    net = await net_of(owrt_svc)
+    [c] = plan(parse(ON2), net, RULES).changes
+    data: dict[str, Any] = {"network": {"values": copy.deepcopy(owrt.state["network"])}}
+    with pytest.raises(AdapterError) as err:
+        owrt_write.translate([c], data, {"interface": []}, "home", {})
+    assert err.value.message_id == "openwrt.noPoeConfig"
+    data["poe"] = {"values": {}}
+    with pytest.raises(AdapterError) as err:
+        owrt_write.translate([c], data, {"interface": []}, "home", {})
+    assert err.value.message_id == "openwrt.noPoePort"
+
+
+async def test_openwrt_nothing_changes_without_a_declaration(
+    owrt: OpenWrtSim, owrt_svc: Services
+) -> None:
+    net = await net_of(owrt_svc)
+    assert plan(parse("sites:\n  home: {}\n"), net, RULES).changes == []
+    on1 = poe_text("{device: sw, port: lan1, enabled: true}")
+    assert plan(parse(on1), net, RULES).changes == []
+
+
+def test_the_acl_lets_the_login_read_and_write_poe() -> None:
+    assert READ_ACL["signalbox"]["read"]["ubus"]["poe"] == ["info"]
+    assert "poe" in READ_ACL["signalbox"]["read"]["uci"]
+    assert "poe" in WRITE_ACL["signalbox"]["write"]["uci"]

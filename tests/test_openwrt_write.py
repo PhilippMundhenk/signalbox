@@ -151,6 +151,7 @@ def test_manifest_declares_what_it_writes() -> None:
         ChangeKind.TUNNEL,
         ChangeKind.TUNNEL_PEER,
         ChangeKind.UPNP,
+        ChangeKind.POE,
     }
     assert issubclass(OpenWrtAdapter, WritesConfig)
 

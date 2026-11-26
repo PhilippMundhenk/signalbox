@@ -308,8 +308,9 @@ sites:
 
 Whether a switch delivers Power over Ethernet on a port (#484,
 [ADR 0036](adr/0036-poe-desired-state.md)). Written on MikroTik
-([details](adapters/mikrotik.md#poe-484)); other integrations refuse a plan with PoE changes for
-now. Off like every write: it needs `deploy.enabled`, *Allow changes* on the switch and the
+([details](adapters/mikrotik.md#poe-484)) and OpenWrt switches with `realtek-poe`
+([details](adapters/openwrt.md#poe-switches-159)); other integrations refuse a plan with PoE
+changes for now. Off like every write: it needs `deploy.enabled`, *Allow changes* on the switch and the
 per-plan approval.
 
 ```yaml

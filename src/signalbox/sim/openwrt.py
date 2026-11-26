@@ -50,8 +50,8 @@ FIXED_MAC = "00:00:5e:00:53:{:02x}"
 CONFIGS = ("network", "wireless", "dhcp", "firewall")
 #: UCI configs it only reads (time zone and NTP, #179; SSH and web UI, #173)
 #: Read-only until #327: ``system`` and ``snmpd`` are also written (log target, SNMP agent);
-#: ``mwan3`` since #463 (gateway groups), ``upnpd`` since #513
-WRITE_ALSO = ("system", "snmpd", "mwan3", "upnpd")
+#: ``mwan3`` since #463 (gateway groups), ``upnpd`` since #513, ``poe`` since #484
+WRITE_ALSO = ("system", "snmpd", "mwan3", "upnpd", "poe")
 READ_ONLY = (
     "system",
     "dropbear",
@@ -71,6 +71,7 @@ READ_ONLY = (
     "upnpd",
     "openvpn",
     "sqm",
+    "poe",
 )
 #: Of those, the configs of optional packages (#180): only there when installed
 PACKAGES = (
@@ -88,6 +89,7 @@ PACKAGES = (
     "upnpd",
     "openvpn",
     "sqm",
+    "poe",
 )
 #: file paths the read ACL of docs/adapters/openwrt.md allows (``*``: any characters)
 FILES = (
@@ -1119,6 +1121,31 @@ def opennds_config() -> dict[str, Any]:
     )
 
 
+def poe_config(info: dict[str, Any] | None) -> dict[str, Any]:
+    """``/etc/config/poe`` of realtek-poe (#484): one ``port`` section per port of ``poe info``,
+    on unless the port reports ``Disabled``, as the package's default config has them."""
+    ports = (info or {}).get("ports") or {}
+    sections: list[tuple[str, str, dict[str, Any]]] = [
+        ("global", "cfg01poe", {"budget": str((info or {}).get("budget", 65))})
+    ]
+    for i, (name, row) in enumerate(sorted(ports.items()), 1):
+        off = isinstance(row, dict) and str(row.get("status", "")).startswith("Disabled")
+        sections.append(
+            (
+                "port",
+                f"cfg{i + 1:02x}poe",
+                {
+                    "enable": "0" if off else "1",
+                    "id": str(i),
+                    "name": name,
+                    "poe_plus": "1",
+                    "priority": "2",
+                },
+            )
+        )
+    return _uci(*sections)
+
+
 def upnpd_config() -> dict[str, Any]:
     """``/etc/config/upnpd`` (#176): miniupnpd on the main network, secure mode on, one rule."""
     return _uci(
@@ -1977,6 +2004,7 @@ class OpenWrtSim:
                 "nodogsplash": _sections(nodogsplash_config()),
                 "igmpproxy": _sections(igmpproxy_config()),
                 "upnpd": _sections(upnpd_config()),
+                "poe": _sections(poe_config(self.poe_info)),
                 "openvpn": _sections(openvpn_config()),
                 "sqm": _sections(sqm_config()),
                 "https-dns-proxy": {},
@@ -2151,6 +2179,28 @@ class OpenWrtSim:
         self.history.append("apply")
         return [OK]
 
+    def _poe_info(self) -> dict[str, Any]:
+        """``poe info`` as the daemon reports it after a reload of UCI ``poe`` (#484): a port
+        whose section has ``enable '0'`` is ``Disabled`` and draws nothing; one switched on
+        again searches until a load is detected."""
+        info = copy.deepcopy(self.poe_info or {})
+        if "poe" not in self.packages:
+            return info
+        enabled = {
+            str(sec.get("name")): str(sec.get("enable")) == "1"
+            for sec in self.state["poe"].values()
+            if sec.get(".type") == "port"
+        }
+        for name, row in (info.get("ports") or {}).items():
+            if not isinstance(row, dict) or name not in enabled:
+                continue
+            disabled = str(row.get("status", "")).startswith("Disabled")
+            if not enabled[name]:
+                row.update({"status": "Disabled", "consumption": 0})
+            elif disabled:
+                row["status"] = "Searching"
+        return info
+
     def _device_status(self) -> dict[str, Any]:
         status = device_status(self.state["network"], self.state["wireless"])
         if self.mac_base:  # a second simulated device needs MACs of its own
@@ -2183,7 +2233,7 @@ class OpenWrtSim:
             name = str(zone.get("zonename") or "UTC")
             return [0, system_info(time.time() + self.clock_skew, name)]
         if obj == "poe" and method == "info":  # realtek-poe: only on PoE switches
-            return None if self.poe_info is None else [0, self.poe_info]
+            return None if self.poe_info is None else [0, self._poe_info()]
         if obj == "network.device" and method == "status":
             return [0, self._device_status()]
         if obj == "network.interface" and method == "dump":
