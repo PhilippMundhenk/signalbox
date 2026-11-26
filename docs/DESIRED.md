@@ -209,6 +209,60 @@ sites:
   in several groups has one monitor for all of them; different declarations are refused.
 - *Import what the devices report* exports every group with all its members, without `adopt`.
 
+## WireGuard tunnels
+
+A site-to-site WireGuard tunnel between two devices Signalbox manages (#152,
+[ADR 0034](adr/0034-wireguard-tunnels-desired-state.md)). The writers for OpenWrt and MikroTik
+follow in a separate change; until then every integration refuses a plan with tunnel changes.
+Off like every write: it needs `deploy.enabled`, *Allow changes* on both devices and the
+per-plan approval.
+
+```yaml
+sites:
+  home:
+    tunnels:
+      - name: office              # tags what Signalbox creates on both devices
+        ends:
+          - device: home-gw
+            interface: wg_office  # the device's interface name
+            listen_port: 51820
+            addresses: [203.0.113.253/30]   # this end's tunnel address(es)
+            endpoint: 203.0.113.10          # how the other end reaches this one (host[:port])
+            networks: [192.0.2.0/25]        # networks behind this end
+          - device: office-gw
+            interface: wg_home
+            listen_port: 51821
+            addresses: [203.0.113.254/30]
+            networks: [198.51.100.0/25]
+            keepalive: 25         # this end is behind NAT and keeps the way open
+            # no endpoint: this end only connects out
+```
+
+- **No keys in the file, none through Signalbox.** Each device generates its own key pair when
+  the interface is created; Signalbox reads only the public keys and gives each end's peer the
+  other end's public key. Private keys are never read, stored, logged or shown, and backups
+  leave them out. Pre-shared keys are not supported: Signalbox would have to carry the same key
+  to both ends; a peer that has one keeps it.
+- **Two steps for a new tunnel.** The first deployment creates the missing interfaces; once the
+  devices have been read again, the next plan adds the peers with the public keys. The plan
+  lists the peers that wait (`pending`), and `drift.tunnel` reports them until then. Where both
+  interfaces exist, one deployment sets both peers.
+- **The peer of each end is derived**: the other end's public key, its `endpoint` with its
+  `listen_port` (or the port in the endpoint), and as allowed IPs the other end's tunnel
+  addresses (single addresses) and its `networks`. An endpoint that is not declared is not
+  compared: devices report where they last saw a peer.
+- **Ownership**: Signalbox changes interfaces and peers it created (tagged with the tunnel name)
+  and an interface of the device's own only when its end says `adopt: true`; on an adopted
+  interface only the declared fields and the peer of the other end are written, other peers
+  (phones, other sites) are left as they are. Tagged tunnels and peers that no tunnel of the
+  desired state names any more are removed. Signalbox does not rename an interface.
+- **Lockout protection**: a change of an interface or peer that carries the management address
+  of a configured device or Signalbox's own address (tunnel addresses, allowed IPs, before or
+  after) is listed under *may cut Signalbox off* and needs the explicit override, as for
+  firewall changes.
+- *Import what the devices report* writes no tunnels: which interfaces form a tunnel is your
+  decision.
+
 ## Network purposes
 
 `purpose` says what a segment or SSID is for: `main`, `guest`, `iot`, `management`, `servers`,
@@ -254,6 +308,7 @@ may have ([ADR 0033](adr/0033-wifi-roaming-desired-state.md)).
 | `drift.logging` | the declared syslog targets of each device (address, port, transport, sent at all), targets Signalbox created or was told to adopt that are no longer declared, and the SNMP agent (off, or v3-only) |
 | `drift.firewall` | every declared zone policy (the action the device applies), rule and port forward Signalbox created (all fields), and tagged ones that are no longer declared; a reference to a zone or segment that does not resolve |
 | `drift.gateway-group` | the declared tier (as an order), weight and monitor addresses of each declared member of a declared gateway group; a group or member the device does not have |
+| `drift.tunnel` | both ends of each declared tunnel: the interface (listen port, addresses, MTU) and the peer of the other end (public key, endpoint where declared, allowed IPs, keepalive); a missing interface or a peer that waits for the other end's public key |
 
 A device that was not read gives an "incomplete" finding instead. An unreadable desired-state
 file gives the error finding `desired.invalid` with the reason.

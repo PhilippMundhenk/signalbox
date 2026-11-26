@@ -10973,6 +10973,18 @@
           "default": null,
           "title": "Sessions"
         },
+        "signalbox_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signalbox Key"
+        },
         "source": {
           "anyOf": [
             {
@@ -11269,6 +11281,18 @@
           ],
           "default": null,
           "title": "Rx Bytes"
+        },
+        "signalbox_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signalbox Key"
         },
         "tx_bytes": {
           "anyOf": [
