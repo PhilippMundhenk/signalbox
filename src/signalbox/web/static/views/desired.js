@@ -98,8 +98,9 @@ function findingList(title, findings, testid) {
 
 export function renderPlan(box, p) {
   clear(box);
+  const pending = (p.pending || []).length ? notice('info', 'plan-pending', h('strong', {}, t('desired.plan.pending')), h('ul', {}, p.pending.map((x) => h('li', {}, x)))) : null;
   if (!p.changes.length) {
-    place(box, h('p', { 'data-testid': 'plan-empty' }, t('desired.plan.empty')));
+    place(box, h('p', { 'data-testid': 'plan-empty' }, t('desired.plan.empty')), pending);
     return;
   }
   place(
@@ -111,6 +112,7 @@ export function renderPlan(box, p) {
       p.changes.map((c) => h('li', {}, c.text, c.risk ? h('div', { class: 'error' }, t('desired.plan.risk', { risk: c.risk })) : null)),
     ),
     (p.lockouts || []).length ? notice('error', 'plan-lockouts', h('strong', {}, t('desired.plan.lockouts')), h('ul', {}, p.lockouts.map((x) => h('li', {}, x)))) : null,
+    pending,
     p.blocking.length ? notice('error', 'plan-blocked', t('desired.plan.blocked')) : null,
     findingList(t('desired.plan.newFindings'), p.new_findings, 'plan-new'),
     findingList(t('desired.plan.resolvedFindings'), p.resolved_findings, 'plan-resolved'),

@@ -36,11 +36,13 @@ from signalbox.changes import (
     observed_forward,
     observed_group,
     observed_log_target,
+    observed_peer,
     observed_policy,
     observed_port,
     observed_router,
     observed_rule,
     observed_snmp,
+    observed_tunnel,
     observed_wlan,
     revert_plan,
 )
@@ -108,6 +110,10 @@ def current_value(net: Network, c: Change) -> Any:
         return observed_snmp(net, c.device_id)
     if c.kind is ChangeKind.GATEWAY_GROUP:
         return observed_group(net, c.device_id, c.key)
+    if c.kind is ChangeKind.TUNNEL:
+        return observed_tunnel(net, c.device_id, c.key, c.adopt)
+    if c.kind is ChangeKind.TUNNEL_PEER:
+        return observed_peer(net, c)
     return observed_wlan(net, c.device_id, c.key)
 
 
@@ -124,6 +130,9 @@ UNSPECIFIED: dict[ChangeKind, tuple[str, ...]] = {
         "client_isolation",
     ),
     ChangeKind.DHCP: ("lease_seconds",),
+    ChangeKind.TUNNEL: ("listen_port", "mtu"),
+    # without a declared endpoint the device reports where it last saw the peer (ADR 0034)
+    ChangeKind.TUNNEL_PEER: ("endpoint_host", "endpoint_port", "keepalive"),
 }
 
 

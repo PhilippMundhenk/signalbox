@@ -579,6 +579,102 @@ class GatewayGroupSpec(Spec):
     members: list[GatewayMemberSpec] = Field(default_factory=list)
 
 
+# WireGuard tunnels (#152) ----------------------------------------------------------------------
+
+#: A tunnel name: also the tag Signalbox puts on the interface and the peers it creates.
+TunnelName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")]
+#: A WireGuard interface name as Linux and RouterOS accept it.
+InterfaceName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,14}$")]
+
+
+class TunnelEndSpec(Spec):
+    """One end of a WireGuard tunnel (#152, ADR 0034). There is no key field: the key pair is
+    generated on the device, and the peer is the other end's public key read from it."""
+
+    device: str
+    interface: InterfaceName = Field(description="The device's interface name, e.g. wg_office")
+    listen_port: Annotated[int, Field(ge=1, le=65535)] | None = Field(
+        None, description="UDP port this end listens on"
+    )
+    addresses: list[IPInterface] | None = Field(
+        None, description="This end's tunnel addresses with prefix, e.g. 10.99.0.1/30"
+    )
+    mtu: Annotated[int, Field(ge=1280, le=9000)] | None = None
+    endpoint: str | None = Field(
+        None,
+        description="How the other end reaches this one: host or address, optionally :port; "
+        "omitted for an end that only connects out (behind NAT)",
+    )
+    networks: list[IPNetwork] = Field(
+        default_factory=list, description="Networks behind this end, routed into the tunnel"
+    )
+    keepalive: Annotated[int, Field(ge=0, le=65535)] | None = Field(
+        None, description="Seconds between keepalives this end sends (for an end behind NAT)"
+    )
+    adopt: bool = Field(
+        False, description="Let a deployment change the device's own interface of this name"
+    )
+
+    def endpoint_parts(self) -> tuple[str | None, int | None]:
+        """The endpoint's host and port (the port defaults to ``listen_port``)."""
+        text = (self.endpoint or "").strip()
+        if not text:
+            return None, None
+        host, port = text, None
+        if text.startswith("["):
+            host, _, rest = text[1:].partition("]")
+            port = rest[1:] if rest.startswith(":") else None
+        elif text.count(":") == 1:
+            host, port = text.split(":")
+        number = int(port) if port and port.isdigit() else None
+        return host or None, number if number is not None else self.listen_port
+
+    @field_validator("endpoint")
+    @classmethod
+    def _endpoint(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = value.strip()
+        port = ""
+        if text.startswith("["):
+            host, _, rest = text[1:].partition("]")
+            if rest and not rest.startswith(":"):
+                raise ValueError("an endpoint is host or [address]:port")
+            port = rest[1:]
+        elif text.count(":") == 1:
+            host, port = text.split(":")
+        else:
+            host = text
+        if not host or any(c.isspace() for c in host):
+            raise ValueError("an endpoint needs a host name or an address")
+        if port and not (port.isdigit() and 1 <= int(port) <= 65535):
+            raise ValueError(f"endpoint port {port!r} is not a port number")
+        return text
+
+
+class TunnelSpec(Spec):
+    """A WireGuard tunnel between two managed devices (#152, ADR 0034)."""
+
+    name: TunnelName = Field(description="Name of the tunnel; tags what Signalbox creates")
+    ends: list[TunnelEndSpec] = Field(min_length=2, max_length=2)
+
+    @model_validator(mode="after")
+    def _two_devices(self) -> TunnelSpec:
+        if self.ends[0].device == self.ends[1].device:
+            raise ValueError(f"tunnel {self.name}: the two ends must be different devices")
+        for end in self.ends:
+            if end.endpoint and end.endpoint_parts()[1] is None:
+                raise ValueError(
+                    f"tunnel {self.name}: the endpoint of {end.device} needs a port "
+                    "(host:port, or listen_port)"
+                )
+        return self
+
+
+def _tunnel_interface(spec: TunnelSpec, device_id: str) -> str:
+    return next(e.interface for e in spec.ends if e.device == device_id)
+
+
 def _as_datetime(value: datetime | date | None) -> datetime | None:
     if value is None or isinstance(value, datetime):
         return value
@@ -595,6 +691,8 @@ class SiteSpec(Spec):
     logging: LoggingSpec | None = None
     #: Tiers, weights and monitors of the devices' gateway groups (#463).
     gateway_groups: list[GatewayGroupSpec] = Field(default_factory=list)
+    #: WireGuard tunnels between two managed devices (#152).
+    tunnels: list[TunnelSpec] = Field(default_factory=list)
     #: User annotations of objects of the site (#186).
     annotations: list[AnnotationSpec] = Field(default_factory=list)
     #: Accepted findings (#186).
@@ -641,6 +739,7 @@ class DesiredState(Spec):
                     firewalls=[*old.firewalls, *spec.firewalls],
                     logging=_merge_logging(old.logging, spec.logging),
                     gateway_groups=[*old.gateway_groups, *spec.gateway_groups],
+                    tunnels=[*old.tunnels, *spec.tunnels],
                     annotations=[*old.annotations, *spec.annotations],
                     acknowledgements=[*old.acknowledgements, *spec.acknowledgements],
                 )
@@ -672,7 +771,25 @@ def parse(text: str, source: str = "desired state") -> DesiredState:
     return state
 
 
+def _check_tunnels(state: DesiredState, source: str) -> None:
+    """A tunnel name once in the whole state, one declared interface per device."""
+    names = [t.name for spec in state.sites.values() for t in spec.tunnels]
+    dup = sorted({n for n in names if names.count(n) > 1})
+    if dup:
+        raise DesiredError(f"{source}: tunnel declared twice: {', '.join(dup)}")
+    ends = [
+        (e.device, e.interface)
+        for spec in state.sites.values()
+        for t in spec.tunnels
+        for e in t.ends
+    ]
+    dup = sorted({f"{d}/{i}" for d, i in ends if ends.count((d, i)) > 1})
+    if dup:
+        raise DesiredError(f"{source}: tunnel interface declared twice: {', '.join(dup)}")
+
+
 def _check_unique(state: DesiredState, source: str) -> None:
+    _check_tunnels(state, source)
     targets = [a.target for spec in state.sites.values() for a in spec.annotations]
     dup = sorted({t for t in targets if targets.count(t) > 1})
     if dup:
@@ -1517,6 +1634,61 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                                 key=f"{gg.device}/{gg.name}/{m.name}",
                             )
 
+    def tunnels(net: Network) -> Iterator[Result]:
+        from signalbox.changes import PlanError, tunnel_changes
+        from signalbox.sightings import ANSWERED
+
+        for site_id, spec in state.sites.items():
+            for ts in spec.tunnels:
+                subject = f"Tunnel {ts.name}"
+                unread = [
+                    e.device
+                    for e in ts.ends
+                    if net.device(e.device) is None
+                    or net.statuses.get(e.device, DeviceStatus.OK) not in ANSWERED
+                ]
+                if unread:
+                    yield incomplete(
+                        f"{subject}: {', '.join(unread)} not read", unread, key=ts.name
+                    )
+                    continue
+                try:
+                    found_changes, pending = tunnel_changes(net, site_id, ts, planning=False)
+                except PlanError as exc:
+                    yield found(
+                        f"{subject}: {exc}",
+                        [e.device for e in ts.ends],
+                        key=ts.name,
+                        fix="Correct the desired state: Signalbox does not rename interfaces.",
+                    )
+                    continue
+                for c in found_changes:
+                    target = object_id(c.device_id, "tunnel", _tunnel_interface(ts, c.device_id))
+                    what = "interface" if c.kind.value == "tunnel" else "peer"
+                    if c.old is None:
+                        message = f"{subject} on {c.device_id}: the {what} is missing"
+                    else:
+                        want = c.new.model_dump(mode="json") if c.new else {}
+                        now = c.old.model_dump(mode="json")
+                        diffs = [
+                            "public key differs"
+                            if k == "public_key"
+                            else _differ(k.replace("_", " "), want[k], now.get(k))
+                            for k in want
+                            if k != "interface" and want[k] is not None and now.get(k) != want[k]
+                        ]
+                        if not diffs:
+                            continue
+                        message = f"{subject} on {c.device_id}: {what}: " + "; ".join(diffs)
+                    yield found(message, [target], key=f"{ts.name}/{c.device_id}/{what}")
+                for device, _ in pending:
+                    yield found(
+                        f"{subject} on {device}: the peer is missing; it waits for the other "
+                        "end's public key",
+                        [object_id(device, "tunnel", _tunnel_interface(ts, device))],
+                        key=f"{ts.name}/{device}/peer",
+                    )
+
     explanation = (
         "The observed configuration differs from the desired state. Either deploy the desired "
         "state, or change the desired state to accept what is there."
@@ -1569,6 +1741,17 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
             + " Tiers are compared by their order, monitor addresses as a set; only the "
             "declared fields of the declared members are compared.",
             groups,
+        ),
+        Rule(
+            "drift.tunnel",
+            "WireGuard tunnel differs from the desired state",
+            Severity.WARNING,
+            explanation
+            + " Both ends of each declared tunnel are compared: the interface (listen port, "
+            "addresses, MTU) and the peer of the other end (its public key, endpoint, allowed "
+            "IPs, keepalive). A new tunnel's peers follow in a second deployment, once the "
+            "devices have generated their key pairs; until then the missing peer is reported.",
+            tunnels,
         ),
     ]
 

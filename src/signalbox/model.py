@@ -2005,6 +2005,9 @@ class TunnelPeer(Model):
     #: A pre-shared key is set (the key itself is never read). None: not known.
     preshared_key: bool | None = None
     enabled: bool = True
+    #: The tunnel name of the desired state when Signalbox created or took over this peer
+    #: (#152, ADR 0034); None: the device's own.
+    signalbox_key: str | None = None
 
     @field_validator("latest_handshake")
     @classmethod
@@ -2038,6 +2041,9 @@ class Tunnel(Observed):
     enabled: bool = True
     listen_port: Annotated[int, Field(ge=1, le=65535)] | None = None
     public_key: WireGuardKey | None = None
+    #: The tunnel name of the desired state when Signalbox created or took over this interface
+    #: (#152, ADR 0034); None: the device's own.
+    signalbox_key: str | None = None
     #: The device's own addresses on the tunnel, with prefix length.
     addresses: list[IPInterface] = Field(default_factory=list)
     mtu: Annotated[int, Field(ge=68, le=65535)] | None = None

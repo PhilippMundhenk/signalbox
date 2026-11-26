@@ -68,8 +68,9 @@ SETTLE_SECONDS = 15.0
 
 #: Kinds of change the integration applies (all of them; Wi-Fi on the RouterOS 7 ``wifi``
 #: package; firewall kinds (#295, docs/adr/0017) with a revert timer, see ``fwwrite``; the
-#: default routes as the gateway group, #463, see ``gwwrite``).
-WRITES = frozenset(ChangeKind)
+#: default routes as the gateway group, #463, see ``gwwrite``); WireGuard tunnels (#152) not
+#: yet.
+WRITES = frozenset(ChangeKind) - {ChangeKind.TUNNEL, ChangeKind.TUNNEL_PEER}
 
 #: ``/system/scheduler``: the revert timer of firewall changes.
 SCHEDULER = "/rest/system/scheduler"

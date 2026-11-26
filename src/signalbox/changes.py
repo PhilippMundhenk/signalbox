@@ -19,7 +19,7 @@ from collections import deque
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from enum import StrEnum
-from ipaddress import IPv4Address, ip_address
+from ipaddress import IPv4Address, ip_address, ip_network
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -32,6 +32,8 @@ from signalbox.desired import (
     FirewallSpec,
     GatewayGroupSpec,
     SegmentRef,
+    TunnelEndSpec,
+    TunnelSpec,
     ZoneRef,
     effective_logging,
     firewall_key,
@@ -73,7 +75,11 @@ from signalbox.model import (
     SnmpSettings,
     SnmpVersion,
     Subnet,
+    Tunnel,
+    TunnelKind,
+    TunnelPeer,
     Verdict,
+    WireGuardKey,
     Wlan,
     ZonePolicy,
     is_native_segment,
@@ -97,12 +103,19 @@ class ChangeKind(StrEnum):
     LOG_TARGET = "log-target"  # one remote syslog target of a device (#327)
     SNMP_POLICY = "snmp-policy"  # the state of the SNMP agent of a device (#327)
     GATEWAY_GROUP = "gateway-group"  # tiers, weights and monitors of a gateway group (#463)
+    TUNNEL = "tunnel"  # a WireGuard interface of one end of a tunnel (#152)
+    TUNNEL_PEER = "tunnel-peer"  # the peer of a tunnel's end: the other end (#152)
 
 
 #: Kinds that change a device's firewall: their plans are checked for lost management access.
 FIREWALL_KINDS = frozenset(
     {ChangeKind.ZONE_POLICY, ChangeKind.FIREWALL_RULE, ChangeKind.PORT_FORWARD}
 )
+
+
+#: Kinds that change a WireGuard tunnel (#152): their plans are checked for lost management
+#: access through the tunnel.
+TUNNEL_KINDS = frozenset({ChangeKind.TUNNEL, ChangeKind.TUNNEL_PEER})
 
 
 #: Kinds that change where a device logs to or what its SNMP agent does (#327).
@@ -225,6 +238,35 @@ class GatewayGroupValue(Value):
     members: list[GatewayMemberValue]
 
 
+class TunnelValue(Value):
+    """A WireGuard interface of one end of a tunnel (#152, ADR 0034); the key of its change is
+    ``tunnel/<name>``. There is no key field: the key pair is generated on the device."""
+
+    interface: str
+    #: None: not declared (the device keeps or picks its own).
+    listen_port: int | None = None
+    #: The end's tunnel addresses, sorted.
+    addresses: list[IPInterface] = Field(default_factory=list)
+    mtu: int | None = None
+
+
+class TunnelPeerValue(Value):
+    """The peer of one end of a tunnel: the other end (#152, ADR 0034); key ``peer/<name>``.
+    Only the other end's public key; never a private or pre-shared key."""
+
+    #: The interface the peer belongs to.
+    interface: str
+    public_key: WireGuardKey
+    #: Where the other end is reached; None: not declared (it connects to us, or the device
+    #: keeps what it has).
+    endpoint_host: str | None = None
+    endpoint_port: int | None = None
+    #: The other end's tunnel addresses (single addresses) and its networks, sorted.
+    allowed_ips: list[IPNetwork] = Field(default_factory=list)
+    #: Persistent keepalive in seconds (0: off); None: not declared.
+    keepalive: int | None = None
+
+
 class SnmpPolicyValue(Value):
     """The state of a device's SNMP agent. Never a community or a password.
 
@@ -246,6 +288,8 @@ VALUE_TYPES: dict[ChangeKind, type[Value]] = {
     ChangeKind.LOG_TARGET: LogTargetValue,
     ChangeKind.SNMP_POLICY: SnmpPolicyValue,
     ChangeKind.GATEWAY_GROUP: GatewayGroupValue,
+    ChangeKind.TUNNEL: TunnelValue,
+    ChangeKind.TUNNEL_PEER: TunnelPeerValue,
 }
 #: Order in which kinds are applied when objects are created or changed; removals run reversed.
 PHASE = {
@@ -260,6 +304,8 @@ PHASE = {
     ChangeKind.LOG_TARGET: 8,
     ChangeKind.SNMP_POLICY: 9,
     ChangeKind.GATEWAY_GROUP: 10,
+    ChangeKind.TUNNEL: 11,
+    ChangeKind.TUNNEL_PEER: 12,
 }
 
 AnyValue = (
@@ -274,6 +320,8 @@ AnyValue = (
     | LogTargetValue
     | SnmpPolicyValue
     | GatewayGroupValue
+    | TunnelValue
+    | TunnelPeerValue
 )
 
 
@@ -292,7 +340,8 @@ class Change(BaseModel):
     #: The device's own object (not created by Signalbox) this change may take over or
     #: remove: the name of an adopted rule or forward, or the zone pair of a forwarding (#295),
     #: or the address of a syslog target the device had before (#327), or the name of the
-    #: device's gateway group that the desired state adopts (#463).
+    #: device's gateway group that the desired state adopts (#463), or the interface name of
+    #: a WireGuard interface the desired state adopts (#152).
     adopt: str | None = None
 
     @model_validator(mode="after")
@@ -1033,6 +1082,348 @@ def _apply_group(net: Network, c: Change) -> Network:
     return net.model_copy(update={"gateway_groups": groups})
 
 
+# WireGuard tunnels (#152, ADR 0034) -----------------------------------------------------------
+
+
+def tunnel_key(name: str) -> str:
+    return f"tunnel/{name}"
+
+
+def peer_key(name: str) -> str:
+    return f"peer/{name}"
+
+
+def _interfaces(values: Iterable[IPInterface]) -> list[IPInterface]:
+    return sorted(set(values), key=lambda a: (a.version, int(a.ip), a.network.prefixlen))
+
+
+def _networks(values: Iterable[IPNetwork]) -> list[IPNetwork]:
+    return sorted(set(values), key=lambda n: (n.version, int(n.network_address), n.prefixlen))
+
+
+def _tunnel_on(net: Network, device_id: str, name: str, interface: str | None) -> Tunnel | None:
+    """The WireGuard interface tagged ``name``; without one, the untagged one named
+    ``interface`` (the device's own: for adoption and the drift comparison)."""
+    found = [t for t in net.tunnels_of(device_id) if t.kind is TunnelKind.WIREGUARD]
+    mine = next((t for t in found if t.signalbox_key == name), None)
+    if mine is None and interface:
+        mine = next((t for t in found if t.signalbox_key is None and t.name == interface), None)
+    return mine
+
+
+def _peer_on(t: Tunnel, name: str, public_key: str | None) -> TunnelPeer | None:
+    """The peer tagged ``name``; without one, the untagged peer with the other end's key."""
+    mine = next((p for p in t.peers if p.signalbox_key == name), None)
+    if mine is None and public_key:
+        mine = next(
+            (p for p in t.peers if p.signalbox_key is None and p.public_key == public_key), None
+        )
+    return mine
+
+
+def tunnel_value(t: Tunnel) -> TunnelValue:
+    return TunnelValue(
+        interface=t.name, listen_port=t.listen_port, addresses=_interfaces(t.addresses), mtu=t.mtu
+    )
+
+
+def peer_value(t: Tunnel, p: TunnelPeer) -> TunnelPeerValue:
+    return TunnelPeerValue(
+        interface=t.name,
+        public_key=p.public_key,
+        endpoint_host=p.endpoint_host,
+        endpoint_port=p.endpoint_port if p.endpoint_host else None,
+        allowed_ips=_networks(p.allowed_ips),
+        keepalive=p.keepalive_seconds,
+    )
+
+
+def observed_tunnel(
+    net: Network, device_id: str, key: str, adopt: str | None = None
+) -> TunnelValue | None:
+    """The interface of tunnel ``tunnel/<name>`` as the device has it (None: there is none)."""
+    t = _tunnel_on(net, device_id, key.partition("/")[2], adopt)
+    return tunnel_value(t) if t is not None else None
+
+
+def observed_peer(net: Network, c: Change) -> TunnelPeerValue | None:
+    """The peer a ``tunnel-peer`` change touches, as the device has it now."""
+    name = c.key.partition("/")[2]
+    values = [v for v in (c.new, c.old) if isinstance(v, TunnelPeerValue)]
+    t = _tunnel_on(net, c.device_id, name, values[0].interface if values else None)
+    if t is None:
+        return None
+    p = next((p for v in values if (p := _peer_on(t, name, v.public_key)) is not None), None)
+    return peer_value(t, p) if p is not None else None
+
+
+def _peer_loose(old: TunnelPeerValue | None, new: TunnelPeerValue) -> TunnelPeerValue | None:
+    """``old`` without the fields ``new`` leaves to the device: without a declared endpoint
+    the device reports where it last saw the peer, which is not a setting."""
+    if old is None:
+        return None
+    update: dict[str, Any] = {}
+    if new.endpoint_host is None:
+        update.update(endpoint_host=None, endpoint_port=None)
+    if new.keepalive is None:
+        update["keepalive"] = None
+    return old.model_copy(update=update)
+
+
+def tunnel_changes(
+    net: Network, site_id: str, spec: TunnelSpec, *, planning: bool = True
+) -> tuple[list[Change], list[tuple[str, str]]]:
+    """The changes that make both ends of a tunnel match the declaration, and the peers that
+    wait for the other end's public key (it exists once the other end's interface does).
+
+    Planning refuses an interface of the declared name that Signalbox did not create unless the
+    end says ``adopt: true``; the drift comparison (``planning=False``) compares it anyway."""
+    for end in spec.ends:
+        _known(net, end.device)
+    out: list[Change] = []
+    pending: list[tuple[str, str]] = []
+    a, b = spec.ends
+    for end, other in ((a, b), (b, a)):
+        t = _tunnel_on(net, end.device, spec.name, end.interface)
+        ours = t is not None and t.signalbox_key == spec.name
+        if planning and t is not None and not ours and not end.adopt:
+            raise PlanError(
+                f"{end.device} has its own interface {end.interface}: add adopt: true to this "
+                f"end of tunnel {spec.name} to let a deployment change it",
+                message_id="plan.tunnelAdopt",
+                params={"device": end.device, "interface": end.interface, "tunnel": spec.name},
+            )
+        if t is not None and t.name != end.interface:
+            raise PlanError(
+                f"{end.device}: tunnel {spec.name} is on interface {t.name}; Signalbox does not "
+                f"rename it to {end.interface}",
+                message_id="plan.tunnelRename",
+                params={
+                    "device": end.device,
+                    "tunnel": spec.name,
+                    "interface": t.name,
+                    "wanted": end.interface,
+                },
+            )
+        adopt = end.interface if end.adopt and not ours else None
+        old = tunnel_value(t) if t is not None else None
+        new = TunnelValue(
+            interface=end.interface,
+            listen_port=end.listen_port
+            if end.listen_port is not None
+            else (old.listen_port if old else None),
+            addresses=_interfaces(end.addresses)
+            if end.addresses is not None
+            else (old.addresses if old else []),
+            mtu=end.mtu if end.mtu is not None else (old.mtu if old else None),
+        )
+        if old != new:
+            out.append(
+                Change(
+                    kind=ChangeKind.TUNNEL,
+                    device_id=end.device,
+                    site_id=site_id,
+                    key=tunnel_key(spec.name),
+                    old=old,
+                    new=new,
+                    adopt=adopt,
+                )
+            )
+        theirs = _tunnel_on(net, other.device, spec.name, other.interface)
+        if theirs is None or theirs.public_key is None:
+            pending.append(
+                (
+                    end.device,
+                    f"{end.device}: the peer of tunnel {spec.name} waits for the public key of "
+                    f"{other.interface} on {other.device}; it is read once that interface exists, "
+                    "and the next deployment adds the peer",
+                )
+            )
+            continue
+        p = _peer_on(t, spec.name, theirs.public_key) if t is not None else None
+        p_old = peer_value(t, p) if t is not None and p is not None else None
+        p_new = _peer_value(end, other, theirs, p_old)
+        if _peer_loose(p_old, p_new) != p_new:
+            out.append(
+                Change(
+                    kind=ChangeKind.TUNNEL_PEER,
+                    device_id=end.device,
+                    site_id=site_id,
+                    key=peer_key(spec.name),
+                    old=p_old,
+                    new=p_new,
+                    adopt=adopt,
+                )
+            )
+    return out, pending
+
+
+def _peer_value(
+    end: TunnelEndSpec, other: TunnelEndSpec, theirs: Tunnel, old: TunnelPeerValue | None
+) -> TunnelPeerValue:
+    """The peer ``end`` needs for ``other``: its public key (read from the device), endpoint
+    and listen port, and as allowed IPs its tunnel addresses and networks."""
+    assert theirs.public_key is not None
+    host, port = other.endpoint_parts()
+    if host is not None and port is None:
+        port = theirs.listen_port
+    addresses = other.addresses if other.addresses is not None else theirs.addresses
+    return TunnelPeerValue(
+        interface=end.interface,
+        public_key=theirs.public_key,
+        endpoint_host=host,
+        endpoint_port=port if host else None,
+        allowed_ips=_networks([*(ip_network(x.ip) for x in addresses), *other.networks]),
+        keepalive=end.keepalive if end.keepalive is not None else (old.keepalive if old else None),
+    )
+
+
+def tunnel_removals(state: DesiredState, net: Network) -> list[Change]:
+    """Tunnels and peers Signalbox created (tagged) on devices of the declared sites that no
+    tunnel of the desired state names any more: they go away, like firewall rules."""
+    declared = {t.name for spec in state.sites.values() for t in spec.tunnels}
+    out: list[Change] = []
+    for t in sorted(net.tunnels, key=lambda x: x.id):
+        dev = net.device(t.device_id)
+        if dev is None or dev.site_id not in state.sites or t.kind is not TunnelKind.WIREGUARD:
+            continue
+        for p in t.peers:
+            if p.signalbox_key and p.signalbox_key not in declared:
+                out.append(
+                    Change(
+                        kind=ChangeKind.TUNNEL_PEER,
+                        device_id=t.device_id,
+                        site_id=dev.site_id,
+                        key=peer_key(p.signalbox_key),
+                        old=peer_value(t, p),
+                    )
+                )
+        if t.signalbox_key and t.signalbox_key not in declared:
+            out.append(
+                Change(
+                    kind=ChangeKind.TUNNEL,
+                    device_id=t.device_id,
+                    site_id=dev.site_id,
+                    key=tunnel_key(t.signalbox_key),
+                    old=tunnel_value(t),
+                )
+            )
+    return out
+
+
+def tunnel_plan(state: DesiredState, net: Network) -> tuple[list[Change], list[str]]:
+    """Every tunnel change of the desired state and the peers that wait for a public key."""
+    out: list[Change] = []
+    pending: list[str] = []
+    for site_id, spec in state.sites.items():
+        for ts in spec.tunnels:
+            changes, waiting = tunnel_changes(net, site_id, ts)
+            out += changes
+            pending += [text for _, text in waiting]
+    return [*out, *tunnel_removals(state, net)], pending
+
+
+def _apply_tunnel(net: Network, c: Change) -> Network:
+    """A tunnel or peer change on the predicted network (no keys: a new interface has none)."""
+    name = c.key.partition("/")[2]
+    tunnels = list(net.tunnels)
+    if c.kind is ChangeKind.TUNNEL:
+        t = _tunnel_on(net, c.device_id, name, c.adopt)
+        if t is not None:
+            tunnels.remove(t)
+        if isinstance(c.new, TunnelValue):
+            v = c.new
+            update: dict[str, Any] = {
+                "name": v.interface,
+                "listen_port": v.listen_port,
+                "addresses": list(v.addresses),
+                "mtu": v.mtu,
+                "signalbox_key": name,
+            }
+            tunnels.append(
+                t.model_copy(update=update)
+                if t is not None
+                else Tunnel(
+                    id=object_id(c.device_id, "tunnel", v.interface),
+                    device_id=c.device_id,
+                    **update,
+                )
+            )
+        return net.model_copy(update={"tunnels": tunnels})
+    values = [x for x in (c.new, c.old) if isinstance(x, TunnelPeerValue)]
+    t = next(
+        (x for x in tunnels if x.device_id == c.device_id and x.name == values[0].interface), None
+    )
+    if t is None:
+        return net
+    gone = next((p for v in values if (p := _peer_on(t, name, v.public_key)) is not None), None)
+    peers = [p for p in t.peers if p is not gone]
+    if isinstance(c.new, TunnelPeerValue):
+        n = c.new
+        keep_endpoint = n.endpoint_host is None and gone is not None
+        peers.append(
+            TunnelPeer(
+                public_key=n.public_key,
+                endpoint_host=gone.endpoint_host if keep_endpoint and gone else n.endpoint_host,
+                endpoint_port=gone.endpoint_port if keep_endpoint and gone else n.endpoint_port,
+                allowed_ips=list(n.allowed_ips),
+                keepalive_seconds=n.keepalive
+                if n.keepalive is not None
+                else (gone.keepalive_seconds if gone else None),
+                preshared_key=gone.preshared_key if gone else None,
+                signalbox_key=name,
+            )
+        )
+    tunnels[tunnels.index(t)] = t.model_copy(update={"peers": peers})
+    return net.model_copy(update={"tunnels": tunnels})
+
+
+def _carried(net: Network, c: Change) -> list[IPNetwork]:
+    """What a tunnel change can move: the networks the touched interface or peer carries
+    before and after (its tunnel networks, the allowed IPs of its peers)."""
+    out: list[IPNetwork] = []
+    if c.kind is ChangeKind.TUNNEL:
+        t = _tunnel_on(net, c.device_id, c.key.partition("/")[2], c.adopt)
+        if t is not None and c.old is not None:
+            out += [a.network for a in t.addresses]
+            out += [n for p in t.peers for n in p.allowed_ips]
+        if isinstance(c.new, TunnelValue):
+            out += [a.network for a in c.new.addresses]
+        return out
+    for v in (c.old, c.new):
+        if isinstance(v, TunnelPeerValue):
+            out += v.allowed_ips
+    return out
+
+
+def tunnel_cuts(
+    before: Network, changes: Iterable[Change], signalbox_address: IPAddress | None = None
+) -> list[str]:
+    """Tunnel changes that may cut Signalbox's way to a device (#152, ADR 0034): the touched
+    interface or peer carries, before or after, a configured device's management address or
+    Signalbox's own address. Approved only with the explicit ``allow_lockout`` override."""
+    targets: list[tuple[str, IPAddress]] = []
+    for d in before.devices:
+        if (ep := management_endpoint(d.management_address)) is not None:
+            targets.append((d.name, ep[0]))
+    if signalbox_address is not None:
+        targets.append(("Signalbox", signalbox_address))
+    out: list[str] = []
+    for c in changes:
+        if c.kind not in TUNNEL_KINDS:
+            continue
+        carried = _carried(before, c)
+        dev = before.device(c.device_id)
+        here = dev.name if dev is not None else c.device_id
+        for who, address in targets:
+            if any(n.version == address.version and address in n for n in carried):
+                out.append(
+                    f"{here}: the {c.kind.value} change of tunnel {c.key.partition('/')[2]} "
+                    f"touches the way to {who} ({address}); Signalbox may lose its access"
+                )
+    return list(dict.fromkeys(out))
+
+
 # planner --------------------------------------------------------------------------------------
 
 SecretLookup = Callable[[str], str | None]
@@ -1242,7 +1633,7 @@ def changes_for(
         for gg in spec.gateway_groups:
             out += gateway_group_changes(net, site_id, gg)
     _check_monitors(out)
-    return out
+    return [*out, *tunnel_plan(state, net)[0]]
 
 
 def _min_rssi(
@@ -1452,6 +1843,8 @@ def _apply(net: Network, c: Change) -> Network:
         return _apply_logging(net, c)
     if c.kind is ChangeKind.GATEWAY_GROUP:
         return _apply_group(net, c)
+    if c.kind in TUNNEL_KINDS:
+        return _apply_tunnel(net, c)
     # WLAN
     wl = [w for w in net.wlans if not (w.device_id == c.device_id and w.ssid == c.key)]
     if isinstance(c.new, WlanValue):
@@ -1638,6 +2031,9 @@ class Plan(BaseModel):
     #: Devices whose management access from Signalbox the firewall changes may cut (#295):
     #: the plan is approved only with the explicit override ``allow_lockout``.
     lockouts: list[str] = Field(default_factory=list)
+    #: Tunnel peers left for the next deployment: they wait for the public key of an
+    #: interface that does not exist yet (#152, ADR 0034).
+    pending: list[str] = Field(default_factory=list)
 
     @property
     def blocking(self) -> list[Finding]:
@@ -1677,7 +2073,10 @@ def make_plan(
         changes=ordered,
         new_findings=[f for k, f in after.items() if k not in before],
         resolved_findings=[f for k, f in before.items() if k not in after],
-        lockouts=management_cuts(net, predicted, ordered, signalbox_address),
+        lockouts=[
+            *management_cuts(net, predicted, ordered, signalbox_address),
+            *tunnel_cuts(net, ordered, signalbox_address),
+        ],
     )
 
 
@@ -1689,7 +2088,9 @@ def plan(
     secret: SecretLookup | None = None,
     signalbox_address: IPAddress | None = None,
 ) -> Plan:
-    return make_plan(changes_for(state, net, secret), net, rules, settings, signalbox_address)
+    out = make_plan(changes_for(state, net, secret), net, rules, settings, signalbox_address)
+    pending = tunnel_plan(state, net)[1]
+    return out.model_copy(update={"pending": pending}) if pending else out
 
 
 def revert_plan(

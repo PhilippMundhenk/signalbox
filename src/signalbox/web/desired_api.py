@@ -37,6 +37,7 @@ def plan_json(p: changes.Plan) -> dict[str, Any]:
         "resolved_findings": [f.model_dump(mode="json") for f in p.resolved_findings],
         "blocking": [f.model_dump(mode="json") for f in p.blocking],
         "lockouts": p.lockouts,
+        "pending": p.pending,
         "devices": p.devices(),
     }
 

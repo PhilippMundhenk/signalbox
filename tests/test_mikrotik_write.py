@@ -25,6 +25,7 @@ from signalbox.adapters.mikrotik.write import BACKUP_FORMAT, _export_text, ros_d
 from signalbox.changes import (
     FIREWALL_KINDS,
     LOGGING_KINDS,
+    TUNNEL_KINDS,
     AnyValue,
     Change,
     ChangeKind,
@@ -170,7 +171,8 @@ async def roundtrip(url: str, changes: list[Change], secrets: dict[str, str] | N
 
 
 def test_manifest_declares_every_kind() -> None:
-    assert MikrotikAdapter.manifest.writes == frozenset(ChangeKind)
+    # WireGuard tunnels (#152) follow with their writer
+    assert MikrotikAdapter.manifest.writes == frozenset(ChangeKind) - TUNNEL_KINDS
     assert issubclass(MikrotikAdapter, WritesConfig)
     assert ros_duration(0) == "0s" and ros_duration(90061) == "1d1h1m1s"
 
@@ -1031,7 +1033,7 @@ async def test_deployment_and_revert(
         desired = parse(WANT)
         p = plan(desired, svc.runner.network(), RULES, secret=svc.store.get_secret)
         kinds = {c.kind for c in p.changes}
-        assert kinds == set(ChangeKind) - FIREWALL_KINDS - LOGGING_KINDS - {
+        assert kinds == set(ChangeKind) - FIREWALL_KINDS - LOGGING_KINDS - TUNNEL_KINDS - {
             ChangeKind.GATEWAY_GROUP
         }, [c.describe() for c in p.changes]
         d = Deployer(svc.runner)
