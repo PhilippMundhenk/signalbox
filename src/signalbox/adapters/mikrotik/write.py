@@ -47,6 +47,7 @@ from signalbox.adapters.mikrotik import (
     fwwrite,
     gwwrite,
     logwrite,
+    poewrite,
     upnpwrite,
     wgwrite,
     wifi_assoc,
@@ -390,6 +391,7 @@ class MikrotikWrites:
                 wgwrite.IPV6_ROUTE,
                 wgwrite.WIREGUARD,
                 wgwrite.WIREGUARD_PEERS,
+                poewrite.ETHERNET_POE,
             )
         ):
             try:
@@ -455,6 +457,8 @@ class MikrotikWrites:
                 wgwrite.peer(cfg, c, cfg.revert)
             elif c.kind is ChangeKind.UPNP:
                 await self._upnp_write(cfg, layout.l3, c)
+            elif c.kind is ChangeKind.POE:
+                poewrite.poe(cfg, c, cfg.revert)
             else:
                 if not wifi:
                     raise AdapterError(
@@ -636,6 +640,11 @@ class MikrotikWrites:
                     "enabled"
                 )
             )
+        poe_rows: dict[str, str] = {}
+        with contextlib.suppress(NotFound):  # a board without PoE-out: nothing to restore
+            poe_rows = poewrite.backup_rows(
+                m._rows(await m.get_menu(self.http, poewrite.ETHERNET_POE), poewrite.ETHERNET_POE)
+            )
         rows: dict[str, list[dict[str, Any]]] = {}
         for menu in (gwwrite.IP_ROUTE, gwwrite.NETWATCH, wgwrite.IPV6_ROUTE, wgwrite.IPV6_ADDRESS):
             with contextlib.suppress(NotFound):  # no netwatch package: nothing to restore
@@ -650,6 +659,7 @@ class MikrotikWrites:
                 "menus": menus,
                 "snmp_enabled": snmp,
                 "upnp_enabled": upnp,
+                "poe_rows": poe_rows,
                 "gateway_rows": gwwrite.backup_rows(rows),
                 "wireguard_rows": wgwrite.backup_rows(rows),
             },
@@ -753,6 +763,7 @@ class MikrotikWrites:
                         )
         gwwrite.restore_rows(cfg, json.loads(backup.content).get("gateway_rows"))
         wgwrite.restore_rows(cfg, json.loads(backup.content).get("wireguard_rows"))
+        poewrite.restore_rows(cfg, json.loads(backup.content).get("poe_rows"))
         saved_snmp = json.loads(backup.content).get("snmp_enabled")
         if isinstance(saved_snmp, str) and saved_snmp:
             try:

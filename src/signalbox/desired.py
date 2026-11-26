@@ -719,6 +719,24 @@ class UpnpSpec(Spec):
     )
 
 
+# PoE (#484) ------------------------------------------------------------------------------------
+
+
+class PoeSpec(Spec):
+    """PoE of one switch port (#484, ADR 0036). Only declared ports are compared and written;
+    switching off a port that powers a managed device, a switch, a router or an access point is
+    refused unless ``allow_outage`` says the outage is accepted."""
+
+    device: str
+    port: str
+    enabled: bool = Field(description="PoE on (standard detection) or off")
+    allow_outage: bool = Field(
+        False,
+        description="Switching PoE off may cut the power of a managed device, a switch, a "
+        "router or an access point on this port",
+    )
+
+
 def _as_datetime(value: datetime | date | None) -> datetime | None:
     if value is None or isinstance(value, datetime):
         return value
@@ -739,6 +757,8 @@ class SiteSpec(Spec):
     tunnels: list[TunnelSpec] = Field(default_factory=list)
     #: The UPnP / NAT-PMP / PCP service of the gateways (#513).
     upnp: list[UpnpSpec] = Field(default_factory=list)
+    #: PoE of declared switch ports (#484).
+    poe: list[PoeSpec] = Field(default_factory=list)
     #: User annotations of objects of the site (#186).
     annotations: list[AnnotationSpec] = Field(default_factory=list)
     #: Accepted findings (#186).
@@ -787,6 +807,7 @@ class DesiredState(Spec):
                     gateway_groups=[*old.gateway_groups, *spec.gateway_groups],
                     tunnels=[*old.tunnels, *spec.tunnels],
                     upnp=[*old.upnp, *spec.upnp],
+                    poe=[*old.poe, *spec.poe],
                     annotations=[*old.annotations, *spec.annotations],
                     acknowledgements=[*old.acknowledgements, *spec.acknowledgements],
                 )
@@ -867,6 +888,10 @@ def _check_unique(state: DesiredState, source: str) -> None:
         dup = sorted({d for d in devs if devs.count(d) > 1})
         if dup:
             raise DesiredError(f"{source}: site {site}: UPnP of {', '.join(dup)} declared twice")
+        poe_ports = [f"{p.device}/{p.port}" for p in spec.poe]
+        dup = sorted({p for p in poe_ports if poe_ports.count(p) > 1})
+        if dup:
+            raise DesiredError(f"{source}: site {site}: PoE of {', '.join(dup)} declared twice")
         for fw in spec.firewalls:
             for what, names in (
                 ("rule", [firewall_key(r.name) for r in fw.rules]),
@@ -1759,6 +1784,43 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                         f"{subject}: " + "; ".join(diffs), [target], key=f"{up.device}/upnp"
                     )
 
+    def poe(net: Network) -> Iterator[Result]:
+        from signalbox.changes import PoeValue, observed_poe
+        from signalbox.sightings import ANSWERED
+
+        for spec in state.sites.values():
+            for entry in spec.poe:
+                pid = port_id(entry.device, entry.port)
+                subject = f"PoE of {entry.device} {entry.port}"
+                key = f"{entry.device}/{entry.port}/poe"
+                if (
+                    net.device(entry.device) is None
+                    or net.statuses.get(entry.device, DeviceStatus.OK) not in ANSWERED
+                ):
+                    yield incomplete(f"{subject}: not read", [entry.device], key=key)
+                    continue
+                have: PoeValue | None = observed_poe(net, pid)
+                if have is None:
+                    yield found(
+                        f"{subject}: the port does not exist or has no PoE Signalbox could read",
+                        [pid if net.port(pid) is not None else entry.device],
+                        key=key,
+                        fix="Remove the entry: Signalbox only switches PoE that the switch "
+                        "reports.",
+                    )
+                    continue
+                if have.enabled != entry.enabled:
+                    yield found(
+                        f"{subject}: "
+                        + _differ(
+                            "PoE",
+                            "on" if entry.enabled else "off",
+                            "on" if have.enabled else "off",
+                        ),
+                        [pid],
+                        key=key,
+                    )
+
     def tunnels(net: Network) -> Iterator[Result]:
         from signalbox.changes import PlanError, tunnel_changes
         from signalbox.sightings import ANSWERED
@@ -1887,6 +1949,17 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
             "off, secure mode, the networks it answers in and the permission rules. Open "
             "mappings are not part of it; they end with their lease.",
             upnp,
+        ),
+        Rule(
+            "drift.poe",
+            "PoE of a port differs from the desired state",
+            Severity.WARNING,
+            explanation
+            + " Only declared ports are compared: whether the switch delivers PoE on them (on "
+            "in any mode counts as on). A deployment refuses to switch off a port that powers a "
+            "managed device, a switch, a router or an access point unless its entry allows the "
+            "outage.",
+            poe,
         ),
     ]
 

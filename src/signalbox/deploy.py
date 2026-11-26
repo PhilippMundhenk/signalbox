@@ -37,6 +37,7 @@ from signalbox.changes import (
     observed_group,
     observed_log_target,
     observed_peer,
+    observed_poe,
     observed_policy,
     observed_port,
     observed_router,
@@ -113,6 +114,8 @@ def current_value(net: Network, c: Change) -> Any:
         return observed_group(net, c.device_id, c.key)
     if c.kind is ChangeKind.UPNP:
         return observed_upnp(net, c.device_id)
+    if c.kind is ChangeKind.POE:
+        return observed_poe(net, c.key)
     if c.kind is ChangeKind.TUNNEL:
         return observed_tunnel(net, c.device_id, c.key, c.adopt)
     if c.kind is ChangeKind.TUNNEL_PEER:
