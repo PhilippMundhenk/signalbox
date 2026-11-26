@@ -12,6 +12,7 @@ import pytest
 from factories import SITE, device, port
 from signalbox.changes import (
     POE_DEFAULT_W,
+    Change,
     ChangeKind,
     PlanError,
     PoeValue,
@@ -302,3 +303,9 @@ def test_drift_of_a_port_without_poe_and_a_switch_not_read() -> None:
 
 def test_import_writes_no_poe_entries() -> None:
     assert from_network(network(), "home").sites["home"].poe == []
+
+
+def test_a_stored_change_is_read_back_as_a_poe_change() -> None:
+    [c] = changes_for(parse(text("{device: sw, port: p2, enabled: false}")), network())
+    again = Change.model_validate_json(c.model_dump_json())
+    assert again == c and isinstance(again.new, PoeValue)

@@ -380,6 +380,25 @@ class Change(BaseModel):
     #: a WireGuard interface the desired state adopts (#152).
     adopt: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _by_kind(cls, data: Any) -> Any:
+        """Stored values are read as the type of their kind: several value types share a
+        field layout (``{"enabled": true}`` is a whole PoE value, #484)."""
+        if not isinstance(data, dict):
+            return data
+        want = VALUE_TYPES.get(ChangeKind(data["kind"])) if data.get("kind") else None
+        if want is None:
+            return data
+        return {
+            **data,
+            **{
+                side: want.model_validate(data[side])
+                for side in ("old", "new")
+                if isinstance(data.get(side), dict)
+            },
+        }
+
     @model_validator(mode="after")
     def _types(self) -> Change:
         want = VALUE_TYPES[self.kind]
