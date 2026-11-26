@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment}: DHCP には機器が必要です (単一のゲートウェイがありません)",
  "msg.plan.noPort": "ポート {port} は機器に存在しません",
  "msg.plan.secretNotStored": "SSID {ssid}: シークレット {name} が保存されていません",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid}: {devices} で 802.11r が有効ですが、モビリティドメインが 1 つにそろっていません。SSID に roaming.mobility_domain を指定してください",
  "msg.deploy.secretNotStored": "シークレット {name} が保存されていません",
  "msg.deploy.deviceNotConfigured": "機器 {device} は設定されていません",
  "msg.deploy.adapterMissing": "アダプター {adapter} がインストールされていません",

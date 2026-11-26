@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment}: DHCP के लिए एक डिवाइस चाहिए (कोई एकल गेटवे नहीं)",
  "msg.plan.noPort": "पोर्ट {port} डिवाइस पर मौजूद नहीं है",
  "msg.plan.secretNotStored": "SSID {ssid}: सीक्रेट {name} संग्रहीत नहीं है",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid}: {devices} पर 802.11r चालू है, लेकिन एक ही मोबिलिटी डोमेन के साथ नहीं; SSID के लिए roaming.mobility_domain घोषित करें",
  "msg.deploy.secretNotStored": "सीक्रेट {name} संग्रहीत नहीं है",
  "msg.deploy.deviceNotConfigured": "डिवाइस {device} कॉन्फ़िगर नहीं है",
  "msg.deploy.adapterMissing": "एडेप्टर {adapter} इंस्टॉल नहीं है",

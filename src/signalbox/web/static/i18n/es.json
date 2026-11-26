@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment}: DHCP necesita un dispositivo (no hay una única puerta de enlace)",
  "msg.plan.noPort": "El puerto {port} no existe en el dispositivo",
  "msg.plan.secretNotStored": "SSID {ssid}: el secreto {name} no está guardado",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid}: 802.11r está activo en {devices}, pero no con un único dominio de movilidad; declare roaming.mobility_domain para el SSID",
  "msg.deploy.secretNotStored": "El secreto {name} no está guardado",
  "msg.deploy.deviceNotConfigured": "El dispositivo {device} no está configurado",
  "msg.deploy.adapterMissing": "El adaptador {adapter} no está instalado",

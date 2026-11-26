@@ -43,6 +43,7 @@ from signalbox.model import (
     DeviceRole,
     DhcpPool,
     DhcpServer,
+    FastTransition,
     Firewall,
     FirewallAction,
     FirewallChain,
@@ -147,6 +148,12 @@ class WlanValue(Value):
     roaming_80211r: bool | None = None
     roaming_80211k: bool | None = None
     roaming_80211v: bool | None = None
+    #: 802.11r mobility domain (four hex digits, lower case) and over-DS (#489); None: not
+    #: specified or not reported (left as the device has it).
+    mobility_domain: str | None = None
+    ft_over_ds: bool | None = None
+    #: Weakest signal a client may have (dBm), ``off`` for no limit; None: left as it is.
+    min_rssi_dbm: int | Literal["off"] | None = None
     #: None: not specified (left as the device has it).
     client_isolation: bool | None = None
     #: Name of the secret holding the passphrase; resolved by the deployment, never stored here.
@@ -433,8 +440,17 @@ def observed_wlan(net: Network, device_id: str, ssid: str) -> WlanValue | None:
         roaming_80211r=w.roaming_80211r,
         roaming_80211k=w.roaming_80211k,
         roaming_80211v=w.roaming_80211v,
+        mobility_domain=w.ft.mobility_domain if w.ft else None,
+        ft_over_ds=w.ft.over_ds if w.ft else None,
+        min_rssi_dbm=observed_min_rssi(w),
         client_isolation=w.client_isolation,
     )
+
+
+def observed_min_rssi(w: Wlan) -> int | None:
+    """The minimum signal as the device reports it: ``min_rssi_dbm``, else the association
+    limit (OpenWrt ``rssi_reject_assoc_rssi``); None: no limit or not reported (ADR 0033)."""
+    return w.min_rssi_dbm if w.min_rssi_dbm is not None else w.assoc_rssi_dbm
 
 
 # firewall (#295) ------------------------------------------------------------------------------
@@ -1144,6 +1160,8 @@ def changes_for(
                     message_id="plan.secretNotStored",
                     params={"ssid": w.ssid, "name": repr(w.passphrase_secret)},
                 )
+            wanted: list[tuple[str, WlanValue | None, WlanValue]] = []
+            before = len(out)
             for dev in w.devices if w.devices is not None else aps:
                 _known(net, dev)
                 old_w = observed_wlan(net, dev, w.ssid)
@@ -1163,11 +1181,19 @@ def changes_for(
                     roaming_80211v=w.roaming.v
                     if w.roaming.v is not None
                     else (old_w.roaming_80211v if old_w else None),
+                    mobility_domain=w.roaming.mobility_domain
+                    if w.roaming.mobility_domain is not None
+                    else (old_w.mobility_domain if old_w else None),
+                    ft_over_ds=w.roaming.over_ds
+                    if w.roaming.over_ds is not None
+                    else (old_w.ft_over_ds if old_w else None),
+                    min_rssi_dbm=_min_rssi(w.min_rssi_dbm, old_w),
                     client_isolation=w.client_isolation
                     if w.client_isolation is not None
                     else (old_w.client_isolation if old_w else None),
                     passphrase_secret=w.passphrase_secret,
                 )
+                wanted.append((dev, old_w, new_w))
                 passphrase_changes = _passphrase_differs(
                     net, dev, w.ssid, w.passphrase_secret, secret
                 )
@@ -1187,6 +1213,8 @@ def changes_for(
                             new=new_w,
                         )
                     )
+            if any(c.kind is ChangeKind.WLAN and c.key == w.ssid for c in out[before:]):
+                _check_mobility_domain(w.ssid, wanted)
         for fws in spec.firewalls:
             out += firewall_changes(net, site_id, fws)
         if spec.logging is not None:
@@ -1200,6 +1228,37 @@ def changes_for(
             out += gateway_group_changes(net, site_id, gg)
     _check_monitors(out)
     return out
+
+
+def _min_rssi(
+    declared: int | Literal["off"] | None, old: WlanValue | None
+) -> int | Literal["off"] | None:
+    """The minimum signal to write: the declared one; ``off`` only where the device reports
+    a limit (a device that reports none already has no limit, or does not say); else as it is."""
+    have = old.min_rssi_dbm if old else None
+    if declared is None:
+        return have
+    if declared == "off":
+        return "off" if isinstance(have, int) else have
+    return declared
+
+
+def _check_mobility_domain(
+    ssid: str, wanted: list[tuple[str, WlanValue | None, WlanValue]]
+) -> None:
+    """One 802.11r mobility domain per SSID across its access points (ADR 0033): a plan that
+    changes an SSID with 802.11r on at more than one access point needs them to have, or be
+    given, the same domain; one that is not reported counts as different."""
+    ft = [(dev, new.mobility_domain) for dev, _, new in wanted if new.roaming_80211r]
+    if len(ft) < 2 or (len({domain for _, domain in ft}) == 1 and ft[0][1] is not None):
+        return
+    shown = ", ".join(f"{dev} ({domain or '?'})" for dev, domain in ft)
+    raise PlanError(
+        f"SSID {ssid}: 802.11r is on at {shown}, but not with one mobility domain; declare "
+        "roaming.mobility_domain for the SSID",
+        message_id="plan.mobilityDomainSplit",
+        params={"ssid": ssid, "devices": shown},
+    )
 
 
 def _passphrase_differs(
@@ -1402,6 +1461,10 @@ def _apply(net: Network, c: Change) -> Network:
                     roaming_80211r=w.roaming_80211r,
                     roaming_80211k=w.roaming_80211k,
                     roaming_80211v=w.roaming_80211v,
+                    ft=FastTransition(mobility_domain=w.mobility_domain, over_ds=w.ft_over_ds)
+                    if w.roaming_80211r and (w.mobility_domain or w.ft_over_ds is not None)
+                    else None,
+                    min_rssi_dbm=w.min_rssi_dbm if isinstance(w.min_rssi_dbm, int) else None,
                     client_isolation=w.client_isolation,
                 )
             )

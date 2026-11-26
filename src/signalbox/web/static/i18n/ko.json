@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment}: DHCP에는 장치가 필요합니다 (단일 게이트웨이 없음)",
  "msg.plan.noPort": "포트 {port}이(가) 장치에 없습니다",
  "msg.plan.secretNotStored": "SSID {ssid}: 시크릿 {name}이(가) 저장되어 있지 않습니다",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid}: {devices}에서 802.11r이 켜져 있지만 하나의 모빌리티 도메인이 아닙니다. SSID에 roaming.mobility_domain을 지정하세요",
  "msg.deploy.secretNotStored": "시크릿 {name}이(가) 저장되어 있지 않습니다",
  "msg.deploy.deviceNotConfigured": "장치 {device}이(가) 설정되지 않았습니다",
  "msg.deploy.adapterMissing": "어댑터 {adapter}이(가) 설치되어 있지 않습니다",

@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment}: для DHCP нужно устройство (нет единого шлюза)",
  "msg.plan.noPort": "Порта {port} на устройстве нет",
  "msg.plan.secretNotStored": "SSID {ssid}: секрет {name} не сохранён",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid}: 802.11r включён на {devices}, но не с одним доменом мобильности; укажите roaming.mobility_domain для SSID",
  "msg.deploy.secretNotStored": "Секрет {name} не сохранён",
  "msg.deploy.deviceNotConfigured": "Устройство {device} не настроено",
  "msg.deploy.adapterMissing": "Адаптер {adapter} не установлен",

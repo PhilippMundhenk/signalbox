@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment}: DHCP-র জন্য একটি ডিভাইস দরকার (একক গেটওয়ে নেই)",
  "msg.plan.noPort": "ডিভাইসে পোর্ট {port} নেই",
  "msg.plan.secretNotStored": "SSID {ssid}: সিক্রেট {name} সংরক্ষিত নেই",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid}: {devices}-এ 802.11r চালু আছে, কিন্তু একটি মোবিলিটি ডোমেইনে নয়; SSID-এর জন্য roaming.mobility_domain ঘোষণা করুন",
  "msg.deploy.secretNotStored": "সিক্রেট {name} সংরক্ষিত নেই",
  "msg.deploy.deviceNotConfigured": "ডিভাইস {device} কনফিগার করা নেই",
  "msg.deploy.adapterMissing": "অ্যাডাপ্টার {adapter} ইনস্টল করা নেই",

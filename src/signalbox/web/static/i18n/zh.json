@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment}:DHCP 需要指定设备 (没有唯一的网关)",
  "msg.plan.noPort": "设备上不存在端口 {port}",
  "msg.plan.secretNotStored": "SSID {ssid}:密钥 {name} 未保存",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid}：{devices} 上已开启 802.11r，但移动域不一致；请为该 SSID 声明 roaming.mobility_domain",
  "msg.deploy.secretNotStored": "密钥 {name} 未保存",
  "msg.deploy.deviceNotConfigured": "设备 {device} 未配置",
  "msg.deploy.adapterMissing": "未安装适配器 {adapter}",

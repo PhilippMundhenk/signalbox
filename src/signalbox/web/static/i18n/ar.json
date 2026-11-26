@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment}: يحتاج DHCP إلى جهاز (لا يوجد بوابة واحدة)",
  "msg.plan.noPort": "المنفذ {port} غير موجود على الجهاز",
  "msg.plan.secretNotStored": "SSID {ssid}: السر {name} غير مخزَّن",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid}: ‏802.11r مفعّل على {devices}، لكن ليس بنطاق تنقّل واحد؛ صرّح بـ roaming.mobility_domain لهذا الـ SSID",
  "msg.deploy.secretNotStored": "السر {name} غير مخزَّن",
  "msg.deploy.deviceNotConfigured": "الجهاز {device} غير مُعدّ",
  "msg.deploy.adapterMissing": "المحوّل {adapter} غير مثبّت",

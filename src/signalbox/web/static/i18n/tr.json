@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment}: DHCP için bir cihaz gerekir (tek bir ağ geçidi yok)",
  "msg.plan.noPort": "Cihazda {port} bağlantı noktası yok",
  "msg.plan.secretNotStored": "SSID {ssid}: {name} sırrı kayıtlı değil",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid}: 802.11r {devices} üzerinde açık, ancak tek bir mobilite alanıyla değil; SSID için roaming.mobility_domain belirtin",
  "msg.deploy.secretNotStored": "{name} sırrı kayıtlı değil",
  "msg.deploy.deviceNotConfigured": "{device} cihazı yapılandırılmamış",
  "msg.deploy.adapterMissing": "{adapter} bağdaştırıcısı yüklü değil",

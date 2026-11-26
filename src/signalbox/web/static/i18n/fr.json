@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment} : DHCP nécessite un appareil (pas de passerelle unique)",
  "msg.plan.noPort": "Le port {port} n'existe pas sur l'appareil",
  "msg.plan.secretNotStored": "SSID {ssid} : le secret {name} n'est pas enregistré",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid} : 802.11r est activé sur {devices}, mais pas avec un seul domaine de mobilité ; déclarez roaming.mobility_domain pour le SSID",
  "msg.deploy.secretNotStored": "Le secret {name} n'est pas enregistré",
  "msg.deploy.deviceNotConfigured": "L'appareil {device} n'est pas configuré",
  "msg.deploy.adapterMissing": "L'adaptateur {adapter} n'est pas installé",

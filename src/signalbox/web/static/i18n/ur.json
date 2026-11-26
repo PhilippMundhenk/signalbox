@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment}: DHCP کے لیے ایک آلہ درکار ہے (کوئی واحد گیٹ وے نہیں)",
  "msg.plan.noPort": "آلے پر port {port} موجود نہیں",
  "msg.plan.secretNotStored": "SSID {ssid}: خفیہ {name} محفوظ نہیں",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid}: {devices} پر 802.11r آن ہے، لیکن ایک ہی موبیلٹی ڈومین کے ساتھ نہیں؛ SSID کے لیے roaming.mobility_domain درج کریں",
  "msg.deploy.secretNotStored": "خفیہ {name} محفوظ نہیں",
  "msg.deploy.deviceNotConfigured": "آلہ {device} ترتیب نہیں دیا گیا",
  "msg.deploy.adapterMissing": "ایڈاپٹر {adapter} انسٹال نہیں ہے",

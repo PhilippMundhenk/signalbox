@@ -3061,6 +3061,7 @@
  "msg.plan.dhcpNoDevice": "{segment}: DHCP memerlukan perangkat (tidak ada satu gateway tunggal)",
  "msg.plan.noPort": "Port {port} tidak ada di perangkat",
  "msg.plan.secretNotStored": "SSID {ssid}: secret {name} tidak tersimpan",
+ "msg.plan.mobilityDomainSplit": "SSID {ssid}: 802.11r aktif di {devices}, tetapi tidak dengan satu mobility domain; nyatakan roaming.mobility_domain untuk SSID ini",
  "msg.deploy.secretNotStored": "Secret {name} tidak tersimpan",
  "msg.deploy.deviceNotConfigured": "Perangkat {device} belum dikonfigurasi",
  "msg.deploy.adapterMissing": "Adapter {adapter} belum terpasang",

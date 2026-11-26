@@ -139,6 +139,34 @@ class RoamingSpec(Spec):
     r: bool | None = None
     k: bool | None = None
     v: bool | None = None
+    mobility_domain: str | None = Field(
+        None,
+        pattern=r"^[0-9a-fA-F]{4}$",
+        description="802.11r mobility domain, four hex digits; one per SSID (ADR 0033)",
+    )
+    over_ds: bool | None = Field(
+        None, description="802.11r fast transition over the distribution system"
+    )
+
+    @field_validator("mobility_domain")
+    @classmethod
+    def _domain(cls, value: str | None) -> str | None:
+        return value.lower() if value is not None else None
+
+    @model_validator(mode="after")
+    def _needs_r(self) -> RoamingSpec:
+        if (self.mobility_domain is not None or self.over_ds is not None) and self.r is not True:
+            raise ValueError("mobility_domain and over_ds need r: true")
+        return self
+
+
+#: Weakest signal a client may have (dBm), or ``off`` for no limit (#489, ADR 0033).
+MinRssi = Annotated[int, Field(ge=-120, le=-1)] | Literal["off"]
+
+
+def _off_word(value: Any) -> Any:
+    """YAML 1.1 reads an unquoted ``off`` as false: that is the word the user wrote."""
+    return "off" if value is False else value
 
 
 class WlanSpec(Spec):
@@ -157,6 +185,11 @@ class WlanSpec(Spec):
     client_isolation: bool | None = Field(
         None, description="Stations of this SSID cannot reach each other"
     )
+    min_rssi_dbm: MinRssi | None = Field(
+        None, description="Weakest signal a client may have (dBm, -120 to -1), or off"
+    )
+
+    _rssi_word = field_validator("min_rssi_dbm", mode="before")(_off_word)
 
 
 class PortSpec(Spec):
@@ -870,6 +903,20 @@ def from_network(net: Network, site_id: str) -> DesiredState:
             )
         )
     wlans: dict[str, WlanSpec] = {}
+    # 802.11r details and the minimum signal apply to every access point of the SSID: exported
+    # only where all of them report the same value (ADR 0033)
+    shared: dict[tuple[str, str], set[Any]] = {}
+    for w in (w for w in net.wlans if w.device_id in devices):
+        ft = w.ft if w.roaming_80211r is True else None
+        shared.setdefault((w.ssid, "domain"), set()).add(ft.mobility_domain if ft else None)
+        shared.setdefault((w.ssid, "over_ds"), set()).add(ft.over_ds if ft else None)
+        rssi = w.min_rssi_dbm if w.min_rssi_dbm is not None else w.assoc_rssi_dbm
+        shared.setdefault((w.ssid, "rssi"), set()).add(rssi)
+
+    def one(ssid: str, what: str) -> Any:
+        values = shared[(ssid, what)]
+        return next(iter(values)) if len(values) == 1 else None
+
     for w in (w for w in net.wlans if w.device_id in devices):
         wseg = net.segment(w.segment_id) if w.segment_id else None
         if w.ssid in wlans:
@@ -886,9 +933,16 @@ def from_network(net: Network, site_id: str) -> DesiredState:
             devices=[w.device_id],
             hidden=w.hidden,
             enabled=w.enabled,
-            roaming=RoamingSpec(r=w.roaming_80211r, k=w.roaming_80211k, v=w.roaming_80211v),
+            roaming=RoamingSpec(
+                r=w.roaming_80211r,
+                k=w.roaming_80211k,
+                v=w.roaming_80211v,
+                mobility_domain=one(w.ssid, "domain") if w.roaming_80211r else None,
+                over_ds=one(w.ssid, "over_ds") if w.roaming_80211r else None,
+            ),
             purpose=_known_purpose(w),
             client_isolation=w.client_isolation,
+            min_rssi_dbm=one(w.ssid, "rssi"),
         )
     ports: list[PortSpec] = []
     for p in (p for p in net.ports if p.device_id in devices):
@@ -1205,6 +1259,7 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                         )
                     else:
                         fp = passphrase_fingerprint(w.ssid, value)
+                domains: dict[str, list[str]] = {}
                 for dev in targets:
                     if net.device(dev) is None:
                         yield incomplete(f"SSID {w.ssid}: device {dev} not read", [dev], key=w.ssid)
@@ -1231,6 +1286,31 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                     ):
                         if want is not None:
                             checks.append((flag, want, have_v))
+                    if x.roaming_80211r and x.ft is not None and x.ft.mobility_domain:
+                        domains.setdefault(x.ft.mobility_domain, []).append(dev)
+                    if w.roaming.mobility_domain is not None:
+                        checks.append(
+                            (
+                                "mobility domain",
+                                w.roaming.mobility_domain,
+                                x.ft.mobility_domain if x.ft else None,
+                            )
+                        )
+                    if w.roaming.over_ds is not None:
+                        checks.append(
+                            ("802.11r over DS", w.roaming.over_ds, x.ft.over_ds if x.ft else None)
+                        )
+                    have_rssi = x.min_rssi_dbm if x.min_rssi_dbm is not None else x.assoc_rssi_dbm
+                    if isinstance(w.min_rssi_dbm, int) or (
+                        w.min_rssi_dbm == "off" and have_rssi is not None
+                    ):
+                        checks.append(
+                            (
+                                "minimum signal",
+                                w.min_rssi_dbm,
+                                have_rssi if have_rssi is not None else "none reported",
+                            )
+                        )
                     for name, want, have_v in checks:
                         if want != have_v:
                             yield found(
@@ -1270,6 +1350,15 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                             [x.id],
                             key="passphrase",
                         )
+                if w.roaming.mobility_domain is None and len(domains) > 1:
+                    shown = "; ".join(f"{d}: {', '.join(v)}" for d, v in sorted(domains.items()))
+                    yield found(
+                        f"SSID {w.ssid}: 802.11r uses more than one mobility domain ({shown}), so "
+                        "clients cannot fast roam between these access points",
+                        [f"ssid:{w.ssid}"],
+                        key="mobility-domain-split",
+                        fix="Declare roaming.mobility_domain for the SSID and deploy it.",
+                    )
 
     def ports(net: Network) -> Iterator[Result]:
         for site_id, spec in state.sites.items():
