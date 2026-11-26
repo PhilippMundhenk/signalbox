@@ -1318,4 +1318,13 @@ async def test_wireguard_tunnel_with_a_key_made_by_routeros(rt: dict[str, str]) 
             await a.restore(backup)
     finally:
         await a.close()
-    assert_same_menus(raw, menus(rt, *paths))
+    live = ("rx", "tx", "last-handshake", "current-endpoint-address", "current-endpoint-port")
+
+    def steady(found: dict[str, Any]) -> dict[str, Any]:
+        """The menus without the peers' traffic counters and handshake (they keep moving)."""
+        return {
+            path: {k: {p: v for p, v in row.items() if p not in live} for k, row in rows.items()}
+            for path, rows in found.items()
+        }
+
+    assert_same_menus(steady(raw), steady(menus(rt, *paths)))
