@@ -83,6 +83,10 @@ FILES=$WORK/files
 cp -a "$HERE/files" "$FILES"
 mkdir -p "$FILES/usr/share/rpcd/acl.d"
 python3 "$HERE/acl_from_docs.py" "$ROOT/docs/adapters/openwrt.md" > "$FILES/usr/share/rpcd/acl.d/signalbox.json"
+# the WireGuard key helper of the setup guide (#152), verbatim
+mkdir -p "$FILES/usr/libexec"
+python3 "$HERE/acl_from_docs.py" "$ROOT/docs/adapters/openwrt.md" --wg-key-helper > "$FILES/usr/libexec/signalbox-wg-key"
+chmod 0755 "$FILES/usr/libexec/signalbox-wg-key"
 # root's password for SSH (the automatic setup, #231), as the md5-crypt hash /etc/shadow holds
 ROOT_HASH=$(openssl passwd -1 "$ROOT_PASSWORD")
 sed -i -e "s/@READ_PASSWORD@/$READ_PASSWORD/" -e "s/@WRITE_PASSWORD@/$WRITE_PASSWORD/" \

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import time
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import replace
@@ -877,3 +878,58 @@ async def test_bssids_and_the_optional_neighbour_scan(ow: Target, pin: str) -> N
         assert r.radio_id in radios and r.band is radios[r.radio_id].band, r
         if r.bssid in own:
             assert r.ssid == "Example-IT", r
+
+
+async def test_wireguard_tunnel_with_a_key_made_on_the_router(
+    ow: Target, pin: str, unchanged: dict[str, Any]
+) -> None:
+    """#152, ADR 0034: a ``tunnel`` change stages a ``proto wireguard`` interface without a key,
+    and the key helper of the setup guide (installed in the image from the docs) runs
+    ``wg genkey`` on the router after ``uci apply``. The new interface reads back with a public
+    key from ``getWgInstances`` and the tag; the private key is never in what Signalbox sees
+    (the read login's raw ``uci get`` shows it exists). A peer is added, then both are removed."""
+    from signalbox.changes import TunnelPeerValue, TunnelValue
+
+    value = TunnelValue(
+        interface="wg_it", listen_port=51999, addresses=[ip_interface("2001:db8:c9::1/64")]
+    )
+    tunnel = Change(kind=ChangeKind.TUNNEL, device_id=DEV, site_id=SITE, key="tunnel/it", new=value)
+    adapter = OpenWrtAdapter(context(ow, pin, write=True))
+    try:
+        calls = await adapter.plan_changes([tunnel], {})
+        result = await adapter.apply([tunnel], {}, 60)
+        await adapter.confirm()
+        raw = (await uci(ow, pin))["network"]["wg_it"]
+        assert raw.get("private_key"), "the helper wrote a key on the router"
+        assert raw["signalbox"] == "it"
+        shown = json.dumps([c.model_dump(mode="json") for c in [*calls, *result.calls]])
+        assert raw["private_key"] not in shown
+        snap = await assert_contract(adapter)
+        t = next(t for t in snap.tunnels if t.name == "wg_it")
+        assert t.signalbox_key == "it" and t.listen_port == 51999
+        assert t.public_key is not None, "getWgInstances reports the new interface's key"
+        assert raw["private_key"] not in snap.model_dump_json()
+        backup = await adapter.backup()
+        assert raw["private_key"] not in backup.content
+        other = next(p for s in snap.tunnels for p in s.peers)  # any valid public key
+        peer = Change(
+            kind=ChangeKind.TUNNEL_PEER,
+            device_id=DEV,
+            site_id=SITE,
+            key="peer/it",
+            new=TunnelPeerValue(
+                interface="wg_it",
+                public_key=other.public_key,
+                allowed_ips=[ip_network("2001:db8:c9::2/128"), ip_network("2001:db8:ca::/64")],
+                keepalive=25,
+            ),
+        )
+        await adapter.apply([peer], {}, 60)
+        await adapter.confirm()
+        sections = (await uci(ow, pin))["network"]
+        assert sections["sb_wg_it"]["public_key"] == other.public_key
+        assert sections["sb_wg_it"]["route_allowed_ips"] == "1"
+        await adapter.apply([peer.inverse(), tunnel.inverse()], {}, 60)
+        await adapter.confirm()
+    finally:
+        await adapter.close()

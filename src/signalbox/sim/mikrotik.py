@@ -68,6 +68,16 @@ def _wg_key(name: str) -> str:
     return base64.b64encode(hashlib.sha256(name.encode()).digest()).decode()
 
 
+def wg_private_key(interface: str) -> str:
+    """The private key the simulated router generates for an interface added through a write
+    (#152): it must never leave the integration (``do-not-leak`` in the seed)."""
+    return _wg_key(f"sim-wg-private-do-not-leak-{interface}")
+
+
+def wg_public_key(interface: str) -> str:
+    return _wg_key(f"sim-wg-public-{interface}")
+
+
 #: ``wg0`` of the sample and its peers: a site and a phone (#152)
 WG_KEY = _wg_key("sim-mikrotik-wg0")
 WG_SITE = _wg_key("sim-mikrotik-site")
@@ -1947,6 +1957,7 @@ class MikrotikSimulator:
                 return _bad(problem)
             if menu == WIFI:
                 row.setdefault("mac-address", _mac(0x0A, len(rows)))
+            self._generate_keys(menu, row)
             if menu == DHCP_SERVER:  # RouterOS checks the interface's address a moment later
                 row.update({"invalid": "true", ".about": "No IP address on interface"})
                 self.settling.add(row[".id"])
@@ -2034,6 +2045,7 @@ class MikrotikSimulator:
             problem = self._check(menu, row, rows)
             if problem:
                 raise ValueError(f"{problem}: {line}")
+            self._generate_keys(menu, row)
             spot = next((i for i, r in enumerate(rows) if found and r is found[0]), len(rows))
             rows.insert(spot, row)
             return
@@ -2120,6 +2132,19 @@ class MikrotikSimulator:
             f"invalid value for argument policy ({','.join(sorted(unknown))})" if unknown else None
         )
 
+    def _generate_keys(self, menu: str, row: dict[str, Any]) -> None:
+        """RouterOS generates the key pair of a WireGuard interface added without a
+        ``private-key`` (#152); the simulated private key is marked ``do-not-leak``."""
+        if menu == WG_MENU and not row.get("private-key"):
+            name = str(row.get("name"))
+            row["private-key"] = wg_private_key(name)
+            row["public-key"] = wg_public_key(name)
+            row.setdefault("running", "true")
+            row.setdefault("disabled", "false")
+        if menu == WG_PEERS:
+            row.setdefault("private-key", "")
+            row.setdefault("disabled", "false")
+
     def _id(self) -> str:
         self.next_id += 1
         return f"*{self.next_id:X}"
@@ -2193,14 +2218,18 @@ class MikrotikSimulator:
             row["actual-interface"] = row["interface"]
         data = self.data
         # /interface follows the VLAN and Wi-Fi menus
-        derived = {"vlan": self._names(VLAN), "wifi": self._names(WIFI)}
+        derived = {
+            "vlan": self._names(VLAN),
+            "wifi": self._names(WIFI),
+            "wg": self._names(WG_MENU),
+        }
         interfaces = [
             r
             for r in data[INTERFACE]
             if r.get("type") not in derived or r.get("name") in derived[r["type"]]
         ]
         known = {r.get("name") for r in interfaces}
-        for kind, menu_path in (("vlan", VLAN), ("wifi", WIFI)):
+        for kind, menu_path in (("vlan", VLAN), ("wifi", WIFI), ("wg", WG_MENU)):
             for r in data.get(menu_path, []):
                 if r.get("name") not in known:
                     mac = r.get("mac-address") or _mac(1, 0)
@@ -2275,7 +2304,9 @@ class MikrotikSimulator:
         data[BRIDGE_VLAN] = dynamic + entries
 
     def export(self) -> str:
-        """A crude ``/export`` of the writable menus, secrets hidden as RouterOS does."""
+        """A crude ``/export`` of the writable menus, passphrases hidden as RouterOS does;
+        WireGuard keys are shown, as an export with ``show-sensitive`` has them, so that the
+        integration's removal of them is tested (#152)."""
         lines = ["# simulated RouterOS export"]
         for menu in WRITABLE:
             rows = [r for r in self.data.get(menu, []) if r.get("dynamic") != "true"]
@@ -2321,6 +2352,10 @@ LOG_RULES = "/rest/system/logging"
 SNMP = "/rest/snmp"
 INTERFACE_LIST = "/rest/interface/list"
 IP_ROUTE = "/rest/ip/route"
+IPV6_ROUTE = "/rest/ipv6/route"
+IPV6_ADDRESS_MENU = "/rest/ipv6/address"
+WG_MENU = "/rest/interface/wireguard"
+WG_PEERS = "/rest/interface/wireguard/peers"
 NETWATCH = "/rest/tool/netwatch"
 SCRIPT_VERBS = ("add", "remove", "set", "unset")
 SCRIPT_MENUS = {
@@ -2332,6 +2367,11 @@ SCRIPT_MENUS = {
     "/system logging": LOG_RULES,
     "/ip route": IP_ROUTE,
     "/tool netwatch": NETWATCH,
+    "/ipv6 route": IPV6_ROUTE,
+    "/ip address": "/rest/ip/address",
+    "/ipv6 address": IPV6_ADDRESS_MENU,
+    "/interface wireguard": WG_MENU,
+    "/interface wireguard peers": WG_PEERS,
 }
 FILTER_ACTIONS = frozenset(
     {"accept", "drop", "reject", "jump", "return", "passthrough", "log", "tarpit"}
@@ -2520,8 +2560,14 @@ WRITABLE = (
     LOG_RULES,
     IP_ROUTE,
     NETWATCH,
+    IPV6_ROUTE,
+    IPV6_ADDRESS_MENU,
+    WG_MENU,
+    WG_PEERS,
 )
 REQUIRED = {
+    WG_MENU: ("name",),
+    WG_PEERS: ("interface", "public-key"),
     VLAN: ("name", "vlan-id", "interface"),
     IP_ADDRESS: ("address", "interface"),
     BRIDGE_VLAN: ("bridge", "vlan-ids"),
@@ -2541,6 +2587,8 @@ REQUIRED = {
 REFERENCES = {
     VLAN: ("interface",),
     IP_ADDRESS: ("interface",),
+    IPV6_ADDRESS_MENU: ("interface",),
+    WG_PEERS: ("interface",),
     BRIDGE_PORT: ("interface", "bridge"),
     BRIDGE_VLAN: ("bridge", "tagged", "untagged"),
     DHCP_SERVER: ("interface",),

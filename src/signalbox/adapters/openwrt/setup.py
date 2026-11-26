@@ -81,11 +81,12 @@ WRITE_ACL: dict[str, Any] = {
     "signalbox": {
         "description": (
             "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, "
-            "system, snmpd and mwan3"
+            "system, snmpd and mwan3, WireGuard key helper"
         ),
         "read": READ_ACL["signalbox"]["read"],
         "write": {
             "ubus": {
+                "file": ["exec"],
                 "uci": [
                     "set",
                     "add",
@@ -96,12 +97,37 @@ WRITE_ACL: dict[str, Any] = {
                     "apply",
                     "confirm",
                     "rollback",
-                ]
+                ],
             },
             "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3"],
+            # generates a new WireGuard interface's key pair on the router (#152)
+            "file": {"/usr/libexec/signalbox-wg-key": ["exec"]},
         },
     }
 }
+
+#: ``/usr/libexec/signalbox-wg-key`` of docs/adapters/openwrt.md (checked by a test): gives a
+#: WireGuard interface Signalbox created its private key, generated on the router; prints
+#: nothing, so the key never leaves it (#152, ADR 0034).
+WG_KEY_HELPER = """#!/bin/sh
+# Signalbox: a private key for a WireGuard interface Signalbox created (#152).
+# Generated here with wg genkey and written to /etc/config/network; nothing is printed.
+[ "$1" = "--check" ] && { command -v wg >/dev/null; exit $?; }
+s="$1"
+case "$s" in ""|*[!A-Za-z0-9_]*) exit 2 ;; esac
+[ "$(uci -q get "network.$s.proto")" = wireguard ] || exit 3
+[ -n "$(uci -q get "network.$s.signalbox")" ] || exit 3
+[ -z "$(uci -q get "network.$s.private_key")" ] || exit 0
+umask 077
+d=$(mktemp -d) || exit 4
+k=$(wg genkey) || { rm -rf "$d"; exit 5; }
+uci -t "$d" set "network.$s.private_key=$k" && uci -t "$d" commit network
+r=$?
+rm -rf "$d"
+[ $r -eq 0 ] || exit 6
+ifup "$s" >/dev/null 2>&1
+exit 0
+"""
 
 PACKAGES = "uhttpd uhttpd-mod-ubus rpcd rpcd-mod-file rpcd-mod-luci"
 #: Optional: LLDP neighbours (ubus object ``luci.lldpd``), installed by *Fix it* (#215).

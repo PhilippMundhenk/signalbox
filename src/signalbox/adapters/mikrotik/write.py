@@ -43,7 +43,7 @@ from signalbox.adapters import (
     message_fields,
 )
 from signalbox.adapters.https import NotFound
-from signalbox.adapters.mikrotik import fwwrite, gwwrite, logwrite, wifi_assoc
+from signalbox.adapters.mikrotik import fwwrite, gwwrite, logwrite, wgwrite, wifi_assoc
 from signalbox.changes import (
     Change,
     ChangeKind,
@@ -68,9 +68,9 @@ SETTLE_SECONDS = 15.0
 
 #: Kinds of change the integration applies (all of them; Wi-Fi on the RouterOS 7 ``wifi``
 #: package; firewall kinds (#295, docs/adr/0017) with a revert timer, see ``fwwrite``; the
-#: default routes as the gateway group, #463, see ``gwwrite``); WireGuard tunnels (#152) not
-#: yet.
-WRITES = frozenset(ChangeKind) - {ChangeKind.TUNNEL, ChangeKind.TUNNEL_PEER}
+#: default routes as the gateway group, #463, see ``gwwrite``; WireGuard tunnels, #152, see
+#: ``wgwrite``).
+WRITES = frozenset(ChangeKind)
 
 #: ``/system/scheduler``: the revert timer of firewall changes.
 SCHEDULER = "/rest/system/scheduler"
@@ -379,10 +379,19 @@ class MikrotikWrites:
                 m.WIFI_STEERING,
                 gwwrite.IP_ROUTE,
                 gwwrite.NETWATCH,
+                wgwrite.IPV6_ROUTE,
+                wgwrite.WIREGUARD,
+                wgwrite.WIREGUARD_PEERS,
             )
         ):
             try:
-                menus[menu] = m._rows(await m.get_menu(self.http, menu), menu)
+                data = await m.get_menu(self.http, menu)
+                # WireGuard keys are dropped on arrival (#152): never planned with, never kept
+                menus[menu] = (
+                    m.wireguard_rows(data, menu)
+                    if menu in (wgwrite.WIREGUARD, wgwrite.WIREGUARD_PEERS)
+                    else m._rows(data, menu)
+                )
             except NotFound:
                 menus[menu] = []
                 absent.add(menu)
@@ -432,6 +441,10 @@ class MikrotikWrites:
                 await self._snmp_policy(cfg, c)
             elif c.kind is ChangeKind.GATEWAY_GROUP:
                 gwwrite.gateway_group(cfg, c, cfg.revert)
+            elif c.kind is ChangeKind.TUNNEL:
+                wgwrite.tunnel(cfg, c, cfg.revert)
+            elif c.kind is ChangeKind.TUNNEL_PEER:
+                wgwrite.peer(cfg, c, cfg.revert)
             else:
                 if not wifi:
                     raise AdapterError(
@@ -582,9 +595,12 @@ class MikrotikWrites:
         with contextlib.suppress(AdapterError):  # no /snmp menu: nothing to restore
             snmp = _text(m._object(await m.get_menu(self.http, m.SNMP), m.SNMP).get("enabled"))
         rows: dict[str, list[dict[str, Any]]] = {}
-        for menu in (gwwrite.IP_ROUTE, gwwrite.NETWATCH):
+        for menu in (gwwrite.IP_ROUTE, gwwrite.NETWATCH, wgwrite.IPV6_ROUTE, wgwrite.IPV6_ADDRESS):
             with contextlib.suppress(NotFound):  # no netwatch package: nothing to restore
                 rows[menu] = m._rows(await m.get_menu(self.http, menu), menu)
+        for menu in (wgwrite.WIREGUARD, wgwrite.WIREGUARD_PEERS):
+            with contextlib.suppress(NotFound):  # no wireguard package: nothing to restore
+                rows[menu] = m.wireguard_rows(await m.get_menu(self.http, menu), menu)
         content = json.dumps(
             {
                 "version": 1,
@@ -592,6 +608,7 @@ class MikrotikWrites:
                 "menus": menus,
                 "snmp_enabled": snmp,
                 "gateway_rows": gwwrite.backup_rows(rows),
+                "wireguard_rows": wgwrite.backup_rows(rows),
             },
             sort_keys=True,
         )
@@ -692,6 +709,7 @@ class MikrotikWrites:
                             ),
                         )
         gwwrite.restore_rows(cfg, json.loads(backup.content).get("gateway_rows"))
+        wgwrite.restore_rows(cfg, json.loads(backup.content).get("wireguard_rows"))
         saved_snmp = json.loads(backup.content).get("snmp_enabled")
         if isinstance(saved_snmp, str) and saved_snmp:
             try:
@@ -1791,7 +1809,21 @@ def _writable(menu: str, row: dict[str, Any]) -> dict[str, str]:
 
 
 def _export_text(response: Any) -> str:
-    """The export: ``{"ret": ...}`` (a JSON string or plain text are accepted too)."""
+    """The export: ``{"ret": ...}`` (a JSON string or plain text are accepted too), without
+    WireGuard private and pre-shared keys (#152): RouterOS 7 leaves them out unless asked
+    (``show-sensitive``), and whatever a release puts there is removed before it is kept."""
+    return without_keys(_export_raw(response))
+
+
+#: ``private-key=...`` and ``preshared-key=...`` of an export line, quoted or not.
+_KEY_PROPS = re.compile(r'\b(private-key|preshared-key)=("(?:[^"\\]|\\.)*"|\S*)')
+
+
+def without_keys(text: str) -> str:
+    return _KEY_PROPS.sub(r'\1="(removed)"', text)
+
+
+def _export_raw(response: Any) -> str:
     try:
         data = response.json()
     except ValueError:

@@ -148,6 +148,8 @@ def test_manifest_declares_what_it_writes() -> None:
         ChangeKind.LOG_TARGET,
         ChangeKind.SNMP_POLICY,
         ChangeKind.GATEWAY_GROUP,
+        ChangeKind.TUNNEL,
+        ChangeKind.TUNNEL_PEER,
     }
     assert issubclass(OpenWrtAdapter, WritesConfig)
 

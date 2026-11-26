@@ -212,8 +212,11 @@ sites:
 ## WireGuard tunnels
 
 A site-to-site WireGuard tunnel between two devices Signalbox manages (#152,
-[ADR 0034](adr/0034-wireguard-tunnels-desired-state.md)). The writers for OpenWrt and MikroTik
-follow in a separate change; until then every integration refuses a plan with tunnel changes.
+[ADR 0034](adr/0034-wireguard-tunnels-desired-state.md)). Written on OpenWrt
+([details](adapters/openwrt.md#what-each-change-does-in-uci); a new interface needs the
+[key helper](adapters/openwrt.md#wireguard-key-helper)) and MikroTik
+([details](adapters/mikrotik.md#wireguard-tunnels-152)); other integrations refuse a plan with
+tunnel changes.
 Off like every write: it needs `deploy.enabled`, *Allow changes* on both devices and the
 per-plan approval.
 

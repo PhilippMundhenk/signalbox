@@ -5,6 +5,7 @@ so a wrong ACL in the docs fails the integration tests. Its read part must equal
 ACL of the docs (checked here), so the read-only login tests that one.
 
     python3 acl_from_docs.py docs/adapters/openwrt.md > signalbox.json
+    python3 acl_from_docs.py docs/adapters/openwrt.md --wg-key-helper > signalbox-wg-key
 """
 
 from __future__ import annotations
@@ -24,9 +25,21 @@ def acl_under(markdown: str, heading: str) -> dict[str, Any]:
     return acl
 
 
+def wg_key_helper(markdown: str) -> str:
+    """The WireGuard key helper of the setup guide (#152): the heredoc under its heading."""
+    part = markdown.split("### WireGuard key helper", 1)[1]
+    block = re.search(r"cat > /usr/libexec/signalbox-wg-key <<'END'\n(.*?)END\n", part, re.S)
+    if block is None:
+        raise SystemExit("no key helper under '### WireGuard key helper'")
+    return block.group(1)
+
+
 def main() -> None:
     with open(sys.argv[1], encoding="utf-8") as f:
         markdown = f.read()
+    if sys.argv[2:] == ["--wg-key-helper"]:
+        sys.stdout.write(wg_key_helper(markdown))
+        return
     read_only = acl_under(markdown, "## Read-only user on the device")
     write = acl_under(markdown, "### Login with write access")
     if write["signalbox"]["read"] != read_only["signalbox"]["read"]:

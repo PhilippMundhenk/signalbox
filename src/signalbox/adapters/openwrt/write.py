@@ -30,6 +30,7 @@ from signalbox.adapters import (
     message_fields,
 )
 from signalbox.adapters import openwrt as h  # the read helpers (circular, used at run time)
+from signalbox.adapters.openwrt import wgwrite
 from signalbox.adapters.openwrt.firewall import FORWARD_TAG, POLICY_TAG, RULE_TAG
 from signalbox.adapters.openwrt.firewall import tag as fw_tag
 from signalbox.adapters.openwrt.mwanwrite import gateway_group
@@ -76,7 +77,18 @@ ENCRYPTION_OF = {
 PMF_OF = {Pmf.DISABLED: "0", Pmf.OPTIONAL: "1", Pmf.REQUIRED: "2"}
 #: UCI options whose values never appear in a VendorCall.
 SECRET_OPTIONS = frozenset(
-    {"key", "key1", "key2", "key3", "key4", "sae_password", "password", "auth_secret"}
+    {
+        "key",
+        "key1",
+        "key2",
+        "key3",
+        "key4",
+        "sae_password",
+        "password",
+        "auth_secret",
+        "private_key",  # WireGuard (#152): never read or written, masked all the same
+        "preshared_key",
+    }
 )
 MASK = "***"
 
@@ -119,6 +131,9 @@ class Configs:
     ops: list[UciOp] = field(default_factory=list)
     #: VLAN devices (``br-lan.30``) whose bridge-vlan section was deleted in this transaction
     removed_vlans: set[str] = field(default_factory=set)
+    #: WireGuard interfaces created in this transaction: the key helper gives them a key pair
+    #: on the router after the apply (#152)
+    wg_keys: list[str] = field(default_factory=list)
 
     def values(self, config: str) -> dict[str, Any]:
         if config not in self.data:
@@ -1175,6 +1190,11 @@ def translate(
             _snmp_policy(cfg, c)
         elif c.kind is ChangeKind.GATEWAY_GROUP:
             gateway_group(cfg, c)
+        elif c.kind is ChangeKind.TUNNEL:
+            if (iface := wgwrite.tunnel(cfg, c)) is not None:
+                cfg.wg_keys.append(iface)
+        elif c.kind is ChangeKind.TUNNEL_PEER:
+            wgwrite.peer(cfg, c)
         elif c.kind is ChangeKind.ZONE_POLICY:
             _policy(cfg, c)
         elif c.kind is ChangeKind.FIREWALL_RULE:

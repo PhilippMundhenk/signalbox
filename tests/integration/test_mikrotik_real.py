@@ -21,7 +21,7 @@ import base64
 import hashlib
 import json
 from collections.abc import Callable, Iterator
-from ipaddress import ip_address, ip_network
+from ipaddress import ip_address, ip_interface, ip_network
 from pathlib import Path
 from typing import Any
 
@@ -1248,3 +1248,83 @@ async def test_accounts_of_chr(rt: dict[str, str]) -> None:
     assert snap.device.signalbox_account_privilege is AccountPrivilege.READ
     assert snap.device.default_credentials is False
     assert rt["PASSWORD"] not in snap.model_dump_json()
+
+
+async def test_wireguard_tunnel_with_a_key_made_by_routeros(rt: dict[str, str]) -> None:
+    """#152, ADR 0034: a ``tunnel`` change adds ``/interface/wireguard`` without a private key,
+    so RouterOS generates the pair; the address, the peer and a route for the other end's
+    network follow. The interface reads back with its public key and tag, the private key (the
+    write user's ``sensitive`` policy shows it) is in no call, snapshot or backup, and
+    restoring the backup removes everything again."""
+    from signalbox.changes import TunnelPeerValue, TunnelValue
+
+    paths = (
+        "/rest/interface/wireguard",
+        "/rest/interface/wireguard/peers",
+        "/rest/ipv6/address",
+        "/rest/ipv6/route",
+    )
+    raw = menus(rt, *paths)
+    other = base64.b64encode(hashlib.sha256(b"signalbox-it-other-end").digest()).decode()
+    tunnel = Change(
+        kind=ChangeKind.TUNNEL,
+        device_id="rt",
+        site_id="home",
+        key="tunnel/it",
+        new=TunnelValue(
+            interface="wg_it", listen_port=51999, addresses=[ip_interface("2001:db8:c9::1/64")]
+        ),
+    )
+    peer = Change(
+        kind=ChangeKind.TUNNEL_PEER,
+        device_id="rt",
+        site_id="home",
+        key="peer/it",
+        new=TunnelPeerValue(
+            interface="wg_it",
+            public_key=other,
+            endpoint_host="203.0.113.30",
+            endpoint_port=51998,
+            allowed_ips=[ip_network("2001:db8:c9::2/128"), ip_network("2001:db8:ca::/64")],
+            keepalive=25,
+        ),
+    )
+    a = adapter(rt, write=True)
+    try:
+        backup = await a.backup()
+        try:
+            calls = await a.plan_changes([tunnel, peer], {})
+            result = await a.apply([tunnel, peer], {}, 60)
+            await a.confirm()
+            rows = (await a.http.request("GET", "/rest/interface/wireguard")).json()
+            mine = next(r for r in rows if r.get("name") == "wg_it")
+            assert mine.get("private-key"), "RouterOS generated a key (sensitive policy)"
+            snap = await a.observe()
+            t = next(t for t in snap.tunnels if t.name == "wg_it")
+            assert t.signalbox_key == "it" and t.public_key == mine["public-key"]
+            assert [str(x) for x in t.addresses] == ["2001:db8:c9::1/64"]
+            (p,) = t.peers
+            assert (p.public_key, p.signalbox_key, p.keepalive_seconds) == (other, "it", 25)
+            routes = (await a.http.request("GET", "/rest/ipv6/route")).json()
+            assert any(
+                r.get("dst-address") == "2001:db8:ca::/64" and r.get("gateway") == "wg_it"
+                for r in routes
+            ), routes
+            shown = json.dumps([c.model_dump(mode="json") for c in [*calls, *result.calls]])
+            later = await a.backup()
+            for text in (shown, snap.model_dump_json(), later.content, backup.content):
+                assert mine["private-key"] not in text
+        finally:
+            await a.restore(backup)
+    finally:
+        await a.close()
+    live = ("rx", "tx", "last-handshake", "current-endpoint-address", "current-endpoint-port")
+
+    def steady(found: dict[str, Any]) -> dict[str, Any]:
+        """The menus without the peers' traffic counters and handshake (they keep moving)."""
+        return {
+            path: {k: {p: v for p, v in row.items() if p not in live} for k, row in rows.items()}
+            for path, rows in found.items()
+        }
+
+    assert_same_menus(steady(raw), steady(menus(rt, *paths)))

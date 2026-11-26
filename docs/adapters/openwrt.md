@@ -806,6 +806,8 @@ Failures:
 | `log-target` | `system.@system[0]`: `log_ip`, `log_port`, `log_proto` (`udp` or `tcp`) and the tag `signalbox_syslog '1'`; `log_remote` is removed so the target is used. logd has one slot: a second declared target is refused, and a target of the device's own (no tag) is replaced only when the change adopts it. Removal deletes the four options when the slot still holds that address. Syslog over TLS is refused. *Guess (#21): that `uci apply` makes logd pick up the new target on every release.* |
 | `snmp-policy` | `snmpd.general.enabled` `0` (off) or `1` (back on, as a revert); the section is created if the package has none. `v3-only` is refused (it needs SNMPv3 users and their secrets); a router without the `snmpd` config is refused. *Guess (#21): that the package's init script reloads on `uci apply` and honours `enabled`.* |
 | `gateway-group` | The mwan3 `policy` of the group's name (#463, [ADR 0032](../adr/0032-gateway-group-desired-state.md)): the members in its `use_member` list get the tier as `metric` (every member gets its tier number when the order of the tiers changes) and `weight`; the line's monitor is `track_ip` of the mwan3 `interface` of the same name (removed for an empty monitor; refused on a disabled interface). A member section that another policy also uses is not changed: a copy `sb_<policy>_<line>` (option `signalbox '1'`) with the new values replaces it in this policy's `use_member`. Policies, members and interfaces are never created or removed; a router without the `mwan3` config is refused. *Guess (#21): that `uci apply` makes mwan3 reload on every 2.x release.* |
+| `tunnel` | A `proto wireguard` interface ([ADR 0034](../adr/0034-wireguard-tunnels-desired-state.md)): `listen_port`, `addresses`, `mtu` and the option `signalbox` with the tunnel's name; the [key helper](#wireguard-key-helper) gives a new one its key pair on the router after `uci apply`, inside the confirm window. An adopted interface keeps its section and only the declared options change. Removal deletes Signalbox's interface and its `wireguard_<interface>` sections. The interface is not added to a firewall zone: put it into one yourself (LuCI, or `firewall.@zone[...].network`), else the zone defaults decide what passes. Interface names are letters, digits and `_` (15 at most). Private and pre-shared keys are never read, written or backed up (the backup and a restore leave `private_key` and `preshared_key` as they are). |
+| `tunnel-peer` | The `wireguard_<interface>` section of the other end (`sb_<interface>`, option `signalbox`, `description` the tunnel's name): `public_key`, `allowed_ips`, `route_allowed_ips '1'` (netifd routes the other end's networks), `endpoint_host` and `endpoint_port` where the other end declares an endpoint, `persistent_keepalive` where declared. An adopted peer (the other end's public key, no tag) keeps its section and its pre-shared key. |
 | `router` | Not supported: a routed VLAN on OpenWrt also needs its own firewall zone, which Signalbox does not create. Create routed interfaces and their zones by hand (or in LuCI); DHCP, reservations and the zone's policies and rules can then be deployed. |
 
 ### Login with write access
@@ -816,7 +818,7 @@ only allows the `uci` methods of a transaction on the seven configs it changes (
 ```json
 {
   "signalbox": {
-    "description": "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, system, snmpd and mwan3",
+    "description": "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, system, snmpd and mwan3, WireGuard key helper",
     "read": {
       "ubus": {
         "system": ["board", "info"],
@@ -858,9 +860,13 @@ only allows the `uci` methods of a transaction on the seven configs it changes (
     },
     "write": {
       "ubus": {
+        "file": ["exec"],
         "uci": ["set", "add", "delete", "order", "revert", "changes", "apply", "confirm", "rollback"]
       },
-      "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3"]
+      "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3"],
+      "file": {
+        "/usr/libexec/signalbox-wg-key": ["exec"]
+      }
     }
   }
 }
@@ -869,6 +875,45 @@ only allows the `uci` methods of a transaction on the seven configs it changes (
 and `list write 'signalbox'` next to `list read 'signalbox'` in the login entry of
 `/etc/config/rpcd`. Without the write part, deploying fails at the first staged call with
 "access denied for uci.…", and nothing is changed.
+
+### WireGuard key helper
+
+Only for WireGuard tunnels Signalbox creates (#152, [ADR 0034](../adr/0034-wireguard-tunnels-desired-state.md)).
+A new interface needs a key pair, and its private key must never pass through Signalbox: the
+router generates it. rpcd cannot do that without returning the key (`luci.wireguard
+generateKeyPair` answers with it), so the ACL above lets Signalbox run this one script, which
+writes a key from `wg genkey` (package `wireguard-tools`) into `/etc/config/network` of an
+interface Signalbox created (option `signalbox`) and prints nothing:
+
+```sh
+cat > /usr/libexec/signalbox-wg-key <<'END'
+#!/bin/sh
+# Signalbox: a private key for a WireGuard interface Signalbox created (#152).
+# Generated here with wg genkey and written to /etc/config/network; nothing is printed.
+[ "$1" = "--check" ] && { command -v wg >/dev/null; exit $?; }
+s="$1"
+case "$s" in ""|*[!A-Za-z0-9_]*) exit 2 ;; esac
+[ "$(uci -q get "network.$s.proto")" = wireguard ] || exit 3
+[ -n "$(uci -q get "network.$s.signalbox")" ] || exit 3
+[ -z "$(uci -q get "network.$s.private_key")" ] || exit 0
+umask 077
+d=$(mktemp -d) || exit 4
+k=$(wg genkey) || { rm -rf "$d"; exit 5; }
+uci -t "$d" set "network.$s.private_key=$k" && uci -t "$d" commit network
+r=$?
+rm -rf "$d"
+[ $r -eq 0 ] || exit 6
+ifup "$s" >/dev/null 2>&1
+exit 0
+END
+chmod 755 /usr/libexec/signalbox-wg-key
+```
+
+It runs after `uci apply` and before the confirmation, so a rollback also takes the key away;
+it uses a save directory of its own, so changes staged elsewhere are not committed. Without
+the script (or with an ACL from before #152), creating a tunnel is refused with that reason;
+changing an interface you created yourself and adopted still works. Signalbox never sets or
+changes a pre-shared key.
 
 802.11v (`bss_transition`) needs the full `wpad` (`wpad-mbedtls`, `wpad-openssl`,
 ...): the hostapd of `wpad-basic-*` rejects `bss_transition` as an unknown option and then does
