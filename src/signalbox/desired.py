@@ -1811,12 +1811,8 @@ def drift_rules(state: DesiredState, secret: SecretLookup | None = None) -> list
                     continue
                 if have.enabled != entry.enabled:
                     yield found(
-                        f"{subject}: "
-                        + _differ(
-                            "PoE",
-                            "on" if entry.enabled else "off",
-                            "on" if have.enabled else "off",
-                        ),
+                        f"{subject}: should be {'on' if entry.enabled else 'off'}, "
+                        f"is {'on' if have.enabled else 'off'}",
                         [pid],
                         key=key,
                     )

@@ -1619,6 +1619,8 @@ POE_DEFAULT_W = POE_CLASS_PSE_W[0]
 #: LLDP capabilities of a neighbour whose power is protected: its loss is an outage of a part of
 #: the network, not of one end device.
 POE_PROTECTED_CAPABILITIES = ("bridge", "router", "wlan-access-point")
+#: What the plan says of a port that powers nothing it detected.
+POE_NO_LOAD = "no powered device detected"
 
 
 def _w(value: float) -> str:
@@ -1662,7 +1664,7 @@ def poe_load(net: Network, pid: str) -> tuple[str, str | None]:
     if poe is not None and (poe.status is PoeStatus.DELIVERING or (poe.power_w or 0) > 0):
         drawn = f" that draws {_w(poe.power_w)} W" if poe.power_w else ""
         return f"an unknown device{drawn}", None
-    return "no powered device detected", None
+    return POE_NO_LOAD, None
 
 
 def _poe_used(net: Network, device_id: str) -> float:
@@ -1713,7 +1715,7 @@ def poe_changes(net: Network, site_id: str, specs: Iterable[PoeSpec]) -> list[Ch
                     message_id="plan.poeOutage",
                     params={"port": pid, "load": protected},
                 )
-            risk = f"cuts power to {what}"
+            risk = what if what == POE_NO_LOAD else f"cuts power to {what}"
         else:
             limit = port.poe.max_w if port.poe is not None else None
             adding.setdefault(spec.device, []).append((pid, limit or POE_DEFAULT_W))

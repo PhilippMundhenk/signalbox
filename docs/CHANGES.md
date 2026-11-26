@@ -72,6 +72,17 @@ Signalbox. It is applied last. OpenWrt uses the `uci apply` confirm timer, Mikro
 scheduler revert, the FRITZ!Box (on or off only) has none; a failed deployment restores the
 backup.
 
+## PoE changes
+
+The kind `poe` (key: the port id) switches PoE of one declared switch port on or off
+([DESIRED.md](DESIRED.md#poe), ADR 0036). A change that switches a port off carries the risk
+*cuts power to ...* with what is on the port; the plan is refused, before the review, when that
+is a managed device or a neighbour announcing a bridge, router or access point and the entry
+does not allow the outage, and when switching ports on would exceed the switch's reported
+budget. It is applied last. MikroTik uses its scheduler revert; a failed deployment restores
+the backup. Note that the confirm step only proves that Signalbox still reaches the switch, not
+that the powered device came back.
+
 ## Tracking
 
 The *Changes* page is the change log: who, when, why, the desired-state version (git commit),

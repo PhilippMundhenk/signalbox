@@ -1035,6 +1035,7 @@ async def test_deployment_and_revert(
         assert kinds == set(ChangeKind) - FIREWALL_KINDS - LOGGING_KINDS - TUNNEL_KINDS - {
             ChangeKind.GATEWAY_GROUP,
             ChangeKind.UPNP,
+            ChangeKind.POE,
         }, [c.describe() for c in p.changes]
         d = Deployer(svc.runner)
         cid = (await d.prepare(p, "tidy up the IoT network", "tester")).id

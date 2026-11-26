@@ -60,7 +60,7 @@ PoE differs from those objects:
   Otherwise the plan is refused with the numbers. A switch that reports no budget is not
   checked; the plan says so in the change's risk.
 - **Drift** (`drift.poe`) is the planner's comparison; a device that was not read gives an
-  incomplete finding, a port without PoE data an error with the reason.
+  incomplete finding, a port without PoE data a finding with the reason.
 - **Import** writes no `poe:` entries: which ports Signalbox may switch, and where an outage is
   accepted, is the owner's decision.
 - **Writers** (each documented in the integration's page):
