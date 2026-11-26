@@ -595,7 +595,7 @@ class MikrotikWrites:
         with contextlib.suppress(AdapterError):  # no /snmp menu: nothing to restore
             snmp = _text(m._object(await m.get_menu(self.http, m.SNMP), m.SNMP).get("enabled"))
         rows: dict[str, list[dict[str, Any]]] = {}
-        for menu in (gwwrite.IP_ROUTE, gwwrite.NETWATCH, wgwrite.IPV6_ROUTE):
+        for menu in (gwwrite.IP_ROUTE, gwwrite.NETWATCH, wgwrite.IPV6_ROUTE, wgwrite.IPV6_ADDRESS):
             with contextlib.suppress(NotFound):  # no netwatch package: nothing to restore
                 rows[menu] = m._rows(await m.get_menu(self.http, menu), menu)
         for menu in (wgwrite.WIREGUARD, wgwrite.WIREGUARD_PEERS):

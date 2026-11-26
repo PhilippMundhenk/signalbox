@@ -313,3 +313,13 @@ async def test_lldp_extra_is_optional_and_removal_keeps_packages(
     assert gone.ok and not device.installed & both and not device.lldpd_running
     again = await OpenWrtAdapter.plan_setup(rm)
     assert [s.state for s in again.steps if s.id == "lldp-remove"] == [StepState.UNCHANGED]
+
+
+def test_wireguard_key_helper_is_the_documented_one() -> None:
+    from signalbox.adapters.openwrt.setup import WG_KEY_HELPER
+
+    text = DOCS.read_text().split("### WireGuard key helper", 1)[1]
+    block = re.search(r"```sh\ncat > /usr/libexec/signalbox-wg-key <<'END'\n(.*?)END\n", text, re.S)
+    assert block and block.group(1) == WG_KEY_HELPER
+    # the helper prints nothing and only touches interfaces Signalbox created
+    assert "echo" not in WG_KEY_HELPER and "network.$s.signalbox" in WG_KEY_HELPER

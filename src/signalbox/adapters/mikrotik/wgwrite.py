@@ -49,8 +49,10 @@ PEER_PROPS = (
     "disabled",
 )
 ROUTE_PROPS = ("dst-address", "gateway", "comment", "disabled")
-#: Menus of the backup's ``wireguard_rows``, in the order rows are added back.
-MENUS = (WIREGUARD, WIREGUARD_PEERS, IP_ROUTE, IPV6_ROUTE)
+ADDRESS_PROPS = ("address", "interface", "comment", "disabled")
+#: Menus of the backup's ``wireguard_rows``, in the order rows are added back (IPv4 addresses
+#: are in the general snapshot already; of the others only Signalbox's tagged rows are kept).
+MENUS = (WIREGUARD, WIREGUARD_PEERS, IPV6_ADDRESS, IP_ROUTE, IPV6_ROUTE)
 _CLI = {
     WIREGUARD: "/interface wireguard",
     WIREGUARD_PEERS: "/interface wireguard peers",
@@ -417,7 +419,11 @@ def _keep(menu: str, row: dict[str, Any]) -> bool:
 
 
 def _props(menu: str) -> tuple[str, ...]:
-    return {WIREGUARD: INTERFACE_PROPS, WIREGUARD_PEERS: PEER_PROPS}.get(menu, ROUTE_PROPS)
+    return {
+        WIREGUARD: INTERFACE_PROPS,
+        WIREGUARD_PEERS: PEER_PROPS,
+        IPV6_ADDRESS: ADDRESS_PROPS,
+    }.get(menu, ROUTE_PROPS)
 
 
 def backup_rows(menus: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, dict[str, str]]]:

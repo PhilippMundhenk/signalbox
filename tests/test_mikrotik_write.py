@@ -171,8 +171,7 @@ async def roundtrip(url: str, changes: list[Change], secrets: dict[str, str] | N
 
 
 def test_manifest_declares_every_kind() -> None:
-    # WireGuard tunnels (#152) follow with their writer
-    assert MikrotikAdapter.manifest.writes == frozenset(ChangeKind) - TUNNEL_KINDS
+    assert MikrotikAdapter.manifest.writes == frozenset(ChangeKind)
     assert issubclass(MikrotikAdapter, WritesConfig)
     assert ros_duration(0) == "0s" and ros_duration(90061) == "1d1h1m1s"
 

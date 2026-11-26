@@ -101,6 +101,8 @@ This is the most sensitive write so far:
     `allowed_ips`, `route_allowed_ips '1'`, `persistent_keepalive`). The key helper runs after
     the apply and before the confirmation, so a rollback also takes the key away. Reading the
     new public key needs luci-proto-wireguard (`getWgInstances`), as it does for the checks.
+    A new interface is not put into a firewall zone (zones are not created by Signalbox); the
+    integration page says so.
   - **MikroTik** (REST): `/interface/wireguard` (`listen-port`, `mtu`), `/ip/address` for the
     tunnel addresses, `/interface/wireguard/peers` (`public-key`, `endpoint-address`,
     `endpoint-port`, `allowed-address`, `persistent-keepalive`), armed by the scheduler revert of

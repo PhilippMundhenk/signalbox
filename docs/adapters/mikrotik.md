@@ -976,6 +976,32 @@ found by their gateway; routes and netwatch entries are never added or removed.
 - *Guess (#21)*: the netwatch tie by comment, `unset` of `check-gateway` on RouterOS 7, and the
   `/ip route set *<id>` lines in the scheduler's script on a real router.
 
+## WireGuard tunnels (#152)
+
+The kinds `tunnel` and `tunnel-peer` ([ADR 0034](../adr/0034-wireguard-tunnels-desired-state.md)).
+What Signalbox creates carries the comment `signalbox:wg/<tunnel>`; an adopted interface or peer
+keeps its own comment and is found by its name or the other end's public key.
+
+- **Interface**: `/interface/wireguard` with `name`, `listen-port`, `mtu`, added without
+  `private-key`, so RouterOS generates the key pair; the tunnel addresses are `/ip/address` and
+  `/ipv6/address` entries on it (the declared ones replace the others on that interface).
+- **Peer**: `/interface/wireguard/peers` with `interface`, `public-key` (the other end's, read
+  from it), `allowed-address`, `endpoint-address` and `endpoint-port` where the other end
+  declares an endpoint, `persistent-keepalive` where declared. RouterOS does not route allowed
+  addresses: each network behind the other end gets a static route (`/ip/route`,
+  `/ipv6/route`, `gateway` the interface, tagged), unless the router already routes it into
+  the interface.
+- **Keys**: the menus are read with `private-key` and `preshared-key` dropped on arrival; no
+  key is ever sent, and a peer's pre-shared key is left as it is. The backup's export has both
+  removed (RouterOS 7 leaves them out unless asked), and the backup keeps the interface, peer
+  and route rows without keys.
+- **Revert and backup**: the scheduler entry `signalbox-revert` (see Firewall changes) removes
+  what was added and sets changed values back unless the change is confirmed; a removed
+  interface comes back with a new key pair, so its peer on the other end needs the next
+  deployment. A restore puts the rows of the backup back by `.id`.
+- *Guess (#21)*: the property spellings in a write (`allowed-address` as a comma list,
+  `persistent-keepalive=25s`) and the scheduler script lines on a real router.
+
 ## Firewall changes (#295)
 
 The kinds `firewall-rule`, `port-forward` and `zone-policy` are written
