@@ -68,12 +68,16 @@ from signalbox.adapters.fritzbox.soap import (
 )
 from signalbox.adapters.fritzbox.write import (
     BACKUP_FORMAT,
+    UPNP_SERVICE,
     Call,
     backup_content,
+    backup_upnp,
     check_wlan,
     dhcp_wanted,
     lan_calls,
     parse_backup,
+    upnp_calls,
+    upnp_restore,
     wlan_calls,
     wlan_wanted,
 )
@@ -683,7 +687,7 @@ class FritzboxAdapter(Adapter):
         description="Reads a Fritz!Box over TR-064 (SOAP over HTTPS) with a dedicated user; "
         "changes its DHCP server and existing Wi-Fi networks. Its fixed firewall behaviour and "
         "port sharing are read as a firewall.",
-        writes=frozenset({ChangeKind.DHCP, ChangeKind.WLAN}),
+        writes=frozenset({ChangeKind.DHCP, ChangeKind.WLAN, ChangeKind.UPNP}),
     )
 
     def __init__(self, context: AdapterContext) -> None:
@@ -1759,6 +1763,8 @@ class FritzboxAdapter(Adapter):
                 )
             if c.kind is ChangeKind.WLAN:
                 check_wlan(c)
+            elif c.kind is ChangeKind.UPNP:
+                pass  # checked with the box's answer below
             elif c.key != self._native:
                 raise AdapterError(
                     f"{c.key}: the Fritz!Box has one DHCP server, on its LAN ({self._native})",
@@ -1774,6 +1780,9 @@ class FritzboxAdapter(Adapter):
                 wanted = dhcp_wanted(c, lan)
                 calls += lan_calls(lan, wanted)
                 lan = lan | wanted  # a later change in the same list starts from this
+                continue
+            if c.kind is ChangeKind.UPNP:
+                calls += upnp_calls(c, await self._try(UPNP_SERVICE, "GetInfo"))
                 continue
             if wlans is None:
                 wlans = {w.index: await self._wlan_current(w) for w in await self._wlans()}
@@ -1840,7 +1849,7 @@ class FritzboxAdapter(Adapter):
             device_id=self.context.device_id,
             taken_at=datetime.now(UTC),
             format=BACKUP_FORMAT,
-            content=backup_content(lan, wlans),
+            content=backup_content(lan, wlans, await self._try(UPNP_SERVICE, "GetInfo")),
         )
 
     async def apply(
@@ -1881,4 +1890,7 @@ class FritzboxAdapter(Adapter):
             if "NewKeyPassphrase" in wanted:
                 passphrase = await self._current_passphrase(wlan.service)
             calls += wlan_calls(wlan.service, await self._wlan_current(wlan), wanted, passphrase)
+        saved_upnp = backup_upnp(backup.content)
+        if saved_upnp is not None:
+            calls += upnp_restore(saved_upnp, await self._try(UPNP_SERVICE, "GetInfo"))
         await self._send(calls)

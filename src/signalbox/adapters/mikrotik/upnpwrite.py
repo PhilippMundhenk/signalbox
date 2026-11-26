@@ -26,6 +26,13 @@ if TYPE_CHECKING:  # pragma: no cover
     from signalbox.adapters.mikrotik.write import _Config
 
 
+#: The plan text of switching UPnP off (ADR 0035: open mappings are left to expire).
+UPNP_OFF = (
+    "UPnP: off (Signalbox does not remove open mappings: they end with their lease, "
+    "and the router may drop them as the service stops)"
+)
+
+
 def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
@@ -64,11 +71,7 @@ def switch(c: Change, enabled_now: bool, revert: Revert) -> dict[str, str] | Non
 def switch_note(enabled: bool) -> Described:
     if enabled:
         return Described("UPnP: on", "plan.mikrotik.upnpOn")
-    return Described(
-        "UPnP: off (Signalbox does not remove open mappings: they end with their lease, and "
-        "the router may drop them as the service stops)",
-        "plan.mikrotik.upnpOff",
-    )
+    return Described(UPNP_OFF, "plan.mikrotik.upnpOff")
 
 
 def networks(cfg: _Config, c: Change, l3: dict[str, str], revert: Revert) -> None:

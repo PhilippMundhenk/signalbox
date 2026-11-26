@@ -30,6 +30,13 @@ CONFIG = "upnpd"
 COMMENT = "Signalbox"
 
 
+#: The plan text of switching UPnP off (ADR 0035: open mappings are left to expire).
+UPNP_OFF = (
+    "UPnP: off (Signalbox does not remove open mappings: they end with their lease, "
+    "and miniupnpd may remove them as it stops)"
+)
+
+
 def no_upnpd() -> AdapterError:
     return AdapterError(
         "The router has no upnpd configuration to change (the miniupnpd package is not "
@@ -141,9 +148,5 @@ def upnp(cfg: Configs, c: Change, site: str) -> None:
         if new.enabled:
             note = Described("UPnP: on", "plan.openwrt.upnpOn")
         else:
-            note = Described(
-                "UPnP: off (Signalbox does not remove open mappings: they end with their "
-                "lease, and miniupnpd may remove them as it stops)",
-                "plan.openwrt.upnpOff",
-            )
+            note = Described(UPNP_OFF, "plan.openwrt.upnpOff")
         cfg.set(CONFIG, name, {"enabled": _flag(new.enabled)}, note)
