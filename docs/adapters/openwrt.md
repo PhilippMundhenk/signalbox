@@ -708,10 +708,11 @@ OpenWrt 25.12 and later `rpcd-mod-luci` is needed for the wireless status.
         "file": ["read"],
         "luci.lldpd": ["getStatus"],
         "luci.wireguard": ["getWgInstances"],
-        "mwan3": ["status"]
+        "mwan3": ["status"],
+        "poe": ["info"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd", "openvpn", "sqm"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd", "openvpn", "sqm", "poe"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -809,17 +810,18 @@ Failures:
 | `tunnel` | A `proto wireguard` interface ([ADR 0034](../adr/0034-wireguard-tunnels-desired-state.md)): `listen_port`, `addresses`, `mtu` and the option `signalbox` with the tunnel's name; the [key helper](#wireguard-key-helper) gives a new one its key pair on the router after `uci apply`, inside the confirm window. An adopted interface keeps its section and only the declared options change. Removal deletes Signalbox's interface and its `wireguard_<interface>` sections. The interface is not added to a firewall zone: put it into one yourself (LuCI, or `firewall.@zone[...].network`), else the zone defaults decide what passes. Interface names are letters, digits and `_` (15 at most). Private and pre-shared keys are never read, written or backed up (the backup and a restore leave `private_key` and `preshared_key` as they are). |
 | `tunnel-peer` | The `wireguard_<interface>` section of the other end (`sb_<interface>`, option `signalbox`, `description` the tunnel's name): `public_key`, `allowed_ips`, `route_allowed_ips '1'` (netifd routes the other end's networks), `endpoint_host` and `endpoint_port` where the other end declares an endpoint, `persistent_keepalive` where declared. An adopted peer (the other end's public key, no tag) keeps its section and its pre-shared key. |
 | `upnp` | The `upnpd` section of miniupnpd (#513, [ADR 0035](../adr/0035-upnp-desired-state.md)): `enabled` (`0` off, `1` on only when the desired state says so; refused when both `enable_upnp` and `enable_natpmp` are off), `secure_mode`, and `internal_iface` (the UCI networks of the declared segments, space separated; a segment without an interface on the router is refused). A declared `allow` list replaces every `perm_rule` section with `sb_upnp_<n>` sections (`action`, `ext_ports`, `int_addr`, `int_ports`, `comment 'Signalbox'`), one `allow` per entry and a final `deny 0-65535 0.0.0.0/0 0-65535`. Undeclared options are left as they are. Open mappings are not removed by Signalbox: they end with their lease, and miniupnpd may remove them as it stops. A router without the `upnpd` config (package `miniupnpd` not installed) is refused. *Guess (#21): that `uci apply` restarts miniupnpd on every release.* |
+| `poe` | The `port` section of UCI `poe` (realtek-poe) whose `name` is the port (#484, [ADR 0036](../adr/0036-poe-desired-state.md)): `enable '1'` or `enable '0'`; `priority` and `poe_plus` are left alone. A switch without the `poe` config or without a section for the port is refused. The daemon reloads its ports on a change of the config. *Guess (#21): that the reload switches the port on every release.* |
 | `router` | Not supported: a routed VLAN on OpenWrt also needs its own firewall zone, which Signalbox does not create. Create routed interfaces and their zones by hand (or in LuCI); DHCP, reservations and the zone's policies and rules can then be deployed. |
 
 ### Login with write access
 
 Same packages as for reading. `/usr/share/rpcd/acl.d/signalbox.json` with a `write` part that
-only allows the `uci` methods of a transaction on the eight configs it changes (`system` for the syslog target, `snmpd` for the agent, `mwan3` for gateway groups, `upnpd` for UPnP; a login set up with an older ACL still works for the other changes, those kinds are refused):
+only allows the `uci` methods of a transaction on the nine configs it changes (`system` for the syslog target, `snmpd` for the agent, `mwan3` for gateway groups, `upnpd` for UPnP, `poe` for PoE; a login set up with an older ACL still works for the other changes, those kinds are refused):
 
 ```json
 {
   "signalbox": {
-    "description": "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, system, snmpd, mwan3 and upnpd, WireGuard key helper",
+    "description": "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, system, snmpd, mwan3, upnpd and poe, WireGuard key helper",
     "read": {
       "ubus": {
         "system": ["board", "info"],
@@ -836,10 +838,11 @@ only allows the `uci` methods of a transaction on the eight configs it changes (
         "file": ["read"],
         "luci.lldpd": ["getStatus"],
         "luci.wireguard": ["getWgInstances"],
-        "mwan3": ["status"]
+        "mwan3": ["status"],
+        "poe": ["info"]
       },
       "uci": ["network", "wireless", "dhcp", "system", "dropbear", "uhttpd", "firewall",
-              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd", "openvpn", "sqm"],
+              "snmpd", "luci_statistics", "softflowd", "rpcd", "mwan3", "ddns", "usteer", "dawn", "opennds", "nodogsplash", "igmpproxy", "upnpd", "openvpn", "sqm", "poe"],
       "file": {
         "/tmp/dhcp.leases": ["read"],
         "/sys/class/thermal/thermal_zone*/temp": ["read"],
@@ -864,7 +867,7 @@ only allows the `uci` methods of a transaction on the eight configs it changes (
         "file": ["exec"],
         "uci": ["set", "add", "delete", "order", "revert", "changes", "apply", "confirm", "rollback"]
       },
-      "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3", "upnpd"],
+      "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3", "upnpd", "poe"],
       "file": {
         "/usr/libexec/signalbox-wg-key": ["exec"]
       }
@@ -927,7 +930,19 @@ On a switch with the `realtek-poe` daemon, `ubus call poe info` gives the budget
 consumption and per port the mode (`PoE`, `PoE+`, `PoE++`), the status and the consumption. The
 units are a *guess* (#21): the total in watts, the port value in milliwatts (a value above the
 budget is read as milliwatts, below as watts). A device without that object (or an rpcd ACL that
-hides it) reports no PoE. The older `poemgr` daemon is not read.
+hides it: `"poe": ["info"]` is in the ACL since #484) reports no PoE. The older `poemgr`
+daemon is not read.
+
+PoE is switched (#484, [ADR 0036](../adr/0036-poe-desired-state.md)) through UCI `poe`: the
+`port` section whose `name` is the port gets `enable '1'` or `enable '0'`, inside the usual
+`uci apply` with its confirm timer; the daemon's init script reloads the ports on a change of
+that config (`procd_add_config_trigger "config.change" "poe" ubus call poe reload`), and
+the next `poe info` shows the new state. `priority` and `poe_plus` are left alone. The
+package ships with OpenWrt 23.05, 24.10 and 25.12 (from 25.12 the config is generated from
+`board.json` on first boot; the option names are the same); a switch without the `poe`
+config, or a login whose ACL predates #484, refuses PoE changes with the reason and the
+other kinds keep working. *Guess (#21)*: that a reload powers a port down and up as the
+option says on every release.
 
 ## Supported versions
 

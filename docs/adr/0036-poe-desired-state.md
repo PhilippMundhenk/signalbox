@@ -67,9 +67,12 @@ PoE differs from those objects:
   - **MikroTik** (REST): `poe-out` of the port's row in `/interface/ethernet/poe` (`auto-on` or
     `off`), armed by the scheduler revert of the firewall changes; the backup holds `poe-out`
     of every row, a restore sets it back. CHR has no PoE: tested against the simulator only.
-  - **OpenWrt** with `realtek-poe` (UCI `poe`, the `port` section of that interface, option
-    `enable`): in a follow-up step of #484, inside the existing `uci apply` with its confirm
-    timer, `poe` added to the write ACL and the backup.
+  - **OpenWrt** with `realtek-poe` (OpenWrt 23.05, 24.10, 25.12; UCI `poe`, the `port`
+    section whose `name` is the port, option `enable` `1` or `0`): inside the existing
+    `uci apply` with its confirm timer (the daemon's init script reloads the ports on a change
+    of the config); `poe` added to the read and write ACL (also `ubus poe info`, which the
+    reader of #159 needs) and the backup. A login with an older ACL or a switch without the
+    config refuses PoE changes with the reason; the other kinds keep working.
   - **UniFi, Omada**: the controllers have PoE modes in their port overrides and profiles, but
     no documented write for them that this integration uses; they refuse a plan with PoE
     changes for now (leftover of #484). **NETGEAR, TP-Link plus switches and SNMP** are read
