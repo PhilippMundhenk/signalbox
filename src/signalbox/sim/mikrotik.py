@@ -981,12 +981,12 @@ def sample_data() -> dict[str, Any]:
             "password-authentication": "yes-if-no-key",
             "strong-crypto": "false",
         },
-        "/rest/ip/upnp": {
+        UPNP: {
             "allow-disable-external-interface": "false",
             "enabled": "false",
             "show-dummy-rule": "true",
         },
-        "/rest/ip/upnp/interfaces": _ids(
+        UPNP_INTERFACES: _ids(
             {
                 "interface": "bridge",
                 "type": "internal",
@@ -1918,6 +1918,17 @@ class MikrotikSimulator:
             menu, ref = path, ""
         else:
             menu, _, ref = path.rpartition("/")
+        if method == "POST" and path == UPNP + "/set":
+            if self.read_only:
+                return JSONResponse(NO_POLICY, status_code=500)
+            if UPNP in self.fail_write:
+                code = self.fail_write[UPNP]
+                return JSONResponse(
+                    {"error": code, "message": "simulated failure"}, status_code=code
+                )
+            if not self.ignore_writes and "enabled" in body:
+                self.data[UPNP]["enabled"] = _truth(str(body["enabled"]))
+            return JSONResponse(self.data[UPNP])
         if method == "POST" and path == SNMP + "/set":
             if self.read_only:
                 return JSONResponse(NO_POLICY, status_code=500)
@@ -2022,6 +2033,10 @@ class MikrotikSimulator:
         words = _script_words(line)
         if not words:
             return
+        if words[:3] == ["/ip", "upnp", "set"]:
+            values = dict(a.split("=", 1) for a in words[3:])
+            self.data[UPNP]["enabled"] = _truth(values.get("enabled", "yes"))
+            return
         if words[:2] == ["/snmp", "set"]:
             values = dict(a.split("=", 1) for a in words[2:])
             self.data[SNMP]["enabled"] = _truth(values.get("enabled", "yes"))
@@ -2062,14 +2077,20 @@ class MikrotikSimulator:
 
     @staticmethod
     def _found(rows: list[dict[str, Any]], expr: str) -> list[dict[str, Any]]:
-        """``[find where name="x"]``: the rows with that value; ``*1F``: the row with that id."""
+        """``[find where name="x"]`` (also ``a=x and b=y``): the rows with those values;
+        ``*1F``: the row with that id."""
         if re.fullmatch(r"\*[0-9A-F]+", expr):
             return [r for r in rows if r.get(".id") == expr]
-        m = re.fullmatch(r"\[find where ([\w-]+)=(.*)\]", expr)
+        m = re.fullmatch(r"\[find where (.*)\]", expr)
         if m is None:
             raise ValueError(f"unsupported find expression: {expr}")
-        want = _script_words(m.group(2))[0]
-        return [r for r in rows if r.get(m.group(1)) == want]
+        tests = []
+        for part in m.group(1).split(" and "):
+            key, eq, value = part.partition("=")
+            if not eq or not re.fullmatch(r"[\w-]+", key):
+                raise ValueError(f"unsupported find expression: {expr}")
+            tests.append((key, _script_words(value)[0]))
+        return [r for r in rows if all(r.get(k) == v for k, v in tests)]
 
     def _check_firewall(self, menu: str, row: dict[str, Any]) -> str | None:
         """What RouterOS refuses about a filter or NAT row (the cases the writer must avoid)."""
@@ -2357,6 +2378,9 @@ IPV6_ADDRESS_MENU = "/rest/ipv6/address"
 WG_MENU = "/rest/interface/wireguard"
 WG_PEERS = "/rest/interface/wireguard/peers"
 NETWATCH = "/rest/tool/netwatch"
+#: UPnP (#176; written since #513)
+UPNP = "/rest/ip/upnp"
+UPNP_INTERFACES = "/rest/ip/upnp/interfaces"
 SCRIPT_VERBS = ("add", "remove", "set", "unset")
 SCRIPT_MENUS = {
     "/ip firewall filter": FW_FILTER,
@@ -2372,6 +2396,7 @@ SCRIPT_MENUS = {
     "/ipv6 address": IPV6_ADDRESS_MENU,
     "/interface wireguard": WG_MENU,
     "/interface wireguard peers": WG_PEERS,
+    "/ip upnp interfaces": UPNP_INTERFACES,
 }
 FILTER_ACTIONS = frozenset(
     {"accept", "drop", "reject", "jump", "return", "passthrough", "log", "tarpit"}
@@ -2564,8 +2589,10 @@ WRITABLE = (
     IPV6_ADDRESS_MENU,
     WG_MENU,
     WG_PEERS,
+    UPNP_INTERFACES,
 )
 REQUIRED = {
+    UPNP_INTERFACES: ("interface", "type"),
     WG_MENU: ("name",),
     WG_PEERS: ("interface", "public-key"),
     VLAN: ("name", "vlan-id", "interface"),
@@ -2595,6 +2622,7 @@ REFERENCES = {
 }
 _STATIC = {"disabled": "false", "dynamic": "false"}
 DEFAULTS: dict[str, dict[str, str]] = {
+    UPNP_INTERFACES: {"forced-ip": "0.0.0.0", **_STATIC},
     VLAN: {"mtu": "1500", "running": "true", **_STATIC},
     IP_ADDRESS: {"invalid": "false", **_STATIC},
     BRIDGE_VLAN: {"tagged": "", "untagged": "", **_STATIC},

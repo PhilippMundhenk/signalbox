@@ -14,6 +14,9 @@ What maps cleanly, and is therefore the only thing ``Manifest.writes`` declares:
   ``SetSecurityKeys``, ``SetEnable``, ``SetBeaconAdvertisement`` (hidden). The Wi-Fi
   networks of a Fritz!Box are fixed (one ``WLANConfiguration`` per band plus the guest
   network), so creating or removing one is refused.
+- ``upnp`` on or off only (#513): ``X_AVM-DE_UPnP SetConfig`` (``NewEnable``, with
+  ``NewUPnPMediaServer`` as ``GetInfo`` reports it). Secure mode, networks and permission rules
+  are not in TR-064: a change of those is refused.
 """
 
 from __future__ import annotations
@@ -25,13 +28,14 @@ from ipaddress import IPv4Address
 from typing import Any
 
 from signalbox.adapters import AdapterError, Described, VendorCall, message_fields
-from signalbox.changes import Change, DhcpValue, WlanValue
+from signalbox.changes import Change, DhcpValue, UpnpValue, WlanValue
 from signalbox.messages import Label
 from signalbox.model import Security
 
 #: ``Backup.format`` of this adapter: the TR-064 values of every setting it may change.
 BACKUP_FORMAT = "fritzbox-tr064-values"
 LAN_SERVICE = "LANHostConfigManagement1"
+UPNP_SERVICE = "X_AVM-DE_UPnP1"
 SECRET = "***"
 
 #: Security -> ``NewBeaconType`` written. Reading also knows WEP, WPA and OWE; those are not
@@ -70,6 +74,13 @@ class Call:
 
 
 # --- DHCP ------------------------------------------------------------------------------------
+
+
+#: The plan text of switching UPnP off (ADR 0035: open mappings are left to expire).
+UPNP_OFF = (
+    "UPnP: off (Signalbox does not remove open mappings: they end with their lease, "
+    "and the Fritz!Box may drop them as the service stops)"
+)
 
 
 def dhcp_wanted(c: Change, current: Mapping[str, str]) -> dict[str, str]:
@@ -392,13 +403,77 @@ def _bit(value: str | None) -> str:
     return "1" if (value or "").strip().lower() in ("1", "true", "yes", "up") else "0"
 
 
+# --- UPnP (#513) ---------------------------------------------------------------------------
+
+
+def upnp_calls(c: Change, current: Mapping[str, str] | None) -> list[Call]:
+    """``SetConfig`` for a UPnP change: on or off only; ``current`` is ``GetInfo``."""
+    new, old = c.new, c.old
+    if not isinstance(new, UpnpValue) or current is None:
+        raise AdapterError(
+            "the Fritz!Box does not answer X_AVM-DE_UPnP GetInfo; UPnP cannot be switched",
+            message_id="fritzbox.noUpnpService",
+        )
+    was = old if isinstance(old, UpnpValue) else None
+    if was is None or (new.secure_mode, new.networks, new.rules) != (
+        was.secure_mode,
+        was.networks,
+        was.rules,
+    ):
+        raise AdapterError(
+            "the Fritz!Box can only switch UPnP on or off over TR-064; secure mode, networks "
+            "and permission rules are not offered (remove them from the entry)",
+            message_id="fritzbox.upnpOnlySwitch",
+        )
+    want = "1" if new.enabled else "0"
+    if _bit(current.get("NewEnable")) == want:
+        return []
+    media = current.get("NewUPnPMediaServer")
+    if media is None:
+        raise AdapterError(
+            "the Fritz!Box did not report NewUPnPMediaServer; switching UPnP would change its "
+            "media server too",
+            message_id="fritzbox.upnpNoMediaServer",
+        )
+    return [_upnp_call(want, media)]
+
+
+def _upnp_call(want: str, media: str, restore: bool = False) -> Call:
+    if restore:
+        note = Described("restore: UPnP", "plan.fritzbox.restoreUpnp")
+    elif want == "1":
+        note = Described("UPnP: on", "plan.fritzbox.upnpOn")
+    else:
+        note = Described(UPNP_OFF, "plan.fritzbox.upnpOff")
+    return Call(
+        UPNP_SERVICE,
+        "SetConfig",
+        {"NewEnable": want, "NewUPnPMediaServer": _bit(media)},
+        note,
+    )
+
+
+def upnp_restore(saved: str | None, current: Mapping[str, str] | None) -> list[Call]:
+    """The call that puts back the UPnP switch of a backup (nothing where it is the same)."""
+    if saved is None or current is None or _bit(current.get("NewEnable")) == _bit(saved):
+        return []
+    media = current.get("NewUPnPMediaServer")
+    return [] if media is None else [_upnp_call(_bit(saved), media, restore=True)]
+
+
 # --- backup ----------------------------------------------------------------------------------
 
 
-def backup_content(lan: Mapping[str, str], wlans: Mapping[int, Mapping[str, str]]) -> str:
+def backup_content(
+    lan: Mapping[str, str],
+    wlans: Mapping[int, Mapping[str, str]],
+    upnp: Mapping[str, str] | None = None,
+) -> str:
     """The backup document: the values of every setting this adapter may change."""
+    extra = {"upnp": {"NewEnable": upnp["NewEnable"]}} if upnp and "NewEnable" in upnp else {}
     return json.dumps(
         {
+            **extra,
             "format": BACKUP_FORMAT,
             "lan": {k: lan[k] for k in LAN_FIELDS if k in lan},
             "wlans": {
@@ -409,6 +484,15 @@ def backup_content(lan: Mapping[str, str], wlans: Mapping[int, Mapping[str, str]
         indent=2,
         sort_keys=True,
     )
+
+
+def backup_upnp(content: str) -> str | None:
+    """The UPnP switch a backup holds (``None``: a backup from before #513, or no UPnP)."""
+    try:
+        value = json.loads(content).get("upnp", {}).get("NewEnable")
+    except (ValueError, AttributeError):
+        return None
+    return str(value) if value is not None else None
 
 
 def parse_backup(content: str) -> tuple[dict[str, str], dict[int, dict[str, str]]]:

@@ -911,6 +911,7 @@ class OpenWrtAdapter(Adapter):
                 ChangeKind.GATEWAY_GROUP,
                 ChangeKind.TUNNEL,
                 ChangeKind.TUNNEL_PEER,
+                ChangeKind.UPNP,
             }
         ),
         admin_login=AdminLogin(
@@ -2825,7 +2826,7 @@ class OpenWrtAdapter(Adapter):
     async def _configs(self) -> dict[str, Any]:
         """``uci get`` of the written configs; ``firewall`` is left out where the login may
         not read it (an ACL from before #135; ``system`` and ``snmpd``: before #327; ``mwan3``:
-        before #150): changes to it are refused then, the others
+        before #150; ``upnpd``: before #513): changes to it are refused then, the others
         work as before, and the backup does not hold it (a restore leaves it alone)."""
         out = {}
         for c in write.CONFIGS:
@@ -2834,10 +2835,10 @@ class OpenWrtAdapter(Adapter):
                 if c == "network":  # WireGuard keys: dropped on arrival, never backed up (#152)
                     wireguard.drop_keys(out[c])
             except AccessDenied:
-                if c not in ("firewall", "system", "snmpd", "mwan3"):
+                if c not in ("firewall", "system", "snmpd", "mwan3", "upnpd"):
                     raise
             except NotFound:
-                if c not in ("snmpd", "mwan3"):  # the packages are optional
+                if c not in ("snmpd", "mwan3", "upnpd"):  # the packages are optional
                     raise
         return out
 

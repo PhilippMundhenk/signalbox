@@ -43,7 +43,14 @@ from signalbox.adapters import (
     message_fields,
 )
 from signalbox.adapters.https import NotFound
-from signalbox.adapters.mikrotik import fwwrite, gwwrite, logwrite, wgwrite, wifi_assoc
+from signalbox.adapters.mikrotik import (
+    fwwrite,
+    gwwrite,
+    logwrite,
+    upnpwrite,
+    wgwrite,
+    wifi_assoc,
+)
 from signalbox.changes import (
     Change,
     ChangeKind,
@@ -185,6 +192,7 @@ def _menus() -> tuple[str, ...]:
         m.FW_NAT,
         m.LOG_ACTION,
         m.LOG_RULES,
+        upnpwrite.UPNP_INTERFACES,  # the networks UPnP answers in (#513)
     )
 
 
@@ -445,6 +453,8 @@ class MikrotikWrites:
                 wgwrite.tunnel(cfg, c, cfg.revert)
             elif c.kind is ChangeKind.TUNNEL_PEER:
                 wgwrite.peer(cfg, c, cfg.revert)
+            elif c.kind is ChangeKind.UPNP:
+                await self._upnp_write(cfg, layout.l3, c)
             else:
                 if not wifi:
                     raise AdapterError(
@@ -476,6 +486,31 @@ class MikrotikWrites:
                     Described("switch the SNMP agent", "plan.mikrotik.snmpSwitch"),
                 )
             )
+
+    async def _upnp_write(self, cfg: _Config, l3: dict[str, str], c: Change) -> None:
+        """The UPnP service (#513, ADR 0035): turning it off comes before the networks change,
+        turning it on after them, so it never answers in more networks than declared."""
+        from signalbox.adapters import mikrotik as m
+
+        upnpwrite.refuse_unsupported(c)
+        try:
+            conf = m._object(await m.get_menu(self.http, upnpwrite.UPNP), upnpwrite.UPNP)
+        except NotFound:
+            raise AdapterError(
+                "the router has no /ip/upnp menu to change", message_id="mikrotik.noUpnpMenu"
+            ) from None
+        body = upnpwrite.switch(c, _flag(conf.get("enabled")), cfg.revert)
+        op = (
+            _Op("SET", upnpwrite.UPNP, None, body, upnpwrite.switch_note(body["enabled"] == "true"))
+            if body is not None
+            else None
+        )
+        if op is not None and body is not None and body["enabled"] == "false":
+            cfg.ops.append(op)
+            op = None
+        upnpwrite.networks(cfg, c, l3, cfg.revert)
+        if op is not None:
+            cfg.ops.append(op)
 
     # WritesConfig -----------------------------------------------------------------------------
 
@@ -594,6 +629,13 @@ class MikrotikWrites:
         snmp: str | None = None
         with contextlib.suppress(AdapterError):  # no /snmp menu: nothing to restore
             snmp = _text(m._object(await m.get_menu(self.http, m.SNMP), m.SNMP).get("enabled"))
+        upnp: str | None = None
+        with contextlib.suppress(AdapterError):  # no /ip/upnp menu: nothing to restore
+            upnp = _text(
+                m._object(await m.get_menu(self.http, upnpwrite.UPNP), upnpwrite.UPNP).get(
+                    "enabled"
+                )
+            )
         rows: dict[str, list[dict[str, Any]]] = {}
         for menu in (gwwrite.IP_ROUTE, gwwrite.NETWATCH, wgwrite.IPV6_ROUTE, wgwrite.IPV6_ADDRESS):
             with contextlib.suppress(NotFound):  # no netwatch package: nothing to restore
@@ -607,6 +649,7 @@ class MikrotikWrites:
                 "export": export,
                 "menus": menus,
                 "snmp_enabled": snmp,
+                "upnp_enabled": upnp,
                 "gateway_rows": gwwrite.backup_rows(rows),
                 "wireguard_rows": wgwrite.backup_rows(rows),
             },
@@ -725,6 +768,23 @@ class MikrotikWrites:
                         None,
                         body,
                         Described("restore: SNMP agent", "plan.mikrotik.restoreSnmp"),
+                    )
+                )
+        saved_upnp = json.loads(backup.content).get("upnp_enabled")
+        if isinstance(saved_upnp, str) and saved_upnp:
+            try:
+                conf = m._object(await m.get_menu(self.http, upnpwrite.UPNP), upnpwrite.UPNP)
+                now = _text(conf.get("enabled"))
+            except AdapterError:
+                now = saved_upnp
+            if _flag(now) != _flag(saved_upnp):
+                cfg.ops.append(
+                    _Op(
+                        "SET",
+                        upnpwrite.UPNP,
+                        None,
+                        {"enabled": "true" if _flag(saved_upnp) else "false"},
+                        Described("restore: UPnP", "plan.mikrotik.restoreUpnp"),
                     )
                 )
         await self._send(cfg.ops, {})

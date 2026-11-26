@@ -20,7 +20,7 @@ from pydantic import SecretStr
 from signalbox.adapters import AdapterContext
 from signalbox.adapters.fritzbox import FritzboxAdapter, FritzboxConfig
 from signalbox.adapters.fritzbox.soap import SERVICES, envelope
-from signalbox.changes import Change, ChangeKind, observed_dhcp, observed_wlan
+from signalbox.changes import Change, ChangeKind, UpnpValue, observed_dhcp, observed_wlan
 from signalbox.model import DeviceRole, DeviceStatus, Network, Security
 from signalbox.sim import tr064
 from signalbox.sim.fritzbox import FritzboxSim, create_app
@@ -144,6 +144,14 @@ async def test_every_call_of_the_adapter_is_described(
             ssid="Renamed",
             enabled=False,
             passphrase_secret="psk",
+        ),
+        Change(  # UPnP off (#513): SetConfig with the media server as it is
+            kind=ChangeKind.UPNP,
+            device_id="fb",
+            site_id="home",
+            key="upnp",
+            old=UpnpValue(enabled=True),
+            new=UpnpValue(enabled=False),
         ),
     ]
     result = await adapter.apply(changes, {"psk": "a brand new passphrase"}, 60)

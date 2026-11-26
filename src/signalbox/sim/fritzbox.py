@@ -801,6 +801,14 @@ class FritzboxSim:
             return dict(self.storage)
         if name == "X_AVM-DE_UPnP" and action == "GetInfo":
             return dict(self.upnp)
+        if name == "X_AVM-DE_UPnP" and action == "SetConfig":  # #513
+            if action not in self.ignore:
+                self.upnp.update(
+                    NewEnable=_bit(args["NewEnable"]),
+                    NewUPnPMediaServer=_bit(args["NewUPnPMediaServer"]),
+                )
+                self.writes.append(f"X_AVM-DE_UPnP#{action}")
+            return {}
         if name == "Time" and action == "GetInfo":
             return time_info(self.timezone, self.clock_skew)
         if name == "LANConfigSecurity":

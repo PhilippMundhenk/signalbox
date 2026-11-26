@@ -1033,7 +1033,8 @@ async def test_deployment_and_revert(
         p = plan(desired, svc.runner.network(), RULES, secret=svc.store.get_secret)
         kinds = {c.kind for c in p.changes}
         assert kinds == set(ChangeKind) - FIREWALL_KINDS - LOGGING_KINDS - TUNNEL_KINDS - {
-            ChangeKind.GATEWAY_GROUP
+            ChangeKind.GATEWAY_GROUP,
+            ChangeKind.UPNP,
         }, [c.describe() for c in p.changes]
         d = Deployer(svc.runner)
         cid = (await d.prepare(p, "tidy up the IoT network", "tester")).id

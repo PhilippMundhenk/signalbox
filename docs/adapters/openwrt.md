@@ -808,17 +808,18 @@ Failures:
 | `gateway-group` | The mwan3 `policy` of the group's name (#463, [ADR 0032](../adr/0032-gateway-group-desired-state.md)): the members in its `use_member` list get the tier as `metric` (every member gets its tier number when the order of the tiers changes) and `weight`; the line's monitor is `track_ip` of the mwan3 `interface` of the same name (removed for an empty monitor; refused on a disabled interface). A member section that another policy also uses is not changed: a copy `sb_<policy>_<line>` (option `signalbox '1'`) with the new values replaces it in this policy's `use_member`. Policies, members and interfaces are never created or removed; a router without the `mwan3` config is refused. *Guess (#21): that `uci apply` makes mwan3 reload on every 2.x release.* |
 | `tunnel` | A `proto wireguard` interface ([ADR 0034](../adr/0034-wireguard-tunnels-desired-state.md)): `listen_port`, `addresses`, `mtu` and the option `signalbox` with the tunnel's name; the [key helper](#wireguard-key-helper) gives a new one its key pair on the router after `uci apply`, inside the confirm window. An adopted interface keeps its section and only the declared options change. Removal deletes Signalbox's interface and its `wireguard_<interface>` sections. The interface is not added to a firewall zone: put it into one yourself (LuCI, or `firewall.@zone[...].network`), else the zone defaults decide what passes. Interface names are letters, digits and `_` (15 at most). Private and pre-shared keys are never read, written or backed up (the backup and a restore leave `private_key` and `preshared_key` as they are). |
 | `tunnel-peer` | The `wireguard_<interface>` section of the other end (`sb_<interface>`, option `signalbox`, `description` the tunnel's name): `public_key`, `allowed_ips`, `route_allowed_ips '1'` (netifd routes the other end's networks), `endpoint_host` and `endpoint_port` where the other end declares an endpoint, `persistent_keepalive` where declared. An adopted peer (the other end's public key, no tag) keeps its section and its pre-shared key. |
+| `upnp` | The `upnpd` section of miniupnpd (#513, [ADR 0035](../adr/0035-upnp-desired-state.md)): `enabled` (`0` off, `1` on only when the desired state says so; refused when both `enable_upnp` and `enable_natpmp` are off), `secure_mode`, and `internal_iface` (the UCI networks of the declared segments, space separated; a segment without an interface on the router is refused). A declared `allow` list replaces every `perm_rule` section with `sb_upnp_<n>` sections (`action`, `ext_ports`, `int_addr`, `int_ports`, `comment 'Signalbox'`), one `allow` per entry and a final `deny 0-65535 0.0.0.0/0 0-65535`. Undeclared options are left as they are. Open mappings are not removed by Signalbox: they end with their lease, and miniupnpd may remove them as it stops. A router without the `upnpd` config (package `miniupnpd` not installed) is refused. *Guess (#21): that `uci apply` restarts miniupnpd on every release.* |
 | `router` | Not supported: a routed VLAN on OpenWrt also needs its own firewall zone, which Signalbox does not create. Create routed interfaces and their zones by hand (or in LuCI); DHCP, reservations and the zone's policies and rules can then be deployed. |
 
 ### Login with write access
 
 Same packages as for reading. `/usr/share/rpcd/acl.d/signalbox.json` with a `write` part that
-only allows the `uci` methods of a transaction on the seven configs it changes (`system` for the syslog target, `snmpd` for the agent, `mwan3` for gateway groups; a login set up with an older ACL still works for the other changes, those kinds are refused):
+only allows the `uci` methods of a transaction on the eight configs it changes (`system` for the syslog target, `snmpd` for the agent, `mwan3` for gateway groups, `upnpd` for UPnP; a login set up with an older ACL still works for the other changes, those kinds are refused):
 
 ```json
 {
   "signalbox": {
-    "description": "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, system, snmpd and mwan3, WireGuard key helper",
+    "description": "Signalbox: network inventory, changes to network, wireless, dhcp, firewall, system, snmpd, mwan3 and upnpd, WireGuard key helper",
     "read": {
       "ubus": {
         "system": ["board", "info"],
@@ -863,7 +864,7 @@ only allows the `uci` methods of a transaction on the seven configs it changes (
         "file": ["exec"],
         "uci": ["set", "add", "delete", "order", "revert", "changes", "apply", "confirm", "rollback"]
       },
-      "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3"],
+      "uci": ["network", "wireless", "dhcp", "firewall", "system", "snmpd", "mwan3", "upnpd"],
       "file": {
         "/usr/libexec/signalbox-wg-key": ["exec"]
       }

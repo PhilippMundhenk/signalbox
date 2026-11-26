@@ -1002,6 +1002,29 @@ keeps its own comment and is found by its name or the other end's public key.
 - *Guess (#21)*: the property spellings in a write (`allowed-address` as a comma list,
   `persistent-keepalive=25s`) and the scheduler script lines on a real router.
 
+## UPnP (#513)
+
+The kind `upnp` ([ADR 0035](../adr/0035-upnp-desired-state.md)), only with the fields the
+desired state declares:
+
+- **On or off**: `POST /rest/ip/upnp/set` with `enabled`. Turning it off comes before the
+  networks change, turning it on after them.
+- **Networks**: the `internal` rows of `/ip/upnp/interfaces` are the layer-3 interfaces of the
+  declared segments (the bridge or VLAN interface, the first by name): an internal row of
+  another network is disabled, a disabled one of a declared network enabled again, a missing
+  one added (`interface`, `type=internal`). `external` rows are left alone. A segment without
+  an interface on the router is refused.
+- **Refused**: `secure_mode` and `allow`: RouterOS has no secure mode and no permission rules
+  (limit the networks instead).
+- **Mappings**: the dynamic `dst-nat` rows are not removed by Signalbox; they end with their
+  lease, and RouterOS may drop them itself when the service stops (*guess*, #21).
+- **Revert and backup**: the scheduler entry `signalbox-revert` (see Firewall changes) switches
+  the service and the interface rows back unless the change is confirmed; the backup holds
+  `enabled` of `/ip/upnp` and the rows of `/ip/upnp/interfaces`, and a restore sets them back.
+- The write user's group needs nothing more (`write` covers `/ip/upnp`).
+- *Guess (#21)*: the script lines `/ip upnp set enabled=...` and `/ip upnp interfaces ...` on a
+  real router.
+
 ## Firewall changes (#295)
 
 The kinds `firewall-rule`, `port-forward` and `zone-policy` are written

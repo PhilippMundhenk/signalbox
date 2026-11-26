@@ -135,7 +135,7 @@ async def round_trip(a: FritzboxAdapter, c: Change, secrets: dict[str, str]) -> 
 
 
 def test_manifest_declares_what_is_implemented() -> None:
-    assert FritzboxAdapter.manifest.writes == {ChangeKind.DHCP, ChangeKind.WLAN}
+    assert FritzboxAdapter.manifest.writes == {ChangeKind.DHCP, ChangeKind.WLAN, ChangeKind.UPNP}
     assert issubclass(FritzboxAdapter, WritesConfig)
 
 

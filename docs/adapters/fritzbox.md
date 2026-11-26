@@ -396,7 +396,8 @@ options, boot or authoritative: TR-064 has none. Nothing here is checked against
 ## Writing
 
 What maps cleanly onto TR-064 and is therefore declared in `Manifest.writes`: **`dhcp`** of the
-LAN and **`wlan`** for the SSIDs the box already has. The action names, arguments and values
+LAN, **`wlan`** for the SSIDs the box already has, and **`upnp`** on or off
+([ADR 0035](../adr/0035-upnp-desired-state.md)). The action names, arguments and values
 below are checked against AVM's service descriptions; their effect still needs confirmation on a
 real device (#21). The simulator implements exactly this.
 
@@ -409,6 +410,7 @@ real device (#21). The simulator implements exactly this.
 | passphrase | `WLANConfiguration:<n> SetSecurityKeys` (`NewWEPKey0`..`3` and `NewPreSharedKey` empty, `NewKeyPassphrase`) *(guess: that empty WEP/PSK arguments are accepted)* |
 | hidden | `WLANConfiguration:<n> SetBeaconAdvertisement` (`NewBeaconAdvertisementEnabled` `0` hides) |
 | on/off | `WLANConfiguration:<n> SetEnable` (`NewEnable`) |
+| UPnP on/off (#513) | `X_AVM-DE_UPnP:1 SetConfig` (`NewEnable` `0`/`1`, `NewUPnPMediaServer` as `GetInfo` reports it, so the media server stays as it is) |
 
 - Only what differs from what the box reports now is sent. Switching something on comes last,
   switching it off first (DHCP: the range is set before the server is switched on).
@@ -428,7 +430,11 @@ real device (#21). The simulator implements exactly this.
   server other than the LAN's, removing it, a lease time, other DNS servers (TR-064 cannot set
   what the box announces; it always announces itself), IPv6 pools. `router`, `reservation` and
   `port` changes are not offered (changing the box's own LAN address is not done over TR-064 by
-  Signalbox; reservations and VLANs do not exist in TR-064).
+  Signalbox; reservations and VLANs do not exist in TR-064). For UPnP: secure mode, networks
+  and permission rules (not in TR-064), and a box whose `GetInfo` lacks `NewUPnPMediaServer`.
+- Switching UPnP off does not remove open mappings: they end with their lease, and the box may
+  drop them itself (*guess*, #21). `SetConfig` is in the descriptions of FRITZ!OS 6.83, 7.29,
+  7.57 and 8.02; that its `NewEnable` is the switch for UPnP port mappings is a guess (#21).
 - The passphrase comes from the secret named in `passphrase_secret`; review and change records
   show it as `***`, it is never logged, and error messages never contain it.
 - A UPnP fault on a write becomes "`<what>`: refused by the Fritz!Box (`<service> <action>`:
@@ -445,7 +451,8 @@ setting the adapter may change, read just before the change:
 {"format": "fritzbox-tr064-values",
  "lan": {"NewDHCPServerEnable": "1", "NewMinAddress": "192.0.2.20", "NewMaxAddress": "192.0.2.200"},
  "wlans": {"1": {"NewSSID": "Example", "NewBeaconType": "11iandWPA3", "NewEnable": "1",
-                 "NewBeaconAdvertisementEnabled": "1", "NewKeyPassphrase": "..."}, "...": {}}}
+                 "NewBeaconAdvertisementEnabled": "1", "NewKeyPassphrase": "..."}, "...": {}},
+ "upnp": {"NewEnable": "1"}}
 ```
 
 It holds the passphrases (when the user may read them), so a restore also puts the old key back;
