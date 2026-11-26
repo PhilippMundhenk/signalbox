@@ -1193,6 +1193,8 @@ def changes_for(
                     else (old_w.client_isolation if old_w else None),
                     passphrase_secret=w.passphrase_secret,
                 )
+                if new_w.roaming_80211r is False:  # the 802.11r details mean nothing then
+                    new_w = new_w.model_copy(update={"mobility_domain": None, "ft_over_ds": None})
                 wanted.append((dev, old_w, new_w))
                 passphrase_changes = _passphrase_differs(
                     net, dev, w.ssid, w.passphrase_secret, secret

@@ -30,6 +30,7 @@ from signalbox.adapters.openwrt.write import (
     UciOp,
     lease_text,
     restore_ops,
+    rssi_reject_supported,
     translate,
 )
 from signalbox.changes import (
@@ -314,6 +315,64 @@ async def test_wlan_without_radios_or_native_network(
     sim.state["wireless"] = {}
     with pytest.raises(AdapterError, match="no radios"):
         await adapter.plan_changes([change(ChangeKind.WLAN, "x", None, GUEST)], SECRETS)
+
+
+async def test_wlan_roaming_details_and_minimum_signal(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter, url: str
+) -> None:
+    """#489, ADR 0033: mobility domain, over-DS and ``rssi_reject_assoc_rssi``."""
+    net = await network(url)
+    old = observed_wlan(net, DEV, "Example")
+    assert old is not None
+    ft = old.model_copy(
+        update={
+            "roaming_80211r": True,
+            "mobility_domain": "a1b2",
+            "ft_over_ds": False,
+            "min_rssi_dbm": -75,
+        }
+    )
+    before = dict(sim.state["wireless"]["default_radio0"])
+    net = await applied(adapter, url, change(ChangeKind.WLAN, "Example", old, ft))
+    main = sim.state["wireless"]["default_radio0"]
+    assert (main["ieee80211r"], main["mobility_domain"], main["ft_over_ds"]) == ("1", "a1b2", "0")
+    assert main["rssi_reject_assoc_rssi"] == "-75"
+    for option in ("encryption", "key", "ieee80211w"):
+        assert main.get(option) == before.get(option)  # security is never touched
+    seen = observed_wlan(net, DEV, "Example")
+    assert seen is not None
+    assert (seen.mobility_domain, seen.ft_over_ds, seen.min_rssi_dbm) == ("a1b2", False, -75)
+    assert seen.security is old.security and seen.pmf is old.pmf  # never weakened
+    off = ft.model_copy(update={"min_rssi_dbm": "off"})
+    await applied(adapter, url, change(ChangeKind.WLAN, "Example", seen, off))
+    assert "rssi_reject_assoc_rssi" not in sim.state["wireless"]["default_radio0"]
+
+
+async def test_wlan_minimum_signal_needs_openwrt_22_03(
+    sim: OpenWrtSim, adapter: OpenWrtAdapter, url: str
+) -> None:
+    net = await network(url)
+    old = observed_wlan(net, DEV, "Example")
+    assert old is not None
+    sim.release = "21.02.7"
+    try:
+        weak = old.model_copy(update={"min_rssi_dbm": -75})
+        with pytest.raises(
+            AdapterError, match=r"needs OpenWrt 22\.03 or newer; this device runs 21"
+        ):
+            await adapter.plan_changes([change(ChangeKind.WLAN, "Example", old, weak)], SECRETS)
+        ft = old.model_copy(update={"roaming_80211r": True, "mobility_domain": "a1b2"})
+        assert await adapter.plan_changes([change(ChangeKind.WLAN, "Example", old, ft)], SECRETS)
+    finally:
+        sim.release = "23.05.5"
+
+
+@pytest.mark.parametrize(
+    ("release", "supported"),
+    [("21.02.7", False), ("22.03.0", True), ("24.10.8", True), ("SNAPSHOT", True), (None, False)],
+)
+def test_rssi_reject_release(release: str | None, supported: bool) -> None:
+    assert rssi_reject_supported(release) is supported
 
 
 # --- DHCP and reservations ----------------------------------------------------------------

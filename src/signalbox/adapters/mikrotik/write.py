@@ -43,7 +43,7 @@ from signalbox.adapters import (
     message_fields,
 )
 from signalbox.adapters.https import NotFound
-from signalbox.adapters.mikrotik import fwwrite, gwwrite, logwrite
+from signalbox.adapters.mikrotik import fwwrite, gwwrite, logwrite, wifi_assoc
 from signalbox.changes import (
     Change,
     ChangeKind,
@@ -1512,6 +1512,14 @@ class MikrotikWrites:
                 message_id="mikrotik.clientIsolation",
                 params={"subject": _ssid(c.key)},
             )
+        old_rssi = c.old.min_rssi_dbm if isinstance(c.old, WlanValue) else None
+        if new.min_rssi_dbm not in (None, old_rssi):
+            raise AdapterError(
+                f"SSID {c.key}: the minimum signal is set in the access list on RouterOS, which "
+                "Signalbox does not change yet; leave min_rssi_dbm out of the desired state",
+                message_id="mikrotik.minRssi",
+                params={"subject": _ssid(c.key)},
+            )
         if new.security not in _SECURITY_TYPES:
             raise AdapterError(
                 f"SSID {c.key}: {new.security.value} cannot be set through Signalbox on RouterOS "
@@ -1575,6 +1583,10 @@ class MikrotikWrites:
                 ):
                     if value is not None:
                         body[key] = _yes(value)
+                if new.roaming_80211r and new.mobility_domain is not None:
+                    body["security.ft-mobility-domain"] = str(int(new.mobility_domain, 16))
+                if new.roaming_80211r and new.ft_over_ds is not None:
+                    body["security.ft-over-ds"] = _yes(new.ft_over_ds)
                 if bridge:
                     body["datapath.bridge"] = bridge
                     if vid != 1:
@@ -1643,6 +1655,14 @@ class MikrotikWrites:
                     unset.append(f"{section}.{key}")
                 elif value is not None and have != value:
                     body[f"{section}.{key}"] = _yes(value)
+            # 802.11r details (#489, ADR 0033): only declared values, only while 802.11r is on
+            if new.roaming_80211r and new.mobility_domain is not None:
+                domain = wifi_assoc.mobility_domain(prop(cur, "security", "ft-mobility-domain"))
+                if domain != new.mobility_domain:
+                    body["security.ft-mobility-domain"] = str(int(new.mobility_domain, 16))
+            over_ds = m._maybe(prop(cur, "security", "ft-over-ds"))
+            if new.roaming_80211r and new.ft_over_ds not in (None, over_ds):
+                body["security.ft-over-ds"] = _yes(bool(new.ft_over_ds))
             # segment: the pvid of a static bridge port wins; else the datapath VLAN
             port = next(
                 (r for r in cfg.static(m.BRIDGE_PORT) if _text(r.get("interface")) == iname), None

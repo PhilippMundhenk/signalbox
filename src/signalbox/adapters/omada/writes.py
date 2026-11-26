@@ -673,6 +673,22 @@ class Writer:
                 message_id="omada.roamingNotChanged",
                 params={"subject": c.id},
             )
+        was = c.old if isinstance(c.old, WlanValue) else None
+        if new.mobility_domain not in (None, was.mobility_domain if was else None) or (
+            new.ft_over_ds not in (None, was.ft_over_ds if was else None)
+        ):
+            raise AdapterError(
+                f"{c.id}: fast roaming (802.11r/k/v) is not changed on Omada",
+                message_id="omada.roamingNotChanged",
+                params={"subject": c.id},
+            )
+        if new.min_rssi_dbm not in (None, was.min_rssi_dbm if was else None):
+            raise AdapterError(
+                f"{c.id}: the minimum signal (rssiSetting) is not changed on Omada: its fields "
+                "are not confirmed on a controller yet",
+                message_id="omada.minRssiNotChanged",
+                params={"subject": c.id},
+            )
         if new.client_isolation is not None:
             raise AdapterError(
                 f"{c.id}: client isolation is not read or changed on Omada",

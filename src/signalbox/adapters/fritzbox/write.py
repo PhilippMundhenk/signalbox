@@ -289,6 +289,9 @@ def check_wlan(c: Change) -> None:
             ("802.11r", new.roaming_80211r),
             ("802.11k", new.roaming_80211k),
             ("802.11v", new.roaming_80211v),
+            ("mobility domain", new.mobility_domain),
+            ("802.11r over DS", new.ft_over_ds),
+            ("minimum signal", new.min_rssi_dbm),
             ("client isolation", new.client_isolation),
         )
         if value is not None
