@@ -296,12 +296,16 @@ def ros_adapter(url: str) -> MikrotikAdapter:
     )
 
 
+#: RouterOS answers true/false; a script line may set yes/no.
+BOOL = {"true": "true", "yes": "true", "false": "false", "no": "false"}
+
+
 def ros_upnp(sim: MikrotikSimulator) -> dict[str, Any]:
     return copy.deepcopy(
         {
             "enabled": sim.data[UPNP]["enabled"],
             "rows": sorted(
-                (r["interface"], r["type"], r.get("disabled", "false"))
+                (r["interface"], r["type"], BOOL.get(r.get("disabled", "false"), "?"))
                 for r in sim.data[UPNP_INTERFACES]
             ),
         }
