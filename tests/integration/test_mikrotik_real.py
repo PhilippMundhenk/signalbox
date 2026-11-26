@@ -1013,6 +1013,22 @@ async def test_gateway_group_distances_and_check_then_revert(
                 write_call(rt, "DELETE", f"/rest/ip/route/{row['.id']}")
 
 
+async def test_upnp_on_then_revert(svc: Services, rt: dict[str, str]) -> None:
+    """#513: CHR has UPnP off; declare it on (a widening the plan marks), deploy with the revert
+    timer armed and removed, read it back as on, revert; it ends off as it started."""
+    want = "sites:\n  home:\n    upnp:\n      - device: rt\n        enabled: true\n"
+    assert write_call(rt, "GET", "/rest/ip/upnp")["enabled"] == "false"
+    d, cid = await deploy(svc, want, {ChangeKind.UPNP})
+    try:
+        assert write_call(rt, "GET", "/rest/ip/upnp")["enabled"] == "true"
+        assert menus(rt, "/rest/system/scheduler")["/rest/system/scheduler"] == {}
+        await svc.runner.observe_all()
+        assert plan(parse(want), svc.runner.network(), RULES).changes == []
+    finally:
+        await revert(svc, d, cid)
+    assert write_call(rt, "GET", "/rest/ip/upnp")["enabled"] == "false"
+
+
 async def test_revert_timer_undoes_an_unconfirmed_change(rt: dict[str, str]) -> None:
     """The backstop on the real router: the change is applied, never confirmed, and the
     scheduler entry runs its script when the time comes (15 seconds here): the rule and the
